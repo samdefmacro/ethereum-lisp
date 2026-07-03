@@ -20908,6 +20908,124 @@
         (is (string= (quantity-to-hex 1)
                      (field (field status-response "result") "queued")))))))
 
+(deftest eth-rpc-send-raw-transaction-honors-txpool-local-exemptions
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (send-raw
+               (transaction id store config
+                &key txpool-price-limit txpool-account-queue-limit
+                  txpool-global-queue-limit txpool-local-addresses
+                  txpool-no-local-exemptions-p)
+             (parse-json
+              (engine-rpc-handle-request-json
+               (concatenate
+                'string
+                "{\"jsonrpc\":\"2.0\",\"id\":" (write-to-string id)
+                ",\"method\":\"eth_sendRawTransaction\","
+                "\"params\":[\""
+                (bytes-to-hex (transaction-encoding transaction))
+                "\"]}")
+               store
+               config
+               :txpool-price-limit txpool-price-limit
+               :txpool-account-queue-limit txpool-account-queue-limit
+               :txpool-global-queue-limit txpool-global-queue-limit
+               :txpool-local-addresses txpool-local-addresses
+               :txpool-no-local-exemptions-p txpool-no-local-exemptions-p)))
+           (request (json store config)
+             (parse-json
+              (engine-rpc-handle-request-json json store config)))
+           (funded-store (sender)
+             (let* ((store (make-engine-payload-memory-store))
+                    (head-block
+                      (make-block
+                       :header (make-block-header :number 0
+                                                  :timestamp 0
+                                                  :gas-limit 30000000
+                                                  :base-fee-per-gas 0))))
+               (chain-store-put-block store head-block :state-available-p t)
+               (chain-store-put-account-nonce
+                store (block-hash head-block) sender 0)
+               (chain-store-put-account-balance
+                store (block-hash head-block) sender 10000000)
+               store))
+           (signed-legacy (nonce gas-price private-key recipient)
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :nonce nonce
+               :gas-price gas-price
+               :gas-limit 21000
+               :to recipient
+               :value 0)
+              private-key
+              1)))
+    (let* ((config (make-chain-config :chain-id 1 :london-block 0))
+           (recipient
+             (address-from-hex "0x3535353535353535353535353535353535353535"))
+           (pending-transaction (signed-legacy 0 1 1 recipient))
+           (queued-transaction (signed-legacy 1 1 1 recipient))
+           (sender (transaction-sender pending-transaction
+                                       :expected-chain-id 1))
+           (local-addresses (list sender))
+           (price-rejected-store (funded-store sender))
+           (price-local-store (funded-store sender))
+           (price-nolocals-store (funded-store sender))
+           (queue-local-store (funded-store sender))
+           (queue-nolocals-store (funded-store sender)))
+      (let* ((rejected-response
+               (send-raw pending-transaction 191 price-rejected-store config
+                         :txpool-price-limit 2))
+             (local-response
+               (send-raw pending-transaction 192 price-local-store config
+                         :txpool-price-limit 2
+                         :txpool-local-addresses local-addresses))
+             (nolocals-response
+               (send-raw pending-transaction 193 price-nolocals-store config
+                         :txpool-price-limit 2
+                         :txpool-local-addresses local-addresses
+                         :txpool-no-local-exemptions-p t))
+             (local-status
+               (request
+                "{\"jsonrpc\":\"2.0\",\"id\":194,\"method\":\"txpool_status\",\"params\":[]}"
+                price-local-store
+                config))
+             (rejected-error (field rejected-response "error"))
+             (nolocals-error (field nolocals-response "error")))
+        (is (= -32602 (field rejected-error "code")))
+        (is (string= "eth_sendRawTransaction gas price below txpool price limit"
+                     (field rejected-error "message")))
+        (is (string= (hash32-to-hex (transaction-hash pending-transaction))
+                     (field local-response "result")))
+        (is (string= (quantity-to-hex 1)
+                     (field (field local-status "result") "pending")))
+        (is (= -32602 (field nolocals-error "code")))
+        (is (string= "eth_sendRawTransaction gas price below txpool price limit"
+                     (field nolocals-error "message"))))
+      (let* ((local-response
+               (send-raw queued-transaction 195 queue-local-store config
+                         :txpool-account-queue-limit 0
+                         :txpool-global-queue-limit 0
+                         :txpool-local-addresses local-addresses))
+             (nolocals-response
+               (send-raw queued-transaction 196 queue-nolocals-store config
+                         :txpool-account-queue-limit 0
+                         :txpool-global-queue-limit 0
+                         :txpool-local-addresses local-addresses
+                         :txpool-no-local-exemptions-p t))
+             (local-status
+               (request
+                "{\"jsonrpc\":\"2.0\",\"id\":197,\"method\":\"txpool_status\",\"params\":[]}"
+                queue-local-store
+                config))
+             (nolocals-error (field nolocals-response "error")))
+        (is (string= (hash32-to-hex (transaction-hash queued-transaction))
+                     (field local-response "result")))
+        (is (string= (quantity-to-hex 1)
+                     (field (field local-status "result") "queued")))
+        (is (= -32602 (field nolocals-error "code")))
+        (is (string= "Queued transaction exceeds txpool global queue limit"
+                     (field nolocals-error "message")))))))
+
 (deftest eth-rpc-send-raw-transaction-keeps-contiguous-nonces-pending
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))

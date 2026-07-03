@@ -12,6 +12,7 @@
                       txpool-price-limit txpool-price-bump-percent
                       txpool-account-queue-limit
                       txpool-global-queue-limit
+                      txpool-local-addresses txpool-no-local-exemptions-p
                       kzg-verifier-command
                       kzg-verifier-timeout-seconds)))
   genesis-path
@@ -38,6 +39,8 @@
   txpool-price-bump-percent
   txpool-account-queue-limit
   txpool-global-queue-limit
+  txpool-local-addresses
+  txpool-no-local-exemptions-p
   kzg-verifier-command
   kzg-verifier-timeout-seconds)
 
@@ -322,6 +325,8 @@
        txpool-price-bump-percent
        txpool-account-queue-limit
        txpool-global-queue-limit
+       txpool-local-addresses
+       txpool-no-local-exemptions-p
        kzg-verifier-command
        kzg-verifier-timeout-seconds
        (public-allowed-method-p #'engine-rpc-public-method-p)
@@ -391,6 +396,8 @@
             :txpool-price-bump-percent txpool-price-bump-percent
             :txpool-account-queue-limit txpool-account-queue-limit
             :txpool-global-queue-limit txpool-global-queue-limit
+            :txpool-local-addresses txpool-local-addresses
+            :txpool-no-local-exemptions-p txpool-no-local-exemptions-p
             :telemetry-sink telemetry-sink)))
     (chain-store-put-block store genesis-block :state-available-p t)
     (commit-state-db-to-chain-store store (block-hash genesis-block) state)
@@ -439,6 +446,9 @@
      :txpool-price-bump-percent txpool-price-bump-percent
      :txpool-account-queue-limit txpool-account-queue-limit
      :txpool-global-queue-limit txpool-global-queue-limit
+     :txpool-local-addresses (and txpool-local-addresses
+                                  (copy-list txpool-local-addresses))
+     :txpool-no-local-exemptions-p txpool-no-local-exemptions-p
      :kzg-verifier-command kzg-verifier-command
      :kzg-verifier-timeout-seconds
      (and kzg-verifier-command
@@ -538,6 +548,11 @@
           (devnet-node-txpool-account-queue-limit node)
           :txpool-global-queue-limit
           (devnet-node-txpool-global-queue-limit node)
+          :txpool-local-addresses
+          (mapcar #'address-to-hex (or (devnet-node-txpool-local-addresses node)
+                                       '()))
+          :txpool-no-local-exemptions-p
+          (devnet-node-txpool-no-local-exemptions-p node)
           :kzg-verifier-command (devnet-node-kzg-verifier-command node)
           :kzg-verifier-timeout-seconds
           (devnet-node-kzg-verifier-timeout-seconds node)
@@ -589,6 +604,9 @@
        ,(or (getf summary :txpool-account-queue-limit) :false))
       ("txpoolGlobalQueue" .
        ,(or (getf summary :txpool-global-queue-limit) :false))
+      ("txpoolLocals" . ,(getf summary :txpool-local-addresses))
+      ("txpoolNoLocals" .
+       ,(if (getf summary :txpool-no-local-exemptions-p) t :false))
       ("networkId" . ,(getf summary :network-id))
       ("publicApiModules" . ,(getf summary :public-api-modules))
       ("engineCorsOrigins" . ,(getf summary :engine-cors-origins))
@@ -1047,6 +1065,12 @@
         ((and (string= section "Eth.TxPool") (string= key "GlobalQueue")
               (non-empty-scalar))
          (list "--txpool.globalqueue" scalar))
+        ((and (string= section "Eth.TxPool") (string= key "Locals")
+              (non-empty-list))
+         (list "--txpool.locals" list-value))
+        ((and (string= section "Eth.TxPool") (string= key "NoLocals")
+              (non-empty-scalar))
+         (list "--txpool.nolocals" scalar))
         ((and (string= section "Eth.Miner") (string= key "GasCeil")
               (non-empty-scalar))
          (list "--miner.gaslimit" scalar))
@@ -1178,6 +1202,18 @@
     (error ()
       (error "~A requires a 20-byte hex address" option))))
 
+(defun devnet-cli-parse-address-list (value option)
+  (let ((addresses
+          (loop for raw in (uiop:split-string value :separator ",")
+                for token = (string-trim
+                             '(#\Space #\Tab #\Newline #\Return)
+                             raw)
+                unless (zerop (length token))
+                  collect (devnet-cli-parse-address token option))))
+    (unless addresses
+      (error "~A requires at least one 20-byte hex address" option))
+    addresses))
+
 (defun devnet-cli-parse-http-api-list (value option)
   (let ((modules
           (loop for raw in (uiop:split-string value :separator ",")
@@ -1263,6 +1299,8 @@
         (txpool-price-bump-percent nil)
         (txpool-account-queue-limit nil)
         (txpool-global-queue-limit nil)
+        (txpool-local-addresses nil)
+        (txpool-no-local-exemptions-p nil)
         (serve-p t)
         (summary-format :sexp)
         (ready-file nil)
@@ -1468,6 +1506,17 @@
                     (devnet-cli-optional-boolean-value args option)
                   (setf allow-unprotected-transactions-p enabled-p
                         args rest)))
+               ((string= option "--txpool.locals")
+                (multiple-value-bind (value rest)
+                    (devnet-cli-next-value args option)
+                  (setf txpool-local-addresses
+                        (devnet-cli-parse-address-list value option)
+                        args rest)))
+               ((string= option "--txpool.nolocals")
+                (multiple-value-bind (enabled-p rest)
+                    (devnet-cli-optional-boolean-value args option)
+                  (setf txpool-no-local-exemptions-p enabled-p
+                        args rest)))
                ((string= option "--txpool.pricelimit")
                 (multiple-value-bind (value rest)
                     (devnet-cli-next-value args option)
@@ -1542,6 +1591,8 @@
           :txpool-price-bump-percent txpool-price-bump-percent
           :txpool-account-queue-limit txpool-account-queue-limit
           :txpool-global-queue-limit txpool-global-queue-limit
+          :txpool-local-addresses txpool-local-addresses
+          :txpool-no-local-exemptions-p txpool-no-local-exemptions-p
           :state-prune-before state-prune-before
           :max-connections max-connections
           :serve-p serve-p
@@ -1900,6 +1951,10 @@
        ,(if (getf summary :txpool-global-queue-limit)
             (write-to-string (getf summary :txpool-global-queue-limit))
             ""))
+      ("txpoolLocals" .
+       ,(format nil "~{~A~^,~}" (getf summary :txpool-local-addresses)))
+      ("txpoolNoLocals" .
+       ,(if (getf summary :txpool-no-local-exemptions-p) "true" "false"))
       ("headGasLimit" . ,(if (getf summary :head-gas-limit)
                               (quantity-to-hex
                                (getf summary :head-gas-limit))
@@ -2148,6 +2203,10 @@
                                 (getf options :txpool-account-queue-limit)
                                 :txpool-global-queue-limit
                                 (getf options :txpool-global-queue-limit)
+                                :txpool-local-addresses
+                                (getf options :txpool-local-addresses)
+                                :txpool-no-local-exemptions-p
+                                (getf options :txpool-no-local-exemptions-p)
                                 :kzg-verifier-command
                                 (getf options :kzg-verifier-command)
                                 :kzg-verifier-timeout-seconds

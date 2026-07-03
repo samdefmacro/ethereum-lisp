@@ -1032,7 +1032,9 @@ ones.
     RPC admission behavior, `DEVNET-RUNNER-TXPOOL-PRICE-BUMP` gives
     `--txpool.pricebump` real replacement-policy behavior, and
     `DEVNET-RUNNER-TXPOOL-QUEUE-LIMITS` gives account/global queued
-    transaction limits real nonce-gap admission behavior. CLI coverage
+    transaction limits real nonce-gap admission behavior, and
+    `DEVNET-RUNNER-TXPOOL-LOCAL-EXEMPTIONS` gives `--txpool.locals` /
+    `--txpool.nolocals` real public txpool admission behavior. CLI coverage
     verifies a geth-shaped no-serve invocation and malformed
     boolean/missing-value failures.
 - [x] `DEVNET-RUNNER-TXPOOL-PRICE-LIMIT`: Make the geth/Hive txpool price
@@ -1072,6 +1074,19 @@ ones.
     limit, account limit, and replacement behavior; CLI tests cover flag
     parsing, config import, override precedence, summaries, and malformed
     values.
+- [x] `DEVNET-RUNNER-TXPOOL-LOCAL-EXEMPTIONS`: Make the geth/Hive txpool
+  local-account flags affect public raw-transaction admission.
+  - Result (2026-07-04): `--txpool.locals` now parses as a comma-separated
+    address list, is reported in devnet JSON summaries and process telemetry,
+    and marks matching senders as local transactions for public
+    `eth_sendRawTransaction` admission. Local senders bypass the configured
+    txpool price limit and account/global queued caps, while `--txpool.nolocals`
+    disables those exemptions and restores normal rejection. Geth TOML
+    `[Eth.TxPool] Locals` and `[Eth.TxPool] NoLocals` import through the same
+    path, and explicit CLI flags override config-file values. Direct JSON-RPC
+    tests cover price-limit and queued cap exemptions plus no-locals rejection;
+    CLI tests cover flag parsing, config import, override precedence, summaries,
+    and malformed values.
 - [x] `DEVNET-RUNNER-DEV-MODE-NOOP-FLAGS`: Accept geth dev-mode subflags that
   commonly accompany `--dev` in local runner templates.
   - Result (2026-07-01): the shared devnet/init option table now consumes

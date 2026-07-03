@@ -3467,6 +3467,9 @@
                     "[Eth]~%NetworkId = 4242~%~
                      [Eth.TxPool]~%PriceLimit = 7~%PriceBump = 25~%~
                      AccountQueue = 9~%GlobalQueue = 12~%~
+                     Locals = [\"0x0000000000000000000000000000000000000001\", ~
+                     \"0x0000000000000000000000000000000000000002\"]~%~
+                     NoLocals = true~%~
                      [Node]~%DataDir = ~S~%~
                      HTTPHost = \"192.0.2.41\"~%HTTPPort = 1945~%~
                      HTTPModules = [\"eth\", \"net\"]~%~
@@ -3498,6 +3501,10 @@
 	             (is (= 25 (fixture-object-field summary "txpoolPriceBump")))
 	             (is (= 9 (fixture-object-field summary "txpoolAccountQueue")))
 	             (is (= 12 (fixture-object-field summary "txpoolGlobalQueue")))
+	             (is (equal '("0x0000000000000000000000000000000000000001"
+	                          "0x0000000000000000000000000000000000000002")
+	                        (fixture-object-field summary "txpoolLocals")))
+	             (is (eq t (fixture-object-field summary "txpoolNoLocals")))
 	             (is (string= "/rpc"
 	                          (fixture-object-field summary "publicRpcPrefix")))
              (is (string= (namestring jwt-path)
@@ -3541,6 +3548,8 @@
                     "[Eth]~%NetworkId = 4242~%~
                      [Eth.TxPool]~%PriceLimit = 7~%PriceBump = 25~%~
                      AccountQueue = 9~%GlobalQueue = 12~%~
+                     Locals = [\"0x0000000000000000000000000000000000000001\"]~%~
+                     NoLocals = true~%~
                      [Node]~%HTTPHost = \"192.0.2.50\"~%HTTPPort = 1950~%~
                      AuthAddr = \"192.0.2.51\"~%AuthPort = 1951~%~
                      JWTSecret = ~S~%"
@@ -3559,6 +3568,9 @@
 	                         "--txpool.pricebump" "40"
 	                         "--txpool.accountqueue" "10"
 	                         "--txpool.globalqueue" "20"
+	                         "--txpool.locals"
+	                         "0x0000000000000000000000000000000000000002"
+	                         "--txpool.nolocals" "false"
 	                         "--authrpc.jwtsecret" (namestring override-jwt-path)
                          "--json"
                          "--no-serve")
@@ -3575,6 +3587,9 @@
 	             (is (= 40 (fixture-object-field summary "txpoolPriceBump")))
 	             (is (= 10 (fixture-object-field summary "txpoolAccountQueue")))
 	             (is (= 20 (fixture-object-field summary "txpoolGlobalQueue")))
+	             (is (equal '("0x0000000000000000000000000000000000000002")
+	                        (fixture-object-field summary "txpoolLocals")))
+	             (is (eq nil (fixture-object-field summary "txpoolNoLocals")))
 	             (is (string= (namestring override-jwt-path)
 	                          (fixture-object-field summary "jwtSecretPath")))))
       (when (probe-file jwt-path)
@@ -3806,6 +3821,9 @@ HTTPPort = 1945
 	      (is (= 10 (fixture-object-field summary "txpoolPriceBump")))
 	      (is (= 64 (fixture-object-field summary "txpoolAccountQueue")))
 	      (is (= 1024 (fixture-object-field summary "txpoolGlobalQueue")))
+	      (is (equal '("0x0000000000000000000000000000000000000001")
+	                 (fixture-object-field summary "txpoolLocals")))
+	      (is (eq nil (fixture-object-field summary "txpoolNoLocals")))
 	      (is (eq nil (fixture-object-field summary "authRequired"))))))
 
 (deftest devnet-cli-main-accepts-geth-style-dev-mode-flags
@@ -17532,6 +17550,18 @@ HTTPPort = 1945
     (is (search "--txpool.nolocals boolean value must be true or false"
                 (run-error (list "devnet"
                                  "--txpool.nolocals=maybe"
+                                 "--no-serve"))))
+    (is (search "--txpool.locals requires a value"
+                (run-error (list "devnet"
+                                 "--txpool.locals"
+                                 "--no-serve"))))
+    (is (search "--txpool.locals requires at least one 20-byte hex address"
+                (run-error (list "devnet"
+                                 "--txpool.locals=,"
+                                 "--no-serve"))))
+    (is (search "--txpool.locals requires a 20-byte hex address"
+                (run-error (list "devnet"
+                                 "--txpool.locals=not-an-address"
                                  "--no-serve"))))
     (is (search "--dev boolean value must be true or false"
                 (run-error (list "devnet"

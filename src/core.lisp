@@ -7079,7 +7079,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                             txpool-price-limit
                             txpool-price-bump-percent
                             txpool-account-queue-limit
-                            txpool-global-queue-limit)
+                            txpool-global-queue-limit
+                            txpool-local-addresses
+                            txpool-no-local-exemptions-p)
   (let ((id (and (listp request)
                  (genesis-object-field request "id")))
         (notification-p (engine-rpc-notification-request-p request)))
@@ -7124,7 +7126,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                           :txpool-account-queue-limit
                           txpool-account-queue-limit
                           :txpool-global-queue-limit
-                          txpool-global-queue-limit)
+                          txpool-global-queue-limit
+                          :txpool-local-addresses
+                          txpool-local-addresses
+                          :txpool-no-local-exemptions-p
+                          txpool-no-local-exemptions-p)
                          (engine-rpc-response
                           id
                           :error
@@ -7158,7 +7164,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                             txpool-price-limit
                             txpool-price-bump-percent
                             txpool-account-queue-limit
-                            txpool-global-queue-limit)
+                            txpool-global-queue-limit
+                            txpool-local-addresses
+                            txpool-no-local-exemptions-p)
   (cond
     ((json-object-p request)
      (engine-rpc-handle-request request store config
@@ -7174,7 +7182,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                 :txpool-account-queue-limit
                                 txpool-account-queue-limit
                                 :txpool-global-queue-limit
-                                txpool-global-queue-limit))
+                                txpool-global-queue-limit
+                                :txpool-local-addresses
+                                txpool-local-addresses
+                                :txpool-no-local-exemptions-p
+                                txpool-no-local-exemptions-p))
     ((and (listp request) request)
      (loop for item in request
            for response = (if (json-object-p item)
@@ -7192,7 +7204,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                :txpool-account-queue-limit
                                txpool-account-queue-limit
                                :txpool-global-queue-limit
-                               txpool-global-queue-limit)
+                               txpool-global-queue-limit
+                               :txpool-local-addresses
+                               txpool-local-addresses
+                               :txpool-no-local-exemptions-p
+                               txpool-no-local-exemptions-p)
                               (engine-rpc-invalid-request-response))
            when response
              collect response))
@@ -7207,7 +7223,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                   txpool-price-limit
                                   txpool-price-bump-percent
                                   txpool-account-queue-limit
-                                  txpool-global-queue-limit)
+                                  txpool-global-queue-limit
+                                  txpool-local-addresses
+                                  txpool-no-local-exemptions-p)
   (let ((request
           (handler-case
               (parse-json request-json :preserve-empty-arrays t)
@@ -7226,7 +7244,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
      :txpool-price-limit txpool-price-limit
      :txpool-price-bump-percent txpool-price-bump-percent
      :txpool-account-queue-limit txpool-account-queue-limit
-     :txpool-global-queue-limit txpool-global-queue-limit)))
+     :txpool-global-queue-limit txpool-global-queue-limit
+     :txpool-local-addresses txpool-local-addresses
+     :txpool-no-local-exemptions-p txpool-no-local-exemptions-p)))
 
 (defun engine-rpc-handle-request-json
     (request-json store config &key import-function
@@ -7237,7 +7257,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                   txpool-price-limit
                                   txpool-price-bump-percent
                                   txpool-account-queue-limit
-                                  txpool-global-queue-limit)
+                                  txpool-global-queue-limit
+                                  txpool-local-addresses
+                                  txpool-no-local-exemptions-p)
   (let ((response
           (engine-rpc-handle-request-string
            request-json store config
@@ -7250,7 +7272,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
            :txpool-price-limit txpool-price-limit
            :txpool-price-bump-percent txpool-price-bump-percent
            :txpool-account-queue-limit txpool-account-queue-limit
-           :txpool-global-queue-limit txpool-global-queue-limit)))
+           :txpool-global-queue-limit txpool-global-queue-limit
+           :txpool-local-addresses txpool-local-addresses
+           :txpool-no-local-exemptions-p txpool-no-local-exemptions-p)))
     (if response
         (json-encode response)
         "")))
@@ -7278,7 +7302,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                       allowed-hosts allow-unprotected-transactions-p
                       txpool-price-limit txpool-price-bump-percent
                       txpool-account-queue-limit
-                      txpool-global-queue-limit)))
+                      txpool-global-queue-limit
+                      txpool-local-addresses txpool-no-local-exemptions-p)))
   host
   port
   store
@@ -7297,7 +7322,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   txpool-price-limit
   txpool-price-bump-percent
   txpool-account-queue-limit
-  txpool-global-queue-limit)
+  txpool-global-queue-limit
+  txpool-local-addresses
+  txpool-no-local-exemptions-p)
 
 (defstruct (engine-rpc-http-connection
             (:constructor %make-engine-rpc-http-connection
@@ -7341,6 +7368,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
        txpool-price-bump-percent
        txpool-account-queue-limit
        txpool-global-queue-limit
+       txpool-local-addresses
+       txpool-no-local-exemptions-p
        (telemetry-sink ethereum-lisp.telemetry:*telemetry-sink*))
   (unless (stringp host)
     (block-validation-fail "Engine RPC HTTP host must be a string"))
@@ -7402,6 +7431,13 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                        (not (minusp txpool-global-queue-limit)))))
     (block-validation-fail
      "Engine RPC HTTP txpool global queue limit must be a non-negative integer"))
+  (when (and txpool-local-addresses
+             (not (and (listp txpool-local-addresses)
+                       (every (lambda (address)
+                                (typep address 'address))
+                              txpool-local-addresses))))
+    (block-validation-fail
+     "Engine RPC HTTP txpool local addresses must be an address list"))
   (%make-engine-rpc-http-service
    :host host
    :port port
@@ -7421,7 +7457,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    :txpool-price-limit txpool-price-limit
    :txpool-price-bump-percent txpool-price-bump-percent
    :txpool-account-queue-limit txpool-account-queue-limit
-   :txpool-global-queue-limit txpool-global-queue-limit))
+   :txpool-global-queue-limit txpool-global-queue-limit
+   :txpool-local-addresses txpool-local-addresses
+   :txpool-no-local-exemptions-p txpool-no-local-exemptions-p))
 
 (defun engine-rpc-http-service-endpoint (service)
   (unless (typep service 'engine-rpc-http-service)
@@ -8091,7 +8129,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                txpool-price-limit
                                txpool-price-bump-percent
                                txpool-account-queue-limit
-                               txpool-global-queue-limit)
+                               txpool-global-queue-limit
+                               txpool-local-addresses
+                               txpool-no-local-exemptions-p)
   (handler-case
       (multiple-value-bind (boundary boundary-length)
           (engine-rpc-http-header-boundary request)
@@ -8172,7 +8212,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                      :txpool-price-limit txpool-price-limit
                      :txpool-price-bump-percent txpool-price-bump-percent
                      :txpool-account-queue-limit txpool-account-queue-limit
-                     :txpool-global-queue-limit txpool-global-queue-limit)
+                     :txpool-global-queue-limit txpool-global-queue-limit
+                     :txpool-local-addresses txpool-local-addresses
+                     :txpool-no-local-exemptions-p txpool-no-local-exemptions-p)
                     :extra-headers cors-headers))))))))
     (error (condition)
       (engine-rpc-http-error-response
@@ -8193,6 +8235,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           txpool-price-bump-percent
           txpool-account-queue-limit
           txpool-global-queue-limit
+          txpool-local-addresses
+          txpool-no-local-exemptions-p
           telemetry-sink telemetry-fields)
   (let* ((request nil)
          (response
@@ -8217,7 +8261,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                  :txpool-price-limit txpool-price-limit
                  :txpool-price-bump-percent txpool-price-bump-percent
                  :txpool-account-queue-limit txpool-account-queue-limit
-                 :txpool-global-queue-limit txpool-global-queue-limit))
+                 :txpool-global-queue-limit txpool-global-queue-limit
+                 :txpool-local-addresses txpool-local-addresses
+                 :txpool-no-local-exemptions-p txpool-no-local-exemptions-p))
             (error (condition)
               (engine-rpc-http-error-response
                400 "Bad Request"
@@ -8277,6 +8323,10 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           (engine-rpc-http-service-txpool-account-queue-limit service)
           :txpool-global-queue-limit
           (engine-rpc-http-service-txpool-global-queue-limit service)
+          :txpool-local-addresses
+          (engine-rpc-http-service-txpool-local-addresses service)
+          :txpool-no-local-exemptions-p
+          (engine-rpc-http-service-txpool-no-local-exemptions-p service)
           :telemetry-sink sink
           :telemetry-fields fields)
       (ethereum-lisp.telemetry:telemetry-metric

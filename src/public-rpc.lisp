@@ -2108,8 +2108,9 @@
   t)
 
 (defun eth-rpc-validate-txpool-price-limit
-    (transaction txpool-price-limit)
+    (transaction txpool-price-limit local-transaction-p)
   (when (and txpool-price-limit
+             (not local-transaction-p)
              (plusp txpool-price-limit)
              (< (transaction-max-fee-per-gas transaction)
                 txpool-price-limit))
@@ -2117,12 +2118,22 @@
      "eth_sendRawTransaction gas price below txpool price limit"))
   t)
 
+(defun eth-rpc-local-transaction-p
+    (sender txpool-local-addresses txpool-no-local-exemptions-p)
+  (and (not txpool-no-local-exemptions-p)
+       (some (lambda (local-address)
+               (string= (address-to-hex sender)
+                        (address-to-hex local-address)))
+             txpool-local-addresses)))
+
 (defun engine-rpc-handle-eth-send-raw-transaction
     (params store config &key allow-unprotected-transactions-p
                               txpool-price-limit
                               txpool-price-bump-percent
                               txpool-account-queue-limit
-                              txpool-global-queue-limit)
+                              txpool-global-queue-limit
+                              txpool-local-addresses
+                              txpool-no-local-exemptions-p)
   (unless (= 1 (length params))
     (block-validation-fail
      "eth_sendRawTransaction params must contain exactly one transaction"))
@@ -2140,48 +2151,54 @@
                  :expected-chain-id (chain-config-chain-id config))
                 (block-validation-fail
                  "eth_sendRawTransaction transaction sender recovery failed"))))
-      (unless (or (chain-store-transaction-location store hash)
-                  (engine-payload-store-pooled-transaction store hash))
-        (eth-rpc-validate-unprotected-transaction-policy
-         transaction
-         allow-unprotected-transactions-p)
-        (eth-rpc-validate-txpool-price-limit
-         transaction
-         txpool-price-limit)
-        (eth-rpc-validate-txpool-admission transaction sender store config)
-        (cond
-          ((typep transaction 'blob-transaction)
-           (engine-payload-store-put-blob-transaction
-            store
-            transaction
-            :price-bump-percent txpool-price-bump-percent))
-          ((eth-rpc-txpool-basefee-ineligible-p store transaction)
-           (engine-payload-store-put-basefee-transaction
-            store
-            transaction
-            :price-bump-percent txpool-price-bump-percent))
-          ((eth-rpc-txpool-queued-nonce-gap-p
-            store
-            sender
-            transaction
-            :expected-chain-id (chain-config-chain-id config))
-           (engine-payload-store-put-queued-transaction
-            store
-            transaction
-            :price-bump-percent txpool-price-bump-percent
-            :account-queue-limit txpool-account-queue-limit
-            :global-queue-limit txpool-global-queue-limit))
-          (t
-           (engine-payload-store-put-pending-transaction
-            store
-            transaction
-            :price-bump-percent txpool-price-bump-percent)
-           (engine-payload-store-promote-queued-transactions
-            store sender
-            :expected-chain-id (chain-config-chain-id config))
-           (engine-payload-store-promote-basefee-and-queued-transactions
-            store
-            :expected-chain-id (chain-config-chain-id config))))))
+      (let ((local-transaction-p
+              (eth-rpc-local-transaction-p
+               sender txpool-local-addresses txpool-no-local-exemptions-p)))
+        (unless (or (chain-store-transaction-location store hash)
+                    (engine-payload-store-pooled-transaction store hash))
+          (eth-rpc-validate-unprotected-transaction-policy
+           transaction
+           allow-unprotected-transactions-p)
+          (eth-rpc-validate-txpool-price-limit
+           transaction
+           txpool-price-limit
+           local-transaction-p)
+          (eth-rpc-validate-txpool-admission transaction sender store config)
+          (cond
+            ((typep transaction 'blob-transaction)
+             (engine-payload-store-put-blob-transaction
+              store
+              transaction
+              :price-bump-percent txpool-price-bump-percent))
+            ((eth-rpc-txpool-basefee-ineligible-p store transaction)
+             (engine-payload-store-put-basefee-transaction
+              store
+              transaction
+              :price-bump-percent txpool-price-bump-percent))
+            ((eth-rpc-txpool-queued-nonce-gap-p
+              store
+              sender
+              transaction
+              :expected-chain-id (chain-config-chain-id config))
+             (engine-payload-store-put-queued-transaction
+              store
+              transaction
+              :price-bump-percent txpool-price-bump-percent
+              :account-queue-limit
+              (unless local-transaction-p txpool-account-queue-limit)
+              :global-queue-limit
+              (unless local-transaction-p txpool-global-queue-limit)))
+            (t
+             (engine-payload-store-put-pending-transaction
+              store
+              transaction
+              :price-bump-percent txpool-price-bump-percent)
+             (engine-payload-store-promote-queued-transactions
+              store sender
+              :expected-chain-id (chain-config-chain-id config))
+             (engine-payload-store-promote-basefee-and-queued-transactions
+              store
+              :expected-chain-id (chain-config-chain-id config)))))))
     (hash32-to-hex hash)))
 
 (defun eth-rpc-txpool-queued-view-transactions (store)
@@ -2742,7 +2759,9 @@
           txpool-price-limit
           txpool-price-bump-percent
           txpool-account-queue-limit
-          txpool-global-queue-limit)
+          txpool-global-queue-limit
+          txpool-local-addresses
+          txpool-no-local-exemptions-p)
   (cond
     ((string= method "web3_clientVersion")
      (engine-rpc-response
@@ -2966,7 +2985,11 @@
        :txpool-account-queue-limit
        txpool-account-queue-limit
        :txpool-global-queue-limit
-       txpool-global-queue-limit)))
+       txpool-global-queue-limit
+       :txpool-local-addresses
+       txpool-local-addresses
+       :txpool-no-local-exemptions-p
+       txpool-no-local-exemptions-p)))
     ((string= method "eth_pendingTransactions")
      (engine-rpc-response
       id
