@@ -735,7 +735,11 @@ Validation targets: geth `crypto`, Nethermind `Nethermind.Crypto` and
   subprocess bound, and restores prior hooks after exit so KZG capability
   advertisement stays opt-in. Command-backed verifier calls are also
   timeout-bounded with subprocess cleanup, so a hung external backend fails
-  proof verification instead of stalling the client process indefinitely.
+  proof verification instead of stalling the client process indefinitely. The
+  standalone `scripts/devnet-smoke-gate.lisp -- --engine-only-serve` path now
+  includes a `kzgOptIn` child report that exercises the subprocess runner,
+  readiness/stdout/telemetry reporting, and blob-era Engine capability
+  advertisement for that explicit command-backed opt-in path.
 - *Missing for Phase A:* none for Shanghai. Real KZG verification only blocks
   Phase A if Cancun blob execution is admitted into the gate.
 - *Next:* wire a trusted KZG backend before treating Cancun blob payloads as

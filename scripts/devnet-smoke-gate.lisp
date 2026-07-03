@@ -3028,6 +3028,267 @@ references/ checkouts.~%")
   #-sbcl
   (error "Devnet engine-only serve smoke requires SBCL sockets"))
 
+(defun devnet-smoke-gate-verify-engine-only-kzg-opt-in ()
+  #+sbcl
+  (let* ((script
+           (namestring
+            (truename
+             (merge-pathnames "scripts/ethereum-lisp.lisp"
+                              *ethereum-lisp-devnet-smoke-gate-root*))))
+         (genesis
+           (namestring
+            (truename
+             (merge-pathnames +devnet-cli-genesis-fixture+
+                              *ethereum-lisp-devnet-smoke-gate-root*))))
+         (kzg-command
+           (devnet-cli-temp-path "ethereum-lisp-smoke-kzg-command" "sh"))
+         (ready-path
+           (devnet-cli-temp-path "ethereum-lisp-smoke-kzg-ready" "json"))
+         (log-path
+           (devnet-cli-temp-path "ethereum-lisp-smoke-kzg" "log"))
+         (pid-path
+           (devnet-cli-temp-path "ethereum-lisp-smoke-kzg" "pid"))
+         (process nil)
+         (report nil))
+    (unwind-protect
+         (progn
+           (devnet-cli-write-temp-file kzg-command "#!/bin/sh\necho true\n")
+           (devnet-cli-make-executable kzg-command)
+           (setf process
+                 (uiop:launch-program
+                  (list "sbcl"
+                        "--script"
+                        script
+                        "--"
+                        "devnet"
+                        "--genesis"
+                        genesis
+                        "--authrpc.addr"
+                        "127.0.0.1"
+                        "--authrpc.port"
+                        "0"
+                        "--http=false"
+                        "--kzg-verifier-command"
+                        (namestring kzg-command)
+                        "--kzg-verifier-timeout"
+                        "2"
+                        "--ready-file"
+                        (namestring ready-path)
+                        "--log-file"
+                        (namestring log-path)
+                        "--pid-file"
+                        (namestring pid-path)
+                        "--max-connections"
+                        "1"
+                        "--json")
+                  :directory #P"/private/tmp/"
+                  :output :stream
+                  :error-output :stream))
+           (unless (devnet-cli-wait-for-file ready-path 10)
+             (when (uiop:process-alive-p process)
+               (uiop:terminate-process process)
+               (devnet-cli-wait-process-exit process 5))
+             (error
+              "KZG opt-in devnet did not write readiness JSON. stdout=~S stderr=~S"
+              (devnet-cli-read-stream-string
+               (uiop:process-info-output process))
+              (devnet-cli-read-stream-string
+               (uiop:process-info-error-output process))))
+           (let* ((ready-summary
+                    (parse-json (devnet-smoke-gate-file-string ready-path)))
+                  (raw-engine-endpoint
+                    (fixture-object-field ready-summary "engineEndpoint"))
+                  (engine-endpoint
+                    (and raw-engine-endpoint
+                         (if (uiop:string-prefix-p
+                              "http://"
+                              raw-engine-endpoint)
+                             raw-engine-endpoint
+                             (format nil "http://~A"
+                                     raw-engine-endpoint))))
+                  (capabilities-body
+                    "{\"jsonrpc\":\"2.0\",\"id\":715,\"method\":\"engine_exchangeCapabilities\",\"params\":[[]]}")
+                  (capabilities-response
+                    (devnet-cli-http-endpoint-request
+                     engine-endpoint
+                     (devnet-cli-json-rpc-http-request capabilities-body)))
+                  (capabilities-rpc
+                    (parse-json (devnet-cli-http-body capabilities-response)))
+                  (capabilities-result
+                    (fixture-object-field capabilities-rpc "result")))
+             (devnet-smoke-gate-require
+              (stringp engine-endpoint)
+              "KZG opt-in ready file omitted Engine endpoint")
+             (devnet-smoke-gate-require
+              (not (fixture-object-field ready-summary "rpcEndpoint"))
+              "KZG opt-in ready file must disable public rpcEndpoint")
+             (devnet-smoke-gate-require
+              (not (fixture-object-field ready-summary "publicRpcEnabled"))
+              "KZG opt-in ready file must disable publicRpcEnabled")
+             (devnet-smoke-gate-require
+              (string= (namestring kzg-command)
+                       (fixture-object-field ready-summary
+                                             "kzgVerifierCommand"))
+              "KZG opt-in ready file verifier command mismatch")
+             (devnet-smoke-gate-require
+              (= 2 (fixture-object-field ready-summary
+                                          "kzgVerifierTimeoutSeconds"))
+              "KZG opt-in ready file verifier timeout mismatch")
+             (devnet-smoke-gate-require
+              (fixture-object-field ready-summary
+                                    "kzgProofVerificationAvailable")
+              "KZG opt-in ready file did not expose proof availability")
+             (devnet-smoke-gate-require
+              (= 200 (devnet-cli-http-status capabilities-response))
+              "KZG opt-in engine_exchangeCapabilities HTTP status mismatch")
+             (devnet-smoke-gate-require
+              (= 715 (fixture-object-field capabilities-rpc "id"))
+              "KZG opt-in engine_exchangeCapabilities id mismatch")
+             (dolist (method '("engine_newPayloadV3"
+                                "engine_getBlobsV1"
+                                "engine_getPayloadBodiesByHashV2"))
+               (devnet-smoke-gate-require
+                (member method capabilities-result :test #'string=)
+                "KZG opt-in capabilities omitted ~A from ~S"
+                method
+                capabilities-result))
+             (let ((status (devnet-cli-wait-process-exit process 10)))
+               (when (eq status :timeout)
+                 (uiop:terminate-process process))
+               (devnet-smoke-gate-require
+                (and (numberp status) (= 0 status))
+                "KZG opt-in devnet process status mismatch: ~A"
+                status)
+               (let ((stdout
+                       (devnet-cli-read-stream-string
+                        (uiop:process-info-output process)))
+                     (stderr
+                       (devnet-cli-read-stream-string
+                        (uiop:process-info-error-output process))))
+                 (devnet-smoke-gate-require
+                  (string= "" stderr)
+                  "KZG opt-in devnet stderr mismatch: ~S"
+                  stderr)
+                 (let* ((stdout-summary (parse-json stdout))
+                        (log-records (devnet-smoke-gate-file-forms log-path))
+                        (ready-record
+                          (find "devnet.ready" log-records
+                                :test #'string=
+                                :key (lambda (record)
+                                       (getf record :name))))
+                        (shutdown-record
+                          (find "devnet.shutdown" log-records
+                                :test #'string=
+                                :key (lambda (record)
+                                       (getf record :name))))
+                        (shutdown-fields (getf shutdown-record :fields)))
+                   (dolist (summary (list stdout-summary ready-summary))
+                     (devnet-smoke-gate-require
+                      (string= (namestring kzg-command)
+                               (fixture-object-field
+                                summary
+                                "kzgVerifierCommand"))
+                      "KZG opt-in summary verifier command mismatch")
+                     (devnet-smoke-gate-require
+                      (= 2 (fixture-object-field
+                            summary
+                            "kzgVerifierTimeoutSeconds"))
+                      "KZG opt-in summary verifier timeout mismatch")
+                     (devnet-smoke-gate-require
+                      (fixture-object-field
+                       summary
+                       "kzgProofVerificationAvailable")
+                      "KZG opt-in summary proof availability mismatch"))
+                   (dolist (record (list ready-record shutdown-record))
+                     (devnet-smoke-gate-require
+                      record
+                      "KZG opt-in log omitted lifecycle record")
+                     (let ((fields (getf record :fields)))
+                       (devnet-smoke-gate-require
+                        (string= (namestring kzg-command)
+                                 (cdr (assoc "kzgVerifierCommand"
+                                             fields
+                                             :test #'string=)))
+                        "KZG opt-in log verifier command mismatch")
+                       (devnet-smoke-gate-require
+                        (string= "2"
+                                 (cdr (assoc "kzgVerifierTimeoutSeconds"
+                                             fields
+                                             :test #'string=)))
+                        "KZG opt-in log verifier timeout mismatch")
+                       (devnet-smoke-gate-require
+                        (string= "true"
+                                 (cdr (assoc "kzgProofVerificationAvailable"
+                                             fields
+                                             :test #'string=)))
+                        "KZG opt-in log proof availability mismatch")))
+                   (devnet-smoke-gate-require
+                    (string= "1"
+                             (cdr (assoc "engineConnections"
+                                         shutdown-fields
+                                         :test #'string=)))
+                    "KZG opt-in shutdown engine connection count mismatch")
+                   (devnet-smoke-gate-require
+                    (string= "0"
+                             (cdr (assoc "publicConnections"
+                                         shutdown-fields
+                                         :test #'string=)))
+                    "KZG opt-in shutdown public connection count mismatch")
+                   (devnet-smoke-gate-require
+                    (string= "1"
+                             (cdr (assoc "totalConnections"
+                                         shutdown-fields
+                                         :test #'string=)))
+                    "KZG opt-in shutdown total connection count mismatch")
+                   (setf report
+                         (list
+                          (cons "status" "ok")
+                          (cons "mode" "devnet-engine-only-kzg-opt-in")
+                          (cons "publicRpcEnabled" :false)
+                          (cons "rpcEndpoint" :false)
+                          (cons "engineEndpoint" engine-endpoint)
+                          (cons "kzgVerifierCommand"
+                                (namestring kzg-command))
+                          (cons "kzgVerifierTimeoutSeconds" 2)
+                          (cons "kzgProofVerificationAvailable" t)
+                          (cons "engineCapabilityCount"
+                                (length capabilities-result))
+                          (cons "engineCapabilityHasNewPayloadV3"
+                                (if (member "engine_newPayloadV3"
+                                            capabilities-result
+                                            :test #'string=)
+                                    t
+                                    :false))
+                          (cons "engineCapabilityHasGetBlobsV1"
+                                (if (member "engine_getBlobsV1"
+                                            capabilities-result
+                                            :test #'string=)
+                                    t
+                                    :false))
+                          (cons "engineCapabilityHasPayloadBodiesV2"
+                                (if (member
+                                     "engine_getPayloadBodiesByHashV2"
+                                     capabilities-result
+                                     :test #'string=)
+                                    t
+                                    :false))
+                          (cons "engineConnections" 1)
+                          (cons "publicConnections" 0)
+                          (cons "totalConnections" 1))))))))
+      (when (and process (uiop:process-alive-p process))
+        (uiop:terminate-process process))
+      (when (probe-file kzg-command)
+        (delete-file kzg-command))
+      (when (probe-file ready-path)
+        (delete-file ready-path))
+      (when (probe-file log-path)
+        (delete-file log-path))
+      (when (probe-file pid-path)
+        (delete-file pid-path)))
+    report)
+  #-sbcl
+  (error "Devnet engine-only KZG opt-in smoke requires SBCL sockets"))
+
 (defun devnet-smoke-gate-verify-restored-public-rpc
     (node expected-block-number balance-targets
      sender-address expected-sender-nonce
@@ -12739,11 +13000,16 @@ references/ checkouts.~%")
                    (when (devnet-smoke-gate-fixture-case-specified-p args)
                      (error "~A cannot be combined with a fixture case"
                             +devnet-smoke-gate-engine-only-serve-flag+))
-                   (devnet-smoke-gate-verify-engine-only-serve
-                    :ready-file ready-file
-                    :log-file log-file
-                    :pid-file pid-file
-                    :database-file database-file))
+                   (append
+                    (devnet-smoke-gate-verify-engine-only-serve
+                     :ready-file ready-file
+                     :log-file log-file
+                     :pid-file pid-file
+                     :database-file database-file)
+                    (list
+                     (cons
+                      "kzgOptIn"
+                      (devnet-smoke-gate-verify-engine-only-kzg-opt-in)))))
                   (all-fixtures-p
                    (when (devnet-smoke-gate-fixture-case-specified-p args)
                      (error "~A cannot be combined with a fixture case"

@@ -232,6 +232,30 @@
   (is (eq nil
           (fixture-object-field report "engineCapabilityHasPayloadBodiesV2"))))
 
+(defun devnet-cli-assert-kzg-opt-in-smoke-report (report)
+  (is (string= "ok" (fixture-object-field report "status")))
+  (is (string= "devnet-engine-only-kzg-opt-in"
+               (fixture-object-field report "mode")))
+  (is (not (fixture-object-field report "publicRpcEnabled")))
+  (is (not (fixture-object-field report "rpcEndpoint")))
+  (is (search "http://127.0.0.1:"
+              (fixture-object-field report "engineEndpoint")))
+  (is (search "ethereum-lisp-smoke-kzg-command"
+              (fixture-object-field report "kzgVerifierCommand")))
+  (is (= 2 (fixture-object-field report "kzgVerifierTimeoutSeconds")))
+  (is (eq t
+          (fixture-object-field report "kzgProofVerificationAvailable")))
+  (is (plusp (fixture-object-field report "engineCapabilityCount")))
+  (is (eq t
+          (fixture-object-field report "engineCapabilityHasNewPayloadV3")))
+  (is (eq t
+          (fixture-object-field report "engineCapabilityHasGetBlobsV1")))
+  (is (eq t
+          (fixture-object-field report "engineCapabilityHasPayloadBodiesV2")))
+  (is (= 1 (fixture-object-field report "engineConnections")))
+  (is (= 0 (fixture-object-field report "publicConnections")))
+  (is (= 1 (fixture-object-field report "totalConnections"))))
+
 (defun devnet-cli-assert-public-readiness (report)
   (is (search "ethereum-lisp"
               (fixture-object-field report "publicClientVersion")))
@@ -4456,6 +4480,8 @@
                             "engineRpcPrefixBlockedStatus")))
                (devnet-cli-assert-engine-only-http-shaping-report report)
                (devnet-cli-assert-engine-capability-report report)
+               (devnet-cli-assert-kzg-opt-in-smoke-report
+                (fixture-object-field report "kzgOptIn"))
                (devnet-cli-assert-engine-client-version report)
                (devnet-cli-assert-engine-transition-configuration report)
                (devnet-cli-assert-engine-only-payload-report report)

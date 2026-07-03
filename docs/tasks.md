@@ -6061,6 +6061,15 @@ splits can land after the Phase A smoke path closes.
     command is configured, and CLI validation rejects malformed or non-positive
     timeout values. The production c-kzg/trusted-setup/vector-source blocker
     remains open.
+  - Progress (2026-07-03): extended the standalone
+    `scripts/devnet-smoke-gate.lisp -- --engine-only-serve` runner contract
+    with a `kzgOptIn` child report. The child launches a real
+    `scripts/ethereum-lisp.lisp -- devnet` subprocess with public HTTP
+    disabled, a fake executable verifier command, and
+    `--kzg-verifier-timeout 2`, then proves readiness/stdout/telemetry expose
+    the verifier boundary and that Engine capability exchange advertises the
+    blob-era KZG-gated methods only on that explicit opt-in path. The
+    production c-kzg/trusted-setup/vector-source blocker remains open.
 
 - [x] Add EOF planning notes and fork gates.
   - Milestone: 4
