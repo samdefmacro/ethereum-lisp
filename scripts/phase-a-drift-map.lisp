@@ -320,7 +320,8 @@ implementation drift.~%")
         (fixture-harness-error-count
           (drift-map-field report "fixtureHarnessErrorCount"))
         (out-of-scope-count
-          (drift-map-field report "outOfScopeCount")))
+          (or (drift-map-field report "outOfScopeForkFeatureCount")
+              (drift-map-field report "outOfScopeCount"))))
     (list
      (cons "suite" suite)
      (cons "mode" (drift-map-field report "mode"))

@@ -78,7 +78,8 @@
   (format t "  --help               Print this help.~%")
   (format t "~%")
   (format t "Classifications: passing, known-implementation-drift, ~
-implementation-bug-candidate, fixture-harness-error, out-of-scope.~%")
+out-of-scope-fork-feature, implementation-bug-candidate, ~
+fixture-harness-error.~%")
   (format t "Without --root, ~A is used when set.~%"
           +classifier-script-eest-root-env+))
 
@@ -239,7 +240,7 @@ implementation-bug-candidate, fixture-harness-error, out-of-scope.~%")
            (search "out of phase a" lower)
            (search "cancun" lower)
            (search "prague" lower))
-       "out-of-scope")
+       "out-of-scope-fork-feature")
       ((or (search "not implemented yet" lower)
            (search "is not implemented" lower))
        "known-implementation-drift")
@@ -303,7 +304,7 @@ implementation-bug-candidate, fixture-harness-error, out-of-scope.~%")
                          (cons "knownImplementationDriftCount" 0)
                          (cons "implementationBugCandidateCount" 0)
                          (cons "fixtureHarnessErrorCount" 0)
-                         (cons "outOfScopeCount" 0)))))
+                         (cons "outOfScopeForkFeatureCount" 0)))))
         (incf (cdr (assoc "candidateCount" entry :test #'string=)))
         (cond
           ((string= classification "passing")
@@ -320,8 +321,10 @@ implementation-bug-candidate, fixture-harness-error, out-of-scope.~%")
            (incf (cdr (assoc "fixtureHarnessErrorCount"
                              entry
                              :test #'string=))))
-          ((string= classification "out-of-scope")
-           (incf (cdr (assoc "outOfScopeCount" entry :test #'string=)))))
+          ((string= classification "out-of-scope-fork-feature")
+           (incf (cdr (assoc "outOfScopeForkFeatureCount"
+                             entry
+                             :test #'string=)))))
         (setf (gethash family families) entry)))
     (sort
      (loop for entry being the hash-values of families
@@ -385,9 +388,9 @@ implementation-bug-candidate, fixture-harness-error, out-of-scope.~%")
            (classifier-script-count-classification
             "fixture-harness-error"
             results))
-     (cons "outOfScopeCount"
+     (cons "outOfScopeForkFeatureCount"
            (classifier-script-count-classification
-            "out-of-scope"
+            "out-of-scope-fork-feature"
             results))
      (cons "prefix" (or prefix ""))
      (cons "limit" (or limit :false))
@@ -433,7 +436,7 @@ implementation-bug-candidate, fixture-harness-error, out-of-scope.~%")
                     (cdr (assoc "classifiedCount" report :test #'string=))
                     (cdr (assoc "passingCount" report :test #'string=))
                     (cdr (assoc "failingCount" report :test #'string=)))
-            (format t "knownImplementationDrift=~D implementationBugCandidates=~D fixtureHarnessErrors=~D outOfScope=~D~%"
+            (format t "knownImplementationDrift=~D implementationBugCandidates=~D fixtureHarnessErrors=~D outOfScopeForkFeature=~D~%"
                     (cdr (assoc "knownImplementationDriftCount"
                                 report
                                 :test #'string=))
@@ -443,6 +446,8 @@ implementation-bug-candidate, fixture-harness-error, out-of-scope.~%")
                     (cdr (assoc "fixtureHarnessErrorCount"
                                 report
                                 :test #'string=))
-                    (cdr (assoc "outOfScopeCount" report :test #'string=))))))))
+                    (cdr (assoc "outOfScopeForkFeatureCount"
+                                report
+                                :test #'string=))))))))
 
 (classifier-script-main)

@@ -6800,9 +6800,11 @@
         (is (= 0 (fixture-object-field
                   report
                   "knownImplementationDriftCount")))
-        (is (= 1 (fixture-object-field report "outOfScopeCount")))
+        (is (= 1 (fixture-object-field
+                  report
+                  "outOfScopeForkFeatureCount")))
         (is (= 1 (length families)))
-        (is (string= "out-of-scope"
+        (is (string= "out-of-scope-fork-feature"
                      (fixture-object-field result "classification")))
         (is (search "Prague/EIP-7702"
                     (fixture-object-field result "error")))))))

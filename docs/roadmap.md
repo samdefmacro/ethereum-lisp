@@ -2205,10 +2205,18 @@ Detailed historical implementation notes for this section now live in
   limit options, and explicit boolean assignments for `--json` /
   `--failures-only`, matching the smoke-gate runner convention and rejecting
   malformed boolean values before the test system is loaded.
-  Its JSON output also canonicalizes child `out-of-scope` result labels and
-  family counts to the consolidated `out-of-scope-fork-feature` vocabulary, so
-  automation can consume one category schema across overall, suite, family,
-  and result records. The same aggregate runner now accepts shared
+  Its JSON output also canonicalizes legacy child `out-of-scope` result labels
+  and family counts to the consolidated `out-of-scope-fork-feature`
+  vocabulary, so automation can consume one category schema across overall,
+  suite, family, and result records. The per-suite state, transaction, and
+  blockchain classifiers now emit the same canonical
+  `out-of-scope-fork-feature` / `outOfScopeForkFeatureCount` schema directly,
+  while the aggregate runner remains compatible with older child reports. A
+  refreshed installed v5.4.0 transaction classification reports all 53
+  remaining transaction candidates as Prague/EIP-7702 out-of-scope fork
+  feature cases with zero known-implementation-drift,
+  implementation-bug-candidate, or fixture-harness-error records. The same
+  aggregate runner now accepts shared
   `--prefix` and suite-specific `--state-prefix`, `--transaction-prefix`, and
   `--blockchain-prefix` filters, forwards them to child classifiers, and
   reports the effective per-suite prefix. This keeps official v5.4.0 drift

@@ -79,7 +79,8 @@
   (format t "  --help               Print this help.~%")
   (format t "~%")
   (format t "Classifications: passing, known-implementation-drift, ~
-implementation-bug-candidate, fixture-harness-error, out-of-scope.~%")
+out-of-scope-fork-feature, implementation-bug-candidate, ~
+fixture-harness-error.~%")
   (format t "Without --root, ~A is used when set.~%"
           +transaction-classifier-script-eest-root-env+))
 
@@ -282,7 +283,7 @@ implementation-bug-candidate, fixture-harness-error, out-of-scope.~%")
            (search "type_4" lower)
            (search "set-code" lower)
            (search "blob" lower))
-       "out-of-scope")
+       "out-of-scope-fork-feature")
       ((or (search "not implemented yet" lower)
            (search "is not implemented" lower))
        "known-implementation-drift")
@@ -312,7 +313,7 @@ implementation-bug-candidate, fixture-harness-error, out-of-scope.~%")
       (if (transaction-classifier-script-out-of-scope-selector-p selector)
           (transaction-classifier-script-result
            selector
-           "out-of-scope"
+           "out-of-scope-fork-feature"
            "Prague/EIP-7702 transaction tests are outside the current Phase A valid-envelope scope")
           (let* ((vectors
                    (transaction-classifier-script-call
@@ -357,7 +358,7 @@ implementation-bug-candidate, fixture-harness-error, out-of-scope.~%")
                          (cons "knownImplementationDriftCount" 0)
                          (cons "implementationBugCandidateCount" 0)
                          (cons "fixtureHarnessErrorCount" 0)
-                         (cons "outOfScopeCount" 0)))))
+                         (cons "outOfScopeForkFeatureCount" 0)))))
         (incf (cdr (assoc "candidateCount" entry :test #'string=)))
         (cond
           ((string= classification "passing")
@@ -374,8 +375,10 @@ implementation-bug-candidate, fixture-harness-error, out-of-scope.~%")
            (incf (cdr (assoc "fixtureHarnessErrorCount"
                              entry
                              :test #'string=))))
-          ((string= classification "out-of-scope")
-           (incf (cdr (assoc "outOfScopeCount" entry :test #'string=)))))
+          ((string= classification "out-of-scope-fork-feature")
+           (incf (cdr (assoc "outOfScopeForkFeatureCount"
+                             entry
+                             :test #'string=)))))
         (setf (gethash family families) entry)))
     (sort
      (loop for entry being the hash-values of families
@@ -442,9 +445,9 @@ implementation-bug-candidate, fixture-harness-error, out-of-scope.~%")
            (transaction-classifier-script-count-classification
             "fixture-harness-error"
             results))
-     (cons "outOfScopeCount"
+     (cons "outOfScopeForkFeatureCount"
            (transaction-classifier-script-count-classification
-            "out-of-scope"
+            "out-of-scope-fork-feature"
             results))
      (cons "prefix" (or prefix ""))
      (cons "limit" (or limit :false))
@@ -458,7 +461,7 @@ implementation-bug-candidate, fixture-harness-error, out-of-scope.~%")
   (cdr (assoc name report :test #'string=)))
 
 (defun transaction-classifier-script-print-family-summary (family)
-  (format t "family=~A candidates=~D passing=~D knownImplementationDrift=~D implementationBugCandidates=~D fixtureHarnessErrors=~D outOfScope=~D~%"
+  (format t "family=~A candidates=~D passing=~D knownImplementationDrift=~D implementationBugCandidates=~D fixtureHarnessErrors=~D outOfScopeForkFeature=~D~%"
           (transaction-classifier-script-report-field family "family")
           (transaction-classifier-script-report-field family "candidateCount")
           (transaction-classifier-script-report-field family "passingCount")
@@ -471,7 +474,9 @@ implementation-bug-candidate, fixture-harness-error, out-of-scope.~%")
           (transaction-classifier-script-report-field
            family
            "fixtureHarnessErrorCount")
-          (transaction-classifier-script-report-field family "outOfScopeCount")))
+          (transaction-classifier-script-report-field
+           family
+           "outOfScopeForkFeatureCount")))
 
 (defun transaction-classifier-script-print-result (result)
   (format t "result=~A classification=~A~@[ error=~A~]~%"
@@ -491,7 +496,7 @@ implementation-bug-candidate, fixture-harness-error, out-of-scope.~%")
                    "knownImplementationDriftCount"
                    "implementationBugCandidateCount"
                    "fixtureHarnessErrorCount"
-                   "outOfScopeCount"
+                   "outOfScopeForkFeatureCount"
                    "prefix"
                    "limit"
                    "includePinned"

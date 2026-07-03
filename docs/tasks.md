@@ -1997,6 +1997,18 @@ ones.
     prefixes plus one Prague/EIP-7702 transaction selector classified 21
     candidates with zero known-implementation-drift, implementation-bug, or
     fixture-harness records.
+- [x] `PHASE-A-CLASSIFIER-CANONICAL-OUT-OF-SCOPE`: Align per-suite official
+  fixture classifier JSON/text output with the consolidated drift-map
+  out-of-scope vocabulary.
+  - Result (2026-07-03): state, transaction, and blockchain classifier scripts
+    now emit `out-of-scope-fork-feature` result labels and
+    `outOfScopeForkFeatureCount` family/report counts directly. The aggregate
+    drift-map runner remains backward-compatible with older child
+    `outOfScopeCount` reports while preserving canonical suite/overall output.
+    A refreshed installed v5.4.0 transaction classification reported all 53
+    remaining transaction candidates as Prague/EIP-7702 out-of-scope fork
+    feature cases with zero known-implementation-drift,
+    implementation-bug-candidate, or fixture-harness-error records.
 - [x] `PINNED-V5.4.0-STATE-REMAINDER-CLOSURE`: Convert the final classified
   official v5.4.0 materializable state-test selectors into stable pinned Phase
   A guards before leaving only out-of-scope transaction drift.
