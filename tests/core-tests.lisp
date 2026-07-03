@@ -26052,6 +26052,10 @@ Content-Type: application/json
            (merge-pathnames
             (format nil "ethereum-lisp-kzg-verifier-~A.sh" suffix)
             (uiop:temporary-directory)))
+         (sleep-script-path
+           (merge-pathnames
+            (format nil "ethereum-lisp-kzg-verifier-sleep-~A.sh" suffix)
+            (uiop:temporary-directory)))
          (log-path
            (merge-pathnames
             (format nil "ethereum-lisp-kzg-verifier-~A.log" suffix)
@@ -26084,6 +26088,13 @@ Content-Type: application/json
                (format stream "  *) printf 'unknown\\n' > \"$log\" ;;~%")
                (format stream "esac~%")
                (format stream "if [ \"$verdict\" = accept ]; then echo true; else echo false; fi~%"))
+             (with-open-file (stream sleep-script-path
+                                     :direction :output
+                                     :if-exists :supersede
+                                     :if-does-not-exist :create)
+               (format stream "#!/bin/sh~%")
+               (format stream "sleep 2~%")
+               (format stream "echo true~%"))
              (configure-kzg-proof-command-verifiers
               (list "sh" (namestring script-path)
                     (namestring log-path)
@@ -26105,12 +26116,20 @@ Content-Type: application/json
                (verify-kzg-point-proof commitment z y proof))
              (signals error
                (verify-kzg-blob-proof blob commitment proof))
+             (let ((ethereum-lisp.core::*kzg-verifier-command-timeout-seconds*
+                     0))
+               (configure-kzg-proof-command-verifiers
+                (list "sh" (namestring sleep-script-path)))
+               (signals error
+                 (verify-kzg-point-proof commitment z y proof)))
              (signals error
                (make-kzg-point-proof-command-verifier '())))
         (setf *kzg-point-proof-verifier* old-point-verifier
               *kzg-blob-proof-verifier* old-blob-verifier)
         (when (probe-file script-path)
           (delete-file script-path))
+        (when (probe-file sleep-script-path)
+          (delete-file sleep-script-path))
         (when (probe-file log-path)
           (delete-file log-path))))))
 

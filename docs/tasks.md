@@ -6041,6 +6041,14 @@ splits can land after the Phase A smoke path closes.
     into blob-era capability advertisement only when they explicitly provide a
     verifier command; the production c-kzg/trusted-setup/vector-source blocker
     remains open.
+  - Progress (2026-07-03): bounded command-backed verifier invocations with a
+    five-second timeout and process cleanup. The KZG command adapter now
+    launches verifier subprocesses through a pollable process handle, kills a
+    hung backend instead of blocking proof verification indefinitely, and keeps
+    successful/rejected command-output semantics unchanged. Core coverage uses
+    a sleeping fake verifier with the timeout rebound to zero to lock the
+    failure path without slowing the suite. The production
+    c-kzg/trusted-setup/vector-source blocker remains open.
 
 - [x] Add EOF planning notes and fork gates.
   - Milestone: 4

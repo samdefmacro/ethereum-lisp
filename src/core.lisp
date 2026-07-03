@@ -9059,6 +9059,9 @@ vectors. It should return true only when the proof is valid.")
 When non-NIL, the value must be a function of BLOB, COMMITMENT, and PROOF byte
 vectors. It should return true only when the proof is valid.")
 
+(defparameter *kzg-verifier-command-timeout-seconds* 5
+  "Maximum wall-clock seconds to wait for an external KZG verifier command.")
+
 (defun kzg-point-proof-verification-available-p ()
   (functionp *kzg-point-proof-verifier*))
 
@@ -9136,24 +9139,55 @@ vectors. It should return true only when the proof is valid.")
                              output))))
     (member token '("1" "ok" "true" "valid") :test #'string=)))
 
+(defun read-kzg-verifier-command-stream (stream)
+  (if stream
+      (with-output-to-string (output)
+        (loop for char = (read-char stream nil nil)
+              while char
+              do (write-char char output)))
+      ""))
+
+(defun wait-kzg-verifier-command (process timeout-seconds)
+  (let* ((timeout-units (* timeout-seconds internal-time-units-per-second))
+         (deadline (+ (get-internal-real-time) timeout-units)))
+    (loop while (uiop:process-alive-p process)
+          do (when (>= (get-internal-real-time) deadline)
+               (uiop:terminate-process process)
+               (ignore-errors (uiop:wait-process process))
+               (error "KZG verifier command timed out after ~D seconds"
+                      timeout-seconds))
+             (sleep 0.01))
+    (uiop:wait-process process)))
+
 (defun run-kzg-verifier-command (command mode byte-arguments)
   (let ((argv (append command
                       (list mode)
                       (mapcar (lambda (bytes)
                                 (bytes-to-hex bytes))
                               byte-arguments))))
-    (multiple-value-bind (stdout stderr status)
-        (handler-case
-            (uiop:run-program argv
-                              :output :string
-                              :error-output :string
-                              :ignore-error-status t)
-          (error (condition)
-            (error "KZG verifier command failed to start: ~A" condition)))
-      (declare (ignore stderr))
-      (and (numberp status)
-           (= 0 status)
-           (kzg-verifier-command-accepted-output-p stdout)))))
+    (let ((process nil))
+      (unwind-protect
+           (progn
+             (setf process
+                   (handler-case
+                       (uiop:launch-program argv
+                                            :output :stream
+                                            :error-output nil)
+                     (error (condition)
+                       (error "KZG verifier command failed to start: ~A"
+                              condition))))
+             (let ((status
+                     (wait-kzg-verifier-command
+                      process
+                      *kzg-verifier-command-timeout-seconds*))
+                   (stdout
+                     (read-kzg-verifier-command-stream
+                      (uiop:process-info-output process))))
+               (and (numberp status)
+                    (= 0 status)
+                    (kzg-verifier-command-accepted-output-p stdout))))
+        (when (and process (uiop:process-alive-p process))
+          (ignore-errors (uiop:terminate-process process)))))))
 
 (defun make-kzg-point-proof-command-verifier (command)
   "Return a point-proof verifier backed by COMMAND.

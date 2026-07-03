@@ -731,7 +731,9 @@ Validation targets: geth `crypto`, Nethermind `Nethermind.Crypto` and
   verifier for a single runner invocation with `--kzg-verifier-command` /
   `--kzg.verifier-command`, reports the configured verifier and availability
   in runner summaries/telemetry, and restores prior hooks after exit so KZG
-  capability advertisement stays opt-in.
+  capability advertisement stays opt-in. Command-backed verifier calls are
+  also timeout-bounded with subprocess cleanup, so a hung external backend
+  fails proof verification instead of stalling the client process indefinitely.
 - *Missing for Phase A:* none for Shanghai. Real KZG verification only blocks
   Phase A if Cancun blob execution is admitted into the gate.
 - *Next:* wire a trusted KZG backend before treating Cancun blob payloads as
