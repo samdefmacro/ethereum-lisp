@@ -20781,6 +20781,133 @@
                      (field transaction-count-response "result")))
         (is (= 0 (length (field filter-changes "result"))))))))
 
+(deftest eth-rpc-send-raw-transaction-enforces-txpool-queue-limits
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (send-raw
+               (transaction id store config
+                &key txpool-account-queue-limit txpool-global-queue-limit)
+             (parse-json
+              (engine-rpc-handle-request-json
+               (concatenate
+                'string
+                "{\"jsonrpc\":\"2.0\",\"id\":" (write-to-string id)
+                ",\"method\":\"eth_sendRawTransaction\","
+                "\"params\":[\""
+                (bytes-to-hex (transaction-encoding transaction))
+                "\"]}")
+               store
+               config
+               :txpool-account-queue-limit txpool-account-queue-limit
+               :txpool-global-queue-limit txpool-global-queue-limit)))
+           (request (json store config)
+             (parse-json
+              (engine-rpc-handle-request-json json store config)))
+           (funded-store (sender)
+             (let* ((store (make-engine-payload-memory-store))
+                    (head-block
+                      (make-block
+                       :header (make-block-header :number 0
+                                                  :timestamp 0
+                                                  :gas-limit 30000000
+                                                  :base-fee-per-gas 0))))
+               (chain-store-put-block store head-block :state-available-p t)
+               (chain-store-put-account-nonce
+                store (block-hash head-block) sender 0)
+               (chain-store-put-account-balance
+                store (block-hash head-block) sender 10000000)
+               store))
+           (signed-legacy (nonce gas-price private-key recipient)
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :nonce nonce
+               :gas-price gas-price
+               :gas-limit 21000
+               :to recipient
+               :value 0)
+              private-key
+              1)))
+    (let* ((config (make-chain-config :chain-id 1 :london-block 0))
+           (recipient
+             (address-from-hex "0x3535353535353535353535353535353535353535"))
+           (nonce-one (signed-legacy 1 1 1 recipient))
+           (nonce-two (signed-legacy 2 1 1 recipient))
+           (replacement (signed-legacy 1 2 1 recipient))
+           (sender (transaction-sender nonce-one :expected-chain-id 1))
+           (global-store (funded-store sender))
+           (account-store (funded-store sender))
+           (replacement-store (funded-store sender))
+           (nonce-two-hash (hash32-to-hex (transaction-hash nonce-two)))
+           (replacement-hash (hash32-to-hex (transaction-hash replacement))))
+      (let* ((first-response
+               (send-raw nonce-one 181 global-store config
+                         :txpool-global-queue-limit 1))
+             (second-response
+               (send-raw nonce-two 182 global-store config
+                         :txpool-global-queue-limit 1))
+             (status-response
+               (request
+                "{\"jsonrpc\":\"2.0\",\"id\":183,\"method\":\"txpool_status\",\"params\":[]}"
+                global-store
+                config))
+             (lookup-response
+               (request
+                (concatenate
+                 'string
+                 "{\"jsonrpc\":\"2.0\",\"id\":184,"
+                 "\"method\":\"eth_getTransactionByHash\","
+                 "\"params\":[\"" nonce-two-hash "\"]}")
+                global-store
+                config))
+             (error (field second-response "error")))
+        (is (string= (hash32-to-hex (transaction-hash nonce-one))
+                     (field first-response "result")))
+        (is (= -32602 (field error "code")))
+        (is (string= "Queued transaction exceeds txpool global queue limit"
+                     (field error "message")))
+        (is (string= (quantity-to-hex 1)
+                     (field (field status-response "result") "queued")))
+        (is (null (field lookup-response "result"))))
+      (let* ((first-response
+               (send-raw nonce-one 185 account-store config
+                         :txpool-account-queue-limit 1
+                         :txpool-global-queue-limit 10))
+             (second-response
+               (send-raw nonce-two 186 account-store config
+                         :txpool-account-queue-limit 1
+                         :txpool-global-queue-limit 10))
+             (status-response
+               (request
+                "{\"jsonrpc\":\"2.0\",\"id\":187,\"method\":\"txpool_status\",\"params\":[]}"
+                account-store
+                config))
+             (error (field second-response "error")))
+        (is (string= (hash32-to-hex (transaction-hash nonce-one))
+                     (field first-response "result")))
+        (is (= -32602 (field error "code")))
+        (is (string= "Queued transaction exceeds txpool account queue limit"
+                     (field error "message")))
+        (is (string= (quantity-to-hex 1)
+                     (field (field status-response "result") "queued"))))
+      (let* ((first-response
+               (send-raw nonce-one 188 replacement-store config
+                         :txpool-account-queue-limit 1
+                         :txpool-global-queue-limit 1))
+             (replacement-response
+               (send-raw replacement 189 replacement-store config
+                         :txpool-account-queue-limit 1
+                         :txpool-global-queue-limit 1))
+             (status-response
+               (request
+                "{\"jsonrpc\":\"2.0\",\"id\":190,\"method\":\"txpool_status\",\"params\":[]}"
+                replacement-store
+                config)))
+        (is (string= (hash32-to-hex (transaction-hash nonce-one))
+                     (field first-response "result")))
+        (is (string= replacement-hash (field replacement-response "result")))
+        (is (string= (quantity-to-hex 1)
+                     (field (field status-response "result") "queued")))))))
+
 (deftest eth-rpc-send-raw-transaction-keeps-contiguous-nonces-pending
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))

@@ -2120,7 +2120,9 @@
 (defun engine-rpc-handle-eth-send-raw-transaction
     (params store config &key allow-unprotected-transactions-p
                               txpool-price-limit
-                              txpool-price-bump-percent)
+                              txpool-price-bump-percent
+                              txpool-account-queue-limit
+                              txpool-global-queue-limit)
   (unless (= 1 (length params))
     (block-validation-fail
      "eth_sendRawTransaction params must contain exactly one transaction"))
@@ -2166,7 +2168,9 @@
            (engine-payload-store-put-queued-transaction
             store
             transaction
-            :price-bump-percent txpool-price-bump-percent))
+            :price-bump-percent txpool-price-bump-percent
+            :account-queue-limit txpool-account-queue-limit
+            :global-queue-limit txpool-global-queue-limit))
           (t
            (engine-payload-store-put-pending-transaction
             store
@@ -2736,7 +2740,9 @@
           (allowed-method-p #'engine-rpc-any-method-p)
           allow-unprotected-transactions-p
           txpool-price-limit
-          txpool-price-bump-percent)
+          txpool-price-bump-percent
+          txpool-account-queue-limit
+          txpool-global-queue-limit)
   (cond
     ((string= method "web3_clientVersion")
      (engine-rpc-response
@@ -2956,7 +2962,11 @@
        :txpool-price-limit
        txpool-price-limit
        :txpool-price-bump-percent
-       txpool-price-bump-percent)))
+       txpool-price-bump-percent
+       :txpool-account-queue-limit
+       txpool-account-queue-limit
+       :txpool-global-queue-limit
+       txpool-global-queue-limit)))
     ((string= method "eth_pendingTransactions")
      (engine-rpc-response
       id

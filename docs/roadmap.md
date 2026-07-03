@@ -1235,7 +1235,7 @@ first pass, but interfaces must not block that path.
   management, metrics, profiling, bootnode discovery, archive-mode behavior,
   or a GraphQL listener. Additional geth/Hive txpool, RPC, and database
   template flags are also accepted as compatibility no-ops, including
-  remaining txpool slot/queue/lifetime knobs,
+  remaining txpool slot/lifetime knobs,
   RPC resource-limit flags (`--rpc.gascap`, `--rpc.evmtimeout`,
   `--rpc.txfeecap`, `--rpc.batch-request-limit`, and
   `--rpc.batch-response-max-size`), HTTP server resource flags
@@ -1262,8 +1262,12 @@ first pass, but interfaces must not block that path.
   `--txpool.pricebump` now customizes public raw-transaction replacement
   checks across local txpool subpools, requiring both fee cap and priority fee
   to clear the configured percentage bump before replacing a same-sender,
-  same-nonce transaction. The geth TOML `[Eth.TxPool] PriceLimit`,
-  `[Eth.TxPool] PriceBump`, and `[Eth.Miner] GasCeil` fields are
+  same-nonce transaction. `--txpool.accountqueue` and
+  `--txpool.globalqueue` now cap new nonce-gap queued admissions by sender and
+  by global queued subpool size while preserving same-nonce replacement
+  behavior. The geth TOML `[Eth.TxPool] PriceLimit`,
+  `[Eth.TxPool] PriceBump`, `[Eth.TxPool] AccountQueue`,
+  `[Eth.TxPool] GlobalQueue`, and `[Eth.Miner] GasCeil` fields are
   imported through the same runner-visible path for config-file-based
   launches.
   `--miner.etherbase` / `--etherbase` also shape the embedded dev genesis
@@ -1796,7 +1800,7 @@ first pass, but interfaces must not block that path.
   reorg events, returning displaced old-canonical logs with `removed=true` and
   replacement-head logs with the normal `removed=false` shape.
 - *Partial:* txpool policy beyond the current in-memory pending pool
-  (local-account exemptions, slot/queue/lifetime knobs),
+  (local-account exemptions, slot/lifetime knobs),
   cross-client Engine fixture breadth beyond the local pinned Shanghai
   `engine_newPayloadV2` smoke set, and concrete long-running devnet/Hive
   lifecycle ergonomics beyond the current readiness, log-file, shutdown,

@@ -4937,8 +4937,16 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                  (hash32= (transaction-hash indexed-transaction)
                           (transaction-hash transaction)))
         (remhash nonce sender-transactions)
-        (when (zerop (hash-table-count sender-transactions))
-          (remhash sender sender-index))))))
+	        (when (zerop (hash-table-count sender-transactions))
+	          (remhash sender sender-index))))))
+
+(defun engine-pending-txpool-sender-index-count (sender-index transaction)
+  (let ((sender-transactions
+          (gethash (engine-pending-txpool-sender-key transaction)
+                   sender-index)))
+    (if sender-transactions
+        (hash-table-count sender-transactions)
+        0)))
 
 (defun engine-pending-txpool-remove-indexed-transaction
     (transactions sender-index hash)
@@ -5228,10 +5236,14 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defun engine-pending-txpool-put-queued-transaction
     (txpool transaction
-     &key (price-bump-percent +txpool-replacement-price-bump-percent+))
+     &key (price-bump-percent +txpool-replacement-price-bump-percent+)
+          account-queue-limit
+          global-queue-limit)
   (let ((key (engine-pending-txpool-hash-key
               (transaction-hash transaction)))
         (transactions (engine-pending-txpool-queued-transactions txpool))
+        (sender-index (engine-pending-txpool-queued-transactions-by-sender
+                       txpool))
         (cross-subpool-conflicts
           (engine-pending-txpool-cross-subpool-conflicts
            txpool transaction :queued)))
@@ -5243,9 +5255,22 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
            transaction
            :price-bump-percent price-bump-percent)
           (let ((conflict
-                  (engine-pending-txpool-queued-conflict
-                   txpool
+                  (engine-pending-txpool-indexed-conflict
+                   sender-index
                    transaction)))
+            (when (and (null conflict)
+                       global-queue-limit
+                       (>= (hash-table-count transactions) global-queue-limit))
+              (block-validation-fail
+               "Queued transaction exceeds txpool global queue limit"))
+            (when (and (null conflict)
+                       account-queue-limit
+                       (>= (engine-pending-txpool-sender-index-count
+                            sender-index
+                            transaction)
+                           account-queue-limit))
+              (block-validation-fail
+               "Queued transaction exceeds txpool account queue limit"))
             (when conflict
               (unless (engine-pending-txpool-replacement-transaction-p
                        conflict transaction
@@ -5550,7 +5575,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defun engine-payload-store-put-queued-transaction
     (store transaction
-     &key (price-bump-percent +txpool-replacement-price-bump-percent+))
+     &key (price-bump-percent +txpool-replacement-price-bump-percent+)
+          account-queue-limit
+          global-queue-limit)
   (unless (typep store 'engine-payload-memory-store)
     (block-validation-fail "Engine payload store must be a memory store"))
   (unless (typep transaction
@@ -5567,7 +5594,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (engine-pending-txpool-put-queued-transaction
        (engine-payload-store-txpool store)
        transaction
-       :price-bump-percent price-bump-percent)
+       :price-bump-percent price-bump-percent
+       :account-queue-limit account-queue-limit
+       :global-queue-limit global-queue-limit)
     (declare (ignore inserted-p))
     transaction))
 
@@ -7048,7 +7077,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                             (allowed-method-p #'engine-rpc-any-method-p)
                             allow-unprotected-transactions-p
                             txpool-price-limit
-                            txpool-price-bump-percent)
+                            txpool-price-bump-percent
+                            txpool-account-queue-limit
+                            txpool-global-queue-limit)
   (let ((id (and (listp request)
                  (genesis-object-field request "id")))
         (notification-p (engine-rpc-notification-request-p request)))
@@ -7089,7 +7120,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                           allow-unprotected-transactions-p
                           :txpool-price-limit txpool-price-limit
                           :txpool-price-bump-percent
-                          txpool-price-bump-percent)
+                          txpool-price-bump-percent
+                          :txpool-account-queue-limit
+                          txpool-account-queue-limit
+                          :txpool-global-queue-limit
+                          txpool-global-queue-limit)
                          (engine-rpc-response
                           id
                           :error
@@ -7121,7 +7156,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                             (allowed-method-p #'engine-rpc-any-method-p)
                             allow-unprotected-transactions-p
                             txpool-price-limit
-                            txpool-price-bump-percent)
+                            txpool-price-bump-percent
+                            txpool-account-queue-limit
+                            txpool-global-queue-limit)
   (cond
     ((json-object-p request)
      (engine-rpc-handle-request request store config
@@ -7133,7 +7170,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                 allow-unprotected-transactions-p
                                 :txpool-price-limit txpool-price-limit
                                 :txpool-price-bump-percent
-                                txpool-price-bump-percent))
+                                txpool-price-bump-percent
+                                :txpool-account-queue-limit
+                                txpool-account-queue-limit
+                                :txpool-global-queue-limit
+                                txpool-global-queue-limit))
     ((and (listp request) request)
      (loop for item in request
            for response = (if (json-object-p item)
@@ -7147,7 +7188,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                allow-unprotected-transactions-p
                                :txpool-price-limit txpool-price-limit
                                :txpool-price-bump-percent
-                               txpool-price-bump-percent)
+                               txpool-price-bump-percent
+                               :txpool-account-queue-limit
+                               txpool-account-queue-limit
+                               :txpool-global-queue-limit
+                               txpool-global-queue-limit)
                               (engine-rpc-invalid-request-response))
            when response
              collect response))
@@ -7160,7 +7205,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                   (allowed-method-p #'engine-rpc-any-method-p)
                                   allow-unprotected-transactions-p
                                   txpool-price-limit
-                                  txpool-price-bump-percent)
+                                  txpool-price-bump-percent
+                                  txpool-account-queue-limit
+                                  txpool-global-queue-limit)
   (let ((request
           (handler-case
               (parse-json request-json :preserve-empty-arrays t)
@@ -7177,7 +7224,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
      :allowed-method-p allowed-method-p
      :allow-unprotected-transactions-p allow-unprotected-transactions-p
      :txpool-price-limit txpool-price-limit
-     :txpool-price-bump-percent txpool-price-bump-percent)))
+     :txpool-price-bump-percent txpool-price-bump-percent
+     :txpool-account-queue-limit txpool-account-queue-limit
+     :txpool-global-queue-limit txpool-global-queue-limit)))
 
 (defun engine-rpc-handle-request-json
     (request-json store config &key import-function
@@ -7186,7 +7235,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                   (allowed-method-p #'engine-rpc-any-method-p)
                                   allow-unprotected-transactions-p
                                   txpool-price-limit
-                                  txpool-price-bump-percent)
+                                  txpool-price-bump-percent
+                                  txpool-account-queue-limit
+                                  txpool-global-queue-limit)
   (let ((response
           (engine-rpc-handle-request-string
            request-json store config
@@ -7197,7 +7248,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
            :allow-unprotected-transactions-p
            allow-unprotected-transactions-p
            :txpool-price-limit txpool-price-limit
-           :txpool-price-bump-percent txpool-price-bump-percent)))
+           :txpool-price-bump-percent txpool-price-bump-percent
+           :txpool-account-queue-limit txpool-account-queue-limit
+           :txpool-global-queue-limit txpool-global-queue-limit)))
     (if response
         (json-encode response)
         "")))
@@ -7223,7 +7276,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                       import-function telemetry-sink allowed-method-p
                       network-id coinbase rpc-prefix cors-origins
                       allowed-hosts allow-unprotected-transactions-p
-                      txpool-price-limit txpool-price-bump-percent)))
+                      txpool-price-limit txpool-price-bump-percent
+                      txpool-account-queue-limit
+                      txpool-global-queue-limit)))
   host
   port
   store
@@ -7240,7 +7295,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   allowed-hosts
   allow-unprotected-transactions-p
   txpool-price-limit
-  txpool-price-bump-percent)
+  txpool-price-bump-percent
+  txpool-account-queue-limit
+  txpool-global-queue-limit)
 
 (defstruct (engine-rpc-http-connection
             (:constructor %make-engine-rpc-http-connection
@@ -7282,6 +7339,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
        allow-unprotected-transactions-p
        txpool-price-limit
        txpool-price-bump-percent
+       txpool-account-queue-limit
+       txpool-global-queue-limit
        (telemetry-sink ethereum-lisp.telemetry:*telemetry-sink*))
   (unless (stringp host)
     (block-validation-fail "Engine RPC HTTP host must be a string"))
@@ -7333,6 +7392,16 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                        (not (minusp txpool-price-bump-percent)))))
     (block-validation-fail
      "Engine RPC HTTP txpool price bump must be a non-negative integer"))
+  (when (and txpool-account-queue-limit
+             (not (and (integerp txpool-account-queue-limit)
+                       (not (minusp txpool-account-queue-limit)))))
+    (block-validation-fail
+     "Engine RPC HTTP txpool account queue limit must be a non-negative integer"))
+  (when (and txpool-global-queue-limit
+             (not (and (integerp txpool-global-queue-limit)
+                       (not (minusp txpool-global-queue-limit)))))
+    (block-validation-fail
+     "Engine RPC HTTP txpool global queue limit must be a non-negative integer"))
   (%make-engine-rpc-http-service
    :host host
    :port port
@@ -7350,7 +7419,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    :allowed-hosts allowed-hosts
    :allow-unprotected-transactions-p allow-unprotected-transactions-p
    :txpool-price-limit txpool-price-limit
-   :txpool-price-bump-percent txpool-price-bump-percent))
+   :txpool-price-bump-percent txpool-price-bump-percent
+   :txpool-account-queue-limit txpool-account-queue-limit
+   :txpool-global-queue-limit txpool-global-queue-limit))
 
 (defun engine-rpc-http-service-endpoint (service)
   (unless (typep service 'engine-rpc-http-service)
@@ -8018,7 +8089,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                allowed-hosts
                                allow-unprotected-transactions-p
                                txpool-price-limit
-                               txpool-price-bump-percent)
+                               txpool-price-bump-percent
+                               txpool-account-queue-limit
+                               txpool-global-queue-limit)
   (handler-case
       (multiple-value-bind (boundary boundary-length)
           (engine-rpc-http-header-boundary request)
@@ -8097,7 +8170,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                      :allow-unprotected-transactions-p
                      allow-unprotected-transactions-p
                      :txpool-price-limit txpool-price-limit
-                     :txpool-price-bump-percent txpool-price-bump-percent)
+                     :txpool-price-bump-percent txpool-price-bump-percent
+                     :txpool-account-queue-limit txpool-account-queue-limit
+                     :txpool-global-queue-limit txpool-global-queue-limit)
                     :extra-headers cors-headers))))))))
     (error (condition)
       (engine-rpc-http-error-response
@@ -8116,6 +8191,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           allow-unprotected-transactions-p
           txpool-price-limit
           txpool-price-bump-percent
+          txpool-account-queue-limit
+          txpool-global-queue-limit
           telemetry-sink telemetry-fields)
   (let* ((request nil)
          (response
@@ -8138,7 +8215,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                  :allow-unprotected-transactions-p
                  allow-unprotected-transactions-p
                  :txpool-price-limit txpool-price-limit
-                 :txpool-price-bump-percent txpool-price-bump-percent))
+                 :txpool-price-bump-percent txpool-price-bump-percent
+                 :txpool-account-queue-limit txpool-account-queue-limit
+                 :txpool-global-queue-limit txpool-global-queue-limit))
             (error (condition)
               (engine-rpc-http-error-response
                400 "Bad Request"
@@ -8194,6 +8273,10 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           (engine-rpc-http-service-txpool-price-limit service)
           :txpool-price-bump-percent
           (engine-rpc-http-service-txpool-price-bump-percent service)
+          :txpool-account-queue-limit
+          (engine-rpc-http-service-txpool-account-queue-limit service)
+          :txpool-global-queue-limit
+          (engine-rpc-http-service-txpool-global-queue-limit service)
           :telemetry-sink sink
           :telemetry-fields fields)
       (ethereum-lisp.telemetry:telemetry-metric

@@ -10,6 +10,8 @@
                       engine-vhosts public-vhosts dev-mode-p coinbase
                       allow-unprotected-transactions-p
                       txpool-price-limit txpool-price-bump-percent
+                      txpool-account-queue-limit
+                      txpool-global-queue-limit
                       kzg-verifier-command
                       kzg-verifier-timeout-seconds)))
   genesis-path
@@ -34,6 +36,8 @@
   allow-unprotected-transactions-p
   txpool-price-limit
   txpool-price-bump-percent
+  txpool-account-queue-limit
+  txpool-global-queue-limit
   kzg-verifier-command
   kzg-verifier-timeout-seconds)
 
@@ -316,6 +320,8 @@
        allow-unprotected-transactions-p
        txpool-price-limit
        txpool-price-bump-percent
+       txpool-account-queue-limit
+       txpool-global-queue-limit
        kzg-verifier-command
        kzg-verifier-timeout-seconds
        (public-allowed-method-p #'engine-rpc-public-method-p)
@@ -383,6 +389,8 @@
             allow-unprotected-transactions-p
             :txpool-price-limit txpool-price-limit
             :txpool-price-bump-percent txpool-price-bump-percent
+            :txpool-account-queue-limit txpool-account-queue-limit
+            :txpool-global-queue-limit txpool-global-queue-limit
             :telemetry-sink telemetry-sink)))
     (chain-store-put-block store genesis-block :state-available-p t)
     (commit-state-db-to-chain-store store (block-hash genesis-block) state)
@@ -429,6 +437,8 @@
      :allow-unprotected-transactions-p allow-unprotected-transactions-p
      :txpool-price-limit txpool-price-limit
      :txpool-price-bump-percent txpool-price-bump-percent
+     :txpool-account-queue-limit txpool-account-queue-limit
+     :txpool-global-queue-limit txpool-global-queue-limit
      :kzg-verifier-command kzg-verifier-command
      :kzg-verifier-timeout-seconds
      (and kzg-verifier-command
@@ -524,6 +534,10 @@
           :txpool-price-limit (devnet-node-txpool-price-limit node)
           :txpool-price-bump-percent
           (devnet-node-txpool-price-bump-percent node)
+          :txpool-account-queue-limit
+          (devnet-node-txpool-account-queue-limit node)
+          :txpool-global-queue-limit
+          (devnet-node-txpool-global-queue-limit node)
           :kzg-verifier-command (devnet-node-kzg-verifier-command node)
           :kzg-verifier-timeout-seconds
           (devnet-node-kzg-verifier-timeout-seconds node)
@@ -571,6 +585,10 @@
       ("txpoolPriceLimit" . ,(or (getf summary :txpool-price-limit) :false))
       ("txpoolPriceBump" .
        ,(or (getf summary :txpool-price-bump-percent) :false))
+      ("txpoolAccountQueue" .
+       ,(or (getf summary :txpool-account-queue-limit) :false))
+      ("txpoolGlobalQueue" .
+       ,(or (getf summary :txpool-global-queue-limit) :false))
       ("networkId" . ,(getf summary :network-id))
       ("publicApiModules" . ,(getf summary :public-api-modules))
       ("engineCorsOrigins" . ,(getf summary :engine-cors-origins))
@@ -789,7 +807,7 @@
     "--metrics.port" "--pprof.addr" "--pprof.port" "--txpool.locals"
     "--txpool.journal" "--txpool.rejournal"
     "--txpool.accountslots" "--txpool.globalslots"
-    "--txpool.accountqueue" "--txpool.globalqueue" "--txpool.lifetime"
+    "--txpool.lifetime"
     "--txpool.blobpool.datacap" "--txpool.blobpool.pricebump"
     "--dev.period" "--dev.gaslimit"
     "--kzg-verifier-command" "--kzg.verifier-command"
@@ -1023,6 +1041,12 @@
         ((and (string= section "Eth.TxPool") (string= key "PriceBump")
               (non-empty-scalar))
          (list "--txpool.pricebump" scalar))
+        ((and (string= section "Eth.TxPool") (string= key "AccountQueue")
+              (non-empty-scalar))
+         (list "--txpool.accountqueue" scalar))
+        ((and (string= section "Eth.TxPool") (string= key "GlobalQueue")
+              (non-empty-scalar))
+         (list "--txpool.globalqueue" scalar))
         ((and (string= section "Eth.Miner") (string= key "GasCeil")
               (non-empty-scalar))
          (list "--miner.gaslimit" scalar))
@@ -1237,6 +1261,8 @@
         (allow-unprotected-transactions-p nil)
         (txpool-price-limit nil)
         (txpool-price-bump-percent nil)
+        (txpool-account-queue-limit nil)
+        (txpool-global-queue-limit nil)
         (serve-p t)
         (summary-format :sexp)
         (ready-file nil)
@@ -1454,6 +1480,18 @@
                   (setf txpool-price-bump-percent
                         (devnet-cli-parse-non-negative-integer value option)
                         args rest)))
+               ((string= option "--txpool.accountqueue")
+                (multiple-value-bind (value rest)
+                    (devnet-cli-next-value args option)
+                  (setf txpool-account-queue-limit
+                        (devnet-cli-parse-non-negative-integer value option)
+                        args rest)))
+               ((string= option "--txpool.globalqueue")
+                (multiple-value-bind (value rest)
+                    (devnet-cli-next-value args option)
+                  (setf txpool-global-queue-limit
+                        (devnet-cli-parse-non-negative-integer value option)
+                        args rest)))
                ((member option *devnet-cli-value-options* :test #'string=)
                 (multiple-value-bind (value rest)
                     (devnet-cli-next-value args option)
@@ -1502,6 +1540,8 @@
           :allow-unprotected-transactions-p allow-unprotected-transactions-p
           :txpool-price-limit txpool-price-limit
           :txpool-price-bump-percent txpool-price-bump-percent
+          :txpool-account-queue-limit txpool-account-queue-limit
+          :txpool-global-queue-limit txpool-global-queue-limit
           :state-prune-before state-prune-before
           :max-connections max-connections
           :serve-p serve-p
@@ -1852,6 +1892,14 @@
        ,(if (getf summary :txpool-price-bump-percent)
             (write-to-string (getf summary :txpool-price-bump-percent))
             ""))
+      ("txpoolAccountQueue" .
+       ,(if (getf summary :txpool-account-queue-limit)
+            (write-to-string (getf summary :txpool-account-queue-limit))
+            ""))
+      ("txpoolGlobalQueue" .
+       ,(if (getf summary :txpool-global-queue-limit)
+            (write-to-string (getf summary :txpool-global-queue-limit))
+            ""))
       ("headGasLimit" . ,(if (getf summary :head-gas-limit)
                               (quantity-to-hex
                                (getf summary :head-gas-limit))
@@ -2096,6 +2144,10 @@
                                 (getf options :txpool-price-limit)
                                 :txpool-price-bump-percent
                                 (getf options :txpool-price-bump-percent)
+                                :txpool-account-queue-limit
+                                (getf options :txpool-account-queue-limit)
+                                :txpool-global-queue-limit
+                                (getf options :txpool-global-queue-limit)
                                 :kzg-verifier-command
                                 (getf options :kzg-verifier-command)
                                 :kzg-verifier-timeout-seconds
