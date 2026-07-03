@@ -1382,6 +1382,11 @@ first pass, but interfaces must not block that path.
   remains disabled and unreachable while authenticated Engine payload import,
   forkchoice, shutdown head telemetry, and fresh `--no-serve --http=false`
   restore all preserve the imported child head.
+  The initialized-datadir import paths now also enforce the discovered JWT
+  secret before executable work: split and Engine-only subprocess coverage
+  rejects unauthenticated and wrong-token `engine_newPayloadV2` requests before
+  accepting the authenticated payload import, while the split public listener
+  keeps `eth_syncing` reachable and rejects Engine namespace methods.
   Public `net_version` now
   follows the configured devnet `networkId` while `eth_chainId` remains tied
   to the genesis chain config, matching geth-shaped runner expectations where

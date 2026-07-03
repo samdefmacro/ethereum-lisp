@@ -7493,6 +7493,18 @@ splits can land after the Phase A smoke path closes.
     Engine-only connection counts in shutdown telemetry, and starts a fresh
     no-command `--no-serve --http=false` process from the same datadir
     database to verify restored head/state with public RPC still disabled.
+- [x] `DEVNET-RUNNER-NO-COMMAND-DATADIR-IMPORT-AUTH-REJECTS`: Lock JWT
+  rejection and split namespace behavior on initialized datadir no-command
+  import paths.
+  - Result (2026-07-03): the split and Engine-only initialized datadir import
+    subprocess tests now send unauthenticated and wrong-token
+    `engine_newPayloadV2` requests to the ready-file `/engine` endpoint before
+    the authenticated payload import. Both launch shapes require HTTP 401 for
+    those rejected Engine requests while preserving authenticated
+    `engine_newPayloadV2` / `engine_forkchoiceUpdatedV2`, shutdown head
+    telemetry, and fresh `--no-serve` restore. The split import path also
+    keeps public `eth_syncing` reachable and proves the public `/rpc` listener
+    rejects Engine namespace methods.
 
 - [x] `PINNED-V5.4.0-BN254-GAS-STATE`: Pin official BN254 precompile gas-cost
   state selectors.

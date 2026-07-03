@@ -8326,6 +8326,10 @@
                   (cons "params" '()))))
          (balance-body
            (json-encode (engine-fixture-balance-request 734 recipient)))
+         (public-syncing-body
+           "{\"jsonrpc\":\"2.0\",\"id\":735,\"method\":\"eth_syncing\",\"params\":[]}")
+         (public-engine-body
+           "{\"jsonrpc\":\"2.0\",\"id\":736,\"method\":\"engine_exchangeCapabilities\",\"params\":[[]]}")
          (process nil))
     (unwind-protect
          (progn
@@ -8394,7 +8398,7 @@
                         "--pid-file"
                         (namestring pid-path)
                         "--max-connections"
-                        "2")
+                        "4")
                   :directory #P"/private/tmp/"
                   :output :stream
                   :error-output :stream))
@@ -8428,10 +8432,19 @@
                                     (devnet-cli-file-string
                                      datadir-jwt-path))))
                     (token (engine-rpc-make-jwt-token jwt-secret 0))
+                    (wrong-token
+                      (engine-rpc-make-jwt-token
+                       (hex-to-bytes
+                        "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
+                       0))
+                    unauthenticated-engine-response
+                    invalid-auth-engine-response
                     new-payload-response
                     forkchoice-response
                     block-number-response
-                    balance-response)
+                    balance-response
+                    public-syncing-response
+                    public-engine-response)
                (is (= pid (fixture-object-field ready-summary "processId")))
                (is (stringp engine-endpoint))
                (is (stringp rpc-endpoint))
@@ -8457,6 +8470,19 @@
                       (fixture-object-field ready-summary "headNumber")))
                (handler-case
                    (progn
+                     (setf unauthenticated-engine-response
+                           (devnet-cli-http-endpoint-request
+                            engine-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             new-payload-body
+                             :target "/engine")))
+                     (setf invalid-auth-engine-response
+                           (devnet-cli-http-endpoint-request
+                            engine-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             new-payload-body
+                             :target "/engine"
+                             :token wrong-token)))
                      (setf new-payload-response
                            (devnet-cli-http-endpoint-request
                             engine-endpoint
@@ -8482,14 +8508,33 @@
                             rpc-endpoint
                             (devnet-cli-json-rpc-http-request
                              balance-body
+                             :target "/rpc")))
+                     (setf public-syncing-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             public-syncing-body
+                             :target "/rpc")))
+                     (setf public-engine-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             public-engine-body
                              :target "/rpc"))))
                  (sb-bsd-sockets:operation-not-permitted-error ()
                    (skip-test
                     "Local socket connect is not permitted in this sandbox")))
+               (is (= 401
+                      (devnet-cli-http-status
+                       unauthenticated-engine-response)))
+               (is (= 401
+                      (devnet-cli-http-status invalid-auth-engine-response)))
                (dolist (response (list new-payload-response
                                        forkchoice-response
                                        block-number-response
-                                       balance-response))
+                                       balance-response
+                                       public-syncing-response
+                                       public-engine-response))
                  (is (= 200 (devnet-cli-http-status response))))
                (let* ((new-payload-rpc
                         (parse-json
@@ -8508,11 +8553,21 @@
                          (devnet-cli-http-body block-number-response)))
                       (balance-rpc
                         (parse-json
-                         (devnet-cli-http-body balance-response))))
+                         (devnet-cli-http-body balance-response)))
+                      (public-syncing-rpc
+                        (parse-json
+                         (devnet-cli-http-body public-syncing-response)))
+                      (public-engine-rpc
+                        (parse-json
+                         (devnet-cli-http-body public-engine-response)))
+                      (public-engine-error
+                        (fixture-object-field public-engine-rpc "error")))
                  (is (= 731 (fixture-object-field new-payload-rpc "id")))
                  (is (= 732 (fixture-object-field forkchoice-rpc "id")))
                  (is (= 733 (fixture-object-field block-number-rpc "id")))
                  (is (= 734 (fixture-object-field balance-rpc "id")))
+                 (is (= 735 (fixture-object-field public-syncing-rpc "id")))
+                 (is (= 736 (fixture-object-field public-engine-rpc "id")))
                  (is (string= +payload-status-valid+
                               (fixture-object-field new-payload-result
                                                     "status")))
@@ -8527,7 +8582,11 @@
                                                     "result")))
                  (is (string= (fixture-object-field expect
                                                     "recipientBalance")
-                              (fixture-object-field balance-rpc "result"))))
+                              (fixture-object-field balance-rpc "result")))
+                 (is (not (fixture-object-field public-syncing-rpc
+                                                "result")))
+                 (is (= -32601
+                        (fixture-object-field public-engine-error "code"))))
                (let ((status (devnet-cli-wait-process-exit process 30)))
                  (when (eq status :timeout)
                    (uiop:terminate-process process))
@@ -8570,15 +8629,15 @@
                                     (cdr (assoc "headHash"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "2"
+                       (is (string= "4"
                                     (cdr (assoc "engineConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "2"
+                       (is (string= "4"
                                     (cdr (assoc "publicConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "4"
+                       (is (string= "8"
                                     (cdr (assoc "totalConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
@@ -9170,7 +9229,7 @@
                         "--pid-file"
                         (namestring pid-path)
                         "--max-connections"
-                        "2")
+                        "4")
                   :directory #P"/private/tmp/"
                   :output :stream
                   :error-output :stream))
@@ -9204,6 +9263,13 @@
                                     (devnet-cli-file-string
                                      datadir-jwt-path))))
                     (token (engine-rpc-make-jwt-token jwt-secret 0))
+                    (wrong-token
+                      (engine-rpc-make-jwt-token
+                       (hex-to-bytes
+                        "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
+                       0))
+                    unauthenticated-engine-response
+                    invalid-auth-engine-response
                     new-payload-response
                     forkchoice-response)
                (is (= pid (fixture-object-field ready-summary "processId")))
@@ -9231,6 +9297,19 @@
                          configured-public-endpoint)))
                (handler-case
                    (progn
+                     (setf unauthenticated-engine-response
+                           (devnet-cli-http-endpoint-request
+                            engine-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             new-payload-body
+                             :target "/engine")))
+                     (setf invalid-auth-engine-response
+                           (devnet-cli-http-endpoint-request
+                            engine-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             new-payload-body
+                             :target "/engine"
+                             :token wrong-token)))
                      (setf new-payload-response
                            (devnet-cli-http-endpoint-request
                             engine-endpoint
@@ -9248,6 +9327,11 @@
                  (sb-bsd-sockets:operation-not-permitted-error ()
                    (skip-test
                     "Local socket connect is not permitted in this sandbox")))
+               (is (= 401
+                      (devnet-cli-http-status
+                       unauthenticated-engine-response)))
+               (is (= 401
+                      (devnet-cli-http-status invalid-auth-engine-response)))
                (is (= 200 (devnet-cli-http-status new-payload-response)))
                (is (= 200 (devnet-cli-http-status forkchoice-response)))
                (let* ((new-payload-rpc
@@ -9316,7 +9400,7 @@
                                     (cdr (assoc "headHash"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "2"
+                       (is (string= "4"
                                     (cdr (assoc "engineConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
@@ -9324,7 +9408,7 @@
                                     (cdr (assoc "publicConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "2"
+                       (is (string= "4"
                                     (cdr (assoc "totalConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
