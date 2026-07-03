@@ -7579,6 +7579,22 @@ splits can land after the Phase A smoke path closes.
     `devnet.ready` / `devnet.shutdown` telemetry keep
     `publicRpcEnabled=false`, disabled/empty `rpcEndpoint`, matching process
     ids, and zero served connections.
+- [x] `DEVNET-RUNNER-CONFIG-FILE-COMPAT`: Consume geth/Hive
+  `--config PATH` runner flags without blocking current devnet startup.
+  - Milestone: 7 / Phase B Hive process-runner readiness
+  - Acceptance: `--config PATH` is accepted as a compatibility value option
+    for devnet, init, and pre-command dispatch, including direct no-command
+    `--dev` launches, while missing values still fail before genesis loading.
+  - Validation: `sbcl --script tests/run-tests.lisp`;
+    `sbcl --script scripts/devnet-smoke-gate.lisp -- --json`.
+  - Result (2026-07-03): `--config PATH` is now a shared geth/Hive
+    compatibility value option. Parser coverage locks both `--config=PATH`
+    and `--config PATH`; runner-facing script coverage initializes a datadir
+    with `--config` before `init`, restores it with `--config` before
+    explicit `devnet`, and starts the direct no-command `--config PATH --dev`
+    split Engine/public process through ready/log/pid artifacts and live
+    Engine/public RPC probes. The flag is intentionally consumed but not
+    parsed as TOML until configuration import semantics are defined.
 
 - [x] `PINNED-V5.4.0-BN254-GAS-STATE`: Pin official BN254 precompile gas-cost
   state selectors.

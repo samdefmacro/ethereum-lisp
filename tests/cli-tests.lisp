@@ -3311,6 +3311,7 @@
            (is (= 0
                   (ethereum-lisp.cli:main
                    (list "devnet"
+                         "--config=/tmp/ethereum-lisp-geth.toml"
                          (format nil "--genesis=~A"
                                  +devnet-cli-genesis-fixture+)
                          "--authrpc.addr=192.0.2.30"
@@ -7388,6 +7389,8 @@
          (explicit-jwt-path
            (devnet-cli-temp-path "ethereum-lisp-script-init-datadir-jwt"
                                  "hex"))
+         (config-path
+           (merge-pathnames "geth.toml" datadir))
          (ready-path
            (merge-pathnames "runner/ready.json" datadir))
          (log-path
@@ -7405,8 +7408,11 @@
            (progn
              (devnet-cli-write-temp-file explicit-jwt-path
                                          +devnet-cli-jwt-secret+)
+             (devnet-cli-write-temp-file config-path
+                                         "# runner config placeholder\n")
              (multiple-value-bind (stdout stderr status)
                  (run-script "--datadir" (namestring datadir)
+                             "--config" (namestring config-path)
                              "--cache" "128"
                              "--cache.database=64"
                              "--gcmode" "archive"
@@ -7540,6 +7546,7 @@
                            (devnet-cli-file-string datadir-jwt-path))))
              (multiple-value-bind (stdout stderr status)
                  (run-script "--identity" "init"
+                             "--config" (namestring config-path)
                              "--datadir" (namestring datadir)
                              "devnet"
                              "--json"
@@ -7561,6 +7568,8 @@
           (delete-file datadir-jwt-path))
         (when (probe-file explicit-jwt-path)
           (delete-file explicit-jwt-path))
+        (when (probe-file config-path)
+          (delete-file config-path))
         (when (probe-file ready-path)
           (delete-file ready-path))
         (when (probe-file log-path)
@@ -15479,6 +15488,9 @@
                      (cons "terminalBlockNumber" "0x42")))))))
         (jwt-path
           (devnet-cli-temp-path "ethereum-lisp-script-no-command-split" "jwt"))
+        (config-path
+          (devnet-cli-temp-path "ethereum-lisp-script-no-command-split"
+                                "toml"))
         (ready-path
           (devnet-cli-temp-path
            "ethereum-lisp-script-no-command-split-ready" "json"))
@@ -15490,12 +15502,16 @@
     (unwind-protect
          (progn
            (devnet-cli-write-temp-file jwt-path +devnet-cli-jwt-secret+)
+           (devnet-cli-write-temp-file config-path
+                                       "# runner config placeholder\n")
            (setf process
                  (uiop:launch-program
                   (list "sbcl"
                         "--script"
                         script
                         "--"
+                        "--config"
+                        (namestring config-path)
                         "--dev"
                         "--authrpc.addr"
                         "127.0.0.1"
@@ -15790,7 +15806,7 @@
                                                 :test #'string=)))))))))))
       (when (and process (uiop:process-alive-p process))
         (uiop:terminate-process process))
-      (dolist (path (list jwt-path ready-path log-path pid-path))
+      (dolist (path (list jwt-path config-path ready-path log-path pid-path))
         (when (probe-file path)
           (delete-file path))))))
 
@@ -17068,6 +17084,8 @@
   (let ((options
           (ethereum-lisp.cli::devnet-cli-options
            (list "devnet"
+                 "--config"
+                 "/tmp/ethereum-lisp-geth.toml"
                  "--gcmode=archive"
                  "--cache"
                  "256"
@@ -17262,6 +17280,8 @@
                 (run-error (list "devnet" "--genesis"))))
     (is (search "--genesis requires a value"
                 (run-error (list "devnet" "--genesis" "--no-serve"))))
+    (is (search "--config requires a value"
+                (run-error (list "devnet" "--config" "--no-serve"))))
     (is (search "--host requires a value"
                 (run-error (list "devnet" "--host" "--no-serve"))))
     (is (search "--engine-host requires a value"
