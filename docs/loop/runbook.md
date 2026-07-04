@@ -18,6 +18,31 @@ fresh task specification.
 The implementer must not be the only judge of success. Deterministic checks are
 authoritative; model review is an additional guard, not a substitute for tests.
 
+## Loop Health Check
+
+Every automation that touches this loop must verify the workflow is actually
+closed, not only that a prompt or run specification exists.
+
+Required live edges:
+
+- an orchestrator path can create or refresh `docs/loop/next-run.md`;
+- an implementer path can consume a pending `docs/loop/next-run.md` and edit
+  code;
+- a verifier path can review implementation diffs before commit;
+- a successful implementation path can commit, push, and either generate the
+  next run specification or leave an explicit orchestrator wakeup.
+
+If `docs/loop/next-run.md` has a pending implementer stop state but no active
+consumer automation exists, the loop is `BLOCKED_EXTERNAL`; notify instead of
+reporting `NOOP`. Do not delete the last active automation merely because the
+orchestrator portion is producing no-op checks. Either convert it into a loop
+driver or create the missing implementer automation first.
+
+Loop contract documents may be dirty between orchestrator and implementer
+runs. That is not implementation dirty work, but the implementer must account
+for those files when staging and committing so generated run contracts do not
+remain stranded indefinitely.
+
 ## Start-of-Run Protocol
 
 Every loop run begins with a bounded orientation window:
@@ -97,4 +122,3 @@ are present, leave them untouched and report them separately.
 
 Commit messages should describe the behavior or loop contract added, not the
 mechanics of agent execution.
-

@@ -4,17 +4,21 @@
 
 - Date: 2026-07-04
 - Orchestrator model: Codex
-- Implementer model: pending assignment
-- Verifier model: pending assignment, should differ from implementer when
-  possible
+- Implementer model: recommended default implementer model
+- Verifier model: different model from implementer when available
 - Target branch: `main`
-- Stop state: `SUCCESS_COMMITTED` once commit and push complete
+- Stop state: pending implementer; the implementer must end in exactly one
+  runbook stop state, preferably `SUCCESS_COMMITTED`
 
 ## Orientation Summary
 
-- Git state: `main` is aligned with `origin/main`, with existing uncommitted
-  txpool slot-limit implementation changes plus this loop migration.
+- Git state: `main` is aligned with `origin/main`; dirty files are the
+  orchestrator-generated loop contract updates in `docs/loop/next-run.md`,
+  `docs/loop/state.md`, and `docs/tasks.md`. No dirty implementation files
+  were reported during orientation.
 - Recent commits reviewed:
+  - `80e347b Enforce txpool slot admission limits`
+  - `d8b0d07 Add autonomous development loop docs`
   - `70158f2 Honor txpool local exemptions`
   - `987e4ed Enforce txpool queue limit admission`
   - `d430af9 Enforce txpool price bump admission`
@@ -25,149 +29,183 @@
   - `5c63dd3 Parse geth config for devnet runners`
   - `9ef6a7b Accept geth chain preset runner flags`
   - `b296db7 Accept geth config flag in devnet CLI`
-  - `bc38e99 Use Hive KZG aliases in devnet smoke`
-  - `b4cd063 Cover KZG verifier Hive aliases`
 - Relevant task/roadmap anchors:
-  - Phase B devnet/process-runner readiness remains the preferred strategic
-    path.
-  - Txpool correctness affecting public RPC admission is also high value.
-  - `DEVNET-RUNNER-TXPOOL-SLOT-LIMITS` is implemented in the dirty tree but
-    not committed.
+  - `DEVNET-RUNNER-TXPOOL-LIFETIME` is now the active unchecked task.
+  - Roadmap Section 7 still lists txpool policy beyond the current in-memory
+    pending pool, including lifetime/eviction knobs, as partial.
+  - Real KZG verification remains the only broad explicit unchecked task, but
+    it needs an external trusted backend decision before it is the best default
+    implementation slice.
 - Relevant loop state:
-  - `docs/loop/state.md` records the dirty txpool slice, the verifier-found
-    promotion bypass fix, and the now-passing devnet/socket validation gate.
+  - The previous txpool slot-limit slice is closed, validated, independently
+    reviewed, committed, and pushed as `80e347b`.
+  - Current strategic preference remains Phase B devnet/Engine/process-runner
+    readiness and executable txpool behavior over fixture widening.
 
 ## Candidate Ranking
 
 ### Candidate A
 
-- Objective: Resolve validation and review for the existing txpool
-  account/global slot-limit slice.
-- Value: High.
-- Risk: Low implementation risk, medium environment risk because a socket-gated
-  smoke gate requires escalation.
+- Objective: Make `--txpool.lifetime` affect real public txpool eviction for
+  stale queued-view transactions.
+- Value: High. It closes a documented Phase B txpool policy gap, turns another
+  geth/Hive runner flag from compatibility parsing into behavior, and affects
+  public RPC visibility in devnet scenarios.
+- Risk: Medium. The implementation may need deterministic admission-time
+  metadata and cleanup boundaries across pending, queued, basefee, blob, and
+  hash lookup views.
 - Required validation:
-  - `git diff --check`
-  - `sbcl --script tests/run-tests.lisp` reached and passed the relevant
-    txpool slot-limit and promotion tests, then failed only at the known
-    sandbox socket-gated devnet include test
-  - `sbcl --script scripts/phase-a-smoke-gate.lisp -- --json --devnet` passed
-    with local socket/network escalation
-  - independent verifier review before commit
+  - focused txpool and CLI tests while iterating;
+  - `git diff --check`;
+  - `sbcl --script tests/run-tests.lisp` once before commit;
+  - escalated `sbcl --script scripts/devnet-smoke-gate.lisp -- --json` if
+    listener/process-reporting behavior changes.
 - Decision: Selected.
-- Reason: The code is already implemented and directly advances public txpool
-  admission behavior. Stacking another feature on top of an uncommitted,
-  validation-blocked slice would increase integration risk.
+- Reason: It is the highest-value unblocked executable-client slice found by
+  orientation and aligns with Phase B devnet/Hive txpool readiness.
 
 ### Candidate B
 
-- Objective: Start another Phase B devnet/process-runner slice.
-- Value: High.
-- Risk: High while current txpool changes remain dirty and unverified.
-- Required validation: full suite plus devnet/socket smoke gate depending on
-  scope.
+- Objective: Integrate real KZG proof verification.
+- Value: High for Cancun/blob acceptance and future Engine capability
+  advertisement.
+- Risk: High. It requires selecting or providing a trusted backend/library and
+  trusted setup path; the current command-backed verifier hook is present, but
+  a default real backend is an external dependency decision.
+- Required validation:
+  - KZG proof-vector coverage;
+  - blob sidecar validation tests;
+  - Engine capability negotiation tests;
+  - full suite.
 - Decision: Deferred.
-- Reason: It would compound the current dirty work before closing the existing
-  validation loop.
+- Reason: Valuable but externally constrained. Do not make it the default
+  automation slice without a concrete backend input.
 
 ### Candidate C
 
-- Objective: Official v5.4.0 fixture drift classification.
-- Value: Medium.
+- Objective: Classify remaining official v5.4.0 fixture drift.
+- Value: Medium. It improves the map of upstream/pinned gaps.
 - Risk: Low to medium.
-- Required validation: classifier/probe output and possibly pinned smoke gate.
+- Required validation:
+  - selector probe/classifier output against
+    `.cache/eest-v5.4.0/root/fixtures`;
+  - pinned smoke gate only if pinned tables change.
 - Decision: Deferred.
-- Reason: Useful, but lower value than closing the already-implemented Phase B
-  txpool behavior slice.
+- Reason: Useful, but lower priority than executable Phase B txpool behavior
+  now that the local devnet/process surface is the strategic focus.
 
 ## Selected Objective
 
-Complete verifier review, commit, and push for the dirty txpool account/global
-slot-limit slice. Do not add more implementation behavior before this slice is
-closed.
+Implement deterministic txpool lifetime eviction for stale queued-view public
+transactions, wired from `--txpool.lifetime` and geth TOML config into the
+devnet/public-RPC txpool path.
 
 ## Scope
 
 Allowed files/modules:
 
-- Existing dirty txpool slot-limit files only if a verifier or gate finds a
-  concrete bug:
-  - `src/core.lisp`
-  - `src/public-rpc.lisp`
-  - `src/cli.lisp`
-  - `tests/core-tests.lisp`
-  - `tests/cli-tests.lisp`
-  - `docs/tasks.md`
-  - `docs/roadmap.md`
-- Loop files under `docs/loop/` for status updates.
+- `src/core.lisp`
+- `src/public-rpc.lisp`
+- `src/cli.lisp`
+- `tests/core-tests.lisp`
+- `tests/cli-tests.lisp`
+- `scripts/devnet-smoke-gate.lisp` only if the behavior must be visible in the
+  socket/process smoke report
+- `docs/tasks.md`
+- `docs/roadmap.md`
+- `docs/loop/state.md`
+- `docs/loop/next-run.md`
 
 Expected behavior changes:
 
-- No new behavior should be added beyond the existing txpool slot-limit slice.
-- The next run should either validate and commit it, or preserve the
-  validation blocker.
+- Parse `--txpool.lifetime DURATION` as a non-negative duration and reject
+  malformed values deterministically.
+- Import geth TOML `[Eth.TxPool] Lifetime` when present, with explicit CLI
+  flags taking precedence.
+- Report the effective txpool lifetime in devnet JSON summaries, ready files,
+  and lifecycle telemetry when configured.
+- Track deterministic admission age for public txpool entries without tests
+  depending on wall-clock sleeps.
+- Expire stale queued-view entries from queued/basefee/blob subpools before
+  public txpool views and hash lookup expose them.
+- Do not expire executable pending transactions in this slice.
+- Same-sender/same-nonce replacements should refresh the entry's effective
+  age.
 
 Non-goals:
 
-- Do not widen fixtures.
-- Do not start another devnet runner feature.
-- Do not refactor unrelated txpool or RPC code.
-- Do not commit without deterministic validation and verifier approval.
+- Do not implement txpool journaling or `--txpool.rejournal`.
+- Do not add block production, mining, or periodic background cleanup.
+- Do not change pending slot/queue/price/local exemption semantics except where
+  needed to preserve lifetime cleanup correctness.
+- Do not start real KZG integration.
+- Do not widen pinned fixture tables.
 
 ## Acceptance Criteria
 
-- The required devnet/socket smoke gate has run with escalation and passed.
-- `git diff --check` passes after any additional edits.
-- If any code fix is made, the full suite policy in `docs/loop/validation.md`
-  is followed.
-- A verifier reviews the diff against this run specification.
-- On success, the txpool slice is committed and pushed.
-- On blocker, `docs/loop/state.md` remains accurate and no unrelated work is
-  added.
+- `--txpool.lifetime` accepts documented duration forms already supported by
+  the CLI compatibility parser or adds one consistent parser used by tests.
+- Malformed lifetime values fail with a specific diagnostic.
+- Config-file lifetime import and CLI override precedence are covered.
+- Public txpool status/content/inspect/hash views no longer expose stale
+  queued-view entries after deterministic cleanup.
+- Pending executable entries remain visible even when older than the configured
+  lifetime.
+- Replacements refresh age and are not immediately evicted because of the
+  replaced transaction's old timestamp.
+- `docs/tasks.md`, `docs/roadmap.md`, and `docs/loop/state.md` are updated only
+  for actual status changes.
+- A verifier reviews the final diff against this run specification before
+  commit.
 
 ## Validation Plan
 
 Focused gates:
 
-- `git diff --check`
-- `sbcl --script scripts/phase-a-smoke-gate.lisp -- --json --devnet` passed
+- Add and run focused txpool/CLI tests if a local narrow test entrypoint exists;
+  otherwise rely on the full suite once after implementation.
+- Use deterministic injected time or explicit admission timestamps in tests.
 
 Required pre-commit gates:
 
 - `git diff --check`
-- `sbcl --script tests/run-tests.lisp` if code changes after the last full
-  suite run
+- `sbcl --script tests/run-tests.lisp`
 - independent verifier `PASS`
 
 Escalation requirements:
 
-- The devnet/socket smoke gate requires local socket/network escalation.
+- If the implementation changes listener/process-runner reporting or the
+  standalone devnet smoke report, request local socket/network escalation for:
+  `sbcl --script scripts/devnet-smoke-gate.lisp -- --json`
+- Do not silently skip a required socket gate.
 
 ## Commit And Push Policy
 
-- Commit allowed: only after deterministic gates and verifier review pass.
-- Push allowed: yes, if commit succeeds and remote authentication is available.
-- Commit message: `Enforce txpool slot admission limits`
+- Commit allowed: yes, only after deterministic gates and verifier review pass.
+- Push allowed: yes, after commit if remote authentication is available.
+- Commit message: `Expire stale txpool queued transactions`
 
 ## Blockers
 
-- No current validation blocker remains. Second verifier review passed after
-  the queued/basefee promotion fix.
+- No current git synchronization blocker.
+- KZG integration remains blocked on concrete trusted-backend selection, but it
+  does not block this txpool lifetime slice.
 
 ## Implementer Notes
 
-- Treat the current txpool code as implemented and deterministically validated,
-  pending independent verifier review.
-- The first verifier review found queued/basefee promotion could bypass
-  pending slot caps. The fix re-parks promotion candidates when caps are full
-  and adds queued-first promotion regression coverage.
-- The escalated devnet smoke gate passed after the earlier environment
-  usage-limit blocker was resolved.
-- Do not touch unrelated dirty work.
+- Keep the slice vertical and bounded: CLI/config parsing, core txpool cleanup,
+  public RPC visibility, and tests.
+- Prefer deterministic cleanup at public RPC/admission boundaries over a
+  background timer; long-running scheduling is outside this slice.
+- Be careful with local transaction exemptions: lifetime behavior should be
+  specified and tested explicitly if local entries are affected. If existing
+  geth semantics are unclear from local code, preserve local entries unless the
+  implementation can justify expiring them.
+- Avoid wall-clock sleeps in tests. Add an injectable clock or metadata helper
+  if needed.
 
 ## Verifier Result
 
-- Status: PASS.
-- Findings: no actionable findings after the promotion-cap fix.
-- Residual risk: verifier did not independently rerun validation; deterministic
-  validation was run by the main agent.
+- Status: pending
+- Findings: pending
+- Residual risk: pending
