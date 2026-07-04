@@ -5195,10 +5195,13 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defun engine-pending-txpool-put-pending-transaction
     (txpool transaction
-     &key (price-bump-percent +txpool-replacement-price-bump-percent+))
+     &key (price-bump-percent +txpool-replacement-price-bump-percent+)
+          account-slot-limit
+          global-slot-limit)
   (let ((key (engine-pending-txpool-hash-key
               (transaction-hash transaction)))
         (transactions (engine-pending-txpool-transactions txpool))
+        (sender-index (engine-pending-txpool-transactions-by-sender txpool))
         (cross-subpool-conflicts
           (engine-pending-txpool-cross-subpool-conflicts
            txpool transaction :pending)))
@@ -5213,6 +5216,19 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                   (engine-pending-txpool-pending-conflict
                    txpool
                    transaction)))
+            (when (and (null conflict)
+                       global-slot-limit
+                       (>= (hash-table-count transactions) global-slot-limit))
+              (block-validation-fail
+               "Pending transaction exceeds txpool global slot limit"))
+            (when (and (null conflict)
+                       account-slot-limit
+                       (>= (engine-pending-txpool-sender-index-count
+                            sender-index
+                            transaction)
+                           account-slot-limit))
+              (block-validation-fail
+               "Pending transaction exceeds txpool account slot limit"))
             (when conflict
               (unless (engine-pending-txpool-replacement-transaction-p
                        conflict transaction
@@ -5549,7 +5565,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defun engine-payload-store-put-pending-transaction
     (store transaction
-     &key (price-bump-percent +txpool-replacement-price-bump-percent+))
+     &key (price-bump-percent +txpool-replacement-price-bump-percent+)
+          account-slot-limit
+          global-slot-limit)
   (unless (typep store 'engine-payload-memory-store)
     (block-validation-fail "Engine payload store must be a memory store"))
   (unless (typep transaction
@@ -5566,7 +5584,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (engine-pending-txpool-put-pending-transaction
        (engine-payload-store-txpool store)
        transaction
-       :price-bump-percent price-bump-percent)
+       :price-bump-percent price-bump-percent
+       :account-slot-limit account-slot-limit
+       :global-slot-limit global-slot-limit)
     (when inserted-p
       (engine-payload-store-notify-pending-transaction-filters
        store
@@ -5896,8 +5916,46 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 (engine-payload-store-queued-sender-index store)
             collect (address-from-hex sender-key))))
 
+(defun engine-payload-store-pending-slot-limit-error-p (condition)
+  (and (typep condition 'block-validation-error)
+       (member
+        (block-validation-error-message condition)
+        '("Pending transaction exceeds txpool global slot limit"
+          "Pending transaction exceeds txpool account slot limit")
+        :test #'string=)))
+
+(defun engine-payload-store-promotion-local-transaction-p
+    (transaction local-transaction-predicate)
+  (and local-transaction-predicate
+       (funcall local-transaction-predicate transaction)))
+
+(defun engine-payload-store-promote-transaction-to-pending
+    (store transaction &key account-slot-limit global-slot-limit
+                            local-transaction-predicate)
+  (let ((local-transaction-p
+          (engine-payload-store-promotion-local-transaction-p
+           transaction
+           local-transaction-predicate)))
+    (handler-case
+        (progn
+          (engine-payload-store-put-pending-transaction
+           store
+           transaction
+           :account-slot-limit
+           (unless local-transaction-p account-slot-limit)
+           :global-slot-limit
+           (unless local-transaction-p global-slot-limit))
+          :promoted)
+      (block-validation-error (condition)
+        (if (engine-payload-store-pending-slot-limit-error-p condition)
+            :slot-limit
+            (error condition))))))
+
 (defun engine-payload-store-promote-queued-sender-transactions
-    (store sender head base-fee &key expected-chain-id)
+    (store sender head base-fee &key expected-chain-id
+                                  account-slot-limit
+                                  global-slot-limit
+                                  local-transaction-predicate)
   (let ((promoted-transactions nil))
     (when (and head
                (chain-store-state-available-p store (block-hash head)))
@@ -5930,9 +5988,20 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                      ((engine-payload-store-transaction-funded-p
                        store transaction
                        :expected-chain-id expected-chain-id)
-                      (engine-payload-store-put-pending-transaction
-                       store transaction)
-                      (push transaction promoted-transactions))
+                      (case
+                          (engine-payload-store-promote-transaction-to-pending
+                           store
+                           transaction
+                           :account-slot-limit account-slot-limit
+                           :global-slot-limit global-slot-limit
+                           :local-transaction-predicate
+                           local-transaction-predicate)
+                        (:promoted
+                         (push transaction promoted-transactions))
+                        (:slot-limit
+                         (engine-payload-store-put-queued-transaction
+                          store transaction)
+                         (return))))
                      (t
                       (engine-payload-store-put-queued-transaction
                        store transaction)
@@ -5940,7 +6009,10 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (nreverse promoted-transactions)))
 
 (defun engine-payload-store-promote-queued-transactions
-    (store &optional sender &key expected-chain-id)
+    (store &optional sender &key expected-chain-id
+                                account-slot-limit
+                                global-slot-limit
+                                local-transaction-predicate)
   (let* ((head (chain-store-latest-block store))
          (header (and head (block-header head)))
          (base-fee (and header (block-header-base-fee-per-gas header)))
@@ -5951,11 +6023,16 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
             (nconc promoted-transactions
                    (engine-payload-store-promote-queued-sender-transactions
                     store candidate-sender head base-fee
-                    :expected-chain-id expected-chain-id))))
+                    :expected-chain-id expected-chain-id
+                    :account-slot-limit account-slot-limit
+                    :global-slot-limit global-slot-limit
+                    :local-transaction-predicate
+                    local-transaction-predicate))))
     promoted-transactions))
 
 (defun engine-payload-store-promote-basefee-transactions
-    (store &key expected-chain-id)
+    (store &key expected-chain-id account-slot-limit global-slot-limit
+                local-transaction-predicate)
   (let* ((head (chain-store-latest-block store))
          (header (and head (block-header head)))
          (base-fee (and header (block-header-base-fee-per-gas header)))
@@ -5993,9 +6070,20 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                       (engine-pending-txpool-remove-basefee-transaction
                        (engine-payload-store-txpool store)
                        (transaction-hash transaction))
-                      (engine-payload-store-put-pending-transaction
-                       store transaction)
-                      (push transaction promoted-transactions))
+                      (case
+                          (engine-payload-store-promote-transaction-to-pending
+                           store
+                           transaction
+                           :account-slot-limit account-slot-limit
+                           :global-slot-limit global-slot-limit
+                           :local-transaction-predicate
+                           local-transaction-predicate)
+                        (:promoted
+                         (push transaction promoted-transactions))
+                        (:slot-limit
+                         (engine-payload-store-put-basefee-transaction
+                          store transaction)
+                         (return))))
                      (t
                       (return)))))
         (loop for transaction =
@@ -6019,17 +6107,32 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                        (engine-pending-txpool-remove-basefee-transaction
                         (engine-payload-store-txpool store)
                         (transaction-hash transaction))
-                       (engine-payload-store-put-pending-transaction
-                        store transaction)
-                       (push transaction promoted-transactions)))))
+                       (case
+                           (engine-payload-store-promote-transaction-to-pending
+                            store
+                            transaction
+                            :account-slot-limit account-slot-limit
+                            :global-slot-limit global-slot-limit
+                            :local-transaction-predicate
+                            local-transaction-predicate)
+                         (:promoted
+                          (push transaction promoted-transactions))
+                         (:slot-limit
+                          (engine-payload-store-put-basefee-transaction
+                           store transaction)
+                          (return)))))))
     (nreverse promoted-transactions)))
 
 (defun engine-payload-store-promote-basefee-and-queued-transactions
-    (store &key expected-chain-id)
+    (store &key expected-chain-id account-slot-limit global-slot-limit
+                local-transaction-predicate)
   (let ((basefee-promoted
           (engine-payload-store-promote-basefee-transactions
            store
-           :expected-chain-id expected-chain-id))
+           :expected-chain-id expected-chain-id
+           :account-slot-limit account-slot-limit
+           :global-slot-limit global-slot-limit
+           :local-transaction-predicate local-transaction-predicate))
         (queued-promoted nil)
         (seen-senders (make-hash-table :test 'equal)))
     (dolist (transaction basefee-promoted)
@@ -6045,7 +6148,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                            (engine-payload-store-promote-queued-transactions
                             store
                             sender
-                            :expected-chain-id expected-chain-id))))))))
+                            :expected-chain-id expected-chain-id
+                            :account-slot-limit account-slot-limit
+                            :global-slot-limit global-slot-limit
+                            :local-transaction-predicate
+                            local-transaction-predicate))))))))
     (values basefee-promoted queued-promoted)))
 
 (defun engine-payload-store-stale-txpool-transaction-p
@@ -7078,6 +7185,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                             allow-unprotected-transactions-p
                             txpool-price-limit
                             txpool-price-bump-percent
+                            txpool-account-slot-limit
+                            txpool-global-slot-limit
                             txpool-account-queue-limit
                             txpool-global-queue-limit
                             txpool-local-addresses
@@ -7123,6 +7232,10 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                           :txpool-price-limit txpool-price-limit
                           :txpool-price-bump-percent
                           txpool-price-bump-percent
+                          :txpool-account-slot-limit
+                          txpool-account-slot-limit
+                          :txpool-global-slot-limit
+                          txpool-global-slot-limit
                           :txpool-account-queue-limit
                           txpool-account-queue-limit
                           :txpool-global-queue-limit
@@ -7163,6 +7276,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                             allow-unprotected-transactions-p
                             txpool-price-limit
                             txpool-price-bump-percent
+                            txpool-account-slot-limit
+                            txpool-global-slot-limit
                             txpool-account-queue-limit
                             txpool-global-queue-limit
                             txpool-local-addresses
@@ -7179,6 +7294,10 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                 :txpool-price-limit txpool-price-limit
                                 :txpool-price-bump-percent
                                 txpool-price-bump-percent
+                                :txpool-account-slot-limit
+                                txpool-account-slot-limit
+                                :txpool-global-slot-limit
+                                txpool-global-slot-limit
                                 :txpool-account-queue-limit
                                 txpool-account-queue-limit
                                 :txpool-global-queue-limit
@@ -7201,6 +7320,10 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                :txpool-price-limit txpool-price-limit
                                :txpool-price-bump-percent
                                txpool-price-bump-percent
+                               :txpool-account-slot-limit
+                               txpool-account-slot-limit
+                               :txpool-global-slot-limit
+                               txpool-global-slot-limit
                                :txpool-account-queue-limit
                                txpool-account-queue-limit
                                :txpool-global-queue-limit
@@ -7222,6 +7345,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                   allow-unprotected-transactions-p
                                   txpool-price-limit
                                   txpool-price-bump-percent
+                                  txpool-account-slot-limit
+                                  txpool-global-slot-limit
                                   txpool-account-queue-limit
                                   txpool-global-queue-limit
                                   txpool-local-addresses
@@ -7243,6 +7368,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
      :allow-unprotected-transactions-p allow-unprotected-transactions-p
      :txpool-price-limit txpool-price-limit
      :txpool-price-bump-percent txpool-price-bump-percent
+     :txpool-account-slot-limit txpool-account-slot-limit
+     :txpool-global-slot-limit txpool-global-slot-limit
      :txpool-account-queue-limit txpool-account-queue-limit
      :txpool-global-queue-limit txpool-global-queue-limit
      :txpool-local-addresses txpool-local-addresses
@@ -7256,6 +7383,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                   allow-unprotected-transactions-p
                                   txpool-price-limit
                                   txpool-price-bump-percent
+                                  txpool-account-slot-limit
+                                  txpool-global-slot-limit
                                   txpool-account-queue-limit
                                   txpool-global-queue-limit
                                   txpool-local-addresses
@@ -7271,6 +7400,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
            allow-unprotected-transactions-p
            :txpool-price-limit txpool-price-limit
            :txpool-price-bump-percent txpool-price-bump-percent
+           :txpool-account-slot-limit txpool-account-slot-limit
+           :txpool-global-slot-limit txpool-global-slot-limit
            :txpool-account-queue-limit txpool-account-queue-limit
            :txpool-global-queue-limit txpool-global-queue-limit
            :txpool-local-addresses txpool-local-addresses
@@ -7301,6 +7432,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                       network-id coinbase rpc-prefix cors-origins
                       allowed-hosts allow-unprotected-transactions-p
                       txpool-price-limit txpool-price-bump-percent
+                      txpool-account-slot-limit
+                      txpool-global-slot-limit
                       txpool-account-queue-limit
                       txpool-global-queue-limit
                       txpool-local-addresses txpool-no-local-exemptions-p)))
@@ -7321,6 +7454,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   allow-unprotected-transactions-p
   txpool-price-limit
   txpool-price-bump-percent
+  txpool-account-slot-limit
+  txpool-global-slot-limit
   txpool-account-queue-limit
   txpool-global-queue-limit
   txpool-local-addresses
@@ -7366,6 +7501,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
        allow-unprotected-transactions-p
        txpool-price-limit
        txpool-price-bump-percent
+       txpool-account-slot-limit
+       txpool-global-slot-limit
        txpool-account-queue-limit
        txpool-global-queue-limit
        txpool-local-addresses
@@ -7421,6 +7558,16 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                        (not (minusp txpool-price-bump-percent)))))
     (block-validation-fail
      "Engine RPC HTTP txpool price bump must be a non-negative integer"))
+  (when (and txpool-account-slot-limit
+             (not (and (integerp txpool-account-slot-limit)
+                       (not (minusp txpool-account-slot-limit)))))
+    (block-validation-fail
+     "Engine RPC HTTP txpool account slot limit must be a non-negative integer"))
+  (when (and txpool-global-slot-limit
+             (not (and (integerp txpool-global-slot-limit)
+                       (not (minusp txpool-global-slot-limit)))))
+    (block-validation-fail
+     "Engine RPC HTTP txpool global slot limit must be a non-negative integer"))
   (when (and txpool-account-queue-limit
              (not (and (integerp txpool-account-queue-limit)
                        (not (minusp txpool-account-queue-limit)))))
@@ -7456,6 +7603,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    :allow-unprotected-transactions-p allow-unprotected-transactions-p
    :txpool-price-limit txpool-price-limit
    :txpool-price-bump-percent txpool-price-bump-percent
+   :txpool-account-slot-limit txpool-account-slot-limit
+   :txpool-global-slot-limit txpool-global-slot-limit
    :txpool-account-queue-limit txpool-account-queue-limit
    :txpool-global-queue-limit txpool-global-queue-limit
    :txpool-local-addresses txpool-local-addresses
@@ -8128,6 +8277,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                allow-unprotected-transactions-p
                                txpool-price-limit
                                txpool-price-bump-percent
+                               txpool-account-slot-limit
+                               txpool-global-slot-limit
                                txpool-account-queue-limit
                                txpool-global-queue-limit
                                txpool-local-addresses
@@ -8211,6 +8362,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                      allow-unprotected-transactions-p
                      :txpool-price-limit txpool-price-limit
                      :txpool-price-bump-percent txpool-price-bump-percent
+                     :txpool-account-slot-limit txpool-account-slot-limit
+                     :txpool-global-slot-limit txpool-global-slot-limit
                      :txpool-account-queue-limit txpool-account-queue-limit
                      :txpool-global-queue-limit txpool-global-queue-limit
                      :txpool-local-addresses txpool-local-addresses
@@ -8233,6 +8386,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           allow-unprotected-transactions-p
           txpool-price-limit
           txpool-price-bump-percent
+          txpool-account-slot-limit
+          txpool-global-slot-limit
           txpool-account-queue-limit
           txpool-global-queue-limit
           txpool-local-addresses
@@ -8260,6 +8415,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                  allow-unprotected-transactions-p
                  :txpool-price-limit txpool-price-limit
                  :txpool-price-bump-percent txpool-price-bump-percent
+                 :txpool-account-slot-limit txpool-account-slot-limit
+                 :txpool-global-slot-limit txpool-global-slot-limit
                  :txpool-account-queue-limit txpool-account-queue-limit
                  :txpool-global-queue-limit txpool-global-queue-limit
                  :txpool-local-addresses txpool-local-addresses
@@ -8319,6 +8476,10 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           (engine-rpc-http-service-txpool-price-limit service)
           :txpool-price-bump-percent
           (engine-rpc-http-service-txpool-price-bump-percent service)
+          :txpool-account-slot-limit
+          (engine-rpc-http-service-txpool-account-slot-limit service)
+          :txpool-global-slot-limit
+          (engine-rpc-http-service-txpool-global-slot-limit service)
           :txpool-account-queue-limit
           (engine-rpc-http-service-txpool-account-queue-limit service)
           :txpool-global-queue-limit

@@ -44,11 +44,21 @@ Known validation status:
   accessor was fixed.
 - A second full-suite run reached and passed the new slot-limit and CLI tests,
   then failed at a known socket-gated devnet smoke path.
-- The required escalated devnet smoke gate could not run because the execution
-  environment rejected escalation due to a usage-limit blocker.
+- Independent verifier review then found a pending slot-cap bypass in
+  queued/basefee promotion. The promotion path was fixed to re-park
+  transactions when pending slot caps are full, and regression tests were added
+  for queued-first account/global slot-cap promotion.
+- After that fix, `sbcl --script tests/run-tests.lisp` reached and passed the
+  txpool slot-limit and related promotion tests, then failed only at the known
+  sandbox socket-gated
+  `PHASE-A-SMOKE-GATE-SCRIPT-CAN-INCLUDE-DEVNET-SUITE` test.
+- The required escalated devnet smoke gate was run again successfully:
+  `sbcl --script scripts/phase-a-smoke-gate.lisp -- --json --devnet` exited 0
+  with top-level `status: ok` and devnet `status: ok`.
+- Second independent verifier review passed after the queued/basefee promotion
+  fix.
 
-Do not commit or push the dirty txpool slice until the required validation
-blocker is resolved or the user explicitly accepts the risk.
+The dirty txpool slice is ready to commit and push.
 
 ## Current Loop Migration
 
@@ -62,13 +72,11 @@ The old fixed heartbeat prompt is being replaced by a loop v2 process:
 
 ## Next Recommended Orchestrator Decision
 
-Before selecting new implementation work, resolve or explicitly classify the
-dirty txpool slot-limit slice:
+After the txpool slot-limit slice is committed and pushed:
 
-1. If local escalation is available, run the devnet smoke gate required by
-   `docs/loop/validation.md`.
-2. If it passes, run verifier review, then commit and push the txpool slice.
-3. If escalation is still unavailable, keep the slice uncommitted and generate
-   a `BLOCKED_VALIDATION` run specification rather than stacking more code on
-   top of it.
-
+1. Generate a fresh `docs/loop/next-run.md`.
+2. Prefer the next Phase B local devnet / Engine RPC process behavior or
+   Hive/process-runner readiness slice unless orientation finds a higher-value
+   executable-client correctness issue.
+3. Keep fixture widening as a fallback unless it is part of explicit drift
+   classification.

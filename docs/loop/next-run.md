@@ -8,8 +8,7 @@
 - Verifier model: pending assignment, should differ from implementer when
   possible
 - Target branch: `main`
-- Stop state: `BLOCKED_VALIDATION` until the required devnet/socket gate can
-  run
+- Stop state: `SUCCESS_COMMITTED` once commit and push complete
 
 ## Orientation Summary
 
@@ -35,8 +34,8 @@
   - `DEVNET-RUNNER-TXPOOL-SLOT-LIMITS` is implemented in the dirty tree but
     not committed.
 - Relevant loop state:
-  - `docs/loop/state.md` records the dirty txpool slice and the validation
-    blocker.
+  - `docs/loop/state.md` records the dirty txpool slice, the verifier-found
+    promotion bypass fix, and the now-passing devnet/socket validation gate.
 
 ## Candidate Ranking
 
@@ -49,10 +48,11 @@
   smoke gate requires escalation.
 - Required validation:
   - `git diff --check`
-  - `sbcl --script tests/run-tests.lisp` status already known from the latest
-    run, with only the socket-gated path blocking
-  - `sbcl --script scripts/phase-a-smoke-gate.lisp -- --json --devnet` with
-    local socket/network escalation
+  - `sbcl --script tests/run-tests.lisp` reached and passed the relevant
+    txpool slot-limit and promotion tests, then failed only at the known
+    sandbox socket-gated devnet include test
+  - `sbcl --script scripts/phase-a-smoke-gate.lisp -- --json --devnet` passed
+    with local socket/network escalation
   - independent verifier review before commit
 - Decision: Selected.
 - Reason: The code is already implemented and directly advances public txpool
@@ -82,9 +82,9 @@
 
 ## Selected Objective
 
-Complete the validation loop for the dirty txpool account/global slot-limit
-slice. If the required escalated gate is unavailable, do not edit more
-implementation code and do not commit the dirty slice.
+Complete verifier review, commit, and push for the dirty txpool account/global
+slot-limit slice. Do not add more implementation behavior before this slice is
+closed.
 
 ## Scope
 
@@ -116,8 +116,7 @@ Non-goals:
 
 ## Acceptance Criteria
 
-- The required devnet/socket smoke gate runs with escalation and passes, or the
-  run is reported as `BLOCKED_VALIDATION`.
+- The required devnet/socket smoke gate has run with escalation and passed.
 - `git diff --check` passes after any additional edits.
 - If any code fix is made, the full suite policy in `docs/loop/validation.md`
   is followed.
@@ -131,7 +130,7 @@ Non-goals:
 Focused gates:
 
 - `git diff --check`
-- `sbcl --script scripts/phase-a-smoke-gate.lisp -- --json --devnet`
+- `sbcl --script scripts/phase-a-smoke-gate.lisp -- --json --devnet` passed
 
 Required pre-commit gates:
 
@@ -152,19 +151,23 @@ Escalation requirements:
 
 ## Blockers
 
-- The previous escalation request for the devnet/socket smoke gate was rejected
-  by the environment due to a usage-limit blocker.
+- No current validation blocker remains. Second verifier review passed after
+  the queued/basefee promotion fix.
 
 ## Implementer Notes
 
-- Treat the current txpool code as implemented but unvalidated.
-- Do not interpret the full-suite socket-gated failure as a code failure unless
-  the escalated devnet smoke gate also fails with a behavior-specific error.
+- Treat the current txpool code as implemented and deterministically validated,
+  pending independent verifier review.
+- The first verifier review found queued/basefee promotion could bypass
+  pending slot caps. The fix re-parks promotion candidates when caps are full
+  and adds queued-first promotion regression coverage.
+- The escalated devnet smoke gate passed after the earlier environment
+  usage-limit blocker was resolved.
 - Do not touch unrelated dirty work.
 
 ## Verifier Result
 
-- Status: pending.
-- Findings: pending.
-- Residual risk: pending.
-
+- Status: PASS.
+- Findings: no actionable findings after the promotion-cap fix.
+- Residual risk: verifier did not independently rerun validation; deterministic
+  validation was run by the main agent.

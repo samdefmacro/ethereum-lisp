@@ -1030,13 +1030,14 @@ ones.
     in-memory txpool, database, or USB behavior; follow-up
     `DEVNET-RUNNER-TXPOOL-PRICE-LIMIT` gives `--txpool.pricelimit` real public
     RPC admission behavior, `DEVNET-RUNNER-TXPOOL-PRICE-BUMP` gives
-    `--txpool.pricebump` real replacement-policy behavior, and
+    `--txpool.pricebump` real replacement-policy behavior,
     `DEVNET-RUNNER-TXPOOL-QUEUE-LIMITS` gives account/global queued
-    transaction limits real nonce-gap admission behavior, and
+    transaction limits real nonce-gap admission behavior,
     `DEVNET-RUNNER-TXPOOL-LOCAL-EXEMPTIONS` gives `--txpool.locals` /
-    `--txpool.nolocals` real public txpool admission behavior. CLI coverage
-    verifies a geth-shaped no-serve invocation and malformed
-    boolean/missing-value failures.
+    `--txpool.nolocals` real public txpool admission behavior, and
+    `DEVNET-RUNNER-TXPOOL-SLOT-LIMITS` gives account/global pending slot caps
+    real public txpool admission behavior. CLI coverage verifies a geth-shaped
+    no-serve invocation and malformed boolean/missing-value failures.
 - [x] `DEVNET-RUNNER-TXPOOL-PRICE-LIMIT`: Make the geth/Hive txpool price
   limit flag affect public raw-transaction admission.
   - Result (2026-07-04): `--txpool.pricelimit` now parses as a non-negative
@@ -1086,6 +1087,25 @@ ones.
     path, and explicit CLI flags override config-file values. Direct JSON-RPC
     tests cover price-limit and queued cap exemptions plus no-locals rejection;
     CLI tests cover flag parsing, config import, override precedence, summaries,
+    and malformed values.
+- [x] `DEVNET-RUNNER-TXPOOL-SLOT-LIMITS`: Make the geth/Hive account and
+  global txpool slot flags affect pending public raw-transaction admission.
+  - Result (2026-07-04): `--txpool.accountslots` and
+    `--txpool.globalslots` now parse as non-negative integer caps, are reported
+    in devnet JSON summaries and process telemetry, and reject new pending
+    `eth_sendRawTransaction` submissions when the sender-local or global
+    pending subpool is already at capacity. Same-sender/same-nonce replacements
+    continue to use the replacement price-bump policy and do not consume an
+    additional pending slot. Local senders bypass configured pending slot caps
+    unless `--txpool.nolocals` disables local exemptions. Queued/basefee
+    promotion from public raw-transaction admission also respects pending slot
+    caps by leaving promotable transactions parked when the pending subpool is
+    full. Geth TOML `[Eth.TxPool] AccountSlots` and
+    `[Eth.TxPool] GlobalSlots` import through the same path, and explicit CLI
+    flags override config-file values. Direct JSON-RPC tests cover global
+    limit, account limit, replacement behavior, queued-first promotion under
+    account/global pending caps, and local/no-locals exemption behavior; CLI
+    tests cover flag parsing, config import, override precedence, summaries,
     and malformed values.
 - [x] `DEVNET-RUNNER-DEV-MODE-NOOP-FLAGS`: Accept geth dev-mode subflags that
   commonly accompany `--dev` in local runner templates.

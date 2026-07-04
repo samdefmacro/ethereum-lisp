@@ -2130,6 +2130,8 @@
     (params store config &key allow-unprotected-transactions-p
                               txpool-price-limit
                               txpool-price-bump-percent
+                              txpool-account-slot-limit
+                              txpool-global-slot-limit
                               txpool-account-queue-limit
                               txpool-global-queue-limit
                               txpool-local-addresses
@@ -2192,13 +2194,43 @@
              (engine-payload-store-put-pending-transaction
               store
               transaction
-              :price-bump-percent txpool-price-bump-percent)
+              :price-bump-percent txpool-price-bump-percent
+              :account-slot-limit
+              (unless local-transaction-p txpool-account-slot-limit)
+              :global-slot-limit
+              (unless local-transaction-p txpool-global-slot-limit))
              (engine-payload-store-promote-queued-transactions
               store sender
-              :expected-chain-id (chain-config-chain-id config))
+              :expected-chain-id (chain-config-chain-id config)
+              :account-slot-limit txpool-account-slot-limit
+              :global-slot-limit txpool-global-slot-limit
+              :local-transaction-predicate
+              (lambda (transaction)
+                (let ((sender
+                        (transaction-sender
+                         transaction
+                         :expected-chain-id (chain-config-chain-id config))))
+                  (and sender
+                       (eth-rpc-local-transaction-p
+                        sender
+                        txpool-local-addresses
+                        txpool-no-local-exemptions-p)))))
              (engine-payload-store-promote-basefee-and-queued-transactions
               store
-              :expected-chain-id (chain-config-chain-id config)))))))
+              :expected-chain-id (chain-config-chain-id config)
+              :account-slot-limit txpool-account-slot-limit
+              :global-slot-limit txpool-global-slot-limit
+              :local-transaction-predicate
+              (lambda (transaction)
+                (let ((sender
+                        (transaction-sender
+                         transaction
+                         :expected-chain-id (chain-config-chain-id config))))
+                  (and sender
+                       (eth-rpc-local-transaction-p
+                        sender
+                        txpool-local-addresses
+                        txpool-no-local-exemptions-p))))))))))
     (hash32-to-hex hash)))
 
 (defun eth-rpc-txpool-queued-view-transactions (store)
@@ -2758,6 +2790,8 @@
           allow-unprotected-transactions-p
           txpool-price-limit
           txpool-price-bump-percent
+          txpool-account-slot-limit
+          txpool-global-slot-limit
           txpool-account-queue-limit
           txpool-global-queue-limit
           txpool-local-addresses
@@ -2982,6 +3016,10 @@
        txpool-price-limit
        :txpool-price-bump-percent
        txpool-price-bump-percent
+       :txpool-account-slot-limit
+       txpool-account-slot-limit
+       :txpool-global-slot-limit
+       txpool-global-slot-limit
        :txpool-account-queue-limit
        txpool-account-queue-limit
        :txpool-global-queue-limit

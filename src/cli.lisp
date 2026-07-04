@@ -10,6 +10,8 @@
                       engine-vhosts public-vhosts dev-mode-p coinbase
                       allow-unprotected-transactions-p
                       txpool-price-limit txpool-price-bump-percent
+                      txpool-account-slot-limit
+                      txpool-global-slot-limit
                       txpool-account-queue-limit
                       txpool-global-queue-limit
                       txpool-local-addresses txpool-no-local-exemptions-p
@@ -37,6 +39,8 @@
   allow-unprotected-transactions-p
   txpool-price-limit
   txpool-price-bump-percent
+  txpool-account-slot-limit
+  txpool-global-slot-limit
   txpool-account-queue-limit
   txpool-global-queue-limit
   txpool-local-addresses
@@ -323,6 +327,8 @@
        allow-unprotected-transactions-p
        txpool-price-limit
        txpool-price-bump-percent
+       txpool-account-slot-limit
+       txpool-global-slot-limit
        txpool-account-queue-limit
        txpool-global-queue-limit
        txpool-local-addresses
@@ -394,6 +400,8 @@
             allow-unprotected-transactions-p
             :txpool-price-limit txpool-price-limit
             :txpool-price-bump-percent txpool-price-bump-percent
+            :txpool-account-slot-limit txpool-account-slot-limit
+            :txpool-global-slot-limit txpool-global-slot-limit
             :txpool-account-queue-limit txpool-account-queue-limit
             :txpool-global-queue-limit txpool-global-queue-limit
             :txpool-local-addresses txpool-local-addresses
@@ -444,6 +452,8 @@
      :allow-unprotected-transactions-p allow-unprotected-transactions-p
      :txpool-price-limit txpool-price-limit
      :txpool-price-bump-percent txpool-price-bump-percent
+     :txpool-account-slot-limit txpool-account-slot-limit
+     :txpool-global-slot-limit txpool-global-slot-limit
      :txpool-account-queue-limit txpool-account-queue-limit
      :txpool-global-queue-limit txpool-global-queue-limit
      :txpool-local-addresses (and txpool-local-addresses
@@ -544,6 +554,10 @@
           :txpool-price-limit (devnet-node-txpool-price-limit node)
           :txpool-price-bump-percent
           (devnet-node-txpool-price-bump-percent node)
+          :txpool-account-slot-limit
+          (devnet-node-txpool-account-slot-limit node)
+          :txpool-global-slot-limit
+          (devnet-node-txpool-global-slot-limit node)
           :txpool-account-queue-limit
           (devnet-node-txpool-account-queue-limit node)
           :txpool-global-queue-limit
@@ -600,6 +614,10 @@
       ("txpoolPriceLimit" . ,(or (getf summary :txpool-price-limit) :false))
       ("txpoolPriceBump" .
        ,(or (getf summary :txpool-price-bump-percent) :false))
+      ("txpoolAccountSlots" .
+       ,(or (getf summary :txpool-account-slot-limit) :false))
+      ("txpoolGlobalSlots" .
+       ,(or (getf summary :txpool-global-slot-limit) :false))
       ("txpoolAccountQueue" .
        ,(or (getf summary :txpool-account-queue-limit) :false))
       ("txpoolGlobalQueue" .
@@ -1059,6 +1077,12 @@
         ((and (string= section "Eth.TxPool") (string= key "PriceBump")
               (non-empty-scalar))
          (list "--txpool.pricebump" scalar))
+        ((and (string= section "Eth.TxPool") (string= key "AccountSlots")
+              (non-empty-scalar))
+         (list "--txpool.accountslots" scalar))
+        ((and (string= section "Eth.TxPool") (string= key "GlobalSlots")
+              (non-empty-scalar))
+         (list "--txpool.globalslots" scalar))
         ((and (string= section "Eth.TxPool") (string= key "AccountQueue")
               (non-empty-scalar))
          (list "--txpool.accountqueue" scalar))
@@ -1297,6 +1321,8 @@
         (allow-unprotected-transactions-p nil)
         (txpool-price-limit nil)
         (txpool-price-bump-percent nil)
+        (txpool-account-slot-limit nil)
+        (txpool-global-slot-limit nil)
         (txpool-account-queue-limit nil)
         (txpool-global-queue-limit nil)
         (txpool-local-addresses nil)
@@ -1529,6 +1555,18 @@
                   (setf txpool-price-bump-percent
                         (devnet-cli-parse-non-negative-integer value option)
                         args rest)))
+               ((string= option "--txpool.accountslots")
+                (multiple-value-bind (value rest)
+                    (devnet-cli-next-value args option)
+                  (setf txpool-account-slot-limit
+                        (devnet-cli-parse-non-negative-integer value option)
+                        args rest)))
+               ((string= option "--txpool.globalslots")
+                (multiple-value-bind (value rest)
+                    (devnet-cli-next-value args option)
+                  (setf txpool-global-slot-limit
+                        (devnet-cli-parse-non-negative-integer value option)
+                        args rest)))
                ((string= option "--txpool.accountqueue")
                 (multiple-value-bind (value rest)
                     (devnet-cli-next-value args option)
@@ -1589,6 +1627,8 @@
           :allow-unprotected-transactions-p allow-unprotected-transactions-p
           :txpool-price-limit txpool-price-limit
           :txpool-price-bump-percent txpool-price-bump-percent
+          :txpool-account-slot-limit txpool-account-slot-limit
+          :txpool-global-slot-limit txpool-global-slot-limit
           :txpool-account-queue-limit txpool-account-queue-limit
           :txpool-global-queue-limit txpool-global-queue-limit
           :txpool-local-addresses txpool-local-addresses
@@ -1943,6 +1983,14 @@
        ,(if (getf summary :txpool-price-bump-percent)
             (write-to-string (getf summary :txpool-price-bump-percent))
             ""))
+      ("txpoolAccountSlots" .
+       ,(if (getf summary :txpool-account-slot-limit)
+            (write-to-string (getf summary :txpool-account-slot-limit))
+            ""))
+      ("txpoolGlobalSlots" .
+       ,(if (getf summary :txpool-global-slot-limit)
+            (write-to-string (getf summary :txpool-global-slot-limit))
+            ""))
       ("txpoolAccountQueue" .
        ,(if (getf summary :txpool-account-queue-limit)
             (write-to-string (getf summary :txpool-account-queue-limit))
@@ -2199,6 +2247,10 @@
                                 (getf options :txpool-price-limit)
                                 :txpool-price-bump-percent
                                 (getf options :txpool-price-bump-percent)
+                                :txpool-account-slot-limit
+                                (getf options :txpool-account-slot-limit)
+                                :txpool-global-slot-limit
+                                (getf options :txpool-global-slot-limit)
                                 :txpool-account-queue-limit
                                 (getf options :txpool-account-queue-limit)
                                 :txpool-global-queue-limit

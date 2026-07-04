@@ -3466,6 +3466,7 @@
             (format nil
                     "[Eth]~%NetworkId = 4242~%~
                      [Eth.TxPool]~%PriceLimit = 7~%PriceBump = 25~%~
+                     AccountSlots = 3~%GlobalSlots = 4~%~
                      AccountQueue = 9~%GlobalQueue = 12~%~
                      Locals = [\"0x0000000000000000000000000000000000000001\", ~
                      \"0x0000000000000000000000000000000000000002\"]~%~
@@ -3496,17 +3497,19 @@
                           (fixture-object-field summary "engineEndpoint")))
              (is (string= "192.0.2.41:1945"
                           (fixture-object-field summary "rpcEndpoint")))
-	             (is (= 4242 (fixture-object-field summary "networkId")))
-	             (is (= 7 (fixture-object-field summary "txpoolPriceLimit")))
-	             (is (= 25 (fixture-object-field summary "txpoolPriceBump")))
-	             (is (= 9 (fixture-object-field summary "txpoolAccountQueue")))
-	             (is (= 12 (fixture-object-field summary "txpoolGlobalQueue")))
-	             (is (equal '("0x0000000000000000000000000000000000000001"
-	                          "0x0000000000000000000000000000000000000002")
-	                        (fixture-object-field summary "txpoolLocals")))
-	             (is (eq t (fixture-object-field summary "txpoolNoLocals")))
-	             (is (string= "/rpc"
-	                          (fixture-object-field summary "publicRpcPrefix")))
+             (is (= 4242 (fixture-object-field summary "networkId")))
+             (is (= 7 (fixture-object-field summary "txpoolPriceLimit")))
+             (is (= 25 (fixture-object-field summary "txpoolPriceBump")))
+             (is (= 3 (fixture-object-field summary "txpoolAccountSlots")))
+             (is (= 4 (fixture-object-field summary "txpoolGlobalSlots")))
+             (is (= 9 (fixture-object-field summary "txpoolAccountQueue")))
+             (is (= 12 (fixture-object-field summary "txpoolGlobalQueue")))
+             (is (equal '("0x0000000000000000000000000000000000000001"
+                          "0x0000000000000000000000000000000000000002")
+                        (fixture-object-field summary "txpoolLocals")))
+             (is (eq t (fixture-object-field summary "txpoolNoLocals")))
+             (is (string= "/rpc"
+                          (fixture-object-field summary "publicRpcPrefix")))
              (is (string= (namestring jwt-path)
                           (fixture-object-field summary "jwtSecretPath")))
              (is (eq t (fixture-object-field summary "authRequired")))
@@ -3547,6 +3550,7 @@
             (format nil
                     "[Eth]~%NetworkId = 4242~%~
                      [Eth.TxPool]~%PriceLimit = 7~%PriceBump = 25~%~
+                     AccountSlots = 3~%GlobalSlots = 4~%~
                      AccountQueue = 9~%GlobalQueue = 12~%~
                      Locals = [\"0x0000000000000000000000000000000000000001\"]~%~
                      NoLocals = true~%~
@@ -3563,15 +3567,17 @@
                          "--authrpc.port" "1960"
                          "--http.addr" "192.0.2.61"
                          "--http.port" "1961"
-	                         "--networkid" "7331"
-	                         "--txpool.pricelimit" "11"
-	                         "--txpool.pricebump" "40"
-	                         "--txpool.accountqueue" "10"
-	                         "--txpool.globalqueue" "20"
-	                         "--txpool.locals"
-	                         "0x0000000000000000000000000000000000000002"
-	                         "--txpool.nolocals" "false"
-	                         "--authrpc.jwtsecret" (namestring override-jwt-path)
+                         "--networkid" "7331"
+                         "--txpool.pricelimit" "11"
+                         "--txpool.pricebump" "40"
+                         "--txpool.accountslots" "5"
+                         "--txpool.globalslots" "6"
+                         "--txpool.accountqueue" "10"
+                         "--txpool.globalqueue" "20"
+                         "--txpool.locals"
+                         "0x0000000000000000000000000000000000000002"
+                         "--txpool.nolocals" "false"
+                         "--authrpc.jwtsecret" (namestring override-jwt-path)
                          "--json"
                          "--no-serve")
                    :output-stream output
@@ -3582,16 +3588,18 @@
                           (fixture-object-field summary "engineEndpoint")))
              (is (string= "192.0.2.61:1961"
                           (fixture-object-field summary "rpcEndpoint")))
-	             (is (= 7331 (fixture-object-field summary "networkId")))
-	             (is (= 11 (fixture-object-field summary "txpoolPriceLimit")))
-	             (is (= 40 (fixture-object-field summary "txpoolPriceBump")))
-	             (is (= 10 (fixture-object-field summary "txpoolAccountQueue")))
-	             (is (= 20 (fixture-object-field summary "txpoolGlobalQueue")))
-	             (is (equal '("0x0000000000000000000000000000000000000002")
-	                        (fixture-object-field summary "txpoolLocals")))
-	             (is (eq nil (fixture-object-field summary "txpoolNoLocals")))
-	             (is (string= (namestring override-jwt-path)
-	                          (fixture-object-field summary "jwtSecretPath")))))
+             (is (= 7331 (fixture-object-field summary "networkId")))
+             (is (= 11 (fixture-object-field summary "txpoolPriceLimit")))
+             (is (= 40 (fixture-object-field summary "txpoolPriceBump")))
+             (is (= 5 (fixture-object-field summary "txpoolAccountSlots")))
+             (is (= 6 (fixture-object-field summary "txpoolGlobalSlots")))
+             (is (= 10 (fixture-object-field summary "txpoolAccountQueue")))
+             (is (= 20 (fixture-object-field summary "txpoolGlobalQueue")))
+             (is (equal '("0x0000000000000000000000000000000000000002")
+                        (fixture-object-field summary "txpoolLocals")))
+             (is (eq nil (fixture-object-field summary "txpoolNoLocals")))
+             (is (string= (namestring override-jwt-path)
+                          (fixture-object-field summary "jwtSecretPath")))))
       (when (probe-file jwt-path)
         (delete-file jwt-path))
       (when (probe-file override-jwt-path)
@@ -3817,14 +3825,16 @@ HTTPPort = 1945
                    (fixture-object-field summary "rpcEndpoint")))
       (is (eq t (fixture-object-field summary
                                        "allowUnprotectedTransactions")))
-	      (is (= 1 (fixture-object-field summary "txpoolPriceLimit")))
-	      (is (= 10 (fixture-object-field summary "txpoolPriceBump")))
-	      (is (= 64 (fixture-object-field summary "txpoolAccountQueue")))
-	      (is (= 1024 (fixture-object-field summary "txpoolGlobalQueue")))
-	      (is (equal '("0x0000000000000000000000000000000000000001")
-	                 (fixture-object-field summary "txpoolLocals")))
-	      (is (eq nil (fixture-object-field summary "txpoolNoLocals")))
-	      (is (eq nil (fixture-object-field summary "authRequired"))))))
+      (is (= 1 (fixture-object-field summary "txpoolPriceLimit")))
+      (is (= 10 (fixture-object-field summary "txpoolPriceBump")))
+      (is (= 16 (fixture-object-field summary "txpoolAccountSlots")))
+      (is (= 5120 (fixture-object-field summary "txpoolGlobalSlots")))
+      (is (= 64 (fixture-object-field summary "txpoolAccountQueue")))
+      (is (= 1024 (fixture-object-field summary "txpoolGlobalQueue")))
+      (is (equal '("0x0000000000000000000000000000000000000001")
+                 (fixture-object-field summary "txpoolLocals")))
+      (is (eq nil (fixture-object-field summary "txpoolNoLocals")))
+      (is (eq nil (fixture-object-field summary "authRequired"))))))
 
 (deftest devnet-cli-main-accepts-geth-style-dev-mode-flags
   (let ((output (make-string-output-stream))
@@ -17668,34 +17678,50 @@ HTTPPort = 1945
                 (run-error (list "devnet"
                                  "--http.readtimeout"
                                  "--no-serve"))))
-	    (is (search "--txpool.pricebump requires a value"
-	                (run-error (list "devnet"
-	                                 "--txpool.pricebump"
-	                                 "--no-serve"))))
-	    (is (search "--txpool.accountqueue requires a value"
-	                (run-error (list "devnet"
-	                                 "--txpool.accountqueue"
-	                                 "--no-serve"))))
-	    (is (search "--txpool.globalqueue requires a value"
-	                (run-error (list "devnet"
-	                                 "--txpool.globalqueue"
-	                                 "--no-serve"))))
-	    (is (search "--txpool.pricelimit requires a non-negative integer or hex quantity"
-	                (run-error (list "devnet"
-	                                 "--txpool.pricelimit=abc"
-	                                 "--no-serve"))))
-	    (is (search "--txpool.pricebump requires an integer value"
-	                (run-error (list "devnet"
-	                                 "--txpool.pricebump=abc"
-	                                 "--no-serve"))))
-	    (is (search "--txpool.accountqueue requires an integer value"
-	                (run-error (list "devnet"
-	                                 "--txpool.accountqueue=abc"
-	                                 "--no-serve"))))
-	    (is (search "--txpool.globalqueue requires an integer value"
-	                (run-error (list "devnet"
-	                                 "--txpool.globalqueue=abc"
-	                                 "--no-serve"))))
+    (is (search "--txpool.pricebump requires a value"
+                (run-error (list "devnet"
+                                 "--txpool.pricebump"
+                                 "--no-serve"))))
+    (is (search "--txpool.accountslots requires a value"
+                (run-error (list "devnet"
+                                 "--txpool.accountslots"
+                                 "--no-serve"))))
+    (is (search "--txpool.globalslots requires a value"
+                (run-error (list "devnet"
+                                 "--txpool.globalslots"
+                                 "--no-serve"))))
+    (is (search "--txpool.accountqueue requires a value"
+                (run-error (list "devnet"
+                                 "--txpool.accountqueue"
+                                 "--no-serve"))))
+    (is (search "--txpool.globalqueue requires a value"
+                (run-error (list "devnet"
+                                 "--txpool.globalqueue"
+                                 "--no-serve"))))
+    (is (search "--txpool.pricelimit requires a non-negative integer or hex quantity"
+                (run-error (list "devnet"
+                                 "--txpool.pricelimit=abc"
+                                 "--no-serve"))))
+    (is (search "--txpool.pricebump requires an integer value"
+                (run-error (list "devnet"
+                                 "--txpool.pricebump=abc"
+                                 "--no-serve"))))
+    (is (search "--txpool.accountslots requires an integer value"
+                (run-error (list "devnet"
+                                 "--txpool.accountslots=abc"
+                                 "--no-serve"))))
+    (is (search "--txpool.globalslots requires an integer value"
+                (run-error (list "devnet"
+                                 "--txpool.globalslots=abc"
+                                 "--no-serve"))))
+    (is (search "--txpool.accountqueue requires an integer value"
+                (run-error (list "devnet"
+                                 "--txpool.accountqueue=abc"
+                                 "--no-serve"))))
+    (is (search "--txpool.globalqueue requires an integer value"
+                (run-error (list "devnet"
+                                 "--txpool.globalqueue=abc"
+                                 "--no-serve"))))
     (is (search "--dev.period requires a value"
                 (run-error (list "devnet"
                                  "--dev.period"
