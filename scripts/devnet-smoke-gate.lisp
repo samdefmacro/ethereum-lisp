@@ -3505,6 +3505,10 @@ references/ checkouts.~%")
                     (fixture-object-field select-v6-rpc "result"))
                   (select-v6-status
                     (fixture-object-field select-v6-result "payloadStatus"))
+                  (payload-bodies-range-v2-start-block
+                    (quantity-to-hex
+                     (1- (hex-to-quantity
+                          (getf blob-database :block-number-v6)))))
                   (get-payload-bodies-range-v2-response
                     (devnet-cli-http-endpoint-request
                      engine-endpoint
@@ -3512,8 +3516,8 @@ references/ checkouts.~%")
                       (get-payload-bodies-by-range-request
                        724
                        "engine_getPayloadBodiesByRangeV2"
-                       (getf blob-database :block-number-v6)
-                       "0x1"))))
+                       payload-bodies-range-v2-start-block
+                       "0x2"))))
                   (get-payload-bodies-range-v2-rpc
                     (parse-json
                      (devnet-cli-http-body
@@ -3521,8 +3525,10 @@ references/ checkouts.~%")
                   (get-payload-bodies-range-v2-result
                     (fixture-object-field get-payload-bodies-range-v2-rpc
                                           "result"))
-                  (payload-body-range-v2
+                  (missing-payload-body-range-v2
                     (first get-payload-bodies-range-v2-result))
+                  (payload-body-range-v2
+                    (second get-payload-bodies-range-v2-result))
                   (payload-body-range-v2-transactions
                     (and payload-body-range-v2
                          (fixture-object-field payload-body-range-v2
@@ -3886,12 +3892,16 @@ references/ checkouts.~%")
               (fixture-object-field get-payload-bodies-range-v2-rpc "error"))
              (devnet-smoke-gate-require
               (and (listp get-payload-bodies-range-v2-result)
-                   (= 1 (length get-payload-bodies-range-v2-result)))
+                   (= 2 (length get-payload-bodies-range-v2-result)))
               "KZG opt-in engine_getPayloadBodiesByRangeV2 result count mismatch: ~S"
               get-payload-bodies-range-v2-result)
              (devnet-smoke-gate-require
+              (null missing-payload-body-range-v2)
+              "KZG opt-in engine_getPayloadBodiesByRangeV2 sparse range lost the leading null placeholder: ~S"
+              get-payload-bodies-range-v2-result)
+             (devnet-smoke-gate-require
               payload-body-range-v2
-              "KZG opt-in engine_getPayloadBodiesByRangeV2 returned null for prepared V6 block range")
+              "KZG opt-in engine_getPayloadBodiesByRangeV2 returned null for prepared V6 block range hit")
              (devnet-smoke-gate-require
               (assoc "transactions" payload-body-range-v2 :test #'string=)
               "KZG opt-in engine_getPayloadBodiesByRangeV2 omitted transactions")
@@ -4282,9 +4292,14 @@ references/ checkouts.~%")
                                 (fixture-object-field payload-body-v2
                                                       "blockAccessList"))
                           (cons "preparedPayloadBodiesByRangeV2StartBlockNumber"
-                                (getf blob-database :block-number-v6))
+                                payload-bodies-range-v2-start-block)
                           (cons "preparedPayloadBodiesByRangeV2Count"
                                 (length get-payload-bodies-range-v2-result))
+                          (cons "preparedPayloadBodiesByRangeV2LeadingNull"
+                                (if (null missing-payload-body-range-v2)
+                                    t
+                                    :false))
+                          (cons "preparedPayloadBodiesByRangeV2HitIndex" 1)
                           (cons "preparedPayloadBodiesByRangeV2TransactionCount"
                                 (length payload-body-range-v2-transactions))
                           (cons "preparedPayloadBodiesByRangeV2WithdrawalCount"

@@ -744,13 +744,16 @@ Validation targets: geth `crypto`, Nethermind `Nethermind.Crypto` and
   `engine_forkchoiceUpdatedV2` can make that block canonical, and records both
   by-hash and by-range body evidence including empty
   `transactions`/`withdrawals` arrays plus the Amsterdam `blockAccessList`.
-  The nested KZG connection contract is now thirteen Engine requests, and the
-  non-KZG capability matrix explicitly keeps `engine_getPayloadBodiesByRangeV2`
-  hidden.
-- *Next:* reuse the same selected V6 head to prove mixed-hit
-  `engine_getPayloadBodiesByRangeV2` behavior, specifically that a missing
-  earlier canonical slot returns `null` while the Amsterdam V6 slot in the
-  same requested range still returns the expected body and `blockAccessList`.
+  That same runner path now also proves a sparse mixed-hit
+  `engine_getPayloadBodiesByRangeV2` response where block `0x9` returns
+  `null` and the later Amsterdam V6 block at `0xa` still returns the expected
+  body and `blockAccessList`. The nested KZG connection contract remains at
+  thirteen Engine requests, and the non-KZG capability matrix explicitly keeps
+  `engine_getPayloadBodiesByRangeV2` hidden.
+- *Next:* promote invalid/oversized
+  `engine_getPayloadBodiesByRangeV2` request handling to the same process
+  boundary, especially the existing `count > 1024` error contract, before
+  widening into broader blob-era runner surface.
 
 Detailed historical implementation notes for this section now live in
 `docs/status.md` under "Section 1: Cryptographic Primitives".

@@ -426,12 +426,20 @@
                  (fixture-object-field
                   report
                   "preparedPayloadBodiesByHashV2BlockAccessList"))))
-  (is (string= "0xa"
+  (is (string= "0x9"
                (fixture-object-field
                 report
                 "preparedPayloadBodiesByRangeV2StartBlockNumber")))
-  (is (= 1
+  (is (= 2
          (fixture-object-field report "preparedPayloadBodiesByRangeV2Count")))
+  (is (eq t
+          (fixture-object-field
+           report
+           "preparedPayloadBodiesByRangeV2LeadingNull")))
+  (is (= 1
+         (fixture-object-field
+          report
+          "preparedPayloadBodiesByRangeV2HitIndex")))
   (is (= 0
          (fixture-object-field
           report

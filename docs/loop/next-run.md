@@ -15,72 +15,72 @@
   `engine_getPayloadV3`, `engine_getPayloadV4`, non-empty
   `engine_getPayloadV5`, non-empty `engine_getPayloadV6`, direct
   `engine_getBlobsV1`, direct `engine_getBlobsV2` / `engine_getBlobsV3`,
-  live `engine_getPayloadBodiesByHashV2`, and a live single-hit
-  `engine_getPayloadBodiesByRangeV2` response for the same Amsterdam-era V6
-  block after engine-only forkchoice selection.
-- Recent commits reviewed: the latest validated slice exported state
-  availability for the seeded V6 block, used live `engine_forkchoiceUpdatedV2`
-  to make it canonical inside the KZG-only smoke child, then proved
-  `engine_getPayloadBodiesByRangeV2` plus the matching non-KZG capability
-  negative guards.
+  live `engine_getPayloadBodiesByHashV2`, single-hit
+  `engine_getPayloadBodiesByRangeV2`, and a sparse mixed-hit
+  `engine_getPayloadBodiesByRangeV2` response with a leading `null`
+  placeholder and the later Amsterdam V6 body in the same range.
+- Recent commits reviewed: the latest validated slices moved the runner proof
+  from by-hash payload-body retrieval into canonical by-range retrieval and
+  then into sparse mixed-hit range/null behavior without widening production
+  code.
 - Relevant task/roadmap anchors: `DEVNET-RUNNER-KZG-CAPABILITY-OPT-IN` now
-  records both by-hash and single-hit by-range payload-body proof; the roadmap
-  now treats broader multi-slot range/null behavior as the next bounded
-  blob-era follow-up.
-- Relevant loop state: blob-era payload envelopes, direct blob/cell-proof
-  lookups, and both by-hash and single-hit by-range Amsterdam payload-body
-  retrieval are covered at the process boundary; the remaining narrow runner
-  gap is mixed-hit range/null behavior for sparse canonical slots.
+  records sparse mixed-hit by-range proof; the roadmap now treats
+  invalid/oversized by-range request handling as the next bounded process
+  boundary gap.
+- Relevant loop state: the remaining narrow runner gap on this line is no
+  longer success-path sparse range ordering; it is boundary enforcement for
+  invalid or oversized `engine_getPayloadBodiesByRangeV2` requests.
 
 ## Candidate Ranking
 
 ### Candidate A
 
-- Objective: prove a mixed-hit live
-  `engine_getPayloadBodiesByRangeV2` response where the requested range
-  includes one missing earlier canonical slot and the already-proven Amsterdam
-  V6 slot.
-- Value: highest; it completes the most obvious remaining range-contract
-  assertion without leaving the current runner boundary.
-- Risk: low-medium; likely smoke/assertion/report work plus one additional
-  range query over the same selected V6 head.
+- Objective: prove live runner-bound
+  `engine_getPayloadBodiesByRangeV2` oversized-count handling, especially the
+  existing `count > 1024` error contract already covered in core tests.
+- Value: highest; it promotes an already-defined Engine API limit from
+  in-process coverage to the KZG opt-in process boundary without widening
+  scope.
+- Risk: low-medium; likely smoke/assertion/report work only unless the runner
+  boundary reveals a production mismatch.
 - Required validation: focused escalated
   `sbcl --script scripts/devnet-smoke-gate.lisp -- --engine-only-serve --json`,
-  `git diff --check`, focused engine-only CLI coverage if assertions change,
-  verifier review, and the full suite only if production code changes.
+  focused engine-only CLI coverage if report assertions change,
+  `git diff --check`, verifier review, and the full suite only if production
+  code changes.
 - Decision: selected.
-- Reason: it stays on the same KZG smoke child and extends the new range proof
-  into the next concrete contract edge instead of widening scope.
+- Reason: it closes the next obvious range-contract edge while reusing the
+  same KZG opt-in subprocess and seeded V6 context.
 
 ### Candidate B
 
-- Objective: probe oversized or otherwise invalid
-  `engine_getPayloadBodiesByRangeV2` request bounds at the runner boundary.
-- Value: medium; useful contract hardening, but lower value than proving the
-  still-missing mixed-hit null placeholder behavior.
-- Risk: low-medium; may stay smoke-only, but it is less central than the live
-  sparse-range success shape.
-- Required validation: likely Tier 1 with smoke/report assertions only.
+- Objective: prove non-positive `start` / `count` validation at the same
+  process boundary.
+- Value: medium; still useful, but the oversized-count contract is already
+  codified in core tests and is a cleaner first promotion target.
+- Risk: low-medium; may be smoke-only, but it is less central than the
+  explicit 1024-body limit already documented in the Engine API.
+- Required validation: likely the same Tier 1 focused smoke/report gates.
 - Decision: defer.
-- Reason: the success-path null placeholder contract is the more direct gap.
+- Reason: the oversized-count error is the tighter next slice.
 
 ### Candidate C
 
-- Objective: widen the Amsterdam seed into executable blob-transaction import
-  or unrelated txpool/listener work.
-- Value: low for current priority because the blob-era runner line still has a
-  clean smaller next step.
-- Risk: low-medium, but it would interrupt the current KZG continuity.
+- Objective: widen the current sparse success probe into broader multi-hit
+  success ranges or unrelated blob-era runner surface.
+- Value: lower than Candidate A because the next missing contract edge is
+  request-bound error handling, not another success-path variant.
+- Risk: medium; it risks scope creep and duplicate proof.
 - Required validation: depends on slice.
 - Decision: defer.
-- Reason: lower leverage than finishing the remaining sparse range-contract
-  coverage.
+- Reason: lower leverage than promoting the existing oversized-count contract
+  to the runner boundary.
 
 ## Selected Objective
 
-Extend the repo-local verifier opt-in runner smoke from single-hit live
-`engine_getPayloadBodiesByRangeV2` into mixed-hit sparse-range proof with a
-missing earlier slot and the Amsterdam V6 body in the same response.
+Prove live runner-bound `engine_getPayloadBodiesByRangeV2` oversized-count
+handling under KZG verifier opt-in, using the existing engine-only smoke child
+to request more than 1024 bodies and lock the expected error contract.
 
 ## Scope
 
@@ -95,33 +95,34 @@ Allowed files/modules:
 
 Expected behavior changes:
 
-- The engine-only `kzgOptIn` smoke proves a mixed-hit Amsterdam-era
-  `engine_getPayloadBodiesByRangeV2` response, not only the single-hit range
-  lookup.
-- The nested runner report records enough sparse-range evidence to debug null
-  placeholders, live body ordering, and `blockAccessList` regressions at the
-  process boundary.
-- The nested KZG connection/shutdown contract grows only as needed for the new
-  sparse-range request.
+- The engine-only `kzgOptIn` smoke proves live
+  `engine_getPayloadBodiesByRangeV2` oversized-count rejection, not only
+  success-path sparse range retrieval.
+- The nested runner report records enough oversized-request evidence to debug
+  RPC error-code/message regressions at the process boundary.
+- The existing sparse mixed-hit success assertions remain intact on the same
+  runner path.
 
 Non-goals:
 
-- Do not revisit the by-hash coexistence production fix unless the sparse
-  range path reveals a concrete bug.
-- Do not broaden into unrelated blob lookup or payload-envelope variants.
-- Do not refactor general payload storage or Engine RPC plumbing outside the
-  minimal support needed for the live sparse-range proof.
+- Do not widen into other by-range validation variants unless the oversized
+  request reveals a concrete shared bug.
+- Do not revisit already-proven by-hash, single-hit by-range, sparse mixed-hit
+  by-range, or direct blob/cell-proof retrieval unless the oversized request
+  regresses them.
+- Do not refactor general Engine RPC plumbing outside the minimal support
+  needed for the live oversized-count proof.
 
 ## Acceptance Criteria
 
 - Focused process-boundary coverage proves live verifier opt-in
-  `engine_getPayloadBodiesByRangeV2` retrieval for a requested range whose
-  earlier slot is missing while the later Amsterdam-era V6 slot is present.
-- The smoke/assertion surface fails clearly if the sparse range loses the
-  leading `null` placeholder, reorders the live body, omits `transactions`,
-  omits `withdrawals`, or omits/malforms `blockAccessList` on the V6 hit.
-- Any code change stays scoped to the live sparse-range proof and does not
-  regress the landed by-hash or single-hit by-range proofs.
+  `engine_getPayloadBodiesByRangeV2` rejects an oversized `count` request with
+  the expected Engine error code/message.
+- The smoke/assertion surface fails clearly if the oversized request no longer
+  returns the documented error code, the documented 1024-body limit message, or
+  if the runner silently returns a success result instead of the error.
+- The existing sparse mixed-hit success probe remains green in the same smoke
+  path.
 - Independent verifier reviews the final diff before commit.
 
 ## Validation Plan
@@ -129,7 +130,7 @@ Non-goals:
 Gate tier:
 
 - Tier 1 if the change stays in smoke/assertion/report code only.
-- Escalate to Tier 2 only if the sparse-range proof uncovers a shared
+- Escalate to Tier 2 only if the oversized request uncovers a shared
   production bug.
 
 Focused gates:
@@ -137,51 +138,52 @@ Focused gates:
 - focused escalated
   `sbcl --script scripts/devnet-smoke-gate.lisp -- --engine-only-serve --json`
 - focused CLI coverage for
-  `DEVNET-SMOKE-GATE-SCRIPT-ENGINE-ONLY-SERVE-MODE` if report assertions or
-  capability guards change
+  `DEVNET-SMOKE-GATE-SCRIPT-ENGINE-ONLY-SERVE-MODE` if report assertions
+  change
 
 Required pre-commit gates:
 
 - `git diff --check`
-- focused escalated engine-only smoke for the new sparse-range path
+- focused escalated engine-only smoke for the new oversized-count path
 - independent verifier `PASS`
 - full suite only if production code changes or verifier flags broader risk
 
 Full-suite policy:
 
 - Not required for smoke/assertion-only report work.
-- Mandatory once before commit if any production file such as `src/core.lisp`
-  or shared Engine RPC code changes.
+- Mandatory once before commit if any production file such as
+  `src/engine-rpc.lisp` changes.
 
 Escalation requirements:
 
 - Request local socket/network escalation before the focused smoke gate.
-- If the current selected V6 head cannot exercise the sparse-range null
-  response without a broader fixture redesign, stop and record the exact range
-  hole that is missing rather than widening scope ad hoc.
+- If the runner already normalizes the oversized request through a different
+  error envelope than the in-process core test, stop and record that exact
+  mismatch instead of broadening scope.
 
 ## Commit And Push Policy
 
 - Commit allowed: only after the applicable focused gate, `git diff --check`,
   and verifier review pass.
 - Push allowed: yes, after commit if remote authentication is available.
-- Commit message: `Smoke V2 payload body sparse range`
+- Commit message: `Smoke V2 payload body range limit`
 
 ## Blockers
 
-- If the sparse-range proof requires broader production changes than the
-  current by-hash / single-hit range coexistence path, stop and write that
-  narrower blocker instead of expanding into a larger blob fixture project.
+- If the oversized-count proof reveals a real production mismatch that needs
+  broader Engine RPC work, stop and write that narrower blocker instead of
+  widening into a larger blob-era project.
 
 ## Implementer Notes
 
 - Reuse the existing engine-only `kzgOptIn` smoke child, seeded V6 known /
-  prepared block path, and live forkchoice-selection step instead of inventing
+  prepared block path, and sparse mixed-hit success probe instead of inventing
   a second verifier configuration flow.
-- Prefer extending the current nested report contract over adding a second
-  unrelated smoke mode.
-- Keep the slice centered on live `engine_getPayloadBodiesByRangeV2` sparse
-  behavior, not broader Amsterdam fixture realism.
+- Prefer extending the current nested report contract over adding a separate
+  smoke mode.
+- Keep the slice centered on live oversized
+  `engine_getPayloadBodiesByRangeV2` behavior, not broader Amsterdam fixture
+  realism.
 
 ## Verifier Result
 

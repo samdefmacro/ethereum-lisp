@@ -18,12 +18,12 @@ Last updated: 2026-07-06
 ## Current Dirty Work
 
 No intended dirty implementation work should remain after the current validated
-batch is committed and pushed. The latest completed slice is the live
-`engine_getPayloadBodiesByHashV2` KZG opt-in runner proof; the next run spec
-should move forward from by-hash payload-body retrieval into
-`engine_getPayloadBodiesByRangeV2` process-boundary coverage instead of
-revisiting already-proven V3/V4/V5/V6 payload envelopes, by-hash body
-retrieval, or direct blob/cell-proof lookup.
+batch is committed and pushed. The latest completed slice is the sparse
+mixed-hit `engine_getPayloadBodiesByRangeV2` KZG opt-in runner proof; the next
+run spec should move forward from sparse success-path range coverage into
+invalid/oversized range-request handling at the same process boundary instead
+of revisiting already-proven V3/V4/V5/V6 payload envelopes, by-hash body
+retrieval, single-hit by-range proof, or direct blob/cell-proof lookup.
 
 Closed behavior from the latest slice:
 
@@ -55,6 +55,18 @@ Closed behavior from the latest slice:
   `preparedPayloadBodiesByHashV2WithdrawalCount`, and
   `preparedPayloadBodiesByHashV2BlockAccessList`, and the nested KZG
   connection/shutdown contract expanded from ten to eleven Engine requests.
+- The same engine-only `kzgOptIn` smoke now requests
+  `engine_getPayloadBodiesByRangeV2` from block `0x9` with count `0x2`,
+  proving a sparse mixed-hit response where the leading missing slot remains
+  `null` while the later Amsterdam V6 slot still returns the expected empty
+  `transactions` / `withdrawals` arrays plus `blockAccessList`.
+- The nested `kzgOptIn` report now records
+  `preparedPayloadBodiesByRangeV2StartBlockNumber = 0x9`,
+  `preparedPayloadBodiesByRangeV2Count = 2`,
+  `preparedPayloadBodiesByRangeV2LeadingNull = true`, and
+  `preparedPayloadBodiesByRangeV2HitIndex = 1`, so sparse ordering regressions
+  are visible at the runner boundary without changing the thirteen-request KZG
+  connection contract.
 - Positive `--dev.period DURATION` parses through the shared geth-style
   duration path and rejects malformed or negative values.
 - Devnet summaries, readiness data, and lifecycle telemetry report
@@ -279,6 +291,22 @@ Closed validation:
 - Independent verifier review returned `PASS`; residual risk is now limited to
   broader Amsterdam payload-body range/null assertions beyond the current
   single-hit V6 proof.
+- Focused escalated standalone smoke for the sparse Amsterdam by-range
+  payload-body runner path passed:
+  `sbcl --script scripts/devnet-smoke-gate.lisp -- --engine-only-serve --json`.
+  The nested `kzgOptIn` report now includes a two-slot
+  `engine_getPayloadBodiesByRangeV2` response with a leading `null`
+  placeholder for block `0x9` and the expected Amsterdam V6 body at `0xa`.
+- Focused engine-only CLI coverage for
+  `DEVNET-SMOKE-GATE-SCRIPT-ENGINE-ONLY-SERVE-MODE` passed after the sparse
+  range report assertions were tightened to require
+  `preparedPayloadBodiesByRangeV2LeadingNull` and
+  `preparedPayloadBodiesByRangeV2HitIndex`.
+- `git diff --check` passed.
+- Independent verifier review returned `PASS`; residual risk is now limited to
+  invalid/oversized runner-bound `engine_getPayloadBodiesByRangeV2` requests
+  and fixture-shape drift that would remove the current `0x9` to `0xa`
+  sparse hole.
 
 - Focused dev-period coverage passed inside the full suite:
   `DEVNET-CLI-DEV-PERIOD-PARSES-AND-REPORTS-DURATION` and

@@ -1732,6 +1732,22 @@ ones.
     focused engine-only CLI coverage, `git diff --check`, and independent
     verifier review passed. Residual risk is now limited to broader
     multi-slot range/null response assertions beyond the single-hit proof.
+  - Result (2026-07-06): the same engine-only `kzgOptIn` child now reuses that
+    selected Amsterdam-era V6 head to request
+    `engine_getPayloadBodiesByRangeV2` from `0x9` with count `0x2`, proving a
+    sparse mixed-hit response with a leading `null` placeholder followed by
+    the expected V6 body. The smoke and CLI assertions now fail clearly if
+    the leading `null`, body ordering, empty `transactions` /
+    `withdrawals` arrays, or Amsterdam `blockAccessList` regress, and the
+    nested report records `preparedPayloadBodiesByRangeV2StartBlockNumber`,
+    `preparedPayloadBodiesByRangeV2Count`,
+    `preparedPayloadBodiesByRangeV2LeadingNull`, and
+    `preparedPayloadBodiesByRangeV2HitIndex` for the sparse result shape.
+    Focused escalated smoke, focused engine-only CLI coverage,
+    `git diff --check`, and independent verifier review passed. Residual risk
+    is now limited to invalid/oversized range-request handling at the runner
+    boundary and fixture-shape drift that would remove the current `0x9` to
+    `0xa` sparse hole.
 - [x] `DEVNET-RUNNER-KZG-ERROR-TELEMETRY`: Lock invalid KZG verifier
   configuration as a runner-facing startup failure.
   - Result (2026-07-03): `scripts/ethereum-lisp.lisp -- devnet` subprocess
