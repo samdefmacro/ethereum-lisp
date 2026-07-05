@@ -1305,8 +1305,12 @@ first pass, but interfaces must not block that path.
   transactions. The standalone devnet smoke gate now locks the background tick
   across the runner boundary by submitting a public transaction, waiting for a
   mined block, and reporting mined transaction, receipt, and post-mining
-  txpool cleanup evidence. The next Phase B block-production gap is bounded
-  multi-transaction selection under the child block gas limit. Startup
+  txpool cleanup evidence. The dev-period tick now also bounds its selected
+  public txpool transaction prefix by the child block gas limit before block
+  execution, leaving non-selected pending transactions visible for later
+  blocks. The next Phase B block-production gap is fuller multi-sender packing
+  under the child block gas limit while preserving per-sender nonce order.
+  Startup
   summaries and lifecycle telemetry report
   `headGasLimit` and `coinbase` for process-runner checks. The runner-facing
   script also accepts direct geth/Hive-shaped launch lines whose option stream

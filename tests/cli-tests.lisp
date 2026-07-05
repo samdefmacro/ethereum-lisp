@@ -38,12 +38,14 @@
 (defun devnet-cli-txpool-sender-address ()
   (fixture-private-key-address +devnet-cli-txpool-private-key+))
 
-(defun devnet-cli-txpool-transaction (config nonce gas-price)
+(defun devnet-cli-txpool-transaction
+    (config nonce gas-price &key
+       (gas-limit +devnet-cli-txpool-gas-limit+))
   (fixture-sign-legacy-transaction
    (make-legacy-transaction
     :nonce nonce
     :gas-price gas-price
-    :gas-limit +devnet-cli-txpool-gas-limit+
+    :gas-limit gas-limit
     :to (address-from-hex +devnet-cli-txpool-recipient+)
     :value +devnet-cli-txpool-value+)
    +devnet-cli-txpool-private-key+
@@ -104,7 +106,7 @@
       (read-sequence string stream)
       string)))
 
-(defun devnet-cli-funded-txpool-genesis-json (&key config-fields)
+(defun devnet-cli-funded-txpool-genesis-json (&key config-fields gas-limit)
   (let* ((genesis (parse-json
                    (devnet-cli-file-string +devnet-cli-genesis-fixture+)))
          (state (state-db-from-genesis-json-file
@@ -127,6 +129,9 @@
         (if cell
             (setf (cdr cell) (cdr field))
             (setf config (append config (list field))))))
+    (when gas-limit
+      (setf (cdr (assoc "gasLimit" genesis :test #'string=))
+            (quantity-to-hex gas-limit)))
     (setf (cdr (assoc "config" genesis :test #'string=)) config)
     (setf (cdr (assoc "alloc" genesis :test #'string=))
           (append alloc (list (cons (address-to-hex sender) account))))
@@ -3530,6 +3535,107 @@
                      (field receipt "transactionIndex")))
         (is (= 0 (length (field pending-response "result"))))
         (is (string= (quantity-to-hex 0) (field status "pending")))
+        (is (string= (quantity-to-hex 0) (field status "queued")))))))
+
+(deftest devnet-cli-dev-period-tick-bounds-transactions-by-gas-limit
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (request (json node)
+             (parse-json
+              (engine-rpc-handle-request-json
+               json
+               (ethereum-lisp.cli:devnet-node-store node)
+               (ethereum-lisp.cli:devnet-node-config node)))))
+    (let* ((now 0)
+           (node
+             (ethereum-lisp.cli:make-devnet-node
+              :genesis-json (devnet-cli-funded-txpool-genesis-json
+                             :gas-limit 42000)
+              :port 0
+              :dev-mode-p t
+              :dev-period-seconds 1))
+           (config (ethereum-lisp.cli:devnet-node-config node))
+           (first-transaction
+             (devnet-cli-txpool-transaction
+              config
+              0
+              +devnet-cli-txpool-pending-gas-price+
+              :gas-limit 21000))
+           (second-transaction
+             (devnet-cli-txpool-transaction
+              config
+              1
+              +devnet-cli-txpool-pending-gas-price+
+              :gas-limit 30000))
+           (first-hash (hash32-to-hex (transaction-hash first-transaction)))
+           (second-hash (hash32-to-hex
+                         (transaction-hash second-transaction)))
+           (state
+             (ethereum-lisp.cli::make-devnet-dev-period-state
+              node
+              1
+              :now-function (lambda () now))))
+      (dolist (transaction (list first-transaction second-transaction))
+        (request
+         (concatenate
+          'string
+          "{\"jsonrpc\":\"2.0\",\"id\":1,"
+          "\"method\":\"eth_sendRawTransaction\","
+          "\"params\":[\""
+          (devnet-cli-transaction-raw transaction)
+          "\"]}")
+         node))
+      (setf now 1)
+      (let* ((sealed-block
+               (ethereum-lisp.cli::devnet-dev-period-state-tick state))
+             (sealed-hash (hash32-to-hex (block-hash sealed-block)))
+             (first-lookup
+               (request
+                (concatenate
+                 'string
+                 "{\"jsonrpc\":\"2.0\",\"id\":2,"
+                 "\"method\":\"eth_getTransactionByHash\","
+                 "\"params\":[\"" first-hash "\"]}")
+                node))
+             (second-lookup
+               (request
+                (concatenate
+                 'string
+                 "{\"jsonrpc\":\"2.0\",\"id\":3,"
+                 "\"method\":\"eth_getTransactionByHash\","
+                 "\"params\":[\"" second-hash "\"]}")
+                node))
+             (pending-response
+               (request
+                "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"eth_pendingTransactions\",\"params\":[]}"
+                node))
+             (status-response
+               (request
+                "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"txpool_status\",\"params\":[]}"
+                node))
+             (mined-transaction (field first-lookup "result"))
+             (leftover-transaction (field second-lookup "result"))
+             (pending-transactions (field pending-response "result"))
+             (status (field status-response "result")))
+        (is (typep sealed-block 'ethereum-block))
+        (is (= 1 (length (block-transactions sealed-block))))
+        (is (string= first-hash
+                     (hash32-to-hex
+                      (transaction-hash
+                       (first (block-transactions sealed-block))))))
+        (is (string= first-hash
+                     (field mined-transaction "hash")))
+        (is (string= sealed-hash
+                     (field mined-transaction "blockHash")))
+        (is (string= (quantity-to-hex 0)
+                     (field mined-transaction "transactionIndex")))
+        (is (string= second-hash
+                     (field leftover-transaction "hash")))
+        (is (null (field leftover-transaction "blockHash")))
+        (is (= 1 (length pending-transactions)))
+        (is (string= second-hash
+                     (field (first pending-transactions) "hash")))
+        (is (string= (quantity-to-hex 1) (field status "pending")))
         (is (string= (quantity-to-hex 0) (field status "queued")))))))
 
 (deftest devnet-cli-dev-period-tick-carries-active-fork-bodies

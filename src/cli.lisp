@@ -633,19 +633,34 @@
        (devnet-node-mining-transaction<
         left right expected-chain-id)))))
 
+(defun devnet-node-select-mining-transactions (transactions gas-limit)
+  (loop with selected = nil
+        with gas-used = 0
+        for transaction in transactions
+        for transaction-gas = (transaction-gas-limit transaction)
+        while (<= (+ gas-used transaction-gas) gas-limit)
+        do (push transaction selected)
+           (incf gas-used transaction-gas)
+        finally (return (nreverse selected))))
+
 (defun devnet-node-seal-pending-block (node &key timestamp)
   (unless (typep node 'devnet-node)
     (error "Devnet node must be devnet-node"))
   (let* ((store (devnet-node-store node))
          (config (devnet-node-config node))
          (parent (chain-store-latest-block store))
-         (transactions (devnet-node-pending-mining-transactions node)))
-    (when (and parent transactions)
+         (pending-transactions
+           (devnet-node-pending-mining-transactions node)))
+    (when (and parent pending-transactions)
       (let* ((parent-header (block-header parent))
              (parent-hash (block-hash parent))
              (parent-timestamp (block-header-timestamp parent-header))
              (timestamp (max (or timestamp 0) (1+ parent-timestamp)))
              (block-number (1+ (block-header-number parent-header)))
+             (gas-limit (block-header-gas-limit parent-header))
+             (transactions
+               (devnet-node-select-mining-transactions
+                pending-transactions gas-limit))
              (state (chain-store-state-db store parent-hash))
              (cancun-p (chain-config-cancun-p config block-number timestamp))
              (shanghai-p (chain-config-shanghai-p config block-number
@@ -659,59 +674,60 @@
                    0))
              (cancun-header-arguments nil)
              (fork-body-arguments nil))
-        (unless state
-          (error "Devnet dev-period parent state is unavailable"))
-        (when cancun-p
-          (multiple-value-bind (target-blob-gas max-blob-gas
-                                update-fraction)
-              (chain-config-blob-schedule config block-number timestamp)
-            (setf cancun-header-arguments
-                  (list
-                   :blob-gas-used 0
-                   :excess-blob-gas
-                   (expected-excess-blob-gas
-                    parent-header
-                    :target-blob-gas target-blob-gas
-                    :max-blob-gas max-blob-gas
-                    :eip7918-p (chain-config-osaka-p config block-number
-                                                      timestamp)
-                    :update-fraction update-fraction)
-                   :parent-beacon-root (zero-hash32)))))
-        (when shanghai-p
-          (setf fork-body-arguments
-                (append fork-body-arguments (list :withdrawals '()))))
-        (when prague-p
-          (setf fork-body-arguments
-                (append fork-body-arguments (list :requests '()))))
-        (when amsterdam-p
-          (setf fork-body-arguments
-                (append fork-body-arguments (list :block-access-list '()))))
-        (multiple-value-bind (block receipts)
-            (apply
-             #'execute-and-commit-signed-block
-             store
-             state
-             transactions
-             (append
-              (list
-               :expected-chain-id (chain-config-chain-id config)
-               :header (apply
-                        #'make-block-header
-                        (append
-                         (list
-                          :parent-hash parent-hash
-                          :beneficiary (devnet-node-coinbase node)
-                          :number block-number
-                          :gas-limit (block-header-gas-limit parent-header)
-                          :timestamp timestamp
-                          :base-fee-per-gas base-fee-per-gas
-                          :mix-hash (zero-hash32))
-                         cancun-header-arguments))
-               :chain-config config
-               :state-available-p t)
-              fork-body-arguments))
-          (declare (ignore receipts))
-          block)))))
+        (when transactions
+          (unless state
+            (error "Devnet dev-period parent state is unavailable"))
+          (when cancun-p
+            (multiple-value-bind (target-blob-gas max-blob-gas
+                                  update-fraction)
+                (chain-config-blob-schedule config block-number timestamp)
+              (setf cancun-header-arguments
+                    (list
+                     :blob-gas-used 0
+                     :excess-blob-gas
+                     (expected-excess-blob-gas
+                      parent-header
+                      :target-blob-gas target-blob-gas
+                      :max-blob-gas max-blob-gas
+                      :eip7918-p (chain-config-osaka-p config block-number
+                                                        timestamp)
+                      :update-fraction update-fraction)
+                     :parent-beacon-root (zero-hash32)))))
+          (when shanghai-p
+            (setf fork-body-arguments
+                  (append fork-body-arguments (list :withdrawals '()))))
+          (when prague-p
+            (setf fork-body-arguments
+                  (append fork-body-arguments (list :requests '()))))
+          (when amsterdam-p
+            (setf fork-body-arguments
+                  (append fork-body-arguments (list :block-access-list '()))))
+          (multiple-value-bind (block receipts)
+              (apply
+               #'execute-and-commit-signed-block
+               store
+               state
+               transactions
+               (append
+                (list
+                 :expected-chain-id (chain-config-chain-id config)
+                 :header (apply
+                          #'make-block-header
+                          (append
+                           (list
+                            :parent-hash parent-hash
+                            :beneficiary (devnet-node-coinbase node)
+                            :number block-number
+                            :gas-limit gas-limit
+                            :timestamp timestamp
+                            :base-fee-per-gas base-fee-per-gas
+                            :mix-hash (zero-hash32))
+                           cancun-header-arguments))
+                 :chain-config config
+                 :state-available-p t)
+                fork-body-arguments))
+            (declare (ignore receipts))
+            block))))))
 
 (defun make-devnet-dev-period-state
     (node interval-seconds &key (now-function #'get-universal-time))

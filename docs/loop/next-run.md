@@ -11,35 +11,38 @@
 
 ## Orientation Summary
 
-- Git state: current run is expected to commit and push
-  `DEVNET-RUNNER-DEV-PERIOD-SMOKE` before the next run starts.
-- Recent commits reviewed: `d09fbce`, `c787e9f`, `86ce18c`, `44c5d20`,
-  `7f79d65`.
+- Git state: the previous run is expected to have committed and pushed
+  `DEVNET-RUNNER-DEV-PERIOD-SELECTION`.
+- Recent commits reviewed in the previous run: `3ae54ca`, `d09fbce`,
+  `c787e9f`, `86ce18c`, and `44c5d20`.
 - Relevant task/roadmap anchors: Phase B local devnet / Engine RPC
   process-runner readiness remains the highest-value roadmap track. The latest
-  slice locks the background `--dev.period` tick across the standalone smoke
-  boundary with mined transaction, receipt, block, and txpool cleanup evidence.
+  slice bounds dev-period transaction selection by the child block gas limit
+  before block execution.
 - Relevant loop state: txpool lifetime, journal, rejournal, rejournal smoke,
-  dev-period deterministic tick behavior, and dev-period smoke coverage are
-  closed. The next valuable block-production gap is bounded transaction
-  selection under the child block gas limit.
+  dev-period deterministic tick behavior, dev-period smoke coverage, and
+  gas-bounded dev-period prefix selection are closed. The next useful
+  block-production gap is fuller deterministic selection across independent
+  senders without violating per-sender nonce order.
 
 ## Candidate Ranking
 
 ### Candidate A
 
-- Objective: implement `DEVNET-RUNNER-DEV-PERIOD-SELECTION`, making local
-  dev-period block production select a bounded executable transaction set
-  instead of blindly attempting every recoverable pending transaction.
-- Value: high; improves executable local devnet behavior and prevents
-  block-production policy from accepting an unbounded pending set.
-- Risk: medium; changes mining selection policy and must preserve pending
-  txpool visibility for transactions left for later blocks.
-- Required validation: focused CLI/dev-period tests while iterating,
+- Objective: implement `DEVNET-RUNNER-DEV-PERIOD-MULTI-SENDER-SELECTION`,
+  letting local dev-period mining continue with another sender's nonce-safe
+  fitting transaction when the current sender's head transaction would exceed
+  the remaining block gas.
+- Value: high; improves executable local devnet block production while keeping
+  the txpool-visible gas-limit behavior closed in the previous slice.
+- Risk: medium; selection must preserve per-sender nonce ordering and must not
+  hide transactions left for later blocks.
+- Required validation: focused CLI/dev-period multi-sender tests,
   `git diff --check`, full test suite once, and independent verifier review.
 - Decision: selected.
-- Reason: after the period tick and smoke boundary are closed, bounded
-  transaction selection is the next directly executable Phase B behavior gap.
+- Reason: it is the closest executable Phase B follow-up to the gas-bounded
+  prefix behavior and moves local devnet mining closer to usable process-runner
+  behavior.
 
 ### Candidate B
 
@@ -48,11 +51,11 @@
 - Value: medium-high; moves toward Engine API realism.
 - Risk: medium-high; public Engine semantics and fork-specific payload fields
   need a tighter contract than the current local mining path.
-- Required validation: focused Engine RPC tests, standalone devnet smoke, and
-  full suite.
+- Required validation: focused Engine RPC tests, standalone devnet smoke if
+  process behavior changes, and full suite.
 - Decision: defer.
-- Reason: transaction selection should be bounded before sharing policy through
-  a broader Engine-facing surface.
+- Reason: transaction selection policy should be more complete before sharing
+  it through a broader Engine-facing surface.
 
 ### Candidate C
 
@@ -70,10 +73,11 @@
 
 ## Selected Objective
 
-Implement `DEVNET-RUNNER-DEV-PERIOD-SELECTION`: make the local dev-period
-block-production tick choose a deterministic, bounded set of executable txpool
-transactions that fits the child block gas limit, while keeping non-fitting
-transactions visible for later blocks.
+Implement `DEVNET-RUNNER-DEV-PERIOD-MULTI-SENDER-SELECTION`: improve local
+dev-period block production so bounded selection can continue across
+independent senders when one sender's next nonce-safe transaction does not fit,
+while preserving per-sender nonce order and public txpool visibility for all
+non-selected transactions.
 
 ## Scope
 
@@ -81,7 +85,6 @@ Allowed files/modules:
 
 - `src/cli.lisp`
 - `tests/cli-tests.lisp`
-- `scripts/devnet-smoke-gate.lisp` only if process-boundary behavior changes
 - `docs/tasks.md`
 - `docs/roadmap.md`
 - `docs/loop/state.md`
@@ -89,12 +92,13 @@ Allowed files/modules:
 
 Expected behavior changes:
 
-- The dev-period tick orders recoverable pending transactions deterministically
-  by sender/nonce/hash, or by the closest existing local ordering that preserves
-  nonce correctness.
-- The selected transaction set must fit within the child block gas limit.
-- Transactions that do not fit remain in pending txpool views for a later
-  block instead of being silently mined, dropped, or hidden.
+- Dev-period mining groups or otherwise reasons about recoverable pending
+  transactions by sender so nonce order is preserved per sender.
+- If one sender's head transaction exceeds the remaining child block gas, the
+  selector may continue to another sender's head transaction that fits.
+- The selected transaction set must still fit within the child block gas limit.
+- Non-selected transactions remain visible through pending txpool/public hash
+  views for later blocks.
 - Mined transactions continue to be indexed with correct transaction and
   receipt lookup visibility.
 
@@ -103,17 +107,18 @@ Non-goals:
 - Do not implement P2P mining, consensus duties, mev/payload fee auctions, or
   a full geth txpool replacement.
 - Do not broaden official fixture pins in this slice.
-- Do not add unbounded sleeps or process-boundary smoke changes unless the
-  implementation touches listener behavior.
+- Do not change listener lifecycle or standalone smoke behavior unless the
+  implementation truly crosses a process boundary.
 
 ## Acceptance Criteria
 
-- A focused test proves the child block gas limit bounds the dev-period
-  transaction set.
-- A focused test proves at least one non-fitting pending transaction remains
-  visible after the tick.
-- Existing single-transaction dev-period behavior and public transaction,
-  receipt, and block lookup visibility remain intact.
+- A focused test proves a fitting transaction from a second sender can be mined
+  after a first sender's next transaction does not fit the remaining gas.
+- A focused test or assertion proves same-sender nonce order is not violated.
+- Non-selected transactions remain visible in pending txpool views and by
+  transaction hash after the tick.
+- Existing single-sender gas-bounded selection and single-transaction
+  dev-period behavior remain intact.
 - Full suite passes once after implementation.
 - Independent verifier reviews the final diff before commit.
 
@@ -121,7 +126,8 @@ Non-goals:
 
 Focused gates:
 
-- Focused CLI/dev-period tests for transaction selection and pending leftovers.
+- Focused CLI/dev-period tests for multi-sender selection, nonce safety, and
+  pending leftovers.
 
 Required pre-commit gates:
 
@@ -138,22 +144,23 @@ Escalation requirements:
 
 - Commit allowed: yes, only after deterministic gates and verifier review pass.
 - Push allowed: yes, after commit if remote authentication is available.
-- Commit message: `Bound dev period transaction selection`
+- Commit message: `Pack dev period transactions by sender`
 
 ## Blockers
 
 - No current git synchronization blocker.
-- If existing block construction cannot leave non-fitting transactions pending
-  without a txpool ownership refactor, stop with
-  `BLOCKED_DEV_PERIOD_SELECTION_TXPOOL_OWNERSHIP` and document the exact
+- If the existing txpool representation cannot recover sender identity or
+  preserve nonce-safe grouping without a broad ownership refactor, stop with
+  `BLOCKED_DEV_PERIOD_MULTI_SENDER_TXPOOL_ORDERING` and document the exact
   boundary.
 
 ## Implementer Notes
 
-- Start by reading the current dev-period tick implementation in `src/cli.lisp`
-  and existing txpool ordering helpers before adding a new ordering policy.
-- Keep policy deterministic and minimal; prefer preserving existing txpool
-  semantics over adding a broad scheduler abstraction.
+- Start from the current `devnet-node-pending-mining-transactions` ordering and
+  `devnet-node-select-mining-transactions` gas-bounding path.
+- Keep the selector deterministic and local to dev-period mining; do not
+  change txpool admission policy unless a concrete correctness boundary
+  requires it.
 - If process-boundary behavior is unchanged, do not rerun the standalone
   devnet smoke gate for this slice.
 

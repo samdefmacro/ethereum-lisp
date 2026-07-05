@@ -245,7 +245,7 @@ ones.
   `eth_pendingTransactions`, and the bounded seven-public-connection probe.
   The focused escalated
   `sbcl --script scripts/devnet-smoke-gate.lisp -- --json` path passed.
-- [ ] `DEVNET-RUNNER-DEV-PERIOD-SELECTION`: Make local dev-period block
+- [x] `DEVNET-RUNNER-DEV-PERIOD-SELECTION`: Make local dev-period block
   production select a bounded executable transaction set rather than blindly
   attempting every recoverable pending transaction.
   - Milestone: 7 / Phase B Hive process-runner readiness
@@ -259,6 +259,31 @@ ones.
   - Validation: focused CLI/dev-period tests while iterating; escalated
     standalone devnet smoke if process-boundary behavior changes;
     `git diff --check`; `sbcl --script tests/run-tests.lisp`.
+  - Result (2026-07-05): the deterministic dev-period tick now bounds the
+    selected public txpool transaction prefix by the child block gas limit
+    before entering block execution. It preserves the existing sender/nonce/hash
+    ordering contract, avoids sealing an over-gas transaction set, leaves
+    non-selected pending transactions visible for later blocks, and continues
+    indexing mined transaction lookup fields correctly. Focused CLI coverage
+    locks a two-transaction txpool case where the first transfer is mined and a
+    second same-sender nonce remains pending because the child block gas limit
+    cannot fit both transactions.
+- [ ] `DEVNET-RUNNER-DEV-PERIOD-MULTI-SENDER-SELECTION`: Improve local
+  dev-period block production so bounded selection can continue across
+  independent senders when an earlier sender's next nonce-safe transaction does
+  not fit, without violating per-sender nonce order.
+  - Milestone: 7 / Phase B Hive process-runner readiness
+  - Dependencies: `DEVNET-RUNNER-DEV-PERIOD-SELECTION`.
+  - Acceptance: transaction selection remains deterministic, never mines a
+    higher nonce before a lower nonce from the same sender, can include a later
+    sender's fitting head transaction after another sender's head transaction
+    exceeds the remaining block gas, leaves all non-selected transactions
+    visible in public txpool views, and preserves mined transaction/receipt
+    indexing.
+  - Validation: focused CLI/dev-period tests with at least two senders and a
+    tight child block gas limit; escalated standalone devnet smoke only if the
+    process boundary changes; `git diff --check`;
+    `sbcl --script tests/run-tests.lisp`.
 - [x] `PINNED-V5.4.0-ROOT-SMOKE`: Rehydrate or configure an official
   `ethereum/execution-spec-tests` v5.4.0 `fixtures_stable.tar.gz` extraction,
   run `scripts/phase-a-smoke-gate.lisp -- --pinned-v5.4.0 --root PATH`, and

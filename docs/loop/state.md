@@ -17,10 +17,10 @@ Last updated: 2026-07-05
 
 ## Current Dirty Work
 
-No dirty implementation work is expected after the current run commits and
-pushes. The dev-period smoke slice has been implemented; focused standalone
-smoke, all-fixtures standalone smoke, and full-suite validation have passed.
-Verifier review and commit/push are pending in the current run.
+The current run has implemented and validated
+`DEVNET-RUNNER-DEV-PERIOD-SELECTION`. Code changes, focused CLI coverage,
+`git diff --check`, the full suite, independent verifier review, and next-run
+refresh are complete; commit and push are pending.
 
 Closed behavior from the latest slice:
 
@@ -48,6 +48,10 @@ Closed behavior from the latest slice:
 - The dev-period smoke probe uses a stable one-transfer fixture independent of
   the surrounding all-fixtures payload case, so the runner-boundary period tick
   contract is not coupled to unrelated fixture transaction shapes.
+- The local dev-period tick now selects a deterministic prefix of recoverable
+  public txpool transactions whose cumulative gas limit fits the child block
+  gas limit, enters block execution only when at least one transaction fits,
+  and leaves non-selected pending transactions visible for later blocks.
 
 Closed validation:
 
@@ -72,6 +76,16 @@ Closed validation:
   intentional stable Shanghai one-transfer probe fixture, which proves the
   runner-boundary period tick contract but does not claim per-fixture mining
   semantics.
+- Focused direct CLI coverage for
+  `DEVNET-CLI-DEV-PERIOD-TICK-BOUNDS-TRANSACTIONS-BY-GAS-LIMIT` passed during
+  the current run.
+- `git diff --check` passed.
+- The escalated `sbcl --script tests/run-tests.lisp` run passed with
+  `887 tests passed, 5 skipped`.
+- Independent verifier review returned `PASS`. Residual risks: the no-fitting
+  first-transaction edge is covered by the selector shape but does not yet have
+  focused coverage, and receipt visibility for the multi-transaction bounded
+  case relies on the existing single-transaction dev-period receipt coverage.
 
 ## Current Loop Migration
 
@@ -85,8 +99,8 @@ The old fixed heartbeat prompt is being replaced by a loop v2 process:
 
 ## Next Recommended Orchestrator Decision
 
-The next loop run should consume the refreshed `docs/loop/next-run.md` as an
-implementer contract for `DEVNET-RUNNER-DEV-PERIOD-SELECTION`. Do not continue the
-completed txpool lifetime, journal, rejournal, rejournal smoke, or dev-period
-tick/smoke tasks. The next highest-value Phase B slice is bounded local
-dev-period transaction selection under the child block gas limit.
+The current loop run should finish `DEVNET-RUNNER-DEV-PERIOD-SELECTION` by
+committing and pushing the validated work. After that, the next highest-value
+Phase B slice is
+`DEVNET-RUNNER-DEV-PERIOD-MULTI-SENDER-SELECTION`: fuller gas-limited
+selection across independent senders without violating per-sender nonce order.
