@@ -18,8 +18,8 @@ Last updated: 2026-07-05
 ## Current Dirty Work
 
 No dirty implementation work is recorded by the loop. The txpool rejournal
-slice has been implemented, validated, independently reviewed, and is pending
-commit and push in the current run.
+smoke slice has been implemented, validated, independently reviewed, and is
+pending commit and push in the current run.
 
 Closed behavior from the latest slice:
 
@@ -52,9 +52,25 @@ Closed validation:
 - The required escalated devnet smoke gate passed:
   `sbcl --script scripts/phase-a-smoke-gate.lisp -- --json --devnet` exited 0
   with top-level, devnet, and engine-only devnet `status: ok`.
-- Independent verifier review returned `PASS`; its only residual risk was the
-  real process-boundary smoke coverage now captured as
-  `DEVNET-RUNNER-TXPOOL-REJOURNAL-SMOKE`.
+- Independent verifier review returned `PASS`.
+
+Current smoke-slice validation:
+
+- The focused escalated standalone smoke gate passed:
+  `sbcl --script scripts/devnet-smoke-gate.lisp -- --json`.
+- The smoke report now includes live-before-shutdown rejournal evidence:
+  `txpoolRejournalSeconds`, `txpoolRejournalObservedBeforeShutdown`,
+  `txpoolRejournalRecordCount`, `txpoolRejournalTransactionHash`, and
+  `txpoolRejournalSubpool`.
+- `git diff --check` passed.
+- `sbcl --script tests/run-tests.lisp` was run once and failed only at the
+  known sandbox socket-gated
+  `PHASE-A-SMOKE-GATE-SCRIPT-CAN-INCLUDE-DEVNET-SUITE` test.
+- The required escalated Phase A devnet gate passed:
+  `sbcl --script scripts/phase-a-smoke-gate.lisp -- --json --devnet`, with
+  top-level, devnet, and engine-only devnet `status: ok`.
+- Independent verifier review returned `PASS`; residual risk is the expected
+  extra bounded wait for one real rejournal tick in each devnet smoke case.
 
 ## Current Loop Migration
 
@@ -68,9 +84,8 @@ The old fixed heartbeat prompt is being replaced by a loop v2 process:
 
 ## Next Recommended Orchestrator Decision
 
-After this commit, the next loop run should consume the refreshed
-`docs/loop/next-run.md` as an implementer contract for
-`DEVNET-RUNNER-TXPOOL-REJOURNAL-SMOKE`. Do not continue the completed txpool
-journal or rejournal implementation tasks. Prefer Phase B
-devnet/Engine/process-runner readiness or txpool/chain-store correctness
-unless orientation finds a higher-value executable-client issue.
+After this commit, generate a fresh `docs/loop/next-run.md` for the next
+implementation slice. Do not continue the completed txpool journal, rejournal,
+or rejournal smoke tasks. Prefer Phase B devnet/Engine/process-runner readiness
+or txpool/chain-store correctness unless orientation finds a higher-value
+executable-client issue.

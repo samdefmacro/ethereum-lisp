@@ -167,7 +167,7 @@ ones.
     known socket-gated devnet smoke test, and the required escalated Phase A
     devnet smoke gate passed with top-level, devnet, and engine-only devnet
     `status: ok`.
-- [ ] `DEVNET-RUNNER-TXPOOL-REJOURNAL-SMOKE`: Lock the
+- [x] `DEVNET-RUNNER-TXPOOL-REJOURNAL-SMOKE`: Lock the
   `--txpool.rejournal` process boundary in the standalone devnet smoke gate.
   - Milestone: 7 / Phase B Hive process-runner readiness
   - Dependencies: `DEVNET-RUNNER-TXPOOL-REJOURNAL`.
@@ -179,6 +179,17 @@ ones.
   - Validation: focused devnet smoke-gate path while iterating; request local
     socket/network escalation; `git diff --check`;
     `sbcl --script tests/run-tests.lisp`.
+  - Result (2026-07-05): the standalone devnet smoke gate now configures a
+    txpool journal plus one-second rejournal interval, admits the pending,
+    basefee, and queued public txpool transactions, waits during the live
+    listener run for the background rejournal path to write the txpool-only KV
+    journal, and fails with observed hashes if the expected pending transaction
+    never appears. The JSON report includes `txpoolRejournalSeconds`,
+    `txpoolRejournalObservedBeforeShutdown`, `txpoolRejournalRecordCount`,
+    `txpoolRejournalTransactionHash`, and `txpoolRejournalSubpool`, and the
+    public txpool connection contract increased to include the bounded
+    rejournal wait probe. The focused escalated
+    `sbcl --script scripts/devnet-smoke-gate.lisp -- --json` path passed.
 - [x] `PINNED-V5.4.0-ROOT-SMOKE`: Rehydrate or configure an official
   `ethereum/execution-spec-tests` v5.4.0 `fixtures_stable.tar.gz` extraction,
   run `scripts/phase-a-smoke-gate.lisp -- --pinned-v5.4.0 --root PATH`, and

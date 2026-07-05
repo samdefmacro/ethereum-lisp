@@ -1279,7 +1279,8 @@ first pass, but interfaces must not block that path.
   `--txpool.rejournal` now accepts geth-style composite duration values, imports
   geth TOML `[Eth.TxPool] Rejournal`, reports `txpoolRejournalSeconds`, and
   periodically refreshes the configured txpool-only journal during long-running
-  serve mode.
+  serve mode. The standalone devnet smoke gate now locks that live rejournal
+  path by waiting for a txpool-only KV journal record before clean shutdown.
   `--txpool.locals` now marks configured senders as local transactions that
   bypass txpool price-limit, pending-slot, and queued-cap admission, and
   `--txpool.nolocals` disables those exemptions. The geth TOML
@@ -1821,8 +1822,7 @@ first pass, but interfaces must not block that path.
   reorg events, returning displaced old-canonical logs with `removed=true` and
   replacement-head logs with the normal `removed=false` shape.
 - *Partial:* txpool policy beyond the current in-memory pending pool
-  (process-boundary rejournal smoke coverage and broader eviction policy),
-  cross-client Engine fixture breadth beyond the local pinned Shanghai
+  (broader eviction policy), cross-client Engine fixture breadth beyond the local pinned Shanghai
   `engine_newPayloadV2` smoke set, and concrete long-running devnet/Hive
   lifecycle ergonomics beyond the current readiness, log-file, shutdown,
   bounded fixture-import, and runner-facing database restart smoke contract.

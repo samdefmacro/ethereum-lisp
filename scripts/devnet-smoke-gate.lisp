@@ -101,7 +101,7 @@ references/ checkouts.~%")
      +devnet-smoke-gate-engine-workflow-connections+))
 (defconstant +devnet-smoke-gate-public-canonical-read-connections+ 23)
 (defconstant +devnet-smoke-gate-public-boundary-connections+ 3)
-(defconstant +devnet-smoke-gate-public-txpool-connections+ 18)
+(defconstant +devnet-smoke-gate-public-txpool-connections+ 19)
 (defconstant +devnet-smoke-gate-public-connections+
   (+ +devnet-smoke-gate-public-canonical-read-connections+
      +devnet-smoke-gate-public-boundary-connections+
@@ -5388,6 +5388,53 @@ references/ checkouts.~%")
 (defun devnet-smoke-gate-transaction-raw (transaction)
   (bytes-to-hex (transaction-encoding transaction)))
 
+(defun devnet-smoke-gate-txpool-journal-records (journal-path)
+  (when (probe-file journal-path)
+    (handler-case
+        (let ((database (make-file-key-value-database journal-path)))
+          (loop for entry in (kv-chain-record-entries database :txpool)
+                collect
+                (multiple-value-bind (subpool transaction)
+                    (ethereum-lisp.core::chain-store-txpool-transaction-record-values
+                     (cdr entry))
+                  (list :hash (hash32-to-hex (transaction-hash transaction))
+                        :subpool subpool
+                        :raw (devnet-smoke-gate-transaction-raw
+                              transaction)))))
+      (error (condition)
+        (error "Unable to read txpool rejournal file ~A: ~A"
+               (namestring journal-path)
+               condition)))))
+
+(defun devnet-smoke-gate-wait-for-txpool-journal-record
+    (journal-path expected-hash expected-raw timeout-seconds)
+  (let* ((deadline
+           (+ (get-internal-real-time)
+              (* timeout-seconds internal-time-units-per-second)))
+         (last-records nil))
+    (loop
+      (setf last-records
+            (devnet-smoke-gate-txpool-journal-records journal-path))
+      (let ((record
+              (find-if
+               (lambda (record)
+                 (and (string= expected-hash (getf record :hash))
+                      (string= expected-raw (getf record :raw))))
+               last-records)))
+        (when record
+          (return
+            (list :record-count (length last-records)
+                  :transaction-hash (getf record :hash)
+                  :subpool (getf record :subpool)))))
+      (when (>= (get-internal-real-time) deadline)
+        (error "Timed out after ~D seconds waiting for txpool journal ~A to contain ~A; observed hashes: ~S"
+               timeout-seconds
+               (namestring journal-path)
+               expected-hash
+               (mapcar (lambda (record) (getf record :hash))
+                       last-records)))
+      (sleep 0.05))))
+
 (defun devnet-smoke-gate-transaction-nonce-key (transaction)
   (format nil "~D" (transaction-nonce transaction)))
 
@@ -7682,7 +7729,10 @@ references/ checkouts.~%")
        terminal-total-difficulty-passed-p terminal-block-hash
        terminal-block-number)
   #+sbcl
-  (let ((jwt-path (devnet-cli-temp-path "ethereum-lisp-devnet-smoke-jwt" "hex")))
+  (let ((jwt-path (devnet-cli-temp-path "ethereum-lisp-devnet-smoke-jwt" "hex"))
+        (journal-path
+          (devnet-cli-temp-path "ethereum-lisp-devnet-smoke-txpool-journal"
+                                "sexp")))
     (unwind-protect
          (progn
            (devnet-cli-write-temp-file jwt-path +devnet-cli-jwt-secret+)
@@ -7752,6 +7802,8 @@ references/ checkouts.~%")
                                 :log-path log-file
                                 :database-path database-file
                                 :pid-file-path pid-file
+                                :txpool-journal-path (namestring journal-path)
+                                :txpool-rejournal-seconds 1
                                 :terminal-total-difficulty
                                 terminal-total-difficulty
                                 :terminal-total-difficulty-passed
@@ -7854,6 +7906,7 @@ references/ checkouts.~%")
                   (send-raw-output (make-string-output-stream))
                   (send-basefee-output (make-string-output-stream))
                   (send-queued-output (make-string-output-stream))
+                  (txpool-rejournal-output (make-string-output-stream))
                   (raw-pending-output (make-string-output-stream))
                   (raw-basefee-output (make-string-output-stream))
                   (raw-queued-output (make-string-output-stream))
@@ -7947,6 +8000,7 @@ references/ checkouts.~%")
                   (queued-transaction-nonce-key
                     (devnet-smoke-gate-transaction-nonce-key
                      queued-transaction))
+                  (txpool-rejournal-report nil)
                   (engine-requests
                     (list
                      (cons
@@ -8308,6 +8362,13 @@ references/ checkouts.~%")
                                      (list queued-transaction-raw))))
                         send-queued-output)
                        (cons
+                        (json-encode
+                         (list (cons "jsonrpc" "2.0")
+                               (cons "id" 77)
+                               (cons "method" "eth_blockNumber")
+                               (cons "params" '())))
+                        txpool-rejournal-output)
+                       (cons
                        (json-encode
                         (list (cons "jsonrpc" "2.0")
                               (cons "id" 67)
@@ -8553,6 +8614,13 @@ references/ checkouts.~%")
                            (public-requests
                             (destructuring-bind (body . output)
                                 (pop public-requests)
+                              (when (eq output txpool-rejournal-output)
+                                (setf txpool-rejournal-report
+                                      (devnet-smoke-gate-wait-for-txpool-journal-record
+                                       journal-path
+                                       pending-transaction-hash-hex
+                                       pending-transaction-raw
+                                       5)))
                               (make-engine-rpc-http-connection
                                :input-stream
                                (make-string-input-stream
@@ -8725,6 +8793,8 @@ references/ checkouts.~%")
                         (get-output-stream-string send-basefee-output))
                       (send-queued-response
                         (get-output-stream-string send-queued-output))
+                      (txpool-rejournal-response
+                        (get-output-stream-string txpool-rejournal-output))
                       (raw-pending-response
                         (get-output-stream-string raw-pending-output))
                       (raw-basefee-response
@@ -8872,6 +8942,9 @@ references/ checkouts.~%")
                         (devnet-smoke-gate-rpc-body send-basefee-response))
                       (send-queued-rpc
                         (devnet-smoke-gate-rpc-body send-queued-response))
+                      (txpool-rejournal-rpc
+                        (devnet-smoke-gate-rpc-body
+                         txpool-rejournal-response))
                       (raw-pending-rpc
                         (devnet-smoke-gate-rpc-body raw-pending-response))
                       (raw-basefee-rpc
@@ -9662,6 +9735,25 @@ references/ checkouts.~%")
                            (fixture-object-field send-queued-rpc "result"))
                   "eth_sendRawTransaction queued hash mismatch")
                  (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status txpool-rejournal-response))
+                  "txpool rejournal wait request HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (string= actual-block-number
+                           (fixture-object-field
+                            txpool-rejournal-rpc "result"))
+                  "txpool rejournal wait request block number mismatch")
+                 (devnet-smoke-gate-require
+                  txpool-rejournal-report
+                  "txpool rejournal did not report the expected record")
+                 (devnet-smoke-gate-require
+                  (string= pending-transaction-hash-hex
+                           (getf txpool-rejournal-report
+                                 :transaction-hash))
+                  "txpool rejournal transaction hash mismatch")
+                 (devnet-smoke-gate-require
+                  (eq :pending (getf txpool-rejournal-report :subpool))
+                  "txpool rejournal transaction subpool mismatch")
+                 (devnet-smoke-gate-require
                   (= 1 (length pending-filter-changes))
                   "eth_getFilterChanges pending transaction count mismatch")
                  (devnet-smoke-gate-require
@@ -10231,6 +10323,17 @@ references/ checkouts.~%")
                         (fixture-object-field
                          removed-pending-filter-error
                          "code"))
+                  (cons "txpoolRejournalSeconds" 1)
+                  (cons "txpoolRejournalObservedBeforeShutdown" t)
+                  (cons "txpoolRejournalRecordCount"
+                        (getf txpool-rejournal-report :record-count))
+                  (cons "txpoolRejournalTransactionHash"
+                        (getf txpool-rejournal-report
+                              :transaction-hash))
+                  (cons "txpoolRejournalSubpool"
+                        (string-downcase
+                         (symbol-name
+                          (getf txpool-rejournal-report :subpool))))
                   (cons "txpoolBasefeeTransactionHash"
                         basefee-transaction-hash-hex)
                   (cons "txpoolBasefeeTransactionRaw"
@@ -11241,7 +11344,9 @@ references/ checkouts.~%")
                   (devnet-smoke-gate-field report "rpcEndpoint")))
                report)))
       (when (probe-file jwt-path)
-        (delete-file jwt-path))))
+        (delete-file jwt-path))
+      (when (probe-file journal-path)
+        (delete-file journal-path))))
   #-sbcl
   (error "Devnet smoke gate requires SBCL threads"))
 
