@@ -40,6 +40,7 @@
 
 (defun devnet-cli-txpool-transaction
     (config nonce gas-price &key
+       (private-key +devnet-cli-txpool-private-key+)
        (gas-limit +devnet-cli-txpool-gas-limit+))
   (fixture-sign-legacy-transaction
    (make-legacy-transaction
@@ -48,7 +49,7 @@
     :gas-limit gas-limit
     :to (address-from-hex +devnet-cli-txpool-recipient+)
     :value +devnet-cli-txpool-value+)
-   +devnet-cli-txpool-private-key+
+   private-key
    (chain-config-chain-id config)))
 
 (defun devnet-cli-transaction-raw (transaction)
@@ -106,22 +107,28 @@
       (read-sequence string stream)
       string)))
 
-(defun devnet-cli-funded-txpool-genesis-json (&key config-fields gas-limit)
+(defun devnet-cli-funded-txpool-genesis-json
+    (&key config-fields gas-limit
+       (private-keys (list +devnet-cli-txpool-private-key+)))
   (let* ((genesis (parse-json
                    (devnet-cli-file-string +devnet-cli-genesis-fixture+)))
          (state (state-db-from-genesis-json-file
                  +devnet-cli-genesis-fixture+))
-         (sender (devnet-cli-txpool-sender-address))
          (config (fixture-object-field genesis "config"))
          (alloc (fixture-object-field genesis "alloc"))
-         (account
-           (list (cons "balance"
-                       (quantity-to-hex +devnet-cli-txpool-balance+))
-                 (cons "nonce" "0x0"))))
-    (state-db-set-account
-     state
-     sender
-     (make-state-account :nonce 0 :balance +devnet-cli-txpool-balance+))
+         (accounts nil))
+    (dolist (private-key private-keys)
+      (let ((sender (fixture-private-key-address private-key))
+            (account
+              (list (cons "balance"
+                          (quantity-to-hex +devnet-cli-txpool-balance+))
+                    (cons "nonce" "0x0"))))
+        (state-db-set-account
+         state
+         sender
+         (make-state-account :nonce 0
+                             :balance +devnet-cli-txpool-balance+))
+        (push (cons (address-to-hex sender) account) accounts)))
     (setf (cdr (assoc "stateRoot" genesis :test #'string=))
           (hash32-to-hex (state-db-root state)))
     (dolist (field config-fields)
@@ -134,7 +141,7 @@
             (quantity-to-hex gas-limit)))
     (setf (cdr (assoc "config" genesis :test #'string=)) config)
     (setf (cdr (assoc "alloc" genesis :test #'string=))
-          (append alloc (list (cons (address-to-hex sender) account))))
+          (append alloc (nreverse accounts)))
     (json-encode genesis)))
 
 (defun devnet-cli-pid-file-process-id (path)
@@ -3634,6 +3641,146 @@
         (is (null (field leftover-transaction "blockHash")))
         (is (= 1 (length pending-transactions)))
         (is (string= second-hash
+                     (field (first pending-transactions) "hash")))
+        (is (string= (quantity-to-hex 1) (field status "pending")))
+        (is (string= (quantity-to-hex 0) (field status "queued")))))))
+
+(deftest devnet-cli-dev-period-tick-selects-fitting-second-sender
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (request (json node)
+             (parse-json
+              (engine-rpc-handle-request-json
+               json
+               (ethereum-lisp.cli:devnet-node-store node)
+               (ethereum-lisp.cli:devnet-node-config node)))))
+    (let* ((now 0)
+           (first-private-key 2)
+           (second-private-key +devnet-cli-txpool-private-key+)
+           (node
+             (ethereum-lisp.cli:make-devnet-node
+              :genesis-json (devnet-cli-funded-txpool-genesis-json
+                             :gas-limit 42000
+                             :private-keys (list first-private-key
+                                                 second-private-key))
+              :port 0
+              :dev-mode-p t
+              :dev-period-seconds 1))
+           (config (ethereum-lisp.cli:devnet-node-config node))
+           (first-sender-fitting-transaction
+             (devnet-cli-txpool-transaction
+              config
+              0
+              +devnet-cli-txpool-pending-gas-price+
+              :private-key first-private-key
+              :gas-limit 21000))
+           (first-sender-non-fitting-transaction
+             (devnet-cli-txpool-transaction
+              config
+              1
+              +devnet-cli-txpool-pending-gas-price+
+              :private-key first-private-key
+              :gas-limit 30000))
+           (second-sender-fitting-transaction
+             (devnet-cli-txpool-transaction
+              config
+              0
+              +devnet-cli-txpool-pending-gas-price+
+              :private-key second-private-key
+              :gas-limit 21000))
+           (first-fitting-hash
+             (hash32-to-hex
+              (transaction-hash first-sender-fitting-transaction)))
+           (first-non-fitting-hash
+             (hash32-to-hex
+              (transaction-hash first-sender-non-fitting-transaction)))
+           (second-fitting-hash
+             (hash32-to-hex
+              (transaction-hash second-sender-fitting-transaction)))
+           (state
+             (ethereum-lisp.cli::make-devnet-dev-period-state
+              node
+              1
+              :now-function (lambda () now))))
+      (dolist (transaction
+               (list first-sender-fitting-transaction
+                     first-sender-non-fitting-transaction
+                     second-sender-fitting-transaction))
+        (request
+         (concatenate
+          'string
+          "{\"jsonrpc\":\"2.0\",\"id\":1,"
+          "\"method\":\"eth_sendRawTransaction\","
+          "\"params\":[\""
+          (devnet-cli-transaction-raw transaction)
+          "\"]}")
+         node))
+      (setf now 1)
+      (let* ((sealed-block
+               (ethereum-lisp.cli::devnet-dev-period-state-tick state))
+             (sealed-hash (hash32-to-hex (block-hash sealed-block)))
+             (mined-hashes
+               (mapcar
+                (lambda (transaction)
+                  (hash32-to-hex (transaction-hash transaction)))
+                (block-transactions sealed-block)))
+             (second-lookup
+               (request
+                (concatenate
+                 'string
+                 "{\"jsonrpc\":\"2.0\",\"id\":2,"
+                 "\"method\":\"eth_getTransactionByHash\","
+                 "\"params\":[\"" second-fitting-hash "\"]}")
+                node))
+             (second-receipt
+               (request
+                (concatenate
+                 'string
+                 "{\"jsonrpc\":\"2.0\",\"id\":3,"
+                 "\"method\":\"eth_getTransactionReceipt\","
+                 "\"params\":[\"" second-fitting-hash "\"]}")
+                node))
+             (leftover-lookup
+               (request
+                (concatenate
+                 'string
+                 "{\"jsonrpc\":\"2.0\",\"id\":4,"
+                 "\"method\":\"eth_getTransactionByHash\","
+                 "\"params\":[\"" first-non-fitting-hash "\"]}")
+                node))
+             (pending-response
+               (request
+                "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"eth_pendingTransactions\",\"params\":[]}"
+                node))
+             (status-response
+               (request
+                "{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"txpool_status\",\"params\":[]}"
+                node))
+             (second-mined-transaction (field second-lookup "result"))
+             (second-mined-receipt (field second-receipt "result"))
+             (leftover-transaction (field leftover-lookup "result"))
+             (pending-transactions (field pending-response "result"))
+             (status (field status-response "result")))
+        (is (typep sealed-block 'ethereum-block))
+        (is (equal (list first-fitting-hash second-fitting-hash)
+                   mined-hashes))
+        (is (string= second-fitting-hash
+                     (field second-mined-transaction "hash")))
+        (is (string= sealed-hash
+                     (field second-mined-transaction "blockHash")))
+        (is (string= (quantity-to-hex 1)
+                     (field second-mined-transaction "transactionIndex")))
+        (is (string= second-fitting-hash
+                     (field second-mined-receipt "transactionHash")))
+        (is (string= sealed-hash
+                     (field second-mined-receipt "blockHash")))
+        (is (string= (quantity-to-hex 1)
+                     (field second-mined-receipt "transactionIndex")))
+        (is (string= first-non-fitting-hash
+                     (field leftover-transaction "hash")))
+        (is (null (field leftover-transaction "blockHash")))
+        (is (= 1 (length pending-transactions)))
+        (is (string= first-non-fitting-hash
                      (field (first pending-transactions) "hash")))
         (is (string= (quantity-to-hex 1) (field status "pending")))
         (is (string= (quantity-to-hex 0) (field status "queued")))))))

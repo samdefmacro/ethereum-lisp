@@ -17,10 +17,10 @@ Last updated: 2026-07-05
 
 ## Current Dirty Work
 
-The current run has implemented and validated
-`DEVNET-RUNNER-DEV-PERIOD-SELECTION`. Code changes, focused CLI coverage,
-`git diff --check`, the full suite, independent verifier review, and next-run
-refresh are complete; commit and push are pending.
+The current run is implementing
+`DEVNET-RUNNER-DEV-PERIOD-MULTI-SENDER-SELECTION`. Code changes, focused CLI
+coverage, `git diff --check`, full-suite validation, independent verifier
+review, and next-run refresh are complete; commit and push are pending.
 
 Closed behavior from the latest slice:
 
@@ -52,6 +52,10 @@ Closed behavior from the latest slice:
   public txpool transactions whose cumulative gas limit fits the child block
   gas limit, enters block execution only when at least one transaction fits,
   and leaves non-selected pending transactions visible for later blocks.
+- The local dev-period selector is now sender-aware: when one sender's next
+  nonce-safe transaction would exceed the remaining child block gas, that
+  sender is skipped for the rest of the current block while later independent
+  sender heads may still be selected if they fit.
 
 Closed validation:
 
@@ -86,6 +90,18 @@ Closed validation:
   first-transaction edge is covered by the selector shape but does not yet have
   focused coverage, and receipt visibility for the multi-transaction bounded
   case relies on the existing single-transaction dev-period receipt coverage.
+- Focused direct CLI coverage for
+  `DEVNET-CLI-DEV-PERIOD-TICK-SELECTS-FITTING-SECOND-SENDER` and
+  `DEVNET-CLI-DEV-PERIOD-TICK-BOUNDS-TRANSACTIONS-BY-GAS-LIMIT` passed during
+  the current run.
+- `git diff --check` passed.
+- The escalated `sbcl --script tests/run-tests.lisp` run passed with
+  `888 tests passed, 5 skipped`.
+- Independent verifier review returned `PASS`. Residual risks: the case where
+  the first sorted sender head does not fit but a later sender head does is
+  covered by the sender-aware selector structure but not yet by a dedicated
+  focused test, and no explicit third same-sender nonce fixture asserts blocked
+  sender tails beyond the currently non-fitting nonce.
 
 ## Current Loop Migration
 
@@ -99,8 +115,9 @@ The old fixed heartbeat prompt is being replaced by a loop v2 process:
 
 ## Next Recommended Orchestrator Decision
 
-The current loop run should finish `DEVNET-RUNNER-DEV-PERIOD-SELECTION` by
-committing and pushing the validated work. After that, the next highest-value
-Phase B slice is
-`DEVNET-RUNNER-DEV-PERIOD-MULTI-SENDER-SELECTION`: fuller gas-limited
-selection across independent senders without violating per-sender nonce order.
+The current loop run should finish
+`DEVNET-RUNNER-DEV-PERIOD-MULTI-SENDER-SELECTION` by committing and pushing the
+validated work. After that, the next highest-value Phase B slice is
+`DEVNET-RUNNER-PREPARED-PAYLOAD-TXPOOL-SELECTION`: reuse the local devnet
+txpool transaction-selection policy for Engine prepared payloads returned by
+`engine_getPayload*`.

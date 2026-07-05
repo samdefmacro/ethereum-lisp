@@ -633,15 +633,25 @@
        (devnet-node-mining-transaction<
         left right expected-chain-id)))))
 
-(defun devnet-node-select-mining-transactions (transactions gas-limit)
-  (loop with selected = nil
-        with gas-used = 0
-        for transaction in transactions
-        for transaction-gas = (transaction-gas-limit transaction)
-        while (<= (+ gas-used transaction-gas) gas-limit)
-        do (push transaction selected)
-           (incf gas-used transaction-gas)
-        finally (return (nreverse selected))))
+(defun devnet-node-select-mining-transactions
+    (transactions gas-limit expected-chain-id)
+  (let ((blocked-senders (make-hash-table :test #'equal)))
+    (loop with selected = nil
+          with gas-used = 0
+          for transaction in transactions
+          for sender = (transaction-sender
+                        transaction
+                        :expected-chain-id expected-chain-id)
+          for sender-key = (and sender (address-to-hex sender))
+          for transaction-gas = (transaction-gas-limit transaction)
+          when (and sender-key
+                    (not (gethash sender-key blocked-senders)))
+            do (if (<= (+ gas-used transaction-gas) gas-limit)
+                   (progn
+                     (push transaction selected)
+                     (incf gas-used transaction-gas))
+                   (setf (gethash sender-key blocked-senders) t))
+          finally (return (nreverse selected)))))
 
 (defun devnet-node-seal-pending-block (node &key timestamp)
   (unless (typep node 'devnet-node)
@@ -658,9 +668,10 @@
              (timestamp (max (or timestamp 0) (1+ parent-timestamp)))
              (block-number (1+ (block-header-number parent-header)))
              (gas-limit (block-header-gas-limit parent-header))
+             (expected-chain-id (chain-config-chain-id config))
              (transactions
                (devnet-node-select-mining-transactions
-                pending-transactions gas-limit))
+                pending-transactions gas-limit expected-chain-id))
              (state (chain-store-state-db store parent-hash))
              (cancun-p (chain-config-cancun-p config block-number timestamp))
              (shanghai-p (chain-config-shanghai-p config block-number
@@ -710,7 +721,7 @@
                transactions
                (append
                 (list
-                 :expected-chain-id (chain-config-chain-id config)
+                 :expected-chain-id expected-chain-id
                  :header (apply
                           #'make-block-header
                           (append

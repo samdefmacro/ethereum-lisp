@@ -1308,8 +1308,12 @@ first pass, but interfaces must not block that path.
   txpool cleanup evidence. The dev-period tick now also bounds its selected
   public txpool transaction prefix by the child block gas limit before block
   execution, leaving non-selected pending transactions visible for later
-  blocks. The next Phase B block-production gap is fuller multi-sender packing
-  under the child block gas limit while preserving per-sender nonce order.
+  blocks. That bounded selection is now sender-aware: a sender whose next
+  nonce-safe transaction no longer fits is skipped for the current block while
+  later independent sender heads can still be selected, preserving per-sender
+  nonce order and txpool visibility for leftovers. The next Phase B
+  block-production gap is reusing the same deterministic txpool selection when
+  Engine payload attributes prepare local payloads for `engine_getPayload*`.
   Startup
   summaries and lifecycle telemetry report
   `headGasLimit` and `coinbase` for process-runner checks. The runner-facing

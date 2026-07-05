@@ -268,7 +268,7 @@ ones.
     locks a two-transaction txpool case where the first transfer is mined and a
     second same-sender nonce remains pending because the child block gas limit
     cannot fit both transactions.
-- [ ] `DEVNET-RUNNER-DEV-PERIOD-MULTI-SENDER-SELECTION`: Improve local
+- [x] `DEVNET-RUNNER-DEV-PERIOD-MULTI-SENDER-SELECTION`: Improve local
   dev-period block production so bounded selection can continue across
   independent senders when an earlier sender's next nonce-safe transaction does
   not fit, without violating per-sender nonce order.
@@ -284,6 +284,34 @@ ones.
     tight child block gas limit; escalated standalone devnet smoke only if the
     process boundary changes; `git diff --check`;
     `sbcl --script tests/run-tests.lisp`.
+  - Result (2026-07-05): dev-period transaction selection is now sender-aware:
+    if one sender's next nonce-safe transaction would exceed the remaining
+    child block gas, that sender is blocked for the current block but selection
+    continues across later deterministic sender/nonce/hash candidates. This
+    preserves per-sender nonce order, keeps every selected transaction set
+    under the child block gas limit, and leaves non-selected transactions
+    visible for later blocks. Focused CLI coverage funds two senders and proves
+    a second sender's fitting transaction is mined after the first sender's
+    next transaction does not fit, while the first sender's non-fitting nonce
+    remains pending and visible by hash.
+- [ ] `DEVNET-RUNNER-PREPARED-PAYLOAD-TXPOOL-SELECTION`: Reuse the local
+  devnet transaction-selection policy when preparing Engine payloads from
+  `engine_forkchoiceUpdated*` payload attributes, so authenticated
+  `engine_getPayload*` can return txpool-backed payloads instead of only empty
+  local payloads.
+  - Milestone: 7 / Phase B Hive process-runner readiness
+  - Dependencies: `DEVNET-RUNNER-DEV-PERIOD-MULTI-SENDER-SELECTION`,
+    `DEVNET-RUNNER-GET-PAYLOAD`, `DEVNET-RUNNER-SCRIPT-GET-PAYLOAD`.
+  - Acceptance: prepared payload construction uses the same deterministic,
+    gas-limited, nonce-safe public txpool selection as dev-period mining;
+    `engine_getPayload*` returns the selected transactions; non-selected
+    transactions remain visible in public txpool views until a payload is
+    imported/forkchoiced; existing empty-payload workflows remain valid when no
+    pending transaction fits.
+  - Validation: focused Engine RPC prepared-payload tests with pending txpool
+    transactions, `git diff --check`, and `sbcl --script tests/run-tests.lisp`;
+    run escalated standalone devnet smoke only if listener/process behavior
+    changes.
 - [x] `PINNED-V5.4.0-ROOT-SMOKE`: Rehydrate or configure an official
   `ethereum/execution-spec-tests` v5.4.0 `fixtures_stable.tar.gz` extraction,
   run `scripts/phase-a-smoke-gate.lisp -- --pinned-v5.4.0 --root PATH`, and
