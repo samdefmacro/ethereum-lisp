@@ -190,6 +190,23 @@ ones.
     public txpool connection contract increased to include the bounded
     rejournal wait probe. The focused escalated
     `sbcl --script scripts/devnet-smoke-gate.lisp -- --json` path passed.
+- [ ] `DEVNET-RUNNER-DEV-PERIOD-TICK`: Give geth/Hive
+  `--dev.period DURATION` real local devnet block-production behavior instead
+  of remaining a compatibility-only consumed flag.
+  - Milestone: 7 / Phase B Hive process-runner readiness
+  - Dependencies: local devnet serve loop, public txpool admission, prepared
+    payload/block execution, txpool mined-transaction removal.
+  - Acceptance: positive `--dev.period` parses through the existing duration
+    path, reports the effective period in summaries/readiness/telemetry, and
+    drives a deterministic scheduler/tick path that can seal at least one
+    txpool-backed local block on top of the current devnet head. The sealed
+    block must advance public `latest` block state, index included
+    transactions/receipts, and remove mined transactions from pending txpool
+    visibility. Tests should use an injectable tick or bounded runner smoke
+    path rather than sleeping on wall clock.
+  - Validation: focused CLI/core public-RPC tests while iterating; request
+    local socket/network escalation for any devnet process smoke gate;
+    `git diff --check`; `sbcl --script tests/run-tests.lisp`.
 - [x] `PINNED-V5.4.0-ROOT-SMOKE`: Rehydrate or configure an official
   `ethereum/execution-spec-tests` v5.4.0 `fixtures_stable.tar.gz` extraction,
   run `scripts/phase-a-smoke-gate.lisp -- --pinned-v5.4.0 --root PATH`, and

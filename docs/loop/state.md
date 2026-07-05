@@ -84,8 +84,9 @@ The old fixed heartbeat prompt is being replaced by a loop v2 process:
 
 ## Next Recommended Orchestrator Decision
 
-After this commit, generate a fresh `docs/loop/next-run.md` for the next
-implementation slice. Do not continue the completed txpool journal, rejournal,
-or rejournal smoke tasks. Prefer Phase B devnet/Engine/process-runner readiness
-or txpool/chain-store correctness unless orientation finds a higher-value
-executable-client issue.
+The next loop run should consume the refreshed `docs/loop/next-run.md` as an
+implementer contract for `DEVNET-RUNNER-DEV-PERIOD-TICK`. Do not continue the
+completed txpool journal, rejournal, or rejournal smoke tasks. If orientation
+finds the dev-period block-construction boundary too broad for one run, record
+the exact blocker and fall back to the next highest-value Phase B executable
+client slice.
