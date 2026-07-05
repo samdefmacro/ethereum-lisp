@@ -2254,6 +2254,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                       (blob-transactions
                        (make-hash-table :test 'equal))
                       (blob-transactions-by-sender
+                       (make-hash-table :test 'equal))
+                      (transaction-admitted-at
                        (make-hash-table :test 'equal)))))
   transactions
   transactions-by-sender
@@ -2262,7 +2264,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   basefee-transactions
   basefee-transactions-by-sender
   blob-transactions
-  blob-transactions-by-sender)
+  blob-transactions-by-sender
+  transaction-admitted-at)
 
 (defstruct (engine-payload-memory-store
             (:constructor make-engine-payload-memory-store
@@ -3249,6 +3252,13 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
              table)
     copy))
 
+(defun engine-pending-txpool-copy-metadata-table (table)
+  (let ((copy (make-hash-table :test (hash-table-test table))))
+    (maphash (lambda (key value)
+               (setf (gethash key copy) value))
+             table)
+    copy))
+
 (defun engine-payload-store-copy-checkpoint (checkpoint)
   (when checkpoint
     (make-chain-store-checkpoint
@@ -3306,7 +3316,10 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
      :blob-transactions-by-sender
      (engine-pending-txpool-copy-sender-index
       (engine-pending-txpool-blob-transactions-by-sender txpool)
-      transaction-copies))))
+      transaction-copies)
+     :transaction-admitted-at
+     (engine-pending-txpool-copy-metadata-table
+      (engine-pending-txpool-transaction-admitted-at txpool)))))
 
 (defun engine-payload-store-snapshot (store)
   (make-engine-payload-memory-store
@@ -4906,6 +4919,29 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun engine-pending-txpool-hash-key (hash)
   (engine-payload-store-key hash))
 
+(defun engine-pending-txpool-transaction-hash-key (transaction)
+  (engine-pending-txpool-hash-key (transaction-hash transaction)))
+
+(defun engine-pending-txpool-note-admission-time
+    (txpool transaction admitted-at)
+  (when admitted-at
+    (setf (gethash (engine-pending-txpool-transaction-hash-key transaction)
+                   (engine-pending-txpool-transaction-admitted-at txpool))
+          admitted-at))
+  transaction)
+
+(defun engine-pending-txpool-clear-admission-time
+    (txpool transaction-or-hash)
+  (remhash (engine-pending-txpool-hash-key
+            (if (hash32-p transaction-or-hash)
+                transaction-or-hash
+                (transaction-hash transaction-or-hash)))
+           (engine-pending-txpool-transaction-admitted-at txpool)))
+
+(defun engine-pending-txpool-admission-time (txpool transaction)
+  (gethash (engine-pending-txpool-transaction-hash-key transaction)
+           (engine-pending-txpool-transaction-admitted-at txpool)))
+
 (defun engine-pending-txpool-indexed-conflict
     (sender-index transaction)
   (let* ((sender (engine-pending-txpool-sender-key transaction))
@@ -4949,13 +4985,14 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         0)))
 
 (defun engine-pending-txpool-remove-indexed-transaction
-    (transactions sender-index hash)
+    (txpool transactions sender-index hash)
   (let* ((key (engine-pending-txpool-hash-key hash))
          (transaction (gethash key transactions)))
     (when transaction
       (engine-pending-txpool-unindex-transaction
        sender-index
        transaction)
+      (engine-pending-txpool-clear-admission-time txpool hash)
       (remhash key transactions))
     transaction))
 
@@ -5035,24 +5072,28 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defun engine-pending-txpool-remove-pending-transaction (txpool hash)
   (engine-pending-txpool-remove-indexed-transaction
+   txpool
    (engine-pending-txpool-transactions txpool)
    (engine-pending-txpool-transactions-by-sender txpool)
    hash))
 
 (defun engine-pending-txpool-remove-queued-transaction (txpool hash)
   (engine-pending-txpool-remove-indexed-transaction
+   txpool
    (engine-pending-txpool-queued-transactions txpool)
    (engine-pending-txpool-queued-transactions-by-sender txpool)
    hash))
 
 (defun engine-pending-txpool-remove-basefee-transaction (txpool hash)
   (engine-pending-txpool-remove-indexed-transaction
+   txpool
    (engine-pending-txpool-basefee-transactions txpool)
    (engine-pending-txpool-basefee-transactions-by-sender txpool)
    hash))
 
 (defun engine-pending-txpool-remove-blob-transaction (txpool hash)
   (engine-pending-txpool-remove-indexed-transaction
+   txpool
    (engine-pending-txpool-blob-transactions txpool)
    (engine-pending-txpool-blob-transactions-by-sender txpool)
    hash))
@@ -5197,7 +5238,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (txpool transaction
      &key (price-bump-percent +txpool-replacement-price-bump-percent+)
           account-slot-limit
-          global-slot-limit)
+          global-slot-limit
+          admitted-at)
   (let ((key (engine-pending-txpool-hash-key
               (transaction-hash transaction)))
         (transactions (engine-pending-txpool-transactions txpool))
@@ -5240,11 +5282,14 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                conflict)
               (remhash
                (engine-pending-txpool-hash-key (transaction-hash conflict))
-               transactions)))
+               transactions)
+              (engine-pending-txpool-clear-admission-time txpool conflict)))
           (engine-pending-txpool-remove-replacement-conflicts
            txpool
            cross-subpool-conflicts)
           (setf (gethash key transactions) transaction)
+          (engine-pending-txpool-note-admission-time
+           txpool transaction admitted-at)
           (engine-pending-txpool-index-pending-transaction
            txpool
            transaction)
@@ -5254,7 +5299,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (txpool transaction
      &key (price-bump-percent +txpool-replacement-price-bump-percent+)
           account-queue-limit
-          global-queue-limit)
+          global-queue-limit
+          admitted-at)
   (let ((key (engine-pending-txpool-hash-key
               (transaction-hash transaction)))
         (transactions (engine-pending-txpool-queued-transactions txpool))
@@ -5298,11 +5344,14 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                conflict)
               (remhash
                (engine-pending-txpool-hash-key (transaction-hash conflict))
-               transactions)))
+               transactions)
+              (engine-pending-txpool-clear-admission-time txpool conflict)))
           (engine-pending-txpool-remove-replacement-conflicts
            txpool
            cross-subpool-conflicts)
           (setf (gethash key transactions) transaction)
+          (engine-pending-txpool-note-admission-time
+           txpool transaction admitted-at)
           (engine-pending-txpool-index-queued-transaction
            txpool
            transaction)
@@ -5310,7 +5359,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defun engine-pending-txpool-put-flat-transaction
     (txpool transactions sender-index transaction target replacement-label
-     &key (price-bump-percent +txpool-replacement-price-bump-percent+))
+     &key (price-bump-percent +txpool-replacement-price-bump-percent+)
+          admitted-at)
   (let ((key (engine-pending-txpool-hash-key
               (transaction-hash transaction)))
         (cross-subpool-conflicts
@@ -5339,11 +5389,14 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                conflict)
               (remhash
                (engine-pending-txpool-hash-key (transaction-hash conflict))
-               transactions)))
+               transactions)
+              (engine-pending-txpool-clear-admission-time txpool conflict)))
           (engine-pending-txpool-remove-replacement-conflicts
            txpool
            cross-subpool-conflicts)
           (setf (gethash key transactions) transaction)
+          (engine-pending-txpool-note-admission-time
+           txpool transaction admitted-at)
           (engine-pending-txpool-index-transaction
            sender-index
            transaction)
@@ -5351,7 +5404,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defun engine-pending-txpool-put-basefee-transaction
     (txpool transaction
-     &key (price-bump-percent +txpool-replacement-price-bump-percent+))
+     &key (price-bump-percent +txpool-replacement-price-bump-percent+)
+          admitted-at)
   (engine-pending-txpool-put-flat-transaction
    txpool
    (engine-pending-txpool-basefee-transactions txpool)
@@ -5359,11 +5413,13 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    transaction
    :basefee
    "Basefee"
-   :price-bump-percent price-bump-percent))
+   :price-bump-percent price-bump-percent
+   :admitted-at admitted-at))
 
 (defun engine-pending-txpool-put-blob-transaction
     (txpool transaction
-     &key (price-bump-percent +txpool-replacement-price-bump-percent+))
+     &key (price-bump-percent +txpool-replacement-price-bump-percent+)
+          admitted-at)
   (engine-pending-txpool-put-flat-transaction
    txpool
    (engine-pending-txpool-blob-transactions txpool)
@@ -5371,7 +5427,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    transaction
    :blob
    "Blob"
-   :price-bump-percent price-bump-percent))
+   :price-bump-percent price-bump-percent
+   :admitted-at admitted-at))
 
 (defun engine-pending-txpool-pending-transaction (txpool hash)
   (gethash (engine-pending-txpool-hash-key hash)
@@ -5567,7 +5624,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (store transaction
      &key (price-bump-percent +txpool-replacement-price-bump-percent+)
           account-slot-limit
-          global-slot-limit)
+          global-slot-limit
+          admitted-at)
   (unless (typep store 'engine-payload-memory-store)
     (block-validation-fail "Engine payload store must be a memory store"))
   (unless (typep transaction
@@ -5586,7 +5644,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
        transaction
        :price-bump-percent price-bump-percent
        :account-slot-limit account-slot-limit
-       :global-slot-limit global-slot-limit)
+       :global-slot-limit global-slot-limit
+       :admitted-at admitted-at)
     (when inserted-p
       (engine-payload-store-notify-pending-transaction-filters
        store
@@ -5597,7 +5656,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (store transaction
      &key (price-bump-percent +txpool-replacement-price-bump-percent+)
           account-queue-limit
-          global-queue-limit)
+          global-queue-limit
+          admitted-at)
   (unless (typep store 'engine-payload-memory-store)
     (block-validation-fail "Engine payload store must be a memory store"))
   (unless (typep transaction
@@ -5616,13 +5676,15 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
        transaction
        :price-bump-percent price-bump-percent
        :account-queue-limit account-queue-limit
-       :global-queue-limit global-queue-limit)
+       :global-queue-limit global-queue-limit
+       :admitted-at admitted-at)
     (declare (ignore inserted-p))
     transaction))
 
 (defun engine-payload-store-put-basefee-transaction
     (store transaction
-     &key (price-bump-percent +txpool-replacement-price-bump-percent+))
+     &key (price-bump-percent +txpool-replacement-price-bump-percent+)
+          admitted-at)
   (unless (typep store 'engine-payload-memory-store)
     (block-validation-fail "Engine payload store must be a memory store"))
   (unless (typep transaction
@@ -5639,13 +5701,15 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (engine-pending-txpool-put-basefee-transaction
        (engine-payload-store-txpool store)
        transaction
-       :price-bump-percent price-bump-percent)
+       :price-bump-percent price-bump-percent
+       :admitted-at admitted-at)
     (declare (ignore inserted-p))
     transaction))
 
 (defun engine-payload-store-put-blob-transaction
     (store transaction
-     &key (price-bump-percent +txpool-replacement-price-bump-percent+))
+     &key (price-bump-percent +txpool-replacement-price-bump-percent+)
+          admitted-at)
   (unless (typep store 'engine-payload-memory-store)
     (block-validation-fail "Engine payload store must be a memory store"))
   (unless (typep transaction 'blob-transaction)
@@ -5654,7 +5718,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (engine-pending-txpool-put-blob-transaction
        (engine-payload-store-txpool store)
        transaction
-       :price-bump-percent price-bump-percent)
+       :price-bump-percent price-bump-percent
+       :admitted-at admitted-at)
     (declare (ignore inserted-p))
     transaction))
 
@@ -6193,6 +6258,47 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
          (engine-payload-store-basefee-transactions store)
          #'engine-pending-txpool-remove-basefee-transaction)
         (remove-stale
+         (engine-payload-store-blob-transactions store)
+         #'engine-pending-txpool-remove-blob-transaction)))
+    (nreverse removed-transactions)))
+
+(defun engine-payload-store-expired-txpool-transaction-p
+    (store transaction lifetime-seconds now)
+  (let ((admitted-at
+          (engine-pending-txpool-admission-time
+           (engine-payload-store-txpool store)
+           transaction)))
+    (and admitted-at
+         (>= (- now admitted-at) lifetime-seconds))))
+
+(defun engine-payload-store-remove-expired-txpool-queued-view-transactions
+    (store lifetime-seconds now &key local-transaction-predicate)
+  (let ((removed-transactions nil))
+    (when lifetime-seconds
+      (unless (and (integerp lifetime-seconds) (not (minusp lifetime-seconds)))
+        (block-validation-fail
+         "Txpool lifetime must be a non-negative integer"))
+      (unless (and (integerp now) (not (minusp now)))
+        (block-validation-fail
+         "Txpool cleanup time must be a non-negative integer"))
+      (flet ((remove-expired (transactions remove-function)
+               (dolist (transaction transactions)
+                 (when (and (not (and local-transaction-predicate
+                                       (funcall local-transaction-predicate
+                                                transaction)))
+                            (engine-payload-store-expired-txpool-transaction-p
+                             store transaction lifetime-seconds now))
+                   (funcall remove-function
+                            (engine-payload-store-txpool store)
+                            (transaction-hash transaction))
+                   (push transaction removed-transactions)))))
+        (remove-expired
+         (engine-payload-store-queued-transactions store)
+         #'engine-pending-txpool-remove-queued-transaction)
+        (remove-expired
+         (engine-payload-store-basefee-transactions store)
+         #'engine-pending-txpool-remove-basefee-transaction)
+        (remove-expired
          (engine-payload-store-blob-transactions store)
          #'engine-pending-txpool-remove-blob-transaction)))
     (nreverse removed-transactions)))
@@ -7190,7 +7296,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                             txpool-account-queue-limit
                             txpool-global-queue-limit
                             txpool-local-addresses
-                            txpool-no-local-exemptions-p)
+                            txpool-no-local-exemptions-p
+                            txpool-lifetime-seconds
+                            txpool-now)
   (let ((id (and (listp request)
                  (genesis-object-field request "id")))
         (notification-p (engine-rpc-notification-request-p request)))
@@ -7243,7 +7351,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                           :txpool-local-addresses
                           txpool-local-addresses
                           :txpool-no-local-exemptions-p
-                          txpool-no-local-exemptions-p)
+                          txpool-no-local-exemptions-p
+                          :txpool-lifetime-seconds
+                          txpool-lifetime-seconds
+                          :txpool-now
+                          txpool-now)
                          (engine-rpc-response
                           id
                           :error
@@ -7281,7 +7393,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                             txpool-account-queue-limit
                             txpool-global-queue-limit
                             txpool-local-addresses
-                            txpool-no-local-exemptions-p)
+                            txpool-no-local-exemptions-p
+                            txpool-lifetime-seconds
+                            txpool-now)
   (cond
     ((json-object-p request)
      (engine-rpc-handle-request request store config
@@ -7305,7 +7419,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                 :txpool-local-addresses
                                 txpool-local-addresses
                                 :txpool-no-local-exemptions-p
-                                txpool-no-local-exemptions-p))
+                                txpool-no-local-exemptions-p
+                                :txpool-lifetime-seconds
+                                txpool-lifetime-seconds
+                                :txpool-now
+                                txpool-now))
     ((and (listp request) request)
      (loop for item in request
            for response = (if (json-object-p item)
@@ -7331,7 +7449,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                :txpool-local-addresses
                                txpool-local-addresses
                                :txpool-no-local-exemptions-p
-                               txpool-no-local-exemptions-p)
+                               txpool-no-local-exemptions-p
+                               :txpool-lifetime-seconds
+                               txpool-lifetime-seconds
+                               :txpool-now
+                               txpool-now)
                               (engine-rpc-invalid-request-response))
            when response
              collect response))
@@ -7350,7 +7472,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                   txpool-account-queue-limit
                                   txpool-global-queue-limit
                                   txpool-local-addresses
-                                  txpool-no-local-exemptions-p)
+                                  txpool-no-local-exemptions-p
+                                  txpool-lifetime-seconds
+                                  txpool-now)
   (let ((request
           (handler-case
               (parse-json request-json :preserve-empty-arrays t)
@@ -7373,7 +7497,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
      :txpool-account-queue-limit txpool-account-queue-limit
      :txpool-global-queue-limit txpool-global-queue-limit
      :txpool-local-addresses txpool-local-addresses
-     :txpool-no-local-exemptions-p txpool-no-local-exemptions-p)))
+     :txpool-no-local-exemptions-p txpool-no-local-exemptions-p
+     :txpool-lifetime-seconds txpool-lifetime-seconds
+     :txpool-now txpool-now)))
 
 (defun engine-rpc-handle-request-json
     (request-json store config &key import-function
@@ -7388,7 +7514,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                   txpool-account-queue-limit
                                   txpool-global-queue-limit
                                   txpool-local-addresses
-                                  txpool-no-local-exemptions-p)
+                                  txpool-no-local-exemptions-p
+                                  txpool-lifetime-seconds
+                                  txpool-now)
   (let ((response
           (engine-rpc-handle-request-string
            request-json store config
@@ -7405,7 +7533,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
            :txpool-account-queue-limit txpool-account-queue-limit
            :txpool-global-queue-limit txpool-global-queue-limit
            :txpool-local-addresses txpool-local-addresses
-           :txpool-no-local-exemptions-p txpool-no-local-exemptions-p)))
+           :txpool-no-local-exemptions-p txpool-no-local-exemptions-p
+           :txpool-lifetime-seconds txpool-lifetime-seconds
+           :txpool-now txpool-now)))
     (if response
         (json-encode response)
         "")))
@@ -7436,7 +7566,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                       txpool-global-slot-limit
                       txpool-account-queue-limit
                       txpool-global-queue-limit
-                      txpool-local-addresses txpool-no-local-exemptions-p)))
+                      txpool-local-addresses txpool-no-local-exemptions-p
+                      txpool-lifetime-seconds)))
   host
   port
   store
@@ -7459,7 +7590,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   txpool-account-queue-limit
   txpool-global-queue-limit
   txpool-local-addresses
-  txpool-no-local-exemptions-p)
+  txpool-no-local-exemptions-p
+  txpool-lifetime-seconds)
 
 (defstruct (engine-rpc-http-connection
             (:constructor %make-engine-rpc-http-connection
@@ -7507,6 +7639,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
        txpool-global-queue-limit
        txpool-local-addresses
        txpool-no-local-exemptions-p
+       txpool-lifetime-seconds
        (telemetry-sink ethereum-lisp.telemetry:*telemetry-sink*))
   (unless (stringp host)
     (block-validation-fail "Engine RPC HTTP host must be a string"))
@@ -7578,6 +7711,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                        (not (minusp txpool-global-queue-limit)))))
     (block-validation-fail
      "Engine RPC HTTP txpool global queue limit must be a non-negative integer"))
+  (when (and txpool-lifetime-seconds
+             (not (and (integerp txpool-lifetime-seconds)
+                       (not (minusp txpool-lifetime-seconds)))))
+    (block-validation-fail
+     "Engine RPC HTTP txpool lifetime must be a non-negative integer"))
   (when (and txpool-local-addresses
              (not (and (listp txpool-local-addresses)
                        (every (lambda (address)
@@ -7608,7 +7746,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    :txpool-account-queue-limit txpool-account-queue-limit
    :txpool-global-queue-limit txpool-global-queue-limit
    :txpool-local-addresses txpool-local-addresses
-   :txpool-no-local-exemptions-p txpool-no-local-exemptions-p))
+   :txpool-no-local-exemptions-p txpool-no-local-exemptions-p
+   :txpool-lifetime-seconds txpool-lifetime-seconds))
 
 (defun engine-rpc-http-service-endpoint (service)
   (unless (typep service 'engine-rpc-http-service)
@@ -8282,7 +8421,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                txpool-account-queue-limit
                                txpool-global-queue-limit
                                txpool-local-addresses
-                               txpool-no-local-exemptions-p)
+                               txpool-no-local-exemptions-p
+                               txpool-lifetime-seconds)
   (handler-case
       (multiple-value-bind (boundary boundary-length)
           (engine-rpc-http-header-boundary request)
@@ -8367,7 +8507,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                      :txpool-account-queue-limit txpool-account-queue-limit
                      :txpool-global-queue-limit txpool-global-queue-limit
                      :txpool-local-addresses txpool-local-addresses
-                     :txpool-no-local-exemptions-p txpool-no-local-exemptions-p)
+                     :txpool-no-local-exemptions-p txpool-no-local-exemptions-p
+                     :txpool-lifetime-seconds txpool-lifetime-seconds
+                     :txpool-now (or now 0))
                     :extra-headers cors-headers))))))))
     (error (condition)
       (engine-rpc-http-error-response
@@ -8392,6 +8534,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           txpool-global-queue-limit
           txpool-local-addresses
           txpool-no-local-exemptions-p
+          txpool-lifetime-seconds
           telemetry-sink telemetry-fields)
   (let* ((request nil)
          (response
@@ -8420,7 +8563,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                  :txpool-account-queue-limit txpool-account-queue-limit
                  :txpool-global-queue-limit txpool-global-queue-limit
                  :txpool-local-addresses txpool-local-addresses
-                 :txpool-no-local-exemptions-p txpool-no-local-exemptions-p))
+                 :txpool-no-local-exemptions-p txpool-no-local-exemptions-p
+                 :txpool-lifetime-seconds txpool-lifetime-seconds))
             (error (condition)
               (engine-rpc-http-error-response
                400 "Bad Request"
@@ -8488,6 +8632,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           (engine-rpc-http-service-txpool-local-addresses service)
           :txpool-no-local-exemptions-p
           (engine-rpc-http-service-txpool-no-local-exemptions-p service)
+          :txpool-lifetime-seconds
+          (engine-rpc-http-service-txpool-lifetime-seconds service)
           :telemetry-sink sink
           :telemetry-fields fields)
       (ethereum-lisp.telemetry:telemetry-metric

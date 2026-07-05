@@ -79,7 +79,7 @@ Long-running automation should pick from this queue before other P0 items unless
 a listed dependency is blocked. Order matters: earlier items unblock later
 ones.
 
-- [ ] `DEVNET-RUNNER-TXPOOL-LIFETIME`: Make the geth/Hive
+- [x] `DEVNET-RUNNER-TXPOOL-LIFETIME`: Make the geth/Hive
   `--txpool.lifetime` runner flag affect real public txpool eviction behavior
   for stale non-executable pooled transactions.
   - Milestone: 7 / Phase B Hive process-runner readiness
@@ -99,6 +99,15 @@ ones.
     `git diff --check`; `sbcl --script tests/run-tests.lisp`; escalated
     `sbcl --script scripts/devnet-smoke-gate.lisp -- --json` if listener or
     process-runner reporting is changed.
+  - Result (2026-07-05): `--txpool.lifetime` now parses bare-second and
+    `d`/`h`/`m`/`s` composite duration forms such as `3h0m0s`, imports geth
+    TOML `[Eth.TxPool] Lifetime`, reports `txpoolLifetimeSeconds` through
+    summaries/readiness/telemetry, and drives deterministic cleanup of stale
+    queued/basefee/blob public txpool entries before public txpool/hash views.
+    Pending executable transactions are preserved, same-sender replacements
+    refresh effective age, direct tests avoid wall-clock sleeps, and the
+    escalated Phase A devnet smoke gate passed with top-level and devnet
+    `status: ok`.
 - [x] `PINNED-V5.4.0-ROOT-SMOKE`: Rehydrate or configure an official
   `ethereum/execution-spec-tests` v5.4.0 `fixtures_stable.tar.gz` extraction,
   run `scripts/phase-a-smoke-gate.lisp -- --pinned-v5.4.0 --root PATH`, and

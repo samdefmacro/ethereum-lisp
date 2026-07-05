@@ -3468,6 +3468,7 @@
                      [Eth.TxPool]~%PriceLimit = 7~%PriceBump = 25~%~
                      AccountSlots = 3~%GlobalSlots = 4~%~
                      AccountQueue = 9~%GlobalQueue = 12~%~
+                     Lifetime = \"3h0m0s\"~%~
                      Locals = [\"0x0000000000000000000000000000000000000001\", ~
                      \"0x0000000000000000000000000000000000000002\"]~%~
                      NoLocals = true~%~
@@ -3504,6 +3505,8 @@
              (is (= 4 (fixture-object-field summary "txpoolGlobalSlots")))
              (is (= 9 (fixture-object-field summary "txpoolAccountQueue")))
              (is (= 12 (fixture-object-field summary "txpoolGlobalQueue")))
+             (is (= 10800
+                    (fixture-object-field summary "txpoolLifetimeSeconds")))
              (is (equal '("0x0000000000000000000000000000000000000001"
                           "0x0000000000000000000000000000000000000002")
                         (fixture-object-field summary "txpoolLocals")))
@@ -3552,6 +3555,7 @@
                      [Eth.TxPool]~%PriceLimit = 7~%PriceBump = 25~%~
                      AccountSlots = 3~%GlobalSlots = 4~%~
                      AccountQueue = 9~%GlobalQueue = 12~%~
+                     Lifetime = \"3h0m0s\"~%~
                      Locals = [\"0x0000000000000000000000000000000000000001\"]~%~
                      NoLocals = true~%~
                      [Node]~%HTTPHost = \"192.0.2.50\"~%HTTPPort = 1950~%~
@@ -3574,6 +3578,7 @@
                          "--txpool.globalslots" "6"
                          "--txpool.accountqueue" "10"
                          "--txpool.globalqueue" "20"
+                         "--txpool.lifetime" "1h2m3s"
                          "--txpool.locals"
                          "0x0000000000000000000000000000000000000002"
                          "--txpool.nolocals" "false"
@@ -3595,6 +3600,8 @@
              (is (= 6 (fixture-object-field summary "txpoolGlobalSlots")))
              (is (= 10 (fixture-object-field summary "txpoolAccountQueue")))
              (is (= 20 (fixture-object-field summary "txpoolGlobalQueue")))
+             (is (= 3723
+                    (fixture-object-field summary "txpoolLifetimeSeconds")))
              (is (equal '("0x0000000000000000000000000000000000000002")
                         (fixture-object-field summary "txpoolLocals")))
              (is (eq nil (fixture-object-field summary "txpoolNoLocals")))
@@ -3808,7 +3815,7 @@ HTTPPort = 1945
                   "--txpool.globalslots=5120"
                   "--txpool.accountqueue=64"
                   "--txpool.globalqueue=1024"
-                  "--txpool.lifetime=3h"
+                  "--txpool.lifetime=3h0m0s"
                   "--txpool.blobpool.datacap=2684354560"
                   "--txpool.blobpool.pricebump=100"
                   "--dev=false"
@@ -3831,6 +3838,8 @@ HTTPPort = 1945
       (is (= 5120 (fixture-object-field summary "txpoolGlobalSlots")))
       (is (= 64 (fixture-object-field summary "txpoolAccountQueue")))
       (is (= 1024 (fixture-object-field summary "txpoolGlobalQueue")))
+      (is (= 10800
+             (fixture-object-field summary "txpoolLifetimeSeconds")))
       (is (equal '("0x0000000000000000000000000000000000000001")
                  (fixture-object-field summary "txpoolLocals")))
       (is (eq nil (fixture-object-field summary "txpoolNoLocals")))
@@ -17698,6 +17707,10 @@ HTTPPort = 1945
                 (run-error (list "devnet"
                                  "--txpool.globalqueue"
                                  "--no-serve"))))
+    (is (search "--txpool.lifetime requires a value"
+                (run-error (list "devnet"
+                                 "--txpool.lifetime"
+                                 "--no-serve"))))
     (is (search "--txpool.pricelimit requires a non-negative integer or hex quantity"
                 (run-error (list "devnet"
                                  "--txpool.pricelimit=abc"
@@ -17721,6 +17734,10 @@ HTTPPort = 1945
     (is (search "--txpool.globalqueue requires an integer value"
                 (run-error (list "devnet"
                                  "--txpool.globalqueue=abc"
+                                 "--no-serve"))))
+    (is (search "--txpool.lifetime duration unit must be one of s, m, h, or d"
+                (run-error (list "devnet"
+                                 "--txpool.lifetime=1fortnight"
                                  "--no-serve"))))
     (is (search "--dev.period requires a value"
                 (run-error (list "devnet"

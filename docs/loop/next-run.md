@@ -2,210 +2,73 @@
 
 ## Run Metadata
 
-- Date: 2026-07-04
+- Date: 2026-07-05
 - Orchestrator model: Codex
 - Implementer model: recommended default implementer model
 - Verifier model: different model from implementer when available
 - Target branch: `main`
-- Stop state: pending implementer; the implementer must end in exactly one
-  runbook stop state, preferably `SUCCESS_COMMITTED`
+- Stop state: pending orchestrator; the next loop run must perform fresh
+  orientation before selecting another implementation slice.
 
-## Orientation Summary
+## Previous Run Result
 
-- Git state: `main` is aligned with `origin/main`; dirty files are the
-  orchestrator-generated loop contract updates in `docs/loop/next-run.md`,
-  `docs/loop/state.md`, and `docs/tasks.md`. No dirty implementation files
-  were reported during orientation.
-- Recent commits reviewed:
-  - `80e347b Enforce txpool slot admission limits`
-  - `d8b0d07 Add autonomous development loop docs`
-  - `70158f2 Honor txpool local exemptions`
-  - `987e4ed Enforce txpool queue limit admission`
-  - `d430af9 Enforce txpool price bump admission`
-  - `db1bcbb Enforce txpool price limit admission`
-  - `5bf1423 Enforce unprotected RPC transaction flag`
-  - `fc9aea4 Import miner gas limit from geth config`
-  - `c5a04f2 Honor disabled HTTP host in geth config`
-  - `5c63dd3 Parse geth config for devnet runners`
-  - `9ef6a7b Accept geth chain preset runner flags`
-  - `b296db7 Accept geth config flag in devnet CLI`
-- Relevant task/roadmap anchors:
-  - `DEVNET-RUNNER-TXPOOL-LIFETIME` is now the active unchecked task.
-  - Roadmap Section 7 still lists txpool policy beyond the current in-memory
-    pending pool, including lifetime/eviction knobs, as partial.
-  - Real KZG verification remains the only broad explicit unchecked task, but
-    it needs an external trusted backend decision before it is the best default
-    implementation slice.
-- Relevant loop state:
-  - The previous txpool slot-limit slice is closed, validated, independently
-    reviewed, committed, and pushed as `80e347b`.
-  - Current strategic preference remains Phase B devnet/Engine/process-runner
-    readiness and executable txpool behavior over fixture widening.
+- Completed objective: `DEVNET-RUNNER-TXPOOL-LIFETIME`
+- Stop state: `SUCCESS_COMMITTED` once the current implementation commit is
+  created and pushed.
+- Behavior delivered:
+  - `--txpool.lifetime` parses bare seconds and geth-style composite
+    `d`/`h`/`m`/`s` durations such as `3h0m0s`.
+  - Geth TOML `[Eth.TxPool] Lifetime` imports through the existing devnet
+    config path, with explicit CLI flags taking precedence.
+  - Devnet summaries, readiness data, and lifecycle telemetry report
+    `txpoolLifetimeSeconds`.
+  - Public txpool cleanup deterministically removes stale queued/basefee/blob
+    entries before public txpool and transaction hash views expose them.
+  - Pending executable transactions remain visible even when older than the
+    configured lifetime.
+  - Same-sender replacement transactions refresh their effective age.
 
-## Candidate Ranking
+## Validation Summary
 
-### Candidate A
+- `sbcl --noinform --non-interactive --load tests/load-tests.lisp --eval
+  '(quit)'` passed after the final parser update, with existing style warnings.
+- Focused tests passed after the final parser update:
+  - `DEVNET-CLI-MAIN-APPLIES-GETH-CONFIG-FILE-VALUES`
+  - `DEVNET-CLI-MAIN-EXPLICIT-OPTIONS-OVERRIDE-GETH-CONFIG-FILE`
+  - `DEVNET-CLI-MAIN-ACCEPTS-GETH-STYLE-TXPOOL-AND-DATABASE-FLAGS`
+  - `ETH-RPC-TXPOOL-LIFETIME-EXPIRES-QUEUED-VIEW-TRANSACTIONS`
+- `git diff --check` passed.
+- `sbcl --script tests/run-tests.lisp` was run once for this implementation
+  batch before the final parser refinement. It reached and passed the new
+  txpool lifetime and CLI coverage, then failed only at the known sandbox
+  socket-gated `PHASE-A-SMOKE-GATE-SCRIPT-CAN-INCLUDE-DEVNET-SUITE` gate.
+- The required escalated socket gate passed:
+  `sbcl --script scripts/phase-a-smoke-gate.lisp -- --json --devnet` exited 0
+  with top-level and devnet `status: ok`.
+- Independent verifier review initially found the missing geth-style composite
+  duration support; after the parser/test fix, verifier status was `PASS`.
 
-- Objective: Make `--txpool.lifetime` affect real public txpool eviction for
-  stale queued-view transactions.
-- Value: High. It closes a documented Phase B txpool policy gap, turns another
-  geth/Hive runner flag from compatibility parsing into behavior, and affects
-  public RPC visibility in devnet scenarios.
-- Risk: Medium. The implementation may need deterministic admission-time
-  metadata and cleanup boundaries across pending, queued, basefee, blob, and
-  hash lookup views.
-- Required validation:
-  - focused txpool and CLI tests while iterating;
-  - `git diff --check`;
-  - `sbcl --script tests/run-tests.lisp` once before commit;
-  - escalated `sbcl --script scripts/devnet-smoke-gate.lisp -- --json` if
-    listener/process-reporting behavior changes.
-- Decision: Selected.
-- Reason: It is the highest-value unblocked executable-client slice found by
-  orientation and aligns with Phase B devnet/Hive txpool readiness.
+## Next Orchestrator Instructions
 
-### Candidate B
+The next loop run must not continue this completed lifetime slice. It should:
 
-- Objective: Integrate real KZG proof verification.
-- Value: High for Cancun/blob acceptance and future Engine capability
-  advertisement.
-- Risk: High. It requires selecting or providing a trusted backend/library and
-  trusted setup path; the current command-backed verifier hook is present, but
-  a default real backend is an external dependency decision.
-- Required validation:
-  - KZG proof-vector coverage;
-  - blob sidecar validation tests;
-  - Engine capability negotiation tests;
-  - full suite.
-- Decision: Deferred.
-- Reason: Valuable but externally constrained. Do not make it the default
-  automation slice without a concrete backend input.
+1. Run the standard start-of-run protocol from `docs/loop/runbook.md`.
+2. Check `git status --short --branch` and recent commits.
+3. Read `docs/tasks.md`, `docs/roadmap.md`, `docs/loop/state.md`, and
+   `docs/loop/validation.md`.
+4. Rank plausible next slices by value, risk, validation cost, and roadmap
+   alignment.
+5. Prefer executable Phase B devnet/Engine/process-runner readiness or
+   txpool/chain-store correctness over fixture widening or docs-only churn.
+6. Generate a fresh one-run contract in this file before any new
+   implementation work begins.
 
-### Candidate C
+## Known Constraints
 
-- Objective: Classify remaining official v5.4.0 fixture drift.
-- Value: Medium. It improves the map of upstream/pinned gaps.
-- Risk: Low to medium.
-- Required validation:
-  - selector probe/classifier output against
-    `.cache/eest-v5.4.0/root/fixtures`;
-  - pinned smoke gate only if pinned tables change.
-- Decision: Deferred.
-- Reason: Useful, but lower priority than executable Phase B txpool behavior
-  now that the local devnet/process surface is the strategic focus.
-
-## Selected Objective
-
-Implement deterministic txpool lifetime eviction for stale queued-view public
-transactions, wired from `--txpool.lifetime` and geth TOML config into the
-devnet/public-RPC txpool path.
-
-## Scope
-
-Allowed files/modules:
-
-- `src/core.lisp`
-- `src/public-rpc.lisp`
-- `src/cli.lisp`
-- `tests/core-tests.lisp`
-- `tests/cli-tests.lisp`
-- `scripts/devnet-smoke-gate.lisp` only if the behavior must be visible in the
-  socket/process smoke report
-- `docs/tasks.md`
-- `docs/roadmap.md`
-- `docs/loop/state.md`
-- `docs/loop/next-run.md`
-
-Expected behavior changes:
-
-- Parse `--txpool.lifetime DURATION` as a non-negative duration and reject
-  malformed values deterministically.
-- Import geth TOML `[Eth.TxPool] Lifetime` when present, with explicit CLI
-  flags taking precedence.
-- Report the effective txpool lifetime in devnet JSON summaries, ready files,
-  and lifecycle telemetry when configured.
-- Track deterministic admission age for public txpool entries without tests
-  depending on wall-clock sleeps.
-- Expire stale queued-view entries from queued/basefee/blob subpools before
-  public txpool views and hash lookup expose them.
-- Do not expire executable pending transactions in this slice.
-- Same-sender/same-nonce replacements should refresh the entry's effective
-  age.
-
-Non-goals:
-
-- Do not implement txpool journaling or `--txpool.rejournal`.
-- Do not add block production, mining, or periodic background cleanup.
-- Do not change pending slot/queue/price/local exemption semantics except where
-  needed to preserve lifetime cleanup correctness.
-- Do not start real KZG integration.
-- Do not widen pinned fixture tables.
-
-## Acceptance Criteria
-
-- `--txpool.lifetime` accepts documented duration forms already supported by
-  the CLI compatibility parser or adds one consistent parser used by tests.
-- Malformed lifetime values fail with a specific diagnostic.
-- Config-file lifetime import and CLI override precedence are covered.
-- Public txpool status/content/inspect/hash views no longer expose stale
-  queued-view entries after deterministic cleanup.
-- Pending executable entries remain visible even when older than the configured
-  lifetime.
-- Replacements refresh age and are not immediately evicted because of the
-  replaced transaction's old timestamp.
-- `docs/tasks.md`, `docs/roadmap.md`, and `docs/loop/state.md` are updated only
-  for actual status changes.
-- A verifier reviews the final diff against this run specification before
-  commit.
-
-## Validation Plan
-
-Focused gates:
-
-- Add and run focused txpool/CLI tests if a local narrow test entrypoint exists;
-  otherwise rely on the full suite once after implementation.
-- Use deterministic injected time or explicit admission timestamps in tests.
-
-Required pre-commit gates:
-
-- `git diff --check`
-- `sbcl --script tests/run-tests.lisp`
-- independent verifier `PASS`
-
-Escalation requirements:
-
-- If the implementation changes listener/process-runner reporting or the
-  standalone devnet smoke report, request local socket/network escalation for:
-  `sbcl --script scripts/devnet-smoke-gate.lisp -- --json`
-- Do not silently skip a required socket gate.
-
-## Commit And Push Policy
-
-- Commit allowed: yes, only after deterministic gates and verifier review pass.
-- Push allowed: yes, after commit if remote authentication is available.
-- Commit message: `Expire stale txpool queued transactions`
-
-## Blockers
-
-- No current git synchronization blocker.
-- KZG integration remains blocked on concrete trusted-backend selection, but it
-  does not block this txpool lifetime slice.
-
-## Implementer Notes
-
-- Keep the slice vertical and bounded: CLI/config parsing, core txpool cleanup,
-  public RPC visibility, and tests.
-- Prefer deterministic cleanup at public RPC/admission boundaries over a
-  background timer; long-running scheduling is outside this slice.
-- Be careful with local transaction exemptions: lifetime behavior should be
-  specified and tested explicitly if local entries are affected. If existing
-  geth semantics are unclear from local code, preserve local entries unless the
-  implementation can justify expiring them.
-- Avoid wall-clock sleeps in tests. Add an injectable clock or metadata helper
-  if needed.
-
-## Verifier Result
-
-- Status: pending
-- Findings: pending
-- Residual risk: pending
+- Real KZG integration remains valuable but should wait for a concrete trusted
+  backend/library decision unless orientation finds that decision already made.
+- Official v5.4.0 fixtures remain expected at
+  `.cache/eest-v5.4.0/root/fixtures` with archive SHA256
+  `92cf1b47ad12fb27163261fc3c1cea5df72439cab507983d06b56c94f8741909`.
+- Devnet/socket gates require local socket/network escalation and must not be
+  silently skipped when selected behavior depends on process boundaries.

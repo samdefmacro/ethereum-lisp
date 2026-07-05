@@ -1235,7 +1235,6 @@ first pass, but interfaces must not block that path.
   management, metrics, profiling, bootnode discovery, archive-mode behavior,
   or a GraphQL listener. Additional geth/Hive txpool, RPC, and database
   template flags are also accepted as compatibility no-ops, including
-  remaining txpool lifetime knobs,
   RPC resource-limit flags (`--rpc.gascap`, `--rpc.evmtimeout`,
   `--rpc.txfeecap`, `--rpc.batch-request-limit`, and
   `--rpc.batch-response-max-size`), HTTP server resource flags
@@ -1269,14 +1268,17 @@ first pass, but interfaces must not block that path.
   admissions by sender and by global pending subpool size while preserving
   same-nonce replacement behavior; public raw-transaction queued/basefee
   promotion also preserves those pending caps instead of overfilling the
-  pending subpool.
+  pending subpool. `--txpool.lifetime` now accepts geth-style composite
+  duration values such as `3h0m0s`, is reported as `txpoolLifetimeSeconds`,
+  and removes stale queued/basefee/blob public txpool entries before public
+  txpool/hash views while preserving executable pending transactions.
   `--txpool.locals` now marks configured senders as local transactions that
   bypass txpool price-limit, pending-slot, and queued-cap admission, and
   `--txpool.nolocals` disables those exemptions. The geth TOML
   `[Eth.TxPool] PriceLimit`, `[Eth.TxPool] PriceBump`,
   `[Eth.TxPool] AccountSlots`, `[Eth.TxPool] GlobalSlots`,
   `[Eth.TxPool] AccountQueue`, `[Eth.TxPool] GlobalQueue`,
-  `[Eth.TxPool] Locals`, `[Eth.TxPool] NoLocals`, and
+  `[Eth.TxPool] Lifetime`, `[Eth.TxPool] Locals`, `[Eth.TxPool] NoLocals`, and
   `[Eth.Miner] GasCeil` fields are imported
   through the same runner-visible path for config-file-based launches.
   `--miner.etherbase` / `--etherbase` also shape the embedded dev genesis
@@ -1809,7 +1811,7 @@ first pass, but interfaces must not block that path.
   reorg events, returning displaced old-canonical logs with `removed=true` and
   replacement-head logs with the normal `removed=false` shape.
 - *Partial:* txpool policy beyond the current in-memory pending pool
-  (lifetime/eviction knobs),
+  (journaling/rejournaling and broader eviction policy),
   cross-client Engine fixture breadth beyond the local pinned Shanghai
   `engine_newPayloadV2` smoke set, and concrete long-running devnet/Hive
   lifecycle ergonomics beyond the current readiness, log-file, shutdown,

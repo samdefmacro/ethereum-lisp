@@ -1,6 +1,6 @@
 # Loop State
 
-Last updated: 2026-07-04
+Last updated: 2026-07-05
 
 ## Project State
 
@@ -17,35 +17,44 @@ Last updated: 2026-07-04
 
 ## Current Dirty Work
 
-No dirty implementation work is recorded by the loop. The txpool
-account/global slot-limit slice was validated, independently reviewed,
-committed, and pushed as `80e347b Enforce txpool slot admission limits`.
+No dirty implementation work is recorded by the loop. The txpool lifetime
+slice has been implemented, validated, independently reviewed, and closed by
+the current run.
 
-Closed behavior from that slice:
+Closed behavior from the latest slice:
 
-- `--txpool.accountslots` and `--txpool.globalslots` cap new pending public
-  `eth_sendRawTransaction` admissions.
-- Same-sender/same-nonce replacements do not consume another pending slot.
-- Local senders bypass pending slot caps unless `--txpool.nolocals` disables
-  local exemptions.
-- Queued/basefee promotion from public raw-transaction admission respects
-  pending slot caps by leaving promotable transactions parked when pending is
-  full.
-- Geth TOML `[Eth.TxPool] AccountSlots` and `GlobalSlots` import through the
-  devnet runner config path.
+- `--txpool.lifetime` parses bare seconds and geth-style composite
+  `d`/`h`/`m`/`s` durations such as `3h0m0s`.
+- Geth TOML `[Eth.TxPool] Lifetime` imports through the devnet runner config
+  path, with explicit CLI flags taking precedence.
+- Devnet summaries, readiness data, and lifecycle telemetry report
+  `txpoolLifetimeSeconds`.
+- Public txpool cleanup deterministically removes stale queued/basefee/blob
+  entries before public txpool and transaction hash views expose them.
+- Pending executable transactions remain visible even when older than the
+  configured lifetime.
+- Same-sender replacement transactions refresh their effective age.
 
 Closed validation:
 
+- `sbcl --noinform --non-interactive --load tests/load-tests.lisp --eval
+  '(quit)'` passed after the final parser update, with existing style warnings.
+- Focused tests passed after the final parser update:
+  `DEVNET-CLI-MAIN-APPLIES-GETH-CONFIG-FILE-VALUES`,
+  `DEVNET-CLI-MAIN-EXPLICIT-OPTIONS-OVERRIDE-GETH-CONFIG-FILE`,
+  `DEVNET-CLI-MAIN-ACCEPTS-GETH-STYLE-TXPOOL-AND-DATABASE-FLAGS`, and
+  `ETH-RPC-TXPOOL-LIFETIME-EXPIRES-QUEUED-VIEW-TRANSACTIONS`.
 - `git diff --check` passed.
-- `sbcl --script tests/run-tests.lisp` reached and passed the txpool
-  slot-limit and related promotion tests, then failed only at the known
-  sandbox socket-gated
+- `sbcl --script tests/run-tests.lisp` was run once for this implementation
+  batch before the final parser refinement. It reached and passed the new
+  txpool lifetime and CLI tests, then failed only at the known sandbox
+  socket-gated
   `PHASE-A-SMOKE-GATE-SCRIPT-CAN-INCLUDE-DEVNET-SUITE` test.
 - The required escalated devnet smoke gate passed:
   `sbcl --script scripts/phase-a-smoke-gate.lisp -- --json --devnet` exited 0
   with top-level `status: ok` and devnet `status: ok`.
-- Second independent verifier review passed after the queued/basefee promotion
-  fix.
+- Independent verifier review initially found the missing geth-style composite
+  duration support; after the parser/test fix, verifier status was `PASS`.
 
 ## Current Loop Migration
 
@@ -59,8 +68,8 @@ The old fixed heartbeat prompt is being replaced by a loop v2 process:
 
 ## Next Recommended Orchestrator Decision
 
-The next implementation run should start from the refreshed
-`docs/loop/next-run.md`. Current best slice is to make the remaining
-geth/Hive txpool lifetime runner knob affect real public txpool eviction
-behavior, because it advances executable devnet/txpool behavior and closes a
-documented Phase B partial gap without depending on external KZG libraries.
+The next loop run should start from the refreshed `docs/loop/next-run.md` and
+perform fresh orientation before selecting another implementation slice. Do not
+continue the completed txpool lifetime task. Prefer Phase B
+devnet/Engine/process-runner readiness or txpool/chain-store correctness unless
+orientation finds a higher-value executable-client issue.

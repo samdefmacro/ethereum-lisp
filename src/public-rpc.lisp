@@ -2126,6 +2126,31 @@
                         (address-to-hex local-address)))
              txpool-local-addresses)))
 
+(defun eth-rpc-local-transaction-predicate
+    (config txpool-local-addresses txpool-no-local-exemptions-p)
+  (lambda (transaction)
+    (let ((sender
+            (transaction-sender
+             transaction
+             :expected-chain-id (chain-config-chain-id config))))
+      (and sender
+           (eth-rpc-local-transaction-p
+            sender
+            txpool-local-addresses
+            txpool-no-local-exemptions-p)))))
+
+(defun eth-rpc-remove-expired-txpool-transactions
+    (store config txpool-lifetime-seconds txpool-now
+     txpool-local-addresses txpool-no-local-exemptions-p)
+  (when txpool-lifetime-seconds
+    (engine-payload-store-remove-expired-txpool-queued-view-transactions
+     store
+     txpool-lifetime-seconds
+     txpool-now
+     :local-transaction-predicate
+     (eth-rpc-local-transaction-predicate
+      config txpool-local-addresses txpool-no-local-exemptions-p))))
+
 (defun engine-rpc-handle-eth-send-raw-transaction
     (params store config &key allow-unprotected-transactions-p
                               txpool-price-limit
@@ -2135,7 +2160,8 @@
                               txpool-account-queue-limit
                               txpool-global-queue-limit
                               txpool-local-addresses
-                              txpool-no-local-exemptions-p)
+                              txpool-no-local-exemptions-p
+                              txpool-now)
   (unless (= 1 (length params))
     (block-validation-fail
      "eth_sendRawTransaction params must contain exactly one transaction"))
@@ -2171,21 +2197,24 @@
              (engine-payload-store-put-blob-transaction
               store
               transaction
-              :price-bump-percent txpool-price-bump-percent))
+              :price-bump-percent txpool-price-bump-percent
+              :admitted-at txpool-now))
             ((eth-rpc-txpool-basefee-ineligible-p store transaction)
              (engine-payload-store-put-basefee-transaction
               store
               transaction
-              :price-bump-percent txpool-price-bump-percent))
+              :price-bump-percent txpool-price-bump-percent
+              :admitted-at txpool-now))
             ((eth-rpc-txpool-queued-nonce-gap-p
               store
               sender
               transaction
               :expected-chain-id (chain-config-chain-id config))
              (engine-payload-store-put-queued-transaction
-              store
-              transaction
-              :price-bump-percent txpool-price-bump-percent
+             store
+             transaction
+             :price-bump-percent txpool-price-bump-percent
+              :admitted-at txpool-now
               :account-queue-limit
               (unless local-transaction-p txpool-account-queue-limit)
               :global-queue-limit
@@ -2195,6 +2224,7 @@
               store
               transaction
               :price-bump-percent txpool-price-bump-percent
+              :admitted-at txpool-now
               :account-slot-limit
               (unless local-transaction-p txpool-account-slot-limit)
               :global-slot-limit
@@ -2795,7 +2825,16 @@
           txpool-account-queue-limit
           txpool-global-queue-limit
           txpool-local-addresses
-          txpool-no-local-exemptions-p)
+          txpool-no-local-exemptions-p
+          txpool-lifetime-seconds
+          (txpool-now 0))
+  (eth-rpc-remove-expired-txpool-transactions
+   store
+   config
+   txpool-lifetime-seconds
+   txpool-now
+   txpool-local-addresses
+   txpool-no-local-exemptions-p)
   (cond
     ((string= method "web3_clientVersion")
      (engine-rpc-response
@@ -3027,7 +3066,9 @@
        :txpool-local-addresses
        txpool-local-addresses
        :txpool-no-local-exemptions-p
-       txpool-no-local-exemptions-p)))
+       txpool-no-local-exemptions-p
+       :txpool-now
+       txpool-now)))
     ((string= method "eth_pendingTransactions")
      (engine-rpc-response
       id

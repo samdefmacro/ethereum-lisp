@@ -15,6 +15,7 @@
                       txpool-account-queue-limit
                       txpool-global-queue-limit
                       txpool-local-addresses txpool-no-local-exemptions-p
+                      txpool-lifetime-seconds
                       kzg-verifier-command
                       kzg-verifier-timeout-seconds)))
   genesis-path
@@ -45,6 +46,7 @@
   txpool-global-queue-limit
   txpool-local-addresses
   txpool-no-local-exemptions-p
+  txpool-lifetime-seconds
   kzg-verifier-command
   kzg-verifier-timeout-seconds)
 
@@ -333,6 +335,7 @@
        txpool-global-queue-limit
        txpool-local-addresses
        txpool-no-local-exemptions-p
+       txpool-lifetime-seconds
        kzg-verifier-command
        kzg-verifier-timeout-seconds
        (public-allowed-method-p #'engine-rpc-public-method-p)
@@ -392,6 +395,7 @@
             :config config
             :network-id effective-network-id
             :coinbase coinbase
+            :now-provider #'get-universal-time
             :rpc-prefix public-rpc-prefix
             :allowed-method-p public-allowed-method-p
             :cors-origins public-cors-origins
@@ -406,6 +410,7 @@
             :txpool-global-queue-limit txpool-global-queue-limit
             :txpool-local-addresses txpool-local-addresses
             :txpool-no-local-exemptions-p txpool-no-local-exemptions-p
+            :txpool-lifetime-seconds txpool-lifetime-seconds
             :telemetry-sink telemetry-sink)))
     (chain-store-put-block store genesis-block :state-available-p t)
     (commit-state-db-to-chain-store store (block-hash genesis-block) state)
@@ -459,6 +464,7 @@
      :txpool-local-addresses (and txpool-local-addresses
                                   (copy-list txpool-local-addresses))
      :txpool-no-local-exemptions-p txpool-no-local-exemptions-p
+     :txpool-lifetime-seconds txpool-lifetime-seconds
      :kzg-verifier-command kzg-verifier-command
      :kzg-verifier-timeout-seconds
      (and kzg-verifier-command
@@ -567,6 +573,8 @@
                                        '()))
           :txpool-no-local-exemptions-p
           (devnet-node-txpool-no-local-exemptions-p node)
+          :txpool-lifetime-seconds
+          (devnet-node-txpool-lifetime-seconds node)
           :kzg-verifier-command (devnet-node-kzg-verifier-command node)
           :kzg-verifier-timeout-seconds
           (devnet-node-kzg-verifier-timeout-seconds node)
@@ -625,6 +633,8 @@
       ("txpoolLocals" . ,(getf summary :txpool-local-addresses))
       ("txpoolNoLocals" .
        ,(if (getf summary :txpool-no-local-exemptions-p) t :false))
+      ("txpoolLifetimeSeconds" .
+       ,(or (getf summary :txpool-lifetime-seconds) :false))
       ("networkId" . ,(getf summary :network-id))
       ("publicApiModules" . ,(getf summary :public-api-modules))
       ("engineCorsOrigins" . ,(getf summary :engine-cors-origins))
@@ -1089,6 +1099,9 @@
         ((and (string= section "Eth.TxPool") (string= key "GlobalQueue")
               (non-empty-scalar))
          (list "--txpool.globalqueue" scalar))
+        ((and (string= section "Eth.TxPool") (string= key "Lifetime")
+              (non-empty-scalar))
+         (list "--txpool.lifetime" scalar))
         ((and (string= section "Eth.TxPool") (string= key "Locals")
               (non-empty-list))
          (list "--txpool.locals" list-value))
@@ -1188,6 +1201,49 @@
     (unless (plusp integer)
       (error "~A must be positive" option))
     integer))
+
+(defun devnet-cli-duration-unit-seconds (unit option)
+  (cond
+    ((or (null unit) (string= unit "") (string= unit "s")) 1)
+    ((string= unit "m") 60)
+    ((string= unit "h") 3600)
+    ((string= unit "d") 86400)
+    (t
+     (error "~A duration unit must be one of s, m, h, or d" option))))
+
+(defun devnet-cli-parse-duration-seconds (value option)
+  (unless (and (stringp value) (plusp (length value)))
+    (error "~A requires a duration value" option))
+  (let ((length (length value))
+        (position 0)
+        (total 0))
+    (loop
+      (when (>= position length)
+        (return total))
+      (let* ((number-start position)
+             (unit-start
+               (or (position-if-not #'digit-char-p value :start position)
+                   length))
+             (number-token (subseq value number-start unit-start)))
+        (when (zerop (length number-token))
+          (error "~A requires a non-negative duration" option))
+        (when (and (= unit-start length) (/= number-start 0))
+          (error "~A duration unit must be one of s, m, h, or d" option))
+        (let* ((next-position
+                 (if (< unit-start length)
+                     (1+ unit-start)
+                     unit-start))
+               (unit-token
+                 (if (< unit-start length)
+                     (string-downcase (subseq value unit-start next-position))
+                     ""))
+               (seconds
+                 (* (devnet-cli-parse-non-negative-integer
+                     number-token
+                     option)
+                    (devnet-cli-duration-unit-seconds unit-token option))))
+          (incf total seconds)
+          (setf position next-position))))))
 
 (defun devnet-cli-hex-quantity-token-p (value)
   (and (stringp value)
@@ -1327,6 +1383,7 @@
         (txpool-global-queue-limit nil)
         (txpool-local-addresses nil)
         (txpool-no-local-exemptions-p nil)
+        (txpool-lifetime-seconds nil)
         (serve-p t)
         (summary-format :sexp)
         (ready-file nil)
@@ -1579,6 +1636,12 @@
                   (setf txpool-global-queue-limit
                         (devnet-cli-parse-non-negative-integer value option)
                         args rest)))
+               ((string= option "--txpool.lifetime")
+                (multiple-value-bind (value rest)
+                    (devnet-cli-next-value args option)
+                  (setf txpool-lifetime-seconds
+                        (devnet-cli-parse-duration-seconds value option)
+                        args rest)))
                ((member option *devnet-cli-value-options* :test #'string=)
                 (multiple-value-bind (value rest)
                     (devnet-cli-next-value args option)
@@ -1633,6 +1696,7 @@
           :txpool-global-queue-limit txpool-global-queue-limit
           :txpool-local-addresses txpool-local-addresses
           :txpool-no-local-exemptions-p txpool-no-local-exemptions-p
+          :txpool-lifetime-seconds txpool-lifetime-seconds
           :state-prune-before state-prune-before
           :max-connections max-connections
           :serve-p serve-p
@@ -2003,6 +2067,10 @@
        ,(format nil "~{~A~^,~}" (getf summary :txpool-local-addresses)))
       ("txpoolNoLocals" .
        ,(if (getf summary :txpool-no-local-exemptions-p) "true" "false"))
+      ("txpoolLifetimeSeconds" .
+       ,(if (getf summary :txpool-lifetime-seconds)
+            (write-to-string (getf summary :txpool-lifetime-seconds))
+            ""))
       ("headGasLimit" . ,(if (getf summary :head-gas-limit)
                               (quantity-to-hex
                                (getf summary :head-gas-limit))
@@ -2259,6 +2327,8 @@
                                 (getf options :txpool-local-addresses)
                                 :txpool-no-local-exemptions-p
                                 (getf options :txpool-no-local-exemptions-p)
+                                :txpool-lifetime-seconds
+                                (getf options :txpool-lifetime-seconds)
                                 :kzg-verifier-command
                                 (getf options :kzg-verifier-command)
                                 :kzg-verifier-timeout-seconds
