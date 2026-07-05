@@ -8,14 +8,15 @@
 - Verifier model: different model from implementer when available
 - Target branch: `main`
 - Stop state: pending implementer; the loop driver should consume this run
-  contract immediately instead of waiting for another automation edge.
+  contract immediately instead of generating another run spec.
 
 ## Orientation Summary
 
-- Git state: `main` was aligned with `origin/main` at orientation; the
-  preceding implementation batch is expected to commit
-  `Persist devnet txpool journal records` before this contract is consumed.
+- Git state: `main` was aligned with `origin/main` at orientation. The current
+  implementation batch is expected to commit `Refresh devnet txpool journals
+  periodically` before this contract is consumed.
 - Recent commits reviewed:
+  - `7f79d65 Persist devnet txpool journal records`
   - `df4afd2 Expire stale txpool queued transactions`
   - `ced7535 Close autonomous loop handoff gap`
   - `80e347b Enforce txpool slot admission limits`
@@ -23,55 +24,53 @@
   - `70158f2 Honor txpool local exemptions`
   - `987e4ed Enforce txpool queue limit admission`
   - `d430af9 Enforce txpool price bump admission`
-  - `db1bcbb Enforce txpool price limit admission`
 - Relevant task/roadmap anchors:
-  - `DEVNET-RUNNER-TXPOOL-JOURNAL` is closed by the preceding batch.
-  - `DEVNET-RUNNER-TXPOOL-REJOURNAL` is the next unchecked Phase B txpool
+  - `DEVNET-RUNNER-TXPOOL-REJOURNAL` is closed by the current batch.
+  - `DEVNET-RUNNER-TXPOOL-REJOURNAL-SMOKE` is the next unchecked Phase B
     runner-readiness task.
-  - Roadmap Section 7 still lists periodic rejournaling and broader eviction
-    policy as a partial gap.
+  - Roadmap Section 7 still lists process-boundary rejournal smoke coverage and
+    broader txpool eviction policy as partial gaps.
   - Real KZG integration remains valuable but externally constrained by trusted
     backend/library selection.
 - Relevant loop state:
-  - Loop v2 requires this pending implementer task to be consumed directly.
-  - Do not regenerate another run spec before implementation unless orientation
-    finds a precise blocker.
+  - Loop v2 requires pending implementer contracts to be consumed directly.
+  - This next run should validate the actual process boundary for the
+    rejournal background path rather than reworking the deterministic helper
+    tests from the current batch.
 
 ## Candidate Ranking
 
 ### Candidate A
 
-- Objective: Make `--txpool.rejournal DURATION` periodically refresh the
-  configured `--txpool.journal` file during long-lived devnet serve mode.
-- Value: High. It completes the geth/Hive txpool journal flag pair and improves
-  runner realism for processes that stay alive after transactions enter the
-  public txpool.
-- Risk: Medium. Timer/background behavior can introduce nondeterminism unless
-  tests use a controllable scheduler or direct tick path.
+- Objective: Lock `--txpool.rejournal` in the standalone devnet smoke gate by
+  proving a real runner process refreshes the txpool journal before shutdown.
+- Value: High. It validates the process-boundary behavior that unit-level tick
+  tests cannot fully cover.
+- Risk: Medium. It needs local listener/socket execution and must avoid flaky
+  timing by polling a bounded journal condition.
 - Required validation:
-  - focused CLI/serve-mode or scheduler coverage while iterating;
+  - focused smoke-gate run with local socket/network escalation;
   - `git diff --check`;
   - `sbcl --script tests/run-tests.lisp` once before commit;
-  - request local socket/network escalation for any devnet process smoke gate.
+  - independent verifier review.
 - Decision: Selected.
-- Reason: It is the most direct executable Phase B continuation after journal
-  import/export, and it turns an existing geth-shaped no-op into observable
-  process behavior.
+- Reason: It is the most direct Phase B continuation after adding periodic
+  rejournaling, and it closes the main residual risk of that implementation.
 
 ### Candidate B
 
-- Objective: Move to another Phase B listener/readiness/process-runner
-  lifecycle gap.
-- Value: High.
-- Risk: Medium.
+- Objective: Implement broader txpool eviction policy beyond lifetime and
+  journaling.
+- Value: Medium to high.
+- Risk: Medium. It likely touches admission, visibility, and mining behavior.
 - Required validation:
-  - focused process/CLI coverage;
+  - focused txpool admission/visibility tests;
   - `git diff --check`;
   - `sbcl --script tests/run-tests.lisp`;
-  - escalated socket smoke gate when listener behavior changes.
+  - devnet smoke escalation if public RPC behavior is exercised.
 - Decision: Deferred.
-- Reason: Rejournaling is smaller, already scaffolded by the journal slice,
-  and directly improves txpool process-runner fidelity.
+- Reason: The process smoke is smaller, directly tied to the just-completed
+  implementation, and reduces a concrete verification gap.
 
 ### Candidate C
 
@@ -85,16 +84,17 @@
 
 ## Selected Objective
 
-Implement deterministic `--txpool.rejournal DURATION` behavior for devnet
-serve mode so an active txpool journal is refreshed during long-running
-processes without relying on shutdown alone.
+Add a deterministic, bounded devnet smoke-gate check proving
+`--txpool.rejournal` refreshes an active `--txpool.journal` file in a real
+runner process before shutdown.
 
 ## Scope
 
 Allowed files/modules:
 
-- `src/cli.lisp`
-- `tests/cli-tests.lisp`
+- `scripts/devnet-smoke-gate.lisp`
+- `tests/cli-tests.lisp` if a reusable test helper needs to be exposed or
+  tightened
 - `docs/tasks.md`
 - `docs/roadmap.md`
 - `docs/loop/state.md`
@@ -102,36 +102,28 @@ Allowed files/modules:
 
 Expected behavior changes:
 
-- Parse and retain `--txpool.rejournal DURATION` as a meaningful non-negative
-  duration option rather than only consuming it as a compatibility value.
-- Import geth TOML `[Eth.TxPool] Rejournal` through the existing config-file
-  path, with explicit CLI flags preserving precedence.
-- Report the effective value in devnet summaries, readiness JSON, and
-  lifecycle telemetry.
-- When both `--txpool.journal` and a positive rejournal duration are set for
-  serve mode, refresh the txpool-only journal through the same KV export path
-  used by clean shutdown.
-- Keep no-journal and zero-duration behavior unchanged.
-- Prefer deterministic tests through an injectable scheduler/tick helper or
-  direct exported refresh function; avoid wall-clock sleeps in unit tests.
+- Start the runner-facing devnet process with `--txpool.journal` and a short
+  positive `--txpool.rejournal` value in the relevant smoke path.
+- Admit a public txpool transaction after the process is ready.
+- Poll the txpool-only journal file until the admitted transaction appears, or
+  fail with a clear diagnostic before clean shutdown.
+- Preserve existing smoke-gate checks and cleanup behavior.
 
 Non-goals:
 
 - Do not change txpool admission, replacement, lifetime, local, slot, queue, or
   journal import semantics.
-- Do not implement broader txpool eviction policy.
+- Do not add wall-clock-only unit tests when a bounded smoke poll can assert the
+  real process behavior.
 - Do not widen official fixtures or start real KZG integration.
 
 ## Acceptance Criteria
 
-- CLI `--txpool.rejournal DURATION` and geth TOML `[Eth.TxPool] Rejournal`
-  parsing are covered.
-- Summary JSON exposes the effective rejournal duration when configured.
-- A focused deterministic test proves a configured journal can be refreshed
-  while the node is live, without waiting for shutdown.
-- A focused test proves no journal file is written by rejournal behavior when
-  `--txpool.journal` is absent.
-- Existing `--txpool.journal` import/export tests still pass.
+- The smoke gate proves a live runner process writes a refreshed txpool journal
+  before clean shutdown when `--txpool.rejournal` is enabled.
+- The failure message is specific when the journal never appears, remains
+  unreadable, or lacks the expected txpool record.
+- Existing devnet smoke checks still run and report their prior status shape.
 - `docs/tasks.md`, `docs/roadmap.md`, and `docs/loop/state.md` reflect only
   actual status changes.
 - Independent verifier reviews the final diff before commit.
@@ -140,9 +132,9 @@ Non-goals:
 
 Focused gates:
 
-- Run direct CLI tests for rejournal parsing/reporting and deterministic live
-  refresh behavior.
-- Rerun the existing txpool journal focused tests touched by the implementation.
+- Run the focused standalone devnet smoke path with local socket/network
+  escalation:
+  `sbcl --script scripts/devnet-smoke-gate.lisp`.
 
 Required pre-commit gates:
 
@@ -152,32 +144,35 @@ Required pre-commit gates:
 
 Escalation requirements:
 
-- Request local socket/network escalation for any devnet process smoke gate or
-  test that binds local listeners.
+- Request local socket/network escalation before running the standalone devnet
+  smoke gate or any test that binds local listeners. Do not silently skip the
+  gate.
 
 ## Commit And Push Policy
 
 - Commit allowed: yes, only after deterministic gates and verifier review pass.
 - Push allowed: yes, after commit if remote authentication is available.
-- Commit message: `Refresh devnet txpool journals periodically`
+- Commit message: `Smoke test devnet txpool rejournaling`
 
 ## Blockers
 
 - No current git synchronization blocker.
+- If local socket/network escalation is unavailable, stop with
+  `BLOCKED_SOCKET_ESCALATION` and record the exact unrun command.
 - Real KZG integration remains blocked on concrete trusted-backend selection,
-  but it does not block this txpool rejournal slice.
+  but it does not block this smoke slice.
 
 ## Implementer Notes
 
-- Reuse the existing txpool-only KV export helper from the journal slice.
-- Keep timer behavior explicit and testable. If existing serve-mode structure
-  lacks a clean deterministic hook, add the smallest local hook needed rather
-  than sleeping in tests.
-- If orientation finds that serve-mode has no safe place for a periodic tick,
-  write a precise blocker and do not fake coverage with shutdown-only behavior.
+- Prefer reusing existing smoke-gate JSON-RPC helpers and KV txpool record
+  readers instead of adding parallel parsing code.
+- Use a short rejournal duration and bounded polling loop. Keep the timeout
+  explicit in failure messages.
+- Make cleanup robust even when the smoke assertion fails.
 
 ## Verifier Result
 
 - Status: pending
 - Findings: pending
-- Residual risk: timer behavior must stay deterministic in tests.
+- Residual risk: socket-gated process timing must remain bounded and
+  diagnosable.

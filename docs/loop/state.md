@@ -17,34 +17,33 @@ Last updated: 2026-07-05
 
 ## Current Dirty Work
 
-No dirty implementation work is recorded by the loop. The txpool journal slice
-has been implemented, validated, independently reviewed, and closed by the
-current run.
+No dirty implementation work is recorded by the loop. The txpool rejournal
+slice has been implemented, validated, independently reviewed, and is pending
+commit and push in the current run.
 
 Closed behavior from the latest slice:
 
-- `--txpool.journal PATH` parses as a real path-bearing devnet option.
-- Geth TOML `[Eth.TxPool] Journal` imports through the same runner config
-  path, with explicit CLI flags taking precedence.
+- `--txpool.rejournal DURATION` parses as a meaningful non-negative duration
+  rather than a compatibility-only consumed value.
+- Geth TOML `[Eth.TxPool] Rejournal` imports through the runner config path,
+  with explicit CLI flags taking precedence.
 - Devnet summaries, readiness data, and lifecycle telemetry report
-  `txpoolJournalPath`.
-- Clean no-serve summary export and serve shutdown export write current txpool
-  records to the configured txpool-only KV journal.
-- Startup imports existing journal txpool records after genesis/database
-  restore only when database restore has not already populated txpool state,
-  avoiding duplicate pooled hash/nonce failures when `--database` and
-  `--txpool.journal` point at the same previously exported pool.
-- Journal import reuses the existing KV txpool validation path and
-  restored-txpool consistency cleanup, so wrong-chain journal records fail
-  before publishing restored txpool contents.
+  `txpoolRejournalSeconds`.
+- When both `--txpool.journal` and a positive rejournal interval are
+  configured, serve mode starts a shutdown-aware background tick that refreshes
+  the same txpool-only KV journal export used by clean shutdown.
+- No-journal behavior remains a no-op, and zero/nil rejournal intervals do not
+  start the periodic refresh path.
 
 Closed validation:
 
-- Focused journal/config tests passed:
+- Focused rejournal/journal/config tests passed:
+  `DEVNET-CLI-TXPOOL-REJOURNAL-REFRESHES-LIVE-JOURNAL`,
+  `DEVNET-CLI-TXPOOL-REJOURNAL-WITHOUT-JOURNAL-IS-NOOP`,
   `DEVNET-CLI-TXPOOL-JOURNAL-PERSISTS-PENDING-TRANSACTIONS`,
-  `DEVNET-CLI-TXPOOL-JOURNAL-COEXISTS-WITH-DATABASE-RESTORE`,
-  `DEVNET-CLI-TXPOOL-JOURNAL-REJECTS-WRONG-CHAIN-TRANSACTIONS`,
+  `DEVNET-CLI-MAIN-JSON-SUMMARY-AND-READY-FILE`,
   `DEVNET-CLI-MAIN-APPLIES-GETH-CONFIG-FILE-VALUES`, and
+  `DEVNET-CLI-MAIN-EXPLICIT-OPTIONS-OVERRIDE-GETH-CONFIG-FILE`,
   `DEVNET-CLI-MAIN-ACCEPTS-GETH-STYLE-TXPOOL-AND-DATABASE-FLAGS`.
 - `git diff --check` passed after the final doc refresh.
 - `sbcl --script tests/run-tests.lisp` was run once for this implementation
@@ -52,10 +51,10 @@ Closed validation:
   `PHASE-A-SMOKE-GATE-SCRIPT-CAN-INCLUDE-DEVNET-SUITE` test.
 - The required escalated devnet smoke gate passed:
   `sbcl --script scripts/phase-a-smoke-gate.lisp -- --json --devnet` exited 0
-  with top-level `status: ok` and devnet `status: ok`.
-- Independent verifier review returned `PASS` for the initial journal diff.
-  After the database-plus-journal duplicate-import boundary was added, an
-  incremental verifier review also returned `PASS`.
+  with top-level, devnet, and engine-only devnet `status: ok`.
+- Independent verifier review returned `PASS`; its only residual risk was the
+  real process-boundary smoke coverage now captured as
+  `DEVNET-RUNNER-TXPOOL-REJOURNAL-SMOKE`.
 
 ## Current Loop Migration
 
@@ -71,7 +70,7 @@ The old fixed heartbeat prompt is being replaced by a loop v2 process:
 
 After this commit, the next loop run should consume the refreshed
 `docs/loop/next-run.md` as an implementer contract for
-`DEVNET-RUNNER-TXPOOL-REJOURNAL`. Do not continue the completed txpool journal
-task. Prefer Phase B devnet/Engine/process-runner readiness or
-txpool/chain-store correctness unless orientation finds a higher-value
-executable-client issue.
+`DEVNET-RUNNER-TXPOOL-REJOURNAL-SMOKE`. Do not continue the completed txpool
+journal or rejournal implementation tasks. Prefer Phase B
+devnet/Engine/process-runner readiness or txpool/chain-store correctness
+unless orientation finds a higher-value executable-client issue.

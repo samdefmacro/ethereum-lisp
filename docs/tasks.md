@@ -138,7 +138,7 @@ ones.
     txpool runner flags. The full suite was run once; in sandbox it reached the
     known socket-gated devnet smoke test, and the required escalated Phase A
     devnet smoke gate passed with top-level and devnet `status: ok`.
-- [ ] `DEVNET-RUNNER-TXPOOL-REJOURNAL`: Make the geth/Hive
+- [x] `DEVNET-RUNNER-TXPOOL-REJOURNAL`: Make the geth/Hive
   `--txpool.rejournal DURATION` runner flag refresh an active
   `--txpool.journal` file during long-lived devnet serve mode.
   - Milestone: 7 / Phase B Hive process-runner readiness
@@ -153,6 +153,32 @@ ones.
   - Validation: focused CLI/serve-mode or scheduler coverage while iterating;
     `git diff --check`; `sbcl --script tests/run-tests.lisp`; request local
     socket/network escalation for any devnet process smoke gate.
+  - Result (2026-07-05): `--txpool.rejournal DURATION` now parses as a
+    non-negative duration, imports from geth TOML `[Eth.TxPool] Rejournal`,
+    respects explicit CLI override precedence, and reports
+    `txpoolRejournalSeconds` in devnet summaries/readiness/telemetry. When a
+    positive rejournal interval and `--txpool.journal` are configured, serve
+    mode starts a shutdown-aware background tick that refreshes the same
+    txpool-only KV journal export used by clean shutdown. Focused coverage
+    proves deterministic live-journal refresh through an injectable clock,
+    no-journal behavior remains a no-op, existing journal persistence still
+    passes, and geth-shaped config/CLI reporting includes the effective
+    rejournal duration. The full suite was run once; in sandbox it reached the
+    known socket-gated devnet smoke test, and the required escalated Phase A
+    devnet smoke gate passed with top-level, devnet, and engine-only devnet
+    `status: ok`.
+- [ ] `DEVNET-RUNNER-TXPOOL-REJOURNAL-SMOKE`: Lock the
+  `--txpool.rejournal` process boundary in the standalone devnet smoke gate.
+  - Milestone: 7 / Phase B Hive process-runner readiness
+  - Dependencies: `DEVNET-RUNNER-TXPOOL-REJOURNAL`.
+  - Acceptance: the devnet smoke gate starts a real runner process with
+    `--txpool.journal` and a short `--txpool.rejournal` duration, admits a
+    public txpool transaction, observes the txpool-only journal refresh before
+    clean shutdown, and proves the smoke gate reports a clear failure if the
+    process never writes the refreshed journal.
+  - Validation: focused devnet smoke-gate path while iterating; request local
+    socket/network escalation; `git diff --check`;
+    `sbcl --script tests/run-tests.lisp`.
 - [x] `PINNED-V5.4.0-ROOT-SMOKE`: Rehydrate or configure an official
   `ethereum/execution-spec-tests` v5.4.0 `fixtures_stable.tar.gz` extraction,
   run `scripts/phase-a-smoke-gate.lisp -- --pinned-v5.4.0 --root PATH`, and

@@ -17,6 +17,7 @@
                       txpool-local-addresses txpool-no-local-exemptions-p
                       txpool-lifetime-seconds
                       txpool-journal-path
+                      txpool-rejournal-seconds
                       kzg-verifier-command
                       kzg-verifier-timeout-seconds)))
   genesis-path
@@ -49,6 +50,7 @@
   txpool-no-local-exemptions-p
   txpool-lifetime-seconds
   txpool-journal-path
+  txpool-rejournal-seconds
   kzg-verifier-command
   kzg-verifier-timeout-seconds)
 
@@ -56,6 +58,14 @@
   requested-p
   engine-listener
   public-listener)
+
+(defstruct (devnet-rejournal-state
+            (:constructor %make-devnet-rejournal-state
+                (&key node interval-seconds now-function last-run-time)))
+  node
+  interval-seconds
+  now-function
+  last-run-time)
 
 (defconstant +devnet-default-public-rpc-port+ 8545)
 (defconstant +devnet-datadir-database-file+ "ethereum-lisp-chain.sexp")
@@ -346,6 +356,7 @@
        txpool-no-local-exemptions-p
        txpool-lifetime-seconds
        txpool-journal-path
+       txpool-rejournal-seconds
        kzg-verifier-command
        kzg-verifier-timeout-seconds
        (public-allowed-method-p #'engine-rpc-public-method-p)
@@ -494,6 +505,7 @@
      :txpool-no-local-exemptions-p txpool-no-local-exemptions-p
      :txpool-lifetime-seconds txpool-lifetime-seconds
      :txpool-journal-path txpool-journal-path
+     :txpool-rejournal-seconds txpool-rejournal-seconds
      :kzg-verifier-command kzg-verifier-command
      :kzg-verifier-timeout-seconds
      (and kzg-verifier-command
@@ -526,6 +538,51 @@
   (when block-number
     (chain-store-prune-state-before (devnet-node-store node) block-number)))
 
+(defun devnet-node-rejournal (node)
+  (unless (typep node 'devnet-node)
+    (error "Devnet node must be devnet-node"))
+  (let ((journal-path (devnet-node-txpool-journal-path node)))
+    (when journal-path
+      (chain-store-export-txpool-records-to-kv
+       (devnet-node-store node)
+       (devnet-cli-make-output-kv-database journal-path))
+      t)))
+
+(defun make-devnet-rejournal-state
+    (node interval-seconds &key (now-function #'get-universal-time))
+  (unless (typep node 'devnet-node)
+    (error "Devnet rejournal state requires a devnet node"))
+  (unless (or (null interval-seconds)
+              (and (integerp interval-seconds) (<= 0 interval-seconds)))
+    (error "Devnet rejournal interval must be a non-negative integer"))
+  (unless (functionp now-function)
+    (error "Devnet rejournal clock must be a function"))
+  (%make-devnet-rejournal-state
+   :node node
+   :interval-seconds interval-seconds
+   :now-function now-function
+   :last-run-time (funcall now-function)))
+
+(defun devnet-rejournal-state-enabled-p (state)
+  (let ((node (devnet-rejournal-state-node state))
+        (interval-seconds (devnet-rejournal-state-interval-seconds state)))
+    (and node
+         (devnet-node-txpool-journal-path node)
+         interval-seconds
+         (plusp interval-seconds))))
+
+(defun devnet-rejournal-state-tick (state)
+  (unless (typep state 'devnet-rejournal-state)
+    (error "Devnet rejournal tick requires a devnet rejournal state"))
+  (when (devnet-rejournal-state-enabled-p state)
+    (let* ((now (funcall (devnet-rejournal-state-now-function state)))
+           (last-run-time (devnet-rejournal-state-last-run-time state))
+           (interval-seconds
+             (devnet-rejournal-state-interval-seconds state)))
+      (when (>= (- now last-run-time) interval-seconds)
+        (setf (devnet-rejournal-state-last-run-time state) now)
+        (devnet-node-rejournal (devnet-rejournal-state-node state))))))
+
 (defun devnet-node-export-database (node &key state-prune-before)
   (unless (typep node 'devnet-node)
     (error "Devnet node must be devnet-node"))
@@ -535,11 +592,7 @@
       (chain-store-export-to-kv
        (devnet-node-store node)
        (devnet-cli-make-output-kv-database database-path))))
-  (let ((journal-path (devnet-node-txpool-journal-path node)))
-    (when journal-path
-      (chain-store-export-txpool-records-to-kv
-       (devnet-node-store node)
-       (devnet-cli-make-output-kv-database journal-path)))))
+  (devnet-node-rejournal node))
 
 (defun devnet-block-number (block)
   (and block (block-header-number (block-header block))))
@@ -610,6 +663,8 @@
           :txpool-lifetime-seconds
           (devnet-node-txpool-lifetime-seconds node)
           :txpool-journal-path (devnet-node-txpool-journal-path node)
+          :txpool-rejournal-seconds
+          (devnet-node-txpool-rejournal-seconds node)
           :kzg-verifier-command (devnet-node-kzg-verifier-command node)
           :kzg-verifier-timeout-seconds
           (devnet-node-kzg-verifier-timeout-seconds node)
@@ -672,6 +727,8 @@
        ,(or (getf summary :txpool-lifetime-seconds) :false))
       ("txpoolJournalPath" .
        ,(or (getf summary :txpool-journal-path) :false))
+      ("txpoolRejournalSeconds" .
+       ,(or (getf summary :txpool-rejournal-seconds) :false))
       ("networkId" . ,(getf summary :network-id))
       ("publicApiModules" . ,(getf summary :public-api-modules))
       ("engineCorsOrigins" . ,(getf summary :engine-cors-origins))
@@ -693,6 +750,31 @@
       ("finalizedNumber" . ,(or (getf summary :finalized-number) :false))
       ("finalizedHash" . ,(or (getf summary :finalized-hash) :false))
       ("stateAvailable" . ,(if (getf summary :state-available-p) t :false)))))
+
+(defun devnet-start-rejournal-thread
+    (node shutdown-controller error-callback)
+  #-sbcl
+  (declare (ignore node shutdown-controller error-callback))
+  #-sbcl
+  nil
+  #+sbcl
+  (let ((state
+          (make-devnet-rejournal-state
+           node
+           (devnet-node-txpool-rejournal-seconds node))))
+    (when (devnet-rejournal-state-enabled-p state)
+      (sb-thread:make-thread
+       (lambda ()
+         (handler-case
+             (loop until (devnet-shutdown-requested-p shutdown-controller)
+                   do (sleep 1)
+                      (unless (devnet-shutdown-requested-p
+                               shutdown-controller)
+                        (devnet-rejournal-state-tick state)))
+           (error (condition)
+             (funcall error-callback condition)
+             (devnet-shutdown-request shutdown-controller))))
+       :name "ethereum-lisp-devnet-txpool-rejournal"))))
 
 (defun start-devnet-node-listeners
     (node engine-listener public-listener
@@ -726,7 +808,9 @@
          (engine-count nil)
          (engine-error nil)
          (public-count nil)
-         (public-error nil))
+         (public-error nil)
+         (rejournal-error nil)
+         (rejournal-thread nil))
     (devnet-shutdown-controller-register-listeners
      shutdown-controller engine-listener public-listener)
     (handler-case
@@ -735,55 +819,72 @@
       (error (condition)
         (devnet-shutdown-request shutdown-controller)
         (error condition)))
-    (if public-listener
-        (let ((engine-thread
-                (sb-thread:make-thread
-                 (lambda ()
-                   (handler-case
-                       (setf engine-count
-                             (engine-rpc-http-service-serve-listener
-                              (devnet-node-service node)
-                              engine-listener
-                              :max-connections max-connections
-                              :stop-p stop-requested-p))
-                     (error (condition)
-                       (setf engine-error condition)
-                       (devnet-shutdown-request shutdown-controller))))
-                 :name "ethereum-lisp-devnet-engine-rpc")))
-          (handler-case
-              (setf public-count
-                    (engine-rpc-http-service-serve-listener
-                     (devnet-node-public-service node)
-                     public-listener
-                     :max-connections max-connections
-                     :stop-p stop-requested-p))
-            (error (condition)
-              (setf public-error condition)
-              (devnet-shutdown-request shutdown-controller)))
-          (when public-count
-            (devnet-shutdown-request shutdown-controller))
-          (sb-thread:join-thread engine-thread)
-          (cond
-            (public-error (error public-error))
-            (engine-error (error engine-error))
-            (t
-             (list :engine-connections engine-count
-                   :public-connections public-count
-                   :total-connections (+ engine-count public-count)))))
-        (handler-case
-            (let ((engine-count
-                    (engine-rpc-http-service-serve-listener
-                     (devnet-node-service node)
-                     engine-listener
-                     :max-connections max-connections
-                     :stop-p stop-requested-p)))
-              (devnet-shutdown-request shutdown-controller)
-              (list :engine-connections engine-count
-                    :public-connections 0
-                    :total-connections engine-count))
-          (error (condition)
-            (devnet-shutdown-request shutdown-controller)
-            (error condition))))))
+    (setf rejournal-thread
+          (devnet-start-rejournal-thread
+           node
+           shutdown-controller
+           (lambda (condition)
+             (setf rejournal-error condition))))
+    (let ((result nil))
+      (unwind-protect
+           (setf result
+                 (if public-listener
+                     (let ((engine-thread
+                             (sb-thread:make-thread
+                              (lambda ()
+                                (handler-case
+                                    (setf engine-count
+                                          (engine-rpc-http-service-serve-listener
+                                           (devnet-node-service node)
+                                           engine-listener
+                                           :max-connections max-connections
+                                           :stop-p stop-requested-p))
+                                  (error (condition)
+                                    (setf engine-error condition)
+                                    (devnet-shutdown-request
+                                     shutdown-controller))))
+                              :name "ethereum-lisp-devnet-engine-rpc")))
+                       (handler-case
+                           (setf public-count
+                                 (engine-rpc-http-service-serve-listener
+                                  (devnet-node-public-service node)
+                                  public-listener
+                                  :max-connections max-connections
+                                  :stop-p stop-requested-p))
+                         (error (condition)
+                           (setf public-error condition)
+                           (devnet-shutdown-request shutdown-controller)))
+                       (when public-count
+                         (devnet-shutdown-request shutdown-controller))
+                       (sb-thread:join-thread engine-thread)
+                       (cond
+                         (public-error (error public-error))
+                         (engine-error (error engine-error))
+                         (t
+                          (list :engine-connections engine-count
+                                :public-connections public-count
+                                :total-connections
+                                (+ engine-count public-count)))))
+                     (handler-case
+                         (let ((engine-count
+                                 (engine-rpc-http-service-serve-listener
+                                  (devnet-node-service node)
+                                  engine-listener
+                                  :max-connections max-connections
+                                  :stop-p stop-requested-p)))
+                           (devnet-shutdown-request shutdown-controller)
+                           (list :engine-connections engine-count
+                                 :public-connections 0
+                                 :total-connections engine-count))
+                       (error (condition)
+                         (devnet-shutdown-request shutdown-controller)
+                         (error condition)))))
+        (when rejournal-thread
+          (devnet-shutdown-request shutdown-controller)
+          (sb-thread:join-thread rejournal-thread)))
+      (when rejournal-error
+        (error rejournal-error))
+      result)))
 
 (defun start-devnet-node
     (node &key max-connections stop-p shutdown-controller
@@ -1142,6 +1243,9 @@
         ((and (string= section "Eth.TxPool") (string= key "Journal")
               (non-empty-scalar))
          (list "--txpool.journal" scalar))
+        ((and (string= section "Eth.TxPool") (string= key "Rejournal")
+              (non-empty-scalar))
+         (list "--txpool.rejournal" scalar))
         ((and (string= section "Eth.TxPool") (string= key "Locals")
               (non-empty-list))
          (list "--txpool.locals" list-value))
@@ -1425,6 +1529,7 @@
         (txpool-no-local-exemptions-p nil)
         (txpool-lifetime-seconds nil)
         (txpool-journal-path nil)
+        (txpool-rejournal-seconds nil)
         (serve-p t)
         (summary-format :sexp)
         (ready-file nil)
@@ -1686,6 +1791,12 @@
                ((string= option "--txpool.journal")
                 (multiple-value-setq (txpool-journal-path args)
                   (devnet-cli-next-value args option)))
+               ((string= option "--txpool.rejournal")
+                (multiple-value-bind (value rest)
+                    (devnet-cli-next-value args option)
+                  (setf txpool-rejournal-seconds
+                        (devnet-cli-parse-duration-seconds value option)
+                        args rest)))
                ((member option *devnet-cli-value-options* :test #'string=)
                 (multiple-value-bind (value rest)
                     (devnet-cli-next-value args option)
@@ -1742,6 +1853,7 @@
           :txpool-no-local-exemptions-p txpool-no-local-exemptions-p
           :txpool-lifetime-seconds txpool-lifetime-seconds
           :txpool-journal-path txpool-journal-path
+          :txpool-rejournal-seconds txpool-rejournal-seconds
           :state-prune-before state-prune-before
           :max-connections max-connections
           :serve-p serve-p
@@ -2117,6 +2229,10 @@
             (write-to-string (getf summary :txpool-lifetime-seconds))
             ""))
       ("txpoolJournalPath" . ,(or (getf summary :txpool-journal-path) ""))
+      ("txpoolRejournalSeconds" .
+       ,(if (getf summary :txpool-rejournal-seconds)
+            (write-to-string (getf summary :txpool-rejournal-seconds))
+            ""))
       ("headGasLimit" . ,(if (getf summary :head-gas-limit)
                               (quantity-to-hex
                                (getf summary :head-gas-limit))
@@ -2377,6 +2493,8 @@
                                 (getf options :txpool-lifetime-seconds)
                                 :txpool-journal-path
                                 (getf options :txpool-journal-path)
+                                :txpool-rejournal-seconds
+                                (getf options :txpool-rejournal-seconds)
                                 :kzg-verifier-command
                                 (getf options :kzg-verifier-command)
                                 :kzg-verifier-timeout-seconds

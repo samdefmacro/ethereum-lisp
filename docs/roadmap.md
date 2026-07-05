@@ -1276,6 +1276,10 @@ first pass, but interfaces must not block that path.
   KV journal across devnet restarts, reports `txpoolJournalPath`, reuses the
   existing KV txpool validation and consistency cleanup path, and coexists with
   full `--database` restore/export without duplicate txpool import failures.
+  `--txpool.rejournal` now accepts geth-style composite duration values, imports
+  geth TOML `[Eth.TxPool] Rejournal`, reports `txpoolRejournalSeconds`, and
+  periodically refreshes the configured txpool-only journal during long-running
+  serve mode.
   `--txpool.locals` now marks configured senders as local transactions that
   bypass txpool price-limit, pending-slot, and queued-cap admission, and
   `--txpool.nolocals` disables those exemptions. The geth TOML
@@ -1283,6 +1287,7 @@ first pass, but interfaces must not block that path.
   `[Eth.TxPool] AccountSlots`, `[Eth.TxPool] GlobalSlots`,
   `[Eth.TxPool] AccountQueue`, `[Eth.TxPool] GlobalQueue`,
   `[Eth.TxPool] Lifetime`, `[Eth.TxPool] Journal`,
+  `[Eth.TxPool] Rejournal`,
   `[Eth.TxPool] Locals`, `[Eth.TxPool] NoLocals`, and
   `[Eth.Miner] GasCeil` fields are imported
   through the same runner-visible path for config-file-based launches.
@@ -1816,7 +1821,7 @@ first pass, but interfaces must not block that path.
   reorg events, returning displaced old-canonical logs with `removed=true` and
   replacement-head logs with the normal `removed=false` shape.
 - *Partial:* txpool policy beyond the current in-memory pending pool
-  (periodic rejournaling and broader eviction policy),
+  (process-boundary rejournal smoke coverage and broader eviction policy),
   cross-client Engine fixture breadth beyond the local pinned Shanghai
   `engine_newPayloadV2` smoke set, and concrete long-running devnet/Hive
   lifecycle ergonomics beyond the current readiness, log-file, shutdown,

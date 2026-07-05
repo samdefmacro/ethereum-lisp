@@ -3284,6 +3284,82 @@
       (when (probe-file genesis-path)
         (delete-file genesis-path)))))
 
+(deftest devnet-cli-txpool-rejournal-refreshes-live-journal
+  (let ((journal-path
+          (devnet-cli-temp-path "ethereum-lisp-devnet-txpool-rejournal"
+                                "sexp"))
+        (genesis-path
+          (devnet-cli-temp-path "ethereum-lisp-devnet-txpool-genesis" "json"))
+        (now 100))
+    (unwind-protect
+         (progn
+           (devnet-cli-write-temp-file
+            genesis-path
+            (devnet-cli-funded-txpool-genesis-json))
+           (let* ((node
+                    (ethereum-lisp.cli:make-devnet-node
+                     :genesis-path (namestring genesis-path)
+                     :port 0
+                     :txpool-journal-path (namestring journal-path)
+                     :txpool-rejournal-seconds 10))
+                  (state
+                    (ethereum-lisp.cli::make-devnet-rejournal-state
+                     node
+                     10
+                     :now-function (lambda () now)))
+                  (transaction
+                    (devnet-cli-txpool-transaction
+                     (ethereum-lisp.cli:devnet-node-config node)
+                     0
+                     +devnet-cli-txpool-pending-gas-price+))
+                  (telemetry-fields
+                    (ethereum-lisp.cli::devnet-node-telemetry-fields node)))
+             (is (string= "10"
+                          (cdr (assoc "txpoolRejournalSeconds"
+                                      telemetry-fields
+                                      :test #'string=))))
+             (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+              (ethereum-lisp.cli:devnet-node-store node)
+              transaction)
+             (setf now 109)
+             (is (eq nil
+                     (ethereum-lisp.cli::devnet-rejournal-state-tick state)))
+             (is (not (probe-file journal-path)))
+             (setf now 110)
+             (is (eq t
+                     (ethereum-lisp.cli::devnet-rejournal-state-tick state)))
+             (let ((journal (make-file-key-value-database journal-path)))
+               (is (= 1
+                      (length
+                       (kv-chain-record-entries journal :txpool)))))))
+      (when (probe-file journal-path)
+        (delete-file journal-path))
+      (when (probe-file genesis-path)
+        (delete-file genesis-path)))))
+
+(deftest devnet-cli-txpool-rejournal-without-journal-is-noop
+  (let ((unused-path
+          (devnet-cli-temp-path "ethereum-lisp-devnet-unused-rejournal"
+                                "sexp"))
+        (now 0))
+    (unwind-protect
+         (let* ((node
+                  (ethereum-lisp.cli:make-devnet-node
+                   :genesis-path +devnet-cli-genesis-fixture+
+                   :port 0
+                   :txpool-rejournal-seconds 1))
+                (state
+                  (ethereum-lisp.cli::make-devnet-rejournal-state
+                   node
+                   1
+                   :now-function (lambda () now))))
+           (setf now 1)
+           (is (eq nil
+                   (ethereum-lisp.cli::devnet-rejournal-state-tick state)))
+           (is (not (probe-file unused-path))))
+      (when (probe-file unused-path)
+        (delete-file unused-path)))))
+
 (deftest devnet-cli-txpool-journal-rejects-wrong-chain-transactions
   (let ((journal-path
           (devnet-cli-temp-path "ethereum-lisp-devnet-txpool-bad-chain"
@@ -3336,6 +3412,7 @@
                          "--engine-port" "0"
                          "--public-port" "8546"
                          "--jwt-secret" (namestring jwt-path)
+                         "--txpool.rejournal" "2m"
                          "--ready-file" (namestring ready-path)
                          "--pid-file" (namestring pid-path)
                          "--json"
@@ -3365,6 +3442,8 @@
                (is (string= (namestring pid-path)
                             (fixture-object-field summary "pidFilePath")))
                (is (eq t (fixture-object-field summary "authRequired")))
+               (is (= 120
+                      (fixture-object-field summary "txpoolRejournalSeconds")))
                (is (eq t (fixture-object-field summary "stateAvailable")))
                (is (string= (namestring jwt-path)
                             (fixture-object-field summary "jwtSecretPath"))))))
@@ -3643,6 +3722,7 @@
                      AccountQueue = 9~%GlobalQueue = 12~%~
                      Lifetime = \"3h0m0s\"~%~
                      Journal = ~S~%~
+                     Rejournal = \"45m\"~%~
                      Locals = [\"0x0000000000000000000000000000000000000001\", ~
                      \"0x0000000000000000000000000000000000000002\"]~%~
                      NoLocals = true~%~
@@ -3685,6 +3765,8 @@
              (is (string= (namestring journal-path)
                           (fixture-object-field summary
                                                 "txpoolJournalPath")))
+             (is (= 2700
+                    (fixture-object-field summary "txpoolRejournalSeconds")))
              (is (equal '("0x0000000000000000000000000000000000000001"
                           "0x0000000000000000000000000000000000000002")
                         (fixture-object-field summary "txpoolLocals")))
@@ -3736,6 +3818,7 @@
                      AccountSlots = 3~%GlobalSlots = 4~%~
                      AccountQueue = 9~%GlobalQueue = 12~%~
                      Lifetime = \"3h0m0s\"~%~
+                     Rejournal = \"3h0m0s\"~%~
                      Locals = [\"0x0000000000000000000000000000000000000001\"]~%~
                      NoLocals = true~%~
                      [Node]~%HTTPHost = \"192.0.2.50\"~%HTTPPort = 1950~%~
@@ -3759,6 +3842,7 @@
                          "--txpool.accountqueue" "10"
                          "--txpool.globalqueue" "20"
                          "--txpool.lifetime" "1h2m3s"
+                         "--txpool.rejournal" "10m"
                          "--txpool.locals"
                          "0x0000000000000000000000000000000000000002"
                          "--txpool.nolocals" "false"
@@ -3782,6 +3866,8 @@
              (is (= 20 (fixture-object-field summary "txpoolGlobalQueue")))
              (is (= 3723
                     (fixture-object-field summary "txpoolLifetimeSeconds")))
+             (is (= 600
+                    (fixture-object-field summary "txpoolRejournalSeconds")))
              (is (equal '("0x0000000000000000000000000000000000000002")
                         (fixture-object-field summary "txpoolLocals")))
              (is (eq nil (fixture-object-field summary "txpoolNoLocals")))
@@ -4026,6 +4112,8 @@ HTTPPort = 1945
              (is (= 1024 (fixture-object-field summary "txpoolGlobalQueue")))
              (is (= 10800
                     (fixture-object-field summary "txpoolLifetimeSeconds")))
+             (is (= 3600
+                    (fixture-object-field summary "txpoolRejournalSeconds")))
              (is (string= (namestring journal-path)
                           (fixture-object-field summary
                                                 "txpoolJournalPath")))
