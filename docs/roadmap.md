@@ -1332,9 +1332,15 @@ first pass, but interfaces must not block that path.
   canonicalizes it with `engine_forkchoiceUpdatedV2`, verifies public canonical
   transaction/receipt/raw/block visibility for the selected transaction, and
   verifies txpool cleanup while non-selected basefee and nonce-gapped entries
-  remain queued. The next Phase B correctness gap is locking prepared-payload
-  cache refresh when same-sender/same-nonce txpool replacement changes the
-  selected transaction without changing the selected transaction count.
+  remain queued. Focused in-process Engine RPC coverage now locks
+  prepared-payload cache refresh when same-sender/same-nonce txpool replacement
+  changes the selected transaction without changing the selected transaction
+  count: the second same-head/same-attributes preparation gets a distinct
+  payload id, `engine_getPayloadV1` returns only the replacement raw
+  transaction, and `txpool_contentFrom` exposes only the replacement at that
+  sender/nonce. The next Phase B process-runner gap is promoting that
+  replacement-cache boundary to the standalone split Engine/public listener
+  smoke path and reporting its evidence for Hive-style runner checks.
   Startup
   summaries and lifecycle telemetry report
   `headGasLimit` and `coinbase` for process-runner checks. The runner-facing

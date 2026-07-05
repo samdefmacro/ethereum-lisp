@@ -389,7 +389,7 @@ ones.
     with local socket/network escalation; `git diff --check` passed; the full
     suite passed with `890 tests passed, 5 skipped`; independent verifier
     review returned `PASS`.
-- [ ] `ENGINE-PREPARED-PAYLOAD-TXPOOL-REPLACEMENT-CACHE`: Lock the prepared
+- [x] `ENGINE-PREPARED-PAYLOAD-TXPOOL-REPLACEMENT-CACHE`: Lock the prepared
   payload cache boundary when a same-sender/same-nonce public txpool
   replacement changes the selected transaction without changing transaction
   count.
@@ -407,6 +407,34 @@ ones.
   - Validation: focused Engine RPC/txpool test while iterating,
     `git diff --check`, `sbcl --script tests/run-tests.lisp`, and independent
     verifier review before commit.
+  - Result (2026-07-05): added focused in-process Engine RPC coverage for the
+    same-head/same-attributes replacement-cache boundary. The test prepares a
+    payload over an executable public txpool transaction, admits a valid
+    same-sender/same-nonce replacement, proves `txpool_contentFrom` exposes the
+    replacement at that sender/nonce, proves the second prepared payload id is
+    distinct, and proves `engine_getPayloadV1` returns the replacement raw
+    transaction while excluding the original raw transaction.
+- [ ] `DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-REPLACEMENT`: Extend the
+  standalone devnet smoke/process-runner path so the same-sender/same-nonce
+  txpool replacement prepared-payload cache boundary is proven across the real
+  authenticated Engine/public RPC listener split.
+  - Milestone: 7 / Phase B Hive process-runner readiness.
+  - Dependencies:
+    `ENGINE-PREPARED-PAYLOAD-TXPOOL-REPLACEMENT-CACHE`,
+    `DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-IMPORT`.
+  - Acceptance: the smoke gate starts a split Engine/public devnet, admits an
+    executable public transaction, prepares and retrieves a txpool-backed
+    payload through authenticated `engine_forkchoiceUpdatedV2` /
+    `engine_getPayloadV2`, admits a valid same-sender/same-nonce public
+    replacement before import, repeats the same-head/same-attributes Engine
+    preparation, observes a distinct second payload id, verifies the second
+    retrieved payload includes only the replacement raw transaction, verifies
+    public txpool sender/nonce visibility exposes only the replacement before
+    import, and reports the evidence in JSON/text output.
+  - Validation: focused standalone devnet smoke command with local
+    socket/network escalation, `git diff --check`,
+    `sbcl --script tests/run-tests.lisp`, and independent verifier review
+    before commit.
 - [x] `PINNED-V5.4.0-ROOT-SMOKE`: Rehydrate or configure an official
   `ethereum/execution-spec-tests` v5.4.0 `fixtures_stable.tar.gz` extraction,
   run `scripts/phase-a-smoke-gate.lisp -- --pinned-v5.4.0 --root PATH`, and

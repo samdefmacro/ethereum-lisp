@@ -19,8 +19,9 @@ Last updated: 2026-07-05
 
 No intended dirty implementation work should remain after the current validated
 batch is committed and pushed. The latest completed slice is
-`DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-IMPORT`; the next run spec is
-prepared for `ENGINE-PREPARED-PAYLOAD-TXPOOL-REPLACEMENT-CACHE`.
+`ENGINE-PREPARED-PAYLOAD-TXPOOL-REPLACEMENT-CACHE`; the next run spec is
+prepared for
+`DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-REPLACEMENT`.
 
 Closed behavior from the latest slice:
 
@@ -86,6 +87,13 @@ Closed behavior from the latest slice:
   receipt, raw transaction, and block visibility for the selected transaction,
   and verifies txpool cleanup removes the mined transaction while non-selected
   basefee and nonce-gapped entries remain queued.
+- Focused in-process Engine RPC coverage now proves same-head/same-attributes
+  prepared-payload cache refresh when a valid same-sender/same-nonce public
+  txpool replacement changes the selected transaction without changing the
+  selected transaction count. The second payload id is distinct,
+  `engine_getPayloadV1` returns only the replacement raw transaction, and
+  `txpool_contentFrom` exposes only the replacement at that sender/nonce before
+  import.
 
 Closed validation:
 
@@ -198,6 +206,18 @@ Closed validation:
 - Independent verifier review returned `PASS`. Residual risks: coverage is
   still the V2 Shanghai-style prepared-payload path; V3/V4 prepared-payload
   variants and same-sender replacement-cache churn remain follow-up scope.
+- Focused direct Engine RPC coverage for
+  `ENGINE-RPC-FORKCHOICE-UPDATED-V1-REFRESHES-TXPOOL-REPLACEMENT-PAYLOAD-ID`
+  passed during the current run.
+- `git diff --check` passed.
+- The first sandbox `sbcl --script tests/run-tests.lisp` run failed in
+  `PHASE-A-SMOKE-GATE-SCRIPT-CAN-INCLUDE-DEVNET-SUITE`, consistent with the
+  local socket/devnet smoke-gate sandbox restriction.
+- The escalated `sbcl --script tests/run-tests.lisp` run passed with
+  `891 tests passed, 5 skipped`.
+- Independent verifier review returned `PASS`. Residual risk: coverage is
+  intentionally in-process and V1-only; the split public/Engine listener and
+  V2 smoke boundary is documented as the next run.
 
 ## Current Loop Migration
 
@@ -212,8 +232,9 @@ The old fixed heartbeat prompt is being replaced by a loop v2 process:
 ## Next Recommended Orchestrator Decision
 
 The next highest-value Phase B slice is
-`ENGINE-PREPARED-PAYLOAD-TXPOOL-REPLACEMENT-CACHE`: prove that a
-same-sender/same-nonce public txpool replacement changes the prepared payload
-id and `engine_getPayload*` contents for same-head/same-attributes preparation,
-so selected-transaction cache refresh is locked even when the selected
-transaction count does not change.
+`DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-REPLACEMENT`: promote the
+same-sender/same-nonce replacement-cache boundary from in-process Engine RPC
+coverage to the standalone split Engine/public listener smoke path, report the
+two payload ids, replacement raw transaction evidence, and public txpool
+sender/nonce visibility, and keep existing txpool-backed prepared-payload
+selection/import evidence stable.
