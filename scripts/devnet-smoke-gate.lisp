@@ -592,7 +592,8 @@ references/ checkouts.~%")
            (genesis-block-from-state-genesis-json-file
            genesis-path
            :config config))
-         (payload-id #(5 0 0 0 0 0 0 1))
+         (payload-id-v5 #(5 0 0 0 0 0 0 1))
+         (payload-id-v6 #(6 0 0 0 0 0 0 1))
          (blob (make-byte-vector +blob-byte-size+))
          (commitment (make-byte-vector +kzg-commitment-size+))
          (proofs
@@ -607,15 +608,41 @@ references/ checkouts.~%")
             :blobs (list blob)
             :commitments (list commitment)
             :proofs proofs))
+         (execution-request #(#x82 #x06 #xaa))
+         (block-access-account
+           (make-block-access-account
+            :address (address-from-hex
+                      "0x0000000000000000000000000000000000000001")))
          (versioned-hash nil)
-         (block
+         (block-v5
            (make-block
             :header
             (make-block-header
              :number 9
              :timestamp 14
              :withdrawals-root (withdrawal-list-root '()))
-            :withdrawals '())))
+            :withdrawals '()))
+         (block-v6
+           (make-block
+            :header
+            (make-block-header
+             :parent-hash (zero-hash32)
+             :beneficiary (zero-address)
+             :state-root +empty-trie-hash+
+             :mix-hash (zero-hash32)
+             :number 10
+             :gas-limit 50000
+             :gas-used 21000
+             :timestamp 15
+             :base-fee-per-gas 100
+             :withdrawals-root (withdrawal-list-root '())
+             :blob-gas-used 0
+             :excess-blob-gas 0
+             :parent-beacon-root (zero-hash32)
+             :slot-number 42)
+            :withdrawals '()
+            :requests (list execution-request)
+            :block-access-list (list block-access-account))))
     (setf (aref blob 0) #x03
           (aref blob 1) #xdd
           (aref commitment 0) #x04
@@ -627,18 +654,38 @@ references/ checkouts.~%")
     (chain-store-put-prepared-payload
      store
      (make-engine-prepared-payload
-      :payload-id payload-id
+      :payload-id payload-id-v5
       :version 5
-      :block block
+      :block block-v5
+      :blobs-bundle sidecar))
+    (chain-store-put-prepared-payload
+     store
+     (make-engine-prepared-payload
+      :payload-id payload-id-v6
+      :version 6
+      :block block-v6
       :blobs-bundle sidecar))
     (chain-store-export-to-kv store (make-file-key-value-database database-path))
     (let* ((blob-hex (bytes-to-hex blob))
+           (block-access-list-hex
+             (bytes-to-hex (block-encoded-block-access-list block-v6)))
            (first-proof-hex (bytes-to-hex (first proofs)))
            (last-proof-hex (bytes-to-hex (car (last proofs)))))
       (list :database-path database-path
-            :payload-id (bytes-to-hex payload-id)
+            :payload-id (bytes-to-hex payload-id-v5)
+            :payload-id-v5 (bytes-to-hex payload-id-v5)
+            :payload-id-v6 (bytes-to-hex payload-id-v6)
             :versioned-hash-hex (hash32-to-hex versioned-hash)
             :block-number "0x9"
+            :block-number-v5 "0x9"
+            :block-number-v6 "0xa"
+            :slot-number-v6 "0x2a"
+            :execution-request-hex (bytes-to-hex execution-request)
+            :block-access-list-hex block-access-list-hex
+            :block-access-list-prefix
+            (subseq block-access-list-hex
+                    0
+                    (min (length block-access-list-hex) 18))
             :blob-hex blob-hex
             :blob-prefix (subseq blob-hex 0 (min (length blob-hex) 18))
             :blob-hex-length (length blob-hex)
@@ -3211,7 +3258,7 @@ references/ checkouts.~%")
                         "--pid-file"
                         (namestring pid-path)
                         "--max-connections"
-                        "9"
+                        "10"
                         "--json")
                   :directory #P"/private/tmp/"
                   :output :stream
@@ -3353,7 +3400,7 @@ references/ checkouts.~%")
                       (get-payload-request
                        720
                        "engine_getPayloadV5"
-                       (getf blob-database :payload-id)))))
+                       (getf blob-database :payload-id-v5)))))
                   (get-payload-v5-rpc
                     (parse-json
                      (devnet-cli-http-body get-payload-v5-response)))
@@ -3365,12 +3412,34 @@ references/ checkouts.~%")
                   (blobs-bundle-v5
                     (fixture-object-field payload-envelope-v5
                                           "blobsBundle"))
+                  (get-payload-v6-response
+                    (devnet-cli-http-endpoint-request
+                     engine-endpoint
+                     (devnet-cli-json-rpc-http-request
+                      (get-payload-request
+                       721
+                       "engine_getPayloadV6"
+                       (getf blob-database :payload-id-v6)))))
+                  (get-payload-v6-rpc
+                    (parse-json
+                     (devnet-cli-http-body get-payload-v6-response)))
+                  (payload-envelope-v6
+                    (fixture-object-field get-payload-v6-rpc "result"))
+                  (execution-payload-v6
+                    (fixture-object-field payload-envelope-v6
+                                          "executionPayload"))
+                  (execution-requests-v6
+                    (fixture-object-field payload-envelope-v6
+                                          "executionRequests"))
+                  (blobs-bundle-v6
+                    (fixture-object-field payload-envelope-v6
+                                          "blobsBundle"))
                   (get-blobs-v1-response
                     (devnet-cli-http-endpoint-request
                      engine-endpoint
                      (devnet-cli-json-rpc-http-request
                       (get-blobs-request
-                       721
+                       722
                        "engine_getBlobsV1"
                        (list (getf blob-database :versioned-hash-hex)
                              unknown-versioned-hash)))))
@@ -3388,7 +3457,7 @@ references/ checkouts.~%")
                      engine-endpoint
                      (devnet-cli-json-rpc-http-request
                       (get-blobs-request
-                       722
+                       723
                        "engine_getBlobsV2"
                        (list (getf blob-database :versioned-hash-hex))))))
                   (get-blobs-v2-rpc
@@ -3405,7 +3474,7 @@ references/ checkouts.~%")
                      engine-endpoint
                      (devnet-cli-json-rpc-http-request
                       (get-blobs-request
-                       723
+                       724
                        "engine_getBlobsV3"
                        (list (getf blob-database :versioned-hash-hex)
                              unknown-versioned-hash)))))
@@ -3453,6 +3522,7 @@ references/ checkouts.~%")
                                "engine_getPayloadV3"
                                "engine_getPayloadV4"
                                "engine_getPayloadV5"
+                               "engine_getPayloadV6"
                                "engine_newPayloadV3"
                                "engine_getBlobsV1"
                                "engine_getBlobsV2"
@@ -3594,6 +3664,66 @@ references/ checkouts.~%")
               (string= (getf blob-database :proof-hex)
                        (first (fixture-object-field blobs-bundle-v5 "proofs")))
               "KZG opt-in engine_getPayloadV5 proof mismatch")
+             (devnet-smoke-gate-require
+              (= 200 (devnet-cli-http-status get-payload-v6-response))
+              "KZG opt-in engine_getPayloadV6 HTTP status mismatch")
+             (devnet-smoke-gate-require
+              (not (fixture-object-field get-payload-v6-rpc "error"))
+              "KZG opt-in engine_getPayloadV6 returned an error: ~S"
+              (fixture-object-field get-payload-v6-rpc "error"))
+             (devnet-smoke-gate-require
+              (string= (getf blob-database :block-number-v6)
+                       (fixture-object-field execution-payload-v6
+                                             "blockNumber"))
+              "KZG opt-in engine_getPayloadV6 blockNumber mismatch")
+             (devnet-smoke-gate-require
+              (string= (getf blob-database :slot-number-v6)
+                       (fixture-object-field execution-payload-v6
+                                             "slotNumber"))
+              "KZG opt-in engine_getPayloadV6 slotNumber mismatch")
+             (devnet-smoke-gate-require
+              (field-present-p payload-envelope-v6 "executionRequests")
+              "KZG opt-in engine_getPayloadV6 omitted executionRequests")
+             (devnet-smoke-gate-require
+              (and (listp execution-requests-v6)
+                   (= 1 (length execution-requests-v6)))
+              "KZG opt-in engine_getPayloadV6 execution request count mismatch")
+             (devnet-smoke-gate-require
+              (string= (getf blob-database :execution-request-hex)
+                       (first execution-requests-v6))
+              "KZG opt-in engine_getPayloadV6 execution request mismatch")
+             (devnet-smoke-gate-require
+              (field-present-p execution-payload-v6 "blockAccessList")
+              "KZG opt-in engine_getPayloadV6 omitted blockAccessList")
+             (devnet-smoke-gate-require
+              (string= (getf blob-database :block-access-list-hex)
+                       (fixture-object-field execution-payload-v6
+                                             "blockAccessList"))
+              "KZG opt-in engine_getPayloadV6 blockAccessList mismatch")
+             (devnet-smoke-gate-require
+              (field-present-p payload-envelope-v6 "blobsBundle")
+              "KZG opt-in engine_getPayloadV6 omitted blobsBundle")
+             (devnet-smoke-gate-require
+              (= 1 (length (fixture-object-field blobs-bundle-v6 "blobs")))
+              "KZG opt-in engine_getPayloadV6 blob count mismatch")
+             (devnet-smoke-gate-require
+              (string= (getf blob-database :blob-hex)
+                       (first (fixture-object-field blobs-bundle-v6 "blobs")))
+              "KZG opt-in engine_getPayloadV6 blob mismatch")
+             (devnet-smoke-gate-require
+              (string= (getf blob-database :commitment-hex)
+                       (first (fixture-object-field
+                               blobs-bundle-v6
+                               "commitments")))
+              "KZG opt-in engine_getPayloadV6 commitment mismatch")
+             (devnet-smoke-gate-require
+              (= (getf blob-database :cell-proof-count)
+                 (length (fixture-object-field blobs-bundle-v6 "proofs")))
+              "KZG opt-in engine_getPayloadV6 proof count mismatch")
+             (devnet-smoke-gate-require
+              (string= (getf blob-database :proof-hex)
+                       (first (fixture-object-field blobs-bundle-v6 "proofs")))
+              "KZG opt-in engine_getPayloadV6 proof mismatch")
              (devnet-smoke-gate-require
               (= 200 (devnet-cli-http-status get-blobs-v1-response))
               "KZG opt-in engine_getBlobsV1 HTTP status mismatch")
@@ -3771,7 +3901,7 @@ references/ checkouts.~%")
                                              :test #'string=)))
                         "KZG opt-in log proof availability mismatch")))
                    (devnet-smoke-gate-require
-                    (string= "9"
+                    (string= "10"
                              (cdr (assoc "engineConnections"
                                          shutdown-fields
                                          :test #'string=)))
@@ -3783,7 +3913,7 @@ references/ checkouts.~%")
                                          :test #'string=)))
                     "KZG opt-in shutdown public connection count mismatch")
                    (devnet-smoke-gate-require
-                    (string= "9"
+                    (string= "10"
                              (cdr (assoc "totalConnections"
                                          shutdown-fields
                                          :test #'string=)))
@@ -3825,6 +3955,12 @@ references/ checkouts.~%")
                                     :false))
                           (cons "engineCapabilityHasGetPayloadV4"
                                 (if (member "engine_getPayloadV4"
+                                            capabilities-result
+                                            :test #'string=)
+                                    t
+                                    :false))
+                          (cons "engineCapabilityHasGetPayloadV6"
+                                (if (member "engine_getPayloadV6"
                                             capabilities-result
                                             :test #'string=)
                                     t
@@ -3901,6 +4037,43 @@ references/ checkouts.~%")
                                 (length
                                  (fixture-object-field blobs-bundle-v5
                                                        "proofs")))
+                          (cons "preparedPayloadV6Id"
+                                (getf blob-database :payload-id-v6))
+                          (cons "preparedPayloadV6BlockNumber"
+                                (fixture-object-field execution-payload-v6
+                                                      "blockNumber"))
+                          (cons "preparedPayloadV6SlotNumber"
+                                (fixture-object-field execution-payload-v6
+                                                      "slotNumber"))
+                          (cons "preparedPayloadV6ExecutionRequestCount"
+                                (length execution-requests-v6))
+                          (cons "preparedPayloadV6FirstExecutionRequest"
+                                (first execution-requests-v6))
+                          (cons "preparedPayloadV6BlockAccessList"
+                                (fixture-object-field execution-payload-v6
+                                                      "blockAccessList"))
+                          (cons "preparedPayloadV6BlockAccessListPrefix"
+                                (hex-prefix
+                                 (fixture-object-field execution-payload-v6
+                                                       "blockAccessList")
+                                 8))
+                          (cons "preparedPayloadV6BlobPrefix"
+                                (hex-prefix
+                                 (first (fixture-object-field blobs-bundle-v6
+                                                              "blobs"))
+                                 8))
+                          (cons "preparedPayloadV6BlobCount"
+                                (length
+                                 (fixture-object-field blobs-bundle-v6
+                                                       "blobs")))
+                          (cons "preparedPayloadV6Commitment"
+                                (first (fixture-object-field
+                                        blobs-bundle-v6
+                                        "commitments")))
+                          (cons "preparedPayloadV6ProofCount"
+                                (length
+                                 (fixture-object-field blobs-bundle-v6
+                                                       "proofs")))
                           (cons "directBlobLookupVersionedHash"
                                 (getf blob-database :versioned-hash-hex))
                           (cons "directBlobLookupCount"
@@ -3939,9 +4112,9 @@ references/ checkouts.~%")
                                 (hex-prefix
                                  (car (last direct-blob-v2-proofs))
                                  8))
-                          (cons "engineConnections" 9)
+                          (cons "engineConnections" 10)
                           (cons "publicConnections" 0)
-                          (cons "totalConnections" 9))))))))
+                          (cons "totalConnections" 10))))))))
       (when (and process (uiop:process-alive-p process))
         (uiop:terminate-process process))
       (when (and database-path (probe-file database-path))

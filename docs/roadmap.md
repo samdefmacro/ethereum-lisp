@@ -731,14 +731,17 @@ Validation targets: geth `crypto`, Nethermind `Nethermind.Crypto` and
   a non-empty V5 prepared payload to prove blob-carrying `blobsBundle`
   retrieval through live `engine_getPayloadV5`, direct versioned-hash blob
   retrieval through live `engine_getBlobsV1`, and full cell-proof retrieval
-  through live `engine_getBlobsV2` / `engine_getBlobsV3`.
+  through live `engine_getBlobsV2` / `engine_getBlobsV3`. The same runner path
+  now also imports a non-empty Amsterdam-era V6 prepared payload and proves
+  live `engine_getPayloadV6` retrieval with execution-request,
+  block-access-list, and blob-bundle evidence at the process boundary.
 - *Missing for Phase A:* none for Shanghai. Real KZG verification only blocks
   Phase A if Cancun blob execution is admitted into the gate.
 - *Next:* widen the same process-boundary proof from imported non-empty
-  `engine_getPayloadV5` retrieval into imported non-empty
-  `engine_getPayloadV6` retrieval so the runner boundary proves Amsterdam-era
-  execution-request plus blob-bundle payload envelopes under the same verifier
-  opt-in.
+  `engine_getPayloadV6` retrieval into live
+  `engine_getPayloadBodiesByHashV2` retrieval so the runner boundary proves
+  Amsterdam-era payload-body responses, including block-access-list evidence,
+  under the same verifier opt-in.
 
 Detailed historical implementation notes for this section now live in
 `docs/status.md` under "Section 1: Cryptographic Primitives".

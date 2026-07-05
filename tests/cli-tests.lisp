@@ -306,6 +306,8 @@
   (is (eq t
           (fixture-object-field report "engineCapabilityHasGetPayloadV4")))
   (is (eq t
+          (fixture-object-field report "engineCapabilityHasGetPayloadV6")))
+  (is (eq t
           (fixture-object-field report "engineCapabilityHasNewPayloadV3")))
   (is (eq t
           (fixture-object-field report "engineCapabilityHasGetBlobsV1")))
@@ -364,6 +366,45 @@
          commitment)))
   (is (= +cell-proofs-per-blob+
          (fixture-object-field report "preparedPayloadV5ProofCount")))
+  (is (stringp (fixture-object-field report "preparedPayloadV6Id")))
+  (is (string= "06"
+               (subseq (fixture-object-field report "preparedPayloadV6Id")
+                       2
+                       4)))
+  (is (string= "0xa"
+               (fixture-object-field report "preparedPayloadV6BlockNumber")))
+  (is (string= "0x2a"
+               (fixture-object-field report "preparedPayloadV6SlotNumber")))
+  (is (= 1
+         (fixture-object-field report
+                               "preparedPayloadV6ExecutionRequestCount")))
+  (is (string= "0x8206aa"
+               (fixture-object-field report
+                                     "preparedPayloadV6FirstExecutionRequest")))
+  (let* ((account (make-block-access-account
+                   :address (address-from-hex
+                             "0x0000000000000000000000000000000000000001")))
+         (expected-block-access-list
+           (bytes-to-hex (block-access-list-rlp (list account)))))
+    (is (string= expected-block-access-list
+                 (fixture-object-field report
+                                       "preparedPayloadV6BlockAccessList")))
+    (is (string= (subseq expected-block-access-list
+                         0
+                         (min (length expected-block-access-list) 18))
+                 (fixture-object-field report
+                                       "preparedPayloadV6BlockAccessListPrefix"))))
+  (is (string= "0x03dd000000000000"
+               (fixture-object-field report "preparedPayloadV6BlobPrefix")))
+  (is (= 1 (fixture-object-field report "preparedPayloadV6BlobCount")))
+  (let ((commitment
+          (fixture-object-field report "preparedPayloadV6Commitment")))
+    (is (= (+ 2 (* 2 +kzg-commitment-size+))
+           (length commitment)))
+    (is (string= "0x04ee"
+                 (subseq commitment 0 6))))
+  (is (= +cell-proofs-per-blob+
+         (fixture-object-field report "preparedPayloadV6ProofCount")))
   (let* ((commitment
            (fixture-object-field report "preparedPayloadV5Commitment"))
          (versioned-hash
@@ -426,9 +467,9 @@
                (fixture-object-field
                 report
                 "directCellProofLookupLastProofPrefix")))
-  (is (= 9 (fixture-object-field report "engineConnections")))
+  (is (= 10 (fixture-object-field report "engineConnections")))
   (is (= 0 (fixture-object-field report "publicConnections")))
-  (is (= 9 (fixture-object-field report "totalConnections"))))
+  (is (= 10 (fixture-object-field report "totalConnections"))))
 
 (defun devnet-cli-assert-public-readiness (report)
   (is (search "ethereum-lisp"

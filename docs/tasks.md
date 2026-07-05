@@ -1697,6 +1697,16 @@ ones.
     `engine_getBlobsV2` / `engine_getBlobsV3` hidden, and the nested report
     records the expanded nine-request Engine connection contract together with
     direct cell-proof lookup counts and proof evidence.
+  - Result (2026-07-06): the same engine-only `kzgOptIn` child now seeds an
+    Amsterdam-era version-6 prepared payload alongside the existing imported
+    V5 payload and proves live `engine_getPayloadV6` retrieval under verifier
+    opt-in. The seeded V6 envelope carries a non-empty execution request list,
+    a non-empty block-access-list encoding, and the existing blob bundle; the
+    focused smoke now requires those Amsterdam-era fields plus the updated
+    ten-request Engine connection/shutdown contract, and the direct CLI report
+    assertions lock the V6 payload id, block number, slot number, execution
+    request bytes, block-access-list bytes, blob prefix/count, commitment, and
+    proof count.
 - [x] `DEVNET-RUNNER-KZG-ERROR-TELEMETRY`: Lock invalid KZG verifier
   configuration as a runner-facing startup failure.
   - Result (2026-07-03): `scripts/ethereum-lisp.lisp -- devnet` subprocess

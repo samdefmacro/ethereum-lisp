@@ -18,14 +18,30 @@ Last updated: 2026-07-06
 ## Current Dirty Work
 
 No intended dirty implementation work should remain after the current validated
-batch is committed and pushed. The latest completed slice is the direct
-`engine_getBlobsV2` / `engine_getBlobsV3` KZG opt-in cell-proof runner proof;
-the next run spec should move forward from direct blob and cell-proof lookup
-into imported non-empty `engine_getPayloadV6` process-boundary coverage
-instead of revisiting V1/V2/V3 lookup or payload-envelope-only proof.
+batch is committed and pushed. The latest completed slice is the imported
+non-empty `engine_getPayloadV6` KZG opt-in runner proof; the next run spec
+should move forward from payload-envelope retrieval into
+`engine_getPayloadBodiesByHashV2` process-boundary coverage instead of
+revisiting direct blob/cell-proof lookup or already-proven V3/V4/V5/V6
+payload envelopes.
 
 Closed behavior from the latest slice:
 
+- The engine-only `kzgOptIn` smoke child now seeds an Amsterdam-era version-6
+  prepared payload alongside the existing imported V5 payload in its temporary
+  database instead of stopping at blob bundle proof.
+- That seeded V6 payload carries a non-empty execution request list, a
+  non-empty block-access-list encoding, and the existing full-size blob bundle
+  through the same verifier opt-in runner path.
+- The focused engine-only smoke now performs a live `engine_getPayloadV6`
+  request, requires the returned block number, slot number, execution request
+  bytes, block-access-list bytes, and blob-bundle evidence to match the seeded
+  V6 payload, and fails clearly when those Amsterdam-era fields are missing or
+  malformed.
+- The nested `kzgOptIn` report now records `engine_getPayloadV6` capability
+  advertisement plus the V6 payload id, block number, slot number, execution
+  request count/bytes, block-access-list bytes, blob prefix/count, commitment,
+  proof count, and the expanded ten-request Engine connection contract.
 - Positive `--dev.period DURATION` parses through the shared geth-style
   duration path and rejects malformed or negative values.
 - Devnet summaries, readiness data, and lifecycle telemetry report
@@ -211,6 +227,18 @@ Closed validation:
 - Independent verifier review returned `PASS`; residual risk is now limited to
   imported non-empty `engine_getPayloadV6` runner proof and other still-missing
   blob-era envelope variants beyond direct lookup.
+- Focused escalated standalone smoke for the imported non-empty V6 runner path
+  passed: `sbcl --script scripts/devnet-smoke-gate.lisp -- --engine-only-serve --json`.
+  The nested `kzgOptIn` report now includes live `engine_getPayloadV6`
+  evidence with the imported payload id, block number, slot number, execution
+  request count/bytes, block-access-list bytes, blob prefix/count,
+  commitment, proof count, and the expanded ten-request Engine connection
+  contract.
+- `git diff --check` passed.
+- Independent verifier review returned `PASS`; residual risk is now limited to
+  blob-era payload-body retrieval at the process boundary, especially live
+  `engine_getPayloadBodiesByHashV2` and `engine_getPayloadBodiesByRangeV2`
+  proof for Amsterdam block-access-list responses.
 
 - Focused dev-period coverage passed inside the full suite:
   `DEVNET-CLI-DEV-PERIOD-PARSES-AND-REPORTS-DURATION` and
@@ -382,10 +410,10 @@ The old fixed heartbeat prompt is being replaced by a loop v2 process:
 ## Next Recommended Orchestrator Decision
 
 The next highest-value repository slice is to widen blob-era
-process-boundary smoke from imported non-empty `engine_getPayloadV5`
-retrieval into imported non-empty `engine_getPayloadV6` runner proof under
-the repo-local verifier opt-in. The best bounded follow-up is to reuse the
-existing engine-only `kzgOptIn` seed path, add one Amsterdam-era prepared
-payload carrying execution requests plus a blob bundle, and prove the live
-runner returns the expected V6 envelope fields before broadening back into
-unrelated txpool or docs work.
+process-boundary smoke from imported non-empty `engine_getPayloadV6`
+retrieval into live `engine_getPayloadBodiesByHashV2` runner proof under the
+repo-local verifier opt-in. The best bounded follow-up is to reuse the
+existing engine-only `kzgOptIn` seed path, request the imported Amsterdam-era
+block body by hash through the live listener, and prove the response carries
+the expected transaction list and block-access-list bytes before broadening
+into range-based payload-body variants or unrelated txpool/docs work.
