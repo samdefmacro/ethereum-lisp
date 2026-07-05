@@ -1672,6 +1672,13 @@ ones.
     advertisement. The smoke report now captures V3/V4 payload ids, parent
     hashes, block numbers, V4 slot-number evidence, zero-blob bundle counts,
     and the expanded five-request Engine connection contract.
+  - Result (2026-07-05): the same runner-facing `kzgOptIn` child now seeds a
+    temporary database with a non-empty version-5 prepared payload and proves
+    live `engine_getPayloadV5` blob-bundle retrieval under verifier opt-in.
+    The process-boundary report now records the imported payload id, block
+    number, blob prefix/count, commitment, proof count, and the expanded
+    six-request Engine connection contract, so blob-carrying payload-envelope
+    regressions no longer hide behind empty V3/V4 bundle coverage.
 - [x] `DEVNET-RUNNER-KZG-ERROR-TELEMETRY`: Lock invalid KZG verifier
   configuration as a runner-facing startup failure.
   - Result (2026-07-03): `scripts/ethereum-lisp.lisp -- devnet` subprocess

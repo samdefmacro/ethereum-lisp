@@ -582,6 +582,50 @@ references/ checkouts.~%")
     (setf (ethereum-lisp.cli::devnet-node-database-path node) path)
     node))
 
+(defun devnet-smoke-gate-write-kzg-prepared-payload-database (genesis-path)
+  (let* ((database-path
+           (devnet-cli-temp-path "ethereum-lisp-smoke-kzg-blob" "db"))
+         (store (make-engine-payload-memory-store))
+         (config (chain-config-from-genesis-json-file genesis-path))
+         (state (state-db-from-genesis-json-file genesis-path))
+         (genesis-block
+           (genesis-block-from-state-genesis-json-file
+            genesis-path
+            :config config))
+         (payload-id #(5 0 0 0 0 0 0 1))
+         (blob #(#x03 #xdd))
+         (commitment #(#x04 #xee))
+         (proof #(#x05 #xff))
+         (sidecar
+           (make-blob-sidecar
+            :blobs (list blob)
+            :commitments (list commitment)
+            :proofs (list proof)))
+         (block
+           (make-block
+            :header
+            (make-block-header
+             :number 9
+             :timestamp 14
+             :withdrawals-root (withdrawal-list-root '()))
+            :withdrawals '())))
+    (chain-store-put-block store genesis-block :state-available-p t)
+    (commit-state-db-to-chain-store store (block-hash genesis-block) state)
+    (chain-store-put-prepared-payload
+     store
+     (make-engine-prepared-payload
+      :payload-id payload-id
+      :version 5
+      :block block
+      :blobs-bundle sidecar))
+    (chain-store-export-to-kv store (make-file-key-value-database database-path))
+    (list :database-path database-path
+          :payload-id (bytes-to-hex payload-id)
+          :block-number "0x9"
+          :blob-hex (bytes-to-hex blob)
+          :commitment-hex (bytes-to-hex commitment)
+          :proof-hex (bytes-to-hex proof))))
+
 (defun devnet-smoke-gate-txpool-transactions
     (state config sender-address)
   (let* ((account (state-db-get-account state sender-address))
@@ -3072,7 +3116,9 @@ references/ checkouts.~%")
               (list (cons "jsonrpc" "2.0")
                     (cons "id" id)
                     (cons "method" method)
-                    (cons "params" (list payload-id))))))
+                    (cons "params" (list payload-id)))))
+           (hex-prefix (hex bytes)
+             (subseq hex 0 (min (length hex) (+ 2 (* bytes 2))))))
     (let* ((script
            (namestring
             (truename
@@ -3085,6 +3131,10 @@ references/ checkouts.~%")
                               *ethereum-lisp-devnet-smoke-gate-root*))))
          (genesis-json
            (parse-json (devnet-smoke-gate-file-string genesis)))
+         (blob-database
+           (devnet-smoke-gate-write-kzg-prepared-payload-database genesis))
+         (database-path
+           (getf blob-database :database-path))
          (kzg-command
            (devnet-cli-temp-path "ethereum-lisp-smoke-kzg-command" "sh"))
          (ready-path
@@ -3113,6 +3163,8 @@ references/ checkouts.~%")
                         "--authrpc.port"
                         "0"
                         "--http=false"
+                        "--database"
+                        (namestring database-path)
                         "--kzg.verifier-command"
                         (namestring kzg-command)
                         "--kzg.verifier-timeout"
@@ -3124,7 +3176,7 @@ references/ checkouts.~%")
                         "--pid-file"
                         (namestring pid-path)
                         "--max-connections"
-                        "5"
+                        "6"
                         "--json")
                   :directory #P"/private/tmp/"
                   :output :stream
@@ -3254,6 +3306,25 @@ references/ checkouts.~%")
                                           "executionPayload"))
                   (blobs-bundle-v4
                     (fixture-object-field payload-envelope-v4
+                                          "blobsBundle"))
+                  (get-payload-v5-response
+                    (devnet-cli-http-endpoint-request
+                     engine-endpoint
+                     (devnet-cli-json-rpc-http-request
+                      (get-payload-request
+                       720
+                       "engine_getPayloadV5"
+                       (getf blob-database :payload-id)))))
+                  (get-payload-v5-rpc
+                    (parse-json
+                     (devnet-cli-http-body get-payload-v5-response)))
+                  (payload-envelope-v5
+                    (fixture-object-field get-payload-v5-rpc "result"))
+                  (execution-payload-v5
+                    (fixture-object-field payload-envelope-v5
+                                          "executionPayload"))
+                  (blobs-bundle-v5
+                    (fixture-object-field payload-envelope-v5
                                           "blobsBundle")))
              (devnet-smoke-gate-require
               (stringp engine-endpoint)
@@ -3287,6 +3358,7 @@ references/ checkouts.~%")
                                "engine_forkchoiceUpdatedV4"
                                "engine_getPayloadV3"
                                "engine_getPayloadV4"
+                               "engine_getPayloadV5"
                                "engine_newPayloadV3"
                                 "engine_getBlobsV1"
                                 "engine_getPayloadBodiesByHashV2"))
@@ -3390,6 +3462,41 @@ references/ checkouts.~%")
                 (listp (fixture-object-field blobs-bundle-v4 field))
                 "KZG opt-in engine_getPayloadV4 blobsBundle ~A must be a JSON array"
                 field))
+             (devnet-smoke-gate-require
+              (= 200 (devnet-cli-http-status get-payload-v5-response))
+              "KZG opt-in engine_getPayloadV5 HTTP status mismatch")
+             (devnet-smoke-gate-require
+              (not (fixture-object-field get-payload-v5-rpc "error"))
+              "KZG opt-in engine_getPayloadV5 returned an error: ~S"
+              (fixture-object-field get-payload-v5-rpc "error"))
+             (devnet-smoke-gate-require
+              (string= (getf blob-database :block-number)
+                       (fixture-object-field execution-payload-v5
+                                             "blockNumber"))
+              "KZG opt-in engine_getPayloadV5 blockNumber mismatch")
+             (devnet-smoke-gate-require
+              (field-present-p payload-envelope-v5 "blobsBundle")
+              "KZG opt-in engine_getPayloadV5 omitted blobsBundle")
+             (devnet-smoke-gate-require
+              (= 1 (length (fixture-object-field blobs-bundle-v5 "blobs")))
+              "KZG opt-in engine_getPayloadV5 blob count mismatch")
+             (devnet-smoke-gate-require
+              (string= (getf blob-database :blob-hex)
+                       (first (fixture-object-field blobs-bundle-v5 "blobs")))
+              "KZG opt-in engine_getPayloadV5 blob mismatch")
+             (devnet-smoke-gate-require
+              (string= (getf blob-database :commitment-hex)
+                       (first (fixture-object-field
+                               blobs-bundle-v5
+                               "commitments")))
+              "KZG opt-in engine_getPayloadV5 commitment mismatch")
+             (devnet-smoke-gate-require
+              (= 1 (length (fixture-object-field blobs-bundle-v5 "proofs")))
+              "KZG opt-in engine_getPayloadV5 proof count mismatch")
+             (devnet-smoke-gate-require
+              (string= (getf blob-database :proof-hex)
+                       (first (fixture-object-field blobs-bundle-v5 "proofs")))
+              "KZG opt-in engine_getPayloadV5 proof mismatch")
              (let ((status (devnet-cli-wait-process-exit process 10)))
                (when (eq status :timeout)
                  (uiop:terminate-process process))
@@ -3461,7 +3568,7 @@ references/ checkouts.~%")
                                              :test #'string=)))
                         "KZG opt-in log proof availability mismatch")))
                    (devnet-smoke-gate-require
-                    (string= "5"
+                    (string= "6"
                              (cdr (assoc "engineConnections"
                                          shutdown-fields
                                          :test #'string=)))
@@ -3473,7 +3580,7 @@ references/ checkouts.~%")
                                          :test #'string=)))
                     "KZG opt-in shutdown public connection count mismatch")
                    (devnet-smoke-gate-require
-                    (string= "5"
+                    (string= "6"
                              (cdr (assoc "totalConnections"
                                          shutdown-fields
                                          :test #'string=)))
@@ -3569,11 +3676,35 @@ references/ checkouts.~%")
                                 (length
                                  (fixture-object-field blobs-bundle-v4
                                                        "blobs")))
-                          (cons "engineConnections" 5)
+                          (cons "preparedPayloadV5Id"
+                                (getf blob-database :payload-id))
+                          (cons "preparedPayloadV5BlockNumber"
+                                (fixture-object-field execution-payload-v5
+                                                      "blockNumber"))
+                          (cons "preparedPayloadV5BlobPrefix"
+                                (hex-prefix
+                                 (first (fixture-object-field blobs-bundle-v5
+                                                              "blobs"))
+                                 8))
+                          (cons "preparedPayloadV5BlobCount"
+                                (length
+                                 (fixture-object-field blobs-bundle-v5
+                                                       "blobs")))
+                          (cons "preparedPayloadV5Commitment"
+                                (first (fixture-object-field
+                                        blobs-bundle-v5
+                                        "commitments")))
+                          (cons "preparedPayloadV5ProofCount"
+                                (length
+                                 (fixture-object-field blobs-bundle-v5
+                                                       "proofs")))
+                          (cons "engineConnections" 6)
                           (cons "publicConnections" 0)
-                          (cons "totalConnections" 5))))))))
+                          (cons "totalConnections" 6))))))))
       (when (and process (uiop:process-alive-p process))
         (uiop:terminate-process process))
+      (when (and database-path (probe-file database-path))
+        (delete-file database-path))
       (when (probe-file kzg-command)
         (delete-file kzg-command))
       (when (probe-file ready-path)

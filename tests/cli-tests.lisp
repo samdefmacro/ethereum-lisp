@@ -337,9 +337,22 @@
            report
            "preparedPayloadV4ShouldOverrideBuilder")))
   (is (= 0 (fixture-object-field report "preparedPayloadV4BlobCount")))
-  (is (= 5 (fixture-object-field report "engineConnections")))
+  (is (stringp (fixture-object-field report "preparedPayloadV5Id")))
+  (is (string= "05"
+               (subseq (fixture-object-field report "preparedPayloadV5Id")
+                       2
+                       4)))
+  (is (string= "0x9"
+               (fixture-object-field report "preparedPayloadV5BlockNumber")))
+  (is (string= "0x03dd"
+               (fixture-object-field report "preparedPayloadV5BlobPrefix")))
+  (is (= 1 (fixture-object-field report "preparedPayloadV5BlobCount")))
+  (is (string= "0x04ee"
+               (fixture-object-field report "preparedPayloadV5Commitment")))
+  (is (= 1 (fixture-object-field report "preparedPayloadV5ProofCount")))
+  (is (= 6 (fixture-object-field report "engineConnections")))
   (is (= 0 (fixture-object-field report "publicConnections")))
-  (is (= 5 (fixture-object-field report "totalConnections"))))
+  (is (= 6 (fixture-object-field report "totalConnections"))))
 
 (defun devnet-cli-assert-public-readiness (report)
   (is (search "ethereum-lisp"

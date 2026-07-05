@@ -18,10 +18,11 @@ Last updated: 2026-07-05
 ## Current Dirty Work
 
 No intended dirty implementation work should remain after the current validated
-batch is committed and pushed. The latest completed slice is the blob-era
+batch is committed and pushed. The latest completed slice is the blob-carrying
 KZG opt-in prepared-payload runner smoke expansion; the next run spec should
-move forward from empty V3/V4 envelope proof into blob-carrying process
-boundary coverage instead of revisiting capability advertisement alone.
+move forward from imported non-empty `engine_getPayloadV5` bundle retrieval
+into direct blob lookup process-boundary coverage instead of revisiting empty
+bundle capability proof.
 
 Closed behavior from the latest slice:
 
@@ -123,6 +124,14 @@ Closed behavior from the latest slice:
   block number, V4 slot number, zero-blob bundle counts, and the expanded
   five-request Engine connection contract, making blob-era prepared-payload
   envelope regressions visible at the process boundary.
+- The same engine-only `kzgOptIn` child now seeds a temporary database with a
+  non-empty version-5 prepared payload and retrieves it through live
+  `engine_getPayloadV5`, proving blob-carrying `blobsBundle` process-boundary
+  retrieval under verifier opt-in without adding a production-only hook.
+- The KZG opt-in smoke report now also records the imported V5 payload id,
+  block number, blob prefix/count, commitment, proof count, and the expanded
+  six-request Engine connection contract, so blob-carrying runner regressions
+  are visible even when V3/V4 prepared payloads remain empty.
 
 Closed validation:
 
@@ -145,6 +154,24 @@ Closed validation:
   missing `blobsBundle` child fields cannot silently pass through `nil`/empty
   counts. Residual risk: the live runner boundary now proves empty V3/V4
   blob-era envelopes, but not yet blob-carrying bundle retrieval.
+- Focused escalated standalone smoke for the blob-carrying runner path passed:
+  `sbcl --script scripts/devnet-smoke-gate.lisp -- --engine-only-serve --json`.
+  The nested `kzgOptIn` report now includes imported non-empty
+  `engine_getPayloadV5` evidence with payload id, block number, blob prefix,
+  blob count, commitment, proof count, and six Engine connections.
+- `git diff --check` passed.
+- The escalated `sbcl --script tests/run-tests.lisp` rerun passed with
+  `894 tests passed, 5 skipped` after fixing the new smoke assertion to match
+  the seeded V5 payload block number.
+- After verifier review flagged the synthetic V5 bundle proof cardinality, the
+  seeded payload was tightened to a one-blob, one-commitment, one-proof shape
+  and the focused escalated
+  `sbcl --script scripts/devnet-smoke-gate.lisp -- --engine-only-serve --json`
+  rerun still passed on the final tree.
+- Independent verifier review returned `PASS` on the final one-proof V5 smoke
+  shape. Residual risk is now narrowed to direct
+  `engine_getBlobsV1`/`V2`/`V3` runner proof and the shared HTTP reader's
+  ability to handle full blob-response bodies.
 
 - Focused dev-period coverage passed inside the full suite:
   `DEVNET-CLI-DEV-PERIOD-PARSES-AND-REPORTS-DURATION` and
@@ -316,8 +343,9 @@ The old fixed heartbeat prompt is being replaced by a loop v2 process:
 ## Next Recommended Orchestrator Decision
 
 The next highest-value repository slice is to widen blob-carrying blob-era
-process-boundary smoke now that V3/V4 prepared-payload envelopes are proven
-under the repo-local verifier opt-in. The best bounded follow-up is runner
-coverage for blob bundle retrieval, such as `engine_getBlobsV1` and/or higher
-blob-carrying payload envelopes, before broadening back into unrelated txpool
-or docs work.
+process-boundary smoke from imported non-empty `engine_getPayloadV5`
+`blobsBundle` retrieval into direct `engine_getBlobsV1` runner proof under the
+repo-local verifier opt-in. The best bounded follow-up is to harden the shared
+test HTTP response reader for large blob JSON bodies and then add focused
+runner assertions for versioned-hash blob retrieval before broadening back
+into unrelated txpool or docs work.
