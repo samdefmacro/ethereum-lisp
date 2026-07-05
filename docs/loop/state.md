@@ -19,9 +19,10 @@ Last updated: 2026-07-05
 
 No intended dirty implementation work should remain after the current validated
 batch is committed and pushed. The latest completed slice is
-`DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-REPLACEMENT`; the next run spec is
-prepared for
-`DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-REPLACEMENT-FIXTURE-BREADTH`.
+`DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-REPLACEMENT-FIXTURE-BREADTH`; the
+next run spec is prepared as a `BLOCKED_EXTERNAL` KZG-backend contract because
+the repository still lacks a pinned trusted-setup-backed verifier, trusted
+setup artifact path/checksum, and canonical vector source.
 
 Closed behavior from the latest slice:
 
@@ -107,6 +108,12 @@ Closed behavior from the latest slice:
   prepared payload and proves the restored canonical transaction/receipt/raw
   transaction evidence follows the replacement transaction while non-selected
   basefee and queued entries remain queued.
+- The standalone all-fixtures devnet smoke suite now reuses that replacement
+  workflow for every current pinned Shanghai runner case, preserving the
+  original and replacement payload-id evidence plus replacement-only
+  public/canonical transaction evidence per case while keeping the aggregate
+  suite connection contract coherent at `engineConnections=161`,
+  `publicConnections=378`, and `totalConnections=539`.
 
 Closed validation:
 
@@ -254,6 +261,19 @@ Closed validation:
   restored selected transaction is now the imported replacement, and the
   replacement path does not yet assert pending-filter or txpool-journal event
   propagation.
+- Focused escalated standalone smoke for
+  `DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-REPLACEMENT-FIXTURE-BREADTH`
+  passed on current `main`:
+  `sbcl --script scripts/devnet-smoke-gate.lisp -- --json --all-fixtures`.
+  The suite reported `status: ok` across all seven pinned Shanghai runner
+  cases with aggregate `engineConnections=161`, `publicConnections=378`, and
+  `totalConnections=539`.
+- Existing CLI regression coverage in
+  `DEVNET-SMOKE-GATE-SCRIPT-RUNS-ALL-PINNED-FIXTURES` already asserts the
+  per-case replacement payload ids, replacement-only
+  `engine_getPayloadV2` transaction evidence, replacement-only
+  `txpool_contentFrom` visibility, and the suite connection contract, so this
+  run only synchronized stale loop docs.
 
 ## Current Loop Migration
 
@@ -271,8 +291,9 @@ The old fixed heartbeat prompt is being replaced by a loop v2 process:
 
 ## Next Recommended Orchestrator Decision
 
-The next highest-value Phase B slice is
-`DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-REPLACEMENT-FIXTURE-BREADTH`:
-widen the now-green standalone replacement-cache smoke path across the current
-all-fixtures Shanghai runner table, keeping the bounded single-fixture runner
-contract stable while proving aggregate replacement evidence case-by-case.
+The next highest-value repository slice is `Integrate real KZG proof
+verification`, but it remains `BLOCKED_EXTERNAL` until the repository gains a
+pinned trusted-setup-backed verifier backend, a pinned trusted setup artifact
+path plus checksum, and a canonical KZG vector source. Until those inputs are
+available together, keep the next-run contract blocked instead of inventing
+lower-value unrelated work.

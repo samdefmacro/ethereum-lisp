@@ -452,7 +452,7 @@ ones.
     `git diff --check`, final escalated
     `sbcl --script tests/run-tests.lisp` (`891 tests passed, 5 skipped`), and
     independent verifier `PASS`.
-- [ ] `DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-REPLACEMENT-FIXTURE-BREADTH`:
+- [x] `DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-REPLACEMENT-FIXTURE-BREADTH`:
   Widen the standalone replacement-cache smoke path across the current pinned
   Shanghai all-fixtures runner table.
   - Milestone: 7 / Phase B Hive process-runner readiness.
@@ -470,6 +470,19 @@ ones.
     `git diff --check`, and independent verifier review; run
     `sbcl --script tests/run-tests.lisp` once only if production code changes
     or verifier review identifies broader risk beyond the smoke/test harness.
+  - Result (2026-07-05): the standalone replacement-cache workflow already
+    reused correctly across the full pinned Shanghai all-fixtures runner table
+    on current `main`, so this slice closed by synchronizing the loop docs to
+    the verified runtime state instead of changing production code. Focused
+    escalated
+    `sbcl --script scripts/devnet-smoke-gate.lisp -- --json --all-fixtures`
+    passed with top-level `status: ok`, seven pinned Shanghai fixture cases,
+    and coherent aggregate `engineConnections=161`, `publicConnections=378`,
+    and `totalConnections=539`. Existing CLI regression coverage in
+    `DEVNET-SMOKE-GATE-SCRIPT-RUNS-ALL-PINNED-FIXTURES` already asserts the
+    per-case original/replacement payload ids, replacement-only
+    `engine_getPayloadV2` transaction evidence, replacement-only
+    `txpool_contentFrom` visibility, and stable suite connection contract.
 - [x] `PINNED-V5.4.0-ROOT-SMOKE`: Rehydrate or configure an official
   `ethereum/execution-spec-tests` v5.4.0 `fixtures_stable.tar.gz` extraction,
   run `scripts/phase-a-smoke-gate.lisp -- --pinned-v5.4.0 --root PATH`, and

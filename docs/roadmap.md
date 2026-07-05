@@ -1343,9 +1343,11 @@ first pass, but interfaces must not block that path.
   surface: it reports the original and replacement payload ids, replacement
   raw transaction/hash evidence, replacement-only `txpool_contentFrom`
   visibility before import, and stable post-import canonical/txpool cleanup
-  evidence. The next Phase B process-runner gap is widening that replacement
-  path across the current all-fixtures Shanghai smoke table without regressing
-  the bounded runner contract.
+  evidence. That replacement path is now widened across the current
+  all-fixtures Shanghai smoke table without regressing the bounded runner
+  contract, so the next higher-value frontier returns to wiring a trusted KZG
+  backend before blob-era Engine payloads can move beyond opt-in capability
+  checks.
   Startup
   summaries and lifecycle telemetry report
   `headGasLimit` and `coinbase` for process-runner checks. The runner-facing
