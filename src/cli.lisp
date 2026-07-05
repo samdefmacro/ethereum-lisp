@@ -18,6 +18,7 @@
                       txpool-lifetime-seconds
                       txpool-journal-path
                       txpool-rejournal-seconds
+                      dev-period-seconds
                       kzg-verifier-command
                       kzg-verifier-timeout-seconds)))
   genesis-path
@@ -51,6 +52,7 @@
   txpool-lifetime-seconds
   txpool-journal-path
   txpool-rejournal-seconds
+  dev-period-seconds
   kzg-verifier-command
   kzg-verifier-timeout-seconds)
 
@@ -61,6 +63,14 @@
 
 (defstruct (devnet-rejournal-state
             (:constructor %make-devnet-rejournal-state
+                (&key node interval-seconds now-function last-run-time)))
+  node
+  interval-seconds
+  now-function
+  last-run-time)
+
+(defstruct (devnet-dev-period-state
+            (:constructor %make-devnet-dev-period-state
                 (&key node interval-seconds now-function last-run-time)))
   node
   interval-seconds
@@ -357,6 +367,7 @@
        txpool-lifetime-seconds
        txpool-journal-path
        txpool-rejournal-seconds
+       dev-period-seconds
        kzg-verifier-command
        kzg-verifier-timeout-seconds
        (public-allowed-method-p #'engine-rpc-public-method-p)
@@ -506,6 +517,7 @@
      :txpool-lifetime-seconds txpool-lifetime-seconds
      :txpool-journal-path txpool-journal-path
      :txpool-rejournal-seconds txpool-rejournal-seconds
+     :dev-period-seconds dev-period-seconds
      :kzg-verifier-command kzg-verifier-command
      :kzg-verifier-timeout-seconds
      (and kzg-verifier-command
@@ -582,6 +594,160 @@
       (when (>= (- now last-run-time) interval-seconds)
         (setf (devnet-rejournal-state-last-run-time state) now)
         (devnet-node-rejournal (devnet-rejournal-state-node state))))))
+
+(defun devnet-node-mining-transaction< (left right expected-chain-id)
+  (let* ((left-sender (transaction-sender left
+                                          :expected-chain-id
+                                          expected-chain-id))
+         (right-sender (transaction-sender right
+                                           :expected-chain-id
+                                           expected-chain-id))
+         (left-sender-key (if left-sender
+                              (address-to-hex left-sender)
+                              ""))
+         (right-sender-key (if right-sender
+                               (address-to-hex right-sender)
+                               "")))
+    (cond
+      ((string< left-sender-key right-sender-key) t)
+      ((string< right-sender-key left-sender-key) nil)
+      ((< (transaction-nonce left) (transaction-nonce right)) t)
+      ((< (transaction-nonce right) (transaction-nonce left)) nil)
+      (t
+       (string< (hash32-to-hex (transaction-hash left))
+                (hash32-to-hex (transaction-hash right)))))))
+
+(defun devnet-node-pending-mining-transactions (node)
+  (let* ((store (devnet-node-store node))
+         (expected-chain-id
+           (chain-config-chain-id (devnet-node-config node))))
+    (sort
+     (copy-list
+      (remove-if-not
+       (lambda (transaction)
+         (transaction-sender transaction
+                             :expected-chain-id expected-chain-id))
+       (ethereum-lisp.core::engine-payload-store-pending-transactions
+        store)))
+     (lambda (left right)
+       (devnet-node-mining-transaction<
+        left right expected-chain-id)))))
+
+(defun devnet-node-seal-pending-block (node &key timestamp)
+  (unless (typep node 'devnet-node)
+    (error "Devnet node must be devnet-node"))
+  (let* ((store (devnet-node-store node))
+         (config (devnet-node-config node))
+         (parent (chain-store-latest-block store))
+         (transactions (devnet-node-pending-mining-transactions node)))
+    (when (and parent transactions)
+      (let* ((parent-header (block-header parent))
+             (parent-hash (block-hash parent))
+             (parent-timestamp (block-header-timestamp parent-header))
+             (timestamp (max (or timestamp 0) (1+ parent-timestamp)))
+             (block-number (1+ (block-header-number parent-header)))
+             (state (chain-store-state-db store parent-hash))
+             (cancun-p (chain-config-cancun-p config block-number timestamp))
+             (shanghai-p (chain-config-shanghai-p config block-number
+                                                   timestamp))
+             (prague-p (chain-config-prague-p config block-number timestamp))
+             (amsterdam-p
+               (chain-config-amsterdam-p config block-number timestamp))
+             (base-fee-per-gas
+               (if (block-header-base-fee-per-gas parent-header)
+                   (expected-base-fee-per-gas parent-header)
+                   0))
+             (cancun-header-arguments nil)
+             (fork-body-arguments nil))
+        (unless state
+          (error "Devnet dev-period parent state is unavailable"))
+        (when cancun-p
+          (multiple-value-bind (target-blob-gas max-blob-gas
+                                update-fraction)
+              (chain-config-blob-schedule config block-number timestamp)
+            (setf cancun-header-arguments
+                  (list
+                   :blob-gas-used 0
+                   :excess-blob-gas
+                   (expected-excess-blob-gas
+                    parent-header
+                    :target-blob-gas target-blob-gas
+                    :max-blob-gas max-blob-gas
+                    :eip7918-p (chain-config-osaka-p config block-number
+                                                      timestamp)
+                    :update-fraction update-fraction)
+                   :parent-beacon-root (zero-hash32)))))
+        (when shanghai-p
+          (setf fork-body-arguments
+                (append fork-body-arguments (list :withdrawals '()))))
+        (when prague-p
+          (setf fork-body-arguments
+                (append fork-body-arguments (list :requests '()))))
+        (when amsterdam-p
+          (setf fork-body-arguments
+                (append fork-body-arguments (list :block-access-list '()))))
+        (multiple-value-bind (block receipts)
+            (apply
+             #'execute-and-commit-signed-block
+             store
+             state
+             transactions
+             (append
+              (list
+               :expected-chain-id (chain-config-chain-id config)
+               :header (apply
+                        #'make-block-header
+                        (append
+                         (list
+                          :parent-hash parent-hash
+                          :beneficiary (devnet-node-coinbase node)
+                          :number block-number
+                          :gas-limit (block-header-gas-limit parent-header)
+                          :timestamp timestamp
+                          :base-fee-per-gas base-fee-per-gas
+                          :mix-hash (zero-hash32))
+                         cancun-header-arguments))
+               :chain-config config
+               :state-available-p t)
+              fork-body-arguments))
+          (declare (ignore receipts))
+          block)))))
+
+(defun make-devnet-dev-period-state
+    (node interval-seconds &key (now-function #'get-universal-time))
+  (unless (typep node 'devnet-node)
+    (error "Devnet dev-period state requires a devnet node"))
+  (unless (or (null interval-seconds)
+              (and (integerp interval-seconds) (<= 0 interval-seconds)))
+    (error "Devnet dev-period interval must be a non-negative integer"))
+  (unless (functionp now-function)
+    (error "Devnet dev-period clock must be a function"))
+  (%make-devnet-dev-period-state
+   :node node
+   :interval-seconds interval-seconds
+   :now-function now-function
+   :last-run-time (funcall now-function)))
+
+(defun devnet-dev-period-state-enabled-p (state)
+  (let ((node (devnet-dev-period-state-node state))
+        (interval-seconds (devnet-dev-period-state-interval-seconds state)))
+    (and node
+         interval-seconds
+         (plusp interval-seconds))))
+
+(defun devnet-dev-period-state-tick (state)
+  (unless (typep state 'devnet-dev-period-state)
+    (error "Devnet dev-period tick requires a devnet dev-period state"))
+  (when (devnet-dev-period-state-enabled-p state)
+    (let* ((now (funcall (devnet-dev-period-state-now-function state)))
+           (last-run-time (devnet-dev-period-state-last-run-time state))
+           (interval-seconds
+             (devnet-dev-period-state-interval-seconds state)))
+      (when (>= (- now last-run-time) interval-seconds)
+        (setf (devnet-dev-period-state-last-run-time state) now)
+        (devnet-node-seal-pending-block
+         (devnet-dev-period-state-node state)
+         :timestamp now)))))
 
 (defun devnet-node-export-database (node &key state-prune-before)
   (unless (typep node 'devnet-node)
@@ -665,6 +831,7 @@
           :txpool-journal-path (devnet-node-txpool-journal-path node)
           :txpool-rejournal-seconds
           (devnet-node-txpool-rejournal-seconds node)
+          :dev-period-seconds (devnet-node-dev-period-seconds node)
           :kzg-verifier-command (devnet-node-kzg-verifier-command node)
           :kzg-verifier-timeout-seconds
           (devnet-node-kzg-verifier-timeout-seconds node)
@@ -729,6 +896,8 @@
        ,(or (getf summary :txpool-journal-path) :false))
       ("txpoolRejournalSeconds" .
        ,(or (getf summary :txpool-rejournal-seconds) :false))
+      ("devPeriodSeconds" .
+       ,(or (getf summary :dev-period-seconds) :false))
       ("networkId" . ,(getf summary :network-id))
       ("publicApiModules" . ,(getf summary :public-api-modules))
       ("engineCorsOrigins" . ,(getf summary :engine-cors-origins))
@@ -776,6 +945,31 @@
              (devnet-shutdown-request shutdown-controller))))
        :name "ethereum-lisp-devnet-txpool-rejournal"))))
 
+(defun devnet-start-dev-period-thread
+    (node shutdown-controller error-callback)
+  #-sbcl
+  (declare (ignore node shutdown-controller error-callback))
+  #-sbcl
+  nil
+  #+sbcl
+  (let ((state
+          (make-devnet-dev-period-state
+           node
+           (devnet-node-dev-period-seconds node))))
+    (when (devnet-dev-period-state-enabled-p state)
+      (sb-thread:make-thread
+       (lambda ()
+         (handler-case
+             (loop until (devnet-shutdown-requested-p shutdown-controller)
+                   do (sleep 1)
+                      (unless (devnet-shutdown-requested-p
+                               shutdown-controller)
+                        (devnet-dev-period-state-tick state)))
+           (error (condition)
+             (funcall error-callback condition)
+             (devnet-shutdown-request shutdown-controller))))
+       :name "ethereum-lisp-devnet-dev-period"))))
+
 (defun start-devnet-node-listeners
     (node engine-listener public-listener
      &key max-connections stop-p shutdown-controller on-listeners-ready)
@@ -810,7 +1004,9 @@
          (public-count nil)
          (public-error nil)
          (rejournal-error nil)
-         (rejournal-thread nil))
+         (rejournal-thread nil)
+         (dev-period-error nil)
+         (dev-period-thread nil))
     (devnet-shutdown-controller-register-listeners
      shutdown-controller engine-listener public-listener)
     (handler-case
@@ -825,6 +1021,12 @@
            shutdown-controller
            (lambda (condition)
              (setf rejournal-error condition))))
+    (setf dev-period-thread
+          (devnet-start-dev-period-thread
+           node
+           shutdown-controller
+           (lambda (condition)
+             (setf dev-period-error condition))))
     (let ((result nil))
       (unwind-protect
            (setf result
@@ -881,9 +1083,14 @@
                          (error condition)))))
         (when rejournal-thread
           (devnet-shutdown-request shutdown-controller)
-          (sb-thread:join-thread rejournal-thread)))
+          (sb-thread:join-thread rejournal-thread))
+        (when dev-period-thread
+          (devnet-shutdown-request shutdown-controller)
+          (sb-thread:join-thread dev-period-thread)))
       (when rejournal-error
         (error rejournal-error))
+      (when dev-period-error
+        (error dev-period-error))
       result)))
 
 (defun start-devnet-node
@@ -1515,6 +1722,7 @@
         (terminal-block-hash nil)
         (terminal-block-number nil)
         (dev-mode-p nil)
+        (dev-period-seconds nil)
         (dev-gas-limit nil)
         (miner-gas-limit nil)
         (coinbase (zero-address))
@@ -1712,6 +1920,12 @@
                     (devnet-cli-optional-boolean-value args option)
                   (setf dev-mode-p enabled-p
                         args rest)))
+               ((string= option "--dev.period")
+                (multiple-value-bind (value rest)
+                    (devnet-cli-next-value args option)
+                  (setf dev-period-seconds
+                        (devnet-cli-parse-duration-seconds value option)
+                        args rest)))
                ((string= option "--dev.gaslimit")
                 (multiple-value-bind (value rest)
                     (devnet-cli-next-value args option)
@@ -1839,6 +2053,7 @@
           :terminal-block-hash terminal-block-hash
           :terminal-block-number terminal-block-number
           :dev-mode-p dev-mode-p
+          :dev-period-seconds dev-period-seconds
           :dev-gas-limit dev-gas-limit
           :miner-gas-limit miner-gas-limit
           :coinbase coinbase
@@ -2233,6 +2448,10 @@
        ,(if (getf summary :txpool-rejournal-seconds)
             (write-to-string (getf summary :txpool-rejournal-seconds))
             ""))
+      ("devPeriodSeconds" .
+       ,(if (getf summary :dev-period-seconds)
+            (write-to-string (getf summary :dev-period-seconds))
+            ""))
       ("headGasLimit" . ,(if (getf summary :head-gas-limit)
                               (quantity-to-hex
                                (getf summary :head-gas-limit))
@@ -2469,6 +2688,9 @@
                                 (getf options :terminal-block-hash)
                                 :terminal-block-number
                                 (getf options :terminal-block-number)
+                                :dev-mode-p (getf options :dev-mode-p)
+                                :dev-period-seconds
+                                (getf options :dev-period-seconds)
                                 :coinbase (getf options :coinbase)
                                 :allow-unprotected-transactions-p
                                 (getf options

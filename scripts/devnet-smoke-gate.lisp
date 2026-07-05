@@ -5407,7 +5407,8 @@ references/ checkouts.~%")
                condition)))))
 
 (defun devnet-smoke-gate-wait-for-txpool-journal-record
-    (journal-path expected-hash expected-raw timeout-seconds)
+    (journal-path expected-hash expected-raw timeout-seconds
+     &key expected-record-count)
   (let* ((deadline
            (+ (get-internal-real-time)
               (* timeout-seconds internal-time-units-per-second)))
@@ -5421,16 +5422,19 @@ references/ checkouts.~%")
                  (and (string= expected-hash (getf record :hash))
                       (string= expected-raw (getf record :raw))))
                last-records)))
-        (when record
+        (when (and record
+                   (or (null expected-record-count)
+                       (>= (length last-records) expected-record-count)))
           (return
             (list :record-count (length last-records)
                   :transaction-hash (getf record :hash)
                   :subpool (getf record :subpool)))))
       (when (>= (get-internal-real-time) deadline)
-        (error "Timed out after ~D seconds waiting for txpool journal ~A to contain ~A; observed hashes: ~S"
+        (error "Timed out after ~D seconds waiting for txpool journal ~A to contain ~A with at least ~A records; observed hashes: ~S"
                timeout-seconds
                (namestring journal-path)
                expected-hash
+               (or expected-record-count 1)
                (mapcar (lambda (record) (getf record :hash))
                        last-records)))
       (sleep 0.05))))
@@ -8620,7 +8624,8 @@ references/ checkouts.~%")
                                        journal-path
                                        pending-transaction-hash-hex
                                        pending-transaction-raw
-                                       5)))
+                                       5
+                                       :expected-record-count 3)))
                               (make-engine-rpc-http-connection
                                :input-stream
                                (make-string-input-stream

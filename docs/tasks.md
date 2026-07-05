@@ -190,7 +190,7 @@ ones.
     public txpool connection contract increased to include the bounded
     rejournal wait probe. The focused escalated
     `sbcl --script scripts/devnet-smoke-gate.lisp -- --json` path passed.
-- [ ] `DEVNET-RUNNER-DEV-PERIOD-TICK`: Give geth/Hive
+- [x] `DEVNET-RUNNER-DEV-PERIOD-TICK`: Give geth/Hive
   `--dev.period DURATION` real local devnet block-production behavior instead
   of remaining a compatibility-only consumed flag.
   - Milestone: 7 / Phase B Hive process-runner readiness
@@ -206,6 +206,36 @@ ones.
     path rather than sleeping on wall clock.
   - Validation: focused CLI/core public-RPC tests while iterating; request
     local socket/network escalation for any devnet process smoke gate;
+    `git diff --check`; `sbcl --script tests/run-tests.lisp`.
+  - Result (2026-07-05): positive `--dev.period` now parses through the shared
+    geth-style duration path, rejects malformed/negative values, reports
+    `devPeriodSeconds` in devnet summaries/readiness/telemetry, and starts a
+    shutdown-aware background dev-period tick in long-running serve mode. The
+    deterministic tick path sorts recoverable pending txpool transactions,
+    builds and executes a local child block on top of the current devnet head,
+    carries fork-active empty body/header fields for Shanghai withdrawals,
+    Cancun blob-gas and parent-beacon-root fields, Prague execution requests,
+    and Amsterdam block access lists, commits through the existing signed-block
+    execution path, advances public `latest` state, indexes included
+    transactions/receipts, and removes mined transactions from pending txpool
+    visibility. Focused coverage proves parsing/reporting, a public
+    `eth_sendRawTransaction` mined by an injectable tick, and active
+    Cancun/Prague/Amsterdam empty fork bodies. `git diff --check`, the focused
+    escalated standalone devnet smoke gate, and the escalated full suite
+    passed; the full suite covered 886 passing tests and 5 expected optional
+    skips.
+- [ ] `DEVNET-RUNNER-DEV-PERIOD-SMOKE`: Lock `--dev.period` block production
+  across the standalone process/devnet smoke boundary.
+  - Milestone: 7 / Phase B Hive process-runner readiness
+  - Dependencies: `DEVNET-RUNNER-DEV-PERIOD-TICK`.
+  - Acceptance: the standalone devnet smoke gate starts a real runner process
+    with a short positive `--dev.period`, admits at least one public txpool
+    transaction, observes a locally sealed block before shutdown, and reports
+    runner-visible evidence for the mined transaction, block number/hash,
+    receipt, and emptied pending txpool view. The smoke path must remain
+    bounded and fail clearly if the period tick never seals the transaction.
+  - Validation: focused escalated
+    `sbcl --script scripts/devnet-smoke-gate.lisp -- --json` while iterating;
     `git diff --check`; `sbcl --script tests/run-tests.lisp`.
 - [x] `PINNED-V5.4.0-ROOT-SMOKE`: Rehydrate or configure an official
   `ethereum/execution-spec-tests` v5.4.0 `fixtures_stable.tar.gz` extraction,

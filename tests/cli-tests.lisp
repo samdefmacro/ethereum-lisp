@@ -104,12 +104,13 @@
       (read-sequence string stream)
       string)))
 
-(defun devnet-cli-funded-txpool-genesis-json ()
+(defun devnet-cli-funded-txpool-genesis-json (&key config-fields)
   (let* ((genesis (parse-json
                    (devnet-cli-file-string +devnet-cli-genesis-fixture+)))
          (state (state-db-from-genesis-json-file
                  +devnet-cli-genesis-fixture+))
          (sender (devnet-cli-txpool-sender-address))
+         (config (fixture-object-field genesis "config"))
          (alloc (fixture-object-field genesis "alloc"))
          (account
            (list (cons "balance"
@@ -121,6 +122,12 @@
      (make-state-account :nonce 0 :balance +devnet-cli-txpool-balance+))
     (setf (cdr (assoc "stateRoot" genesis :test #'string=))
           (hash32-to-hex (state-db-root state)))
+    (dolist (field config-fields)
+      (let ((cell (assoc (car field) config :test #'string=)))
+        (if cell
+            (setf (cdr cell) (cdr field))
+            (setf config (append config (list field))))))
+    (setf (cdr (assoc "config" genesis :test #'string=)) config)
     (setf (cdr (assoc "alloc" genesis :test #'string=))
           (append alloc (list (cons (address-to-hex sender) account))))
     (json-encode genesis)))
@@ -3372,6 +3379,187 @@
       (when (probe-file unused-path)
         (delete-file unused-path)))))
 
+(deftest devnet-cli-dev-period-parses-and-reports-duration
+  (let* ((options
+           (ethereum-lisp.cli::devnet-cli-options
+            (list "devnet"
+                  "--dev"
+                  "--dev.period=2m"
+                  "--no-serve")))
+         (node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-path +devnet-cli-genesis-fixture+
+            :port 0
+            :dev-mode-p (getf options :dev-mode-p)
+            :dev-period-seconds (getf options :dev-period-seconds)))
+         (summary
+           (ethereum-lisp.cli::devnet-node-summary-json-object node))
+         (telemetry-fields
+           (ethereum-lisp.cli::devnet-node-telemetry-fields node)))
+    (is (= 120 (getf options :dev-period-seconds)))
+    (is (= 120 (fixture-object-field summary "devPeriodSeconds")))
+    (is (string= "120"
+                 (cdr (assoc "devPeriodSeconds"
+                             telemetry-fields
+                             :test #'string=))))
+    (signals error
+      (ethereum-lisp.cli::devnet-cli-options
+       (list "devnet" "--dev.period=-1" "--no-serve")))
+    (signals error
+      (ethereum-lisp.cli::devnet-cli-options
+       (list "devnet" "--dev.period=bad" "--no-serve")))))
+
+(deftest devnet-cli-dev-period-tick-seals-public-txpool-transaction
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (request (json node)
+             (parse-json
+              (engine-rpc-handle-request-json
+               json
+               (ethereum-lisp.cli:devnet-node-store node)
+               (ethereum-lisp.cli:devnet-node-config node)))))
+    (let* ((now 0)
+           (node
+             (ethereum-lisp.cli:make-devnet-node
+              :genesis-json (devnet-cli-funded-txpool-genesis-json)
+              :port 0
+              :dev-mode-p t
+              :dev-period-seconds 1))
+           (config (ethereum-lisp.cli:devnet-node-config node))
+           (transaction
+             (devnet-cli-txpool-transaction
+              config
+              0
+              +devnet-cli-txpool-pending-gas-price+))
+           (transaction-hash
+             (hash32-to-hex (transaction-hash transaction)))
+           (raw-transaction (devnet-cli-transaction-raw transaction))
+           (state
+             (ethereum-lisp.cli::make-devnet-dev-period-state
+              node
+              1
+              :now-function (lambda () now)))
+           (send-response
+             (request
+              (concatenate
+               'string
+               "{\"jsonrpc\":\"2.0\",\"id\":1,"
+               "\"method\":\"eth_sendRawTransaction\","
+               "\"params\":[\"" raw-transaction "\"]}")
+              node)))
+      (is (string= transaction-hash (field send-response "result")))
+      (is (eq nil (ethereum-lisp.cli::devnet-dev-period-state-tick state)))
+      (setf now 1)
+      (let* ((sealed-block
+               (ethereum-lisp.cli::devnet-dev-period-state-tick state))
+             (sealed-hash (hash32-to-hex (block-hash sealed-block)))
+             (block-number-response
+               (request
+                "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"eth_blockNumber\",\"params\":[]}"
+                node))
+             (lookup-response
+               (request
+                (concatenate
+                 'string
+                 "{\"jsonrpc\":\"2.0\",\"id\":3,"
+                 "\"method\":\"eth_getTransactionByHash\","
+                 "\"params\":[\"" transaction-hash "\"]}")
+                node))
+             (receipt-response
+               (request
+                (concatenate
+                 'string
+                 "{\"jsonrpc\":\"2.0\",\"id\":4,"
+                 "\"method\":\"eth_getTransactionReceipt\","
+                 "\"params\":[\"" transaction-hash "\"]}")
+                node))
+             (pending-response
+               (request
+                "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"eth_pendingTransactions\",\"params\":[]}"
+                node))
+             (status-response
+               (request
+                "{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"txpool_status\",\"params\":[]}"
+                node))
+             (mined-transaction (field lookup-response "result"))
+             (receipt (field receipt-response "result"))
+             (status (field status-response "result")))
+        (is (typep sealed-block 'ethereum-block))
+        (is (string= (quantity-to-hex 1)
+                     (field block-number-response "result")))
+        (is (string= transaction-hash
+                     (field mined-transaction "hash")))
+        (is (string= sealed-hash
+                     (field mined-transaction "blockHash")))
+        (is (string= (quantity-to-hex 1)
+                     (field mined-transaction "blockNumber")))
+        (is (string= (quantity-to-hex 0)
+                     (field mined-transaction "transactionIndex")))
+        (is (string= transaction-hash
+                     (field receipt "transactionHash")))
+        (is (string= sealed-hash (field receipt "blockHash")))
+        (is (string= (quantity-to-hex 1)
+                     (field receipt "blockNumber")))
+        (is (string= (quantity-to-hex 0)
+                     (field receipt "transactionIndex")))
+        (is (= 0 (length (field pending-response "result"))))
+        (is (string= (quantity-to-hex 0) (field status "pending")))
+        (is (string= (quantity-to-hex 0) (field status "queued")))))))
+
+(deftest devnet-cli-dev-period-tick-carries-active-fork-bodies
+  (let* ((now 0)
+         (node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json
+            (devnet-cli-funded-txpool-genesis-json
+             :config-fields
+             (list (cons "cancunTime" "0x0")
+                   (cons "pragueTime" "0x0")
+                   (cons "amsterdamTime" "0x0")))
+            :port 0
+            :dev-mode-p t
+            :dev-period-seconds 1))
+         (config (ethereum-lisp.cli:devnet-node-config node))
+         (transaction
+           (devnet-cli-txpool-transaction
+            config
+            0
+            +devnet-cli-txpool-pending-gas-price+))
+         (state
+           (ethereum-lisp.cli::make-devnet-dev-period-state
+            node
+            1
+            :now-function (lambda () now))))
+    (engine-rpc-handle-request-json
+     (concatenate
+      'string
+      "{\"jsonrpc\":\"2.0\",\"id\":1,"
+      "\"method\":\"eth_sendRawTransaction\","
+      "\"params\":[\"" (devnet-cli-transaction-raw transaction) "\"]}")
+     (ethereum-lisp.cli:devnet-node-store node)
+     config)
+    (setf now 1)
+    (let* ((block
+             (ethereum-lisp.cli::devnet-dev-period-state-tick state))
+           (header (block-header block)))
+      (is (typep block 'ethereum-block))
+      (is (= 1 (length (block-transactions block))))
+      (is (= 0 (block-header-blob-gas-used header)))
+      (is (= 0 (block-header-excess-blob-gas header)))
+      (is (string= (hash32-to-hex (zero-hash32))
+                   (hash32-to-hex
+                    (block-header-parent-beacon-root header))))
+      (is (block-requests-present-p block))
+      (is (null (block-requests block)))
+      (is (string= (hash32-to-hex (execution-requests-hash '()))
+                   (hash32-to-hex
+                    (block-header-requests-hash header))))
+      (is (block-block-access-list-present-p block))
+      (is (null (block-block-access-list block)))
+      (is (string= (hash32-to-hex (block-access-list-hash '()))
+                   (hash32-to-hex
+                    (block-header-block-access-list-hash header)))))))
+
 (deftest devnet-cli-txpool-journal-rejects-wrong-chain-transactions
   (let ((journal-path
           (devnet-cli-temp-path "ethereum-lisp-devnet-txpool-bad-chain"
@@ -4157,6 +4345,8 @@ HTTPPort = 1945
                    (fixture-object-field summary "engineEndpoint")))
       (is (string= "127.0.0.1:8545"
                    (fixture-object-field summary "rpcEndpoint")))
+      (is (= 1
+             (fixture-object-field summary "devPeriodSeconds")))
       (is (= #x1c9c380
              (fixture-object-field summary "headGasLimit")))))
   (let ((init-options
@@ -17704,53 +17894,62 @@ HTTPPort = 1945
       (is (search "Usage: ethereum-lisp init" stderr)))))
 
 (deftest devnet-cli-accepts-geth-style-mining-archive-and-metrics-flags
-  (let ((options
-          (ethereum-lisp.cli::devnet-cli-options
-           (list "devnet"
-                 "--config"
-                 "/tmp/ethereum-lisp-geth.toml"
-                 "--gcmode=archive"
-                 "--cache"
-                 "256"
-                 "--cache.database=64"
-                 "--cache.gc"
-                 "32"
-                 "--cache.trie=160"
-                 "--txlookuplimit=0"
-                 "--history.transactions"
-                 "0"
-                 "--bootnodes="
-                 "--netrestrict=127.0.0.0/8"
-                 "--nodekey=/tmp/ethereum-lisp-nodekey"
-                 "--nodekeyhex"
-                 "010203"
-                 "--discovery.port=30303"
-                 "--discovery.dns="
-                 "--ipcpath=/tmp/ethereum-lisp.ipc"
-                 "--mine=true"
-                 "--miner.etherbase"
-                 "0x0000000000000000000000000000000000000000"
-                 "--etherbase=0x0000000000000000000000000000000000000000"
-                 "--miner.gaslimit"
-                 "30000000"
-                 "--miner.gasprice=0"
-                 "--unlock"
-                 "0"
-                 "--password=/tmp/password"
-                 "--allow-insecure-unlock=true"
-                 "--metrics=true"
-                 "--metrics.addr"
-                 "127.0.0.1"
-                 "--metrics.port=6060"
-                 "--pprof=false"
-                 "--pprof.addr"
-                 "127.0.0.1"
-                 "--pprof.port=6061"
-                 "--snapshot=false"
-                 "--json"
-                 "--no-serve"))))
-    (is (eq :json (getf options :summary-format)))
-    (is (not (getf options :serve-p)))))
+  (let ((config-path
+          (devnet-cli-temp-path "ethereum-lisp-geth" "toml")))
+    (unwind-protect
+         (progn
+           (devnet-cli-write-temp-file
+            config-path
+            "# geth runner config intentionally empty for flag coverage\n")
+           (let ((options
+                   (ethereum-lisp.cli::devnet-cli-options
+                    (list "devnet"
+                          "--config"
+                          (namestring config-path)
+                          "--gcmode=archive"
+                          "--cache"
+                          "256"
+                          "--cache.database=64"
+                          "--cache.gc"
+                          "32"
+                          "--cache.trie=160"
+                          "--txlookuplimit=0"
+                          "--history.transactions"
+                          "0"
+                          "--bootnodes="
+                          "--netrestrict=127.0.0.0/8"
+                          "--nodekey=/tmp/ethereum-lisp-nodekey"
+                          "--nodekeyhex"
+                          "010203"
+                          "--discovery.port=30303"
+                          "--discovery.dns="
+                          "--ipcpath=/tmp/ethereum-lisp.ipc"
+                          "--mine=true"
+                          "--miner.etherbase"
+                          "0x0000000000000000000000000000000000000000"
+                          "--etherbase=0x0000000000000000000000000000000000000000"
+                          "--miner.gaslimit"
+                          "30000000"
+                          "--miner.gasprice=0"
+                          "--unlock"
+                          "0"
+                          "--password=/tmp/password"
+                          "--allow-insecure-unlock=true"
+                          "--metrics=true"
+                          "--metrics.addr"
+                          "127.0.0.1"
+                          "--metrics.port=6060"
+                          "--pprof=false"
+                          "--pprof.addr"
+                          "127.0.0.1"
+                          "--pprof.port=6061"
+                          "--snapshot=false"
+                          "--json"
+                          "--no-serve"))))
+             (is (eq :json (getf options :summary-format)))
+             (is (not (getf options :serve-p)))))
+      (when (probe-file config-path)
+        (delete-file config-path)))))
 
 (deftest devnet-cli-accepts-geth-style-logging-flags
   (let ((options

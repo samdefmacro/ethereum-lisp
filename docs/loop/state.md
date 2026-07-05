@@ -17,60 +17,52 @@ Last updated: 2026-07-05
 
 ## Current Dirty Work
 
-No dirty implementation work is recorded by the loop. The txpool rejournal
-smoke slice has been implemented, validated, independently reviewed, and is
-pending commit and push in the current run.
+No dirty implementation work is expected after the current run commits and
+pushes. The dev-period tick slice has been implemented, validated,
+independently reviewed, and is pending commit/push in the current run.
 
 Closed behavior from the latest slice:
 
-- `--txpool.rejournal DURATION` parses as a meaningful non-negative duration
-  rather than a compatibility-only consumed value.
-- Geth TOML `[Eth.TxPool] Rejournal` imports through the runner config path,
-  with explicit CLI flags taking precedence.
+- Positive `--dev.period DURATION` parses through the shared geth-style
+  duration path and rejects malformed or negative values.
 - Devnet summaries, readiness data, and lifecycle telemetry report
-  `txpoolRejournalSeconds`.
-- When both `--txpool.journal` and a positive rejournal interval are
-  configured, serve mode starts a shutdown-aware background tick that refreshes
-  the same txpool-only KV journal export used by clean shutdown.
-- No-journal behavior remains a no-op, and zero/nil rejournal intervals do not
-  start the periodic refresh path.
+  `devPeriodSeconds`.
+- Long-running devnet serve mode starts a shutdown-aware background dev-period
+  tick when the configured period is positive.
+- The deterministic tick path can seal currently pending, recoverable public
+  txpool transactions into a local child block on top of the current devnet
+  head.
+- The sealed block uses the existing signed-block execution and commit path,
+  advances public latest-head state, indexes included transaction/receipt
+  lookups, and removes mined transactions from pending txpool visibility.
+- The standalone devnet smoke gate txpool-rejournal helper now waits for the
+  full expected journal record count before reporting, removing a race between
+  "target record observed" and "all expected records flushed".
+- The geth-style mining/archive/metrics CLI flag test now creates a readable
+  temporary TOML config instead of depending on a fixed `/tmp` file.
 
 Closed validation:
 
-- Focused rejournal/journal/config tests passed:
-  `DEVNET-CLI-TXPOOL-REJOURNAL-REFRESHES-LIVE-JOURNAL`,
-  `DEVNET-CLI-TXPOOL-REJOURNAL-WITHOUT-JOURNAL-IS-NOOP`,
-  `DEVNET-CLI-TXPOOL-JOURNAL-PERSISTS-PENDING-TRANSACTIONS`,
-  `DEVNET-CLI-MAIN-JSON-SUMMARY-AND-READY-FILE`,
-  `DEVNET-CLI-MAIN-APPLIES-GETH-CONFIG-FILE-VALUES`, and
-  `DEVNET-CLI-MAIN-EXPLICIT-OPTIONS-OVERRIDE-GETH-CONFIG-FILE`,
-  `DEVNET-CLI-MAIN-ACCEPTS-GETH-STYLE-TXPOOL-AND-DATABASE-FLAGS`.
-- `git diff --check` passed after the final doc refresh.
-- `sbcl --script tests/run-tests.lisp` was run once for this implementation
-  batch and failed only at the known sandbox socket-gated
-  `PHASE-A-SMOKE-GATE-SCRIPT-CAN-INCLUDE-DEVNET-SUITE` test.
-- The required escalated devnet smoke gate passed:
-  `sbcl --script scripts/phase-a-smoke-gate.lisp -- --json --devnet` exited 0
-  with top-level, devnet, and engine-only devnet `status: ok`.
-- Independent verifier review returned `PASS`.
-
-Current smoke-slice validation:
-
+- Focused dev-period coverage passed inside the full suite:
+  `DEVNET-CLI-DEV-PERIOD-PARSES-AND-REPORTS-DURATION` and
+  `DEVNET-CLI-DEV-PERIOD-TICK-SEALS-PUBLIC-TXPOOL-TRANSACTION`,
+  plus `DEVNET-CLI-DEV-PERIOD-TICK-CARRIES-ACTIVE-FORK-BODIES` for
+  fork-active Cancun/Prague/Amsterdam empty body/header fields.
 - The focused escalated standalone smoke gate passed:
   `sbcl --script scripts/devnet-smoke-gate.lisp -- --json`.
-- The smoke report now includes live-before-shutdown rejournal evidence:
-  `txpoolRejournalSeconds`, `txpoolRejournalObservedBeforeShutdown`,
-  `txpoolRejournalRecordCount`, `txpoolRejournalTransactionHash`, and
-  `txpoolRejournalSubpool`.
 - `git diff --check` passed.
-- `sbcl --script tests/run-tests.lisp` was run once and failed only at the
-  known sandbox socket-gated
-  `PHASE-A-SMOKE-GATE-SCRIPT-CAN-INCLUDE-DEVNET-SUITE` test.
-- The required escalated Phase A devnet gate passed:
-  `sbcl --script scripts/phase-a-smoke-gate.lisp -- --json --devnet`, with
-  top-level, devnet, and engine-only devnet `status: ok`.
-- Independent verifier review returned `PASS`; residual risk is the expected
-  extra bounded wait for one real rejournal tick in each devnet smoke case.
+- The first escalated `sbcl --script tests/run-tests.lisp` run exposed and
+  helped fix a pre-existing standalone smoke race in txpool rejournal record
+  counting.
+- The second escalated full-suite run exposed and helped fix a pre-existing
+  hard-coded `/tmp/ethereum-lisp-geth.toml` test fixture dependency.
+- The final escalated `sbcl --script tests/run-tests.lisp` run passed with
+  `886 tests passed, 5 skipped`.
+- Independent verifier review returned `PASS`. The earlier high-severity
+  concern around post-Shanghai fork body/header fields was resolved by the
+  active-fork body coverage above. Residual risk is limited to background
+  thread lifecycle/process-boundary coverage, which is the selected next
+  `DEVNET-RUNNER-DEV-PERIOD-SMOKE` slice.
 
 ## Current Loop Migration
 
@@ -85,8 +77,8 @@ The old fixed heartbeat prompt is being replaced by a loop v2 process:
 ## Next Recommended Orchestrator Decision
 
 The next loop run should consume the refreshed `docs/loop/next-run.md` as an
-implementer contract for `DEVNET-RUNNER-DEV-PERIOD-TICK`. Do not continue the
-completed txpool journal, rejournal, or rejournal smoke tasks. If orientation
-finds the dev-period block-construction boundary too broad for one run, record
-the exact blocker and fall back to the next highest-value Phase B executable
-client slice.
+implementer contract for `DEVNET-RUNNER-DEV-PERIOD-SMOKE`. Do not continue the
+completed txpool lifetime, journal, rejournal, rejournal smoke, or dev-period
+tick tasks. The next highest-value Phase B slice is to prove the background
+`--dev.period` tick across the standalone process/smoke boundary and report
+runner-visible mined-block evidence.

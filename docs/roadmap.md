@@ -1294,8 +1294,17 @@ first pass, but interfaces must not block that path.
   through the same runner-visible path for config-file-based launches.
   `--miner.etherbase` / `--etherbase` also shape the embedded dev genesis
   header coinbase when no file-backed genesis is supplied.
-  `--dev.period` remains a compatibility no-op until block production timing
-  is implemented. Startup summaries and lifecycle telemetry report
+  `--dev.period` now accepts geth-style duration values, reports
+  `devPeriodSeconds`, and drives a shutdown-aware local devnet tick that can
+  seal pending public txpool transactions into a child block through the
+  existing signed-block execution/commit path. The deterministic tick path
+  carries fork-active empty body/header fields for Shanghai withdrawals,
+  Cancun blob-gas and parent-beacon-root fields, Prague execution requests,
+  and Amsterdam block access lists, and advances public latest-state reads,
+  transaction lookup, receipt lookup, and pending txpool visibility for mined
+  transactions; standalone process-smoke coverage for the background tick
+  remains the next Phase B runner-readiness gap. Startup summaries and
+  lifecycle telemetry report
   `headGasLimit` and `coinbase` for process-runner checks. The runner-facing
   script also accepts direct geth/Hive-shaped launch lines whose option stream
   starts immediately after `--` without an explicit `devnet` token; serve-mode
