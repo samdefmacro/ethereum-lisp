@@ -1321,8 +1321,16 @@ first pass, but interfaces must not block that path.
   same-attributes preparations do not reuse stale txpool-independent cache
   entries after txpool changes. `engine_getPayload*` can return txpool-backed
   local payloads while selected and non-selected transactions remain
-  public-visible until normal import/forkchoice mining. The next Phase B
-  block-production gap is proving
+  public-visible until normal import/forkchoice mining. The standalone devnet
+  smoke gate now proves the same txpool-backed prepared-payload selection
+  across the real authenticated Engine/public listener boundary: after public
+  txpool admission, a second `engine_forkchoiceUpdatedV2` /
+  `engine_getPayloadV2` probe reports the selected transaction raw bytes/hash
+  and a post-preparation public txpool query proves selected and non-selected
+  entries are still visible before import/forkchoice. The next Phase B
+  block-production gap is importing and forkchoiceing that txpool-backed
+  prepared payload across the same listener boundary, then verifying public
+  canonical transaction/receipt visibility and txpool cleanup.
   that txpool-backed prepared-payload path across the real standalone
   devnet/process-runner listener boundary.
   Startup
@@ -1816,7 +1824,11 @@ first pass, but interfaces must not block that path.
   and transaction counts for runner contracts. It also prepares a payload with
   `engine_forkchoiceUpdatedV2`, retrieves it with `engine_getPayloadV2` over
   the authenticated listener boundary, and reports the prepared payload parent
-  hash, block number, and transaction count for process-runner readiness.
+  hash, block number, and transaction count for process-runner readiness. The
+  smoke gate now repeats that authenticated prepared-payload flow after public
+  txpool admission, proving a selected pending transaction appears in
+  `engine_getPayloadV2` while selected and non-selected public txpool entries
+  remain visible before import/forkchoice.
   Txpool queued views now
   expose
   blob-subpool

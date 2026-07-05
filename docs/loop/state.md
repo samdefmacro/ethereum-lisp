@@ -17,11 +17,14 @@ Last updated: 2026-07-05
 
 ## Current Dirty Work
 
-The current run is implementing
-`DEVNET-RUNNER-PREPARED-PAYLOAD-TXPOOL-SELECTION`. Code changes, focused
-Engine RPC coverage, `git diff --check`, and escalated full-suite validation
-are complete. Independent verifier review returned `PASS`; commit and push are
-pending.
+The current run is finishing
+`DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-SELECTION`. Code changes,
+focused standalone smoke validation, `git diff --check`, and escalated
+full-suite validation are complete. The first independent verifier review
+returned `FAIL` because the CLI test contract did not yet assert the new JSON
+evidence fields; `tests/cli-tests.lisp` now locks those fields and the
+post-fix full suite passed. The second independent verifier review returned
+`PASS`; commit and push are pending.
 
 Closed behavior from the latest slice:
 
@@ -72,6 +75,15 @@ Closed behavior from the latest slice:
 - `engine_getPayloadV1` returns selected transaction bytes for prepared local
   payloads, while selected and non-selected txpool entries remain
   public-visible before import/forkchoice.
+- The standalone devnet smoke gate now proves txpool-backed prepared-payload
+  selection across the real authenticated Engine/public listener boundary. It
+  admits public txpool transactions, prepares a second payload through
+  authenticated `engine_forkchoiceUpdatedV2`, retrieves it through
+  authenticated `engine_getPayloadV2`, reports the selected transaction
+  raw bytes/hash, and runs a post-preparation public `txpool_contentFrom`
+  query proving the selected pending transaction and non-selected basefee /
+  nonce-gapped queued transactions remain public-visible before
+  import/forkchoice.
 
 Closed validation:
 
@@ -134,6 +146,38 @@ Closed validation:
   txpool-backed payloads. Residual risks: replacement churn preserving
   transaction count and V2/V3 prepared-payload txpool variants remain useful
   follow-up coverage, but are not blocking this slice.
+- Focused escalated standalone smoke for
+  `DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-SELECTION` passed:
+  `sbcl --script scripts/devnet-smoke-gate.lisp -- --json`.
+- `git diff --check` passed.
+- The first escalated `sbcl --script tests/run-tests.lisp` run failed because
+  `tests/cli-tests.lisp` still hard-coded the old standalone smoke connection
+  contract (`engineWorkflowConnections=12`, `publicTxpoolConnections=19`).
+- After updating the connection-contract assertions to the new
+  `engineWorkflowConnections=14`, `publicTxpoolConnections=20`, single-case
+  `engineConnections=19`, `publicConnections=46`, and `totalConnections=65`,
+  the escalated `sbcl --script tests/run-tests.lisp` run passed with
+  `890 tests passed, 5 skipped`.
+- The first independent verifier review for
+  `DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-SELECTION` returned `FAIL`
+  because the runtime smoke report emitted txpool-backed prepared-payload JSON
+  evidence, but `tests/cli-tests.lisp` only asserted the new connection counts.
+- `tests/cli-tests.lisp` now asserts `preparedTxpoolPayloadId`,
+  `engineGetPayloadV2TxpoolParentHash`,
+  `engineGetPayloadV2TxpoolBlockNumber`,
+  `engineGetPayloadV2TxpoolTransactionCount`,
+  `engineGetPayloadV2TxpoolSelectedTransactionRaw`,
+  `engineGetPayloadV2TxpoolSelectedTransactionHash`,
+  `engineGetPayloadV2TxpoolSelectedStillPending`,
+  `engineGetPayloadV2TxpoolNonSelectedBasefeeStillQueued`, and
+  `engineGetPayloadV2TxpoolNonSelectedQueuedStillQueued` against the
+  corresponding prepared payload and public txpool fields.
+- After the JSON evidence assertions were added, the escalated
+  `sbcl --script tests/run-tests.lisp` run passed with
+  `890 tests passed, 5 skipped`.
+- The second independent verifier review returned `PASS`: the verifier found
+  the smoke report evidence and CLI JSON field assertions sufficient for the
+  selected runner-boundary slice.
 
 ## Current Loop Migration
 
@@ -148,8 +192,11 @@ The old fixed heartbeat prompt is being replaced by a loop v2 process:
 ## Next Recommended Orchestrator Decision
 
 The current loop run should finish
-`DEVNET-RUNNER-PREPARED-PAYLOAD-TXPOOL-SELECTION` by committing and pushing the
-validated work. After that, the next highest-value Phase B slice is
-`DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-SELECTION`: prove the
-txpool-backed prepared-payload path across the standalone devnet
-Engine/public listener boundary and report runner-visible evidence.
+`DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-SELECTION` by committing and
+pushing the validated work after independent verifier PASS. After that, the
+next highest-value Phase B slice is
+`DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-IMPORT`: import and forkchoice the
+txpool-backed prepared payload across the standalone devnet Engine/public
+listener boundary, then verify canonical public transaction/receipt visibility
+and txpool cleanup for the selected transaction while non-selected queued
+entries remain visible.

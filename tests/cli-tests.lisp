@@ -162,13 +162,13 @@
     (is (= case-count (fixture-object-field contract "caseCount")))
     (is (= (* 5 case-count)
            (fixture-object-field contract "engineBoundaryConnections")))
-    (is (= (* 12 case-count)
+    (is (= (* 14 case-count)
            (fixture-object-field contract "engineWorkflowConnections")))
     (is (= (* 23 case-count)
            (fixture-object-field contract "publicCanonicalReadConnections")))
     (is (= (* 3 case-count)
            (fixture-object-field contract "publicBoundaryConnections")))
-    (is (= (* 19 case-count)
+    (is (= (* 20 case-count)
            (fixture-object-field contract "publicTxpoolConnections")))
     (is (= (fixture-object-field report "engineConnections")
            (fixture-object-field contract "expectedEngineConnections")))
@@ -348,7 +348,43 @@
   (is (integerp
        (fixture-object-field
         report
-        "engineGetPayloadV2TransactionCount"))))
+        "engineGetPayloadV2TransactionCount")))
+  (is (stringp
+       (fixture-object-field report "preparedTxpoolPayloadId")))
+  (is (not (string= (fixture-object-field report "preparedPayloadId")
+                    (fixture-object-field report "preparedTxpoolPayloadId"))))
+  (is (string= (fixture-object-field report "preparedPayloadParentHash")
+               (fixture-object-field
+                report
+                "engineGetPayloadV2TxpoolParentHash")))
+  (is (string= (fixture-object-field report "preparedPayloadBlockNumber")
+               (fixture-object-field
+                report
+                "engineGetPayloadV2TxpoolBlockNumber")))
+  (is (= 1
+         (fixture-object-field
+          report
+          "engineGetPayloadV2TxpoolTransactionCount")))
+  (is (string= (fixture-object-field report "txpoolPendingTransactionRaw")
+               (fixture-object-field
+                report
+                "engineGetPayloadV2TxpoolSelectedTransactionRaw")))
+  (is (string= (fixture-object-field report "txpoolPendingTransactionHash")
+               (fixture-object-field
+                report
+                "engineGetPayloadV2TxpoolSelectedTransactionHash")))
+  (is (string= (fixture-object-field report "txpoolPendingTransactionHash")
+               (fixture-object-field
+                report
+                "engineGetPayloadV2TxpoolSelectedStillPending")))
+  (is (string= (fixture-object-field report "txpoolBasefeeTransactionHash")
+               (fixture-object-field
+                report
+                "engineGetPayloadV2TxpoolNonSelectedBasefeeStillQueued")))
+  (is (string= (fixture-object-field report "txpoolQueuedTransactionHash")
+               (fixture-object-field
+                report
+                "engineGetPayloadV2TxpoolNonSelectedQueuedStillQueued"))))
 
 (defun devnet-cli-assert-public-cors-smoke-report (report)
   (is (equal '("https://runner.example" "https://observer.example")
@@ -6338,11 +6374,11 @@ HTTPPort = 1945
                       (length database-files)))
                (devnet-cli-assert-pruned-state-suite
                 report cases prune-boundary)
-               (is (= (* 17 (length +engine-newpayload-v2-smoke-case-names+))
+               (is (= (* 19 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "engineConnections")))
-               (is (= (* 45 (length +engine-newpayload-v2-smoke-case-names+))
+               (is (= (* 46 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "publicConnections")))
-               (is (= (* 62 (length +engine-newpayload-v2-smoke-case-names+))
+               (is (= (* 65 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "totalConnections")))
                (devnet-cli-assert-connection-contract
                 report
@@ -6359,8 +6395,8 @@ HTTPPort = 1945
                    (is (string= +payload-status-valid+
                                 (fixture-object-field
                                  case "forkchoiceStatus")))
-                   (is (= 17 (fixture-object-field case "engineConnections")))
-                   (is (= 45 (fixture-object-field case "publicConnections")))
+                   (is (= 19 (fixture-object-field case "engineConnections")))
+                   (is (= 46 (fixture-object-field case "publicConnections")))
                    (is (= 401
                           (fixture-object-field
                            case
@@ -7265,11 +7301,11 @@ HTTPPort = 1945
                         (fixture-object-field
                          two-transfer-case
                          "databaseRpcSideReinsertedTransactionHashes")))))))
-        (is (= (* 17 (length +engine-newpayload-v2-smoke-case-names+))
+        (is (= (* 19 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "engineConnections")))
-        (is (= (* 45 (length +engine-newpayload-v2-smoke-case-names+))
+        (is (= (* 46 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "publicConnections")))
-        (is (= (* 62 (length +engine-newpayload-v2-smoke-case-names+))
+        (is (= (* 65 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "totalConnections")))
         (dolist (case cases)
           (devnet-cli-assert-public-readiness case)

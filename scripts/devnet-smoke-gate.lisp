@@ -95,13 +95,13 @@ references/ checkouts.~%")
 (defconstant +devnet-smoke-gate-engine-endpoint+ "http://127.0.0.1:8551")
 (defconstant +devnet-smoke-gate-public-endpoint+ "http://127.0.0.1:8545")
 (defconstant +devnet-smoke-gate-engine-boundary-connections+ 5)
-(defconstant +devnet-smoke-gate-engine-workflow-connections+ 12)
+(defconstant +devnet-smoke-gate-engine-workflow-connections+ 14)
 (defconstant +devnet-smoke-gate-engine-connections+
   (+ +devnet-smoke-gate-engine-boundary-connections+
      +devnet-smoke-gate-engine-workflow-connections+))
 (defconstant +devnet-smoke-gate-public-canonical-read-connections+ 23)
 (defconstant +devnet-smoke-gate-public-boundary-connections+ 3)
-(defconstant +devnet-smoke-gate-public-txpool-connections+ 19)
+(defconstant +devnet-smoke-gate-public-txpool-connections+ 20)
 (defconstant +devnet-smoke-gate-public-connections+
   (+ +devnet-smoke-gate-public-canonical-read-connections+
      +devnet-smoke-gate-public-boundary-connections+
@@ -8133,6 +8133,9 @@ references/ checkouts.~%")
                     (make-string-output-stream))
                   (prepare-payload-output (make-string-output-stream))
                   (get-payload-output (make-string-output-stream))
+                  (prepare-txpool-payload-output
+                    (make-string-output-stream))
+                  (get-txpool-payload-output (make-string-output-stream))
                   (remote-payload-output (make-string-output-stream))
                   (invalid-payload-output (make-string-output-stream))
                   (block-number-output (make-string-output-stream))
@@ -8193,6 +8196,8 @@ references/ checkouts.~%")
                   (txpool-status-output (make-string-output-stream))
                   (txpool-content-from-output (make-string-output-stream))
                   (txpool-inspect-output (make-string-output-stream))
+                  (post-prepared-txpool-content-from-output
+                    (make-string-output-stream))
                   (balance-targets
                     (devnet-smoke-gate-balance-targets expect))
                   (checkpoint-balance-targets
@@ -8214,6 +8219,15 @@ references/ checkouts.~%")
                       (block-hash child-block)
                       (ethereum-lisp.core::engine-rpc-validate-payload-attributes-v2
                        prepare-payload-attributes))))
+                  (txpool-payload-attributes
+                    (let ((attributes (copy-tree prepare-payload-attributes)))
+                      (setf (cdr (assoc "timestamp" attributes
+                                        :test #'string=))
+                            (quantity-to-hex
+                             (+ 2
+                                (block-header-timestamp
+                                 (block-header child-block)))))
+                      attributes))
                   (remote-block
                     (devnet-smoke-gate-remote-block child-block))
                   (remote-payload
@@ -8275,6 +8289,8 @@ references/ checkouts.~%")
                     (devnet-smoke-gate-transaction-nonce-key
                      queued-transaction))
                   (txpool-rejournal-report nil)
+                  (prepare-txpool-payload-response-cache nil)
+                  (post-public-txpool-payload-id nil)
                   (engine-requests
                     (list
                      (cons
@@ -8408,6 +8424,20 @@ references/ checkouts.~%")
                       (json-encode
                        (engine-fixture-payload-request 25 invalid-payload))
                       invalid-payload-output)))
+                  (post-public-engine-requests
+                    (list
+                     (cons
+                      (json-encode
+                       (devnet-smoke-gate-forkchoice-v2-payload-attributes-request
+                        78
+                        (block-hash child-block)
+                        txpool-payload-attributes
+                        :safe (block-hash parent-block)
+                        :finalized (block-hash parent-block)))
+                      prepare-txpool-payload-output)
+                     (cons
+                      :txpool-get-payload
+                      get-txpool-payload-output)))
                   (public-requests
                     (let ((target (first balance-targets)))
                       (setf balance-address (getf target :address)
@@ -8756,8 +8786,11 @@ references/ checkouts.~%")
                   (invalid-auth-engine-served-p nil)
                   (duplicate-auth-engine-served-p nil)
                   (engine-root-wrong-path-served-p nil)
+                  (engine-pre-txpool-done-p nil)
                   (engine-done-p nil)
                   (public-served-count 0)
+                  (public-txpool-done-p nil)
+                  (post-prepared-txpool-content-served-p nil)
                   (public-root-wrong-path-served-p nil))
              (devnet-cli-set-node-store-config node store config)
              (engine-payload-store-put-block
@@ -8858,15 +8891,55 @@ references/ checkouts.~%")
                               :close-function
                               (lambda ()
                                 (incf engine-served-count)
-                                (when (= engine-served-count
-                                         +devnet-smoke-gate-engine-connections+)
-                                  (setf engine-done-p t))))))))
+                                (unless engine-requests
+                                  (setf engine-pre-txpool-done-p t))))))
+                           (post-public-engine-requests
+                            (loop until public-txpool-done-p
+                                  do (sleep 0.001))
+                            (destructuring-bind (body . output)
+                                (pop post-public-engine-requests)
+                              (let ((request-body
+                                      (if (eq body :txpool-get-payload)
+                                          (json-encode
+                                           (list
+                                            (cons "jsonrpc" "2.0")
+                                            (cons "id" 79)
+                                            (cons "method"
+                                                  "engine_getPayloadV2")
+                                            (cons "params"
+                                                  (list
+                                                   post-public-txpool-payload-id))))
+                                          body)))
+                                (make-engine-rpc-http-connection
+                                 :input-stream
+                                 (make-string-input-stream
+                                  (devnet-cli-json-rpc-http-request
+                                   request-body :token token))
+                                 :output-stream output
+                                 :close-function
+                                 (lambda ()
+                                   (incf engine-served-count)
+                                   (when (eq output
+                                             prepare-txpool-payload-output)
+                                     (setf
+                                      prepare-txpool-payload-response-cache
+                                      (get-output-stream-string
+                                       prepare-txpool-payload-output)
+                                      post-public-txpool-payload-id
+                                      (fixture-object-field
+                                       (fixture-object-field
+                                        (devnet-smoke-gate-rpc-body
+                                         prepare-txpool-payload-response-cache)
+                                        "result")
+                                       "payloadId")))
+                                   (unless post-public-engine-requests
+                                     (setf engine-done-p t)))))))))
                        :close-function (lambda () nil))
                       (make-engine-rpc-http-listener
                        :endpoint +devnet-smoke-gate-public-endpoint+
                        :accept-function
                        (lambda ()
-                         (loop until engine-done-p
+                         (loop until engine-pre-txpool-done-p
                                do (sleep 0.001))
                          (cond
                            ((not public-root-wrong-path-served-p)
@@ -8902,7 +8975,26 @@ references/ checkouts.~%")
                                 (devnet-cli-json-rpc-http-request body))
                                :output-stream output
                                :close-function
-                               (lambda () (incf public-served-count)))))))
+                               (lambda () (incf public-served-count)))))
+                           ((not post-prepared-txpool-content-served-p)
+                            (setf public-txpool-done-p t)
+                            (loop until engine-done-p
+                                  do (sleep 0.001))
+                            (setf post-prepared-txpool-content-served-p t)
+                            (make-engine-rpc-http-connection
+                             :input-stream
+                             (make-string-input-stream
+                              (devnet-cli-json-rpc-http-request
+                               (json-encode
+                                (list (cons "jsonrpc" "2.0")
+                                      (cons "id" 80)
+                                      (cons "method" "txpool_contentFrom")
+                                      (cons "params"
+                                            (list pending-transaction-sender-hex))))))
+                             :output-stream
+                             post-prepared-txpool-content-from-output
+                             :close-function
+                             (lambda () (incf public-served-count))))))
                       :close-function (lambda () nil))
                       :max-connections
                       +devnet-smoke-gate-public-connections+
@@ -8984,6 +9076,13 @@ references/ checkouts.~%")
                         (get-output-stream-string prepare-payload-output))
                       (get-payload-response
                         (get-output-stream-string get-payload-output))
+                      (prepare-txpool-payload-response
+                        (or prepare-txpool-payload-response-cache
+                            (get-output-stream-string
+                             prepare-txpool-payload-output)))
+                      (get-txpool-payload-response
+                        (get-output-stream-string
+                         get-txpool-payload-output))
                       (remote-payload-response
                         (get-output-stream-string remote-payload-output))
                       (invalid-payload-response
@@ -9092,6 +9191,9 @@ references/ checkouts.~%")
                          txpool-content-from-output))
                       (txpool-inspect-response
                         (get-output-stream-string txpool-inspect-output))
+                      (post-prepared-txpool-content-from-response
+                        (get-output-stream-string
+                         post-prepared-txpool-content-from-output))
                       (capabilities-rpc
                         (devnet-smoke-gate-rpc-body capabilities-response))
                       (client-version-rpc
@@ -9120,6 +9222,12 @@ references/ checkouts.~%")
                         (devnet-smoke-gate-rpc-body prepare-payload-response))
                       (get-payload-rpc
                         (devnet-smoke-gate-rpc-body get-payload-response))
+                      (prepare-txpool-payload-rpc
+                        (devnet-smoke-gate-rpc-body
+                         prepare-txpool-payload-response))
+                      (get-txpool-payload-rpc
+                        (devnet-smoke-gate-rpc-body
+                         get-txpool-payload-response))
                       (remote-payload-rpc
                         (devnet-smoke-gate-rpc-body remote-payload-response))
                       (invalid-payload-rpc
@@ -9245,6 +9353,9 @@ references/ checkouts.~%")
                          txpool-content-from-response))
                       (txpool-inspect-rpc
                         (devnet-smoke-gate-rpc-body txpool-inspect-response))
+                      (post-prepared-txpool-content-from-rpc
+                        (devnet-smoke-gate-rpc-body
+                         post-prepared-txpool-content-from-response))
                       (capabilities-result
                         (fixture-object-field capabilities-rpc "result"))
                       (client-version-result
@@ -9299,6 +9410,28 @@ references/ checkouts.~%")
                       (get-payload-transactions
                         (fixture-object-field
                          get-payload-execution-payload
+                         "transactions"))
+                      (prepare-txpool-payload-result
+                        (fixture-object-field prepare-txpool-payload-rpc
+                                              "result"))
+                      (prepare-txpool-payload-status
+                        (fixture-object-field
+                         prepare-txpool-payload-result
+                         "payloadStatus"))
+                      (prepared-txpool-payload-id
+                        (fixture-object-field
+                         prepare-txpool-payload-result
+                         "payloadId"))
+                      (get-txpool-payload-result
+                        (fixture-object-field get-txpool-payload-rpc
+                                              "result"))
+                      (get-txpool-payload-execution-payload
+                        (fixture-object-field
+                         get-txpool-payload-result
+                         "executionPayload"))
+                      (get-txpool-payload-transactions
+                        (fixture-object-field
+                         get-txpool-payload-execution-payload
                          "transactions"))
                       (remote-payload-result
                         (fixture-object-field remote-payload-rpc "result"))
@@ -9386,6 +9519,27 @@ references/ checkouts.~%")
                         (fixture-object-field
                          txpool-inspect-queued-sender
                          queued-transaction-nonce-key))
+                      (post-prepared-txpool-content-from
+                        (fixture-object-field
+                         post-prepared-txpool-content-from-rpc "result"))
+                      (post-prepared-txpool-content-from-pending
+                        (fixture-object-field
+                         post-prepared-txpool-content-from "pending"))
+                      (post-prepared-txpool-content-from-transaction
+                        (fixture-object-field
+                         post-prepared-txpool-content-from-pending
+                         pending-transaction-nonce-key))
+                      (post-prepared-txpool-content-from-queued
+                        (fixture-object-field
+                         post-prepared-txpool-content-from "queued"))
+                      (post-prepared-txpool-content-from-basefee-transaction
+                        (fixture-object-field
+                         post-prepared-txpool-content-from-queued
+                         basefee-transaction-nonce-key))
+                      (post-prepared-txpool-content-from-queued-transaction
+                        (fixture-object-field
+                         post-prepared-txpool-content-from-queued
+                         queued-transaction-nonce-key))
                   (expected-block-number
                     (fixture-object-field payload-case "number"))
                   (expected-prepared-block-number
@@ -9467,6 +9621,14 @@ references/ checkouts.~%")
                  (devnet-smoke-gate-require
                   (= 200 (devnet-cli-http-status get-payload-response))
                   "engine_getPayloadV2 HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status
+                          prepare-txpool-payload-response))
+                  "engine_forkchoiceUpdatedV2 txpool payloadAttributes HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status
+                          get-txpool-payload-response))
+                  "engine_getPayloadV2 txpool HTTP status mismatch")
                  (devnet-smoke-gate-require
                   (= 200 (devnet-cli-http-status remote-payload-response))
                   "orphan engine_newPayloadV2 HTTP status mismatch")
@@ -9642,6 +9804,10 @@ references/ checkouts.~%")
                   (= 200 (devnet-cli-http-status txpool-inspect-response))
                   "txpool_inspect HTTP status mismatch")
                  (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status
+                          post-prepared-txpool-content-from-response))
+                  "post-prepared txpool_contentFrom HTTP status mismatch")
+                 (devnet-smoke-gate-require
                   (member "engine_newPayloadV1"
                           capabilities-result
                           :test #'string=)
@@ -9807,6 +9973,53 @@ references/ checkouts.~%")
                  (devnet-smoke-gate-require
                   (listp get-payload-transactions)
                   "engine_getPayloadV2 transactions must be a JSON array")
+                 (devnet-smoke-gate-require
+                  (string= +payload-status-valid+
+                           (fixture-object-field
+                            prepare-txpool-payload-status
+                            "status"))
+                  "engine_forkchoiceUpdatedV2 txpool payloadAttributes status mismatch")
+                 (devnet-smoke-gate-require
+                  (and (stringp prepared-txpool-payload-id)
+                       (= 18 (length prepared-txpool-payload-id)))
+                  "engine_forkchoiceUpdatedV2 txpool did not return an 8-byte payloadId")
+                 (devnet-smoke-gate-require
+                  (not (fixture-object-field get-txpool-payload-rpc "error"))
+                  "engine_getPayloadV2 txpool returned an error: ~S"
+                  (fixture-object-field get-txpool-payload-rpc "error"))
+                 (devnet-smoke-gate-require
+                  (string= (hash32-to-hex (block-hash child-block))
+                           (fixture-object-field
+                            get-txpool-payload-execution-payload
+                            "parentHash"))
+                  "engine_getPayloadV2 txpool parentHash mismatch")
+                 (devnet-smoke-gate-require
+                  (string= expected-prepared-block-number
+                           (fixture-object-field
+                            get-txpool-payload-execution-payload
+                            "blockNumber"))
+                  "engine_getPayloadV2 txpool blockNumber mismatch")
+                 (devnet-smoke-gate-require
+                  (listp get-txpool-payload-transactions)
+                  "engine_getPayloadV2 txpool transactions must be a JSON array")
+                 (devnet-smoke-gate-require
+                  (= 1 (length get-txpool-payload-transactions))
+                  "engine_getPayloadV2 txpool should select exactly one executable transaction")
+                 (devnet-smoke-gate-require
+                  (member pending-transaction-raw
+                          get-txpool-payload-transactions
+                          :test #'string=)
+                  "engine_getPayloadV2 txpool omitted executable pending transaction")
+                 (devnet-smoke-gate-require
+                  (not (member basefee-transaction-raw
+                               get-txpool-payload-transactions
+                               :test #'string=))
+                  "engine_getPayloadV2 txpool selected underpriced basefee transaction")
+                 (devnet-smoke-gate-require
+                  (not (member queued-transaction-raw
+                               get-txpool-payload-transactions
+                               :test #'string=))
+                  "engine_getPayloadV2 txpool selected nonce-gapped queued transaction")
                  (devnet-smoke-gate-require
                   (string= +payload-status-syncing+
                            (fixture-object-field remote-payload-result
@@ -10103,6 +10316,24 @@ references/ checkouts.~%")
                            (fixture-object-field
                             txpool-content-from-queued-transaction "hash"))
                   "txpool_contentFrom queued hash mismatch")
+                 (devnet-smoke-gate-require
+                  (string= pending-transaction-hash-hex
+                           (fixture-object-field
+                            post-prepared-txpool-content-from-transaction
+                            "hash"))
+                  "post-prepared txpool_contentFrom pending hash mismatch")
+                 (devnet-smoke-gate-require
+                  (string= basefee-transaction-hash-hex
+                           (fixture-object-field
+                            post-prepared-txpool-content-from-basefee-transaction
+                            "hash"))
+                  "post-prepared txpool_contentFrom basefee hash mismatch")
+                 (devnet-smoke-gate-require
+                  (string= queued-transaction-hash-hex
+                           (fixture-object-field
+                            post-prepared-txpool-content-from-queued-transaction
+                            "hash"))
+                  "post-prepared txpool_contentFrom queued hash mismatch")
                  (devnet-smoke-gate-require
                   (string= pending-transaction-summary
                            txpool-inspect-transaction)
@@ -10570,6 +10801,34 @@ references/ checkouts.~%")
                          "blockNumber"))
                   (cons "engineGetPayloadV2TransactionCount"
                         (length get-payload-transactions))
+                  (cons "preparedTxpoolPayloadId"
+                        prepared-txpool-payload-id)
+                  (cons "engineGetPayloadV2TxpoolParentHash"
+                        (fixture-object-field
+                         get-txpool-payload-execution-payload
+                         "parentHash"))
+                  (cons "engineGetPayloadV2TxpoolBlockNumber"
+                        (fixture-object-field
+                         get-txpool-payload-execution-payload
+                         "blockNumber"))
+                  (cons "engineGetPayloadV2TxpoolTransactionCount"
+                        (length get-txpool-payload-transactions))
+                  (cons "engineGetPayloadV2TxpoolSelectedTransactionRaw"
+                        (first get-txpool-payload-transactions))
+                  (cons "engineGetPayloadV2TxpoolSelectedTransactionHash"
+                        pending-transaction-hash-hex)
+                  (cons "engineGetPayloadV2TxpoolSelectedStillPending"
+                        (fixture-object-field
+                         post-prepared-txpool-content-from-transaction
+                         "hash"))
+                  (cons "engineGetPayloadV2TxpoolNonSelectedBasefeeStillQueued"
+                        (fixture-object-field
+                         post-prepared-txpool-content-from-basefee-transaction
+                         "hash"))
+                  (cons "engineGetPayloadV2TxpoolNonSelectedQueuedStillQueued"
+                        (fixture-object-field
+                         post-prepared-txpool-content-from-queued-transaction
+                         "hash"))
                   (cons "remoteBlockHash" expected-remote-block-hash)
                   (cons "remoteBlockStatus"
                         (fixture-object-field remote-payload-result "status"))
@@ -12812,6 +13071,29 @@ references/ checkouts.~%")
                 (devnet-smoke-gate-field
                  report
                  "engineGetPayloadV2TransactionCount"))
+        (format t "preparedTxpoolPayloadId=~A~%"
+                (devnet-smoke-gate-field report
+                                         "preparedTxpoolPayloadId"))
+        (format t "engineGetPayloadV2TxpoolTransactionCount=~D~%"
+                (devnet-smoke-gate-field
+                 report
+                 "engineGetPayloadV2TxpoolTransactionCount"))
+        (format t "engineGetPayloadV2TxpoolSelectedTransactionHash=~A~%"
+                (devnet-smoke-gate-field
+                 report
+                 "engineGetPayloadV2TxpoolSelectedTransactionHash"))
+        (format t "engineGetPayloadV2TxpoolSelectedStillPending=~A~%"
+                (devnet-smoke-gate-field
+                 report
+                 "engineGetPayloadV2TxpoolSelectedStillPending"))
+        (format t "engineGetPayloadV2TxpoolNonSelectedBasefeeStillQueued=~A~%"
+                (devnet-smoke-gate-field
+                 report
+                 "engineGetPayloadV2TxpoolNonSelectedBasefeeStillQueued"))
+        (format t "engineGetPayloadV2TxpoolNonSelectedQueuedStillQueued=~A~%"
+                (devnet-smoke-gate-field
+                 report
+                 "engineGetPayloadV2TxpoolNonSelectedQueuedStillQueued"))
         (format t "remoteBlockHash=~A~%"
                 (devnet-smoke-gate-field report "remoteBlockHash"))
         (format t "remoteBlockStatus=~A~%"

@@ -329,7 +329,7 @@ ones.
     public-pending before import, plus a repeated-forkchoice cache regression
     where an empty prepared payload id remains stable while a later txpool
     backed preparation receives a distinct payload id.
-- [ ] `DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-SELECTION`: Extend the
+- [x] `DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-SELECTION`: Extend the
   standalone devnet smoke/process-runner path so txpool-backed prepared
   payload selection is proven across the real authenticated Engine/public RPC
   listener boundary.
@@ -347,6 +347,37 @@ ones.
     escalation, `git diff --check`, and `sbcl --script tests/run-tests.lisp`;
     use the full suite once after implementation and independent verifier
     review before commit.
+  - Result (2026-07-05): the standalone devnet smoke gate now stages public
+    txpool admission before a second authenticated Engine
+    `engine_forkchoiceUpdatedV2` / `engine_getPayloadV2` prepared-payload
+    probe. The JSON and text reports include the txpool-backed prepared
+    payload id, parent hash, block number, selected transaction raw bytes/hash,
+    and post-preparation public txpool visibility for the selected pending
+    transaction plus the non-selected basefee and nonce-gapped queued
+    transactions. The smoke harness uses the actual returned `payloadId` for
+    the follow-up `engine_getPayloadV2` request, avoiding duplicate local
+    payload-id logic in the process-boundary test. Focused standalone smoke,
+    `git diff --check`, and the full suite passed with `890 tests passed, 5
+    skipped`.
+- [ ] `DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-IMPORT`: Extend the
+  standalone devnet smoke/process-runner path so a txpool-backed prepared
+  payload can be imported and forkchoiced through authenticated Engine RPC,
+  proving selected transaction canonical visibility and txpool cleanup across
+  the real Engine/public listener boundary.
+  - Milestone: 7 / Phase B Hive process-runner readiness
+  - Dependencies:
+    `DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-SELECTION`,
+    `DEVNET-RUNNER-PREPARED-PAYLOAD-TXPOOL-SELECTION`.
+  - Acceptance: after retrieving a txpool-backed prepared payload, the smoke
+    gate imports it through `engine_newPayloadV2`, makes it canonical with
+    `engine_forkchoiceUpdatedV2`, verifies the selected transaction is visible
+    through public canonical transaction/receipt reads, verifies the mined
+    transaction is removed from public txpool views, verifies non-selected
+    txpool entries remain queued, and reports the evidence in JSON without
+    weakening existing empty-payload and listener lifecycle contracts.
+  - Validation: focused standalone smoke command with local socket/network
+    escalation, `git diff --check`, and `sbcl --script tests/run-tests.lisp`;
+    use independent verifier review before commit.
 - [x] `PINNED-V5.4.0-ROOT-SMOKE`: Rehydrate or configure an official
   `ethereum/execution-spec-tests` v5.4.0 `fixtures_stable.tar.gz` extraction,
   run `scripts/phase-a-smoke-gate.lisp -- --pinned-v5.4.0 --root PATH`, and
