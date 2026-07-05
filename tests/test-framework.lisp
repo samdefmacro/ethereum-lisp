@@ -26,11 +26,32 @@
    #:with-execution-spec-tests-blockchain-test-root
    #:with-execution-spec-tests-transaction-test-root
    #:with-execution-spec-tests-state-test-root
-   #:with-execution-spec-tests-trie-test-root))
+   #:with-execution-spec-tests-trie-test-root
+   #:repo-kzg-verifier-command))
 
 (in-package #:ethereum-lisp.test)
 
 (defvar *tests* '())
+
+(defparameter *repository-root*
+  (let ((source (or *load-truename* *compile-file-truename*)))
+    (if source
+        (uiop:ensure-directory-pathname
+         (merge-pathnames
+          #P"../"
+          (uiop:pathname-directory-pathname source)))
+        (uiop:ensure-directory-pathname (uiop:getcwd)))))
+
+(defun repository-relative-pathname (relative)
+  (merge-pathnames relative *repository-root*))
+
+(defparameter *repo-kzg-verifier-command*
+  (repository-relative-pathname #P"scripts/kzg-verifier.sh"))
+
+(defun repo-kzg-verifier-command ()
+  (or (probe-file *repo-kzg-verifier-command*)
+      (error "Missing repo KZG verifier command at ~A"
+             *repo-kzg-verifier-command*)))
 
 (defconstant +execution-spec-tests-fixture-root-env+
   "ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT")

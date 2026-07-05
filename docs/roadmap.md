@@ -717,39 +717,19 @@ Validation targets: geth `crypto`, Nethermind `Nethermind.Crypto` and
 
 - *Done:* Keccak-256, SHA-256, RIPEMD-160, bloom primitives,
   secp256k1 public-key/address recovery, transaction signature verification,
-  low-`s` sender-recovery helper, and EIP-4844 commitment versioned-hash
-  helpers.
-- *Partial:* KZG proof verification remains a stubbed boundary; callers that
-  require trusted-setup-backed proof verification fail explicitly. The concrete
-  blocker is external: the repository still needs a pinned c-kzg or equivalent
-  verifier binding, a pinned trusted-setup artifact path plus checksum, and a
-  canonical KZG vector source before the existing verifier hooks can be treated
-  as consensus proof verification. The hooks now also have command-backed
-  verifier adapters, so a pinned backend executable can be connected through an
-  explicit `point`/`blob` plus hex-argument protocol without changing the
-  consensus call sites. The devnet CLI can now install that command-backed
-  verifier for a single runner invocation with `--kzg-verifier-command` /
-  `--kzg.verifier-command`, reports the configured verifier and availability
-  in runner summaries/telemetry, accepts a positive
-  `--kzg-verifier-timeout` / `--kzg.verifier-timeout` override for the
-  subprocess bound, and restores prior hooks after exit so KZG capability
-  advertisement stays opt-in. Command-backed verifier calls are also
-  timeout-bounded with subprocess cleanup, so a hung external backend fails
-  proof verification instead of stalling the client process indefinitely. The
-  standalone `scripts/devnet-smoke-gate.lisp -- --engine-only-serve` path now
-  includes a `kzgOptIn` child report that exercises the subprocess runner,
-  readiness/stdout/telemetry reporting, and blob-era Engine capability
-  advertisement for that explicit command-backed opt-in path. The
-  runner-facing script-process opt-in also covers the geth/Hive-style
-  `--kzg.verifier-command` and `--kzg.verifier-timeout` aliases through a live
-  Engine-only capability negotiation, and `devnet --help` advertises both KZG
-  spellings. The standalone devnet smoke gate's `kzgOptIn` child now uses and
-  reports the dotted geth/Hive option names as well, so the reusable process
-  gate exercises the same alias surface.
+  low-`s` sender-recovery helper, EIP-4844 commitment versioned-hash
+  helpers, and repo-local trusted-setup-backed KZG proof verification through
+  the existing point/blob verifier hooks. The KZG path now vendors a pinned
+  `go-eth-kzg` helper plus `trusted_setup.json`, verifies the setup checksum at
+  runtime, replays canonical true/false point/blob vectors through blob
+  sidecars and the point-evaluation precompile, and remains explicitly opt-in
+  through `--kzg-verifier-command` / `--kzg.verifier-command` so process
+  boundary capability advertisement still reflects configured verifier
+  availability.
 - *Missing for Phase A:* none for Shanghai. Real KZG verification only blocks
   Phase A if Cancun blob execution is admitted into the gate.
-- *Next:* wire a trusted KZG backend before treating Cancun blob payloads as
-  executable consensus cases.
+- *Next:* widen blob-era prepared-payload process-boundary smoke now that the
+  verifier backend, pinned setup artifact, and canonical vectors are in-repo.
 
 Detailed historical implementation notes for this section now live in
 `docs/status.md` under "Section 1: Cryptographic Primitives".
@@ -772,9 +752,10 @@ Reth/Rust primitive transaction and block types.
   hashes, typed transaction sender recovery, EIP-7702 authorization authority
   recovery, withdrawals, logs, receipts, headers, block body roots, and
   fixture-backed transaction vector replay through the Shanghai Phase A set.
-- *Partial:* EIP-4844 blob sidecars and EIP-7702 set-code structures are
-  shape-checked beyond Shanghai, but full blob proof verification and later
-  fork execution semantics remain outside the Phase A gate.
+- *Partial:* EIP-4844 blob sidecars and EIP-7702 set-code structures are still
+  outside the default Shanghai Phase A gate, but real blob proof verification
+  is now available through the repo-local verifier opt-in; later-fork
+  execution semantics and blob-era process-boundary smoke remain to be widened.
 - *Missing for Phase A:* no consensus data-type blocker for the Shanghai
   smoke path.
 - *Next:* keep later-fork transaction families fixture-backed but outside

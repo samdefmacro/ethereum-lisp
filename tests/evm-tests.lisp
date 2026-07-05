@@ -2049,6 +2049,58 @@
              invalid-z-input)))
         (is (null called))))))
 
+(deftest evm-call-kzg-point-evaluation-replays-real-kzg-vector
+  (let ((script (repo-kzg-verifier-command)))
+    (labels ((point-input (commitment z y proof)
+               (let* ((versioned-hash
+                        (hash32-bytes
+                         (kzg-commitment-to-versioned-hash commitment)))
+                      (input
+                        (make-byte-vector
+                         ethereum-lisp.evm::+kzg-point-evaluation-input-size+)))
+                 (replace input versioned-hash :start1 0)
+                 (replace input z :start1 32)
+                 (replace input y :start1 64)
+                 (replace input commitment :start1 96)
+                 (replace input proof :start1 144)
+                 input)))
+      (let* ((valid-commitment
+               (hex-to-bytes
+                "0xa572cbea904d67468808c8eb50a9450c9721db309128012543902d0ac358a62ae28f75bb8f1c7c42c39a8c5529bf0f4e"))
+             (valid-z
+               (hex-to-bytes
+                "0x73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000000"))
+             (valid-y
+               (hex-to-bytes
+                "0x0000000000000000000000000000000000000000000000000000000000000002"))
+             (valid-proof
+               (hex-to-bytes
+                "0xc00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"))
+             (invalid-proof
+               (hex-to-bytes
+                "0xa7de1e32bb336b85e42ff5028167042188317299333f091dd88675e84a550577bfa564b2f57cd2498e2acf875e0aaa40"))
+             (valid-input
+               (point-input valid-commitment valid-z valid-y valid-proof))
+             (invalid-input
+               (point-input valid-commitment valid-z valid-y invalid-proof))
+             (old-point-verifier *kzg-point-proof-verifier*)
+             (old-blob-verifier *kzg-blob-proof-verifier*))
+        (unwind-protect
+             (progn
+               (configure-kzg-proof-command-verifiers (namestring script))
+               (multiple-value-bind (output gas)
+                   (ethereum-lisp.evm::run-kzg-point-evaluation-precompile
+                    valid-input)
+                 (is (= ethereum-lisp.evm::+kzg-point-evaluation-gas+ gas))
+                 (is (bytes=
+                      (ethereum-lisp.evm::kzg-point-evaluation-return-value)
+                      output)))
+               (signals ethereum-lisp.evm::evm-precompile-error
+                 (ethereum-lisp.evm::run-kzg-point-evaluation-precompile
+                  invalid-input)))
+          (setf *kzg-point-proof-verifier* old-point-verifier
+                *kzg-blob-proof-verifier* old-blob-verifier))))))
+
 (deftest evm-call-blake2f-precompile
   (let* ((state (make-state-db))
          (caller (address-from-hex "0x00000000000000000000000000000000000000aa"))

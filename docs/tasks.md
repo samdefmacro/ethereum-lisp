@@ -6495,7 +6495,7 @@ splits can land after the Phase A smoke path closes.
     cases that the cancellation model could not prove. Nethermind reference
     pin remains `1c72a72`.
 
-- [ ] Integrate real KZG proof verification.
+- [x] Integrate real KZG proof verification.
   - Milestone: 1 / 4 / 5
   - Dependencies: `PHASE-A-SCOPE-GATE`. Only blocks Phase A if the scope gate
     selects Cancun (or later) as the Phase A target fork; for the default
@@ -6519,79 +6519,19 @@ splits can land after the Phase A smoke path closes.
     checks.
     This records Cancun blob sidecars as shape/versioned-hash checked only,
     not Phase A VALID, under the current Shanghai scope.
-    Remaining work: wire c-kzg or another trusted-setup-backed verifier and
-    replay KZG proof vectors through blob sidecars and the point-evaluation
-    precompile.
-  - Progress: added explicit pluggable KZG verifier hooks for point proofs and
-    blob proofs. The point-evaluation precompile now validates the
-    versioned-hash match, calls the configured point-proof verifier, returns the
-    EIP-4844 success payload on true, and fails the precompile on unavailable
-    or false verification. Blob sidecar validation now calls the configured
-    blob-proof verifier when proof verification is required, while cell proofs
-    remain explicitly unavailable until a cell-proof verifier is wired. This
-    boundary mirrors the inspected geth `8a0223e` `VerifyProof` /
-    `VerifyBlobProof` split and Nethermind `1c72a72` point/blob verifier
-    entry points without claiming real proof verification yet.
-    Remaining work: provide the actual trusted-setup-backed c-kzg/FFI verifier
-    and replay canonical KZG vectors.
-  - Progress: tightened the KZG verifier boundary with canonical BLS field
-    element checks before verifier dispatch. Blob sidecars now reject blob
-    field elements greater than or equal to the BLS modulus during field
-    validation, and the point-evaluation path rejects non-canonical `z` / `y`
-    values before an injected verifier can accept them. This matches the
-    reference-client behavior where geth/Nethermind pass those values into KZG
-    libraries that reject non-canonical field elements.
-  - Blocker: real verification is waiting on an explicitly pinned backend and
-    setup source, not another local validation wrapper. The repository has no
-    c-kzg/FFI dependency, no pinned trusted-setup artifact path or checksum,
-    and no canonical KZG vector source recorded for replay. Until those three
-    inputs are added together, the current verifier hooks are the correct
-    boundary: Cancun blob sidecars and the point-evaluation precompile may be
-    shape/versioned-hash checked, but cannot be claimed as consensus-valid KZG
-    executions.
-  - Progress (2026-07-03): added command-backed verifier adapters for the
-    existing point-proof and blob-proof hooks. A configured verifier command
-    receives a mode (`point` or `blob`) plus hex-encoded proof inputs, and is
-    accepted only when it exits successfully and prints `true`, `ok`, `valid`,
-    or `1`. Tests use a local fake command to prove both hooks invoke the
-    adapter with canonicalized argument sizes and that rejected command output
-    fails verification. This makes the backend boundary executable while the
-    production c-kzg/trusted-setup/vector-source blocker remains open.
-  - Progress (2026-07-03): added a runner-facing
-    `--kzg-verifier-command PATH` / `--kzg.verifier-command PATH` devnet
-    option that installs the command-backed verifier hooks for the lifetime of
-    a devnet CLI invocation, reports the configured command and availability
-    in stdout/ready JSON and lifecycle telemetry, and restores the previous
-    verifier hooks after the invocation. Focused CLI coverage proves no-serve
-    runs expose the configured verifier boundary without leaking global KZG
-    availability into later runs. This lets Hive-style runner templates opt
-    into blob-era capability advertisement only when they explicitly provide a
-    verifier command; the production c-kzg/trusted-setup/vector-source blocker
-    remains open.
-  - Progress (2026-07-03): bounded command-backed verifier invocations with a
-    five-second timeout and process cleanup. The KZG command adapter now
-    launches verifier subprocesses through a pollable process handle, kills a
-    hung backend instead of blocking proof verification indefinitely, and keeps
-    successful/rejected command-output semantics unchanged. Core coverage uses
-    a sleeping fake verifier with the timeout rebound to zero to lock the
-    failure path without slowing the suite. The production
-    c-kzg/trusted-setup/vector-source blocker remains open.
-  - Progress (2026-07-03): exposed the command verifier timeout to Hive-style
-    devnet runners with `--kzg-verifier-timeout SECONDS` /
-    `--kzg.verifier-timeout SECONDS`. Runner summaries, readiness JSON, and
-    lifecycle telemetry now report the effective timeout when a verifier
-    command is configured, and CLI validation rejects malformed or non-positive
-    timeout values. The production c-kzg/trusted-setup/vector-source blocker
-    remains open.
-  - Progress (2026-07-03): extended the standalone
-    `scripts/devnet-smoke-gate.lisp -- --engine-only-serve` runner contract
-    with a `kzgOptIn` child report. The child launches a real
-    `scripts/ethereum-lisp.lisp -- devnet` subprocess with public HTTP
-    disabled, a fake executable verifier command, and
-    `--kzg-verifier-timeout 2`, then proves readiness/stdout/telemetry expose
-    the verifier boundary and that Engine capability exchange advertises the
-    blob-era KZG-gated methods only on that explicit opt-in path. The
-    production c-kzg/trusted-setup/vector-source blocker remains open.
+    At that stage the remaining work was to wire a trusted-setup-backed
+    verifier and replay canonical KZG proof vectors through blob sidecars and
+    the point-evaluation precompile.
+  - Result (2026-07-05): vendored a repo-local `go-eth-kzg` verifier helper
+    under `tools/kzg-verifier/`, pinned `trusted_setup.json` at SHA-256
+    `f8e44a31ebf0a6d0734dcb301b0716e2c77f3ae18ed0cab0870fbcc2ca55616f`,
+    and wired canonical point-proof/blob-proof vectors through the existing
+    command-backed point/blob verifier hooks. The repo-local
+    `scripts/kzg-verifier.sh` now replays true/false KZG vectors for blob
+    sidecars and the point-evaluation precompile without relying on ignored
+    reference checkouts, and validation passed with focused KZG regressions,
+    `git diff --check`, independent verifier `PASS`, and
+    `sbcl --script tests/run-tests.lisp` (`894 tests passed, 5 skipped`).
 
 - [x] Add EOF planning notes and fork gates.
   - Milestone: 4

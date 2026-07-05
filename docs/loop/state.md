@@ -247,33 +247,28 @@ Closed validation:
   `txpool_contentFrom` sender/nonce visibility before import, and stable
   import/canonicalization evidence for the replacement transaction.
 - `git diff --check` passed.
-- The first escalated `sbcl --script tests/run-tests.lisp` run failed because
-  restored-devnet and Phase A wrapper assertions still expected the old smoke
-  selection semantics and aggregate connection totals.
-- After updating the restored selected-transaction assertions and the Phase A
-  devnet-suite aggregate totals, focused direct coverage for
-  `DEVNET-SMOKE-GATE-SCRIPT-WRITES-READY-AND-LOG-FILES` and
-  `PHASE-A-SMOKE-GATE-SCRIPT-CAN-INCLUDE-DEVNET-SUITE` passed.
+- The stale `BLOCKED_EXTERNAL` KZG run contract was incorrect for this
+  checkout. The repository already had the local trusted setup source and Go
+  backend material needed to finish the real verifier slice, so the loop
+  consumed that pending contract as implementer work instead of emitting a new
+  blocker.
+- Real KZG proof verification is now repo-local and pinned through
+  `tools/kzg-verifier/` plus `scripts/kzg-verifier.sh`. The helper vendors the
+  required Go modules, embeds the trusted setup JSON, checks its SHA-256
+  (`f8e44a31ebf0a6d0734dcb301b0716e2c77f3ae18ed0cab0870fbcc2ca55616f`), and
+  exits nonzero on helper faults so infrastructure errors no longer collapse
+  into false proof results.
+- Focused KZG coverage passed after the helper changes:
+  `KZG-GO-ETHEREUM-COMMAND-VERIFIER-REPLAYS-CANONICAL-VECTORS`,
+  `BLOB-SIDECAR-FIELD-VALIDATION-REPLAYS-REAL-KZG-VECTOR`, and
+  `EVM-CALL-KZG-POINT-EVALUATION-REPLAYS-REAL-KZG-VECTOR`.
+- `git diff --check` passed, and independent verifier review returned `PASS`
+  after confirming the helper no longer depends on ignored checkouts or
+  machine-local absolute module-cache paths. Residual note: the helper still
+  requires a visible local Go toolchain because it runs `go run -mod=vendor`,
+  but that prerequisite is now explicit rather than hidden.
 - The final escalated `sbcl --script tests/run-tests.lisp` run passed with
-  `891 tests passed, 5 skipped`.
-- Independent verifier review returned `PASS`. Residual risks: restored-db
-  report field names still say `databaseRpcTxpoolPending*` even though the
-  restored selected transaction is now the imported replacement, and the
-  replacement path does not yet assert pending-filter or txpool-journal event
-  propagation.
-- Focused escalated standalone smoke for
-  `DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-REPLACEMENT-FIXTURE-BREADTH`
-  passed on current `main`:
-  `sbcl --script scripts/devnet-smoke-gate.lisp -- --json --all-fixtures`.
-  The suite reported `status: ok` across all seven pinned Shanghai runner
-  cases with aggregate `engineConnections=161`, `publicConnections=378`, and
-  `totalConnections=539`.
-- Existing CLI regression coverage in
-  `DEVNET-SMOKE-GATE-SCRIPT-RUNS-ALL-PINNED-FIXTURES` already asserts the
-  per-case replacement payload ids, replacement-only
-  `engine_getPayloadV2` transaction evidence, replacement-only
-  `txpool_contentFrom` visibility, and the suite connection contract, so this
-  run only synchronized stale loop docs.
+  `894 tests passed, 5 skipped`.
 
 ## Current Loop Migration
 
@@ -291,9 +286,9 @@ The old fixed heartbeat prompt is being replaced by a loop v2 process:
 
 ## Next Recommended Orchestrator Decision
 
-The next highest-value repository slice is `Integrate real KZG proof
-verification`, but it remains `BLOCKED_EXTERNAL` until the repository gains a
-pinned trusted-setup-backed verifier backend, a pinned trusted setup artifact
-path plus checksum, and a canonical KZG vector source. Until those inputs are
-available together, keep the next-run contract blocked instead of inventing
-lower-value unrelated work.
+The next highest-value repository slice is to widen blob-era prepared-payload
+process-boundary smoke now that real KZG verification is pinned in-repo. The
+best bounded follow-up is prepared-payload V3/V4 runner coverage that proves
+blob-era `engine_getPayloadV3/V4` selection and response paths under the
+repo-local verifier opt-in, before broadening into unrelated txpool or docs
+work.
