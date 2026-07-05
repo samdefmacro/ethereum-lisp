@@ -228,6 +228,10 @@ The old fixed heartbeat prompt is being replaced by a loop v2 process:
 - validation requirements live in `docs/loop/validation.md`;
 - one-run task contracts are generated from
   `docs/loop/next-run-template.md` into `docs/loop/next-run.md`.
+- validation now uses explicit gate tiers so test-only regressions and docs-only
+  loop changes do not pay the full-suite cost by default; full-suite runs are
+  reserved for broad production-code, consensus, persistence, or process-boundary
+  changes, plus a separate low-frequency verifier automation.
 
 ## Next Recommended Orchestrator Decision
 

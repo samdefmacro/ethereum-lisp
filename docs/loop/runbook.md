@@ -73,7 +73,8 @@ include:
 - expected behavior changes;
 - acceptance criteria;
 - narrow validation commands;
-- full-suite policy;
+- full-suite policy, including whether the slice is Tier 0, 1, 2, or 3 under
+  `docs/loop/validation.md`;
 - commit/push policy;
 - known blockers and escalation requirements.
 
@@ -101,15 +102,20 @@ Do not report budget exhaustion, partial tests, or model confidence as success.
 
 ## Validation Policy
 
-For non-doc code changes:
+For validation, apply the gate tiers in `docs/loop/validation.md`:
 
 1. Run focused tests or smoke gates while iterating.
-2. Run `sbcl --script tests/run-tests.lisp` once before commit.
-3. Do not rerun the full suite unless it failed, a fix was made, and the rerun
+2. Use `git diff --check` before staging.
+3. Run the full suite once before commit only for Tier 3 changes or Tier 2
+   changes whose production-code risk justifies it.
+4. Do not run the full suite for docs-only changes, and do not run it for
+   test-only regression additions unless the verifier identifies a concrete
+   broader risk.
+5. Do not rerun the full suite unless it failed, a fix was made, and the rerun
    is needed to verify that fix.
-4. For devnet/socket smoke gates, request the required local socket/network
-   escalation. Do not silently skip the gate.
-5. Use `git diff --check` before staging.
+6. For devnet/socket smoke gates, request the required local socket/network
+   escalation before running the gate. Do not spend time on a predictable
+   sandbox bind failure first.
 
 Docs-only loop changes do not require the full suite, but they should still
 avoid touching unrelated implementation files.

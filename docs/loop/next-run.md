@@ -133,6 +133,12 @@ Non-goals:
 
 ## Validation Plan
 
+Gate tier:
+
+- Tier 3: process-boundary devnet smoke path. This slice changes standalone
+  smoke behavior and runner-facing evidence, so the focused socket gate must
+  run with escalation and the full suite remains required before commit.
+
 Focused gates:
 
 - `sbcl --script scripts/devnet-smoke-gate.lisp -- --json`
@@ -142,6 +148,13 @@ Required pre-commit gates:
 - `git diff --check`
 - `sbcl --script tests/run-tests.lisp`
 - independent verifier `PASS`
+
+Full-suite policy:
+
+- Required for this slice because it changes process-boundary smoke coverage.
+- For future test-only regressions with no production or smoke-harness code
+  changes, follow Tier 1 in `docs/loop/validation.md` and do not require the
+  full suite unless verifier review identifies a concrete broader risk.
 
 Escalation requirements:
 

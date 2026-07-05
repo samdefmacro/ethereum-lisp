@@ -57,33 +57,41 @@ run.
 
 Allowed files/modules:
 
-- 
+-
 
 Expected behavior changes:
 
-- 
+-
 
 Non-goals:
 
-- 
+-
 
 ## Acceptance Criteria
 
-- 
+-
 
 ## Validation Plan
 
+Gate tier:
+
+-
+
 Focused gates:
 
-- 
+-
 
 Required pre-commit gates:
 
-- 
+-
+
+Full-suite policy:
+
+-
 
 Escalation requirements:
 
-- 
+-
 
 ## Commit And Push Policy
 
@@ -104,4 +112,3 @@ Escalation requirements:
 - Status:
 - Findings:
 - Residual risk:
-
