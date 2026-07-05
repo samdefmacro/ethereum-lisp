@@ -457,6 +457,14 @@
                  (fixture-object-field
                   report
                   "preparedPayloadBodiesByRangeV2BlockAccessList"))))
+  (is (= -38004
+         (fixture-object-field
+          report
+          "preparedPayloadBodiesByRangeV2OversizedErrorCode")))
+  (is (string= "The number of requested bodies must not exceed 1024"
+               (fixture-object-field
+                report
+                "preparedPayloadBodiesByRangeV2OversizedErrorMessage")))
   (let* ((commitment
            (fixture-object-field report "preparedPayloadV5Commitment"))
          (versioned-hash
@@ -519,9 +527,9 @@
                (fixture-object-field
                 report
                 "directCellProofLookupLastProofPrefix")))
-  (is (= 13 (fixture-object-field report "engineConnections")))
+  (is (= 14 (fixture-object-field report "engineConnections")))
   (is (= 0 (fixture-object-field report "publicConnections")))
-  (is (= 13 (fixture-object-field report "totalConnections"))))
+  (is (= 14 (fixture-object-field report "totalConnections"))))
 
 (defun devnet-cli-assert-public-readiness (report)
   (is (search "ethereum-lisp"

@@ -18,12 +18,13 @@ Last updated: 2026-07-06
 ## Current Dirty Work
 
 No intended dirty implementation work should remain after the current validated
-batch is committed and pushed. The latest completed slice is the sparse
-mixed-hit `engine_getPayloadBodiesByRangeV2` KZG opt-in runner proof; the next
-run spec should move forward from sparse success-path range coverage into
-invalid/oversized range-request handling at the same process boundary instead
-of revisiting already-proven V3/V4/V5/V6 payload envelopes, by-hash body
-retrieval, single-hit by-range proof, or direct blob/cell-proof lookup.
+batch is committed and pushed. The latest completed slice is the live
+oversized-count `engine_getPayloadBodiesByRangeV2` KZG opt-in runner proof;
+the next run spec should move forward from oversized range validation into the
+remaining non-positive `start` / `count` request boundary at the same process
+surface instead of revisiting already-proven V3/V4/V5/V6 payload envelopes,
+by-hash body retrieval, single-hit by-range proof, sparse mixed-hit success
+proof, or direct blob/cell-proof lookup.
 
 Closed behavior from the latest slice:
 
@@ -67,6 +68,15 @@ Closed behavior from the latest slice:
   `preparedPayloadBodiesByRangeV2HitIndex = 1`, so sparse ordering regressions
   are visible at the runner boundary without changing the thirteen-request KZG
   connection contract.
+- The same engine-only `kzgOptIn` smoke now also sends a live oversized
+  `engine_getPayloadBodiesByRangeV2` request with `count = 0x401`, proving the
+  existing `-38004` / "The number of requested bodies must not exceed 1024"
+  contract through the real listener path instead of only in-process tests.
+- The nested `kzgOptIn` report now records
+  `preparedPayloadBodiesByRangeV2OversizedErrorCode = -38004` and
+  `preparedPayloadBodiesByRangeV2OversizedErrorMessage`, and the nested KZG
+  connection/shutdown contract expands from thirteen to fourteen Engine
+  requests so the extra boundary probe is accounted for explicitly.
 - Positive `--dev.period DURATION` parses through the shared geth-style
   duration path and rejects malformed or negative values.
 - Devnet summaries, readiness data, and lifecycle telemetry report
@@ -477,11 +487,9 @@ The old fixed heartbeat prompt is being replaced by a loop v2 process:
 
 ## Next Recommended Orchestrator Decision
 
-The next highest-value repository slice is to widen blob-era
-process-boundary smoke from imported non-empty `engine_getPayloadV6`
-retrieval into live `engine_getPayloadBodiesByHashV2` runner proof under the
-repo-local verifier opt-in. The best bounded follow-up is to reuse the
-existing engine-only `kzgOptIn` seed path, request the imported Amsterdam-era
-block body by hash through the live listener, and prove the response carries
-the expected transaction list and block-access-list bytes before broadening
-into range-based payload-body variants or unrelated txpool/docs work.
+The next highest-value repository slice is to reuse the same engine-only
+`kzgOptIn` boundary and promote the remaining non-positive
+`engine_getPayloadBodiesByRangeV2` validation contract to the live listener.
+The best bounded follow-up is to prove `start = 0x0` and `count = 0x0`
+reject with the existing positive-number error envelope before widening into
+broader malformed-request shapes or unrelated blob-era runner work.
