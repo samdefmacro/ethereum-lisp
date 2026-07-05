@@ -1679,6 +1679,15 @@ ones.
     number, blob prefix/count, commitment, proof count, and the expanded
     six-request Engine connection contract, so blob-carrying payload-envelope
     regressions no longer hide behind empty V3/V4 bundle coverage.
+  - Result (2026-07-05): the same engine-only `kzgOptIn` child now seeds a
+    full-size blob/proof sidecar into both the prepared-payload database and
+    direct versioned-hash blob store, hardens the shared runner HTTP response
+    reader for large blob JSON bodies, and proves live `engine_getBlobsV1`
+    retrieval under verifier opt-in. The smoke report now records the
+    requested versioned hash plus the returned blob/proof prefixes and hex
+    lengths, and the expanded seven-request Engine connection contract, so
+    direct blob lookup regressions no longer hide behind
+    payload-envelope-only coverage.
 - [x] `DEVNET-RUNNER-KZG-ERROR-TELEMETRY`: Lock invalid KZG verifier
   configuration as a runner-facing startup failure.
   - Result (2026-07-03): `scripts/ethereum-lisp.lisp -- devnet` subprocess

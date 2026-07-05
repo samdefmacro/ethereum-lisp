@@ -729,14 +729,14 @@ Validation targets: geth `crypto`, Nethermind `Nethermind.Crypto` and
   authenticated `engine_forkchoiceUpdatedV3` / `engine_forkchoiceUpdatedV4`
   and `engine_getPayloadV3` / `engine_getPayloadV4` requests, and now imports
   a non-empty V5 prepared payload to prove blob-carrying `blobsBundle`
-  retrieval through live `engine_getPayloadV5` before widening into direct
-  blob-lookup cases.
+  retrieval through live `engine_getPayloadV5` and direct versioned-hash blob
+  retrieval through live `engine_getBlobsV1`.
 - *Missing for Phase A:* none for Shanghai. Real KZG verification only blocks
   Phase A if Cancun blob execution is admitted into the gate.
-- *Next:* widen the same process-boundary proof from imported non-empty
-  `engine_getPayloadV5` blob bundles to direct `engine_getBlobsV1`
-  retrieval, likely by hardening the shared runner HTTP reader for large blob
-  JSON bodies.
+- *Next:* widen the same process-boundary proof from direct
+  `engine_getBlobsV1` retrieval to `engine_getBlobsV2` / `engine_getBlobsV3`
+  cell-proof retrieval so the runner boundary proves both blob and
+  cell-proof response shapes under the same verifier opt-in.
 
 Detailed historical implementation notes for this section now live in
 `docs/status.md` under "Section 1: Cryptographic Primitives".

@@ -18,11 +18,11 @@ Last updated: 2026-07-05
 ## Current Dirty Work
 
 No intended dirty implementation work should remain after the current validated
-batch is committed and pushed. The latest completed slice is the blob-carrying
-KZG opt-in prepared-payload runner smoke expansion; the next run spec should
-move forward from imported non-empty `engine_getPayloadV5` bundle retrieval
-into direct blob lookup process-boundary coverage instead of revisiting empty
-bundle capability proof.
+batch is committed and pushed. The latest completed slice is the direct
+`engine_getBlobsV1` KZG opt-in runner proof; the next run spec should move
+forward from direct blob lookup into `engine_getBlobsV2` / `engine_getBlobsV3`
+cell-proof process-boundary coverage instead of revisiting V1 or payload
+envelope-only proof.
 
 Closed behavior from the latest slice:
 
@@ -132,6 +132,14 @@ Closed behavior from the latest slice:
   block number, blob prefix/count, commitment, proof count, and the expanded
   six-request Engine connection contract, so blob-carrying runner regressions
   are visible even when V3/V4 prepared payloads remain empty.
+- The same engine-only `kzgOptIn` child now seeds that blob sidecar into the
+  direct versioned-hash store, upgrades the shared runner HTTP reader to
+  buffered reads for large blob JSON bodies, and proves live
+  `engine_getBlobsV1` retrieval under verifier opt-in.
+- The KZG opt-in smoke report now also records the direct lookup versioned
+  hash, blob/proof prefixes and hex lengths, and the expanded seven-request
+  Engine connection contract, so direct blob lookup regressions are visible at
+  the process boundary instead of only through payload-envelope retrieval.
 
 Closed validation:
 
@@ -172,6 +180,16 @@ Closed validation:
   shape. Residual risk is now narrowed to direct
   `engine_getBlobsV1`/`V2`/`V3` runner proof and the shared HTTP reader's
   ability to handle full blob-response bodies.
+- Focused escalated standalone smoke for the direct blob lookup runner path
+  passed: `sbcl --script scripts/devnet-smoke-gate.lisp -- --engine-only-serve --json`.
+  The nested `kzgOptIn` report now includes the requested versioned hash plus
+  direct live `engine_getBlobsV1` blob/proof evidence with prefixes, full
+  blob/proof hex lengths, and seven Engine connections.
+- `git diff --check` passed.
+- Independent verifier review returned `PASS` after the direct-lookup smoke
+  tightened both keyed-hit and unknown-hash-miss assertions plus the full
+  report contract checks. Residual risk is now limited to direct
+  `engine_getBlobsV2` / `engine_getBlobsV3` cell-proof runner proof.
 
 - Focused dev-period coverage passed inside the full suite:
   `DEVNET-CLI-DEV-PERIOD-PARSES-AND-REPORTS-DURATION` and
@@ -342,10 +360,11 @@ The old fixed heartbeat prompt is being replaced by a loop v2 process:
 
 ## Next Recommended Orchestrator Decision
 
-The next highest-value repository slice is to widen blob-carrying blob-era
-process-boundary smoke from imported non-empty `engine_getPayloadV5`
-`blobsBundle` retrieval into direct `engine_getBlobsV1` runner proof under the
-repo-local verifier opt-in. The best bounded follow-up is to harden the shared
-test HTTP response reader for large blob JSON bodies and then add focused
-runner assertions for versioned-hash blob retrieval before broadening back
-into unrelated txpool or docs work.
+The next highest-value repository slice is to widen direct blob-era
+process-boundary smoke from `engine_getBlobsV1` into
+`engine_getBlobsV2` / `engine_getBlobsV3` cell-proof runner proof under the
+repo-local verifier opt-in. The best bounded follow-up is to seed one direct
+blob sidecar with full cell proofs, prove the live runner returns the expected
+proof cardinality and representative proof bytes, and keep the work scoped to
+the existing engine-only `kzgOptIn` path before broadening back into unrelated
+txpool or docs work.

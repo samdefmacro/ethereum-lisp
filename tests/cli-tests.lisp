@@ -344,15 +344,56 @@
                        4)))
   (is (string= "0x9"
                (fixture-object-field report "preparedPayloadV5BlockNumber")))
-  (is (string= "0x03dd"
+  (is (string= "0x03dd000000000000"
                (fixture-object-field report "preparedPayloadV5BlobPrefix")))
   (is (= 1 (fixture-object-field report "preparedPayloadV5BlobCount")))
-  (is (string= "0x04ee"
-               (fixture-object-field report "preparedPayloadV5Commitment")))
+  (let ((commitment
+          (fixture-object-field report "preparedPayloadV5Commitment")))
+    (is (= (+ 2 (* 2 +kzg-commitment-size+))
+           (length commitment)))
+    (is (string= "0x04ee"
+                 (subseq commitment 0 6)))
+    (is (string=
+         (concatenate
+          'string
+          "0x04ee"
+          (make-string (- (+ 2 (* 2 +kzg-commitment-size+)) 6)
+                       :initial-element #\0))
+         commitment)))
   (is (= 1 (fixture-object-field report "preparedPayloadV5ProofCount")))
-  (is (= 6 (fixture-object-field report "engineConnections")))
+  (let* ((commitment
+           (fixture-object-field report "preparedPayloadV5Commitment"))
+         (versioned-hash
+           (fixture-object-field report "directBlobLookupVersionedHash"))
+         (expected-versioned-hash
+           (hash32-to-hex
+            (kzg-commitment-to-versioned-hash
+             (hex-to-bytes commitment)))))
+    (is (stringp versioned-hash))
+    (is (= 66 (length versioned-hash)))
+    (is (string= expected-versioned-hash versioned-hash)))
+  (is (= 2 (fixture-object-field report "directBlobLookupCount")))
+  (is (string= "0x03dd000000000000"
+               (fixture-object-field report "directBlobLookupBlobPrefix")))
+  (is (= (+ 2 (* 2 +blob-byte-size+))
+         (fixture-object-field report "directBlobLookupBlobHexLength")))
+  (let ((proof (fixture-object-field report "directBlobLookupProof")))
+    (is (= (+ 2 (* 2 +kzg-proof-size+))
+           (length proof)))
+    (is (string=
+         (concatenate
+          'string
+          "0x05ff"
+          (make-string (- (+ 2 (* 2 +kzg-proof-size+)) 6)
+                       :initial-element #\0))
+         proof)))
+  (is (string= "0x05ff000000000000"
+               (fixture-object-field report "directBlobLookupProofPrefix")))
+  (is (= (+ 2 (* 2 +kzg-proof-size+))
+         (fixture-object-field report "directBlobLookupProofHexLength")))
+  (is (= 7 (fixture-object-field report "engineConnections")))
   (is (= 0 (fixture-object-field report "publicConnections")))
-  (is (= 6 (fixture-object-field report "totalConnections"))))
+  (is (= 7 (fixture-object-field report "totalConnections"))))
 
 (defun devnet-cli-assert-public-readiness (report)
   (is (search "ethereum-lisp"
@@ -5256,9 +5297,10 @@ HTTPPort = 1945
 
 (defun devnet-cli-read-stream-string (stream)
   (with-output-to-string (output)
-    (loop for char = (read-char stream nil nil)
-          while char
-          do (write-char char output))))
+    (let ((buffer (make-string 8192)))
+      (loop for count = (read-sequence buffer stream)
+            until (zerop count)
+            do (write-string buffer output :end count)))))
 
 #+sbcl
 (eval-when (:compile-toplevel :load-toplevel :execute)
