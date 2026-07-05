@@ -224,7 +224,7 @@ ones.
     escalated standalone devnet smoke gate, and the escalated full suite
     passed; the full suite covered 886 passing tests and 5 expected optional
     skips.
-- [ ] `DEVNET-RUNNER-DEV-PERIOD-SMOKE`: Lock `--dev.period` block production
+- [x] `DEVNET-RUNNER-DEV-PERIOD-SMOKE`: Lock `--dev.period` block production
   across the standalone process/devnet smoke boundary.
   - Milestone: 7 / Phase B Hive process-runner readiness
   - Dependencies: `DEVNET-RUNNER-DEV-PERIOD-TICK`.
@@ -236,6 +236,28 @@ ones.
     bounded and fail clearly if the period tick never seals the transaction.
   - Validation: focused escalated
     `sbcl --script scripts/devnet-smoke-gate.lisp -- --json` while iterating;
+    `git diff --check`; `sbcl --script tests/run-tests.lisp`.
+- Result (2026-07-05): the standalone devnet smoke gate now runs an
+  independent `--dev.period=1s` listener-boundary probe, submits a public raw
+  transaction, waits for the background period tick to seal it, and reports
+  runner-visible `devPeriod*` evidence for the mined transaction hash, block
+  number/hash, receipt block fields, post-mining `txpool_status`, empty
+  `eth_pendingTransactions`, and the bounded seven-public-connection probe.
+  The focused escalated
+  `sbcl --script scripts/devnet-smoke-gate.lisp -- --json` path passed.
+- [ ] `DEVNET-RUNNER-DEV-PERIOD-SELECTION`: Make local dev-period block
+  production select a bounded executable transaction set rather than blindly
+  attempting every recoverable pending transaction.
+  - Milestone: 7 / Phase B Hive process-runner readiness
+  - Dependencies: `DEVNET-RUNNER-DEV-PERIOD-TICK`,
+    `DEVNET-RUNNER-DEV-PERIOD-SMOKE`.
+  - Acceptance: the deterministic tick respects the child block gas limit when
+    choosing pending txpool transactions, mines transactions in stable
+    sender/nonce/hash order until the block is full, leaves transactions that
+    do not fit visible in pending txpool views for a later block, and still
+    indexes mined transactions/receipts correctly.
+  - Validation: focused CLI/dev-period tests while iterating; escalated
+    standalone devnet smoke if process-boundary behavior changes;
     `git diff --check`; `sbcl --script tests/run-tests.lisp`.
 - [x] `PINNED-V5.4.0-ROOT-SMOKE`: Rehydrate or configure an official
   `ethereum/execution-spec-tests` v5.4.0 `fixtures_stable.tar.gz` extraction,

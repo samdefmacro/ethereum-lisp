@@ -579,6 +579,32 @@
                                      "txpoolRejournalTransactionHash")))
   (is (string= "pending"
                (fixture-object-field report "txpoolRejournalSubpool")))
+  (is (= 1
+         (fixture-object-field report "devPeriodSeconds")))
+  (is (stringp
+       (fixture-object-field report "devPeriodTransactionHash")))
+  (is (string= (fixture-object-field report "devPeriodBlockNumber")
+               (fixture-object-field
+                report "devPeriodReceiptBlockNumber")))
+  (is (string= (fixture-object-field report "devPeriodBlockHash")
+               (fixture-object-field report "devPeriodReceiptBlockHash")))
+  (is (string= "0x0"
+               (fixture-object-field report "devPeriodTransactionIndex")))
+  (is (string= "0x0"
+               (fixture-object-field
+                report "devPeriodTxpoolStatusPending")))
+  (is (string= "0x0"
+               (fixture-object-field
+                report "devPeriodTxpoolStatusQueued")))
+  (is (= 0
+         (fixture-object-field
+          report "devPeriodPendingTransactionCount")))
+  (is (= 0
+         (fixture-object-field report "devPeriodEngineConnections")))
+  (is (= 7
+         (fixture-object-field report "devPeriodPublicConnections")))
+  (is (= 7
+         (fixture-object-field report "devPeriodTotalConnections")))
   (is (string= (fixture-object-field report "txpoolBasefeeTransactionHash")
                (fixture-object-field report "databaseRpcTxpoolBasefeeHash")))
   (is (string= (fixture-object-field report "txpoolBasefeeTransactionRaw")

@@ -1302,9 +1302,12 @@ first pass, but interfaces must not block that path.
   Cancun blob-gas and parent-beacon-root fields, Prague execution requests,
   and Amsterdam block access lists, and advances public latest-state reads,
   transaction lookup, receipt lookup, and pending txpool visibility for mined
-  transactions; standalone process-smoke coverage for the background tick
-  remains the next Phase B runner-readiness gap. Startup summaries and
-  lifecycle telemetry report
+  transactions. The standalone devnet smoke gate now locks the background tick
+  across the runner boundary by submitting a public transaction, waiting for a
+  mined block, and reporting mined transaction, receipt, and post-mining
+  txpool cleanup evidence. The next Phase B block-production gap is bounded
+  multi-transaction selection under the child block gas limit. Startup
+  summaries and lifecycle telemetry report
   `headGasLimit` and `coinbase` for process-runner checks. The runner-facing
   script also accepts direct geth/Hive-shaped launch lines whose option stream
   starts immediately after `--` without an explicit `devnet` token; serve-mode
