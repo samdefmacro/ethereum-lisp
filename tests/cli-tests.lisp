@@ -457,6 +457,22 @@
                  (fixture-object-field
                   report
                   "preparedPayloadBodiesByRangeV2BlockAccessList"))))
+  (is (= -32602
+         (fixture-object-field
+          report
+          "preparedPayloadBodiesByRangeV2ZeroStartErrorCode")))
+  (is (string= "start and count must be positive numbers"
+               (fixture-object-field
+                report
+                "preparedPayloadBodiesByRangeV2ZeroStartErrorMessage")))
+  (is (= -32602
+         (fixture-object-field
+          report
+          "preparedPayloadBodiesByRangeV2ZeroCountErrorCode")))
+  (is (string= "start and count must be positive numbers"
+               (fixture-object-field
+                report
+                "preparedPayloadBodiesByRangeV2ZeroCountErrorMessage")))
   (is (= -38004
          (fixture-object-field
           report
@@ -527,9 +543,9 @@
                (fixture-object-field
                 report
                 "directCellProofLookupLastProofPrefix")))
-  (is (= 14 (fixture-object-field report "engineConnections")))
+  (is (= 16 (fixture-object-field report "engineConnections")))
   (is (= 0 (fixture-object-field report "publicConnections")))
-  (is (= 14 (fixture-object-field report "totalConnections"))))
+  (is (= 16 (fixture-object-field report "totalConnections"))))
 
 (defun devnet-cli-assert-public-readiness (report)
   (is (search "ethereum-lisp"

@@ -19,12 +19,12 @@ Last updated: 2026-07-06
 
 No intended dirty implementation work should remain after the current validated
 batch is committed and pushed. The latest completed slice is the live
-oversized-count `engine_getPayloadBodiesByRangeV2` KZG opt-in runner proof;
-the next run spec should move forward from oversized range validation into the
-remaining non-positive `start` / `count` request boundary at the same process
-surface instead of revisiting already-proven V3/V4/V5/V6 payload envelopes,
-by-hash body retrieval, single-hit by-range proof, sparse mixed-hit success
-proof, or direct blob/cell-proof lookup.
+non-positive `engine_getPayloadBodiesByRangeV2` KZG opt-in runner proof; the
+next run spec should move forward from zero-start/zero-count validation into a
+broader malformed quantity or params-envelope request boundary at the same
+process surface instead of revisiting already-proven V3/V4/V5/V6 payload
+envelopes, by-hash body retrieval, single-hit by-range proof, sparse mixed-hit
+success proof, oversized-count rejection, or direct blob/cell-proof lookup.
 
 Closed behavior from the latest slice:
 
@@ -77,6 +77,18 @@ Closed behavior from the latest slice:
   `preparedPayloadBodiesByRangeV2OversizedErrorMessage`, and the nested KZG
   connection/shutdown contract expands from thirteen to fourteen Engine
   requests so the extra boundary probe is accounted for explicitly.
+- The same engine-only `kzgOptIn` smoke now also sends live zero-start and
+  zero-count `engine_getPayloadBodiesByRangeV2` requests, proving the existing
+  `-32602` / "start and count must be positive numbers" contract through the
+  real listener path instead of only in-process tests.
+- The nested `kzgOptIn` report now records
+  `preparedPayloadBodiesByRangeV2ZeroStartErrorCode = -32602`,
+  `preparedPayloadBodiesByRangeV2ZeroStartErrorMessage`,
+  `preparedPayloadBodiesByRangeV2ZeroCountErrorCode = -32602`, and
+  `preparedPayloadBodiesByRangeV2ZeroCountErrorMessage`, and the nested KZG
+  connection/shutdown contract expands from fourteen to sixteen Engine
+  requests so both positive-number boundary probes are accounted for
+  explicitly.
 - Positive `--dev.period DURATION` parses through the shared geth-style
   duration path and rejects malformed or negative values.
 - Devnet summaries, readiness data, and lifecycle telemetry report
@@ -488,8 +500,9 @@ The old fixed heartbeat prompt is being replaced by a loop v2 process:
 ## Next Recommended Orchestrator Decision
 
 The next highest-value repository slice is to reuse the same engine-only
-`kzgOptIn` boundary and promote the remaining non-positive
-`engine_getPayloadBodiesByRangeV2` validation contract to the live listener.
-The best bounded follow-up is to prove `start = 0x0` and `count = 0x0`
-reject with the existing positive-number error envelope before widening into
-broader malformed-request shapes or unrelated blob-era runner work.
+`kzgOptIn` boundary and promote one broader malformed
+`engine_getPayloadBodiesByRangeV2` quantity or params-envelope rejection to the
+live listener. The best bounded follow-up is to prove a malformed quantity
+shape such as a bad hex `start` or `count` string rejects with the existing
+JSON-RPC invalid-params envelope before widening into unrelated blob-era
+runner work.

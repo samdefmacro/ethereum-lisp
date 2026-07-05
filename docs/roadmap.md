@@ -750,12 +750,15 @@ Validation targets: geth `crypto`, Nethermind `Nethermind.Crypto` and
   body and `blockAccessList`. It also now proves the live oversized
   `count > 1024` error contract, recording the expected `-38004` and
   "must not exceed 1024" evidence in the nested report while expanding the KZG
-  connection contract to fourteen Engine requests. The non-KZG capability
+  connection contract to fourteen Engine requests. The same runner path now
+  also proves zero-start and zero-count requests reject with the existing
+  `-32602` / "start and count must be positive numbers" envelope, recording
+  both zero-start and zero-count error fields while expanding the KZG
+  connection contract to sixteen Engine requests. The non-KZG capability
   matrix still explicitly keeps `engine_getPayloadBodiesByRangeV2` hidden.
-- *Next:* promote the remaining non-positive `start` / `count`
-  `engine_getPayloadBodiesByRangeV2` validation contract to the same process
-  boundary before widening into broader malformed-request coverage or other
-  blob-era runner surface.
+- *Next:* promote one broader malformed quantity or params-envelope
+  `engine_getPayloadBodiesByRangeV2` rejection contract to the same process
+  boundary before widening into unrelated blob-era runner surface.
 
 Detailed historical implementation notes for this section now live in
 `docs/status.md` under "Section 1: Cryptographic Primitives".

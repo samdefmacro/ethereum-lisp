@@ -3290,7 +3290,7 @@ references/ checkouts.~%")
                         "--pid-file"
                         (namestring pid-path)
                         "--max-connections"
-                        "14"
+                        "16"
                         "--json")
                   :directory #P"/private/tmp/"
                   :output :stream
@@ -3525,6 +3525,40 @@ references/ checkouts.~%")
                   (get-payload-bodies-range-v2-result
                     (fixture-object-field get-payload-bodies-range-v2-rpc
                                           "result"))
+                  (get-payload-bodies-range-v2-zero-start-response
+                    (devnet-cli-http-endpoint-request
+                     engine-endpoint
+                     (devnet-cli-json-rpc-http-request
+                      (get-payload-bodies-by-range-request
+                       729
+                       "engine_getPayloadBodiesByRangeV2"
+                       "0x0"
+                       "0x1"))))
+                  (get-payload-bodies-range-v2-zero-start-rpc
+                    (parse-json
+                     (devnet-cli-http-body
+                      get-payload-bodies-range-v2-zero-start-response)))
+                  (get-payload-bodies-range-v2-zero-start-error
+                    (fixture-object-field
+                     get-payload-bodies-range-v2-zero-start-rpc
+                     "error"))
+                  (get-payload-bodies-range-v2-zero-count-response
+                    (devnet-cli-http-endpoint-request
+                     engine-endpoint
+                     (devnet-cli-json-rpc-http-request
+                      (get-payload-bodies-by-range-request
+                       730
+                       "engine_getPayloadBodiesByRangeV2"
+                       payload-bodies-range-v2-start-block
+                       "0x0"))))
+                  (get-payload-bodies-range-v2-zero-count-rpc
+                    (parse-json
+                     (devnet-cli-http-body
+                      get-payload-bodies-range-v2-zero-count-response)))
+                  (get-payload-bodies-range-v2-zero-count-error
+                    (fixture-object-field
+                     get-payload-bodies-range-v2-zero-count-rpc
+                     "error"))
                   (get-payload-bodies-range-v2-oversized-response
                     (devnet-cli-http-endpoint-request
                      engine-endpoint
@@ -3949,6 +3983,60 @@ references/ checkouts.~%")
               "KZG opt-in engine_getPayloadBodiesByRangeV2 blockAccessList mismatch")
              (devnet-smoke-gate-require
               (= 200 (devnet-cli-http-status
+                      get-payload-bodies-range-v2-zero-start-response))
+              "KZG opt-in zero-start engine_getPayloadBodiesByRangeV2 HTTP status mismatch")
+             (devnet-smoke-gate-require
+              get-payload-bodies-range-v2-zero-start-error
+              "KZG opt-in zero-start engine_getPayloadBodiesByRangeV2 unexpectedly returned success: ~S"
+              get-payload-bodies-range-v2-zero-start-rpc)
+             (devnet-smoke-gate-require
+              (= -32602
+                 (fixture-object-field
+                  get-payload-bodies-range-v2-zero-start-error
+                  "code"))
+              "KZG opt-in zero-start engine_getPayloadBodiesByRangeV2 error code mismatch: ~S"
+              get-payload-bodies-range-v2-zero-start-error)
+             (devnet-smoke-gate-require
+              (string= "start and count must be positive numbers"
+                       (fixture-object-field
+                        get-payload-bodies-range-v2-zero-start-error
+                        "message"))
+              "KZG opt-in zero-start engine_getPayloadBodiesByRangeV2 error message mismatch: ~S"
+              get-payload-bodies-range-v2-zero-start-error)
+             (devnet-smoke-gate-require
+              (not (field-present-p get-payload-bodies-range-v2-zero-start-rpc
+                                    "result"))
+              "KZG opt-in zero-start engine_getPayloadBodiesByRangeV2 should not include a success result: ~S"
+              get-payload-bodies-range-v2-zero-start-rpc)
+             (devnet-smoke-gate-require
+              (= 200 (devnet-cli-http-status
+                      get-payload-bodies-range-v2-zero-count-response))
+              "KZG opt-in zero-count engine_getPayloadBodiesByRangeV2 HTTP status mismatch")
+             (devnet-smoke-gate-require
+              get-payload-bodies-range-v2-zero-count-error
+              "KZG opt-in zero-count engine_getPayloadBodiesByRangeV2 unexpectedly returned success: ~S"
+              get-payload-bodies-range-v2-zero-count-rpc)
+             (devnet-smoke-gate-require
+              (= -32602
+                 (fixture-object-field
+                  get-payload-bodies-range-v2-zero-count-error
+                  "code"))
+              "KZG opt-in zero-count engine_getPayloadBodiesByRangeV2 error code mismatch: ~S"
+              get-payload-bodies-range-v2-zero-count-error)
+             (devnet-smoke-gate-require
+              (string= "start and count must be positive numbers"
+                       (fixture-object-field
+                        get-payload-bodies-range-v2-zero-count-error
+                        "message"))
+              "KZG opt-in zero-count engine_getPayloadBodiesByRangeV2 error message mismatch: ~S"
+              get-payload-bodies-range-v2-zero-count-error)
+             (devnet-smoke-gate-require
+              (not (field-present-p get-payload-bodies-range-v2-zero-count-rpc
+                                    "result"))
+              "KZG opt-in zero-count engine_getPayloadBodiesByRangeV2 should not include a success result: ~S"
+              get-payload-bodies-range-v2-zero-count-rpc)
+             (devnet-smoke-gate-require
+              (= 200 (devnet-cli-http-status
                       get-payload-bodies-range-v2-oversized-response))
               "KZG opt-in oversized engine_getPayloadBodiesByRangeV2 HTTP status mismatch")
              (devnet-smoke-gate-require
@@ -4151,7 +4239,7 @@ references/ checkouts.~%")
                                              :test #'string=)))
                         "KZG opt-in log proof availability mismatch")))
                    (devnet-smoke-gate-require
-                    (string= "14"
+                    (string= "16"
                              (cdr (assoc "engineConnections"
                                          shutdown-fields
                                          :test #'string=)))
@@ -4163,7 +4251,7 @@ references/ checkouts.~%")
                                          :test #'string=)))
                     "KZG opt-in shutdown public connection count mismatch")
                    (devnet-smoke-gate-require
-                    (string= "14"
+                    (string= "16"
                              (cdr (assoc "totalConnections"
                                          shutdown-fields
                                          :test #'string=)))
@@ -4351,6 +4439,22 @@ references/ checkouts.~%")
                           (cons "preparedPayloadBodiesByRangeV2BlockAccessList"
                                 (fixture-object-field payload-body-range-v2
                                                       "blockAccessList"))
+                          (cons "preparedPayloadBodiesByRangeV2ZeroStartErrorCode"
+                                (fixture-object-field
+                                 get-payload-bodies-range-v2-zero-start-error
+                                 "code"))
+                          (cons "preparedPayloadBodiesByRangeV2ZeroStartErrorMessage"
+                                (fixture-object-field
+                                 get-payload-bodies-range-v2-zero-start-error
+                                 "message"))
+                          (cons "preparedPayloadBodiesByRangeV2ZeroCountErrorCode"
+                                (fixture-object-field
+                                 get-payload-bodies-range-v2-zero-count-error
+                                 "code"))
+                          (cons "preparedPayloadBodiesByRangeV2ZeroCountErrorMessage"
+                                (fixture-object-field
+                                 get-payload-bodies-range-v2-zero-count-error
+                                 "message"))
                           (cons "preparedPayloadBodiesByRangeV2OversizedErrorCode"
                                 (fixture-object-field
                                  get-payload-bodies-range-v2-oversized-error
@@ -4397,9 +4501,9 @@ references/ checkouts.~%")
                                 (hex-prefix
                                  (car (last direct-blob-v2-proofs))
                                  8))
-                          (cons "engineConnections" 14)
+                          (cons "engineConnections" 16)
                           (cons "publicConnections" 0)
-                          (cons "totalConnections" 14))))))))
+                          (cons "totalConnections" 16))))))))
       (when (and process (uiop:process-alive-p process))
         (uiop:terminate-process process))
       (when (and database-path (probe-file database-path))

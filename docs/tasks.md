@@ -1763,6 +1763,23 @@ ones.
     --check`, and independent verifier review passed. Residual risk is now
     limited to the non-positive `start` / `count` validation edge and any
     broader malformed-request envelope drift at the same runner boundary.
+  - Result (2026-07-06): the same engine-only `kzgOptIn` child now also sends
+    live zero-start and zero-count `engine_getPayloadBodiesByRangeV2`
+    requests, proving the existing `-32602` / "start and count must be
+    positive numbers" contract at the runner boundary instead of only through
+    in-process validation. The smoke assertions now fail clearly if either
+    live request returns success, omits the error, changes the documented
+    code/message, or includes a spurious success `result`; the nested report
+    records `preparedPayloadBodiesByRangeV2ZeroStartErrorCode`,
+    `preparedPayloadBodiesByRangeV2ZeroStartErrorMessage`,
+    `preparedPayloadBodiesByRangeV2ZeroCountErrorCode`, and
+    `preparedPayloadBodiesByRangeV2ZeroCountErrorMessage`; and the nested KZG
+    connection/shutdown contract expands from fourteen to sixteen Engine
+    requests. Focused escalated smoke, direct escalated
+    `DEVNET-SMOKE-GATE-SCRIPT-ENGINE-ONLY-SERVE-MODE` coverage, `git diff
+    --check`, and independent verifier review passed. Residual risk is now
+    limited to broader malformed quantity/params envelope drift at the same
+    runner boundary.
 - [x] `DEVNET-RUNNER-KZG-ERROR-TELEMETRY`: Lock invalid KZG verifier
   configuration as a runner-facing startup failure.
   - Result (2026-07-03): `scripts/ethereum-lisp.lisp -- devnet` subprocess
