@@ -11,70 +11,43 @@
 
 ## Orientation Summary
 
-- Git state: this run is expected to start after
-  `ENGINE-PREPARED-PAYLOAD-TXPOOL-REPLACEMENT-CACHE` has been committed and
-  pushed to `origin/main`.
-- Recent commits reviewed: prepared-payload txpool selection/import work and
-  dev-period txpool mining slices are already on `main`.
-- Relevant task/roadmap anchors: Phase B local devnet / Engine RPC
-  process-runner readiness remains the highest-value roadmap track.
-- Relevant loop state: in-process Engine RPC coverage now proves that a valid
-  same-sender/same-nonce public txpool replacement changes the prepared payload
-  id and `engine_getPayloadV1` contents for same-head/same-attributes
-  preparation. The remaining gap is proving the same boundary across the real
-  split Engine/public listener smoke path.
+- Git state: this run is expected to start after `Smoke prepared payload txpool replacement` has been committed and pushed to `origin/main`.
+- Recent commits reviewed: prepared-payload txpool selection/import work, the in-process replacement-cache slice, and the standalone replacement smoke slice are already on `main`.
+- Relevant task/roadmap anchors: Phase B local devnet / Engine RPC process-runner readiness remains the highest-value roadmap track; the next process-boundary gap is widening replacement-smoke breadth across the pinned Shanghai smoke table.
+- Relevant loop state: the standalone split Engine/public smoke path now proves same-sender/same-nonce replacement refreshes the prepared-payload cache, changes the payload id, and preserves replacement-only public/canonical evidence. The remaining gap is fixture breadth across the current all-fixtures runner table.
 
 ## Candidate Ranking
 
 ### Candidate A
 
-- Objective: implement
-  `DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-REPLACEMENT`, promoting the
-  txpool replacement prepared-payload cache boundary to the standalone devnet
-  process-runner smoke gate.
-- Value: high; it turns the just-locked Engine RPC invariant into
-  runner-facing evidence across authenticated Engine and public RPC listeners.
-- Risk: medium; it touches the standalone smoke harness and JSON/text report
-  assertions, but should reuse the existing V2 txpool-backed prepared-payload
-  import flow.
-- Required validation: focused standalone devnet smoke with local
-  socket/network escalation, `git diff --check`, full suite once, and
-  independent verifier review.
+- Objective: implement `DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-REPLACEMENT-FIXTURE-BREADTH`, reusing the now-green replacement workflow across the current pinned Shanghai all-fixtures smoke table.
+- Value: high; it extends an executable runner-boundary contract across the existing fixture breadth without widening fork scope.
+- Risk: medium; it touches the standalone smoke harness and aggregate report/test expectations, but should reuse the already validated single-fixture replacement path.
+- Required validation: focused escalated all-fixtures devnet smoke, `git diff --check`, and independent verifier review; full suite only if production code changes or verifier flags broader risk.
 - Decision: selected.
-- Reason: it directly advances executable Phase B process behavior and closes
-  the current residual process-boundary gap without requiring KZG or far-fork
-  support.
+- Reason: it is the narrowest follow-up that materially improves runner-facing confidence while preserving the current Shanghai/V2 scope.
 
 ### Candidate B
 
-- Objective: add process-boundary smoke coverage for V3/V4 prepared payload
-  variants.
-- Value: medium; useful later-fork coverage after the Shanghai V2 path is
-  robust.
-- Risk: medium-high because blob-era Engine capability advertisement is
-  intentionally KZG-gated and far-fork payload bodies can widen scope.
-- Required validation: focused devnet smoke and full suite.
+- Objective: add process-boundary smoke coverage for V3/V4 prepared-payload variants.
+- Value: medium; useful later-fork coverage once the Shanghai replacement path is broad and stable.
+- Risk: medium-high because blob/KZG-gated capability boundaries can widen scope or force fallback logic.
+- Required validation: focused devnet smoke, likely full suite if production code changes.
 - Decision: defer.
-- Reason: the replacement-cache V2 boundary is narrower, executable now, and
-  follows directly from the just-added in-process regression.
+- Reason: the all-fixtures Shanghai replacement breadth is a tighter continuation of the current slice and avoids premature far-fork expansion.
 
 ### Candidate C
 
-- Objective: classify remaining official v5.4.0 fixture drift.
-- Value: medium; useful consensus map, but less directly tied to local devnet
-  executable client behavior.
-- Risk: low-medium.
-- Required validation: classifier smoke and Phase A smoke gate if selectors
-  change.
+- Objective: integrate a real trusted-setup-backed KZG verifier through the existing point/blob proof hooks.
+- Value: high strategically, but broader than the current runner-boundary thread.
+- Risk: high; backend pinning, setup artifact management, and proof-vector replay make this a larger vertical slice.
+- Required validation: KZG vector coverage and full suite.
 - Decision: defer.
-- Reason: Phase B process-runner readiness remains the strategic priority.
+- Reason: it is the right next frontier after the current runner-boundary table is more complete, but it is not the narrowest executable follow-up for the next single run.
 
 ## Selected Objective
 
-Implement `DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-REPLACEMENT`: extend
-the standalone devnet smoke/process-runner path so a valid same-sender/same-
-nonce public txpool replacement refreshes the txpool-backed prepared-payload
-cache across the real authenticated Engine/public RPC listener split.
+Implement `DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-REPLACEMENT-FIXTURE-BREADTH`: widen the standalone split Engine/public replacement-cache smoke path across the current pinned Shanghai all-fixtures runner table while preserving the existing bounded single-fixture contract.
 
 ## Scope
 
@@ -93,97 +66,68 @@ Allowed files/modules:
 
 Expected behavior changes:
 
-- The standalone smoke gate admits an executable public transaction, prepares
-  and retrieves a txpool-backed payload through authenticated
-  `engine_forkchoiceUpdatedV2` / `engine_getPayloadV2`, then admits a valid
-  same-sender/same-nonce replacement before importing the first prepared
-  payload.
-- Repeating the same-head/same-attributes Engine preparation returns a distinct
-  second payload id.
-- The second retrieved payload includes the replacement raw transaction and
-  excludes the original raw transaction.
-- Public `txpool_contentFrom` before import exposes only the replacement at
-  that sender/nonce.
-- JSON/text smoke output reports the two payload ids, replacement raw
-  transaction/hash evidence, and txpool sender/nonce replacement evidence.
+- `scripts/devnet-smoke-gate.lisp -- --json --all-fixtures` reuses the replacement-cache workflow for each current pinned Shanghai smoke fixture.
+- Each per-case result preserves original and replacement payload-id evidence plus replacement-only public/canonical transaction evidence.
+- Aggregate connection totals and suite-level assertions remain coherent across the expanded case table.
 
 Non-goals:
 
-- Do not change txpool replacement price-bump policy unless this smoke exposes
-  a direct bug.
-- Do not widen V3/V4 or KZG-gated Engine coverage.
-- Do not alter listener lifecycle, JWT auth, or public/Engine namespace
-  separation except to preserve existing smoke contracts.
-- Do not broaden official fixture pins.
+- Do not widen V3/V4 or blob-era Engine coverage.
+- Do not change txpool replacement price-bump policy unless the all-fixtures smoke exposes a direct correctness bug.
+- Do not rename restored-db report fields unless the naming drift blocks the acceptance criteria.
+- Do not broaden official fixture pins beyond the current pinned Shanghai smoke table.
 
 ## Acceptance Criteria
 
-- Focused standalone smoke proves the original txpool-backed prepared payload
-  contains the original raw transaction.
-- The same smoke admits a valid replacement and proves the second same-head/
-  same-attributes prepared payload has a distinct payload id.
-- The second `engine_getPayloadV2` result contains the replacement raw
-  transaction and not the original raw transaction.
-- Public txpool sender/nonce visibility before import exposes the replacement
-  and not the old transaction.
-- Existing txpool-backed prepared-payload selection/import smoke evidence
-  remains stable.
-- Full suite passes once after implementation.
+- The all-fixtures standalone smoke path proves the original txpool-backed prepared payload and the replacement payload-id refresh for each current pinned Shanghai smoke case.
+- The repeated same-head/same-attributes preparation returns a distinct second payload id per case.
+- The replacement `engine_getPayloadV2` result includes the replacement raw transaction and excludes the original raw transaction per case.
+- Public txpool sender/nonce visibility before import exposes only the replacement per case.
+- Existing single-fixture replacement smoke evidence and connection-contract expectations remain stable.
 - Independent verifier reviews the final diff before commit.
 
 ## Validation Plan
 
 Gate tier:
 
-- Tier 3: process-boundary devnet smoke path. This slice changes standalone
-  smoke behavior and runner-facing evidence, so the focused socket gate must
-  run with escalation and the full suite remains required before commit.
+- Tier 2 if the run stays in smoke/test/docs scope; escalate to Tier 3 only if a production listener/txpool path needs a real fix.
 
 Focused gates:
 
-- `sbcl --script scripts/devnet-smoke-gate.lisp -- --json`
+- `sbcl --script scripts/devnet-smoke-gate.lisp -- --json --all-fixtures`
 
 Required pre-commit gates:
 
 - `git diff --check`
-- `sbcl --script tests/run-tests.lisp`
 - independent verifier `PASS`
 
 Full-suite policy:
 
-- Required for this slice because it changes process-boundary smoke coverage.
-- For future test-only regressions with no production or smoke-harness code
-  changes, follow Tier 1 in `docs/loop/validation.md` and do not require the
-  full suite unless verifier review identifies a concrete broader risk.
+- Not required when the run stays in smoke-harness, report, and test-assertion scope.
+- Required once before commit if production code changes in shared Engine/public RPC, txpool, or core prepared-payload paths, or if verifier review identifies a broader regression risk.
 
 Escalation requirements:
 
-- Request local socket/network escalation for the standalone devnet smoke gate
-  and for the full suite if local socket/devnet tests require it under the
-  sandbox.
+- Request local socket/network escalation before the all-fixtures devnet smoke gate.
+- If a production-code fix is needed and triggers the full-suite policy, request escalation for the full suite instead of spending time on a predictable sandbox bind failure.
 
 ## Commit And Push Policy
 
-- Commit allowed: yes, only after deterministic gates and verifier review pass.
+- Commit allowed: yes, after applicable deterministic gates and verifier review pass.
 - Push allowed: yes, after commit if remote authentication is available.
-- Commit message: `Smoke prepared payload txpool replacement`
+- Commit message: `Widen replacement smoke fixture coverage`
 
 ## Blockers
 
 - No current git synchronization blocker.
-- If the smoke harness cannot admit a valid replacement through public RPC
-  without destabilizing the existing prepared-payload import flow, stop with
-  `BLOCKED_DEVNET_REPLACEMENT_SMOKE_FIXTURE` and document the exact fixture or
-  harness gap.
+- If the all-fixtures replacement workflow cannot be reused without exposing a real fixture-specific production bug, stop with `BLOCKED_REPLACEMENT_ALL_FIXTURES_DRIFT` and record the exact failing fixture family plus the observed divergence.
 
 ## Implementer Notes
 
 - Derive the current task from this file, not from stale heartbeat text.
-- Reuse the existing txpool-backed prepared-payload selection/import smoke
-  workflow where possible.
-- Keep the replacement check before importing the first prepared payload so the
-  same parent/head attributes can expose prepared-payload cache refresh.
-- Preserve existing report fields unless a field is intentionally extended.
+- Prefer reusing the already green single-fixture replacement workflow over introducing a second replacement-specific code path.
+- Keep aggregate connection-contract updates synchronized between standalone smoke output, Phase A wrapper expectations, and CLI JSON assertions.
+- If a failure turns out to be stale smoke/test accounting rather than a client bug, keep the fix in the harness/assertions and do not broaden production scope.
 
 ## Verifier Result
 

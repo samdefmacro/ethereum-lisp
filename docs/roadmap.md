@@ -1338,9 +1338,14 @@ first pass, but interfaces must not block that path.
   count: the second same-head/same-attributes preparation gets a distinct
   payload id, `engine_getPayloadV1` returns only the replacement raw
   transaction, and `txpool_contentFrom` exposes only the replacement at that
-  sender/nonce. The next Phase B process-runner gap is promoting that
-  replacement-cache boundary to the standalone split Engine/public listener
-  smoke path and reporting its evidence for Hive-style runner checks.
+  sender/nonce. The standalone split Engine/public listener smoke path now
+  proves the same replacement-cache boundary across the authenticated runner
+  surface: it reports the original and replacement payload ids, replacement
+  raw transaction/hash evidence, replacement-only `txpool_contentFrom`
+  visibility before import, and stable post-import canonical/txpool cleanup
+  evidence. The next Phase B process-runner gap is widening that replacement
+  path across the current all-fixtures Shanghai smoke table without regressing
+  the bounded runner contract.
   Startup
   summaries and lifecycle telemetry report
   `headGasLimit` and `coinbase` for process-runner checks. The runner-facing

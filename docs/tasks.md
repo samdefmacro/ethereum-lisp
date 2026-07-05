@@ -414,7 +414,7 @@ ones.
     replacement at that sender/nonce, proves the second prepared payload id is
     distinct, and proves `engine_getPayloadV1` returns the replacement raw
     transaction while excluding the original raw transaction.
-- [ ] `DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-REPLACEMENT`: Extend the
+- [x] `DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-REPLACEMENT`: Extend the
   standalone devnet smoke/process-runner path so the same-sender/same-nonce
   txpool replacement prepared-payload cache boundary is proven across the real
   authenticated Engine/public RPC listener split.
@@ -435,6 +435,41 @@ ones.
     socket/network escalation, `git diff --check`,
     `sbcl --script tests/run-tests.lisp`, and independent verifier review
     before commit.
+  - Result (2026-07-05): the standalone split Engine/public listener smoke
+    path now admits an executable public txpool transaction, prepares and
+    retrieves a txpool-backed payload, admits a valid same-sender/same-nonce
+    replacement before import, and repeats the same-head/same-attributes
+    preparation to prove the replacement path gets a distinct second payload
+    id. The second `engine_getPayloadV2` result now reports only the
+    replacement raw transaction/hash, public `txpool_contentFrom` at the
+    sender/nonce exposes only the replacement before import, and the smoke
+    import/canonicalization path proves the replacement transaction becomes the
+    imported canonical transaction while non-selected basefee and queued
+    entries remain queued. The smoke/report connection contract increased to
+    `engineConnections=23`, `publicConnections=54`, and `totalConnections=77`
+    per single fixture case. Required validation passed: focused escalated
+    `sbcl --script scripts/devnet-smoke-gate.lisp -- --json`,
+    `git diff --check`, final escalated
+    `sbcl --script tests/run-tests.lisp` (`891 tests passed, 5 skipped`), and
+    independent verifier `PASS`.
+- [ ] `DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-REPLACEMENT-FIXTURE-BREADTH`:
+  Widen the standalone replacement-cache smoke path across the current pinned
+  Shanghai all-fixtures runner table.
+  - Milestone: 7 / Phase B Hive process-runner readiness.
+  - Dependencies:
+    `DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-REPLACEMENT`,
+    `PINNED-V5.4.0-ROOT-SMOKE`.
+  - Acceptance: `scripts/devnet-smoke-gate.lisp -- --json --all-fixtures`
+    reuses the standalone split Engine/public replacement workflow for each
+    pinned Shanghai smoke fixture, preserves the original and replacement
+    payload-id/transaction evidence per case, keeps the aggregate connection
+    contract coherent across the full case table, and does not regress the
+    existing bounded single-fixture runner contract.
+  - Validation: focused escalated
+    `sbcl --script scripts/devnet-smoke-gate.lisp -- --json --all-fixtures`,
+    `git diff --check`, and independent verifier review; run
+    `sbcl --script tests/run-tests.lisp` once only if production code changes
+    or verifier review identifies broader risk beyond the smoke/test harness.
 - [x] `PINNED-V5.4.0-ROOT-SMOKE`: Rehydrate or configure an official
   `ethereum/execution-spec-tests` v5.4.0 `fixtures_stable.tar.gz` extraction,
   run `scripts/phase-a-smoke-gate.lisp -- --pinned-v5.4.0 --root PATH`, and

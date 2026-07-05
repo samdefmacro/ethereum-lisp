@@ -19,9 +19,9 @@ Last updated: 2026-07-05
 
 No intended dirty implementation work should remain after the current validated
 batch is committed and pushed. The latest completed slice is
-`ENGINE-PREPARED-PAYLOAD-TXPOOL-REPLACEMENT-CACHE`; the next run spec is
+`DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-REPLACEMENT`; the next run spec is
 prepared for
-`DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-REPLACEMENT`.
+`DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-REPLACEMENT-FIXTURE-BREADTH`.
 
 Closed behavior from the latest slice:
 
@@ -94,6 +94,19 @@ Closed behavior from the latest slice:
   `engine_getPayloadV1` returns only the replacement raw transaction, and
   `txpool_contentFrom` exposes only the replacement at that sender/nonce before
   import.
+- The standalone devnet smoke gate now promotes that same-sender/same-nonce
+  replacement-cache boundary to the real split Engine/public listener path.
+  It prepares and retrieves a txpool-backed payload, admits a valid
+  replacement before import, repeats the same-head/same-attributes Engine
+  preparation to prove the second payload id changes, and reports replacement
+  raw transaction/hash evidence.
+- The standalone replacement smoke now proves public `txpool_contentFrom` at
+  the sender/nonce exposes only the replacement transaction before import even
+  though the original prepared payload was already cached.
+- The same standalone smoke now imports and canonicalizes the replacement
+  prepared payload and proves the restored canonical transaction/receipt/raw
+  transaction evidence follows the replacement transaction while non-selected
+  basefee and queued entries remain queued.
 
 Closed validation:
 
@@ -218,6 +231,29 @@ Closed validation:
 - Independent verifier review returned `PASS`. Residual risk: coverage is
   intentionally in-process and V1-only; the split public/Engine listener and
   V2 smoke boundary is documented as the next run.
+- Focused escalated standalone smoke for
+  `DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-REPLACEMENT` passed:
+  `sbcl --script scripts/devnet-smoke-gate.lisp -- --json`. Key report fields
+  include distinct `preparedTxpoolPayloadId` and
+  `preparedReplacementTxpoolPayloadId`, replacement-only
+  `engine_getPayloadV2` transaction evidence, replacement-only
+  `txpool_contentFrom` sender/nonce visibility before import, and stable
+  import/canonicalization evidence for the replacement transaction.
+- `git diff --check` passed.
+- The first escalated `sbcl --script tests/run-tests.lisp` run failed because
+  restored-devnet and Phase A wrapper assertions still expected the old smoke
+  selection semantics and aggregate connection totals.
+- After updating the restored selected-transaction assertions and the Phase A
+  devnet-suite aggregate totals, focused direct coverage for
+  `DEVNET-SMOKE-GATE-SCRIPT-WRITES-READY-AND-LOG-FILES` and
+  `PHASE-A-SMOKE-GATE-SCRIPT-CAN-INCLUDE-DEVNET-SUITE` passed.
+- The final escalated `sbcl --script tests/run-tests.lisp` run passed with
+  `891 tests passed, 5 skipped`.
+- Independent verifier review returned `PASS`. Residual risks: restored-db
+  report field names still say `databaseRpcTxpoolPending*` even though the
+  restored selected transaction is now the imported replacement, and the
+  replacement path does not yet assert pending-filter or txpool-journal event
+  propagation.
 
 ## Current Loop Migration
 
@@ -236,9 +272,7 @@ The old fixed heartbeat prompt is being replaced by a loop v2 process:
 ## Next Recommended Orchestrator Decision
 
 The next highest-value Phase B slice is
-`DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-REPLACEMENT`: promote the
-same-sender/same-nonce replacement-cache boundary from in-process Engine RPC
-coverage to the standalone split Engine/public listener smoke path, report the
-two payload ids, replacement raw transaction evidence, and public txpool
-sender/nonce visibility, and keep existing txpool-backed prepared-payload
-selection/import evidence stable.
+`DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-REPLACEMENT-FIXTURE-BREADTH`:
+widen the now-green standalone replacement-cache smoke path across the current
+all-fixtures Shanghai runner table, keeping the bounded single-fixture runner
+contract stable while proving aggregate replacement evidence case-by-case.
