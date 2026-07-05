@@ -9,6 +9,7 @@
 (defconstant +devnet-cli-txpool-private-key+ 1)
 (defconstant +devnet-cli-txpool-balance+ 1000000000000000000)
 (defconstant +devnet-cli-txpool-gas-price+ 200)
+(defconstant +devnet-cli-txpool-pending-gas-price+ 1000000000)
 (defconstant +devnet-cli-txpool-basefee-gas-price+ 0)
 (defconstant +devnet-cli-txpool-gas-limit+ 21000)
 (defconstant +devnet-cli-txpool-value+ 1)
@@ -102,6 +103,27 @@
     (let ((string (make-string (file-length stream))))
       (read-sequence string stream)
       string)))
+
+(defun devnet-cli-funded-txpool-genesis-json ()
+  (let* ((genesis (parse-json
+                   (devnet-cli-file-string +devnet-cli-genesis-fixture+)))
+         (state (state-db-from-genesis-json-file
+                 +devnet-cli-genesis-fixture+))
+         (sender (devnet-cli-txpool-sender-address))
+         (alloc (fixture-object-field genesis "alloc"))
+         (account
+           (list (cons "balance"
+                       (quantity-to-hex +devnet-cli-txpool-balance+))
+                 (cons "nonce" "0x0"))))
+    (state-db-set-account
+     state
+     sender
+     (make-state-account :nonce 0 :balance +devnet-cli-txpool-balance+))
+    (setf (cdr (assoc "stateRoot" genesis :test #'string=))
+          (hash32-to-hex (state-db-root state)))
+    (setf (cdr (assoc "alloc" genesis :test #'string=))
+          (append alloc (list (cons (address-to-hex sender) account))))
+    (json-encode genesis)))
 
 (defun devnet-cli-pid-file-process-id (path)
   (parse-integer
@@ -3146,6 +3168,156 @@
       (when (probe-file database-path)
         (delete-file database-path)))))
 
+(deftest devnet-cli-txpool-journal-persists-pending-transactions
+  (let ((journal-path
+          (devnet-cli-temp-path "ethereum-lisp-devnet-txpool-journal" "sexp"))
+        (genesis-path
+          (devnet-cli-temp-path "ethereum-lisp-devnet-txpool-genesis" "json")))
+    (unwind-protect
+         (progn
+           (devnet-cli-write-temp-file
+            genesis-path
+            (devnet-cli-funded-txpool-genesis-json))
+           (let* ((seed-node
+                  (ethereum-lisp.cli:make-devnet-node
+                   :genesis-path (namestring genesis-path)
+                   :port 0
+                   :txpool-journal-path (namestring journal-path)))
+                (seed-store (ethereum-lisp.cli:devnet-node-store seed-node))
+                (transaction
+                  (devnet-cli-txpool-transaction
+                   (ethereum-lisp.cli:devnet-node-config seed-node)
+                   0
+                   +devnet-cli-txpool-pending-gas-price+))
+                (transaction-hash (transaction-hash transaction)))
+           (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+            seed-store
+            transaction)
+           (ethereum-lisp.cli::devnet-node-export-database seed-node)
+           (let ((journal (make-file-key-value-database journal-path)))
+             (is (= 1 (length (kv-chain-record-entries journal :txpool)))))
+           (let* ((restored-node
+                    (ethereum-lisp.cli:make-devnet-node
+                     :genesis-path (namestring genesis-path)
+                     :port 0
+                     :txpool-journal-path (namestring journal-path)))
+                  (restored-store
+                    (ethereum-lisp.cli:devnet-node-store restored-node))
+                  (summary
+                    (ethereum-lisp.cli:devnet-node-summary restored-node))
+                  (summary-json
+                    (ethereum-lisp.cli::devnet-node-summary-json-object
+                     restored-node)))
+             (is (string= (namestring journal-path)
+                          (getf summary :txpool-journal-path)))
+             (is (string= (namestring journal-path)
+                          (cdr (assoc "txpoolJournalPath"
+                                      summary-json
+                                      :test #'string=))))
+             (is (bytes= (transaction-encoding transaction)
+                         (transaction-encoding
+                          (ethereum-lisp.core::engine-payload-store-pending-transaction
+                           restored-store
+                           transaction-hash)))))))
+      (when (probe-file journal-path)
+        (delete-file journal-path))
+      (when (probe-file genesis-path)
+        (delete-file genesis-path)))))
+
+(deftest devnet-cli-txpool-journal-coexists-with-database-restore
+  (let ((database-path
+          (devnet-cli-temp-path "ethereum-lisp-devnet-txpool-database" "sexp"))
+        (journal-path
+          (devnet-cli-temp-path "ethereum-lisp-devnet-txpool-journal" "sexp"))
+        (genesis-path
+          (devnet-cli-temp-path "ethereum-lisp-devnet-txpool-genesis" "json")))
+    (unwind-protect
+         (progn
+           (devnet-cli-write-temp-file
+            genesis-path
+            (devnet-cli-funded-txpool-genesis-json))
+           (let* ((seed-node
+                    (ethereum-lisp.cli:make-devnet-node
+                     :genesis-path (namestring genesis-path)
+                     :port 0
+                     :database-path (namestring database-path)
+                     :txpool-journal-path (namestring journal-path)))
+                  (seed-store
+                    (ethereum-lisp.cli:devnet-node-store seed-node))
+                  (transaction
+                    (devnet-cli-txpool-transaction
+                     (ethereum-lisp.cli:devnet-node-config seed-node)
+                     0
+                     +devnet-cli-txpool-pending-gas-price+))
+                  (transaction-hash (transaction-hash transaction)))
+             (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+              seed-store
+              transaction)
+             (ethereum-lisp.cli::devnet-node-export-database seed-node)
+             (is (= 1
+                    (length
+                     (kv-chain-record-entries
+                      (make-file-key-value-database database-path)
+                      :txpool))))
+             (is (= 1
+                    (length
+                     (kv-chain-record-entries
+                      (make-file-key-value-database journal-path)
+                      :txpool))))
+             (let* ((restored-node
+                      (ethereum-lisp.cli:make-devnet-node
+                       :genesis-path (namestring genesis-path)
+                       :port 0
+                       :database-path (namestring database-path)
+                       :txpool-journal-path (namestring journal-path)))
+                    (restored-store
+                      (ethereum-lisp.cli:devnet-node-store restored-node)))
+               (is (bytes= (transaction-encoding transaction)
+                           (transaction-encoding
+                            (ethereum-lisp.core::engine-payload-store-pending-transaction
+                             restored-store
+                             transaction-hash)))))))
+      (when (probe-file database-path)
+        (delete-file database-path))
+      (when (probe-file journal-path)
+        (delete-file journal-path))
+      (when (probe-file genesis-path)
+        (delete-file genesis-path)))))
+
+(deftest devnet-cli-txpool-journal-rejects-wrong-chain-transactions
+  (let ((journal-path
+          (devnet-cli-temp-path "ethereum-lisp-devnet-txpool-bad-chain"
+                                "sexp")))
+    (unwind-protect
+         (let* ((config
+                  (chain-config-from-genesis-json-file
+                   +devnet-cli-genesis-fixture+))
+                (transaction
+                  (fixture-sign-legacy-transaction
+                   (make-legacy-transaction
+                    :nonce 0
+                    :gas-price +devnet-cli-txpool-gas-price+
+                    :gas-limit +devnet-cli-txpool-gas-limit+
+                    :to (address-from-hex +devnet-cli-txpool-recipient+)
+                    :value +devnet-cli-txpool-value+)
+                   +devnet-cli-txpool-private-key+
+                   (1+ (chain-config-chain-id config))))
+                (journal (make-file-key-value-database journal-path)))
+           (kv-put-chain-record
+            journal
+            :txpool
+            (hash32-bytes (transaction-hash transaction))
+            (ethereum-lisp.core::chain-store-txpool-transaction-record-rlp
+             :pending
+             transaction))
+           (signals block-validation-error
+             (ethereum-lisp.cli:make-devnet-node
+              :genesis-path +devnet-cli-genesis-fixture+
+              :port 0
+              :txpool-journal-path (namestring journal-path))))
+      (when (probe-file journal-path)
+        (delete-file journal-path)))))
+
 (deftest devnet-cli-main-json-summary-and-ready-file
   (let ((jwt-path (devnet-cli-temp-path "ethereum-lisp-devnet-jwt" "hex"))
         (ready-path (devnet-cli-temp-path "ethereum-lisp-devnet-ready" "json"))
@@ -3455,6 +3627,7 @@
            (merge-pathnames "ethereum-lisp-chain.sexp" datadir))
          (jwt-path (merge-pathnames "jwt.hex" root))
          (config-path (merge-pathnames "geth.toml" root))
+         (journal-path (merge-pathnames "txpool-journal.sexp" root))
          (output (make-string-output-stream))
          (errors (make-string-output-stream)))
     (unwind-protect
@@ -3469,6 +3642,7 @@
                      AccountSlots = 3~%GlobalSlots = 4~%~
                      AccountQueue = 9~%GlobalQueue = 12~%~
                      Lifetime = \"3h0m0s\"~%~
+                     Journal = ~S~%~
                      Locals = [\"0x0000000000000000000000000000000000000001\", ~
                      \"0x0000000000000000000000000000000000000002\"]~%~
                      NoLocals = true~%~
@@ -3481,6 +3655,7 @@
                      AuthAddr = \"192.0.2.42\"~%AuthPort = 1951~%~
                      AuthVirtualHosts = [\"engine.example\", \"localhost\"]~%~
                      JWTSecret = ~S~%"
+                    (namestring journal-path)
                     (namestring datadir)
                     (namestring jwt-path)))
            (is (= 0
@@ -3507,6 +3682,9 @@
              (is (= 12 (fixture-object-field summary "txpoolGlobalQueue")))
              (is (= 10800
                     (fixture-object-field summary "txpoolLifetimeSeconds")))
+             (is (string= (namestring journal-path)
+                          (fixture-object-field summary
+                                                "txpoolJournalPath")))
              (is (equal '("0x0000000000000000000000000000000000000001"
                           "0x0000000000000000000000000000000000000002")
                         (fixture-object-field summary "txpoolLocals")))
@@ -3528,6 +3706,8 @@
                         (fixture-object-field summary "engineVhosts")))))
       (when (probe-file database-path)
         (delete-file database-path))
+      (when (probe-file journal-path)
+        (delete-file journal-path))
       (when (probe-file jwt-path)
         (delete-file jwt-path))
       (when (probe-file config-path)
@@ -3795,55 +3975,66 @@ HTTPPort = 1945
                                          "rpcEndpoint"))))))
 
 (deftest devnet-cli-main-accepts-geth-style-txpool-and-database-flags
-  (let ((output (make-string-output-stream))
+  (let ((journal-path
+          (devnet-cli-temp-path "ethereum-lisp-devnet-geth-txpool" "sexp"))
+        (output (make-string-output-stream))
         (errors (make-string-output-stream)))
-    (is (= 0
-           (ethereum-lisp.cli:main
-            (list "devnet"
-                  (format nil "--genesis=~A" +devnet-cli-genesis-fixture+)
-                  "--db.engine=pebble"
-                  "--state.scheme=hash"
-                  "--datadir.ancient=/tmp/ethereum-lisp-ancient"
-                  "--rpc.allow-unprotected-txs=true"
-                  "--txpool.locals=0x0000000000000000000000000000000000000001"
-                  "--txpool.nolocals=false"
-                  "--txpool.journal=/tmp/ethereum-lisp-txpool.rlp"
-                  "--txpool.rejournal=1h"
-                  "--txpool.pricelimit=1"
-                  "--txpool.pricebump=10"
-                  "--txpool.accountslots=16"
-                  "--txpool.globalslots=5120"
-                  "--txpool.accountqueue=64"
-                  "--txpool.globalqueue=1024"
-                  "--txpool.lifetime=3h0m0s"
-                  "--txpool.blobpool.datacap=2684354560"
-                  "--txpool.blobpool.pricebump=100"
-                  "--dev=false"
-                  "--nousb=true"
-                  "--json"
-                  "--no-serve")
-            :output-stream output
-            :error-stream errors)))
-    (is (string= "" (get-output-stream-string errors)))
-    (let ((summary (parse-json (get-output-stream-string output))))
-      (is (string= "127.0.0.1:8551"
-                   (fixture-object-field summary "engineEndpoint")))
-      (is (string= "127.0.0.1:8545"
-                   (fixture-object-field summary "rpcEndpoint")))
-      (is (eq t (fixture-object-field summary
-                                       "allowUnprotectedTransactions")))
-      (is (= 1 (fixture-object-field summary "txpoolPriceLimit")))
-      (is (= 10 (fixture-object-field summary "txpoolPriceBump")))
-      (is (= 16 (fixture-object-field summary "txpoolAccountSlots")))
-      (is (= 5120 (fixture-object-field summary "txpoolGlobalSlots")))
-      (is (= 64 (fixture-object-field summary "txpoolAccountQueue")))
-      (is (= 1024 (fixture-object-field summary "txpoolGlobalQueue")))
-      (is (= 10800
-             (fixture-object-field summary "txpoolLifetimeSeconds")))
-      (is (equal '("0x0000000000000000000000000000000000000001")
-                 (fixture-object-field summary "txpoolLocals")))
-      (is (eq nil (fixture-object-field summary "txpoolNoLocals")))
-      (is (eq nil (fixture-object-field summary "authRequired"))))))
+    (unwind-protect
+         (progn
+           (is (= 0
+                  (ethereum-lisp.cli:main
+                   (list "devnet"
+                         (format nil "--genesis=~A"
+                                 +devnet-cli-genesis-fixture+)
+                         "--db.engine=pebble"
+                         "--state.scheme=hash"
+                         "--datadir.ancient=/tmp/ethereum-lisp-ancient"
+                         "--rpc.allow-unprotected-txs=true"
+                         "--txpool.locals=0x0000000000000000000000000000000000000001"
+                         "--txpool.nolocals=false"
+                         (format nil "--txpool.journal=~A"
+                                 (namestring journal-path))
+                         "--txpool.rejournal=1h"
+                         "--txpool.pricelimit=1"
+                         "--txpool.pricebump=10"
+                         "--txpool.accountslots=16"
+                         "--txpool.globalslots=5120"
+                         "--txpool.accountqueue=64"
+                         "--txpool.globalqueue=1024"
+                         "--txpool.lifetime=3h0m0s"
+                         "--txpool.blobpool.datacap=2684354560"
+                         "--txpool.blobpool.pricebump=100"
+                         "--dev=false"
+                         "--nousb=true"
+                         "--json"
+                         "--no-serve")
+                   :output-stream output
+                   :error-stream errors)))
+           (is (string= "" (get-output-stream-string errors)))
+           (let ((summary (parse-json (get-output-stream-string output))))
+             (is (string= "127.0.0.1:8551"
+                          (fixture-object-field summary "engineEndpoint")))
+             (is (string= "127.0.0.1:8545"
+                          (fixture-object-field summary "rpcEndpoint")))
+             (is (eq t (fixture-object-field summary
+                                              "allowUnprotectedTransactions")))
+             (is (= 1 (fixture-object-field summary "txpoolPriceLimit")))
+             (is (= 10 (fixture-object-field summary "txpoolPriceBump")))
+             (is (= 16 (fixture-object-field summary "txpoolAccountSlots")))
+             (is (= 5120 (fixture-object-field summary "txpoolGlobalSlots")))
+             (is (= 64 (fixture-object-field summary "txpoolAccountQueue")))
+             (is (= 1024 (fixture-object-field summary "txpoolGlobalQueue")))
+             (is (= 10800
+                    (fixture-object-field summary "txpoolLifetimeSeconds")))
+             (is (string= (namestring journal-path)
+                          (fixture-object-field summary
+                                                "txpoolJournalPath")))
+             (is (equal '("0x0000000000000000000000000000000000000001")
+                        (fixture-object-field summary "txpoolLocals")))
+             (is (eq nil (fixture-object-field summary "txpoolNoLocals")))
+             (is (eq nil (fixture-object-field summary "authRequired")))))
+      (when (probe-file journal-path)
+        (delete-file journal-path)))))
 
 (deftest devnet-cli-main-accepts-geth-style-dev-mode-flags
   (let ((output (make-string-output-stream))

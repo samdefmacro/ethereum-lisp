@@ -675,7 +675,11 @@
    #:chain-store-export-block-records-to-kv
    #:chain-store-export-transaction-locations-to-kv
    #:chain-store-export-state-records-to-kv
+   #:chain-store-export-txpool-records-to-kv
    #:chain-store-export-to-kv
+   #:engine-payload-store-pooled-transactions
+   #:chain-store-import-txpool-records-from-kv
+   #:chain-store-restore-txpool-consistency
    #:chain-store-import-from-kv
    #:chain-store-put-prepared-payload
    #:chain-store-prepared-payload

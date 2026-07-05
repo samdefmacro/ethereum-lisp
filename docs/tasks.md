@@ -108,6 +108,51 @@ ones.
     refresh effective age, direct tests avoid wall-clock sleeps, and the
     escalated Phase A devnet smoke gate passed with top-level and devnet
     `status: ok`.
+- [x] `DEVNET-RUNNER-TXPOOL-JOURNAL`: Make the geth/Hive
+  `--txpool.journal PATH` runner flag persist public txpool contents across
+  devnet restarts through the existing KV txpool record format.
+  - Milestone: 7 / Phase B Hive process-runner readiness
+  - Dependencies: `DEVNET-RUNNER-TXPOOL-LIFETIME`, existing KV txpool
+    export/import records.
+  - Acceptance: `--txpool.journal PATH` is parsed as a path-bearing option,
+    imports existing journal txpool records after genesis/database restore,
+    exports current txpool records on clean no-serve/serve shutdown, reports
+    the effective journal path in summaries/readiness/telemetry, preserves
+    existing database export semantics, and rejects malformed or chain-invalid
+    journal records through the same validation path used by KV txpool restore.
+  - Validation: focused CLI/KV txpool journal tests while iterating;
+    `git diff --check`; `sbcl --script tests/run-tests.lisp`; escalated
+    `sbcl --script scripts/devnet-smoke-gate.lisp -- --json` only if
+    listener/process reporting is changed.
+  - Result (2026-07-05): `--txpool.journal PATH` now parses as a real
+    path-bearing devnet option and geth TOML `[Eth.TxPool] Journal` imports
+    through the same runner config path, with explicit CLI options preserving
+    precedence. Devnet summaries, readiness JSON, and lifecycle telemetry
+    report `txpoolJournalPath`. Clean no-serve/serve shutdown exports current
+    txpool records to a txpool-only KV journal, startup imports journal records
+    when no database restore has already populated txpool state, and the import
+    path reuses KV txpool validation plus restored-txpool consistency cleanup.
+    Focused coverage now proves journal-only pending transaction persistence,
+    database-plus-journal coexistence without duplicate pooled hash/nonce
+    failures, wrong-chain journal rejection, geth TOML import, and geth-shaped
+    txpool runner flags. The full suite was run once; in sandbox it reached the
+    known socket-gated devnet smoke test, and the required escalated Phase A
+    devnet smoke gate passed with top-level and devnet `status: ok`.
+- [ ] `DEVNET-RUNNER-TXPOOL-REJOURNAL`: Make the geth/Hive
+  `--txpool.rejournal DURATION` runner flag refresh an active
+  `--txpool.journal` file during long-lived devnet serve mode.
+  - Milestone: 7 / Phase B Hive process-runner readiness
+  - Dependencies: `DEVNET-RUNNER-TXPOOL-JOURNAL`.
+  - Acceptance: `--txpool.rejournal DURATION` parses as a non-negative
+    duration, is reported in summaries/readiness/telemetry, config-file
+    `[Eth.TxPool] Rejournal` imports through the geth TOML path, and serve-mode
+    journal refreshes write current txpool records through the same txpool-only
+    KV export path without changing no-journal behavior. Tests should avoid
+    wall-clock sleeps by using an injectable scheduler/tick path where
+    practical.
+  - Validation: focused CLI/serve-mode or scheduler coverage while iterating;
+    `git diff --check`; `sbcl --script tests/run-tests.lisp`; request local
+    socket/network escalation for any devnet process smoke gate.
 - [x] `PINNED-V5.4.0-ROOT-SMOKE`: Rehydrate or configure an official
   `ethereum/execution-spec-tests` v5.4.0 `fixtures_stable.tar.gz` extraction,
   run `scripts/phase-a-smoke-gate.lisp -- --pinned-v5.4.0 --root PATH`, and

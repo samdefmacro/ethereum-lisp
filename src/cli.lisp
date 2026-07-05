@@ -16,6 +16,7 @@
                       txpool-global-queue-limit
                       txpool-local-addresses txpool-no-local-exemptions-p
                       txpool-lifetime-seconds
+                      txpool-journal-path
                       kzg-verifier-command
                       kzg-verifier-timeout-seconds)))
   genesis-path
@@ -47,6 +48,7 @@
   txpool-local-addresses
   txpool-no-local-exemptions-p
   txpool-lifetime-seconds
+  txpool-journal-path
   kzg-verifier-command
   kzg-verifier-timeout-seconds)
 
@@ -198,6 +200,13 @@
    '(:block :header :receipt :canonical-hash :checkpoint :state
      :transaction-location)))
 
+(defun devnet-cli-kv-txpool-records-present-p (database)
+  (not (null
+        (ethereum-lisp.database:kv-chain-record-entries database :txpool))))
+
+(defun devnet-cli-store-txpool-records-present-p (store)
+  (not (null (engine-payload-store-pooled-transactions store))))
+
 (defun devnet-cli-make-output-kv-database (path)
   (ensure-directories-exist (pathname path))
   (let ((existing-path (probe-file path)))
@@ -336,6 +345,7 @@
        txpool-local-addresses
        txpool-no-local-exemptions-p
        txpool-lifetime-seconds
+       txpool-journal-path
        kzg-verifier-command
        kzg-verifier-timeout-seconds
        (public-allowed-method-p #'engine-rpc-public-method-p)
@@ -429,6 +439,24 @@
                :chain-config config)
               (devnet-cli-validate-imported-genesis
                store genesis-block existing-database-path))))))
+    (when txpool-journal-path
+      (let ((existing-journal-path (probe-file txpool-journal-path)))
+        (when (and existing-journal-path
+                   (not (devnet-cli-empty-file-p existing-journal-path)))
+          (let ((journal
+                  (ethereum-lisp.database:make-file-key-value-database
+                   existing-journal-path)))
+            (when (devnet-cli-kv-txpool-records-present-p journal)
+              (unless (devnet-cli-store-txpool-records-present-p store)
+                (chain-store-import-txpool-records-from-kv
+                 store
+                 journal
+                 :expected-chain-id (chain-config-chain-id config)
+                 :chain-config config)
+                (chain-store-restore-txpool-consistency
+                 store
+                 :expected-chain-id (chain-config-chain-id config)
+                 :chain-config config)))))))
     (%make-devnet-node
      :genesis-path genesis-path
      :store store
@@ -465,6 +493,7 @@
                                   (copy-list txpool-local-addresses))
      :txpool-no-local-exemptions-p txpool-no-local-exemptions-p
      :txpool-lifetime-seconds txpool-lifetime-seconds
+     :txpool-journal-path txpool-journal-path
      :kzg-verifier-command kzg-verifier-command
      :kzg-verifier-timeout-seconds
      (and kzg-verifier-command
@@ -505,7 +534,12 @@
     (when database-path
       (chain-store-export-to-kv
        (devnet-node-store node)
-       (devnet-cli-make-output-kv-database database-path)))))
+       (devnet-cli-make-output-kv-database database-path))))
+  (let ((journal-path (devnet-node-txpool-journal-path node)))
+    (when journal-path
+      (chain-store-export-txpool-records-to-kv
+       (devnet-node-store node)
+       (devnet-cli-make-output-kv-database journal-path)))))
 
 (defun devnet-block-number (block)
   (and block (block-header-number (block-header block))))
@@ -575,6 +609,7 @@
           (devnet-node-txpool-no-local-exemptions-p node)
           :txpool-lifetime-seconds
           (devnet-node-txpool-lifetime-seconds node)
+          :txpool-journal-path (devnet-node-txpool-journal-path node)
           :kzg-verifier-command (devnet-node-kzg-verifier-command node)
           :kzg-verifier-timeout-seconds
           (devnet-node-kzg-verifier-timeout-seconds node)
@@ -635,6 +670,8 @@
        ,(if (getf summary :txpool-no-local-exemptions-p) t :false))
       ("txpoolLifetimeSeconds" .
        ,(or (getf summary :txpool-lifetime-seconds) :false))
+      ("txpoolJournalPath" .
+       ,(or (getf summary :txpool-journal-path) :false))
       ("networkId" . ,(getf summary :network-id))
       ("publicApiModules" . ,(getf summary :public-api-modules))
       ("engineCorsOrigins" . ,(getf summary :engine-cors-origins))
@@ -1102,6 +1139,9 @@
         ((and (string= section "Eth.TxPool") (string= key "Lifetime")
               (non-empty-scalar))
          (list "--txpool.lifetime" scalar))
+        ((and (string= section "Eth.TxPool") (string= key "Journal")
+              (non-empty-scalar))
+         (list "--txpool.journal" scalar))
         ((and (string= section "Eth.TxPool") (string= key "Locals")
               (non-empty-list))
          (list "--txpool.locals" list-value))
@@ -1384,6 +1424,7 @@
         (txpool-local-addresses nil)
         (txpool-no-local-exemptions-p nil)
         (txpool-lifetime-seconds nil)
+        (txpool-journal-path nil)
         (serve-p t)
         (summary-format :sexp)
         (ready-file nil)
@@ -1642,6 +1683,9 @@
                   (setf txpool-lifetime-seconds
                         (devnet-cli-parse-duration-seconds value option)
                         args rest)))
+               ((string= option "--txpool.journal")
+                (multiple-value-setq (txpool-journal-path args)
+                  (devnet-cli-next-value args option)))
                ((member option *devnet-cli-value-options* :test #'string=)
                 (multiple-value-bind (value rest)
                     (devnet-cli-next-value args option)
@@ -1697,6 +1741,7 @@
           :txpool-local-addresses txpool-local-addresses
           :txpool-no-local-exemptions-p txpool-no-local-exemptions-p
           :txpool-lifetime-seconds txpool-lifetime-seconds
+          :txpool-journal-path txpool-journal-path
           :state-prune-before state-prune-before
           :max-connections max-connections
           :serve-p serve-p
@@ -2071,6 +2116,7 @@
        ,(if (getf summary :txpool-lifetime-seconds)
             (write-to-string (getf summary :txpool-lifetime-seconds))
             ""))
+      ("txpoolJournalPath" . ,(or (getf summary :txpool-journal-path) ""))
       ("headGasLimit" . ,(if (getf summary :head-gas-limit)
                               (quantity-to-hex
                                (getf summary :head-gas-limit))
@@ -2329,6 +2375,8 @@
                                 (getf options :txpool-no-local-exemptions-p)
                                 :txpool-lifetime-seconds
                                 (getf options :txpool-lifetime-seconds)
+                                :txpool-journal-path
+                                (getf options :txpool-journal-path)
                                 :kzg-verifier-command
                                 (getf options :kzg-verifier-command)
                                 :kzg-verifier-timeout-seconds

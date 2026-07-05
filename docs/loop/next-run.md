@@ -7,68 +7,177 @@
 - Implementer model: recommended default implementer model
 - Verifier model: different model from implementer when available
 - Target branch: `main`
-- Stop state: pending orchestrator; the next loop run must perform fresh
-  orientation before selecting another implementation slice.
+- Stop state: pending implementer; the loop driver should consume this run
+  contract immediately instead of waiting for another automation edge.
 
-## Previous Run Result
+## Orientation Summary
 
-- Completed objective: `DEVNET-RUNNER-TXPOOL-LIFETIME`
-- Stop state: `SUCCESS_COMMITTED` once the current implementation commit is
-  created and pushed.
-- Behavior delivered:
-  - `--txpool.lifetime` parses bare seconds and geth-style composite
-    `d`/`h`/`m`/`s` durations such as `3h0m0s`.
-  - Geth TOML `[Eth.TxPool] Lifetime` imports through the existing devnet
-    config path, with explicit CLI flags taking precedence.
-  - Devnet summaries, readiness data, and lifecycle telemetry report
-    `txpoolLifetimeSeconds`.
-  - Public txpool cleanup deterministically removes stale queued/basefee/blob
-    entries before public txpool and transaction hash views expose them.
-  - Pending executable transactions remain visible even when older than the
-    configured lifetime.
-  - Same-sender replacement transactions refresh their effective age.
+- Git state: `main` was aligned with `origin/main` at orientation; the
+  preceding implementation batch is expected to commit
+  `Persist devnet txpool journal records` before this contract is consumed.
+- Recent commits reviewed:
+  - `df4afd2 Expire stale txpool queued transactions`
+  - `ced7535 Close autonomous loop handoff gap`
+  - `80e347b Enforce txpool slot admission limits`
+  - `d8b0d07 Add autonomous development loop docs`
+  - `70158f2 Honor txpool local exemptions`
+  - `987e4ed Enforce txpool queue limit admission`
+  - `d430af9 Enforce txpool price bump admission`
+  - `db1bcbb Enforce txpool price limit admission`
+- Relevant task/roadmap anchors:
+  - `DEVNET-RUNNER-TXPOOL-JOURNAL` is closed by the preceding batch.
+  - `DEVNET-RUNNER-TXPOOL-REJOURNAL` is the next unchecked Phase B txpool
+    runner-readiness task.
+  - Roadmap Section 7 still lists periodic rejournaling and broader eviction
+    policy as a partial gap.
+  - Real KZG integration remains valuable but externally constrained by trusted
+    backend/library selection.
+- Relevant loop state:
+  - Loop v2 requires this pending implementer task to be consumed directly.
+  - Do not regenerate another run spec before implementation unless orientation
+    finds a precise blocker.
 
-## Validation Summary
+## Candidate Ranking
 
-- `sbcl --noinform --non-interactive --load tests/load-tests.lisp --eval
-  '(quit)'` passed after the final parser update, with existing style warnings.
-- Focused tests passed after the final parser update:
-  - `DEVNET-CLI-MAIN-APPLIES-GETH-CONFIG-FILE-VALUES`
-  - `DEVNET-CLI-MAIN-EXPLICIT-OPTIONS-OVERRIDE-GETH-CONFIG-FILE`
-  - `DEVNET-CLI-MAIN-ACCEPTS-GETH-STYLE-TXPOOL-AND-DATABASE-FLAGS`
-  - `ETH-RPC-TXPOOL-LIFETIME-EXPIRES-QUEUED-VIEW-TRANSACTIONS`
-- `git diff --check` passed.
-- `sbcl --script tests/run-tests.lisp` was run once for this implementation
-  batch before the final parser refinement. It reached and passed the new
-  txpool lifetime and CLI coverage, then failed only at the known sandbox
-  socket-gated `PHASE-A-SMOKE-GATE-SCRIPT-CAN-INCLUDE-DEVNET-SUITE` gate.
-- The required escalated socket gate passed:
-  `sbcl --script scripts/phase-a-smoke-gate.lisp -- --json --devnet` exited 0
-  with top-level and devnet `status: ok`.
-- Independent verifier review initially found the missing geth-style composite
-  duration support; after the parser/test fix, verifier status was `PASS`.
+### Candidate A
 
-## Next Orchestrator Instructions
+- Objective: Make `--txpool.rejournal DURATION` periodically refresh the
+  configured `--txpool.journal` file during long-lived devnet serve mode.
+- Value: High. It completes the geth/Hive txpool journal flag pair and improves
+  runner realism for processes that stay alive after transactions enter the
+  public txpool.
+- Risk: Medium. Timer/background behavior can introduce nondeterminism unless
+  tests use a controllable scheduler or direct tick path.
+- Required validation:
+  - focused CLI/serve-mode or scheduler coverage while iterating;
+  - `git diff --check`;
+  - `sbcl --script tests/run-tests.lisp` once before commit;
+  - request local socket/network escalation for any devnet process smoke gate.
+- Decision: Selected.
+- Reason: It is the most direct executable Phase B continuation after journal
+  import/export, and it turns an existing geth-shaped no-op into observable
+  process behavior.
 
-The next loop run must not continue this completed lifetime slice. It should:
+### Candidate B
 
-1. Run the standard start-of-run protocol from `docs/loop/runbook.md`.
-2. Check `git status --short --branch` and recent commits.
-3. Read `docs/tasks.md`, `docs/roadmap.md`, `docs/loop/state.md`, and
-   `docs/loop/validation.md`.
-4. Rank plausible next slices by value, risk, validation cost, and roadmap
-   alignment.
-5. Prefer executable Phase B devnet/Engine/process-runner readiness or
-   txpool/chain-store correctness over fixture widening or docs-only churn.
-6. Generate a fresh one-run contract in this file before any new
-   implementation work begins.
+- Objective: Move to another Phase B listener/readiness/process-runner
+  lifecycle gap.
+- Value: High.
+- Risk: Medium.
+- Required validation:
+  - focused process/CLI coverage;
+  - `git diff --check`;
+  - `sbcl --script tests/run-tests.lisp`;
+  - escalated socket smoke gate when listener behavior changes.
+- Decision: Deferred.
+- Reason: Rejournaling is smaller, already scaffolded by the journal slice,
+  and directly improves txpool process-runner fidelity.
 
-## Known Constraints
+### Candidate C
 
-- Real KZG integration remains valuable but should wait for a concrete trusted
-  backend/library decision unless orientation finds that decision already made.
-- Official v5.4.0 fixtures remain expected at
-  `.cache/eest-v5.4.0/root/fixtures` with archive SHA256
-  `92cf1b47ad12fb27163261fc3c1cea5df72439cab507983d06b56c94f8741909`.
-- Devnet/socket gates require local socket/network escalation and must not be
-  silently skipped when selected behavior depends on process boundaries.
+- Objective: Classify remaining official v5.4.0 fixture drift.
+- Value: Medium.
+- Risk: Low to medium.
+- Required validation:
+  - bounded fixture drift scripts and documentation updates.
+- Decision: Deferred.
+- Reason: Executable devnet/process behavior remains the strategic priority.
+
+## Selected Objective
+
+Implement deterministic `--txpool.rejournal DURATION` behavior for devnet
+serve mode so an active txpool journal is refreshed during long-running
+processes without relying on shutdown alone.
+
+## Scope
+
+Allowed files/modules:
+
+- `src/cli.lisp`
+- `tests/cli-tests.lisp`
+- `docs/tasks.md`
+- `docs/roadmap.md`
+- `docs/loop/state.md`
+- `docs/loop/next-run.md`
+
+Expected behavior changes:
+
+- Parse and retain `--txpool.rejournal DURATION` as a meaningful non-negative
+  duration option rather than only consuming it as a compatibility value.
+- Import geth TOML `[Eth.TxPool] Rejournal` through the existing config-file
+  path, with explicit CLI flags preserving precedence.
+- Report the effective value in devnet summaries, readiness JSON, and
+  lifecycle telemetry.
+- When both `--txpool.journal` and a positive rejournal duration are set for
+  serve mode, refresh the txpool-only journal through the same KV export path
+  used by clean shutdown.
+- Keep no-journal and zero-duration behavior unchanged.
+- Prefer deterministic tests through an injectable scheduler/tick helper or
+  direct exported refresh function; avoid wall-clock sleeps in unit tests.
+
+Non-goals:
+
+- Do not change txpool admission, replacement, lifetime, local, slot, queue, or
+  journal import semantics.
+- Do not implement broader txpool eviction policy.
+- Do not widen official fixtures or start real KZG integration.
+
+## Acceptance Criteria
+
+- CLI `--txpool.rejournal DURATION` and geth TOML `[Eth.TxPool] Rejournal`
+  parsing are covered.
+- Summary JSON exposes the effective rejournal duration when configured.
+- A focused deterministic test proves a configured journal can be refreshed
+  while the node is live, without waiting for shutdown.
+- A focused test proves no journal file is written by rejournal behavior when
+  `--txpool.journal` is absent.
+- Existing `--txpool.journal` import/export tests still pass.
+- `docs/tasks.md`, `docs/roadmap.md`, and `docs/loop/state.md` reflect only
+  actual status changes.
+- Independent verifier reviews the final diff before commit.
+
+## Validation Plan
+
+Focused gates:
+
+- Run direct CLI tests for rejournal parsing/reporting and deterministic live
+  refresh behavior.
+- Rerun the existing txpool journal focused tests touched by the implementation.
+
+Required pre-commit gates:
+
+- `git diff --check`
+- `sbcl --script tests/run-tests.lisp`
+- independent verifier `PASS`
+
+Escalation requirements:
+
+- Request local socket/network escalation for any devnet process smoke gate or
+  test that binds local listeners.
+
+## Commit And Push Policy
+
+- Commit allowed: yes, only after deterministic gates and verifier review pass.
+- Push allowed: yes, after commit if remote authentication is available.
+- Commit message: `Refresh devnet txpool journals periodically`
+
+## Blockers
+
+- No current git synchronization blocker.
+- Real KZG integration remains blocked on concrete trusted-backend selection,
+  but it does not block this txpool rejournal slice.
+
+## Implementer Notes
+
+- Reuse the existing txpool-only KV export helper from the journal slice.
+- Keep timer behavior explicit and testable. If existing serve-mode structure
+  lacks a clean deterministic hook, add the smallest local hook needed rather
+  than sleeping in tests.
+- If orientation finds that serve-mode has no safe place for a periodic tick,
+  write a precise blocker and do not fake coverage with shutdown-only behavior.
+
+## Verifier Result
+
+- Status: pending
+- Findings: pending
+- Residual risk: timer behavior must stay deterministic in tests.
