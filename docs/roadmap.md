@@ -1311,9 +1311,20 @@ first pass, but interfaces must not block that path.
   blocks. That bounded selection is now sender-aware: a sender whose next
   nonce-safe transaction no longer fits is skipped for the current block while
   later independent sender heads can still be selected, preserving per-sender
-  nonce order and txpool visibility for leftovers. The next Phase B
-  block-production gap is reusing the same deterministic txpool selection when
-  Engine payload attributes prepare local payloads for `engine_getPayload*`.
+  nonce order and txpool visibility for leftovers. Engine prepared payload
+  construction now reuses the same deterministic, gas-limited, sender-aware
+  public txpool selection when `engine_forkchoiceUpdated*` receives payload
+  attributes. Non-empty prepared payloads execute the selected signed
+  transactions against parent state for payload materialization without
+  committing the block or removing public txpool entries, and non-empty
+  prepared payload ids include the selected transaction root so same-head,
+  same-attributes preparations do not reuse stale txpool-independent cache
+  entries after txpool changes. `engine_getPayload*` can return txpool-backed
+  local payloads while selected and non-selected transactions remain
+  public-visible until normal import/forkchoice mining. The next Phase B
+  block-production gap is proving
+  that txpool-backed prepared-payload path across the real standalone
+  devnet/process-runner listener boundary.
   Startup
   summaries and lifecycle telemetry report
   `headGasLimit` and `coinbase` for process-runner checks. The runner-facing

@@ -11,63 +11,60 @@
 
 ## Orientation Summary
 
-- Git state: the previous run is expected to have committed and pushed
-  `DEVNET-RUNNER-DEV-PERIOD-MULTI-SENDER-SELECTION`.
-- Recent commits reviewed in the previous run: `a2f067c`, `3ae54ca`,
-  `d09fbce`, `c787e9f`, and `86ce18c`.
+- Git state: this run is expected to have committed and pushed
+  `DEVNET-RUNNER-PREPARED-PAYLOAD-TXPOOL-SELECTION`.
+- Current completed slice: Engine prepared payload construction reuses the
+  shared deterministic, gas-limited, sender-aware public txpool selection path;
+  `engine_getPayloadV1` can return selected txpool-backed transactions while
+  selected and non-selected txpool entries remain visible before
+  import/forkchoice, and non-empty prepared payload ids include the selected
+  transaction root to avoid stale txpool-independent cache reuse.
+- Validation from the completed slice: focused Engine RPC coverage passed,
+  `git diff --check` passed, the sandbox full-suite attempt failed at the
+  expected local socket/devnet smoke boundary, and the escalated full suite
+  passed with `890 tests passed, 5 skipped`.
 - Relevant task/roadmap anchors: Phase B local devnet / Engine RPC
-  process-runner readiness remains the highest-value roadmap track. The latest
-  slice makes dev-period txpool selection deterministic, gas-limited, and
-  sender-aware without changing listener/process behavior.
-- Relevant loop state: txpool lifetime, journal, rejournal, rejournal smoke,
-  dev-period deterministic tick behavior, dev-period smoke coverage,
-  gas-bounded dev-period selection, and sender-aware multi-sender dev-period
-  selection are closed. The next useful block-production gap is using that
-  local selection policy for Engine prepared payloads returned by
-  `engine_getPayload*`.
+  process-runner readiness remains the highest-value roadmap track. The next
+  useful gap is proving the txpool-backed prepared-payload path across the real
+  standalone devnet Engine/public listener boundary.
 
 ## Candidate Ranking
 
 ### Candidate A
 
-- Objective: implement `DEVNET-RUNNER-PREPARED-PAYLOAD-TXPOOL-SELECTION`,
-  reusing local devnet txpool selection when authenticated Engine payload
-  attributes prepare payloads.
-- Value: high; it moves the same executable local block-production behavior
-  from the background dev-period tick into the Engine process-runner workflow
-  Hive-style clients exercise.
-- Risk: medium-high; prepared-payload caching and later import/forkchoice
-  visibility must stay consistent, and non-selected txpool transactions must
-  remain visible until a prepared payload is actually imported.
-- Required validation: focused Engine RPC prepared-payload tests with pending
-  txpool transactions, `git diff --check`, full suite once, and independent
-  verifier review.
+- Objective: implement
+  `DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-SELECTION`, extending the
+  standalone devnet smoke/process-runner path to prove txpool-backed prepared
+  payload selection through real authenticated Engine and public RPC listeners.
+- Value: high; it moves the new prepared-payload behavior from in-process RPC
+  coverage to the Hive-style runner boundary.
+- Risk: medium; it touches smoke orchestration and local socket behavior, so
+  validation must use escalated local socket/network permissions.
+- Required validation: focused standalone smoke command, `git diff --check`,
+  full suite once, and independent verifier review.
 - Decision: selected.
-- Reason: after the mining selection policy is bounded and sender-aware, the
-  next runner-visible gap is sharing it with the authenticated Engine payload
-  preparation path instead of leaving prepared payloads empty.
+- Reason: after prepared payloads can include selected txpool transactions
+  in-process, the next runner-visible gap is proving the same behavior across
+  real process/listener boundaries.
 
 ### Candidate B
 
-- Objective: add focused no-fitting-first-transaction coverage for dev-period
-  selection.
-- Value: low-medium; it locks a residual edge from the previous selector
-  slices.
-- Risk: low; pure focused CLI coverage.
-- Required validation: focused CLI/dev-period test and full suite if code
+- Objective: add more in-process prepared-payload edge tests, such as V2/V3
+  payload envelopes or no-fitting transaction cases.
+- Value: medium; useful coverage, but less runner-visible than the process
+  smoke gate.
+- Risk: low-medium; mostly in-process tests.
+- Required validation: focused Engine RPC coverage and full suite if code
   changes.
 - Decision: defer.
-- Reason: the edge follows from the existing selector structure and is less
-  valuable than moving selection into Engine prepared payloads.
+- Reason: the process boundary has higher value for Phase B readiness.
 
 ### Candidate C
 
-- Objective: classify remaining v5.4.0 official fixture drift into passing,
-  known implementation drift, out-of-scope fork/feature, and implementation
-  bug-candidate groups.
+- Objective: classify remaining official v5.4.0 fixture drift.
 - Value: medium; useful consensus map, but less directly executable than
-  runner-visible Engine/devnet block production.
-- Risk: low-medium; mostly scripts/docs with possible narrow fixture pins.
+  runner-visible Engine/devnet behavior.
+- Risk: low-medium.
 - Required validation: fixture classifier smoke and Phase A smoke gate when
   selectors change.
 - Decision: defer.
@@ -76,18 +73,16 @@
 
 ## Selected Objective
 
-Implement `DEVNET-RUNNER-PREPARED-PAYLOAD-TXPOOL-SELECTION`: when local devnet
-Engine RPC receives payload attributes through `engine_forkchoiceUpdated*`,
-prepared payload construction should use the same deterministic, gas-limited,
-nonce-safe public txpool selection policy as dev-period mining, so
-`engine_getPayload*` can return txpool-backed local payloads.
+Implement `DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-SELECTION`: prove the
+txpool-backed prepared-payload path across the standalone devnet
+Engine/public RPC listener boundary, with JSON evidence useful for
+Hive/process-runner checks.
 
 ## Scope
 
 Allowed files/modules:
 
-- `src/core.lisp`
-- `src/cli.lisp`
+- `scripts/devnet-smoke-gate.lisp`
 - `tests/core-tests.lisp`
 - `tests/cli-tests.lisp`
 - `docs/tasks.md`
@@ -97,33 +92,35 @@ Allowed files/modules:
 
 Expected behavior changes:
 
-- Prepared payload construction for local devnet payload attributes can include
-  recoverable public txpool transactions selected by the current deterministic
-  gas-limited, sender-aware policy.
-- `engine_getPayload*` returns the selected transaction list for the prepared
-  payload.
-- Transactions selected into a prepared payload remain in public txpool views
-  until the payload is imported/forkchoiced through the existing Engine flow.
-- Non-selected transactions remain visible in public txpool views.
-- Empty-payload workflows remain valid when no pending transaction fits.
+- The standalone devnet smoke gate starts a split Engine/public devnet, admits
+  pending public txpool transactions, prepares a payload through authenticated
+  `engine_forkchoiceUpdated*`, and retrieves it through authenticated
+  `engine_getPayload*`.
+- The JSON smoke report includes evidence that a selected transaction appears
+  in the prepared payload.
+- The JSON smoke report includes evidence that selected and non-selected
+  txpool entries remain public-visible before import/forkchoice.
+- Existing empty-payload, import/forkchoice, readiness, shutdown, and listener
+  contract checks remain intact.
 
 Non-goals:
 
-- Do not implement P2P mining, consensus duties, mev/payload fee auctions, or
-  a full geth txpool replacement.
-- Do not broaden official fixture pins in this slice.
-- Do not change listener lifecycle, JWT auth, public/Engine namespace
-  separation, or standalone smoke behavior unless the implementation truly
-  crosses a process boundary.
+- Do not change txpool selection policy unless the process smoke exposes a
+  concrete implementation bug.
+- Do not broaden official fixture pins.
+- Do not change listener lifecycle, JWT auth, or public/Engine namespace
+  separation except where necessary to observe the existing behavior.
+- Do not add broad sleeps; prefer existing polling/readiness helpers.
 
 ## Acceptance Criteria
 
-- A focused Engine RPC test proves a prepared payload can include at least one
-  pending public txpool transaction and `engine_getPayload*` returns it.
-- A focused test proves non-selected pending transactions remain public-txpool
-  visible before the prepared payload is imported.
-- Existing empty prepared-payload Engine workflows remain intact.
-- Existing dev-period sender-aware selection behavior remains intact.
+- A focused standalone devnet smoke invocation passes with local socket/network
+  escalation and reports prepared-payload txpool evidence.
+- The process-boundary test verifies `engine_getPayload*` returns at least one
+  selected public txpool transaction.
+- The process-boundary test verifies selected and non-selected txpool entries
+  are still visible in public txpool views before import/forkchoice.
+- Existing smoke JSON fields and old all-fixtures behavior remain stable.
 - Full suite passes once after implementation.
 - Independent verifier reviews the final diff before commit.
 
@@ -131,9 +128,9 @@ Non-goals:
 
 Focused gates:
 
-- Focused Engine RPC prepared-payload tests for txpool-backed payload contents
-  and pending leftovers.
-- Focused dev-period selection test if shared selection code moves.
+- Escalated standalone smoke command for the new prepared-payload txpool probe,
+  likely `sbcl --script scripts/devnet-smoke-gate.lisp -- --json`.
+- Any narrow focused test added for JSON report shape.
 
 Required pre-commit gates:
 
@@ -150,25 +147,24 @@ Escalation requirements:
 
 - Commit allowed: yes, only after deterministic gates and verifier review pass.
 - Push allowed: yes, after commit if remote authentication is available.
-- Commit message: `Select txpool transactions for prepared payloads`
+- Commit message: `Smoke prepared payload txpool selection`
 
 ## Blockers
 
 - No current git synchronization blocker.
-- If prepared-payload caching cannot safely reference txpool-selected
-  transactions without changing import/forkchoice ownership semantics, stop
-  with `BLOCKED_PREPARED_PAYLOAD_TXPOOL_OWNERSHIP` and document the exact
-  boundary.
+- If the standalone smoke gate cannot observe txpool-backed prepared payloads
+  without changing listener/process ownership semantics, stop with
+  `BLOCKED_SMOKE_PREPARED_PAYLOAD_TXPOOL_BOUNDARY` and document the exact
+  missing boundary.
 
 ## Implementer Notes
 
-- Start by locating current prepared-payload construction and cache storage.
-- Prefer reusing or extracting the dev-period selection policy rather than
-  creating a second divergent scheduler.
+- Derive the current task from this file, not from stale heartbeat text.
+- Reuse existing smoke helpers for raw transaction submission, Engine payload
+  preparation, payload retrieval, public txpool inspection, and JSON evidence.
 - Keep selected transactions in txpool until import/forkchoice removes them
   through the existing mined-transaction path.
-- If process-boundary behavior is unchanged, do not rerun standalone devnet
-  smoke for this slice.
+- Avoid expanding the smoke matrix beyond the prepared-payload txpool contract.
 
 ## Verifier Result
 

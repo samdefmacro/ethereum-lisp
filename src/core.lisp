@@ -6559,6 +6559,60 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (engine-pending-txpool-pending-transactions
    (engine-payload-store-txpool store)))
 
+(defun engine-mining-transaction< (left right expected-chain-id)
+  (let* ((left-sender (transaction-sender left
+                                          :expected-chain-id
+                                          expected-chain-id))
+         (right-sender (transaction-sender right
+                                           :expected-chain-id
+                                           expected-chain-id))
+         (left-sender-key (if left-sender
+                              (address-to-hex left-sender)
+                              ""))
+         (right-sender-key (if right-sender
+                               (address-to-hex right-sender)
+                               "")))
+    (cond
+      ((string< left-sender-key right-sender-key) t)
+      ((string< right-sender-key left-sender-key) nil)
+      ((< (transaction-nonce left) (transaction-nonce right)) t)
+      ((< (transaction-nonce right) (transaction-nonce left)) nil)
+      (t
+       (string< (hash32-to-hex (transaction-hash left))
+                (hash32-to-hex (transaction-hash right)))))))
+
+(defun engine-payload-store-pending-mining-transactions
+    (store expected-chain-id)
+  (sort
+   (copy-list
+    (remove-if-not
+     (lambda (transaction)
+       (transaction-sender transaction
+                           :expected-chain-id expected-chain-id))
+     (engine-payload-store-pending-transactions store)))
+   (lambda (left right)
+     (engine-mining-transaction< left right expected-chain-id))))
+
+(defun engine-select-mining-transactions
+    (transactions gas-limit expected-chain-id)
+  (let ((blocked-senders (make-hash-table :test #'equal)))
+    (loop with selected = nil
+          with gas-used = 0
+          for transaction in transactions
+          for sender = (transaction-sender
+                        transaction
+                        :expected-chain-id expected-chain-id)
+          for sender-key = (and sender (address-to-hex sender))
+          for transaction-gas = (transaction-gas-limit transaction)
+          when (and sender-key
+                    (not (gethash sender-key blocked-senders)))
+            do (if (<= (+ gas-used transaction-gas) gas-limit)
+                   (progn
+                     (push transaction selected)
+                     (incf gas-used transaction-gas))
+                   (setf (gethash sender-key blocked-senders) t))
+          finally (return (nreverse selected)))))
+
 (defun engine-payload-store-queued-transactions (store)
   (engine-pending-txpool-queued-transaction-list
    (engine-payload-store-txpool store)))
@@ -7113,6 +7167,19 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defun engine-payload-id-v1 (parent-hash attributes)
   (engine-payload-id 1 parent-hash attributes))
+
+(defun engine-payload-id-with-transactions
+    (version parent-hash attributes transactions)
+  (if (null transactions)
+      (engine-payload-id version parent-hash attributes)
+      (let* ((digest
+               (sha256
+                (engine-payload-id version parent-hash attributes)
+                (hash32-bytes (transaction-list-root transactions))))
+             (payload-id (make-byte-vector 8)))
+        (setf (aref payload-id 0) version)
+        (replace payload-id digest :start1 1 :start2 0 :end2 7)
+        payload-id)))
 
 (defun engine-build-empty-payload (parent-block attributes)
   (unless (typep parent-block 'ethereum-block)

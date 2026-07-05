@@ -762,6 +762,67 @@
    params store "engine_getPayloadBodiesByRangeV2"
    #'engine-rpc-payload-body-v2-object))
 
+(defun engine-rpc-execution-function (name)
+  (let ((symbol (find-symbol name "ETHEREUM-LISP.EXECUTION")))
+    (and symbol
+         (fboundp symbol)
+         (symbol-function symbol))))
+
+(defun engine-rpc-prepared-payload-body-arguments
+    (payload-attributes config block-number timestamp)
+  (let ((arguments nil))
+    (when (or (payload-attributes-v1-withdrawals-present-p payload-attributes)
+              (chain-config-shanghai-p config block-number timestamp))
+      (setf arguments
+            (append arguments
+                    (list :withdrawals
+                          (if (payload-attributes-v1-withdrawals-present-p
+                               payload-attributes)
+                              (payload-attributes-v1-withdrawals
+                               payload-attributes)
+                              '())))))
+    (when (chain-config-prague-p config block-number timestamp)
+      (setf arguments (append arguments (list :requests '()))))
+    (when (chain-config-amsterdam-p config block-number timestamp)
+      (setf arguments (append arguments (list :block-access-list '()))))
+    arguments))
+
+(defun engine-rpc-build-prepared-payload
+    (store parent-block payload-attributes config transactions)
+  (let ((block (engine-build-empty-payload parent-block payload-attributes)))
+    (if (null transactions)
+        block
+        (let ((state-reader
+                (engine-rpc-execution-function "CHAIN-STORE-STATE-DB"))
+              (executor
+                (engine-rpc-execution-function "EXECUTE-SIGNED-BLOCK")))
+          (unless (and state-reader executor)
+            (block-validation-fail
+             "Prepared payload transaction execution is unavailable"))
+          (let* ((header (block-header block))
+                 (block-number (block-header-number header))
+                 (timestamp (block-header-timestamp header))
+                 (state (funcall state-reader store (block-hash parent-block))))
+            (unless state
+              (block-validation-fail
+               "Prepared payload parent state is unavailable"))
+            (setf (block-header-transactions-root header)
+                  (transaction-list-root transactions)
+                  (block-header-state-root header) nil
+                  (block-header-receipts-root header) nil
+                  (block-header-logs-bloom header) nil)
+            (apply
+             executor
+             state
+             transactions
+             (append
+              (list
+               :expected-chain-id (chain-config-chain-id config)
+               :header header
+               :chain-config config)
+              (engine-rpc-prepared-payload-body-arguments
+               payload-attributes config block-number timestamp))))))))
+
 (defun engine-rpc-handle-forkchoice-updated
     (params store config method payload-version payload-attributes-parser)
   (unless (and (listp params) params)
@@ -815,9 +876,15 @@
                (head-hash (forkchoice-state-head-block-hash state))
                (parent-block
                  (chain-store-known-block store head-hash))
+               (transactions
+                 (engine-select-mining-transactions
+                  (engine-payload-store-pending-mining-transactions
+                   store (chain-config-chain-id config))
+                  (block-header-gas-limit (block-header parent-block))
+                  (chain-config-chain-id config)))
                (candidate-id
-                 (engine-payload-id
-                  payload-version head-hash payload-attributes)))
+                 (engine-payload-id-with-transactions
+                  payload-version head-hash payload-attributes transactions)))
           (unless (chain-store-prepared-payload
                    store candidate-id)
             (chain-store-put-prepared-payload
@@ -827,7 +894,8 @@
               :version payload-version
               :block
               (handler-case
-                  (engine-build-empty-payload parent-block payload-attributes)
+                  (engine-rpc-build-prepared-payload
+                   store parent-block payload-attributes config transactions)
                 (block-validation-error (condition)
                   (engine-rpc-fail
                    +engine-rpc-error-invalid-payload-attributes+

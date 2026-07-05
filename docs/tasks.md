@@ -294,7 +294,7 @@ ones.
     a second sender's fitting transaction is mined after the first sender's
     next transaction does not fit, while the first sender's non-fitting nonce
     remains pending and visible by hash.
-- [ ] `DEVNET-RUNNER-PREPARED-PAYLOAD-TXPOOL-SELECTION`: Reuse the local
+- [x] `DEVNET-RUNNER-PREPARED-PAYLOAD-TXPOOL-SELECTION`: Reuse the local
   devnet transaction-selection policy when preparing Engine payloads from
   `engine_forkchoiceUpdated*` payload attributes, so authenticated
   `engine_getPayload*` can return txpool-backed payloads instead of only empty
@@ -312,6 +312,41 @@ ones.
     transactions, `git diff --check`, and `sbcl --script tests/run-tests.lisp`;
     run escalated standalone devnet smoke only if listener/process behavior
     changes.
+  - Result (2026-07-05): Engine prepared payload construction now reuses the
+    shared deterministic, gas-limited, sender-aware public txpool selection
+    path used by dev-period mining. Non-empty prepared payloads execute the
+    selected signed transactions against parent state for payload
+    materialization without committing the block or removing public txpool
+    entries; non-empty prepared payload ids include the selected transaction
+    root so repeated `engine_forkchoiceUpdated*` calls with the same head and
+    payload attributes do not reuse stale txpool-independent cache entries.
+    `engine_getPayloadV1` returns the selected transaction bytes, and selected
+    plus non-selected transactions remain visible in public txpool views until
+    the normal import/forkchoice path mines them. Empty prepared-payload
+    behavior is preserved when no transaction fits. Focused Engine RPC
+    coverage locks a tight-gas two-sender case where one selected transaction
+    appears in the prepared payload while both txpool entries remain
+    public-pending before import, plus a repeated-forkchoice cache regression
+    where an empty prepared payload id remains stable while a later txpool
+    backed preparation receives a distinct payload id.
+- [ ] `DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-SELECTION`: Extend the
+  standalone devnet smoke/process-runner path so txpool-backed prepared
+  payload selection is proven across the real authenticated Engine/public RPC
+  listener boundary.
+  - Milestone: 7 / Phase B Hive process-runner readiness
+  - Dependencies: `DEVNET-RUNNER-PREPARED-PAYLOAD-TXPOOL-SELECTION`,
+    standalone devnet smoke gate Engine/public RPC probes.
+  - Acceptance: the smoke gate starts a split Engine/public devnet, admits at
+    least one public txpool transaction, prepares a payload through
+    authenticated `engine_forkchoiceUpdated*`, retrieves it through
+    authenticated `engine_getPayload*`, observes the selected transaction in
+    the payload, verifies selected and non-selected txpool entries remain
+    public-visible before import/forkchoice, and reports the evidence in JSON
+    without changing listener lifecycle semantics.
+  - Validation: focused standalone smoke command with local socket/network
+    escalation, `git diff --check`, and `sbcl --script tests/run-tests.lisp`;
+    use the full suite once after implementation and independent verifier
+    review before commit.
 - [x] `PINNED-V5.4.0-ROOT-SMOKE`: Rehydrate or configure an official
   `ethereum/execution-spec-tests` v5.4.0 `fixtures_stable.tar.gz` extraction,
   run `scripts/phase-a-smoke-gate.lisp -- --pinned-v5.4.0 --root PATH`, and

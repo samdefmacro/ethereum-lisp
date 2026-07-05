@@ -678,6 +678,9 @@
    #:chain-store-export-txpool-records-to-kv
    #:chain-store-export-to-kv
    #:engine-payload-store-pooled-transactions
+   #:engine-payload-id-with-transactions
+   #:engine-payload-store-pending-mining-transactions
+   #:engine-select-mining-transactions
    #:chain-store-import-txpool-records-from-kv
    #:chain-store-restore-txpool-consistency
    #:chain-store-import-from-kv

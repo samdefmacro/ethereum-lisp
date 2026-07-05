@@ -13057,6 +13057,261 @@
              (error (field response "error")))
         (is (= -32602 (field error "code"))))))))
 
+(deftest engine-rpc-forkchoice-updated-v1-selects-pending-txpool-transactions
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (request-json (json store config)
+             (parse-json
+              (engine-rpc-handle-request-json json store config)))
+           (send-raw (id raw-transaction store config)
+             (request-json
+              (format nil
+                      "{\"jsonrpc\":\"2.0\",\"id\":~D,\"method\":\"eth_sendRawTransaction\",\"params\":[\"~A\"]}"
+                      id
+                      raw-transaction)
+              store
+              config))
+           (forkchoice-state-object (head)
+             (list (cons "headBlockHash" (hash32-to-hex head))
+                   (cons "safeBlockHash" (hash32-to-hex (zero-hash32)))
+                   (cons "finalizedBlockHash" (hash32-to-hex (zero-hash32)))))
+           (payload-attributes-object ()
+             (list (cons "timestamp" "0xb")
+                   (cons "prevRandao" (hash32-to-hex (zero-hash32)))
+                   (cons "suggestedFeeRecipient"
+                         (address-to-hex (zero-address)))))
+           (forkchoice-request (id head)
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" id)
+                   (cons "method" "engine_forkchoiceUpdatedV1")
+                   (cons "params"
+                         (list (forkchoice-state-object head)
+                               (payload-attributes-object))))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1
+                                      :byzantium-block 0
+                                      :constantinople-block 0
+                                      :petersburg-block 0
+                                      :berlin-block 0
+                                      :london-block 0))
+           (recipient
+             (address-from-hex "0x3535353535353535353535353535353535353535"))
+           (private-key-a 1)
+           (private-key-b 2)
+           (sender-a (fixture-private-key-address private-key-a))
+           (sender-b (fixture-private-key-address private-key-b))
+           (transaction-a
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction :nonce 0
+                                       :gas-price 1000
+                                       :gas-limit 21000
+                                       :to recipient
+                                       :value 1)
+              private-key-a
+              1))
+           (transaction-b
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction :nonce 0
+                                       :gas-price 1000
+                                       :gas-limit 30000
+                                       :to recipient
+                                       :value 1)
+              private-key-b
+              1))
+           (raw-a (bytes-to-hex (transaction-encoding transaction-a)))
+           (raw-b (bytes-to-hex (transaction-encoding transaction-b)))
+           (hash-a (hash32-to-hex (transaction-hash transaction-a)))
+           (hash-b (hash32-to-hex (transaction-hash transaction-b)))
+           (parent-state (make-state-db)))
+      (state-db-set-account parent-state sender-a
+                            (make-state-account
+                             :nonce 0
+                             :balance 1000000000))
+      (state-db-set-account parent-state sender-b
+                            (make-state-account
+                             :nonce 0
+                             :balance 1000000000))
+      (let* ((parent-block
+               (make-block
+                :header (make-block-header
+                         :number 0
+                         :timestamp 10
+                         :gas-limit 42000
+                         :gas-used 0
+                         :base-fee-per-gas 100
+                         :state-root (state-db-root parent-state))))
+             (parent-hash (block-hash parent-block)))
+        (chain-store-put-block store parent-block :state-available-p t)
+        (commit-state-db-to-chain-store store parent-hash parent-state)
+        (chain-store-set-canonical-head
+         store parent-hash
+         :expected-chain-id (chain-config-chain-id config)
+         :chain-config config)
+        (is (string= hash-a
+                     (field (send-raw 101 raw-a store config) "result")))
+        (is (string= hash-b
+                     (field (send-raw 102 raw-b store config) "result")))
+        (let* ((prepare-response
+                 (engine-rpc-handle-request
+                  (forkchoice-request 103 parent-hash)
+                  store
+                  config))
+               (payload-id
+                 (field (field prepare-response "result") "payloadId"))
+               (payload-response
+                 (engine-rpc-handle-request
+                  (list (cons "jsonrpc" "2.0")
+                        (cons "id" 104)
+                        (cons "method" "engine_getPayloadV1")
+                        (cons "params" (list payload-id)))
+                  store
+                  config))
+               (payload (field payload-response "result"))
+               (payload-transactions (field payload "transactions"))
+               (pending-response
+                 (request-json
+                  "{\"jsonrpc\":\"2.0\",\"id\":105,\"method\":\"eth_pendingTransactions\",\"params\":[]}"
+                  store
+                  config))
+               (pending-transactions (field pending-response "result"))
+               (pending-hashes
+                 (mapcar (lambda (transaction)
+                           (field transaction "hash"))
+                         pending-transactions))
+               (selected-raw (first payload-transactions))
+               (selected-hash
+                 (cond
+                   ((string= selected-raw raw-a) hash-a)
+                   ((string= selected-raw raw-b) hash-b)))
+               (non-selected-hash
+                 (cond
+                   ((string= selected-raw raw-a) hash-b)
+                   ((string= selected-raw raw-b) hash-a))))
+          (is (= 103 (field prepare-response "id")))
+          (is (stringp payload-id))
+          (is (= 1 (length payload-transactions)))
+          (is (member selected-raw (list raw-a raw-b) :test #'string=))
+          (is (= 2 (length pending-transactions)))
+          (is (member selected-hash pending-hashes :test #'string=))
+          (is (member non-selected-hash pending-hashes :test #'string=)))))))
+
+(deftest engine-rpc-forkchoice-updated-v1-payload-id-tracks-txpool-selection
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (request-json (json store config)
+             (parse-json
+              (engine-rpc-handle-request-json json store config)))
+           (send-raw (id raw-transaction store config)
+             (request-json
+              (format nil
+                      "{\"jsonrpc\":\"2.0\",\"id\":~D,\"method\":\"eth_sendRawTransaction\",\"params\":[\"~A\"]}"
+                      id
+                      raw-transaction)
+              store
+              config))
+           (forkchoice-state-object (head)
+             (list (cons "headBlockHash" (hash32-to-hex head))
+                   (cons "safeBlockHash" (hash32-to-hex (zero-hash32)))
+                   (cons "finalizedBlockHash" (hash32-to-hex (zero-hash32)))))
+           (payload-attributes-object ()
+             (list (cons "timestamp" "0xb")
+                   (cons "prevRandao" (hash32-to-hex (zero-hash32)))
+                   (cons "suggestedFeeRecipient"
+                         (address-to-hex (zero-address)))))
+           (forkchoice-request (id head)
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" id)
+                   (cons "method" "engine_forkchoiceUpdatedV1")
+                   (cons "params"
+                         (list (forkchoice-state-object head)
+                               (payload-attributes-object)))))
+           (get-payload-transactions (id payload-id store config)
+             (field
+              (field
+               (engine-rpc-handle-request
+                (list (cons "jsonrpc" "2.0")
+                      (cons "id" id)
+                      (cons "method" "engine_getPayloadV1")
+                      (cons "params" (list payload-id)))
+                store
+                config)
+               "result")
+              "transactions")))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1
+                                      :byzantium-block 0
+                                      :constantinople-block 0
+                                      :petersburg-block 0
+                                      :berlin-block 0
+                                      :london-block 0))
+           (recipient
+             (address-from-hex "0x4545454545454545454545454545454545454545"))
+           (private-key 1)
+           (sender (fixture-private-key-address private-key))
+           (transaction
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction :nonce 0
+                                       :gas-price 1000
+                                       :gas-limit 21000
+                                       :to recipient
+                                       :value 1)
+              private-key
+              1))
+           (raw-transaction (bytes-to-hex (transaction-encoding transaction)))
+           (parent-state (make-state-db)))
+      (state-db-set-account parent-state sender
+                            (make-state-account
+                             :nonce 0
+                             :balance 1000000000))
+      (let* ((parent-block
+               (make-block
+                :header (make-block-header
+                         :number 0
+                         :timestamp 10
+                         :gas-limit 42000
+                         :gas-used 0
+                         :base-fee-per-gas 100
+                         :state-root (state-db-root parent-state))))
+             (parent-hash (block-hash parent-block)))
+        (chain-store-put-block store parent-block :state-available-p t)
+        (commit-state-db-to-chain-store store parent-hash parent-state)
+        (chain-store-set-canonical-head
+         store parent-hash
+         :expected-chain-id (chain-config-chain-id config)
+         :chain-config config)
+        (let* ((empty-prepare-response
+                 (engine-rpc-handle-request
+                  (forkchoice-request 201 parent-hash)
+                  store
+                  config))
+               (empty-payload-id
+                 (field (field empty-prepare-response "result") "payloadId")))
+          (is (stringp empty-payload-id))
+          (is (not (get-payload-transactions
+                    202 empty-payload-id store config)))
+          (is (string= (hash32-to-hex (transaction-hash transaction))
+                       (field (send-raw
+                               203 raw-transaction store config)
+                              "result")))
+          (let* ((txpool-prepare-response
+                   (engine-rpc-handle-request
+                    (forkchoice-request 204 parent-hash)
+                    store
+                    config))
+                 (txpool-payload-id
+                   (field (field txpool-prepare-response "result")
+                          "payloadId"))
+                 (txpool-payload-transactions
+                   (get-payload-transactions
+                    205 txpool-payload-id store config)))
+            (is (stringp txpool-payload-id))
+            (is (not (string= empty-payload-id txpool-payload-id)))
+            (is (= 1 (length txpool-payload-transactions)))
+            (is (string= raw-transaction
+                         (first txpool-payload-transactions)))
+            (is (not (get-payload-transactions
+                      206 empty-payload-id store config)))))))))
+
 (deftest engine-rpc-forkchoice-updated-known-block-precedes-invalid-cache
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))

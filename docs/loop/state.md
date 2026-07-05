@@ -18,9 +18,10 @@ Last updated: 2026-07-05
 ## Current Dirty Work
 
 The current run is implementing
-`DEVNET-RUNNER-DEV-PERIOD-MULTI-SENDER-SELECTION`. Code changes, focused CLI
-coverage, `git diff --check`, full-suite validation, independent verifier
-review, and next-run refresh are complete; commit and push are pending.
+`DEVNET-RUNNER-PREPARED-PAYLOAD-TXPOOL-SELECTION`. Code changes, focused
+Engine RPC coverage, `git diff --check`, and escalated full-suite validation
+are complete. Independent verifier review returned `PASS`; commit and push are
+pending.
 
 Closed behavior from the latest slice:
 
@@ -56,6 +57,21 @@ Closed behavior from the latest slice:
   nonce-safe transaction would exceed the remaining child block gas, that
   sender is skipped for the rest of the current block while later independent
   sender heads may still be selected if they fit.
+- The shared local mining selector now lives in core and is reused by both the
+  dev-period block-production path and Engine prepared-payload construction.
+- Engine `engine_forkchoiceUpdated*` prepared payloads now select recoverable
+  public pending txpool transactions with the deterministic, gas-limited,
+  sender-aware policy.
+- Non-empty prepared payloads execute the selected signed transactions against
+  parent state to materialize payload block commitments without committing the
+  block or removing txpool entries.
+- Non-empty prepared payload ids include the selected transaction root, so a
+  repeated same-head/same-attributes `engine_forkchoiceUpdated*` call after
+  txpool changes gets a distinct cache key instead of reusing stale empty
+  payloads.
+- `engine_getPayloadV1` returns selected transaction bytes for prepared local
+  payloads, while selected and non-selected txpool entries remain
+  public-visible before import/forkchoice.
 
 Closed validation:
 
@@ -102,6 +118,22 @@ Closed validation:
   covered by the sender-aware selector structure but not yet by a dedicated
   focused test, and no explicit third same-sender nonce fixture asserts blocked
   sender tails beyond the currently non-fitting nonce.
+- Focused direct Engine RPC coverage for
+  `ENGINE-RPC-FORKCHOICE-UPDATED-V1-SELECTS-PENDING-TXPOOL-TRANSACTIONS`
+  and
+  `ENGINE-RPC-FORKCHOICE-UPDATED-V1-PAYLOAD-ID-TRACKS-TXPOOL-SELECTION`
+  passed during the current run.
+- `git diff --check` passed.
+- The first sandbox `sbcl --script tests/run-tests.lisp` run reached the new
+  focused prepared-payload test but failed at the local socket/devnet Phase A
+  smoke gate under sandbox restrictions.
+- The escalated `sbcl --script tests/run-tests.lisp` run passed with
+  `890 tests passed, 5 skipped`.
+- Independent verifier review returned `PASS` after the prepared-payload cache
+  key was changed to include the selected transaction root for non-empty
+  txpool-backed payloads. Residual risks: replacement churn preserving
+  transaction count and V2/V3 prepared-payload txpool variants remain useful
+  follow-up coverage, but are not blocking this slice.
 
 ## Current Loop Migration
 
@@ -116,8 +148,8 @@ The old fixed heartbeat prompt is being replaced by a loop v2 process:
 ## Next Recommended Orchestrator Decision
 
 The current loop run should finish
-`DEVNET-RUNNER-DEV-PERIOD-MULTI-SENDER-SELECTION` by committing and pushing the
+`DEVNET-RUNNER-PREPARED-PAYLOAD-TXPOOL-SELECTION` by committing and pushing the
 validated work. After that, the next highest-value Phase B slice is
-`DEVNET-RUNNER-PREPARED-PAYLOAD-TXPOOL-SELECTION`: reuse the local devnet
-txpool transaction-selection policy for Engine prepared payloads returned by
-`engine_getPayload*`.
+`DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-SELECTION`: prove the
+txpool-backed prepared-payload path across the standalone devnet
+Engine/public listener boundary and report runner-visible evidence.

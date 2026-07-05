@@ -595,63 +595,12 @@
         (setf (devnet-rejournal-state-last-run-time state) now)
         (devnet-node-rejournal (devnet-rejournal-state-node state))))))
 
-(defun devnet-node-mining-transaction< (left right expected-chain-id)
-  (let* ((left-sender (transaction-sender left
-                                          :expected-chain-id
-                                          expected-chain-id))
-         (right-sender (transaction-sender right
-                                           :expected-chain-id
-                                           expected-chain-id))
-         (left-sender-key (if left-sender
-                              (address-to-hex left-sender)
-                              ""))
-         (right-sender-key (if right-sender
-                               (address-to-hex right-sender)
-                               "")))
-    (cond
-      ((string< left-sender-key right-sender-key) t)
-      ((string< right-sender-key left-sender-key) nil)
-      ((< (transaction-nonce left) (transaction-nonce right)) t)
-      ((< (transaction-nonce right) (transaction-nonce left)) nil)
-      (t
-       (string< (hash32-to-hex (transaction-hash left))
-                (hash32-to-hex (transaction-hash right)))))))
-
 (defun devnet-node-pending-mining-transactions (node)
   (let* ((store (devnet-node-store node))
          (expected-chain-id
            (chain-config-chain-id (devnet-node-config node))))
-    (sort
-     (copy-list
-      (remove-if-not
-       (lambda (transaction)
-         (transaction-sender transaction
-                             :expected-chain-id expected-chain-id))
-       (ethereum-lisp.core::engine-payload-store-pending-transactions
-        store)))
-     (lambda (left right)
-       (devnet-node-mining-transaction<
-        left right expected-chain-id)))))
-
-(defun devnet-node-select-mining-transactions
-    (transactions gas-limit expected-chain-id)
-  (let ((blocked-senders (make-hash-table :test #'equal)))
-    (loop with selected = nil
-          with gas-used = 0
-          for transaction in transactions
-          for sender = (transaction-sender
-                        transaction
-                        :expected-chain-id expected-chain-id)
-          for sender-key = (and sender (address-to-hex sender))
-          for transaction-gas = (transaction-gas-limit transaction)
-          when (and sender-key
-                    (not (gethash sender-key blocked-senders)))
-            do (if (<= (+ gas-used transaction-gas) gas-limit)
-                   (progn
-                     (push transaction selected)
-                     (incf gas-used transaction-gas))
-                   (setf (gethash sender-key blocked-senders) t))
-          finally (return (nreverse selected)))))
+    (engine-payload-store-pending-mining-transactions
+     store expected-chain-id)))
 
 (defun devnet-node-seal-pending-block (node &key timestamp)
   (unless (typep node 'devnet-node)
@@ -670,7 +619,7 @@
              (gas-limit (block-header-gas-limit parent-header))
              (expected-chain-id (chain-config-chain-id config))
              (transactions
-               (devnet-node-select-mining-transactions
+               (engine-select-mining-transactions
                 pending-transactions gas-limit expected-chain-id))
              (state (chain-store-state-db store parent-hash))
              (cancun-p (chain-config-cancun-p config block-number timestamp))
