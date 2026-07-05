@@ -1719,6 +1719,19 @@ ones.
     `git diff --check`, and the full suite passed (`895 tests passed, 5
     skipped`). Residual risk is now limited to live
     `engine_getPayloadBodiesByRangeV2` runner proof.
+  - Result (2026-07-06): the same engine-only `kzgOptIn` child now performs a
+    live `engine_forkchoiceUpdatedV2` selection of the seeded Amsterdam-era V6
+    block before requesting `engine_getPayloadBodiesByRangeV2`, so the range
+    probe hits a real canonical body instead of only the by-hash path. The
+    smoke and CLI assertions now require the range response to return the
+    expected empty `transactions` / `withdrawals` arrays plus the Amsterdam
+    `blockAccessList`, they record `preparedPayloadBodiesByRangeV2*` report
+    fields, and the nested KZG connection/shutdown contract expands to
+    thirteen Engine requests while non-KZG capability checks explicitly keep
+    `engine_getPayloadBodiesByRangeV2` hidden. Focused escalated smoke,
+    focused engine-only CLI coverage, `git diff --check`, and independent
+    verifier review passed. Residual risk is now limited to broader
+    multi-slot range/null response assertions beyond the single-hit proof.
 - [x] `DEVNET-RUNNER-KZG-ERROR-TELEMETRY`: Lock invalid KZG verifier
   configuration as a runner-facing startup failure.
   - Result (2026-07-03): `scripts/ethereum-lisp.lisp -- devnet` subprocess

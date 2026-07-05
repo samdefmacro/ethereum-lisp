@@ -15,68 +15,72 @@
   `engine_getPayloadV3`, `engine_getPayloadV4`, non-empty
   `engine_getPayloadV5`, non-empty `engine_getPayloadV6`, direct
   `engine_getBlobsV1`, direct `engine_getBlobsV2` / `engine_getBlobsV3`,
-  and live `engine_getPayloadBodiesByHashV2` for the same Amsterdam-era V6
-  block.
-- Recent commits reviewed: the latest validated slice widened KV import so a
-  known block can retain a matching prepared payload, then used that coexistence
-  path to prove by-hash Amsterdam payload-body retrieval at the runner
-  boundary.
+  live `engine_getPayloadBodiesByHashV2`, and a live single-hit
+  `engine_getPayloadBodiesByRangeV2` response for the same Amsterdam-era V6
+  block after engine-only forkchoice selection.
+- Recent commits reviewed: the latest validated slice exported state
+  availability for the seeded V6 block, used live `engine_forkchoiceUpdatedV2`
+  to make it canonical inside the KZG-only smoke child, then proved
+  `engine_getPayloadBodiesByRangeV2` plus the matching non-KZG capability
+  negative guards.
 - Relevant task/roadmap anchors: `DEVNET-RUNNER-KZG-CAPABILITY-OPT-IN` now
-  records live by-hash payload-body proof; the roadmap now treats
-  `engine_getPayloadBodiesByRangeV2` as the next bounded blob-era follow-up.
+  records both by-hash and single-hit by-range payload-body proof; the roadmap
+  now treats broader multi-slot range/null behavior as the next bounded
+  blob-era follow-up.
 - Relevant loop state: blob-era payload envelopes, direct blob/cell-proof
-  lookups, and by-hash Amsterdam payload-body retrieval are covered at the
-  process boundary; the remaining narrow runner gap is range-based Amsterdam
-  payload-body retrieval.
+  lookups, and both by-hash and single-hit by-range Amsterdam payload-body
+  retrieval are covered at the process boundary; the remaining narrow runner
+  gap is mixed-hit range/null behavior for sparse canonical slots.
 
 ## Candidate Ranking
 
 ### Candidate A
 
-- Objective: extend the verifier opt-in runner smoke from live
-  `engine_getPayloadBodiesByHashV2` into live
-  `engine_getPayloadBodiesByRangeV2`.
-- Value: highest; it closes the next obvious Amsterdam payload-body runner gap
-  while reusing the just-landed known/prepared coexistence seed.
-- Risk: low-medium; likely smoke/assertion/report work plus one more Engine
-  request in the nested connection contract.
+- Objective: prove a mixed-hit live
+  `engine_getPayloadBodiesByRangeV2` response where the requested range
+  includes one missing earlier canonical slot and the already-proven Amsterdam
+  V6 slot.
+- Value: highest; it completes the most obvious remaining range-contract
+  assertion without leaving the current runner boundary.
+- Risk: low-medium; likely smoke/assertion/report work plus one additional
+  range query over the same selected V6 head.
 - Required validation: focused escalated
   `sbcl --script scripts/devnet-smoke-gate.lisp -- --engine-only-serve --json`,
-  `git diff --check`, verifier review, and the full suite only if production
-  code changes.
+  `git diff --check`, focused engine-only CLI coverage if assertions change,
+  verifier review, and the full suite only if production code changes.
 - Decision: selected.
-- Reason: it continues the same runner surface with the smallest remaining
-  bounded gap.
+- Reason: it stays on the same KZG smoke child and extends the new range proof
+  into the next concrete contract edge instead of widening scope.
 
 ### Candidate B
 
-- Objective: widen the Amsterdam seed again to exercise a live
-  `engine_newPayloadV5` import path with executable blob transactions.
-- Value: medium; useful long term, but materially larger than the remaining
-  payload-body range proof.
-- Risk: high; would require genuine executable blob-transaction fixture shape
-  instead of the current bounded synthetic runner seed.
-- Required validation: likely Tier 2 or Tier 3 with broader production and
-  fixture risk.
+- Objective: probe oversized or otherwise invalid
+  `engine_getPayloadBodiesByRangeV2` request bounds at the runner boundary.
+- Value: medium; useful contract hardening, but lower value than proving the
+  still-missing mixed-hit null placeholder behavior.
+- Risk: low-medium; may stay smoke-only, but it is less central than the live
+  sparse-range success shape.
+- Required validation: likely Tier 1 with smoke/report assertions only.
 - Decision: defer.
-- Reason: larger than needed while a narrower runner-boundary proof remains.
+- Reason: the success-path null placeholder contract is the more direct gap.
 
 ### Candidate C
 
-- Objective: return to unrelated txpool or listener slices.
+- Objective: widen the Amsterdam seed into executable blob-transaction import
+  or unrelated txpool/listener work.
 - Value: low for current priority because the blob-era runner line still has a
-  clean next step.
+  clean smaller next step.
 - Risk: low-medium, but it would interrupt the current KZG continuity.
 - Required validation: depends on slice.
 - Decision: defer.
-- Reason: lower leverage than finishing the remaining Amsterdam payload-body
-  range contract.
+- Reason: lower leverage than finishing the remaining sparse range-contract
+  coverage.
 
 ## Selected Objective
 
-Extend the repo-local verifier opt-in runner smoke from live
-`engine_getPayloadBodiesByHashV2` into live
-`engine_getPayloadBodiesByRangeV2` process-boundary proof.
+Extend the repo-local verifier opt-in runner smoke from single-hit live
+`engine_getPayloadBodiesByRangeV2` into mixed-hit sparse-range proof with a
+missing earlier slot and the Amsterdam V6 body in the same response.
 
 ## Scope
 
@@ -91,31 +95,33 @@ Allowed files/modules:
 
 Expected behavior changes:
 
-- The engine-only `kzgOptIn` smoke proves Amsterdam-era
-  `engine_getPayloadBodiesByRangeV2`, not only the by-hash variant.
-- The nested runner report records enough range-response evidence to debug
-  transaction, withdrawal, and `blockAccessList` regressions at the process
-  boundary.
+- The engine-only `kzgOptIn` smoke proves a mixed-hit Amsterdam-era
+  `engine_getPayloadBodiesByRangeV2` response, not only the single-hit range
+  lookup.
+- The nested runner report records enough sparse-range evidence to debug null
+  placeholders, live body ordering, and `blockAccessList` regressions at the
+  process boundary.
 - The nested KZG connection/shutdown contract grows only as needed for the new
-  range request.
+  sparse-range request.
 
 Non-goals:
 
-- Do not revisit the by-hash coexistence production fix unless the range path
-- reveals a concrete bug.
+- Do not revisit the by-hash coexistence production fix unless the sparse
+  range path reveals a concrete bug.
 - Do not broaden into unrelated blob lookup or payload-envelope variants.
 - Do not refactor general payload storage or Engine RPC plumbing outside the
-  minimal support needed for the live range proof.
+  minimal support needed for the live sparse-range proof.
 
 ## Acceptance Criteria
 
 - Focused process-boundary coverage proves live verifier opt-in
-  `engine_getPayloadBodiesByRangeV2` retrieval for the imported Amsterdam-era
-  V6 block range containing the already-proven by-hash block.
-- The smoke/assertion surface fails clearly if the range lookup omits
-  `transactions`, omits `withdrawals`, or omits/malforms `blockAccessList`.
-- Any code change stays scoped to the live range proof and does not regress the
-  landed by-hash proof.
+  `engine_getPayloadBodiesByRangeV2` retrieval for a requested range whose
+  earlier slot is missing while the later Amsterdam-era V6 slot is present.
+- The smoke/assertion surface fails clearly if the sparse range loses the
+  leading `null` placeholder, reorders the live body, omits `transactions`,
+  omits `withdrawals`, or omits/malforms `blockAccessList` on the V6 hit.
+- Any code change stays scoped to the live sparse-range proof and does not
+  regress the landed by-hash or single-hit by-range proofs.
 - Independent verifier reviews the final diff before commit.
 
 ## Validation Plan
@@ -123,17 +129,21 @@ Non-goals:
 Gate tier:
 
 - Tier 1 if the change stays in smoke/assertion/report code only.
-- Escalate to Tier 2 only if the range proof uncovers a shared production bug.
+- Escalate to Tier 2 only if the sparse-range proof uncovers a shared
+  production bug.
 
 Focused gates:
 
 - focused escalated
   `sbcl --script scripts/devnet-smoke-gate.lisp -- --engine-only-serve --json`
+- focused CLI coverage for
+  `DEVNET-SMOKE-GATE-SCRIPT-ENGINE-ONLY-SERVE-MODE` if report assertions or
+  capability guards change
 
 Required pre-commit gates:
 
 - `git diff --check`
-- focused escalated engine-only smoke for the new range path
+- focused escalated engine-only smoke for the new sparse-range path
 - independent verifier `PASS`
 - full suite only if production code changes or verifier flags broader risk
 
@@ -146,32 +156,32 @@ Full-suite policy:
 Escalation requirements:
 
 - Request local socket/network escalation before the focused smoke gate.
-- If the current imported V6 block cannot exercise the range response without a
-  broader fixture redesign, stop and record the exact missing range boundary
-  rather than widening scope ad hoc.
+- If the current selected V6 head cannot exercise the sparse-range null
+  response without a broader fixture redesign, stop and record the exact range
+  hole that is missing rather than widening scope ad hoc.
 
 ## Commit And Push Policy
 
 - Commit allowed: only after the applicable focused gate, `git diff --check`,
   and verifier review pass.
 - Push allowed: yes, after commit if remote authentication is available.
-- Commit message: `Smoke V2 payload body range lookup`
+- Commit message: `Smoke V2 payload body sparse range`
 
 ## Blockers
 
-- If the range proof requires broader production changes than the current
-  by-hash known/prepared coexistence path, stop and write that narrower blocker
-  instead of expanding into a larger blob fixture project.
+- If the sparse-range proof requires broader production changes than the
+  current by-hash / single-hit range coexistence path, stop and write that
+  narrower blocker instead of expanding into a larger blob fixture project.
 
 ## Implementer Notes
 
-- Reuse the existing engine-only `kzgOptIn` smoke child and seeded V6 known /
-  prepared block path instead of inventing a second verifier configuration
-  flow.
+- Reuse the existing engine-only `kzgOptIn` smoke child, seeded V6 known /
+  prepared block path, and live forkchoice-selection step instead of inventing
+  a second verifier configuration flow.
 - Prefer extending the current nested report contract over adding a second
   unrelated smoke mode.
-- Keep the slice centered on live `engine_getPayloadBodiesByRangeV2`, not
-  broader Amsterdam fixture realism.
+- Keep the slice centered on live `engine_getPayloadBodiesByRangeV2` sparse
+  behavior, not broader Amsterdam fixture realism.
 
 ## Verifier Result
 

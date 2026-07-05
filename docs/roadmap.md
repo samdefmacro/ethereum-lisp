@@ -738,17 +738,19 @@ Validation targets: geth `crypto`, Nethermind `Nethermind.Crypto` and
 - *Missing for Phase A:* none for Shanghai. Real KZG verification only blocks
   Phase A if Cancun blob execution is admitted into the gate.
 - *Latest result:* the runner proof now extends through live
-  `engine_getPayloadBodiesByHashV2`. KV import retains a prepared payload when
-  the same block hash is already known and the full block body matches, the
-  temporary KZG smoke database seeds that Amsterdam-era V6 block as both known
-  and prepared, and the process-boundary report now records the by-hash body
-  count plus `blockAccessList` evidence alongside the expanded eleven-request
-  Engine connection contract.
-- *Next:* widen the same process-boundary proof from live
-  `engine_getPayloadBodiesByHashV2` into live
-  `engine_getPayloadBodiesByRangeV2` so the runner boundary proves the
-  Amsterdam-era range response contract without regressing the new by-hash
-  known/prepared coexistence path.
+  `engine_getPayloadBodiesByRangeV2`. The engine-only `kzgOptIn` smoke keeps
+  the Amsterdam-era V6 block in the known/prepared coexistence path, exports a
+  matching state snapshot for live forkchoice selection, proves a real
+  `engine_forkchoiceUpdatedV2` can make that block canonical, and records both
+  by-hash and by-range body evidence including empty
+  `transactions`/`withdrawals` arrays plus the Amsterdam `blockAccessList`.
+  The nested KZG connection contract is now thirteen Engine requests, and the
+  non-KZG capability matrix explicitly keeps `engine_getPayloadBodiesByRangeV2`
+  hidden.
+- *Next:* reuse the same selected V6 head to prove mixed-hit
+  `engine_getPayloadBodiesByRangeV2` behavior, specifically that a missing
+  earlier canonical slot returns `null` while the Amsterdam V6 slot in the
+  same requested range still returns the expected body and `blockAccessList`.
 
 Detailed historical implementation notes for this section now live in
 `docs/status.md` under "Section 1: Cryptographic Primitives".

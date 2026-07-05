@@ -628,7 +628,8 @@ references/ checkouts.~%")
             (make-block-header
              :parent-hash (zero-hash32)
              :beneficiary (zero-address)
-             :state-root +empty-trie-hash+
+             :state-root (block-header-state-root
+                          (block-header genesis-block))
              :mix-hash (zero-hash32)
              :number 10
              :gas-limit 50000
@@ -650,6 +651,17 @@ references/ checkouts.~%")
           versioned-hash (first (blob-sidecar-versioned-hashes sidecar)))
     (chain-store-put-block store genesis-block :state-available-p t)
     (commit-state-db-to-chain-store store (block-hash genesis-block) state)
+    (setf (gethash (hash32-to-hex (block-hash block-v6))
+                   (ethereum-lisp.core::engine-payload-memory-store-blocks
+                    store))
+          block-v6)
+    (commit-state-db-to-chain-store store (block-hash block-v6) state)
+    (setf (gethash (hash32-to-hex (block-hash block-v6))
+                   (ethereum-lisp.core::engine-payload-memory-store-state-blocks
+                    store))
+          t)
+    (remhash (hash32-to-hex (block-hash block-v6))
+             (ethereum-lisp.core::engine-payload-memory-store-blocks store))
     (engine-payload-store-put-blob-sidecar store sidecar)
     (chain-store-put-prepared-payload
      store
@@ -2839,7 +2851,8 @@ references/ checkouts.~%")
                     capabilities-result))
                  (dolist (method '("engine_newPayloadV3"
                                     "engine_getBlobsV1"
-                                    "engine_getPayloadBodiesByHashV2"))
+                                    "engine_getPayloadBodiesByHashV2"
+                                    "engine_getPayloadBodiesByRangeV2"))
                    (devnet-smoke-gate-require
                     (not (member method capabilities-result :test #'string=))
                     "Engine-only serve engine_exchangeCapabilities advertised ~A"
@@ -3206,6 +3219,12 @@ references/ checkouts.~%")
                     (cons "id" id)
                     (cons "method" method)
                     (cons "params" (list block-hashes)))))
+           (get-payload-bodies-by-range-request (id method start count)
+             (json-encode
+              (list (cons "jsonrpc" "2.0")
+                    (cons "id" id)
+                    (cons "method" method)
+                    (cons "params" (list start count)))))
            (get-blobs-request (id method versioned-hashes)
              (json-encode
               (list (cons "jsonrpc" "2.0")
@@ -3271,7 +3290,7 @@ references/ checkouts.~%")
                         "--pid-file"
                         (namestring pid-path)
                         "--max-connections"
-                        "11"
+                        "13"
                         "--json")
                   :directory #P"/private/tmp/"
                   :output :stream
@@ -3470,12 +3489,54 @@ references/ checkouts.~%")
                     (and payload-body-v2
                          (fixture-object-field payload-body-v2
                                                "withdrawals")))
+                  (select-v6-response
+                    (devnet-cli-http-endpoint-request
+                     engine-endpoint
+                     (devnet-cli-json-rpc-http-request
+                      (forkchoice-request
+                       723
+                       "engine_forkchoiceUpdatedV2"
+                       (getf blob-database :block-hash-v6)
+                       nil))))
+                  (select-v6-rpc
+                    (parse-json
+                     (devnet-cli-http-body select-v6-response)))
+                  (select-v6-result
+                    (fixture-object-field select-v6-rpc "result"))
+                  (select-v6-status
+                    (fixture-object-field select-v6-result "payloadStatus"))
+                  (get-payload-bodies-range-v2-response
+                    (devnet-cli-http-endpoint-request
+                     engine-endpoint
+                     (devnet-cli-json-rpc-http-request
+                      (get-payload-bodies-by-range-request
+                       724
+                       "engine_getPayloadBodiesByRangeV2"
+                       (getf blob-database :block-number-v6)
+                       "0x1"))))
+                  (get-payload-bodies-range-v2-rpc
+                    (parse-json
+                     (devnet-cli-http-body
+                      get-payload-bodies-range-v2-response)))
+                  (get-payload-bodies-range-v2-result
+                    (fixture-object-field get-payload-bodies-range-v2-rpc
+                                          "result"))
+                  (payload-body-range-v2
+                    (first get-payload-bodies-range-v2-result))
+                  (payload-body-range-v2-transactions
+                    (and payload-body-range-v2
+                         (fixture-object-field payload-body-range-v2
+                                               "transactions")))
+                  (payload-body-range-v2-withdrawals
+                    (and payload-body-range-v2
+                         (fixture-object-field payload-body-range-v2
+                                               "withdrawals")))
                   (get-blobs-v1-response
                     (devnet-cli-http-endpoint-request
                      engine-endpoint
                      (devnet-cli-json-rpc-http-request
                       (get-blobs-request
-                       723
+                       725
                        "engine_getBlobsV1"
                        (list (getf blob-database :versioned-hash-hex)
                              unknown-versioned-hash)))))
@@ -3493,7 +3554,7 @@ references/ checkouts.~%")
                      engine-endpoint
                      (devnet-cli-json-rpc-http-request
                       (get-blobs-request
-                       724
+                       726
                        "engine_getBlobsV2"
                        (list (getf blob-database :versioned-hash-hex))))))
                   (get-blobs-v2-rpc
@@ -3510,7 +3571,7 @@ references/ checkouts.~%")
                      engine-endpoint
                      (devnet-cli-json-rpc-http-request
                       (get-blobs-request
-                       725
+                       727
                        "engine_getBlobsV3"
                        (list (getf blob-database :versioned-hash-hex)
                              unknown-versioned-hash)))))
@@ -3563,7 +3624,8 @@ references/ checkouts.~%")
                                "engine_getBlobsV1"
                                "engine_getBlobsV2"
                                "engine_getBlobsV3"
-                                "engine_getPayloadBodiesByHashV2"))
+                               "engine_getPayloadBodiesByHashV2"
+                               "engine_getPayloadBodiesByRangeV2"))
                (devnet-smoke-gate-require
                 (member method capabilities-result :test #'string=)
                 "KZG opt-in capabilities omitted ~A from ~S"
@@ -3804,6 +3866,61 @@ references/ checkouts.~%")
                                              "blockAccessList"))
               "KZG opt-in engine_getPayloadBodiesByHashV2 blockAccessList mismatch")
              (devnet-smoke-gate-require
+              (= 200 (devnet-cli-http-status select-v6-response))
+              "KZG opt-in engine_forkchoiceUpdatedV2 selection HTTP status mismatch")
+             (devnet-smoke-gate-require
+              (not (fixture-object-field select-v6-rpc "error"))
+              "KZG opt-in engine_forkchoiceUpdatedV2 selection returned an error: ~S"
+              (fixture-object-field select-v6-rpc "error"))
+             (devnet-smoke-gate-require
+              (string= +payload-status-valid+
+                       (fixture-object-field select-v6-status "status"))
+              "KZG opt-in engine_forkchoiceUpdatedV2 selection status mismatch: ~S"
+              select-v6-status)
+             (devnet-smoke-gate-require
+              (= 200 (devnet-cli-http-status get-payload-bodies-range-v2-response))
+              "KZG opt-in engine_getPayloadBodiesByRangeV2 HTTP status mismatch")
+             (devnet-smoke-gate-require
+              (not (fixture-object-field get-payload-bodies-range-v2-rpc "error"))
+              "KZG opt-in engine_getPayloadBodiesByRangeV2 returned an error: ~S"
+              (fixture-object-field get-payload-bodies-range-v2-rpc "error"))
+             (devnet-smoke-gate-require
+              (and (listp get-payload-bodies-range-v2-result)
+                   (= 1 (length get-payload-bodies-range-v2-result)))
+              "KZG opt-in engine_getPayloadBodiesByRangeV2 result count mismatch: ~S"
+              get-payload-bodies-range-v2-result)
+             (devnet-smoke-gate-require
+              payload-body-range-v2
+              "KZG opt-in engine_getPayloadBodiesByRangeV2 returned null for prepared V6 block range")
+             (devnet-smoke-gate-require
+              (assoc "transactions" payload-body-range-v2 :test #'string=)
+              "KZG opt-in engine_getPayloadBodiesByRangeV2 omitted transactions")
+             (devnet-smoke-gate-require
+              (listp payload-body-range-v2-transactions)
+              "KZG opt-in engine_getPayloadBodiesByRangeV2 transactions must be a JSON array")
+             (devnet-smoke-gate-require
+              (null payload-body-range-v2-transactions)
+              "KZG opt-in engine_getPayloadBodiesByRangeV2 transactions mismatch: ~S"
+              payload-body-range-v2-transactions)
+             (devnet-smoke-gate-require
+              (assoc "withdrawals" payload-body-range-v2 :test #'string=)
+              "KZG opt-in engine_getPayloadBodiesByRangeV2 omitted withdrawals")
+             (devnet-smoke-gate-require
+              (listp payload-body-range-v2-withdrawals)
+              "KZG opt-in engine_getPayloadBodiesByRangeV2 withdrawals must be a JSON array")
+             (devnet-smoke-gate-require
+              (null payload-body-range-v2-withdrawals)
+              "KZG opt-in engine_getPayloadBodiesByRangeV2 withdrawals mismatch: ~S"
+              payload-body-range-v2-withdrawals)
+             (devnet-smoke-gate-require
+              (field-present-p payload-body-range-v2 "blockAccessList")
+              "KZG opt-in engine_getPayloadBodiesByRangeV2 omitted blockAccessList")
+             (devnet-smoke-gate-require
+              (string= (getf blob-database :block-access-list-hex)
+                       (fixture-object-field payload-body-range-v2
+                                             "blockAccessList"))
+              "KZG opt-in engine_getPayloadBodiesByRangeV2 blockAccessList mismatch")
+             (devnet-smoke-gate-require
               (= 200 (devnet-cli-http-status get-blobs-v1-response))
               "KZG opt-in engine_getBlobsV1 HTTP status mismatch")
              (devnet-smoke-gate-require
@@ -3980,7 +4097,7 @@ references/ checkouts.~%")
                                              :test #'string=)))
                         "KZG opt-in log proof availability mismatch")))
                    (devnet-smoke-gate-require
-                    (string= "11"
+                    (string= "13"
                              (cdr (assoc "engineConnections"
                                          shutdown-fields
                                          :test #'string=)))
@@ -3992,7 +4109,7 @@ references/ checkouts.~%")
                                          :test #'string=)))
                     "KZG opt-in shutdown public connection count mismatch")
                    (devnet-smoke-gate-require
-                    (string= "11"
+                    (string= "13"
                              (cdr (assoc "totalConnections"
                                          shutdown-fields
                                          :test #'string=)))
@@ -4164,6 +4281,17 @@ references/ checkouts.~%")
                           (cons "preparedPayloadBodiesByHashV2BlockAccessList"
                                 (fixture-object-field payload-body-v2
                                                       "blockAccessList"))
+                          (cons "preparedPayloadBodiesByRangeV2StartBlockNumber"
+                                (getf blob-database :block-number-v6))
+                          (cons "preparedPayloadBodiesByRangeV2Count"
+                                (length get-payload-bodies-range-v2-result))
+                          (cons "preparedPayloadBodiesByRangeV2TransactionCount"
+                                (length payload-body-range-v2-transactions))
+                          (cons "preparedPayloadBodiesByRangeV2WithdrawalCount"
+                                (length payload-body-range-v2-withdrawals))
+                          (cons "preparedPayloadBodiesByRangeV2BlockAccessList"
+                                (fixture-object-field payload-body-range-v2
+                                                      "blockAccessList"))
                           (cons "directBlobLookupVersionedHash"
                                 (getf blob-database :versioned-hash-hex))
                           (cons "directBlobLookupCount"
@@ -4202,9 +4330,9 @@ references/ checkouts.~%")
                                 (hex-prefix
                                  (car (last direct-blob-v2-proofs))
                                  8))
-                          (cons "engineConnections" 11)
+                          (cons "engineConnections" 13)
                           (cons "publicConnections" 0)
-                          (cons "totalConnections" 11))))))))
+                          (cons "totalConnections" 13))))))))
       (when (and process (uiop:process-alive-p process))
         (uiop:terminate-process process))
       (when (and database-path (probe-file database-path))
@@ -11348,10 +11476,15 @@ references/ checkouts.~%")
                                :test #'string=))
                   "engine_exchangeCapabilities advertised engine_getBlobsV3 without KZG verification")
                  (devnet-smoke-gate-require
-                  (not (member "engine_getPayloadBodiesByHashV2"
+                 (not (member "engine_getPayloadBodiesByHashV2"
                                capabilities-result
                                :test #'string=))
                   "engine_exchangeCapabilities advertised engine_getPayloadBodiesByHashV2 without KZG verification")
+                 (devnet-smoke-gate-require
+                  (not (member "engine_getPayloadBodiesByRangeV2"
+                               capabilities-result
+                               :test #'string=))
+                  "engine_exchangeCapabilities advertised engine_getPayloadBodiesByRangeV2 without KZG verification")
                  (devnet-smoke-gate-require
                   (string= "CL"
                            (fixture-object-field client-version-result "code"))

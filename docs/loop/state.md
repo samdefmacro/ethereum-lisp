@@ -264,6 +264,21 @@ Closed validation:
 - Independent verifier review returned `PASS`; residual risk is now limited to
   live `engine_getPayloadBodiesByRangeV2` runner proof and any broader
   Amsterdam payload-body range assertions beyond the current by-hash contract.
+- Focused escalated standalone smoke for the Amsterdam by-range payload-body
+  runner path passed:
+  `sbcl --script scripts/devnet-smoke-gate.lisp -- --engine-only-serve --json`.
+  The nested `kzgOptIn` report now includes live
+  `engine_forkchoiceUpdatedV2` selection plus `engine_getPayloadBodiesByRangeV2`
+  evidence for the same imported V6 block already proven through
+  `engine_getPayloadV6` and `engine_getPayloadBodiesByHashV2`.
+- Focused engine-only CLI coverage for
+  `DEVNET-SMOKE-GATE-SCRIPT-ENGINE-ONLY-SERVE-MODE` passed after the smoke
+  report assertions and non-KZG capability guards were updated for
+  `engine_getPayloadBodiesByRangeV2`.
+- `git diff --check` passed.
+- Independent verifier review returned `PASS`; residual risk is now limited to
+  broader Amsterdam payload-body range/null assertions beyond the current
+  single-hit V6 proof.
 
 - Focused dev-period coverage passed inside the full suite:
   `DEVNET-CLI-DEV-PERIOD-PARSES-AND-REPORTS-DURATION` and

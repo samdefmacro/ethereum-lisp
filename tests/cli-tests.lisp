@@ -222,7 +222,8 @@
                     "engine_getBlobsV1"
                     "engine_getBlobsV2"
                     "engine_getBlobsV3"
-                    "engine_getPayloadBodiesByHashV2"))
+                    "engine_getPayloadBodiesByHashV2"
+                    "engine_getPayloadBodiesByRangeV2"))
     (is (not (member method capabilities :test #'string=)))))
 
 (defun devnet-cli-assert-kzg-backed-engine-capability-list (capabilities)
@@ -425,6 +426,29 @@
                  (fixture-object-field
                   report
                   "preparedPayloadBodiesByHashV2BlockAccessList"))))
+  (is (string= "0xa"
+               (fixture-object-field
+                report
+                "preparedPayloadBodiesByRangeV2StartBlockNumber")))
+  (is (= 1
+         (fixture-object-field report "preparedPayloadBodiesByRangeV2Count")))
+  (is (= 0
+         (fixture-object-field
+          report
+          "preparedPayloadBodiesByRangeV2TransactionCount")))
+  (is (= 0
+         (fixture-object-field
+          report
+          "preparedPayloadBodiesByRangeV2WithdrawalCount")))
+  (let* ((account (make-block-access-account
+                   :address (address-from-hex
+                             "0x0000000000000000000000000000000000000001")))
+         (expected-block-access-list
+           (bytes-to-hex (block-access-list-rlp (list account)))))
+    (is (string= expected-block-access-list
+                 (fixture-object-field
+                  report
+                  "preparedPayloadBodiesByRangeV2BlockAccessList"))))
   (let* ((commitment
            (fixture-object-field report "preparedPayloadV5Commitment"))
          (versioned-hash
@@ -487,9 +511,9 @@
                (fixture-object-field
                 report
                 "directCellProofLookupLastProofPrefix")))
-  (is (= 11 (fixture-object-field report "engineConnections")))
+  (is (= 13 (fixture-object-field report "engineConnections")))
   (is (= 0 (fixture-object-field report "publicConnections")))
-  (is (= 11 (fixture-object-field report "totalConnections"))))
+  (is (= 13 (fixture-object-field report "totalConnections"))))
 
 (defun devnet-cli-assert-public-readiness (report)
   (is (search "ethereum-lisp"
