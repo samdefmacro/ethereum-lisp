@@ -1322,17 +1322,19 @@ first pass, but interfaces must not block that path.
   entries after txpool changes. `engine_getPayload*` can return txpool-backed
   local payloads while selected and non-selected transactions remain
   public-visible until normal import/forkchoice mining. The standalone devnet
-  smoke gate now proves the same txpool-backed prepared-payload selection
-  across the real authenticated Engine/public listener boundary: after public
-  txpool admission, a second `engine_forkchoiceUpdatedV2` /
-  `engine_getPayloadV2` probe reports the selected transaction raw bytes/hash
-  and a post-preparation public txpool query proves selected and non-selected
-  entries are still visible before import/forkchoice. The next Phase B
-  block-production gap is importing and forkchoiceing that txpool-backed
-  prepared payload across the same listener boundary, then verifying public
-  canonical transaction/receipt visibility and txpool cleanup.
-  that txpool-backed prepared-payload path across the real standalone
-  devnet/process-runner listener boundary.
+  smoke gate now proves the same txpool-backed prepared-payload path across the
+  real authenticated Engine/public listener boundary: after public txpool
+  admission, a second `engine_forkchoiceUpdatedV2` / `engine_getPayloadV2`
+  probe reports the selected transaction raw bytes/hash and a post-preparation
+  public txpool query proves selected and non-selected entries are still
+  visible before import/forkchoice; the same smoke flow then imports the
+  retrieved prepared payload through authenticated `engine_newPayloadV2`,
+  canonicalizes it with `engine_forkchoiceUpdatedV2`, verifies public canonical
+  transaction/receipt/raw/block visibility for the selected transaction, and
+  verifies txpool cleanup while non-selected basefee and nonce-gapped entries
+  remain queued. The next Phase B correctness gap is locking prepared-payload
+  cache refresh when same-sender/same-nonce txpool replacement changes the
+  selected transaction without changing the selected transaction count.
   Startup
   summaries and lifecycle telemetry report
   `headGasLimit` and `coinbase` for process-runner checks. The runner-facing

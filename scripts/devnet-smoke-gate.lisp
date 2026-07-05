@@ -95,13 +95,13 @@ references/ checkouts.~%")
 (defconstant +devnet-smoke-gate-engine-endpoint+ "http://127.0.0.1:8551")
 (defconstant +devnet-smoke-gate-public-endpoint+ "http://127.0.0.1:8545")
 (defconstant +devnet-smoke-gate-engine-boundary-connections+ 5)
-(defconstant +devnet-smoke-gate-engine-workflow-connections+ 14)
+(defconstant +devnet-smoke-gate-engine-workflow-connections+ 16)
 (defconstant +devnet-smoke-gate-engine-connections+
   (+ +devnet-smoke-gate-engine-boundary-connections+
      +devnet-smoke-gate-engine-workflow-connections+))
 (defconstant +devnet-smoke-gate-public-canonical-read-connections+ 23)
 (defconstant +devnet-smoke-gate-public-boundary-connections+ 3)
-(defconstant +devnet-smoke-gate-public-txpool-connections+ 20)
+(defconstant +devnet-smoke-gate-public-txpool-connections+ 26)
 (defconstant +devnet-smoke-gate-public-connections+
   (+ +devnet-smoke-gate-public-canonical-read-connections+
      +devnet-smoke-gate-public-boundary-connections+
@@ -3300,7 +3300,8 @@ references/ checkouts.~%")
      transaction-checks log-targets block-hash
      expected-safe-block-number expected-safe-block-hash
      expected-finalized-block-number expected-finalized-block-hash
-     &key pruned-state-rpc-tag)
+     &key pruned-state-rpc-tag
+          (expected-head-block-number expected-block-number))
   #+sbcl
   (let* ((primary-balance-target (first balance-targets))
          (balance-address (getf primary-balance-target :address))
@@ -3415,21 +3416,26 @@ references/ checkouts.~%")
           (remove
            nil
            (list
-           (cons
-            (json-encode
-             (list (cons "jsonrpc" "2.0")
-                   (cons "id" 41)
-                   (cons "method" "eth_blockNumber")
-                   (cons "params" '())))
-            block-number-output)
-           (cons
-            (json-encode
-             (engine-fixture-balance-request 42 balance-address))
-            balance-output)
-           (cons
-            (json-encode
-             (list (cons "jsonrpc" "2.0")
-                   (cons "id" 43)
+            (cons
+             (json-encode
+              (list (cons "jsonrpc" "2.0")
+                    (cons "id" 41)
+                    (cons "method" "eth_blockNumber")
+                    (cons "params" '())))
+             block-number-output)
+            (cons
+             (json-encode
+              (list (cons "jsonrpc" "2.0")
+                    (cons "id" 42)
+                    (cons "method" "eth_getBalance")
+                    (cons "params"
+                          (list (address-to-hex balance-address)
+                                expected-block-number))))
+             balance-output)
+            (cons
+             (json-encode
+              (list (cons "jsonrpc" "2.0")
+                    (cons "id" 43)
                    (cons "method" "eth_getTransactionCount")
                    (cons "params" (list (address-to-hex sender-address)
                                         expected-block-number))))
@@ -3674,8 +3680,13 @@ references/ checkouts.~%")
                  collect
                  (cons
                   (json-encode
-                   (engine-fixture-balance-request
-                    id (getf target :address)))
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" id)
+                         (cons "method" "eth_getBalance")
+                         (cons "params"
+                               (list
+                                (address-to-hex (getf target :address))
+                                expected-block-number))))
                   output))
            (loop for check in (rest transaction-checks)
                  for output in extra-receipt-outputs
@@ -4365,9 +4376,9 @@ references/ checkouts.~%")
          (= 200 (devnet-cli-http-status post-call-storage-response))
          "Restored post-eth_call eth_getStorageAt HTTP status mismatch")
         (devnet-smoke-gate-require
-         (string= expected-block-number actual-block-number)
+         (string= expected-head-block-number actual-block-number)
          "Restored eth_blockNumber mismatch: expected ~A got ~A"
-         expected-block-number
+         expected-head-block-number
          actual-block-number)
         (devnet-smoke-gate-require
          (string= expected-balance actual-balance)
@@ -5723,7 +5734,7 @@ references/ checkouts.~%")
             (transaction-max-fee-per-gas transaction))))
 
 (defun devnet-smoke-gate-verify-restored-txpool-rpc
-    (node txpool-transactions)
+    (node txpool-transactions &key selected-pending-imported-p)
   #+sbcl
   (let* ((pending-transaction
            (devnet-smoke-gate-txpool-transaction-entry
@@ -5762,6 +5773,10 @@ references/ checkouts.~%")
            (devnet-smoke-gate-transaction-nonce-key basefee-transaction))
          (queued-nonce-key
            (devnet-smoke-gate-transaction-nonce-key queued-transaction))
+         (expected-pending-count
+           (if selected-pending-imported-p 0 1))
+         (expected-pending-count-hex
+           (quantity-to-hex expected-pending-count))
          (raw-output (make-string-output-stream))
          (basefee-raw-output (make-string-output-stream))
          (queued-raw-output (make-string-output-stream))
@@ -6044,7 +6059,8 @@ references/ checkouts.~%")
               (fixture-object-field queued-raw-rpc "result"))
      "Restored queued txpool raw transaction mismatch")
     (devnet-smoke-gate-require
-     (string= "0x1" (fixture-object-field pending-block-count-rpc "result"))
+     (string= expected-pending-count-hex
+              (fixture-object-field pending-block-count-rpc "result"))
      "Restored pending block-tag transaction count mismatch")
     (devnet-smoke-gate-require
      (null (fixture-object-field pending-block "hash"))
@@ -6079,50 +6095,70 @@ references/ checkouts.~%")
               (fixture-object-field pending-nonce-rpc "result"))
      "Restored pending transaction count nonce mismatch")
     (devnet-smoke-gate-require
-     (= 1 (length pending-block-transactions))
+     (= expected-pending-count (length pending-block-transactions))
      "Restored pending block-tag block transaction count mismatch")
+    (if selected-pending-imported-p
+        (progn
+          (devnet-smoke-gate-require
+           (null pending-index-transaction)
+           "Restored pending block-tag transaction index should be empty")
+          (devnet-smoke-gate-require
+           (null (fixture-object-field pending-raw-index-rpc "result"))
+           "Restored pending block-tag raw transaction should be empty"))
+        (progn
+          (devnet-smoke-gate-require
+           (string= transaction-hash-hex
+                    (fixture-object-field pending-block-transaction "hash"))
+           "Restored pending block-tag block transaction hash mismatch")
+          (devnet-smoke-gate-require
+           (null (fixture-object-field pending-block-transaction "blockHash"))
+           "Restored pending block-tag block transaction should not have a block hash")
+          (devnet-smoke-gate-require
+           (string= transaction-hash-hex
+                    (fixture-object-field pending-index-transaction "hash"))
+           "Restored pending block-tag transaction index hash mismatch")
+          (devnet-smoke-gate-require
+           (null (fixture-object-field pending-index-transaction "blockHash"))
+           "Restored pending block-tag transaction should not have a block hash")
+          (devnet-smoke-gate-require
+           (string= raw-transaction
+                    (fixture-object-field pending-raw-index-rpc "result"))
+           "Restored pending block-tag raw transaction mismatch")))
     (devnet-smoke-gate-require
-     (string= transaction-hash-hex
-              (fixture-object-field pending-block-transaction "hash"))
-     "Restored pending block-tag block transaction hash mismatch")
-    (devnet-smoke-gate-require
-     (null (fixture-object-field pending-block-transaction "blockHash"))
-     "Restored pending block-tag block transaction should not have a block hash")
-    (devnet-smoke-gate-require
-     (string= transaction-hash-hex
-              (fixture-object-field pending-index-transaction "hash"))
-     "Restored pending block-tag transaction index hash mismatch")
-    (devnet-smoke-gate-require
-     (null (fixture-object-field pending-index-transaction "blockHash"))
-     "Restored pending block-tag transaction should not have a block hash")
-    (devnet-smoke-gate-require
-     (string= raw-transaction
-              (fixture-object-field pending-raw-index-rpc "result"))
-     "Restored pending block-tag raw transaction mismatch")
-    (devnet-smoke-gate-require
-     (= 1 (length pending-transactions))
+     (= expected-pending-count (length pending-transactions))
      "Restored txpool pending transaction count mismatch")
+    (unless selected-pending-imported-p
+      (devnet-smoke-gate-require
+       (string= transaction-hash-hex
+                (fixture-object-field pending-object "hash"))
+       "Restored eth_pendingTransactions hash mismatch")
+      (devnet-smoke-gate-require
+       (null (fixture-object-field pending-object "blockHash"))
+       "Restored pending transaction should not have a block hash"))
     (devnet-smoke-gate-require
-     (string= transaction-hash-hex
-              (fixture-object-field pending-object "hash"))
-     "Restored eth_pendingTransactions hash mismatch")
-    (devnet-smoke-gate-require
-     (null (fixture-object-field pending-object "blockHash"))
-     "Restored pending transaction should not have a block hash")
-    (devnet-smoke-gate-require
-     (string= "0x1" (fixture-object-field status "pending"))
+     (string= expected-pending-count-hex
+              (fixture-object-field status "pending"))
      "Restored txpool_status pending count mismatch")
     (devnet-smoke-gate-require
      (string= "0x2" (fixture-object-field status "queued"))
      "Restored txpool_status queued count mismatch")
-    (devnet-smoke-gate-require
-     (string= transaction-hash-hex
-              (fixture-object-field content-transaction "hash"))
-     "Restored txpool_content hash mismatch")
-    (devnet-smoke-gate-require
-     (string= transaction-hash-hex
-              (fixture-object-field content-from-transaction "hash"))
-     "Restored txpool_contentFrom hash mismatch")
+    (if selected-pending-imported-p
+        (progn
+          (devnet-smoke-gate-require
+           (null content-transaction)
+           "Restored txpool_content should not expose mined pending transaction")
+          (devnet-smoke-gate-require
+           (null content-from-transaction)
+           "Restored txpool_contentFrom should not expose mined pending transaction"))
+        (progn
+          (devnet-smoke-gate-require
+           (string= transaction-hash-hex
+                    (fixture-object-field content-transaction "hash"))
+           "Restored txpool_content hash mismatch")
+          (devnet-smoke-gate-require
+           (string= transaction-hash-hex
+                    (fixture-object-field content-from-transaction "hash"))
+           "Restored txpool_contentFrom hash mismatch")))
     (devnet-smoke-gate-require
      (string= basefee-transaction-hash-hex
               (fixture-object-field content-basefee-transaction "hash"))
@@ -6139,9 +6175,13 @@ references/ checkouts.~%")
      (string= queued-transaction-hash-hex
               (fixture-object-field content-from-queued-transaction "hash"))
      "Restored txpool_contentFrom queued hash mismatch")
-    (devnet-smoke-gate-require
-     (string= transaction-summary inspect-transaction)
-     "Restored txpool_inspect pending summary mismatch")
+    (if selected-pending-imported-p
+        (devnet-smoke-gate-require
+         (null inspect-transaction)
+         "Restored txpool_inspect should not expose mined pending transaction")
+        (devnet-smoke-gate-require
+         (string= transaction-summary inspect-transaction)
+         "Restored txpool_inspect pending summary mismatch"))
     (devnet-smoke-gate-require
      (string= basefee-transaction-summary inspect-basefee-transaction)
      "Restored txpool_inspect basefee summary mismatch")
@@ -7320,6 +7360,7 @@ references/ checkouts.~%")
      expected-finalized-block-number expected-finalized-block-hash
      config
      &key state-prune-before pruned-state-hash
+          (expected-head-block-number expected-block-number)
           checkpoint-balance-targets
           prepared-payload-id prepared-payload-parent-hash
           prepared-payload-block-number
@@ -7357,7 +7398,8 @@ references/ checkouts.~%")
             expected-finalized-block-number
             expected-finalized-block-hash
             :pruned-state-rpc-tag
-            (when pruned-state-expected-p "safe")))
+            (when pruned-state-expected-p "safe")
+            :expected-head-block-number expected-head-block-number))
          (engine-rpc-summary
            (and prepared-payload-id
                 (devnet-smoke-gate-verify-restored-engine-rpc
@@ -7365,7 +7407,7 @@ references/ checkouts.~%")
                  prepared-payload-id
                  prepared-payload-parent-hash
                  prepared-payload-block-number
-                 expected-block-number)))
+                 expected-head-block-number)))
          (remote-block-hash (and remote-block (block-hash remote-block)))
          (restored-remote-block
            (and remote-block-hash
@@ -7378,7 +7420,7 @@ references/ checkouts.~%")
                  node
                  remote-payload
                  remote-block-hash
-                 expected-block-number)))
+                 expected-head-block-number)))
          (invalid-block-hash (and invalid-block (block-hash invalid-block)))
          (restored-invalid-block
            (and invalid-block-hash
@@ -7391,11 +7433,15 @@ references/ checkouts.~%")
                  node
                  invalid-descendant-payload
                  (block-header-parent-hash (block-header invalid-block))
-                 expected-block-number)))
+                 expected-head-block-number)))
          (txpool-rpc-summary
            (and txpool-transactions
-                (devnet-smoke-gate-verify-restored-txpool-rpc
-                 node txpool-transactions)))
+	                (devnet-smoke-gate-verify-restored-txpool-rpc
+	                 node txpool-transactions
+	                 :selected-pending-imported-p
+	                 (and expected-head-block-number
+	                      (not (string= expected-block-number
+	                                    expected-head-block-number))))))
          (side-reorg-rpc-summary
            (and (not state-prune-before)
                 side-payload
@@ -7452,10 +7498,10 @@ references/ checkouts.~%")
        (< 0 (length (kv-chain-record-entries database :txpool)))
        "Database export did not write txpool records"))
     (devnet-smoke-gate-require
-     (= (hex-to-quantity expected-block-number)
+     (= (hex-to-quantity expected-head-block-number)
         (getf summary :head-number))
      "Database restored head mismatch: expected ~A got ~A"
-     expected-block-number
+     expected-head-block-number
      (quantity-to-hex (getf summary :head-number)))
     (devnet-smoke-gate-require
      (string= path (getf summary :database-path))
@@ -8136,6 +8182,10 @@ references/ checkouts.~%")
                   (prepare-txpool-payload-output
                     (make-string-output-stream))
                   (get-txpool-payload-output (make-string-output-stream))
+                  (import-txpool-payload-output
+                    (make-string-output-stream))
+                  (forkchoice-txpool-payload-output
+                    (make-string-output-stream))
                   (remote-payload-output (make-string-output-stream))
                   (invalid-payload-output (make-string-output-stream))
                   (block-number-output (make-string-output-stream))
@@ -8197,6 +8247,18 @@ references/ checkouts.~%")
                   (txpool-content-from-output (make-string-output-stream))
                   (txpool-inspect-output (make-string-output-stream))
                   (post-prepared-txpool-content-from-output
+                    (make-string-output-stream))
+                  (post-import-transaction-output
+                    (make-string-output-stream))
+                  (post-import-receipt-output
+                    (make-string-output-stream))
+                  (post-import-raw-output
+                    (make-string-output-stream))
+                  (post-import-block-output
+                    (make-string-output-stream))
+                  (post-import-txpool-status-output
+                    (make-string-output-stream))
+                  (post-import-txpool-content-from-output
                     (make-string-output-stream))
                   (balance-targets
                     (devnet-smoke-gate-balance-targets expect))
@@ -8290,7 +8352,10 @@ references/ checkouts.~%")
                      queued-transaction))
                   (txpool-rejournal-report nil)
                   (prepare-txpool-payload-response-cache nil)
+                  (get-txpool-payload-response-cache nil)
                   (post-public-txpool-payload-id nil)
+                  (post-public-txpool-execution-payload nil)
+                  (post-public-txpool-block-hash nil)
                   (engine-requests
                     (list
                      (cons
@@ -8438,6 +8503,14 @@ references/ checkouts.~%")
                      (cons
                       :txpool-get-payload
                       get-txpool-payload-output)))
+                  (post-prepared-engine-requests
+                    (list
+                     (cons
+                      :txpool-new-payload
+                      import-txpool-payload-output)
+                     (cons
+                      :txpool-forkchoice
+                      forkchoice-txpool-payload-output)))
                   (public-requests
                     (let ((target (first balance-targets)))
                       (setf balance-address (getf target :address)
@@ -8787,10 +8860,25 @@ references/ checkouts.~%")
                   (duplicate-auth-engine-served-p nil)
                   (engine-root-wrong-path-served-p nil)
                   (engine-pre-txpool-done-p nil)
+                  (engine-prepared-txpool-done-p nil)
                   (engine-done-p nil)
                   (public-served-count 0)
                   (public-txpool-done-p nil)
                   (post-prepared-txpool-content-served-p nil)
+                  (post-import-public-requests
+                    (list
+                     (cons :txpool-import-transaction
+                           post-import-transaction-output)
+                     (cons :txpool-import-receipt
+                           post-import-receipt-output)
+                     (cons :txpool-import-raw
+                           post-import-raw-output)
+                     (cons :txpool-import-block
+                           post-import-block-output)
+                     (cons :txpool-import-status
+                           post-import-txpool-status-output)
+                     (cons :txpool-import-content-from
+                           post-import-txpool-content-from-output)))
                   (public-root-wrong-path-served-p nil))
              (devnet-cli-set-node-store-config node store config)
              (engine-payload-store-put-block
@@ -8932,7 +9020,60 @@ references/ checkouts.~%")
                                          prepare-txpool-payload-response-cache)
                                         "result")
                                        "payloadId")))
+                                   (when (eq output
+                                             get-txpool-payload-output)
+                                     (setf
+                                      get-txpool-payload-response-cache
+                                      (get-output-stream-string
+                                       get-txpool-payload-output)
+                                      post-public-txpool-execution-payload
+                                      (fixture-object-field
+                                       (fixture-object-field
+                                        (devnet-smoke-gate-rpc-body
+                                         get-txpool-payload-response-cache)
+                                        "result")
+                                       "executionPayload")
+                                      post-public-txpool-block-hash
+                                      (fixture-object-field
+                                       post-public-txpool-execution-payload
+                                       "blockHash")))
                                    (unless post-public-engine-requests
+                                     (setf
+                                      engine-prepared-txpool-done-p
+                                      t)))))))
+                           (post-prepared-engine-requests
+                            (loop until post-prepared-txpool-content-served-p
+                                  do (sleep 0.001))
+                            (destructuring-bind (body . output)
+                                (pop post-prepared-engine-requests)
+                              (let ((request-body
+                                      (cond
+                                        ((eq body :txpool-new-payload)
+                                         (devnet-smoke-gate-json-rpc-request
+                                          81
+                                          "engine_newPayloadV2"
+                                          (list
+                                           post-public-txpool-execution-payload)))
+                                        ((eq body :txpool-forkchoice)
+                                         (json-encode
+                                          (devnet-cli-engine-forkchoice-v2-request
+                                           82
+                                           (hash32-from-hex
+                                            post-public-txpool-block-hash)
+                                           :safe (block-hash parent-block)
+                                           :finalized
+                                           (block-hash parent-block))))
+                                        (t body))))
+                                (make-engine-rpc-http-connection
+                                 :input-stream
+                                 (make-string-input-stream
+                                  (devnet-cli-json-rpc-http-request
+                                   request-body :token token))
+                                 :output-stream output
+                                 :close-function
+                                 (lambda ()
+                                   (incf engine-served-count)
+                                   (unless post-prepared-engine-requests
                                      (setf engine-done-p t)))))))))
                        :close-function (lambda () nil))
                       (make-engine-rpc-http-listener
@@ -8978,9 +9119,8 @@ references/ checkouts.~%")
                                (lambda () (incf public-served-count)))))
                            ((not post-prepared-txpool-content-served-p)
                             (setf public-txpool-done-p t)
-                            (loop until engine-done-p
+                            (loop until engine-prepared-txpool-done-p
                                   do (sleep 0.001))
-                            (setf post-prepared-txpool-content-served-p t)
                             (make-engine-rpc-http-connection
                              :input-stream
                              (make-string-input-stream
@@ -8994,7 +9134,59 @@ references/ checkouts.~%")
                              :output-stream
                              post-prepared-txpool-content-from-output
                              :close-function
-                             (lambda () (incf public-served-count))))))
+                             (lambda ()
+                               (incf public-served-count)
+                               (setf
+                                post-prepared-txpool-content-served-p
+                                t))))
+                           (post-import-public-requests
+                            (loop until engine-done-p
+                                  do (sleep 0.001))
+                            (destructuring-bind (body . output)
+                                (pop post-import-public-requests)
+                              (let ((request-body
+                                      (case body
+                                        (:txpool-import-transaction
+                                         (devnet-smoke-gate-json-rpc-request
+                                          83
+                                          "eth_getTransactionByHash"
+                                          (list pending-transaction-hash-hex)))
+                                        (:txpool-import-receipt
+                                         (devnet-smoke-gate-json-rpc-request
+                                          84
+                                          "eth_getTransactionReceipt"
+                                          (list pending-transaction-hash-hex)))
+                                        (:txpool-import-raw
+                                         (devnet-smoke-gate-json-rpc-request
+                                          85
+                                          "eth_getRawTransactionByHash"
+                                          (list pending-transaction-hash-hex)))
+                                        (:txpool-import-block
+                                         (devnet-smoke-gate-json-rpc-request
+                                          86
+                                          "eth_getBlockByHash"
+                                          (list post-public-txpool-block-hash
+                                                :false)))
+                                        (:txpool-import-status
+                                         (devnet-smoke-gate-json-rpc-request
+                                          87
+                                          "txpool_status"
+                                          '()))
+                                        (:txpool-import-content-from
+                                         (devnet-smoke-gate-json-rpc-request
+                                          88
+                                          "txpool_contentFrom"
+                                          (list pending-transaction-sender-hex)))
+                                        (otherwise body))))
+                                (make-engine-rpc-http-connection
+                                 :input-stream
+                                 (make-string-input-stream
+                                  (devnet-cli-json-rpc-http-request
+                                   request-body))
+                                 :output-stream output
+                                 :close-function
+                                 (lambda ()
+                                   (incf public-served-count))))))))
                       :close-function (lambda () nil))
                       :max-connections
                       +devnet-smoke-gate-public-connections+
@@ -9081,8 +9273,15 @@ references/ checkouts.~%")
                             (get-output-stream-string
                              prepare-txpool-payload-output)))
                       (get-txpool-payload-response
+                        (or get-txpool-payload-response-cache
+                            (get-output-stream-string
+                             get-txpool-payload-output)))
+                      (import-txpool-payload-response
                         (get-output-stream-string
-                         get-txpool-payload-output))
+                         import-txpool-payload-output))
+                      (forkchoice-txpool-payload-response
+                        (get-output-stream-string
+                         forkchoice-txpool-payload-output))
                       (remote-payload-response
                         (get-output-stream-string remote-payload-output))
                       (invalid-payload-response
@@ -9194,6 +9393,24 @@ references/ checkouts.~%")
                       (post-prepared-txpool-content-from-response
                         (get-output-stream-string
                          post-prepared-txpool-content-from-output))
+                      (post-import-transaction-response
+                        (get-output-stream-string
+                         post-import-transaction-output))
+                      (post-import-receipt-response
+                        (get-output-stream-string
+                         post-import-receipt-output))
+                      (post-import-raw-response
+                        (get-output-stream-string
+                         post-import-raw-output))
+                      (post-import-block-response
+                        (get-output-stream-string
+                         post-import-block-output))
+                      (post-import-txpool-status-response
+                        (get-output-stream-string
+                         post-import-txpool-status-output))
+                      (post-import-txpool-content-from-response
+                        (get-output-stream-string
+                         post-import-txpool-content-from-output))
                       (capabilities-rpc
                         (devnet-smoke-gate-rpc-body capabilities-response))
                       (client-version-rpc
@@ -9228,6 +9445,12 @@ references/ checkouts.~%")
                       (get-txpool-payload-rpc
                         (devnet-smoke-gate-rpc-body
                          get-txpool-payload-response))
+                      (import-txpool-payload-rpc
+                        (devnet-smoke-gate-rpc-body
+                         import-txpool-payload-response))
+                      (forkchoice-txpool-payload-rpc
+                        (devnet-smoke-gate-rpc-body
+                         forkchoice-txpool-payload-response))
                       (remote-payload-rpc
                         (devnet-smoke-gate-rpc-body remote-payload-response))
                       (invalid-payload-rpc
@@ -9356,6 +9579,24 @@ references/ checkouts.~%")
                       (post-prepared-txpool-content-from-rpc
                         (devnet-smoke-gate-rpc-body
                          post-prepared-txpool-content-from-response))
+                      (post-import-transaction-rpc
+                        (devnet-smoke-gate-rpc-body
+                         post-import-transaction-response))
+                      (post-import-receipt-rpc
+                        (devnet-smoke-gate-rpc-body
+                         post-import-receipt-response))
+                      (post-import-raw-rpc
+                        (devnet-smoke-gate-rpc-body
+                         post-import-raw-response))
+                      (post-import-block-rpc
+                        (devnet-smoke-gate-rpc-body
+                         post-import-block-response))
+                      (post-import-txpool-status-rpc
+                        (devnet-smoke-gate-rpc-body
+                         post-import-txpool-status-response))
+                      (post-import-txpool-content-from-rpc
+                        (devnet-smoke-gate-rpc-body
+                         post-import-txpool-content-from-response))
                       (capabilities-result
                         (fixture-object-field capabilities-rpc "result"))
                       (client-version-result
@@ -9433,6 +9674,18 @@ references/ checkouts.~%")
                         (fixture-object-field
                          get-txpool-payload-execution-payload
                          "transactions"))
+                      (txpool-payload-block-hash
+                        (fixture-object-field
+                         get-txpool-payload-execution-payload
+                         "blockHash"))
+                      (import-txpool-payload-result
+                        (fixture-object-field import-txpool-payload-rpc
+                                              "result"))
+                      (forkchoice-txpool-payload-status
+                        (fixture-object-field
+                         (fixture-object-field
+                          forkchoice-txpool-payload-rpc "result")
+                         "payloadStatus"))
                       (remote-payload-result
                         (fixture-object-field remote-payload-rpc "result"))
                       (invalid-payload-result
@@ -9540,6 +9793,45 @@ references/ checkouts.~%")
                         (fixture-object-field
                          post-prepared-txpool-content-from-queued
                          queued-transaction-nonce-key))
+                      (post-import-transaction
+                        (fixture-object-field
+                         post-import-transaction-rpc "result"))
+                      (post-import-receipt
+                        (fixture-object-field
+                         post-import-receipt-rpc "result"))
+                      (post-import-raw-transaction
+                        (fixture-object-field
+                         post-import-raw-rpc "result"))
+                      (post-import-block
+                        (fixture-object-field
+                         post-import-block-rpc "result"))
+                      (post-import-block-transactions
+                        (fixture-object-field
+                         post-import-block "transactions"))
+                      (post-import-txpool-status
+                        (fixture-object-field
+                         post-import-txpool-status-rpc "result"))
+                      (post-import-txpool-content-from
+                        (fixture-object-field
+                         post-import-txpool-content-from-rpc "result"))
+                      (post-import-txpool-content-from-pending
+                        (fixture-object-field
+                         post-import-txpool-content-from "pending"))
+                      (post-import-txpool-content-from-selected
+                        (fixture-object-field
+                         post-import-txpool-content-from-pending
+                         pending-transaction-nonce-key))
+                      (post-import-txpool-content-from-queued
+                        (fixture-object-field
+                         post-import-txpool-content-from "queued"))
+                      (post-import-txpool-content-from-basefee-transaction
+                        (fixture-object-field
+                         post-import-txpool-content-from-queued
+                         basefee-transaction-nonce-key))
+                      (post-import-txpool-content-from-queued-transaction
+                        (fixture-object-field
+                         post-import-txpool-content-from-queued
+                         queued-transaction-nonce-key))
                   (expected-block-number
                     (fixture-object-field payload-case "number"))
                   (expected-prepared-block-number
@@ -9626,9 +9918,17 @@ references/ checkouts.~%")
                           prepare-txpool-payload-response))
                   "engine_forkchoiceUpdatedV2 txpool payloadAttributes HTTP status mismatch")
                  (devnet-smoke-gate-require
-                  (= 200 (devnet-cli-http-status
+                 (= 200 (devnet-cli-http-status
                           get-txpool-payload-response))
                   "engine_getPayloadV2 txpool HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status
+                          import-txpool-payload-response))
+                  "engine_newPayloadV2 txpool prepared payload HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status
+                          forkchoice-txpool-payload-response))
+                  "engine_forkchoiceUpdatedV2 txpool prepared payload HTTP status mismatch")
                  (devnet-smoke-gate-require
                   (= 200 (devnet-cli-http-status remote-payload-response))
                   "orphan engine_newPayloadV2 HTTP status mismatch")
@@ -9804,9 +10104,33 @@ references/ checkouts.~%")
                   (= 200 (devnet-cli-http-status txpool-inspect-response))
                   "txpool_inspect HTTP status mismatch")
                  (devnet-smoke-gate-require
-                  (= 200 (devnet-cli-http-status
+                 (= 200 (devnet-cli-http-status
                           post-prepared-txpool-content-from-response))
                   "post-prepared txpool_contentFrom HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status
+                          post-import-transaction-response))
+                  "post-import eth_getTransactionByHash HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status
+                          post-import-receipt-response))
+                  "post-import eth_getTransactionReceipt HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status
+                          post-import-raw-response))
+                  "post-import eth_getRawTransactionByHash HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status
+                          post-import-block-response))
+                  "post-import eth_getBlockByHash HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status
+                          post-import-txpool-status-response))
+                  "post-import txpool_status HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status
+                          post-import-txpool-content-from-response))
+                  "post-import txpool_contentFrom HTTP status mismatch")
                  (devnet-smoke-gate-require
                   (member "engine_newPayloadV1"
                           capabilities-result
@@ -10016,10 +10340,116 @@ references/ checkouts.~%")
                                :test #'string=))
                   "engine_getPayloadV2 txpool selected underpriced basefee transaction")
                  (devnet-smoke-gate-require
-                  (not (member queued-transaction-raw
+                 (not (member queued-transaction-raw
                                get-txpool-payload-transactions
                                :test #'string=))
                   "engine_getPayloadV2 txpool selected nonce-gapped queued transaction")
+                 (devnet-smoke-gate-require
+                  (string= +payload-status-valid+
+                           (fixture-object-field
+                            import-txpool-payload-result
+                            "status"))
+                  "engine_newPayloadV2 txpool prepared payload status mismatch")
+                 (devnet-smoke-gate-require
+                  (string= txpool-payload-block-hash
+                           (fixture-object-field
+                            import-txpool-payload-result
+                            "latestValidHash"))
+                  "engine_newPayloadV2 txpool latestValidHash mismatch")
+                 (devnet-smoke-gate-require
+                  (string= +payload-status-valid+
+                           (fixture-object-field
+                            forkchoice-txpool-payload-status
+                            "status"))
+                  "engine_forkchoiceUpdatedV2 txpool prepared payload status mismatch")
+                 (devnet-smoke-gate-require
+                  (string= pending-transaction-hash-hex
+                           (fixture-object-field
+                            post-import-transaction
+                            "hash"))
+                  "post-import eth_getTransactionByHash hash mismatch")
+                 (devnet-smoke-gate-require
+                  (string= txpool-payload-block-hash
+                           (fixture-object-field
+                            post-import-transaction
+                            "blockHash"))
+                  "post-import eth_getTransactionByHash blockHash mismatch")
+                 (devnet-smoke-gate-require
+                  (string= expected-prepared-block-number
+                           (fixture-object-field
+                            post-import-transaction
+                            "blockNumber"))
+                  "post-import eth_getTransactionByHash blockNumber mismatch")
+                 (devnet-smoke-gate-require
+                  (string= "0x0"
+                           (fixture-object-field
+                            post-import-transaction
+                            "transactionIndex"))
+                  "post-import eth_getTransactionByHash transactionIndex mismatch")
+                 (devnet-smoke-gate-require
+                  (string= pending-transaction-hash-hex
+                           (fixture-object-field
+                            post-import-receipt
+                            "transactionHash"))
+                  "post-import eth_getTransactionReceipt hash mismatch")
+                 (devnet-smoke-gate-require
+                  (string= txpool-payload-block-hash
+                           (fixture-object-field
+                            post-import-receipt
+                            "blockHash"))
+                  "post-import eth_getTransactionReceipt blockHash mismatch")
+                 (devnet-smoke-gate-require
+                  (string= expected-prepared-block-number
+                           (fixture-object-field
+                            post-import-receipt
+                            "blockNumber"))
+                  "post-import eth_getTransactionReceipt blockNumber mismatch")
+                 (devnet-smoke-gate-require
+                  (string= pending-transaction-raw
+                           post-import-raw-transaction)
+                  "post-import eth_getRawTransactionByHash raw mismatch")
+                 (devnet-smoke-gate-require
+                  (string= txpool-payload-block-hash
+                           (fixture-object-field post-import-block "hash"))
+                  "post-import eth_getBlockByHash hash mismatch")
+                 (devnet-smoke-gate-require
+                  (string= expected-prepared-block-number
+                           (fixture-object-field post-import-block "number"))
+                  "post-import eth_getBlockByHash number mismatch")
+                 (devnet-smoke-gate-require
+                  (= 1 (length post-import-block-transactions))
+                  "post-import eth_getBlockByHash transaction count mismatch")
+                 (devnet-smoke-gate-require
+                  (string= pending-transaction-hash-hex
+                           (first post-import-block-transactions))
+                  "post-import eth_getBlockByHash transaction hash mismatch")
+                 (devnet-smoke-gate-require
+                  (string= "0x0"
+                           (fixture-object-field
+                            post-import-txpool-status
+                            "pending"))
+                  "post-import txpool_status pending count mismatch")
+                 (devnet-smoke-gate-require
+                  (string= "0x2"
+                           (fixture-object-field
+                            post-import-txpool-status
+                            "queued"))
+                  "post-import txpool_status queued count mismatch")
+                 (devnet-smoke-gate-require
+                  (null post-import-txpool-content-from-selected)
+                  "post-import txpool_contentFrom still exposes mined pending transaction")
+                 (devnet-smoke-gate-require
+                  (string= basefee-transaction-hash-hex
+                           (fixture-object-field
+                            post-import-txpool-content-from-basefee-transaction
+                            "hash"))
+                  "post-import txpool_contentFrom basefee hash mismatch")
+                 (devnet-smoke-gate-require
+                  (string= queued-transaction-hash-hex
+                           (fixture-object-field
+                            post-import-txpool-content-from-queued-transaction
+                            "hash"))
+                  "post-import txpool_contentFrom queued hash mismatch")
                  (devnet-smoke-gate-require
                   (string= +payload-status-syncing+
                            (fixture-object-field remote-payload-result
@@ -10378,6 +10808,8 @@ references/ checkouts.~%")
                                config
                                :state-prune-before state-prune-before
                                :pruned-state-hash expected-safe-block-hash
+                               :expected-head-block-number
+                               expected-prepared-block-number
                                :checkpoint-balance-targets
                                checkpoint-balance-targets
                                :prepared-payload-id prepared-payload-id
@@ -10828,6 +11260,74 @@ references/ checkouts.~%")
                   (cons "engineGetPayloadV2TxpoolNonSelectedQueuedStillQueued"
                         (fixture-object-field
                          post-prepared-txpool-content-from-queued-transaction
+                         "hash"))
+                  (cons "engineNewPayloadV2TxpoolImportStatus"
+                        (fixture-object-field
+                         import-txpool-payload-result
+                         "status"))
+                  (cons "engineNewPayloadV2TxpoolImportLatestValidHash"
+                        (fixture-object-field
+                         import-txpool-payload-result
+                         "latestValidHash"))
+                  (cons "engineForkchoiceUpdatedV2TxpoolImportStatus"
+                        (fixture-object-field
+                         forkchoice-txpool-payload-status
+                         "status"))
+                  (cons "txpoolImportBlockHash"
+                        txpool-payload-block-hash)
+                  (cons "txpoolImportBlockNumber"
+                        expected-prepared-block-number)
+                  (cons "txpoolImportTransactionHash"
+                        (fixture-object-field
+                         post-import-transaction
+                         "hash"))
+                  (cons "txpoolImportTransactionBlockHash"
+                        (fixture-object-field
+                         post-import-transaction
+                         "blockHash"))
+                  (cons "txpoolImportTransactionBlockNumber"
+                        (fixture-object-field
+                         post-import-transaction
+                         "blockNumber"))
+                  (cons "txpoolImportReceiptTransactionHash"
+                        (fixture-object-field
+                         post-import-receipt
+                         "transactionHash"))
+                  (cons "txpoolImportReceiptBlockHash"
+                        (fixture-object-field
+                         post-import-receipt
+                         "blockHash"))
+                  (cons "txpoolImportReceiptBlockNumber"
+                        (fixture-object-field
+                         post-import-receipt
+                         "blockNumber"))
+                  (cons "txpoolImportRawTransaction"
+                        post-import-raw-transaction)
+                  (cons "txpoolImportBlockTransactionCount"
+                        (length post-import-block-transactions))
+                  (cons "txpoolImportBlockTransactionHash"
+                        (first post-import-block-transactions))
+                  (cons "txpoolImportTxpoolStatusPending"
+                        (fixture-object-field
+                         post-import-txpool-status
+                         "pending"))
+                  (cons "txpoolImportTxpoolStatusQueued"
+                        (fixture-object-field
+                         post-import-txpool-status
+                         "queued"))
+                  (cons "txpoolImportSelectedStillPending"
+                        (or (and post-import-txpool-content-from-selected
+                                 (fixture-object-field
+                                  post-import-txpool-content-from-selected
+                                  "hash"))
+                            :false))
+                  (cons "txpoolImportNonSelectedBasefeeStillQueued"
+                        (fixture-object-field
+                         post-import-txpool-content-from-basefee-transaction
+                         "hash"))
+                  (cons "txpoolImportNonSelectedQueuedStillQueued"
+                        (fixture-object-field
+                         post-import-txpool-content-from-queued-transaction
                          "hash"))
                   (cons "remoteBlockHash" expected-remote-block-hash)
                   (cons "remoteBlockStatus"
@@ -11891,11 +12391,13 @@ references/ checkouts.~%")
                       (or pid-file-process-id ready-process-id)))
                (when log-file
                  (devnet-smoke-gate-verify-log-file
-                  log-file
-                  (devnet-smoke-gate-field report "safeBlockNumber")
-                  (devnet-smoke-gate-field report "safeBlockHash")
-                  (devnet-smoke-gate-field report "blockNumber")
-                  (devnet-smoke-gate-field report "latestValidHash")
+	                  log-file
+	                  (devnet-smoke-gate-field report "safeBlockNumber")
+	                  (devnet-smoke-gate-field report "safeBlockHash")
+	                  (devnet-smoke-gate-field report
+	                                           "txpoolImportBlockNumber")
+	                  (devnet-smoke-gate-field report
+	                                           "txpoolImportBlockHash")
                   :ready-head-gas-limit
                   (devnet-smoke-gate-field report "safeBlockGasLimit")
                   :shutdown-head-gas-limit
@@ -12010,11 +12512,14 @@ references/ checkouts.~%")
      "Devnet smoke gate suite case count mismatch")
     (when database-file
       (dolist (report reports)
-        (devnet-smoke-gate-require
-         (string= (devnet-smoke-gate-field report "blockNumber")
-                  (devnet-smoke-gate-field report "databaseHeadNumber"))
-         "Devnet smoke gate suite database head mismatch for ~A"
-         (devnet-smoke-gate-field report "fixtureCase"))
+        (let ((expected-head-number
+                (or (devnet-smoke-gate-field report "txpoolImportBlockNumber")
+                    (devnet-smoke-gate-field report "blockNumber"))))
+          (devnet-smoke-gate-require
+           (string= expected-head-number
+                    (devnet-smoke-gate-field report "databaseHeadNumber"))
+           "Devnet smoke gate suite database head mismatch for ~A"
+           (devnet-smoke-gate-field report "fixtureCase")))
         (devnet-smoke-gate-require
          (string= (devnet-smoke-gate-field report "safeBlockNumber")
                   (devnet-smoke-gate-field report "databaseSafeNumber"))
@@ -13094,6 +13599,33 @@ references/ checkouts.~%")
                 (devnet-smoke-gate-field
                  report
                  "engineGetPayloadV2TxpoolNonSelectedQueuedStillQueued"))
+        (format t "engineNewPayloadV2TxpoolImportStatus=~A~%"
+                (devnet-smoke-gate-field
+                 report "engineNewPayloadV2TxpoolImportStatus"))
+        (format t "engineForkchoiceUpdatedV2TxpoolImportStatus=~A~%"
+                (devnet-smoke-gate-field
+                 report "engineForkchoiceUpdatedV2TxpoolImportStatus"))
+        (format t "txpoolImportTransactionHash=~A~%"
+                (devnet-smoke-gate-field
+                 report "txpoolImportTransactionHash"))
+        (format t "txpoolImportReceiptTransactionHash=~A~%"
+                (devnet-smoke-gate-field
+                 report "txpoolImportReceiptTransactionHash"))
+        (format t "txpoolImportTxpoolStatusPending=~A~%"
+                (devnet-smoke-gate-field
+                 report "txpoolImportTxpoolStatusPending"))
+        (format t "txpoolImportTxpoolStatusQueued=~A~%"
+                (devnet-smoke-gate-field
+                 report "txpoolImportTxpoolStatusQueued"))
+        (format t "txpoolImportSelectedStillPending=~A~%"
+                (devnet-smoke-gate-field
+                 report "txpoolImportSelectedStillPending"))
+        (format t "txpoolImportNonSelectedBasefeeStillQueued=~A~%"
+                (devnet-smoke-gate-field
+                 report "txpoolImportNonSelectedBasefeeStillQueued"))
+        (format t "txpoolImportNonSelectedQueuedStillQueued=~A~%"
+                (devnet-smoke-gate-field
+                 report "txpoolImportNonSelectedQueuedStillQueued"))
         (format t "remoteBlockHash=~A~%"
                 (devnet-smoke-gate-field report "remoteBlockHash"))
         (format t "remoteBlockStatus=~A~%"

@@ -17,14 +17,10 @@ Last updated: 2026-07-05
 
 ## Current Dirty Work
 
-The current run is finishing
-`DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-SELECTION`. Code changes,
-focused standalone smoke validation, `git diff --check`, and escalated
-full-suite validation are complete. The first independent verifier review
-returned `FAIL` because the CLI test contract did not yet assert the new JSON
-evidence fields; `tests/cli-tests.lisp` now locks those fields and the
-post-fix full suite passed. The second independent verifier review returned
-`PASS`; commit and push are pending.
+No intended dirty implementation work should remain after the current validated
+batch is committed and pushed. The latest completed slice is
+`DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-IMPORT`; the next run spec is
+prepared for `ENGINE-PREPARED-PAYLOAD-TXPOOL-REPLACEMENT-CACHE`.
 
 Closed behavior from the latest slice:
 
@@ -84,6 +80,12 @@ Closed behavior from the latest slice:
   query proving the selected pending transaction and non-selected basefee /
   nonce-gapped queued transactions remain public-visible before
   import/forkchoice.
+- The standalone devnet smoke gate now imports that retrieved txpool-backed
+  prepared payload through authenticated `engine_newPayloadV2`, canonicalizes it
+  through `engine_forkchoiceUpdatedV2`, verifies public canonical transaction,
+  receipt, raw transaction, and block visibility for the selected transaction,
+  and verifies txpool cleanup removes the mined transaction while non-selected
+  basefee and nonce-gapped entries remain queued.
 
 Closed validation:
 
@@ -178,6 +180,24 @@ Closed validation:
 - The second independent verifier review returned `PASS`: the verifier found
   the smoke report evidence and CLI JSON field assertions sufficient for the
   selected runner-boundary slice.
+- Focused escalated standalone smoke for
+  `DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-IMPORT` passed:
+  `sbcl --script scripts/devnet-smoke-gate.lisp -- --json`. Key report fields
+  include `engineNewPayloadV2TxpoolImportStatus=VALID`,
+  `engineForkchoiceUpdatedV2TxpoolImportStatus=VALID`,
+  `txpoolImportTxpoolStatusPending=0x0`,
+  `txpoolImportTxpoolStatusQueued=0x2`, and
+  `txpoolImportSelectedStillPending=false`.
+- A fresh escalated all-fixtures devnet smoke command passed after the suite
+  head assertions were updated to expect the imported txpool payload as the
+  restored canonical head:
+  `sbcl --script scripts/devnet-smoke-gate.lisp -- --json --all-fixtures ...`.
+- Final pre-commit validation passed:
+  `git diff --check` and `sbcl --script tests/run-tests.lisp`
+  (`890 tests passed, 5 skipped`).
+- Independent verifier review returned `PASS`. Residual risks: coverage is
+  still the V2 Shanghai-style prepared-payload path; V3/V4 prepared-payload
+  variants and same-sender replacement-cache churn remain follow-up scope.
 
 ## Current Loop Migration
 
@@ -191,12 +211,9 @@ The old fixed heartbeat prompt is being replaced by a loop v2 process:
 
 ## Next Recommended Orchestrator Decision
 
-The current loop run should finish
-`DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-SELECTION` by committing and
-pushing the validated work after independent verifier PASS. After that, the
-next highest-value Phase B slice is
-`DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-IMPORT`: import and forkchoice the
-txpool-backed prepared payload across the standalone devnet Engine/public
-listener boundary, then verify canonical public transaction/receipt visibility
-and txpool cleanup for the selected transaction while non-selected queued
-entries remain visible.
+The next highest-value Phase B slice is
+`ENGINE-PREPARED-PAYLOAD-TXPOOL-REPLACEMENT-CACHE`: prove that a
+same-sender/same-nonce public txpool replacement changes the prepared payload
+id and `engine_getPayload*` contents for same-head/same-attributes preparation,
+so selected-transaction cache refresh is locked even when the selected
+transaction count does not change.

@@ -162,13 +162,13 @@
     (is (= case-count (fixture-object-field contract "caseCount")))
     (is (= (* 5 case-count)
            (fixture-object-field contract "engineBoundaryConnections")))
-    (is (= (* 14 case-count)
+    (is (= (* 16 case-count)
            (fixture-object-field contract "engineWorkflowConnections")))
     (is (= (* 23 case-count)
            (fixture-object-field contract "publicCanonicalReadConnections")))
     (is (= (* 3 case-count)
            (fixture-object-field contract "publicBoundaryConnections")))
-    (is (= (* 20 case-count)
+    (is (= (* 26 case-count)
            (fixture-object-field contract "publicTxpoolConnections")))
     (is (= (fixture-object-field report "engineConnections")
            (fixture-object-field contract "expectedEngineConnections")))
@@ -384,7 +384,66 @@
   (is (string= (fixture-object-field report "txpoolQueuedTransactionHash")
                (fixture-object-field
                 report
-                "engineGetPayloadV2TxpoolNonSelectedQueuedStillQueued"))))
+                "engineGetPayloadV2TxpoolNonSelectedQueuedStillQueued")))
+  (is (string= +payload-status-valid+
+               (fixture-object-field
+                report
+                "engineNewPayloadV2TxpoolImportStatus")))
+  (is (string= (fixture-object-field report "txpoolImportBlockHash")
+               (fixture-object-field
+                report
+                "engineNewPayloadV2TxpoolImportLatestValidHash")))
+  (is (string= +payload-status-valid+
+               (fixture-object-field
+                report
+                "engineForkchoiceUpdatedV2TxpoolImportStatus")))
+  (is (string= (fixture-object-field report "preparedPayloadBlockNumber")
+               (fixture-object-field report "txpoolImportBlockNumber")))
+  (is (string= (fixture-object-field report "txpoolPendingTransactionHash")
+               (fixture-object-field report "txpoolImportTransactionHash")))
+  (is (string= (fixture-object-field report "txpoolImportBlockHash")
+               (fixture-object-field
+                report
+                "txpoolImportTransactionBlockHash")))
+  (is (string= (fixture-object-field report "txpoolImportBlockNumber")
+               (fixture-object-field
+                report
+                "txpoolImportTransactionBlockNumber")))
+  (is (string= (fixture-object-field report "txpoolPendingTransactionHash")
+               (fixture-object-field
+                report
+                "txpoolImportReceiptTransactionHash")))
+  (is (string= (fixture-object-field report "txpoolImportBlockHash")
+               (fixture-object-field report "txpoolImportReceiptBlockHash")))
+  (is (string= (fixture-object-field report "txpoolImportBlockNumber")
+               (fixture-object-field
+                report
+                "txpoolImportReceiptBlockNumber")))
+  (is (string= (fixture-object-field report "txpoolPendingTransactionRaw")
+               (fixture-object-field report "txpoolImportRawTransaction")))
+  (is (= 1
+         (fixture-object-field report "txpoolImportBlockTransactionCount")))
+  (is (string= (fixture-object-field report "txpoolPendingTransactionHash")
+               (fixture-object-field
+                report
+                "txpoolImportBlockTransactionHash")))
+  (is (string= "0x0"
+               (fixture-object-field
+                report
+                "txpoolImportTxpoolStatusPending")))
+  (is (string= "0x2"
+               (fixture-object-field
+                report
+                "txpoolImportTxpoolStatusQueued")))
+  (is (not (fixture-object-field report "txpoolImportSelectedStillPending")))
+  (is (string= (fixture-object-field report "txpoolBasefeeTransactionHash")
+               (fixture-object-field
+                report
+                "txpoolImportNonSelectedBasefeeStillQueued")))
+  (is (string= (fixture-object-field report "txpoolQueuedTransactionHash")
+               (fixture-object-field
+                report
+                "txpoolImportNonSelectedQueuedStillQueued"))))
 
 (defun devnet-cli-assert-public-cors-smoke-report (report)
   (is (equal '("https://runner.example" "https://observer.example")
@@ -596,9 +655,8 @@
   (is (string= (fixture-object-field report "txpoolPendingSenderNonce")
                (fixture-object-field
                 report "databaseRpcTxpoolPendingSenderNonce")))
-  (is (string= (fixture-object-field report "txpoolPendingInspectSummary")
-               (fixture-object-field
-                report "databaseRpcTxpoolInspectSummary")))
+  (is (null (fixture-object-field
+             report "databaseRpcTxpoolInspectSummary")))
   (is (string= "0x1"
                (fixture-object-field report "txpoolPendingFilterId")))
   (is (string= (fixture-object-field report "txpoolPendingTransactionHash")
@@ -673,11 +731,11 @@
   (is (string= (fixture-object-field report "txpoolQueuedInspectSummary")
                (fixture-object-field
                 report "databaseRpcTxpoolQueuedInspectSummary")))
-  (is (string= "0x1"
+  (is (string= "0x0"
                (fixture-object-field report "databaseRpcTxpoolStatusPending")))
   (is (string= "0x2"
                (fixture-object-field report "databaseRpcTxpoolStatusQueued")))
-  (is (string= "0x1"
+  (is (string= "0x0"
                (fixture-object-field
                 report "databaseRpcTxpoolPendingBlockCount")))
   (is (null (fixture-object-field
@@ -700,24 +758,19 @@
                 report "databaseRpcTxpoolPendingFeeHistoryNextBaseFee")
                (fixture-object-field
                 report "databaseRpcTxpoolPendingHeaderBaseFee")))
-  (is (string= (fixture-object-field report "txpoolPendingTransactionHash")
-               (fixture-object-field
-                report "databaseRpcTxpoolPendingBlockTransactionHash")))
+  (is (null (fixture-object-field
+             report "databaseRpcTxpoolPendingBlockTransactionHash")))
   (is (null (fixture-object-field
              report "databaseRpcTxpoolPendingBlockTransactionBlockHash")))
-  (is (string= (fixture-object-field report "txpoolPendingTransactionHash")
-               (fixture-object-field
-                report "databaseRpcTxpoolPendingIndexHash")))
+  (is (null (fixture-object-field
+             report "databaseRpcTxpoolPendingIndexHash")))
   (is (null (fixture-object-field
              report "databaseRpcTxpoolPendingIndexBlockHash")))
-  (is (string= (fixture-object-field report "txpoolPendingTransactionRaw")
-               (fixture-object-field
-                report "databaseRpcTxpoolPendingRawByIndex")))
-  (is (string= (fixture-object-field report "txpoolPendingTransactionHash")
-               (fixture-object-field report "databaseRpcTxpoolContentHash")))
-  (is (string= (fixture-object-field report "txpoolPendingTransactionHash")
-               (fixture-object-field
-                report "databaseRpcTxpoolContentFromHash")))
+  (is (null (fixture-object-field
+             report "databaseRpcTxpoolPendingRawByIndex")))
+  (is (null (fixture-object-field report "databaseRpcTxpoolContentHash")))
+  (is (null (fixture-object-field
+             report "databaseRpcTxpoolContentFromHash")))
   (is (string= (fixture-object-field report "txpoolBasefeeTransactionHash")
                (fixture-object-field
                 report "databaseRpcTxpoolBasefeeContentHash")))
@@ -5912,7 +5965,8 @@ HTTPPort = 1945
                     :missing)
                  (is (eq :missing value))
                  (is (not present-p)))
-               (is (string= (fixture-object-field report "blockNumber")
+               (is (string= (fixture-object-field
+                              report "txpoolImportBlockNumber")
                             (fixture-object-field report
                                                   "databaseHeadNumber")))
                (is (string= (fixture-object-field report "blockGasLimit")
@@ -5930,7 +5984,8 @@ HTTPPort = 1945
                (is (string= (fixture-object-field report "finalizedBlockHash")
                             (fixture-object-field
                              report "databaseFinalizedHash")))
-               (is (string= (fixture-object-field report "blockNumber")
+               (is (string= (fixture-object-field
+                              report "txpoolImportBlockNumber")
                             (fixture-object-field
                              report "databaseRpcBlockNumber")))
                (is (string= (fixture-object-field report "checkedBalance")
@@ -6205,18 +6260,18 @@ HTTPPort = 1945
                    (let* ((fields (getf log-record :fields))
                           (ready-p (string= "devnet.ready"
                                             (getf log-record :name)))
-                          (expected-head-number
-                            (fixture-object-field
-                             report
-                             (if ready-p
-                                 "safeBlockNumber"
-                                 "blockNumber")))
-                          (expected-head-hash
-                            (fixture-object-field
-                             report
-                             (if ready-p
-                                 "safeBlockHash"
-                                 "latestValidHash")))
+	                          (expected-head-number
+	                            (fixture-object-field
+	                             report
+	                             (if ready-p
+	                                 "safeBlockNumber"
+	                                 "txpoolImportBlockNumber")))
+	                          (expected-head-hash
+	                            (fixture-object-field
+	                             report
+	                             (if ready-p
+	                                 "safeBlockHash"
+	                                 "txpoolImportBlockHash")))
                           (expected-head-gas-limit
                             (fixture-object-field
                              report
@@ -6374,11 +6429,11 @@ HTTPPort = 1945
                       (length database-files)))
                (devnet-cli-assert-pruned-state-suite
                 report cases prune-boundary)
-               (is (= (* 19 (length +engine-newpayload-v2-smoke-case-names+))
+               (is (= (* 21 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "engineConnections")))
-               (is (= (* 46 (length +engine-newpayload-v2-smoke-case-names+))
+               (is (= (* 52 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "publicConnections")))
-               (is (= (* 65 (length +engine-newpayload-v2-smoke-case-names+))
+               (is (= (* 73 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "totalConnections")))
                (devnet-cli-assert-connection-contract
                 report
@@ -6395,8 +6450,8 @@ HTTPPort = 1945
                    (is (string= +payload-status-valid+
                                 (fixture-object-field
                                  case "forkchoiceStatus")))
-                   (is (= 19 (fixture-object-field case "engineConnections")))
-                   (is (= 46 (fixture-object-field case "publicConnections")))
+                   (is (= 21 (fixture-object-field case "engineConnections")))
+                   (is (= 52 (fixture-object-field case "publicConnections")))
                    (is (= 401
                           (fixture-object-field
                            case
@@ -6442,7 +6497,8 @@ HTTPPort = 1945
                    (devnet-cli-assert-rpc-prefix-smoke-report case)
                    (is (string= expected-block-number
                                  (fixture-object-field case "blockNumber"))))
-                 (is (string= (fixture-object-field case "blockNumber")
+                 (is (string= (fixture-object-field
+                                case "txpoolImportBlockNumber")
                               (fixture-object-field
                                case "databaseHeadNumber")))
                  (is (string= (fixture-object-field case "blockGasLimit")
@@ -6463,7 +6519,8 @@ HTTPPort = 1945
                  (is (string= (fixture-object-field case "finalizedBlockHash")
                               (fixture-object-field
                                case "databaseFinalizedHash")))
-                 (is (string= (fixture-object-field case "blockNumber")
+                 (is (string= (fixture-object-field
+                                case "txpoolImportBlockNumber")
                               (fixture-object-field
                                case "databaseRpcBlockNumber")))
                  (is (string= (fixture-object-field case "checkedBalance")
@@ -7301,15 +7358,15 @@ HTTPPort = 1945
                         (fixture-object-field
                          two-transfer-case
                          "databaseRpcSideReinsertedTransactionHashes")))))))
-        (is (= (* 19 (length +engine-newpayload-v2-smoke-case-names+))
+        (is (= (* 21 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "engineConnections")))
-        (is (= (* 46 (length +engine-newpayload-v2-smoke-case-names+))
+        (is (= (* 52 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "publicConnections")))
-        (is (= (* 65 (length +engine-newpayload-v2-smoke-case-names+))
+        (is (= (* 73 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "totalConnections")))
         (dolist (case cases)
           (devnet-cli-assert-public-readiness case)
-          (is (string= (fixture-object-field case "blockNumber")
+          (is (string= (fixture-object-field case "txpoolImportBlockNumber")
                        (fixture-object-field
                         case "databaseRpcBlockNumber")))
           (is (string= (fixture-object-field case "safeBlockNumber")

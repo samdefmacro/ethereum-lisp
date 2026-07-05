@@ -359,7 +359,7 @@ ones.
     payload-id logic in the process-boundary test. Focused standalone smoke,
     `git diff --check`, and the full suite passed with `890 tests passed, 5
     skipped`.
-- [ ] `DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-IMPORT`: Extend the
+- [x] `DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-IMPORT`: Extend the
   standalone devnet smoke/process-runner path so a txpool-backed prepared
   payload can be imported and forkchoiced through authenticated Engine RPC,
   proving selected transaction canonical visibility and txpool cleanup across
@@ -378,6 +378,35 @@ ones.
   - Validation: focused standalone smoke command with local socket/network
     escalation, `git diff --check`, and `sbcl --script tests/run-tests.lisp`;
     use independent verifier review before commit.
+  - Result (2026-07-05): the standalone devnet smoke gate now imports the
+    retrieved txpool-backed prepared payload through authenticated
+    `engine_newPayloadV2`, canonicalizes it through
+    `engine_forkchoiceUpdatedV2`, and verifies the selected transaction through
+    public canonical transaction, receipt, raw transaction, and block reads. The
+    smoke report also proves the mined transaction is removed from public txpool
+    views while the non-selected basefee and nonce-gapped queued entries remain
+    queued. Focused standalone smoke and fresh all-fixtures devnet smoke passed
+    with local socket/network escalation; `git diff --check` passed; the full
+    suite passed with `890 tests passed, 5 skipped`; independent verifier
+    review returned `PASS`.
+- [ ] `ENGINE-PREPARED-PAYLOAD-TXPOOL-REPLACEMENT-CACHE`: Lock the prepared
+  payload cache boundary when a same-sender/same-nonce public txpool
+  replacement changes the selected transaction without changing transaction
+  count.
+  - Milestone: 7 / Phase B Engine RPC correctness.
+  - Dependencies:
+    `DEVNET-RUNNER-PREPARED-PAYLOAD-TXPOOL-SELECTION`,
+    `DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-IMPORT`.
+  - Acceptance: a first authenticated `engine_forkchoiceUpdated*` preparation
+    over an executable txpool transaction returns a payload id and payload with
+    the original raw transaction; after admitting a valid same-sender/same-nonce
+    replacement, a second same-head/same-attributes preparation returns a
+    distinct payload id, `engine_getPayload*` returns the replacement raw
+    transaction, the original raw transaction is absent, and public txpool
+    sender/nonce indexes expose only the replacement before import.
+  - Validation: focused Engine RPC/txpool test while iterating,
+    `git diff --check`, `sbcl --script tests/run-tests.lisp`, and independent
+    verifier review before commit.
 - [x] `PINNED-V5.4.0-ROOT-SMOKE`: Rehydrate or configure an official
   `ethereum/execution-spec-tests` v5.4.0 `fixtures_stable.tar.gz` extraction,
   run `scripts/phase-a-smoke-gate.lisp -- --pinned-v5.4.0 --root PATH`, and
