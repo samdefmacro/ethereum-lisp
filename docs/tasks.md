@@ -1688,6 +1688,15 @@ ones.
     lengths, and the expanded seven-request Engine connection contract, so
     direct blob lookup regressions no longer hide behind
     payload-envelope-only coverage.
+  - Result (2026-07-06): the same engine-only `kzgOptIn` child now seeds a
+    full cell-proof sidecar shape into that temporary database and proves live
+    `engine_getBlobsV2` / `engine_getBlobsV3` retrieval under verifier opt-in
+    without widening production code. The focused smoke and direct CLI
+    assertions now require the expected 128 cell proofs plus representative
+    first/last proof bytes, the non-KZG capability contract explicitly keeps
+    `engine_getBlobsV2` / `engine_getBlobsV3` hidden, and the nested report
+    records the expanded nine-request Engine connection contract together with
+    direct cell-proof lookup counts and proof evidence.
 - [x] `DEVNET-RUNNER-KZG-ERROR-TELEMETRY`: Lock invalid KZG verifier
   configuration as a runner-facing startup failure.
   - Result (2026-07-03): `scripts/ethereum-lisp.lisp -- devnet` subprocess

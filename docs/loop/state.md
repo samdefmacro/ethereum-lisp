@@ -1,6 +1,6 @@
 # Loop State
 
-Last updated: 2026-07-05
+Last updated: 2026-07-06
 
 ## Project State
 
@@ -19,10 +19,10 @@ Last updated: 2026-07-05
 
 No intended dirty implementation work should remain after the current validated
 batch is committed and pushed. The latest completed slice is the direct
-`engine_getBlobsV1` KZG opt-in runner proof; the next run spec should move
-forward from direct blob lookup into `engine_getBlobsV2` / `engine_getBlobsV3`
-cell-proof process-boundary coverage instead of revisiting V1 or payload
-envelope-only proof.
+`engine_getBlobsV2` / `engine_getBlobsV3` KZG opt-in cell-proof runner proof;
+the next run spec should move forward from direct blob and cell-proof lookup
+into imported non-empty `engine_getPayloadV6` process-boundary coverage
+instead of revisiting V1/V2/V3 lookup or payload-envelope-only proof.
 
 Closed behavior from the latest slice:
 
@@ -140,6 +140,17 @@ Closed behavior from the latest slice:
   hash, blob/proof prefixes and hex lengths, and the expanded seven-request
   Engine connection contract, so direct blob lookup regressions are visible at
   the process boundary instead of only through payload-envelope retrieval.
+- The same engine-only `kzgOptIn` child now seeds a full cell-proof sidecar
+  shape and proves live `engine_getBlobsV2` / `engine_getBlobsV3` retrieval
+  under verifier opt-in without widening production code.
+- The KZG opt-in smoke report now also records direct cell-proof lookup
+  counts, full proof cardinality, representative first/last proof bytes, and
+  the expanded nine-request Engine connection contract, so Cancun cell-proof
+  regressions are visible at the process boundary instead of only through V1
+  blob lookup.
+- The negative engine-only capability contract now explicitly keeps
+  `engine_getBlobsV2` / `engine_getBlobsV3` hidden when no verifier is
+  configured, so shape-only nodes cannot silently advertise cell-proof lookup.
 
 Closed validation:
 
@@ -190,6 +201,16 @@ Closed validation:
   tightened both keyed-hit and unknown-hash-miss assertions plus the full
   report contract checks. Residual risk is now limited to direct
   `engine_getBlobsV2` / `engine_getBlobsV3` cell-proof runner proof.
+- Focused escalated standalone smoke for the direct cell-proof lookup runner
+  path passed: `sbcl --script scripts/devnet-smoke-gate.lisp -- --engine-only-serve --json`.
+  The nested `kzgOptIn` report now includes live `engine_getBlobsV2` /
+  `engine_getBlobsV3` evidence with 128 returned cell proofs, representative
+  first/last proof bytes, unknown-hash miss handling, and nine Engine
+  connections.
+- `git diff --check` passed.
+- Independent verifier review returned `PASS`; residual risk is now limited to
+  imported non-empty `engine_getPayloadV6` runner proof and other still-missing
+  blob-era envelope variants beyond direct lookup.
 
 - Focused dev-period coverage passed inside the full suite:
   `DEVNET-CLI-DEV-PERIOD-PARSES-AND-REPORTS-DURATION` and
@@ -360,11 +381,11 @@ The old fixed heartbeat prompt is being replaced by a loop v2 process:
 
 ## Next Recommended Orchestrator Decision
 
-The next highest-value repository slice is to widen direct blob-era
-process-boundary smoke from `engine_getBlobsV1` into
-`engine_getBlobsV2` / `engine_getBlobsV3` cell-proof runner proof under the
-repo-local verifier opt-in. The best bounded follow-up is to seed one direct
-blob sidecar with full cell proofs, prove the live runner returns the expected
-proof cardinality and representative proof bytes, and keep the work scoped to
-the existing engine-only `kzgOptIn` path before broadening back into unrelated
-txpool or docs work.
+The next highest-value repository slice is to widen blob-era
+process-boundary smoke from imported non-empty `engine_getPayloadV5`
+retrieval into imported non-empty `engine_getPayloadV6` runner proof under
+the repo-local verifier opt-in. The best bounded follow-up is to reuse the
+existing engine-only `kzgOptIn` seed path, add one Amsterdam-era prepared
+payload carrying execution requests plus a blob bundle, and prove the live
+runner returns the expected V6 envelope fields before broadening back into
+unrelated txpool or docs work.

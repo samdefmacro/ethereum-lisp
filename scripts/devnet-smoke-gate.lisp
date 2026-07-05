@@ -595,12 +595,18 @@ references/ checkouts.~%")
          (payload-id #(5 0 0 0 0 0 0 1))
          (blob (make-byte-vector +blob-byte-size+))
          (commitment (make-byte-vector +kzg-commitment-size+))
-         (proof (make-byte-vector +kzg-proof-size+))
+         (proofs
+           (loop for index below +cell-proofs-per-blob+
+                 collect
+                 (let ((proof (make-byte-vector +kzg-proof-size+)))
+                   (setf (aref proof 0) (+ #x05 index)
+                         (aref proof 1) #xff)
+                   proof)))
          (sidecar
            (make-blob-sidecar
             :blobs (list blob)
             :commitments (list commitment)
-            :proofs (list proof)))
+            :proofs proofs))
          (versioned-hash nil)
          (block
            (make-block
@@ -614,8 +620,6 @@ references/ checkouts.~%")
           (aref blob 1) #xdd
           (aref commitment 0) #x04
           (aref commitment 1) #xee
-          (aref proof 0) #x05
-          (aref proof 1) #xff
           versioned-hash (first (blob-sidecar-versioned-hashes sidecar)))
     (chain-store-put-block store genesis-block :state-available-p t)
     (commit-state-db-to-chain-store store (block-hash genesis-block) state)
@@ -628,8 +632,9 @@ references/ checkouts.~%")
       :block block
       :blobs-bundle sidecar))
     (chain-store-export-to-kv store (make-file-key-value-database database-path))
-    (let ((blob-hex (bytes-to-hex blob))
-          (proof-hex (bytes-to-hex proof)))
+    (let* ((blob-hex (bytes-to-hex blob))
+           (first-proof-hex (bytes-to-hex (first proofs)))
+           (last-proof-hex (bytes-to-hex (car (last proofs)))))
       (list :database-path database-path
             :payload-id (bytes-to-hex payload-id)
             :versioned-hash-hex (hash32-to-hex versioned-hash)
@@ -638,9 +643,17 @@ references/ checkouts.~%")
             :blob-prefix (subseq blob-hex 0 (min (length blob-hex) 18))
             :blob-hex-length (length blob-hex)
             :commitment-hex (bytes-to-hex commitment)
-            :proof-hex proof-hex
-            :proof-prefix (subseq proof-hex 0 (min (length proof-hex) 18))
-            :proof-hex-length (length proof-hex)))))
+            :proof-hex first-proof-hex
+            :proof-prefix
+            (subseq first-proof-hex 0 (min (length first-proof-hex) 18))
+            :proof-hex-length (length first-proof-hex)
+            :cell-proof-count +cell-proofs-per-blob+
+            :first-cell-proof-hex first-proof-hex
+            :first-cell-proof-prefix
+            (subseq first-proof-hex 0 (min (length first-proof-hex) 18))
+            :last-cell-proof-hex last-proof-hex
+            :last-cell-proof-prefix
+            (subseq last-proof-hex 0 (min (length last-proof-hex) 18))))))
 
 (defun devnet-smoke-gate-txpool-transactions
     (state config sender-address)
@@ -3198,7 +3211,7 @@ references/ checkouts.~%")
                         "--pid-file"
                         (namestring pid-path)
                         "--max-connections"
-                        "7"
+                        "9"
                         "--json")
                   :directory #P"/private/tmp/"
                   :output :stream
@@ -3369,7 +3382,44 @@ references/ checkouts.~%")
                   (direct-blob-v1
                     (first get-blobs-v1-result))
                   (missing-blob-v1
-                    (second get-blobs-v1-result)))
+                    (second get-blobs-v1-result))
+                  (get-blobs-v2-response
+                    (devnet-cli-http-endpoint-request
+                     engine-endpoint
+                     (devnet-cli-json-rpc-http-request
+                      (get-blobs-request
+                       722
+                       "engine_getBlobsV2"
+                       (list (getf blob-database :versioned-hash-hex))))))
+                  (get-blobs-v2-rpc
+                    (parse-json
+                     (devnet-cli-http-body get-blobs-v2-response)))
+                  (get-blobs-v2-result
+                    (fixture-object-field get-blobs-v2-rpc "result"))
+                  (direct-blob-v2
+                    (first get-blobs-v2-result))
+                  (direct-blob-v2-proofs
+                    (fixture-object-field direct-blob-v2 "proofs"))
+                  (get-blobs-v3-response
+                    (devnet-cli-http-endpoint-request
+                     engine-endpoint
+                     (devnet-cli-json-rpc-http-request
+                      (get-blobs-request
+                       723
+                       "engine_getBlobsV3"
+                       (list (getf blob-database :versioned-hash-hex)
+                             unknown-versioned-hash)))))
+                  (get-blobs-v3-rpc
+                    (parse-json
+                     (devnet-cli-http-body get-blobs-v3-response)))
+                  (get-blobs-v3-result
+                    (fixture-object-field get-blobs-v3-rpc "result"))
+                  (direct-blob-v3
+                    (first get-blobs-v3-result))
+                  (direct-blob-v3-proofs
+                    (fixture-object-field direct-blob-v3 "proofs"))
+                  (missing-blob-v3
+                    (second get-blobs-v3-result)))
              (devnet-smoke-gate-require
               (stringp engine-endpoint)
               "KZG opt-in ready file omitted Engine endpoint")
@@ -3404,7 +3454,9 @@ references/ checkouts.~%")
                                "engine_getPayloadV4"
                                "engine_getPayloadV5"
                                "engine_newPayloadV3"
-                                "engine_getBlobsV1"
+                               "engine_getBlobsV1"
+                               "engine_getBlobsV2"
+                               "engine_getBlobsV3"
                                 "engine_getPayloadBodiesByHashV2"))
                (devnet-smoke-gate-require
                 (member method capabilities-result :test #'string=)
@@ -3535,7 +3587,8 @@ references/ checkouts.~%")
                                "commitments")))
               "KZG opt-in engine_getPayloadV5 commitment mismatch")
              (devnet-smoke-gate-require
-              (= 1 (length (fixture-object-field blobs-bundle-v5 "proofs")))
+              (= (getf blob-database :cell-proof-count)
+                 (length (fixture-object-field blobs-bundle-v5 "proofs")))
               "KZG opt-in engine_getPayloadV5 proof count mismatch")
              (devnet-smoke-gate-require
               (string= (getf blob-database :proof-hex)
@@ -3571,6 +3624,82 @@ references/ checkouts.~%")
               (null missing-blob-v1)
               "KZG opt-in engine_getBlobsV1 unknown hash must return null: ~S"
               missing-blob-v1)
+             (devnet-smoke-gate-require
+              (= 200 (devnet-cli-http-status get-blobs-v2-response))
+              "KZG opt-in engine_getBlobsV2 HTTP status mismatch")
+             (devnet-smoke-gate-require
+              (not (fixture-object-field get-blobs-v2-rpc "error"))
+              "KZG opt-in engine_getBlobsV2 returned an error: ~S"
+              (fixture-object-field get-blobs-v2-rpc "error"))
+             (devnet-smoke-gate-require
+              (and (listp get-blobs-v2-result)
+                   (= 1 (length get-blobs-v2-result)))
+              "KZG opt-in engine_getBlobsV2 result count mismatch: ~S"
+              get-blobs-v2-result)
+             (devnet-smoke-gate-require
+              (field-present-p direct-blob-v2 "blob")
+              "KZG opt-in engine_getBlobsV2 omitted blob")
+             (devnet-smoke-gate-require
+              (field-present-p direct-blob-v2 "proofs")
+              "KZG opt-in engine_getBlobsV2 omitted proofs")
+             (devnet-smoke-gate-require
+              (string= (getf blob-database :blob-hex)
+                       (fixture-object-field direct-blob-v2 "blob"))
+              "KZG opt-in engine_getBlobsV2 blob mismatch")
+             (devnet-smoke-gate-require
+              (and (listp direct-blob-v2-proofs)
+                   (= (getf blob-database :cell-proof-count)
+                      (length direct-blob-v2-proofs)))
+              "KZG opt-in engine_getBlobsV2 cell proof count mismatch: ~S"
+              direct-blob-v2-proofs)
+             (devnet-smoke-gate-require
+              (string= (getf blob-database :first-cell-proof-hex)
+                       (first direct-blob-v2-proofs))
+              "KZG opt-in engine_getBlobsV2 first cell proof mismatch")
+             (devnet-smoke-gate-require
+              (string= (getf blob-database :last-cell-proof-hex)
+                       (car (last direct-blob-v2-proofs)))
+              "KZG opt-in engine_getBlobsV2 last cell proof mismatch")
+             (devnet-smoke-gate-require
+              (= 200 (devnet-cli-http-status get-blobs-v3-response))
+              "KZG opt-in engine_getBlobsV3 HTTP status mismatch")
+             (devnet-smoke-gate-require
+              (not (fixture-object-field get-blobs-v3-rpc "error"))
+              "KZG opt-in engine_getBlobsV3 returned an error: ~S"
+              (fixture-object-field get-blobs-v3-rpc "error"))
+             (devnet-smoke-gate-require
+              (and (listp get-blobs-v3-result)
+                   (= 2 (length get-blobs-v3-result)))
+              "KZG opt-in engine_getBlobsV3 result count mismatch: ~S"
+              get-blobs-v3-result)
+             (devnet-smoke-gate-require
+              (field-present-p direct-blob-v3 "blob")
+              "KZG opt-in engine_getBlobsV3 omitted blob")
+             (devnet-smoke-gate-require
+              (field-present-p direct-blob-v3 "proofs")
+              "KZG opt-in engine_getBlobsV3 omitted proofs")
+             (devnet-smoke-gate-require
+              (string= (getf blob-database :blob-hex)
+                       (fixture-object-field direct-blob-v3 "blob"))
+              "KZG opt-in engine_getBlobsV3 blob mismatch")
+             (devnet-smoke-gate-require
+              (and (listp direct-blob-v3-proofs)
+                   (= (getf blob-database :cell-proof-count)
+                      (length direct-blob-v3-proofs)))
+              "KZG opt-in engine_getBlobsV3 cell proof count mismatch: ~S"
+              direct-blob-v3-proofs)
+             (devnet-smoke-gate-require
+              (string= (getf blob-database :first-cell-proof-hex)
+                       (first direct-blob-v3-proofs))
+              "KZG opt-in engine_getBlobsV3 first cell proof mismatch")
+             (devnet-smoke-gate-require
+              (string= (getf blob-database :last-cell-proof-hex)
+                       (car (last direct-blob-v3-proofs)))
+              "KZG opt-in engine_getBlobsV3 last cell proof mismatch")
+             (devnet-smoke-gate-require
+              (null missing-blob-v3)
+              "KZG opt-in engine_getBlobsV3 unknown hash must return null: ~S"
+              missing-blob-v3)
              (let ((status (devnet-cli-wait-process-exit process 10)))
                (when (eq status :timeout)
                  (uiop:terminate-process process))
@@ -3642,7 +3771,7 @@ references/ checkouts.~%")
                                              :test #'string=)))
                         "KZG opt-in log proof availability mismatch")))
                    (devnet-smoke-gate-require
-                    (string= "7"
+                    (string= "9"
                              (cdr (assoc "engineConnections"
                                          shutdown-fields
                                          :test #'string=)))
@@ -3654,7 +3783,7 @@ references/ checkouts.~%")
                                          :test #'string=)))
                     "KZG opt-in shutdown public connection count mismatch")
                    (devnet-smoke-gate-require
-                    (string= "7"
+                    (string= "9"
                              (cdr (assoc "totalConnections"
                                          shutdown-fields
                                          :test #'string=)))
@@ -3792,9 +3921,27 @@ references/ checkouts.~%")
                           (cons "directBlobLookupProofHexLength"
                                 (length
                                  (fixture-object-field direct-blob-v1 "proof")))
-                          (cons "engineConnections" 7)
+                          (cons "directCellProofLookupV2Count"
+                                (length get-blobs-v2-result))
+                          (cons "directCellProofLookupV3Count"
+                                (length get-blobs-v3-result))
+                          (cons "directCellProofLookupProofCount"
+                                (length direct-blob-v2-proofs))
+                          (cons "directCellProofLookupFirstProof"
+                                (first direct-blob-v2-proofs))
+                          (cons "directCellProofLookupFirstProofPrefix"
+                                (hex-prefix
+                                 (first direct-blob-v2-proofs)
+                                 8))
+                          (cons "directCellProofLookupLastProof"
+                                (car (last direct-blob-v2-proofs)))
+                          (cons "directCellProofLookupLastProofPrefix"
+                                (hex-prefix
+                                 (car (last direct-blob-v2-proofs))
+                                 8))
+                          (cons "engineConnections" 9)
                           (cons "publicConnections" 0)
-                          (cons "totalConnections" 7))))))))
+                          (cons "totalConnections" 9))))))))
       (when (and process (uiop:process-alive-p process))
         (uiop:terminate-process process))
       (when (and database-path (probe-file database-path))
@@ -10927,6 +11074,16 @@ references/ checkouts.~%")
                                capabilities-result
                                :test #'string=))
                   "engine_exchangeCapabilities advertised engine_getBlobsV1 without KZG verification")
+                 (devnet-smoke-gate-require
+                  (not (member "engine_getBlobsV2"
+                               capabilities-result
+                               :test #'string=))
+                  "engine_exchangeCapabilities advertised engine_getBlobsV2 without KZG verification")
+                 (devnet-smoke-gate-require
+                  (not (member "engine_getBlobsV3"
+                               capabilities-result
+                               :test #'string=))
+                  "engine_exchangeCapabilities advertised engine_getBlobsV3 without KZG verification")
                  (devnet-smoke-gate-require
                   (not (member "engine_getPayloadBodiesByHashV2"
                                capabilities-result

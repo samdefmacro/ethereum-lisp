@@ -220,6 +220,8 @@
     (is (member method capabilities :test #'string=)))
   (dolist (method '("engine_newPayloadV3"
                     "engine_getBlobsV1"
+                    "engine_getBlobsV2"
+                    "engine_getBlobsV3"
                     "engine_getPayloadBodiesByHashV2"))
     (is (not (member method capabilities :test #'string=)))))
 
@@ -360,7 +362,8 @@
           (make-string (- (+ 2 (* 2 +kzg-commitment-size+)) 6)
                        :initial-element #\0))
          commitment)))
-  (is (= 1 (fixture-object-field report "preparedPayloadV5ProofCount")))
+  (is (= +cell-proofs-per-blob+
+         (fixture-object-field report "preparedPayloadV5ProofCount")))
   (let* ((commitment
            (fixture-object-field report "preparedPayloadV5Commitment"))
          (versioned-hash
@@ -391,9 +394,41 @@
                (fixture-object-field report "directBlobLookupProofPrefix")))
   (is (= (+ 2 (* 2 +kzg-proof-size+))
          (fixture-object-field report "directBlobLookupProofHexLength")))
-  (is (= 7 (fixture-object-field report "engineConnections")))
+  (is (= 1 (fixture-object-field report "directCellProofLookupV2Count")))
+  (is (= 2 (fixture-object-field report "directCellProofLookupV3Count")))
+  (is (= +cell-proofs-per-blob+
+         (fixture-object-field report "directCellProofLookupProofCount")))
+  (let ((first-proof
+          (fixture-object-field report "directCellProofLookupFirstProof"))
+        (last-proof
+          (fixture-object-field report "directCellProofLookupLastProof")))
+    (is (= (+ 2 (* 2 +kzg-proof-size+)) (length first-proof)))
+    (is (= (+ 2 (* 2 +kzg-proof-size+)) (length last-proof)))
+    (is (string=
+         (concatenate
+          'string
+          "0x05ff"
+          (make-string (- (+ 2 (* 2 +kzg-proof-size+)) 6)
+                       :initial-element #\0))
+         first-proof))
+    (is (string=
+         (concatenate
+          'string
+          "0x84ff"
+          (make-string (- (+ 2 (* 2 +kzg-proof-size+)) 6)
+                       :initial-element #\0))
+         last-proof)))
+  (is (string= "0x05ff000000000000"
+               (fixture-object-field
+                report
+                "directCellProofLookupFirstProofPrefix")))
+  (is (string= "0x84ff000000000000"
+               (fixture-object-field
+                report
+                "directCellProofLookupLastProofPrefix")))
+  (is (= 9 (fixture-object-field report "engineConnections")))
   (is (= 0 (fixture-object-field report "publicConnections")))
-  (is (= 7 (fixture-object-field report "totalConnections"))))
+  (is (= 9 (fixture-object-field report "totalConnections"))))
 
 (defun devnet-cli-assert-public-readiness (report)
   (is (search "ethereum-lisp"
@@ -5800,9 +5835,9 @@ HTTPPort = 1945
                                                  "configuredPublicEndpoint")))
                (is (not (fixture-object-field report
                                                "publicEndpointConnectable")))
-               (is (= 7 (fixture-object-field report "engineConnections")))
+               (is (= 9 (fixture-object-field report "engineConnections")))
                (is (= 0 (fixture-object-field report "publicConnections")))
-               (is (= 7 (fixture-object-field report "totalConnections")))
+               (is (= 9 (fixture-object-field report "totalConnections")))
                (is (string= (namestring database-path)
                             (fixture-object-field report "databaseFile")))
                (is (probe-file database-path))
@@ -5835,7 +5870,7 @@ HTTPPort = 1945
                                               "publicRpcEnabled")))
                (is ready-record)
                (is shutdown-record)
-               (is (string= "7"
+               (is (string= "9"
                             (cdr (assoc "engineConnections"
                                         shutdown-fields
                                         :test #'string=))))
@@ -5843,7 +5878,7 @@ HTTPPort = 1945
                             (cdr (assoc "publicConnections"
                                         shutdown-fields
                                         :test #'string=))))
-               (is (string= "7"
+               (is (string= "9"
                             (cdr (assoc "totalConnections"
                                         shutdown-fields
                                         :test #'string=))))
