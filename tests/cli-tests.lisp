@@ -292,14 +292,54 @@
           (fixture-object-field report "kzgProofVerificationAvailable")))
   (is (plusp (fixture-object-field report "engineCapabilityCount")))
   (is (eq t
+          (fixture-object-field
+           report
+           "engineCapabilityHasForkchoiceUpdatedV3")))
+  (is (eq t
+          (fixture-object-field
+           report
+           "engineCapabilityHasForkchoiceUpdatedV4")))
+  (is (eq t
+          (fixture-object-field report "engineCapabilityHasGetPayloadV3")))
+  (is (eq t
+          (fixture-object-field report "engineCapabilityHasGetPayloadV4")))
+  (is (eq t
           (fixture-object-field report "engineCapabilityHasNewPayloadV3")))
   (is (eq t
           (fixture-object-field report "engineCapabilityHasGetBlobsV1")))
   (is (eq t
           (fixture-object-field report "engineCapabilityHasPayloadBodiesV2")))
-  (is (= 1 (fixture-object-field report "engineConnections")))
+  (is (stringp (fixture-object-field report "preparedPayloadV3Id")))
+  (is (string= "03"
+               (subseq (fixture-object-field report "preparedPayloadV3Id")
+                       2
+                       4)))
+  (is (stringp (fixture-object-field report "preparedPayloadV3ParentHash")))
+  (is (string= "0x1"
+               (fixture-object-field report "preparedPayloadV3BlockNumber")))
+  (is (eq nil
+          (fixture-object-field
+           report
+           "preparedPayloadV3ShouldOverrideBuilder")))
+  (is (= 0 (fixture-object-field report "preparedPayloadV3BlobCount")))
+  (is (stringp (fixture-object-field report "preparedPayloadV4Id")))
+  (is (string= "04"
+               (subseq (fixture-object-field report "preparedPayloadV4Id")
+                       2
+                       4)))
+  (is (stringp (fixture-object-field report "preparedPayloadV4ParentHash")))
+  (is (string= "0x1"
+               (fixture-object-field report "preparedPayloadV4BlockNumber")))
+  (is (string= "0x2a"
+               (fixture-object-field report "preparedPayloadV4SlotNumber")))
+  (is (eq nil
+          (fixture-object-field
+           report
+           "preparedPayloadV4ShouldOverrideBuilder")))
+  (is (= 0 (fixture-object-field report "preparedPayloadV4BlobCount")))
+  (is (= 5 (fixture-object-field report "engineConnections")))
   (is (= 0 (fixture-object-field report "publicConnections")))
-  (is (= 1 (fixture-object-field report "totalConnections"))))
+  (is (= 5 (fixture-object-field report "totalConnections"))))
 
 (defun devnet-cli-assert-public-readiness (report)
   (is (search "ethereum-lisp"

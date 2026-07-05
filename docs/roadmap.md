@@ -725,11 +725,16 @@ Validation targets: geth `crypto`, Nethermind `Nethermind.Crypto` and
   sidecars and the point-evaluation precompile, and remains explicitly opt-in
   through `--kzg-verifier-command` / `--kzg.verifier-command` so process
   boundary capability advertisement still reflects configured verifier
-  availability.
+  availability. The live runner smoke now also uses that opt-in path to drive
+  authenticated `engine_forkchoiceUpdatedV3` / `engine_forkchoiceUpdatedV4`
+  and `engine_getPayloadV3` / `engine_getPayloadV4` requests, proving blob-era
+  prepared-payload envelopes across the process boundary before widening into
+  blob-carrying cases.
 - *Missing for Phase A:* none for Shanghai. Real KZG verification only blocks
   Phase A if Cancun blob execution is admitted into the gate.
-- *Next:* widen blob-era prepared-payload process-boundary smoke now that the
-  verifier backend, pinned setup artifact, and canonical vectors are in-repo.
+- *Next:* widen blob-carrying blob-era process-boundary smoke now that the
+  verifier backend, pinned setup artifact, canonical vectors, and V3/V4
+  prepared-payload envelope coverage are in-repo.
 
 Detailed historical implementation notes for this section now live in
 `docs/status.md` under "Section 1: Cryptographic Primitives".
@@ -1566,7 +1571,12 @@ first pass, but interfaces must not block that path.
   executable before proof hooks are installed, readiness/stdout/telemetry
   report the accepted verifier command plus effective timeout, and the live
   Engine listener advertises the KZG-backed blob-era methods through
-  `engine_exchangeCapabilities`.
+  `engine_exchangeCapabilities`. That same opt-in subprocess smoke now drives
+  `engine_forkchoiceUpdatedV3` / `engine_forkchoiceUpdatedV4` followed by
+  `engine_getPayloadV3` / `engine_getPayloadV4`, recording payload ids,
+  parent hashes, block numbers, slot numbers, and empty blob-bundle evidence
+  so the runner boundary proves real blob-era prepared-payload envelopes
+  instead of capability negotiation alone.
   Missing or non-executable verifier command paths fail startup instead of
   advertising Cancun-capable Engine methods backed by a verifier that cannot
   launch; the runner-facing script process now locks that failure mode through

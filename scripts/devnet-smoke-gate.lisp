@@ -3031,7 +3031,49 @@ references/ checkouts.~%")
 
 (defun devnet-smoke-gate-verify-engine-only-kzg-opt-in ()
   #+sbcl
-  (let* ((script
+  (labels ((field-present-p (object name)
+             (not (null (assoc name object :test #'string=))))
+           (forkchoice-state-object (head-hash)
+             (list (cons "headBlockHash" head-hash)
+                   (cons "safeBlockHash" head-hash)
+                   (cons "finalizedBlockHash" head-hash)))
+           (withdrawal-object ()
+             (list (cons "index" "0x4")
+                   (cons "validatorIndex" "0x5")
+                   (cons "address" (address-to-hex (zero-address)))
+                   (cons "amount" "0x6")))
+           (payload-attributes-v3-object
+               (timestamp parent-beacon-block-root)
+             (list (cons "timestamp" timestamp)
+                   (cons "prevRandao" (hash32-to-hex (zero-hash32)))
+                   (cons "suggestedFeeRecipient"
+                         (address-to-hex (zero-address)))
+                   (cons "withdrawals" (list (withdrawal-object)))
+                   (cons "parentBeaconBlockRoot"
+                         parent-beacon-block-root)))
+           (payload-attributes-v4-object
+               (timestamp parent-beacon-block-root slot-number)
+             (append
+              (payload-attributes-v3-object
+               timestamp
+               parent-beacon-block-root)
+              (list (cons "slotNumber" slot-number))))
+           (forkchoice-request (id method head-hash payload-attributes)
+             (json-encode
+              (list (cons "jsonrpc" "2.0")
+                    (cons "id" id)
+                    (cons "method" method)
+                    (cons "params"
+                          (list
+                           (forkchoice-state-object head-hash)
+                           payload-attributes)))))
+           (get-payload-request (id method payload-id)
+             (json-encode
+              (list (cons "jsonrpc" "2.0")
+                    (cons "id" id)
+                    (cons "method" method)
+                    (cons "params" (list payload-id))))))
+    (let* ((script
            (namestring
             (truename
              (merge-pathnames "scripts/ethereum-lisp.lisp"
@@ -3041,6 +3083,8 @@ references/ checkouts.~%")
             (truename
              (merge-pathnames +devnet-cli-genesis-fixture+
                               *ethereum-lisp-devnet-smoke-gate-root*))))
+         (genesis-json
+           (parse-json (devnet-smoke-gate-file-string genesis)))
          (kzg-command
            (devnet-cli-temp-path "ethereum-lisp-smoke-kzg-command" "sh"))
          (ready-path
@@ -3080,7 +3124,7 @@ references/ checkouts.~%")
                         "--pid-file"
                         (namestring pid-path)
                         "--max-connections"
-                        "1"
+                        "5"
                         "--json")
                   :directory #P"/private/tmp/"
                   :output :stream
@@ -3098,7 +3142,7 @@ references/ checkouts.~%")
            (let* ((ready-summary
                     (parse-json (devnet-smoke-gate-file-string ready-path)))
                   (raw-engine-endpoint
-                    (fixture-object-field ready-summary "engineEndpoint"))
+                        (fixture-object-field ready-summary "engineEndpoint"))
                   (engine-endpoint
                     (and raw-engine-endpoint
                          (if (uiop:string-prefix-p
@@ -3107,6 +3151,23 @@ references/ checkouts.~%")
                              raw-engine-endpoint
                              (format nil "http://~A"
                                      raw-engine-endpoint))))
+                  (head-hash
+                    (fixture-object-field ready-summary "headHash"))
+                  (head-number
+                    (fixture-object-field ready-summary "headNumber"))
+                  (next-block-number
+                    (quantity-to-hex (1+ head-number)))
+                  (genesis-timestamp
+                    (fixture-quantity-field genesis-json "timestamp"))
+                  (v3-parent-beacon-block-root
+                    "0x3333333333333333333333333333333333333333333333333333333333333333")
+                  (v4-parent-beacon-block-root
+                    "0x4444444444444444444444444444444444444444444444444444444444444444")
+                  (v3-timestamp
+                    (quantity-to-hex (1+ genesis-timestamp)))
+                  (v4-timestamp
+                    (quantity-to-hex (+ genesis-timestamp 2)))
+                  (v4-slot-number "0x2a")
                   (capabilities-body
                     "{\"jsonrpc\":\"2.0\",\"id\":715,\"method\":\"engine_exchangeCapabilities\",\"params\":[[]]}")
                   (capabilities-response
@@ -3116,7 +3177,84 @@ references/ checkouts.~%")
                   (capabilities-rpc
                     (parse-json (devnet-cli-http-body capabilities-response)))
                   (capabilities-result
-                    (fixture-object-field capabilities-rpc "result")))
+                    (fixture-object-field capabilities-rpc "result"))
+                  (prepare-v3-response
+                    (devnet-cli-http-endpoint-request
+                     engine-endpoint
+                     (devnet-cli-json-rpc-http-request
+                      (forkchoice-request
+                       716
+                       "engine_forkchoiceUpdatedV3"
+                       head-hash
+                       (payload-attributes-v3-object
+                        v3-timestamp
+                        v3-parent-beacon-block-root)))))
+                  (prepare-v3-rpc
+                    (parse-json (devnet-cli-http-body prepare-v3-response)))
+                  (prepare-v3-result
+                    (fixture-object-field prepare-v3-rpc "result"))
+                  (prepare-v3-status
+                    (fixture-object-field prepare-v3-result "payloadStatus"))
+                  (payload-id-v3
+                    (fixture-object-field prepare-v3-result "payloadId"))
+                  (get-payload-v3-response
+                    (devnet-cli-http-endpoint-request
+                     engine-endpoint
+                     (devnet-cli-json-rpc-http-request
+                      (get-payload-request
+                       717
+                       "engine_getPayloadV3"
+                       payload-id-v3))))
+                  (get-payload-v3-rpc
+                    (parse-json
+                     (devnet-cli-http-body get-payload-v3-response)))
+                  (payload-envelope-v3
+                    (fixture-object-field get-payload-v3-rpc "result"))
+                  (execution-payload-v3
+                    (fixture-object-field payload-envelope-v3
+                                          "executionPayload"))
+                  (blobs-bundle-v3
+                    (fixture-object-field payload-envelope-v3
+                                          "blobsBundle"))
+                  (prepare-v4-response
+                    (devnet-cli-http-endpoint-request
+                     engine-endpoint
+                     (devnet-cli-json-rpc-http-request
+                      (forkchoice-request
+                       718
+                       "engine_forkchoiceUpdatedV4"
+                       head-hash
+                       (payload-attributes-v4-object
+                        v4-timestamp
+                        v4-parent-beacon-block-root
+                        v4-slot-number)))))
+                  (prepare-v4-rpc
+                    (parse-json (devnet-cli-http-body prepare-v4-response)))
+                  (prepare-v4-result
+                    (fixture-object-field prepare-v4-rpc "result"))
+                  (prepare-v4-status
+                    (fixture-object-field prepare-v4-result "payloadStatus"))
+                  (payload-id-v4
+                    (fixture-object-field prepare-v4-result "payloadId"))
+                  (get-payload-v4-response
+                    (devnet-cli-http-endpoint-request
+                     engine-endpoint
+                     (devnet-cli-json-rpc-http-request
+                      (get-payload-request
+                       719
+                       "engine_getPayloadV4"
+                       payload-id-v4))))
+                  (get-payload-v4-rpc
+                    (parse-json
+                     (devnet-cli-http-body get-payload-v4-response)))
+                  (payload-envelope-v4
+                    (fixture-object-field get-payload-v4-rpc "result"))
+                  (execution-payload-v4
+                    (fixture-object-field payload-envelope-v4
+                                          "executionPayload"))
+                  (blobs-bundle-v4
+                    (fixture-object-field payload-envelope-v4
+                                          "blobsBundle")))
              (devnet-smoke-gate-require
               (stringp engine-endpoint)
               "KZG opt-in ready file omitted Engine endpoint")
@@ -3145,7 +3283,11 @@ references/ checkouts.~%")
              (devnet-smoke-gate-require
               (= 715 (fixture-object-field capabilities-rpc "id"))
               "KZG opt-in engine_exchangeCapabilities id mismatch")
-             (dolist (method '("engine_newPayloadV3"
+             (dolist (method '("engine_forkchoiceUpdatedV3"
+                               "engine_forkchoiceUpdatedV4"
+                               "engine_getPayloadV3"
+                               "engine_getPayloadV4"
+                               "engine_newPayloadV3"
                                 "engine_getBlobsV1"
                                 "engine_getPayloadBodiesByHashV2"))
                (devnet-smoke-gate-require
@@ -3153,6 +3295,101 @@ references/ checkouts.~%")
                 "KZG opt-in capabilities omitted ~A from ~S"
                 method
                 capabilities-result))
+             (devnet-smoke-gate-require
+              (= 200 (devnet-cli-http-status prepare-v3-response))
+              "KZG opt-in engine_forkchoiceUpdatedV3 HTTP status mismatch")
+             (devnet-smoke-gate-require
+              (string= +payload-status-valid+
+                       (fixture-object-field prepare-v3-status "status"))
+              "KZG opt-in engine_forkchoiceUpdatedV3 status mismatch")
+             (devnet-smoke-gate-require
+              (and (stringp payload-id-v3)
+                   (= 18 (length payload-id-v3))
+                   (string= "03" (subseq payload-id-v3 2 4)))
+              "KZG opt-in engine_forkchoiceUpdatedV3 did not return a V3 payload id")
+             (devnet-smoke-gate-require
+              (= 200 (devnet-cli-http-status get-payload-v3-response))
+              "KZG opt-in engine_getPayloadV3 HTTP status mismatch")
+             (devnet-smoke-gate-require
+              (not (fixture-object-field get-payload-v3-rpc "error"))
+              "KZG opt-in engine_getPayloadV3 returned an error: ~S"
+              (fixture-object-field get-payload-v3-rpc "error"))
+             (devnet-smoke-gate-require
+              (string= head-hash
+                       (fixture-object-field execution-payload-v3
+                                             "parentHash"))
+              "KZG opt-in engine_getPayloadV3 parentHash mismatch")
+             (devnet-smoke-gate-require
+              (string= next-block-number
+                       (fixture-object-field execution-payload-v3
+                                             "blockNumber"))
+              "KZG opt-in engine_getPayloadV3 blockNumber mismatch")
+             (devnet-smoke-gate-require
+              (not (fixture-object-field payload-envelope-v3
+                                         "shouldOverrideBuilder"))
+              "KZG opt-in engine_getPayloadV3 shouldOverrideBuilder mismatch")
+             (devnet-smoke-gate-require
+              (field-present-p payload-envelope-v3 "blobsBundle")
+              "KZG opt-in engine_getPayloadV3 omitted blobsBundle")
+             (dolist (field '("commitments" "proofs" "blobs"))
+               (devnet-smoke-gate-require
+                (field-present-p blobs-bundle-v3 field)
+                "KZG opt-in engine_getPayloadV3 blobsBundle omitted ~A"
+                field)
+               (devnet-smoke-gate-require
+                (listp (fixture-object-field blobs-bundle-v3 field))
+                "KZG opt-in engine_getPayloadV3 blobsBundle ~A must be a JSON array"
+                field))
+             (devnet-smoke-gate-require
+              (= 200 (devnet-cli-http-status prepare-v4-response))
+              "KZG opt-in engine_forkchoiceUpdatedV4 HTTP status mismatch")
+             (devnet-smoke-gate-require
+              (string= +payload-status-valid+
+                       (fixture-object-field prepare-v4-status "status"))
+              "KZG opt-in engine_forkchoiceUpdatedV4 status mismatch")
+             (devnet-smoke-gate-require
+              (and (stringp payload-id-v4)
+                   (= 18 (length payload-id-v4))
+                   (string= "04" (subseq payload-id-v4 2 4)))
+              "KZG opt-in engine_forkchoiceUpdatedV4 did not return a V4 payload id")
+             (devnet-smoke-gate-require
+              (= 200 (devnet-cli-http-status get-payload-v4-response))
+              "KZG opt-in engine_getPayloadV4 HTTP status mismatch")
+             (devnet-smoke-gate-require
+              (not (fixture-object-field get-payload-v4-rpc "error"))
+              "KZG opt-in engine_getPayloadV4 returned an error: ~S"
+              (fixture-object-field get-payload-v4-rpc "error"))
+             (devnet-smoke-gate-require
+              (string= head-hash
+                       (fixture-object-field execution-payload-v4
+                                             "parentHash"))
+              "KZG opt-in engine_getPayloadV4 parentHash mismatch")
+             (devnet-smoke-gate-require
+              (string= next-block-number
+                       (fixture-object-field execution-payload-v4
+                                             "blockNumber"))
+              "KZG opt-in engine_getPayloadV4 blockNumber mismatch")
+             (devnet-smoke-gate-require
+              (string= v4-slot-number
+                       (fixture-object-field execution-payload-v4
+                                             "slotNumber"))
+              "KZG opt-in engine_getPayloadV4 slotNumber mismatch")
+             (devnet-smoke-gate-require
+              (not (fixture-object-field payload-envelope-v4
+                                         "shouldOverrideBuilder"))
+              "KZG opt-in engine_getPayloadV4 shouldOverrideBuilder mismatch")
+             (devnet-smoke-gate-require
+              (field-present-p payload-envelope-v4 "blobsBundle")
+              "KZG opt-in engine_getPayloadV4 omitted blobsBundle")
+             (dolist (field '("commitments" "proofs" "blobs"))
+               (devnet-smoke-gate-require
+                (field-present-p blobs-bundle-v4 field)
+                "KZG opt-in engine_getPayloadV4 blobsBundle omitted ~A"
+                field)
+               (devnet-smoke-gate-require
+                (listp (fixture-object-field blobs-bundle-v4 field))
+                "KZG opt-in engine_getPayloadV4 blobsBundle ~A must be a JSON array"
+                field))
              (let ((status (devnet-cli-wait-process-exit process 10)))
                (when (eq status :timeout)
                  (uiop:terminate-process process))
@@ -3224,7 +3461,7 @@ references/ checkouts.~%")
                                              :test #'string=)))
                         "KZG opt-in log proof availability mismatch")))
                    (devnet-smoke-gate-require
-                    (string= "1"
+                    (string= "5"
                              (cdr (assoc "engineConnections"
                                          shutdown-fields
                                          :test #'string=)))
@@ -3236,7 +3473,7 @@ references/ checkouts.~%")
                                          :test #'string=)))
                     "KZG opt-in shutdown public connection count mismatch")
                    (devnet-smoke-gate-require
-                    (string= "1"
+                    (string= "5"
                              (cdr (assoc "totalConnections"
                                          shutdown-fields
                                          :test #'string=)))
@@ -3258,6 +3495,30 @@ references/ checkouts.~%")
                           (cons "kzgProofVerificationAvailable" t)
                           (cons "engineCapabilityCount"
                                 (length capabilities-result))
+                          (cons "engineCapabilityHasForkchoiceUpdatedV3"
+                                (if (member "engine_forkchoiceUpdatedV3"
+                                            capabilities-result
+                                            :test #'string=)
+                                    t
+                                    :false))
+                          (cons "engineCapabilityHasForkchoiceUpdatedV4"
+                                (if (member "engine_forkchoiceUpdatedV4"
+                                            capabilities-result
+                                            :test #'string=)
+                                    t
+                                    :false))
+                          (cons "engineCapabilityHasGetPayloadV3"
+                                (if (member "engine_getPayloadV3"
+                                            capabilities-result
+                                            :test #'string=)
+                                    t
+                                    :false))
+                          (cons "engineCapabilityHasGetPayloadV4"
+                                (if (member "engine_getPayloadV4"
+                                            capabilities-result
+                                            :test #'string=)
+                                    t
+                                    :false))
                           (cons "engineCapabilityHasNewPayloadV3"
                                 (if (member "engine_newPayloadV3"
                                             capabilities-result
@@ -3277,9 +3538,40 @@ references/ checkouts.~%")
                                      :test #'string=)
                                     t
                                     :false))
-                          (cons "engineConnections" 1)
+                          (cons "preparedPayloadV3Id" payload-id-v3)
+                          (cons "preparedPayloadV3ParentHash"
+                                (fixture-object-field execution-payload-v3
+                                                      "parentHash"))
+                          (cons "preparedPayloadV3BlockNumber"
+                                (fixture-object-field execution-payload-v3
+                                                      "blockNumber"))
+                          (cons "preparedPayloadV3ShouldOverrideBuilder"
+                                (fixture-object-field payload-envelope-v3
+                                                      "shouldOverrideBuilder"))
+                          (cons "preparedPayloadV3BlobCount"
+                                (length
+                                 (fixture-object-field blobs-bundle-v3
+                                                       "blobs")))
+                          (cons "preparedPayloadV4Id" payload-id-v4)
+                          (cons "preparedPayloadV4ParentHash"
+                                (fixture-object-field execution-payload-v4
+                                                      "parentHash"))
+                          (cons "preparedPayloadV4BlockNumber"
+                                (fixture-object-field execution-payload-v4
+                                                      "blockNumber"))
+                          (cons "preparedPayloadV4SlotNumber"
+                                (fixture-object-field execution-payload-v4
+                                                      "slotNumber"))
+                          (cons "preparedPayloadV4ShouldOverrideBuilder"
+                                (fixture-object-field payload-envelope-v4
+                                                      "shouldOverrideBuilder"))
+                          (cons "preparedPayloadV4BlobCount"
+                                (length
+                                 (fixture-object-field blobs-bundle-v4
+                                                       "blobs")))
+                          (cons "engineConnections" 5)
                           (cons "publicConnections" 0)
-                          (cons "totalConnections" 1))))))))
+                          (cons "totalConnections" 5))))))))
       (when (and process (uiop:process-alive-p process))
         (uiop:terminate-process process))
       (when (probe-file kzg-command)
@@ -3290,7 +3582,7 @@ references/ checkouts.~%")
         (delete-file log-path))
       (when (probe-file pid-path)
         (delete-file pid-path)))
-    report)
+      report))
   #-sbcl
   (error "Devnet engine-only KZG opt-in smoke requires SBCL sockets"))
 

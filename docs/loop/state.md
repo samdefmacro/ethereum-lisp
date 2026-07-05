@@ -18,11 +18,10 @@ Last updated: 2026-07-05
 ## Current Dirty Work
 
 No intended dirty implementation work should remain after the current validated
-batch is committed and pushed. The latest completed slice is
-`DEVNET-RUNNER-SMOKE-PREPARED-PAYLOAD-TXPOOL-REPLACEMENT-FIXTURE-BREADTH`; the
-next run spec is prepared as a `BLOCKED_EXTERNAL` KZG-backend contract because
-the repository still lacks a pinned trusted-setup-backed verifier, trusted
-setup artifact path/checksum, and canonical vector source.
+batch is committed and pushed. The latest completed slice is the blob-era
+KZG opt-in prepared-payload runner smoke expansion; the next run spec should
+move forward from empty V3/V4 envelope proof into blob-carrying process
+boundary coverage instead of revisiting capability advertisement alone.
 
 Closed behavior from the latest slice:
 
@@ -114,8 +113,38 @@ Closed behavior from the latest slice:
   public/canonical transaction evidence per case while keeping the aggregate
   suite connection contract coherent at `engineConnections=161`,
   `publicConnections=378`, and `totalConnections=539`.
+- The engine-only `scripts/devnet-smoke-gate.lisp -- --engine-only-serve`
+  `kzgOptIn` child no longer stops at `engine_exchangeCapabilities`: with the
+  repo-local verifier configured, it now sends authenticated
+  `engine_forkchoiceUpdatedV3` / `engine_forkchoiceUpdatedV4` requests and
+  retrieves the resulting payloads through `engine_getPayloadV3` /
+  `engine_getPayloadV4`.
+- The same KZG opt-in smoke report now records V3/V4 payload ids, parent hash,
+  block number, V4 slot number, zero-blob bundle counts, and the expanded
+  five-request Engine connection contract, making blob-era prepared-payload
+  envelope regressions visible at the process boundary.
 
 Closed validation:
+
+- Focused escalated standalone smoke for the blob-era prepared-payload runner
+  path passed:
+  `sbcl --script scripts/devnet-smoke-gate.lisp -- --engine-only-serve --json`.
+  The nested `kzgOptIn` report now includes live
+  `engine_forkchoiceUpdatedV3` / `engine_forkchoiceUpdatedV4` and
+  `engine_getPayloadV3` / `engine_getPayloadV4` evidence, including payload
+  ids, parent hashes, block numbers, slot number, and blob-bundle field
+  presence.
+- `git diff --check` passed.
+- The escalated `sbcl --script tests/run-tests.lisp` run passed with
+  `894 tests passed, 5 skipped` before the final smoke-only assertion
+  tightening that requires explicit `blobsBundle` child fields.
+- After that verifier-driven assertion tightening, the focused escalated
+  `sbcl --script scripts/devnet-smoke-gate.lisp -- --engine-only-serve --json`
+  rerun still passed on the final tree.
+- Verifier review returned `PASS` after tightening the new smoke assertions so
+  missing `blobsBundle` child fields cannot silently pass through `nil`/empty
+  counts. Residual risk: the live runner boundary now proves empty V3/V4
+  blob-era envelopes, but not yet blob-carrying bundle retrieval.
 
 - Focused dev-period coverage passed inside the full suite:
   `DEVNET-CLI-DEV-PERIOD-PARSES-AND-REPORTS-DURATION` and
@@ -286,9 +315,9 @@ The old fixed heartbeat prompt is being replaced by a loop v2 process:
 
 ## Next Recommended Orchestrator Decision
 
-The next highest-value repository slice is to widen blob-era prepared-payload
-process-boundary smoke now that real KZG verification is pinned in-repo. The
-best bounded follow-up is prepared-payload V3/V4 runner coverage that proves
-blob-era `engine_getPayloadV3/V4` selection and response paths under the
-repo-local verifier opt-in, before broadening into unrelated txpool or docs
-work.
+The next highest-value repository slice is to widen blob-carrying blob-era
+process-boundary smoke now that V3/V4 prepared-payload envelopes are proven
+under the repo-local verifier opt-in. The best bounded follow-up is runner
+coverage for blob bundle retrieval, such as `engine_getBlobsV1` and/or higher
+blob-carrying payload envelopes, before broadening back into unrelated txpool
+or docs work.

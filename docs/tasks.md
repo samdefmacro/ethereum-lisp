@@ -1664,6 +1664,14 @@ ones.
     names in `kzgVerifierCommandOption` / `kzgVerifierTimeoutOption`, and
     keeps the live Engine capability probe on the same Hive-shaped KZG opt-in
     path as the runner-facing script process.
+  - Result (2026-07-05): that same engine-only `kzgOptIn` child now drives
+    live `engine_forkchoiceUpdatedV3` / `engine_forkchoiceUpdatedV4` and
+    `engine_getPayloadV3` / `engine_getPayloadV4` requests after the
+    capability handshake, proving the repo-local verifier opt-in reaches
+    blob-era prepared-payload envelopes instead of stopping at method
+    advertisement. The smoke report now captures V3/V4 payload ids, parent
+    hashes, block numbers, V4 slot-number evidence, zero-blob bundle counts,
+    and the expanded five-request Engine connection contract.
 - [x] `DEVNET-RUNNER-KZG-ERROR-TELEMETRY`: Lock invalid KZG verifier
   configuration as a runner-facing startup failure.
   - Result (2026-07-03): `scripts/ethereum-lisp.lisp -- devnet` subprocess
