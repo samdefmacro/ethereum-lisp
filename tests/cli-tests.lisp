@@ -371,6 +371,7 @@
                (subseq (fixture-object-field report "preparedPayloadV6Id")
                        2
                        4)))
+  (is (stringp (fixture-object-field report "preparedPayloadV6BlockHash")))
   (is (string= "0xa"
                (fixture-object-field report "preparedPayloadV6BlockNumber")))
   (is (string= "0x2a"
@@ -405,6 +406,25 @@
                  (subseq commitment 0 6))))
   (is (= +cell-proofs-per-blob+
          (fixture-object-field report "preparedPayloadV6ProofCount")))
+  (is (= 1
+         (fixture-object-field report "preparedPayloadBodiesByHashV2Count")))
+  (is (= 0
+         (fixture-object-field
+          report
+          "preparedPayloadBodiesByHashV2TransactionCount")))
+  (is (= 0
+         (fixture-object-field
+          report
+          "preparedPayloadBodiesByHashV2WithdrawalCount")))
+  (let* ((account (make-block-access-account
+                   :address (address-from-hex
+                             "0x0000000000000000000000000000000000000001")))
+         (expected-block-access-list
+           (bytes-to-hex (block-access-list-rlp (list account)))))
+    (is (string= expected-block-access-list
+                 (fixture-object-field
+                  report
+                  "preparedPayloadBodiesByHashV2BlockAccessList"))))
   (let* ((commitment
            (fixture-object-field report "preparedPayloadV5Commitment"))
          (versioned-hash
@@ -467,9 +487,9 @@
                (fixture-object-field
                 report
                 "directCellProofLookupLastProofPrefix")))
-  (is (= 10 (fixture-object-field report "engineConnections")))
+  (is (= 11 (fixture-object-field report "engineConnections")))
   (is (= 0 (fixture-object-field report "publicConnections")))
-  (is (= 10 (fixture-object-field report "totalConnections"))))
+  (is (= 11 (fixture-object-field report "totalConnections"))))
 
 (defun devnet-cli-assert-public-readiness (report)
   (is (search "ethereum-lisp"
@@ -5876,9 +5896,9 @@ HTTPPort = 1945
                                                  "configuredPublicEndpoint")))
                (is (not (fixture-object-field report
                                                "publicEndpointConnectable")))
-               (is (= 9 (fixture-object-field report "engineConnections")))
+               (is (= 7 (fixture-object-field report "engineConnections")))
                (is (= 0 (fixture-object-field report "publicConnections")))
-               (is (= 9 (fixture-object-field report "totalConnections")))
+               (is (= 7 (fixture-object-field report "totalConnections")))
                (is (string= (namestring database-path)
                             (fixture-object-field report "databaseFile")))
                (is (probe-file database-path))
@@ -5911,7 +5931,7 @@ HTTPPort = 1945
                                               "publicRpcEnabled")))
                (is ready-record)
                (is shutdown-record)
-               (is (string= "9"
+               (is (string= "7"
                             (cdr (assoc "engineConnections"
                                         shutdown-fields
                                         :test #'string=))))
@@ -5919,7 +5939,7 @@ HTTPPort = 1945
                             (cdr (assoc "publicConnections"
                                         shutdown-fields
                                         :test #'string=))))
-               (is (string= "9"
+               (is (string= "7"
                             (cdr (assoc "totalConnections"
                                         shutdown-fields
                                         :test #'string=))))

@@ -18,12 +18,12 @@ Last updated: 2026-07-06
 ## Current Dirty Work
 
 No intended dirty implementation work should remain after the current validated
-batch is committed and pushed. The latest completed slice is the imported
-non-empty `engine_getPayloadV6` KZG opt-in runner proof; the next run spec
-should move forward from payload-envelope retrieval into
-`engine_getPayloadBodiesByHashV2` process-boundary coverage instead of
-revisiting direct blob/cell-proof lookup or already-proven V3/V4/V5/V6
-payload envelopes.
+batch is committed and pushed. The latest completed slice is the live
+`engine_getPayloadBodiesByHashV2` KZG opt-in runner proof; the next run spec
+should move forward from by-hash payload-body retrieval into
+`engine_getPayloadBodiesByRangeV2` process-boundary coverage instead of
+revisiting already-proven V3/V4/V5/V6 payload envelopes, by-hash body
+retrieval, or direct blob/cell-proof lookup.
 
 Closed behavior from the latest slice:
 
@@ -42,6 +42,19 @@ Closed behavior from the latest slice:
   advertisement plus the V6 payload id, block number, slot number, execution
   request count/bytes, block-access-list bytes, blob prefix/count, commitment,
   proof count, and the expanded ten-request Engine connection contract.
+- KV prepared-payload import now retains a prepared payload when the same block
+  hash is already known and the full block body matches, while still dropping
+  mismatched known/prepared collisions.
+- The engine-only `kzgOptIn` smoke now seeds that same Amsterdam-era V6 block
+  as both a known block and a prepared payload, then proves live
+  `engine_getPayloadBodiesByHashV2` returns the expected empty
+  transactions/withdrawals arrays plus the Amsterdam `blockAccessList`.
+- The nested `kzgOptIn` report now records `preparedPayloadV6BlockHash`,
+  `preparedPayloadBodiesByHashV2Count`,
+  `preparedPayloadBodiesByHashV2TransactionCount`,
+  `preparedPayloadBodiesByHashV2WithdrawalCount`, and
+  `preparedPayloadBodiesByHashV2BlockAccessList`, and the nested KZG
+  connection/shutdown contract expanded from ten to eleven Engine requests.
 - Positive `--dev.period DURATION` parses through the shared geth-style
   duration path and rejects malformed or negative values.
 - Devnet summaries, readiness data, and lifecycle telemetry report
@@ -239,6 +252,18 @@ Closed validation:
   blob-era payload-body retrieval at the process boundary, especially live
   `engine_getPayloadBodiesByHashV2` and `engine_getPayloadBodiesByRangeV2`
   proof for Amsterdam block-access-list responses.
+- Focused escalated standalone smoke for the Amsterdam by-hash payload-body
+  runner path passed:
+  `sbcl --script scripts/devnet-smoke-gate.lisp -- --engine-only-serve --json`.
+  The nested `kzgOptIn` report now includes live
+  `engine_getPayloadBodiesByHashV2` evidence for the same imported V6 block
+  already proven through `engine_getPayloadV6`.
+- `git diff --check` passed.
+- The final escalated `sbcl --script tests/run-tests.lisp` run passed with
+  `895 tests passed, 5 skipped`.
+- Independent verifier review returned `PASS`; residual risk is now limited to
+  live `engine_getPayloadBodiesByRangeV2` runner proof and any broader
+  Amsterdam payload-body range assertions beyond the current by-hash contract.
 
 - Focused dev-period coverage passed inside the full suite:
   `DEVNET-CLI-DEV-PERIOD-PARSES-AND-REPORTS-DURATION` and

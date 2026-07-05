@@ -14,70 +14,69 @@
 - Git state: the repo-local KZG verifier path is now proven through live
   `engine_getPayloadV3`, `engine_getPayloadV4`, non-empty
   `engine_getPayloadV5`, non-empty `engine_getPayloadV6`, direct
-  `engine_getBlobsV1`, and direct `engine_getBlobsV2` / `engine_getBlobsV3`
-  cell-proof runner-boundary retrieval; the next bounded gap is payload-body
-  retrieval rather than another payload-envelope variant.
-- Recent commits reviewed: the latest validated slice seeded an Amsterdam-era
-  V6 prepared payload into the existing `kzgOptIn` database path and tightened
-  the focused smoke/report assertions around live `engine_getPayloadV6`.
+  `engine_getBlobsV1`, direct `engine_getBlobsV2` / `engine_getBlobsV3`,
+  and live `engine_getPayloadBodiesByHashV2` for the same Amsterdam-era V6
+  block.
+- Recent commits reviewed: the latest validated slice widened KV import so a
+  known block can retain a matching prepared payload, then used that coexistence
+  path to prove by-hash Amsterdam payload-body retrieval at the runner
+  boundary.
 - Relevant task/roadmap anchors: `DEVNET-RUNNER-KZG-CAPABILITY-OPT-IN` now
-  records live V6 envelope proof; the roadmap now treats
-  `engine_getPayloadBodiesByHashV2` retrieval as the next bounded blob-era
-  follow-up.
-- Relevant loop state: blob-era payload envelopes and direct blob/cell-proof
-  lookups are covered at the process boundary, but the runner smoke still
-  lacks a live Amsterdam-era payload-body response proof.
+  records live by-hash payload-body proof; the roadmap now treats
+  `engine_getPayloadBodiesByRangeV2` as the next bounded blob-era follow-up.
+- Relevant loop state: blob-era payload envelopes, direct blob/cell-proof
+  lookups, and by-hash Amsterdam payload-body retrieval are covered at the
+  process boundary; the remaining narrow runner gap is range-based Amsterdam
+  payload-body retrieval.
 
 ## Candidate Ranking
 
 ### Candidate A
 
-- Objective: extend the verifier opt-in runner smoke from imported non-empty
-  `engine_getPayloadV6` retrieval into live
-  `engine_getPayloadBodiesByHashV2` process-boundary proof.
-- Value: highest; it closes the next obvious blob-era runner gap after V6
-  envelope proof and exercises the Amsterdam payload-body/block-access-list
-  response family over the live listener.
-- Risk: medium; it should stay in runner smoke/assertion code, but it may need
-  one more seeded-hash/report helper if the current `kzgOptIn` contract does
-  not already expose the imported block hash needed for the lookup.
-- Required validation: focused escalated engine-only smoke for the V2
-  payload-body path, `git diff --check`, and verifier review. Full suite only
-  if the helper or listener surface broadens beyond smoke/assertion code.
+- Objective: extend the verifier opt-in runner smoke from live
+  `engine_getPayloadBodiesByHashV2` into live
+  `engine_getPayloadBodiesByRangeV2`.
+- Value: highest; it closes the next obvious Amsterdam payload-body runner gap
+  while reusing the just-landed known/prepared coexistence seed.
+- Risk: low-medium; likely smoke/assertion/report work plus one more Engine
+  request in the nested connection contract.
+- Required validation: focused escalated
+  `sbcl --script scripts/devnet-smoke-gate.lisp -- --engine-only-serve --json`,
+  `git diff --check`, verifier review, and the full suite only if production
+  code changes.
 - Decision: selected.
-- Reason: it is the highest-leverage continuation of the current KZG runner
-  line without widening into unrelated surface area.
+- Reason: it continues the same runner surface with the smallest remaining
+  bounded gap.
 
 ### Candidate B
 
-- Objective: widen the same verifier opt-in runner proof to live
-  `engine_getPayloadBodiesByRangeV2` retrieval for blob-era payload bodies.
-- Value: medium; useful listener depth, but lower leverage than a hash-pinned
-  body lookup because the by-hash variant is the narrower bridge from the now
-  imported V6 payload proof.
-- Risk: medium; it adds range-window semantics and likely needs more fixture
-  plumbing or multiple imported block hashes than the by-hash extension.
-- Required validation: focused escalated smoke and `git diff --check`;
-  broader gates only if shared helpers change.
+- Objective: widen the Amsterdam seed again to exercise a live
+  `engine_newPayloadV5` import path with executable blob transactions.
+- Value: medium; useful long term, but materially larger than the remaining
+  payload-body range proof.
+- Risk: high; would require genuine executable blob-transaction fixture shape
+  instead of the current bounded synthetic runner seed.
+- Required validation: likely Tier 2 or Tier 3 with broader production and
+  fixture risk.
 - Decision: defer.
-- Reason: lower leverage than proving the simpler by-hash payload-body
-  contract first.
+- Reason: larger than needed while a narrower runner-boundary proof remains.
 
 ### Candidate C
 
-- Objective: revisit unrelated Shanghai txpool or replacement runner coverage.
-- Value: low for current priority because the blob-era KZG boundary still has a
-  narrower missing live payload-body path.
+- Objective: return to unrelated txpool or listener slices.
+- Value: low for current priority because the blob-era runner line still has a
+  clean next step.
 - Risk: low-medium, but it would interrupt the current KZG continuity.
-- Required validation: depends on selected slice.
+- Required validation: depends on slice.
 - Decision: defer.
-- Reason: loses momentum on the highest-value blob-era runner gap.
+- Reason: lower leverage than finishing the remaining Amsterdam payload-body
+  range contract.
 
 ## Selected Objective
 
-Extend the repo-local verifier opt-in runner smoke from imported non-empty
-`engine_getPayloadV6` retrieval to live
-`engine_getPayloadBodiesByHashV2` process-boundary proof.
+Extend the repo-local verifier opt-in runner smoke from live
+`engine_getPayloadBodiesByHashV2` into live
+`engine_getPayloadBodiesByRangeV2` process-boundary proof.
 
 ## Scope
 
@@ -92,93 +91,87 @@ Allowed files/modules:
 
 Expected behavior changes:
 
-- The live verifier opt-in smoke proves Amsterdam-era
-  `engine_getPayloadBodiesByHashV2` retrieval, not only payload envelopes and
-  direct blob lookups.
-- The existing `kzgOptIn` seed/report path exposes the imported block hash
-  needed to request the V2 payload body through the live Engine listener.
-- Smoke reporting captures enough body-response evidence to debug transaction
-  list and block-access-list regressions at the runner boundary.
+- The engine-only `kzgOptIn` smoke proves Amsterdam-era
+  `engine_getPayloadBodiesByRangeV2`, not only the by-hash variant.
+- The nested runner report records enough range-response evidence to debug
+  transaction, withdrawal, and `blockAccessList` regressions at the process
+  boundary.
+- The nested KZG connection/shutdown contract grows only as needed for the new
+  range request.
 
 Non-goals:
 
-- Do not redesign production KZG verification, payload construction, or blob
-  sidecar storage.
-- Do not widen unrelated Shanghai runner assertions in the same run.
-- Do not broaden into `engine_getPayloadBodiesByRangeV2` unless the by-hash
-  path proves impossible with the existing seeded database shape.
+- Do not revisit the by-hash coexistence production fix unless the range path
+- reveals a concrete bug.
+- Do not broaden into unrelated blob lookup or payload-envelope variants.
+- Do not refactor general payload storage or Engine RPC plumbing outside the
+  minimal support needed for the live range proof.
 
 ## Acceptance Criteria
 
 - Focused process-boundary coverage proves live verifier opt-in
-  `engine_getPayloadBodiesByHashV2` retrieval for the imported Amsterdam-era
-  block seeded through the existing `kzgOptIn` path.
-- The smoke/assertion surface fails clearly when verifier opt-in is absent,
-  unavailable, or when the returned V2 payload body omits or malforms the
-  expected transaction/body/block-access-list fields.
-- Any shared helper change stays scoped to supporting the imported V2
-  payload-body lookup path.
+  `engine_getPayloadBodiesByRangeV2` retrieval for the imported Amsterdam-era
+  V6 block range containing the already-proven by-hash block.
+- The smoke/assertion surface fails clearly if the range lookup omits
+  `transactions`, omits `withdrawals`, or omits/malforms `blockAccessList`.
+- Any code change stays scoped to the live range proof and does not regress the
+  landed by-hash proof.
 - Independent verifier reviews the final diff before commit.
 
 ## Validation Plan
 
 Gate tier:
 
-- Tier 1 if the change stays in smoke/assertion/helper code only.
-- Escalate to Tier 3 only if production listener or Engine implementation code
-  must change.
+- Tier 1 if the change stays in smoke/assertion/report code only.
+- Escalate to Tier 2 only if the range proof uncovers a shared production bug.
 
 Focused gates:
 
-- focused escalated `sbcl --script scripts/devnet-smoke-gate.lisp -- --engine-only-serve --json`
-  covering imported Amsterdam-era `engine_getPayloadBodiesByHashV2`
-- any direct CLI regression added for the V2 payload-body response contract
+- focused escalated
+  `sbcl --script scripts/devnet-smoke-gate.lisp -- --engine-only-serve --json`
 
 Required pre-commit gates:
 
 - `git diff --check`
-- focused escalated smoke gate for the selected V2 payload-body path
+- focused escalated engine-only smoke for the new range path
 - independent verifier `PASS`
-- full suite only if the helper or implementation change is broad enough to
-  justify it under `docs/loop/validation.md`
+- full suite only if production code changes or verifier flags broader risk
 
 Full-suite policy:
 
-- Not mandatory if the diff remains test-only/shared-helper-only and the
-  verifier agrees the focused gate is sufficient.
-- Mandatory once before commit if the change reaches shared production code or
-  broader listener behavior.
+- Not required for smoke/assertion-only report work.
+- Mandatory once before commit if any production file such as `src/core.lisp`
+  or shared Engine RPC code changes.
 
 Escalation requirements:
 
 - Request local socket/network escalation before the focused smoke gate.
-- If the imported Amsterdam-era body lookup still requires broader fixture or
-  canonical-import plumbing than the current seeded path can support, stop and
-  record the exact missing body-response boundary instead of widening scope ad
-  hoc.
+- If the current imported V6 block cannot exercise the range response without a
+  broader fixture redesign, stop and record the exact missing range boundary
+  rather than widening scope ad hoc.
 
 ## Commit And Push Policy
 
 - Commit allowed: only after the applicable focused gate, `git diff --check`,
   and verifier review pass.
 - Push allowed: yes, after commit if remote authentication is available.
-- Commit message: `Smoke V2 payload body lookup`
+- Commit message: `Smoke V2 payload body range lookup`
 
 ## Blockers
 
-- If the current seeded/imported database cannot exercise
-  `engine_getPayloadBodiesByHashV2` without broader fixture plumbing, record
-  the exact missing body-response boundary and the smallest viable helper
-  change instead of widening into unrelated test infrastructure cleanup.
+- If the range proof requires broader production changes than the current
+  by-hash known/prepared coexistence path, stop and write that narrower blocker
+  instead of expanding into a larger blob fixture project.
 
 ## Implementer Notes
 
-- Reuse the existing engine-only `kzgOptIn` smoke child and temporary database
-  path instead of introducing a second verifier configuration flow.
-- Prefer extending the existing imported V6 seed/report path over inventing a
-  second unrelated blob fixture family.
-- Keep the slice centered on live `engine_getPayloadBodiesByHashV2`, not
-  range-based payload bodies or unrelated direct lookup variants.
+- Reuse the existing engine-only `kzgOptIn` smoke child and seeded V6 known /
+  prepared block path instead of inventing a second verifier configuration
+  flow.
+- Prefer extending the current nested report contract over adding a second
+  unrelated smoke mode.
+- Keep the slice centered on live `engine_getPayloadBodiesByRangeV2`, not
+  broader Amsterdam fixture realism.
 
 ## Verifier Result
 

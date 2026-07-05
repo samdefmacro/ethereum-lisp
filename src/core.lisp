@@ -4850,16 +4850,18 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           (chain-store-prepared-payload-from-rlp
            payload-id-identifier record)))
     (validate-engine-prepared-payload prepared-payload)
-    (let ((block-hash
-            (block-hash
-             (engine-prepared-payload-block prepared-payload))))
-      (unless (or (chain-store-known-block store block-hash)
-                  (engine-payload-store-invalid-block store block-hash))
+    (let* ((block (engine-prepared-payload-block prepared-payload))
+           (block-hash (block-hash block))
+           (known-block (chain-store-known-block store block-hash)))
+      (unless (engine-payload-store-invalid-block store block-hash)
+        (when (or (null known-block)
+                  (bytes= (block-rlp known-block)
+                          (block-rlp block)))
         (setf (gethash
                (engine-payload-id-key
                 (engine-prepared-payload-payload-id prepared-payload))
                (engine-payload-memory-store-prepared-payloads store))
-              prepared-payload)))))
+              prepared-payload))))))
 
 (defun chain-store-import-prepared-payloads-from-kv (store database)
   (dolist (entry (kv-chain-record-entries database :prepared-payload))

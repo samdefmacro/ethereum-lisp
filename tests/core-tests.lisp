@@ -6660,26 +6660,174 @@
       (when (probe-file path)
         (delete-file path)))))
 
-(deftest chain-store-import-from-kv-drops-known-prepared-payload-record
+(deftest chain-store-import-from-kv-retains-matching-known-prepared-payload-record
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((path
+             (merge-pathnames
+              (make-pathname
+               :name (format nil "ethereum-lisp-known-prepared-import-~A"
+                             (gensym))
+               :type "sexp")
+              #P"/private/tmp/"))
+           (target (make-engine-payload-memory-store))
+           (payload-id #(6 0 0 0 0 0 0 1))
+           (target-payload-id #(2 0 0 0 0 0 0 2))
+           (account
+             (make-block-access-account
+              :address
+              (address-from-hex
+               "0x0000000000000000000000000000000000000001")))
+           (known-block
+             (make-block
+              :header
+              (make-block-header :parent-hash (zero-hash32)
+                                 :beneficiary (zero-address)
+                                 :state-root +empty-trie-hash+
+                                 :mix-hash (zero-hash32)
+                                 :number 10
+                                 :gas-limit 50000
+                                 :gas-used 21000
+                                 :timestamp 15
+                                 :base-fee-per-gas 100
+                                 :blob-gas-used 0
+                                 :excess-blob-gas 0
+                                 :parent-beacon-root (zero-hash32)
+                                 :slot-number 42
+                                 :withdrawals-root
+                                 (withdrawal-list-root '()))
+              :withdrawals '()
+              :requests (list #(#x82 #x06 #xaa))
+              :block-access-list (list account)))
+           (sidecar
+             (make-blob-sidecar
+              :blobs (list #(#x03 #xdd))
+              :commitments (list #(#x04 #xee))
+              :proofs (list #(#x05 #xff) #(#x06 #x11))))
+           (prepared-payload
+             (make-engine-prepared-payload
+              :payload-id payload-id
+              :version 6
+              :block known-block
+              :blobs-bundle sidecar))
+           (target-block
+             (make-block
+              :header
+              (make-block-header :number 11
+                                 :timestamp 16
+                                 :withdrawals-root
+                                 (withdrawal-list-root '()))
+              :withdrawals '()))
+           (target-payload
+             (make-engine-prepared-payload
+              :payload-id target-payload-id
+              :version 2
+              :block target-block))
+           (config (make-chain-config)))
+      (unwind-protect
+           (progn
+             (chain-store-put-prepared-payload target target-payload)
+             (let ((database (make-file-key-value-database path)))
+               (kv-put-chain-record
+                database
+                :block
+                (hash32-bytes (block-hash known-block))
+                (block-rlp known-block))
+               (kv-put-chain-record
+                database
+                :prepared-payload
+                (ensure-byte-vector payload-id)
+                (ethereum-lisp.core::chain-store-prepared-payload-record-rlp
+                 prepared-payload)))
+             (let ((database (make-file-key-value-database path)))
+               (is (eq target
+                       (chain-store-import-from-kv target database))))
+             (is (chain-store-known-block target (block-hash known-block)))
+             (is (chain-store-prepared-payload target payload-id))
+             (is (not
+                  (chain-store-prepared-payload target target-payload-id)))
+             (let* ((payload-response
+                      (engine-rpc-handle-request
+                       (list (cons "jsonrpc" "2.0")
+                             (cons "id" 40)
+                             (cons "method" "engine_getPayloadV6")
+                             (cons "params" (list (bytes-to-hex payload-id))))
+                       target
+                       config))
+                    (envelope (field payload-response "result"))
+                    (payload (field envelope "executionPayload"))
+                    (bundle (field envelope "blobsBundle"))
+                    (body-response
+                      (engine-rpc-handle-request
+                       (list
+                        (cons "jsonrpc" "2.0")
+                        (cons "id" 41)
+                        (cons "method" "engine_getPayloadBodiesByHashV2")
+                        (cons "params"
+                              (list
+                               (list
+                                (hash32-to-hex
+                                 (block-hash known-block))))))
+                       target
+                       config))
+                    (body (first (field body-response "result"))))
+               (is (= 40 (field payload-response "id")))
+               (is (string= (bytes-to-hex
+                             (block-encoded-block-access-list known-block))
+                            (field payload "blockAccessList")))
+               (is (string= "0x8206aa"
+                            (first (field envelope "executionRequests"))))
+               (is (string= "0x04ee"
+                            (first (field bundle "commitments"))))
+               (is (= 41 (field body-response "id")))
+               (is body)
+               (is (listp (field body "transactions")))
+               (is (null (field body "transactions")))
+               (is (listp (field body "withdrawals")))
+               (is (null (field body "withdrawals")))
+               (is (string= (bytes-to-hex
+                             (block-encoded-block-access-list known-block))
+                            (field body "blockAccessList")))))
+        (when (probe-file path)
+          (delete-file path))))))
+
+(deftest chain-store-import-from-kv-drops-mismatched-known-prepared-payload-record
   (let* ((path
            (merge-pathnames
             (make-pathname
-             :name (format nil "ethereum-lisp-known-prepared-import-~A"
+             :name (format nil "ethereum-lisp-known-prepared-mismatch-~A"
                            (gensym))
              :type "sexp")
             #P"/private/tmp/"))
-         (source (make-engine-payload-memory-store))
          (target (make-engine-payload-memory-store))
          (payload-id #(2 0 0 0 0 0 0 1))
          (target-payload-id #(2 0 0 0 0 0 0 2))
-         (known-block
+         (header
+           (make-block-header :number 9
+                              :timestamp 14
+                              :withdrawals-root
+                              (withdrawal-list-root '())))
+         (transaction
+           (make-legacy-transaction :nonce 2
+                                    :gas-price 3
+                                    :gas-limit 21000
+                                    :to (address-from-hex
+                                         "0x0000000000000000000000000000000000000004")
+                                    :value 5
+                                    :v 27
+                                    :r 8
+                                    :s 9))
+         (known-block (make-block :header header :withdrawals '()))
+         (prepared-block
            (make-block
-            :header
-            (make-block-header :number 9
-                               :timestamp 14
-                               :withdrawals-root
-                               (withdrawal-list-root '()))
+            :header header
+            :transactions (list transaction)
             :withdrawals '()))
+         (prepared-payload
+           (make-engine-prepared-payload
+            :payload-id payload-id
+            :version 2
+            :block prepared-block))
          (target-block
            (make-block
             :header
@@ -6688,11 +6836,6 @@
                                :withdrawals-root
                                (withdrawal-list-root '()))
             :withdrawals '()))
-         (prepared-payload
-           (make-engine-prepared-payload
-            :payload-id payload-id
-            :version 2
-            :block known-block))
          (target-payload
            (make-engine-prepared-payload
             :payload-id target-payload-id
@@ -6700,10 +6843,13 @@
             :block target-block)))
     (unwind-protect
          (progn
-           (chain-store-put-block source known-block)
            (chain-store-put-prepared-payload target target-payload)
            (let ((database (make-file-key-value-database path)))
-             (chain-store-export-to-kv source database)
+             (kv-put-chain-record
+              database
+              :block
+              (hash32-bytes (block-hash known-block))
+              (block-rlp known-block))
              (kv-put-chain-record
               database
               :prepared-payload

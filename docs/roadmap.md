@@ -737,11 +737,18 @@ Validation targets: geth `crypto`, Nethermind `Nethermind.Crypto` and
   block-access-list, and blob-bundle evidence at the process boundary.
 - *Missing for Phase A:* none for Shanghai. Real KZG verification only blocks
   Phase A if Cancun blob execution is admitted into the gate.
-- *Next:* widen the same process-boundary proof from imported non-empty
-  `engine_getPayloadV6` retrieval into live
-  `engine_getPayloadBodiesByHashV2` retrieval so the runner boundary proves
-  Amsterdam-era payload-body responses, including block-access-list evidence,
-  under the same verifier opt-in.
+- *Latest result:* the runner proof now extends through live
+  `engine_getPayloadBodiesByHashV2`. KV import retains a prepared payload when
+  the same block hash is already known and the full block body matches, the
+  temporary KZG smoke database seeds that Amsterdam-era V6 block as both known
+  and prepared, and the process-boundary report now records the by-hash body
+  count plus `blockAccessList` evidence alongside the expanded eleven-request
+  Engine connection contract.
+- *Next:* widen the same process-boundary proof from live
+  `engine_getPayloadBodiesByHashV2` into live
+  `engine_getPayloadBodiesByRangeV2` so the runner boundary proves the
+  Amsterdam-era range response contract without regressing the new by-hash
+  known/prepared coexistence path.
 
 Detailed historical implementation notes for this section now live in
 `docs/status.md` under "Section 1: Cryptographic Primitives".

@@ -1707,6 +1707,18 @@ ones.
     assertions lock the V6 payload id, block number, slot number, execution
     request bytes, block-access-list bytes, blob prefix/count, commitment, and
     proof count.
+  - Result (2026-07-06): KV prepared-payload import now retains a prepared
+    payload when the same block hash is already known and the full block body
+    matches, while still dropping mismatched known/prepared collisions. The
+    engine-only `kzgOptIn` smoke now seeds the same Amsterdam-era V6 block as
+    both a known block and a prepared payload, proves live
+    `engine_getPayloadBodiesByHashV2` returns the expected empty
+    transactions/withdrawals arrays plus `blockAccessList`, records
+    `preparedPayloadBodiesByHashV2*` report fields, and expands the nested
+    KZG connection/shutdown contract to eleven Engine requests. Focused smoke,
+    `git diff --check`, and the full suite passed (`895 tests passed, 5
+    skipped`). Residual risk is now limited to live
+    `engine_getPayloadBodiesByRangeV2` runner proof.
 - [x] `DEVNET-RUNNER-KZG-ERROR-TELEMETRY`: Lock invalid KZG verifier
   configuration as a runner-facing startup failure.
   - Result (2026-07-03): `scripts/ethereum-lisp.lisp -- devnet` subprocess
