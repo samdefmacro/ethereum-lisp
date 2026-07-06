@@ -806,12 +806,20 @@ Validation targets: geth `crypto`, Nethermind `Nethermind.Crypto` and
   request such as `{"foo":"0x1"}` reaches that same live and in-process
   `-32602` / `"start must be a non-negative quantity"` envelope, records the
   unexpected-key object code/message in the nested report, and expands the KZG
-  connection contract to twenty-six Engine requests.
-- *Next:* pivot from malformed-object KZG opt-in coverage to the matching
-  hidden-without-KZG negative request contract by proving a live
-  `engine_getPayloadBodiesByRangeV2` request is rejected at the non-KZG
-  engine-only listener boundary instead of merely being omitted from
-  `engine_exchangeCapabilities`.
+  connection contract to twenty-six Engine requests. The same engine-only
+  listener path now also proves a live non-KZG
+  `engine_getPayloadBodiesByRangeV2` request is rejected with JSON-RPC
+  `-32601` / `"Method not found"` and no success result, and production
+  Engine-method admission now fail-closes by using explicit always-enabled and
+  KZG-backed allowlists instead of an `engine_` prefix fallback. The
+  listener-boundary report records the hidden-method rejection fields, direct
+  core coverage now also proves hidden `engine_getPayloadBodiesByHashV2`
+  rejection through the same non-KZG filter, and the final escalated
+  `sbcl --script tests/run-tests.lisp` gate passed with `895 tests passed, 5
+  skipped`.
+- *Next:* reuse the same engine-only listener coverage to prove the sibling
+  non-KZG hidden-method rejection for `engine_getPayloadBodiesByHashV2`
+  instead of reopening the already-closed by-range or malformed-object matrix.
 
 Detailed historical implementation notes for this section now live in
 `docs/status.md` under "Section 1: Cryptographic Primitives".

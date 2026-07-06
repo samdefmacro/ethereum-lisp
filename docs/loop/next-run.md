@@ -11,65 +11,65 @@
 
 ## Orientation Summary
 
-- Git state: `main` was clean relative to `origin/main` at orientation time
-  after fetching, with only the expected loop lock/automation worktree edits
-  during implementation.
-- Recent commits reviewed: the latest validated slices finished the bounded
-  KZG malformed-object matrix through missing-count and unexpected-key object
-  proofs without widening production code.
+- Git state: `main` contained the expected validated engine-only hidden-method
+  batch plus loop bookkeeping edits at handoff time.
+- Recent commits reviewed: the latest validated slice closed the live non-KZG
+  `engine_getPayloadBodiesByRangeV2` listener rejection contract and hardened
+  production Engine-method admission to fail closed unless KZG verifier hooks
+  are installed.
 - Relevant task/roadmap anchors: `DEVNET-RUNNER-KZG-CAPABILITY-OPT-IN` now
-  records the full malformed-object `engine_getPayloadBodiesByRangeV2`
-  listener matrix through the unexpected-key request `{"foo":"0x1"}`.
-- Relevant loop state: `docs/loop/state.md` now recommends pivoting from
-  further malformed-object KZG opt-in coverage to the matching hidden-method
-  rejection contract without KZG verifier opt-in.
+  records both the completed malformed-object KZG opt-in matrix and the live
+  non-KZG by-range hidden-method rejection proof.
+- Relevant loop state: `docs/loop/state.md` now recommends pivoting to the
+  sibling non-KZG hidden-method proof for
+  `engine_getPayloadBodiesByHashV2`.
 
 ## Candidate Ranking
 
 ### Candidate A
 
 - Objective: prove one live non-KZG engine-only
-  `engine_getPayloadBodiesByRangeV2` request is rejected at the listener
+  `engine_getPayloadBodiesByHashV2` request is rejected at the listener
   boundary instead of merely being hidden from `engine_exchangeCapabilities`.
-- Value: highest; it closes the disabled-path process contract for the same
-  method family now that the KZG opt-in malformed-object matrix is covered.
+- Value: highest; it closes the sibling disabled-path process contract while
+  reusing the same engine-only harness and the now-hardened fail-closed
+  production filter.
 - Risk: low-medium; likely smoke/assertion/report work only unless the live
-  non-KZG listener unexpectedly exposes or differently normalizes the method.
+  non-KZG listener still exposes or differently normalizes the by-hash method.
 - Required validation: focused escalated
   `sbcl --script scripts/devnet-smoke-gate.lisp -- --engine-only-serve --json`,
   focused CLI coverage if report assertions change, `git diff --check`,
-  verifier review, and the full suite only if production code changes.
+  verifier review, and the full suite only if production code changes or the
+  verifier identifies broader risk.
 - Decision: selected.
-- Reason: it locks the negative process contract adjacent to the now-complete
-  KZG positive-path proofs while keeping validation cost low.
+- Reason: it completes the sibling negative-path proof adjacent to the newly
+  closed by-range contract with the best validation-cost-to-signal ratio.
 
 ### Candidate B
 
-- Objective: continue widening malformed-object request-shape coverage beyond
-  the now-proven unexpected-key request.
-- Value: lower; it keeps grinding the same matrix after the bounded
-  unexpected-key proof already closed the obvious stale-assumption gap.
-- Risk: medium; it raises maintenance churn without improving the hidden-path
-  contract.
-- Required validation: same as Candidate A, potentially with more report churn.
+- Objective: widen the listener boundary to additional hidden KZG-backed
+  methods such as `engine_getBlobsV1`.
+- Value: medium; it would add more negative-path breadth but skips the
+  closest sibling that the current core filter already partially covers.
+- Risk: medium.
+- Required validation: similar to Candidate A with likely more report churn.
 - Decision: defer.
-- Reason: lower leverage than closing the disabled-path listener contract.
+- Reason: lower leverage than finishing the by-hash sibling contract first.
 
 ### Candidate C
 
-- Objective: switch to unrelated blob-era or public-RPC runner surface.
-- Value: lower than Candidate A because the current
-  `engine_getPayloadBodiesByRangeV2` listener line still has one clear
-  negative-path proof missing.
+- Objective: pivot back to unrelated Phase B runner or txpool work.
+- Value: lower than Candidate A because the payload-body hidden-method line
+  still has one obvious listener-boundary proof missing.
 - Risk: medium.
 - Required validation: depends on slice.
 - Decision: defer.
-- Reason: lower leverage than finishing the hidden-method contract.
+- Reason: lower leverage than completing the sibling hidden-method proof.
 
 ## Selected Objective
 
-Prove one live non-KZG engine-only `engine_getPayloadBodiesByRangeV2` request
-is rejected at the process boundary, using the existing engine-only smoke path
+Prove one live non-KZG engine-only `engine_getPayloadBodiesByHashV2` request is
+rejected at the process boundary, using the existing engine-only smoke path
 without verifier opt-in to lock the disabled-method envelope rather than only
 capability omission.
 
@@ -79,6 +79,7 @@ Allowed files/modules:
 
 - `scripts/devnet-smoke-gate.lisp`
 - `tests/cli-tests.lisp`
+- `tests/core-tests.lisp`
 - `docs/tasks.md`
 - `docs/roadmap.md`
 - `docs/loop/state.md`
@@ -87,28 +88,28 @@ Allowed files/modules:
 Expected behavior changes:
 
 - The engine-only non-KZG smoke proves live
-  `engine_getPayloadBodiesByRangeV2` is rejected at the listener boundary when
+  `engine_getPayloadBodiesByHashV2` is rejected at the listener boundary when
   verifier opt-in is absent, not only omitted from capability advertisement.
 - The smoke/report surface records enough disabled-method error evidence to
   debug code/message drift at the process boundary.
 - The existing non-KZG capability guard remains intact, and the existing KZG
-  opt-in positive-path payload-body probes remain intact on their current
-  runner path.
+  opt-in positive-path by-hash/by-range payload-body probes remain intact on
+  their current runner path.
 
 Non-goals:
 
-- Do not add more malformed-object KZG request shapes unless the non-KZG
-  negative request uncovers a shared bug.
-- Do not revisit already-proven KZG opt-in by-hash/by-range success probes,
-  malformed quantity/object envelopes, direct blob/cell retrieval, or payload
-  envelope coverage unless the new negative-path request regresses them.
+- Do not revisit the already-proven non-KZG by-range hidden-method contract
+  unless the by-hash probe reveals a shared regression.
+- Do not widen the malformed-object KZG opt-in matrix or the positive-path
+  Amsterdam payload-body evidence unless the new negative request uncovers a
+  shared bug.
 - Do not refactor general Engine RPC plumbing outside the minimal support
   needed for the live disabled-method proof.
 
 ## Acceptance Criteria
 
 - Focused process-boundary coverage proves live non-KZG
-  `engine_getPayloadBodiesByRangeV2` is rejected with the documented disabled
+  `engine_getPayloadBodiesByHashV2` is rejected with the documented disabled
   method envelope.
 - The smoke/assertion surface fails clearly if the live request becomes
   available, returns a different error envelope, or includes a success result.
@@ -144,8 +145,8 @@ Required pre-commit gates:
 Full-suite policy:
 
 - Not required for smoke/assertion-only report work.
-- Mandatory once before commit if any production file such as
-  `src/engine-rpc.lisp` changes.
+- Mandatory once before commit if any production file such as `src/core.lisp`
+  changes.
 
 Escalation requirements:
 
@@ -159,7 +160,7 @@ Escalation requirements:
 - Commit allowed: only after the applicable focused gate, `git diff --check`,
   and verifier review pass.
 - Push allowed: yes, after commit if remote authentication is available.
-- Commit message: `Smoke V2 payload body range hidden without KZG`
+- Commit message: `Smoke V2 payload body hash hidden without KZG`
 
 ## Blockers
 
@@ -174,8 +175,8 @@ Escalation requirements:
 - Prefer extending the current report contract over adding a separate smoke
   mode.
 - Keep the slice centered on one live non-KZG
-  `engine_getPayloadBodiesByRangeV2` disabled-method behavior, not broader
-  Amsterdam fixture realism or new malformed-request batching.
+  `engine_getPayloadBodiesByHashV2` disabled-method behavior, not broader
+  Amsterdam payload realism or new malformed-request batching.
 
 ## Verifier Result
 

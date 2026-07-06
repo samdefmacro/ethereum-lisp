@@ -881,13 +881,19 @@ references/ checkouts.~%"))
   (smoke-gate-devnet-require-field report "logFile" log-file)
   (smoke-gate-devnet-require-field report "pidFile" pid-file)
   (smoke-gate-devnet-require-field report "databaseFile" database-file)
-  (smoke-gate-devnet-require-field report "engineConnections" 7)
+  (smoke-gate-devnet-require-field report "engineConnections" 8)
   (smoke-gate-devnet-require-field report "publicConnections" 0)
-  (smoke-gate-devnet-require-field report "totalConnections" 7)
+  (smoke-gate-devnet-require-field report "totalConnections" 8)
   (smoke-gate-devnet-require-field report "engineRpcPrefix" "/engine")
   (smoke-gate-devnet-require-field report "engineRpcPrefixStatus" 200)
   (smoke-gate-devnet-require-field
    report "engineRpcPrefixBlockedStatus" 404)
+  (smoke-gate-devnet-require-field
+   report "hiddenPayloadBodiesByRangeV2Status" 200)
+  (smoke-gate-devnet-require-field
+   report "hiddenPayloadBodiesByRangeV2ErrorCode" -32601)
+  (smoke-gate-devnet-require-field
+   report "hiddenPayloadBodiesByRangeV2ErrorMessage" "Method not found")
   (smoke-gate-devnet-require-field
    report
    "engineCorsOrigins"
@@ -965,11 +971,11 @@ references/ checkouts.~%"))
    report "publicEndpointConnectable" nil)
   (let ((contract (smoke-gate-field report "connectionContract")))
     (smoke-gate-devnet-require-field
-     contract "expectedEngineConnections" 7)
+     contract "expectedEngineConnections" 8)
     (smoke-gate-devnet-require-field
      contract "expectedPublicConnections" 0)
     (smoke-gate-devnet-require-field
-     contract "expectedTotalConnections" 7))
+     contract "expectedTotalConnections" 8))
   (append report (list (cons "caseCount" 1))))
 
 (defun smoke-gate-devnet-script-json (arguments)

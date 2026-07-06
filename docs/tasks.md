@@ -1953,6 +1953,27 @@ ones.
     limited to the non-KZG hidden-method rejection contract for
     `engine_getPayloadBodiesByRangeV2` or a deliberate pivot to the next
     broader Phase B runner task.
+  - Result (2026-07-06): the engine-only non-KZG smoke now also sends one live
+    hidden `engine_getPayloadBodiesByRangeV2` request and proves the listener
+    rejects it with JSON-RPC `-32601` / `"Method not found"` instead of
+    returning a success `result`. Production Engine-method admission now
+    fail-closes by using explicit always-enabled and KZG-backed allowlists
+    rather than an `engine_` prefix fallback, and KZG-backed methods stay
+    hidden unless both verifier hooks are present. The smoke report now
+    records `hiddenPayloadBodiesByRangeV2Status`,
+    `hiddenPayloadBodiesByRangeV2ErrorCode`, and
+    `hiddenPayloadBodiesByRangeV2ErrorMessage`; direct core coverage now also
+    proves hidden `engine_getPayloadBodiesByHashV2` is rejected through the
+    same non-KZG method filter; and engine-only connection contracts that send
+    the hidden probe now explicitly account for the eighth Engine request
+    while the separate `--http=false` no-probe shutdown path remains at seven.
+    Focused escalated engine-only smoke, focused core/CLI/Phase A coverage,
+    `git diff --check`, verifier review, and the final escalated
+    `sbcl --script tests/run-tests.lisp` run all passed; the full suite
+    finished with `895 tests passed, 5 skipped`. Residual risk is now limited
+    to sibling listener-boundary hidden-method proofs such as
+    `engine_getPayloadBodiesByHashV2` or a deliberate pivot to broader Phase B
+    runner work.
 - [x] `DEVNET-RUNNER-KZG-ERROR-TELEMETRY`: Lock invalid KZG verifier
   configuration as a runner-facing startup failure.
   - Result (2026-07-03): `scripts/ethereum-lisp.lisp -- devnet` subprocess

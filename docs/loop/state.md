@@ -19,19 +19,16 @@ Last updated: 2026-07-06
 
 No intended dirty implementation work should remain after the current validated
 batch is committed and pushed. The latest completed slice is the live
-unexpected-key object `engine_getPayloadBodiesByRangeV2` invalid-params KZG
-opt-in runner proof; the next run spec should pivot from that now-closed
-malformed-object matrix to the matching non-KZG hidden-method rejection
-contract at the same process surface instead of revisiting
-already-proven V3/V4/V5/V6 payload envelopes, by-hash body retrieval,
-single-hit by-range proof, sparse mixed-hit success proof, zero-start/zero-count
-rejection, malformed-start rejection, malformed-count rejection,
-one-element-array params rejection, scalar non-array invalid-request rejection,
-null-params invalid-params rejection, non-empty object-valued invalid-params
-rejection, empty-object invalid-params rejection, single-key missing-start
-object invalid-params rejection, single-key missing-count object invalid-params
-rejection, unexpected-key object invalid-params rejection, oversized-count
-rejection, or direct blob/cell-proof lookup.
+non-KZG hidden `engine_getPayloadBodiesByRangeV2` listener proof plus the
+fail-closed production Engine-method filter that keeps KZG-backed methods
+hidden unless both verifier hooks are installed. The next run spec should
+pivot to the sibling non-KZG hidden-method rejection for
+`engine_getPayloadBodiesByHashV2` instead of revisiting already-proven
+V3/V4/V5/V6 payload envelopes, by-hash positive-path retrieval, single-hit
+by-range proof, sparse mixed-hit success proof, malformed-object KZG opt-in
+proofs, zero-start/zero-count rejection, malformed quantity rejection, null or
+object-param rejection, oversized-count rejection, or direct blob/cell-proof
+lookup.
 
 Closed behavior from the latest slice:
 
@@ -446,6 +443,35 @@ Closed validation:
   invalid/oversized runner-bound `engine_getPayloadBodiesByRangeV2` requests
   and fixture-shape drift that would remove the current `0x9` to `0xa`
   sparse hole.
+- Focused core coverage passed for the tightened non-KZG filter:
+  `ENGINE-RPC-EXCHANGE-CAPABILITIES-ADVERTISES-SUPPORTED-METHODS` now proves
+  hidden `engine_getPayloadBodiesByRangeV2` and
+  `engine_getPayloadBodiesByHashV2` both reject with JSON-RPC `-32601` /
+  `"Method not found"` when verifier opt-in is absent.
+- Focused escalated standalone smoke for the non-KZG hidden by-range runner
+  path passed:
+  `sbcl --script scripts/devnet-smoke-gate.lisp -- --engine-only-serve --json`.
+  The engine-only report now records `hiddenPayloadBodiesByRangeV2Status`,
+  `hiddenPayloadBodiesByRangeV2ErrorCode`, and
+  `hiddenPayloadBodiesByRangeV2ErrorMessage`, and the engine-only connection
+  contract for that probe increased from seven to eight Engine requests.
+- Focused CLI and Phase A process coverage passed after the engine-only report
+  assertions were updated:
+  `DEVNET-SMOKE-GATE-SCRIPT-ENGINE-ONLY-SERVE-MODE`,
+  `PHASE-A-SMOKE-GATE-SCRIPT-CAN-INCLUDE-DEVNET-SUITE`, and
+  `PHASE-A-SELECTOR-SCRIPTS-ACCEPT-ROOT-OPTION`.
+- The first escalated full-suite rerun exposed one stale
+  `ETHEREUM-LISP-SCRIPT-SERVE-MODE-HONORS-HTTP-FALSE-ENGINE-ONLY` shutdown
+  assertion that had incorrectly inherited the new eight-connection contract.
+  The `--http=false` no-probe path was corrected back to the existing
+  seven-connection expectation and its focused rerun passed.
+- `git diff --check` passed.
+- The final escalated `sbcl --script tests/run-tests.lisp` run passed with
+  `895 tests passed, 5 skipped`.
+- Independent verifier review returned `PASS`; residual risk is now limited to
+  sibling listener-boundary hidden-method proofs such as live non-KZG
+  `engine_getPayloadBodiesByHashV2` rejection and any later choice to widen
+  that same boundary to additional hidden KZG-backed methods.
 
 - Focused dev-period coverage passed inside the full suite:
   `DEVNET-CLI-DEV-PERIOD-PARSES-AND-REPORTS-DURATION` and
@@ -617,8 +643,9 @@ The old fixed heartbeat prompt is being replaced by a loop v2 process:
 ## Next Recommended Orchestrator Decision
 
 The next highest-value repository slice is to reuse the same engine-only
-listener coverage and prove the matching hidden-without-KZG negative request
-contract for `engine_getPayloadBodiesByRangeV2`. The best bounded follow-up is
+listener coverage and prove the sibling hidden-without-KZG negative request
+contract for `engine_getPayloadBodiesByHashV2`. The best bounded follow-up is
 to send one live non-KZG engine-only request for that method, require the
-disabled-path JSON-RPC rejection envelope, and record the result before
-widening into unrelated blob-era runner work.
+same disabled-path JSON-RPC `-32601` / `"Method not found"` envelope now
+proven for by-range, and record the result before widening into unrelated
+blob-era runner work.

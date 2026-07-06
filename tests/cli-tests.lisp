@@ -920,6 +920,18 @@
                (fixture-object-field report "forkchoiceHeadHash")))
   (is (stringp (fixture-object-field report "forkchoiceHeadNumber"))))
 
+(defun devnet-cli-assert-engine-only-hidden-payload-bodies-v2-report (report)
+  (is (= 200
+         (fixture-object-field report "hiddenPayloadBodiesByRangeV2Status")))
+  (is (= -32601
+         (fixture-object-field
+          report
+          "hiddenPayloadBodiesByRangeV2ErrorCode")))
+  (is (string= "Method not found"
+               (fixture-object-field
+                report
+                "hiddenPayloadBodiesByRangeV2ErrorMessage"))))
+
 (defun devnet-cli-assert-engine-only-database-report (report)
   (is (stringp (fixture-object-field report "databaseFile")))
   (is (= (fixture-quantity-field report "forkchoiceHeadNumber")
@@ -6035,14 +6047,16 @@ HTTPPort = 1945
                (devnet-cli-assert-engine-client-version report)
                (devnet-cli-assert-engine-transition-configuration report)
                (devnet-cli-assert-engine-only-payload-report report)
+               (devnet-cli-assert-engine-only-hidden-payload-bodies-v2-report
+                report)
                (is (search "http://127.0.0.1:"
                            (fixture-object-field report
                                                  "configuredPublicEndpoint")))
                (is (not (fixture-object-field report
                                                "publicEndpointConnectable")))
-               (is (= 7 (fixture-object-field report "engineConnections")))
+               (is (= 8 (fixture-object-field report "engineConnections")))
                (is (= 0 (fixture-object-field report "publicConnections")))
-               (is (= 7 (fixture-object-field report "totalConnections")))
+               (is (= 8 (fixture-object-field report "totalConnections")))
                (is (string= (namestring database-path)
                             (fixture-object-field report "databaseFile")))
                (is (probe-file database-path))
@@ -6075,7 +6089,7 @@ HTTPPort = 1945
                                               "publicRpcEnabled")))
                (is ready-record)
                (is shutdown-record)
-               (is (string= "7"
+               (is (string= "8"
                             (cdr (assoc "engineConnections"
                                         shutdown-fields
                                         :test #'string=))))
@@ -6083,7 +6097,7 @@ HTTPPort = 1945
                             (cdr (assoc "publicConnections"
                                         shutdown-fields
                                         :test #'string=))))
-               (is (string= "7"
+               (is (string= "8"
                             (cdr (assoc "totalConnections"
                                         shutdown-fields
                                         :test #'string=))))
@@ -7651,6 +7665,8 @@ HTTPPort = 1945
          devnet-engine-only)
         (devnet-cli-assert-engine-only-payload-report
          devnet-engine-only)
+        (devnet-cli-assert-engine-only-hidden-payload-bodies-v2-report
+         devnet-engine-only)
         (devnet-cli-assert-engine-only-database-report
          devnet-engine-only)
         (is (search "http://127.0.0.1:"
@@ -7658,11 +7674,11 @@ HTTPPort = 1945
                      devnet-engine-only "configuredPublicEndpoint")))
         (is (not (fixture-object-field
                   devnet-engine-only "publicEndpointConnectable")))
-        (is (= 7 (fixture-object-field
+        (is (= 8 (fixture-object-field
                   devnet-engine-only "engineConnections")))
         (is (= 0 (fixture-object-field
                   devnet-engine-only "publicConnections")))
-        (is (= 7 (fixture-object-field
+        (is (= 8 (fixture-object-field
                   devnet-engine-only "totalConnections")))
         (let ((side-reorg-cases
                 (fixture-object-field devnet-side-reorg "cases")))
@@ -8054,8 +8070,10 @@ HTTPPort = 1945
           (devnet-cli-assert-engine-client-version
            devnet-engine-only)
           (devnet-cli-assert-engine-transition-configuration
-           devnet-engine-only)
+            devnet-engine-only)
           (devnet-cli-assert-engine-only-payload-report
+           devnet-engine-only)
+          (devnet-cli-assert-engine-only-hidden-payload-bodies-v2-report
            devnet-engine-only)
           (devnet-cli-assert-engine-only-database-report
            devnet-engine-only)
@@ -8064,7 +8082,7 @@ HTTPPort = 1945
                        devnet-engine-only "configuredPublicEndpoint")))
           (is (not (fixture-object-field
                     devnet-engine-only "publicEndpointConnectable")))
-          (is (= 7 (fixture-object-field
+          (is (= 8 (fixture-object-field
                     devnet-engine-only "engineConnections")))
           (is (= 0 (fixture-object-field
                     devnet-engine-only "publicConnections"))))))))
@@ -16943,15 +16961,15 @@ HTTPPort = 1945
                                     (cdr (assoc "publicConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
-	                       (is (string= "7"
-	                                    (cdr (assoc "totalConnections"
-	                                                shutdown-fields
-	                                                :test #'string=))))
-	                       (multiple-value-bind
-	                             (restore-stdout restore-stderr
-	                              restore-status)
-	                           (uiop:run-program
-	                            (list "sbcl"
+                       (is (string= "7"
+                                    (cdr (assoc "totalConnections"
+                                                shutdown-fields
+                                                :test #'string=))))
+                       (multiple-value-bind
+                             (restore-stdout restore-stderr
+                              restore-status)
+                           (uiop:run-program
+                            (list "sbcl"
 	                                  "--script"
 	                                  script
 	                                  "--"
