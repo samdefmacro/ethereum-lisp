@@ -930,7 +930,17 @@
   (is (string= "Method not found"
                (fixture-object-field
                 report
-                "hiddenPayloadBodiesByRangeV2ErrorMessage"))))
+                "hiddenPayloadBodiesByRangeV2ErrorMessage")))
+  (is (= 200
+         (fixture-object-field report "hiddenPayloadBodiesByHashV2Status")))
+  (is (= -32601
+         (fixture-object-field
+          report
+          "hiddenPayloadBodiesByHashV2ErrorCode")))
+  (is (string= "Method not found"
+               (fixture-object-field
+                report
+                "hiddenPayloadBodiesByHashV2ErrorMessage"))))
 
 (defun devnet-cli-assert-engine-only-database-report (report)
   (is (stringp (fixture-object-field report "databaseFile")))
@@ -6054,9 +6064,9 @@ HTTPPort = 1945
                                                  "configuredPublicEndpoint")))
                (is (not (fixture-object-field report
                                                "publicEndpointConnectable")))
-               (is (= 8 (fixture-object-field report "engineConnections")))
+               (is (= 9 (fixture-object-field report "engineConnections")))
                (is (= 0 (fixture-object-field report "publicConnections")))
-               (is (= 8 (fixture-object-field report "totalConnections")))
+               (is (= 9 (fixture-object-field report "totalConnections")))
                (is (string= (namestring database-path)
                             (fixture-object-field report "databaseFile")))
                (is (probe-file database-path))
@@ -6089,7 +6099,7 @@ HTTPPort = 1945
                                               "publicRpcEnabled")))
                (is ready-record)
                (is shutdown-record)
-               (is (string= "8"
+               (is (string= "9"
                             (cdr (assoc "engineConnections"
                                         shutdown-fields
                                         :test #'string=))))
@@ -6097,7 +6107,7 @@ HTTPPort = 1945
                             (cdr (assoc "publicConnections"
                                         shutdown-fields
                                         :test #'string=))))
-               (is (string= "8"
+               (is (string= "9"
                             (cdr (assoc "totalConnections"
                                         shutdown-fields
                                         :test #'string=))))
@@ -7674,11 +7684,11 @@ HTTPPort = 1945
                      devnet-engine-only "configuredPublicEndpoint")))
         (is (not (fixture-object-field
                   devnet-engine-only "publicEndpointConnectable")))
-        (is (= 8 (fixture-object-field
+        (is (= 9 (fixture-object-field
                   devnet-engine-only "engineConnections")))
         (is (= 0 (fixture-object-field
                   devnet-engine-only "publicConnections")))
-        (is (= 8 (fixture-object-field
+        (is (= 9 (fixture-object-field
                   devnet-engine-only "totalConnections")))
         (let ((side-reorg-cases
                 (fixture-object-field devnet-side-reorg "cases")))
@@ -8082,7 +8092,7 @@ HTTPPort = 1945
                        devnet-engine-only "configuredPublicEndpoint")))
           (is (not (fixture-object-field
                     devnet-engine-only "publicEndpointConnectable")))
-          (is (= 8 (fixture-object-field
+          (is (= 9 (fixture-object-field
                     devnet-engine-only "engineConnections")))
           (is (= 0 (fixture-object-field
                     devnet-engine-only "publicConnections"))))))))
