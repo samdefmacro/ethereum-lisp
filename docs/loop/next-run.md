@@ -18,19 +18,22 @@
   live `engine_getPayloadBodiesByHashV2`, single-hit and sparse mixed-hit
   `engine_getPayloadBodiesByRangeV2`, oversized/zero/malformed quantity
   rejection, one-element params-array rejection, scalar non-array
-  invalid-request, `params:null` invalid-params, non-empty object invalid-params,
-  and now empty-object invalid-params at the engine-only listener boundary.
+  invalid-request, `params:null` invalid-params, non-empty object
+  invalid-params, empty-object invalid-params, and now single-key missing-start
+  object invalid-params at the engine-only listener boundary.
 - Recent commits reviewed: the latest validated slices walked the same runner
-  matrix through malformed quantities, one-element params-envelope coverage,
-  scalar non-array invalid-request coverage, null-params invalid-params,
-  non-empty object invalid-params, and now empty-object invalid-params
-  without widening production code.
+  matrix through one-element params-envelope coverage, scalar non-array
+  invalid-request coverage, null-params invalid-params, non-empty object
+  invalid-params, empty-object invalid-params, and now a single-key
+  missing-start object proof without widening production code.
 - Relevant task/roadmap anchors: `DEVNET-RUNNER-KZG-CAPABILITY-OPT-IN` now
-  records the empty-object request proof; the remaining narrow gap on this
-  line is a single-key object-valued request that omits `start`.
-- Relevant loop state: `docs/loop/state.md` now treats the `{}` request proof
-  as closed and recommends one single-key object-valued `params` request such
-  as `{"count":"0x1"}` before widening into unrelated blob-era runner work.
+  records the single-key missing-start object request proof; the remaining
+  narrow gap on this line is a single-key object-valued request that omits
+  `count`.
+- Relevant loop state: `docs/loop/state.md` now treats the `{"count":"0x1"}`
+  request proof as closed and recommends one single-key object-valued
+  `params` request such as `{"start":"0x1"}` before widening into unrelated
+  blob-era runner work.
 
 ## Candidate Ranking
 
@@ -38,10 +41,10 @@
 
 - Objective: prove one live single-key object-valued
   `engine_getPayloadBodiesByRangeV2` `params` request such as
-  `{"count":"0x1"}` returns the current missing-start invalid-params
-  envelope at the engine-only KZG runner boundary.
+  `{"start":"0x1"}` returns the current missing-count invalid-params envelope
+  at the engine-only KZG runner boundary.
 - Value: highest; it closes another distinct malformed object shape on the
-  same listener path after the empty-object proof landed.
+  same listener path after the missing-start proof landed.
 - Risk: low-medium; likely smoke/assertion/report work only unless the live
   listener diverges from the documented in-process contract.
 - Required validation: focused escalated
@@ -56,7 +59,7 @@
 
 - Objective: batch multiple additional malformed object shapes on the same
   boundary.
-- Value: lower; it risks widening scope after the empty-object proof already
+- Value: lower; it risks widening scope after the missing-start proof already
   closed the last explicitly queued gap.
 - Risk: medium; it increases validation and review cost without a clear
   priority edge over one more bounded single-key proof.
@@ -79,7 +82,7 @@
 Prove one live single-key object-valued
 `engine_getPayloadBodiesByRangeV2` `params` request under KZG verifier opt-in,
 using the existing engine-only smoke child to send a request such as
-`{"count":"0x1"}` and lock the current missing-start invalid-params envelope
+`{"start":"0x1"}` and lock the current missing-count invalid-params envelope
 at the process boundary.
 
 ## Scope
@@ -101,16 +104,17 @@ Expected behavior changes:
   `params` request with the documented invalid-params envelope, not only
   sparse success responses, malformed quantities, missing-array elements,
   scalar non-array invalid-request, null-params invalid-params, non-empty
-  object invalid-params, empty-object invalid-params, oversized counts, or
-  zero-valued numeric bounds.
+  object invalid-params, empty-object invalid-params, missing-start object
+  invalid-params, oversized counts, or zero-valued numeric bounds.
 - The nested runner report records enough single-key object request evidence to
   debug error-code/message regressions at the process boundary.
 - The existing sparse mixed-hit success probe, malformed-start error probe,
   malformed-count error probe, one-element-array missing-count error probe,
   scalar non-array invalid-request probe, null-params invalid-params probe,
   non-empty object invalid-params probe, empty-object invalid-params probe,
-  zero-start/zero-count error probes, and oversized-count error probe remain
-  intact on the same runner path.
+  missing-start object invalid-params probe, zero-start/zero-count error
+  probes, and oversized-count error probe remain intact on the same runner
+  path.
 
 Non-goals:
 
@@ -119,9 +123,10 @@ Non-goals:
 - Do not revisit already-proven by-hash, single-hit by-range, sparse mixed-hit
   by-range, malformed-start, malformed-count, one-element-array missing-count,
   scalar non-array invalid-request, null-params invalid-params, non-empty
-  object invalid-params, empty-object invalid-params, zero-valued
-  positive-number rejection, oversized-count rejection, or direct blob/cell-proof
-  retrieval unless the new request regresses them.
+  object invalid-params, empty-object invalid-params, missing-start object
+  invalid-params, zero-valued positive-number rejection, oversized-count
+  rejection, or direct blob/cell-proof retrieval unless the new request
+  regresses them.
 - Do not refactor general Engine RPC plumbing outside the minimal support
   needed for the live single-key object request proof.
 
@@ -137,8 +142,8 @@ Non-goals:
   malformed-count error probe, one-element-array missing-count error probe,
   scalar non-array invalid-request probe, null-params invalid-params probe,
   non-empty object invalid-params probe, empty-object invalid-params probe,
-  zero-start/zero-count error probes, and oversized-count error probe remain
-  green in the same smoke path.
+  missing-start object invalid-params probe, zero-start/zero-count error
+  probes, and oversized-count error probe remain green in the same smoke path.
 - Independent verifier reviews the final diff before commit.
 
 ## Validation Plan
@@ -185,7 +190,7 @@ Escalation requirements:
 - Commit allowed: only after the applicable focused gate, `git diff --check`,
   and verifier review pass.
 - Push allowed: yes, after commit if remote authentication is available.
-- Commit message: `Smoke V2 payload body range missing start object params`
+- Commit message: `Smoke V2 payload body range missing count object params`
 
 ## Blockers
 
@@ -200,8 +205,9 @@ Escalation requirements:
   malformed-count probe, one-element-array missing-count probe, scalar
   non-array invalid-request probe, null-params invalid-params probe,
   non-empty object invalid-params probe, empty-object invalid-params probe,
-  zero-start/zero-count probes, and oversized-count probe instead of
-  inventing a second verifier configuration flow.
+  missing-start object invalid-params probe, zero-start/zero-count probes,
+  and oversized-count probe instead of inventing a second verifier
+  configuration flow.
 - Prefer extending the current nested report contract over adding a separate
   smoke mode.
 - Keep the slice centered on one live single-key object-valued

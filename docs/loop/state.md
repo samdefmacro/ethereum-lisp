@@ -19,18 +19,19 @@ Last updated: 2026-07-06
 
 No intended dirty implementation work should remain after the current validated
 batch is committed and pushed. The latest completed slice is the live
-empty-object `engine_getPayloadBodiesByRangeV2` invalid-params KZG opt-in
-runner proof; the next run spec should move forward from that `-32602` /
-`"engine_getPayloadBodiesByRangeV2 params must include start and count"`
-validation into one additional single-key object-valued `params` request such
-as `{"count":"0x1"}` at the same process surface instead of
-revisiting already-proven V3/V4/V5/V6 payload envelopes, by-hash body
-retrieval, single-hit by-range proof, sparse mixed-hit success proof,
-zero-start/zero-count rejection, malformed-start rejection, malformed-count
-rejection, one-element-array params rejection, scalar non-array invalid-request
-rejection, null-params invalid-params rejection, non-empty object-valued
-invalid-params rejection, empty-object invalid-params rejection,
-oversized-count rejection, or direct blob/cell-proof lookup.
+single-key missing-start object `engine_getPayloadBodiesByRangeV2`
+invalid-params KZG opt-in runner proof; the next run spec should move forward
+from that `-32602` / `"start must be a non-negative quantity"` validation
+into one additional single-key object-valued `params` request such as
+`{"start":"0x1"}` at the same process surface instead of revisiting
+already-proven V3/V4/V5/V6 payload envelopes, by-hash body retrieval,
+single-hit by-range proof, sparse mixed-hit success proof, zero-start/zero-count
+rejection, malformed-start rejection, malformed-count rejection,
+one-element-array params rejection, scalar non-array invalid-request rejection,
+null-params invalid-params rejection, non-empty object-valued invalid-params
+rejection, empty-object invalid-params rejection, single-key missing-start
+object invalid-params rejection, oversized-count rejection, or direct blob/cell-proof
+lookup.
 
 Closed behavior from the latest slice:
 
@@ -170,6 +171,17 @@ Closed behavior from the latest slice:
   `preparedPayloadBodiesByRangeV2EmptyObjectParamsErrorMessage`, and the
   nested KZG connection/shutdown contract expands from twenty-two to
   twenty-three Engine requests, including the child `--max-connections` cap
+  and shutdown telemetry checks.
+- The same engine-only `kzgOptIn` smoke now also sends a live single-key
+  object-valued `engine_getPayloadBodiesByRangeV2` `params` request such as
+  `{"count":"0x1"}`, proving the existing invalid-params `-32602` /
+  `"start must be a non-negative quantity"` envelope through the real
+  listener path instead of only through in-process validation.
+- The nested `kzgOptIn` report now records
+  `preparedPayloadBodiesByRangeV2MissingStartObjectParamsErrorCode` and
+  `preparedPayloadBodiesByRangeV2MissingStartObjectParamsErrorMessage`, and
+  the nested KZG connection/shutdown contract expands from twenty-three to
+  twenty-four Engine requests, including the child `--max-connections` cap
   and shutdown telemetry checks.
 - Positive `--dev.period DURATION` parses through the shared geth-style
   duration path and rejects malformed or negative values.
