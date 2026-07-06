@@ -802,11 +802,16 @@ Validation targets: geth `crypto`, Nethermind `Nethermind.Crypto` and
   `"start must be a non-negative quantity"` envelope rather than a distinct
   missing-count message, records the missing-count object code/message in the
   nested report, and expands the KZG connection contract to twenty-five Engine
-  requests.
-- *Next:* if this malformed-object matrix stays open, promote one more bounded
-  unexpected-key object-valued `params` request such as `{"foo":"0x1"}` through
-  the same `engine_getPayloadBodiesByRangeV2` runner boundary before widening
-  into unrelated blob-era runner surface.
+  requests. It now also proves one unexpected-key object-valued `params`
+  request such as `{"foo":"0x1"}` reaches that same live and in-process
+  `-32602` / `"start must be a non-negative quantity"` envelope, records the
+  unexpected-key object code/message in the nested report, and expands the KZG
+  connection contract to twenty-six Engine requests.
+- *Next:* pivot from malformed-object KZG opt-in coverage to the matching
+  hidden-without-KZG negative request contract by proving a live
+  `engine_getPayloadBodiesByRangeV2` request is rejected at the non-KZG
+  engine-only listener boundary instead of merely being omitted from
+  `engine_exchangeCapabilities`.
 
 Detailed historical implementation notes for this section now live in
 `docs/status.md` under "Section 1: Cryptographic Primitives".

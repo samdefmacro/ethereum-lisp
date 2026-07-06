@@ -14,70 +14,64 @@
 - Git state: `main` was clean relative to `origin/main` at orientation time
   after fetching, with only the expected loop lock/automation worktree edits
   during implementation.
-- Recent commits reviewed: the latest validated slices walked the same runner
-  matrix through scalar non-array invalid-request coverage, null-params
-  invalid-params coverage, non-empty object coverage, empty-object coverage,
-  missing-start object coverage, and now a single-key missing-count object
-  proof without widening production code.
+- Recent commits reviewed: the latest validated slices finished the bounded
+  KZG malformed-object matrix through missing-count and unexpected-key object
+  proofs without widening production code.
 - Relevant task/roadmap anchors: `DEVNET-RUNNER-KZG-CAPABILITY-OPT-IN` now
-  records both single-key object-valued `params` proofs for `{"count":"0x1"}`
-  and `{"start":"0x1"}` at the engine-only listener boundary.
-- Relevant loop state: `docs/loop/state.md` now treats the stale
-  missing-count-envelope assumption as corrected and recommends one additional
-  unexpected-key object-valued request before widening into unrelated runner
-  work.
+  records the full malformed-object `engine_getPayloadBodiesByRangeV2`
+  listener matrix through the unexpected-key request `{"foo":"0x1"}`.
+- Relevant loop state: `docs/loop/state.md` now recommends pivoting from
+  further malformed-object KZG opt-in coverage to the matching hidden-method
+  rejection contract without KZG verifier opt-in.
 
 ## Candidate Ranking
 
 ### Candidate A
 
-- Objective: prove one live unexpected-key object-valued
-  `engine_getPayloadBodiesByRangeV2` `params` request such as
-  `{"foo":"0x1"}` returns the current positional invalid-params envelope at
-  the engine-only KZG runner boundary.
-- Value: highest; it closes one more distinct malformed object shape on the
-  same listener path immediately after the stale missing-count assumption was
-  corrected.
+- Objective: prove one live non-KZG engine-only
+  `engine_getPayloadBodiesByRangeV2` request is rejected at the listener
+  boundary instead of merely being hidden from `engine_exchangeCapabilities`.
+- Value: highest; it closes the disabled-path process contract for the same
+  method family now that the KZG opt-in malformed-object matrix is covered.
 - Risk: low-medium; likely smoke/assertion/report work only unless the live
-  listener diverges from the documented in-process contract.
+  non-KZG listener unexpectedly exposes or differently normalizes the method.
 - Required validation: focused escalated
   `sbcl --script scripts/devnet-smoke-gate.lisp -- --engine-only-serve --json`,
   focused CLI coverage if report assertions change, `git diff --check`,
   verifier review, and the full suite only if production code changes.
 - Decision: selected.
-- Reason: it continues the same bounded malformed-object matrix with one more
-  concrete object shape and keeps validation cost low.
+- Reason: it locks the negative process contract adjacent to the now-complete
+  KZG positive-path proofs while keeping validation cost low.
 
 ### Candidate B
 
-- Objective: batch multiple additional malformed object shapes on the same
-  boundary.
-- Value: lower; it risks widening scope after the stale missing-count
-  assumption was already corrected with one bounded proof.
-- Risk: medium; it increases validation and review cost without a clear
-  priority edge over one more single-shape probe.
+- Objective: continue widening malformed-object request-shape coverage beyond
+  the now-proven unexpected-key request.
+- Value: lower; it keeps grinding the same matrix after the bounded
+  unexpected-key proof already closed the obvious stale-assumption gap.
+- Risk: medium; it raises maintenance churn without improving the hidden-path
+  contract.
 - Required validation: same as Candidate A, potentially with more report churn.
 - Decision: defer.
-- Reason: lower leverage than one more bounded unexpected-key object proof.
+- Reason: lower leverage than closing the disabled-path listener contract.
 
 ### Candidate C
 
 - Objective: switch to unrelated blob-era or public-RPC runner surface.
-- Value: lower than Candidate A because the current malformed-object listener
-  line is still one bounded slice away from a cleaner close-out.
+- Value: lower than Candidate A because the current
+  `engine_getPayloadBodiesByRangeV2` listener line still has one clear
+  negative-path proof missing.
 - Risk: medium.
 - Required validation: depends on slice.
 - Decision: defer.
-- Reason: lower leverage than finishing one more malformed object request-shape
-  proof.
+- Reason: lower leverage than finishing the hidden-method contract.
 
 ## Selected Objective
 
-Prove one live unexpected-key object-valued
-`engine_getPayloadBodiesByRangeV2` `params` request under KZG verifier opt-in,
-using the existing engine-only smoke child to send a request such as
-`{"foo":"0x1"}` and lock the current positional invalid-params envelope at the
-process boundary.
+Prove one live non-KZG engine-only `engine_getPayloadBodiesByRangeV2` request
+is rejected at the process boundary, using the existing engine-only smoke path
+without verifier opt-in to lock the disabled-method envelope rather than only
+capability omission.
 
 ## Scope
 
@@ -85,7 +79,6 @@ Allowed files/modules:
 
 - `scripts/devnet-smoke-gate.lisp`
 - `tests/cli-tests.lisp`
-- `tests/core-tests.lisp`
 - `docs/tasks.md`
 - `docs/roadmap.md`
 - `docs/loop/state.md`
@@ -93,53 +86,34 @@ Allowed files/modules:
 
 Expected behavior changes:
 
-- The engine-only `kzgOptIn` smoke proves live
-  `engine_getPayloadBodiesByRangeV2` rejects one unexpected-key object-valued
-  `params` request with the documented invalid-params envelope, not only
-  sparse success responses, malformed quantities, missing-array elements,
-  scalar non-array invalid-request, null-params invalid-params, non-empty
-  object invalid-params, empty-object invalid-params, missing-start object
-  invalid-params, missing-count object invalid-params, oversized counts, or
-  zero-valued numeric bounds.
-- The nested runner report records enough unexpected-key object request
-  evidence to debug error-code/message regressions at the process boundary.
-- The existing sparse mixed-hit success probe, malformed-start error probe,
-  malformed-count error probe, one-element-array missing-count error probe,
-  scalar non-array invalid-request probe, null-params invalid-params probe,
-  non-empty object invalid-params probe, empty-object invalid-params probe,
-  missing-start object invalid-params probe, missing-count object
-  invalid-params probe, zero-start/zero-count error probes, and oversized
-  count error probe remain intact on the same runner path.
+- The engine-only non-KZG smoke proves live
+  `engine_getPayloadBodiesByRangeV2` is rejected at the listener boundary when
+  verifier opt-in is absent, not only omitted from capability advertisement.
+- The smoke/report surface records enough disabled-method error evidence to
+  debug code/message drift at the process boundary.
+- The existing non-KZG capability guard remains intact, and the existing KZG
+  opt-in positive-path payload-body probes remain intact on their current
+  runner path.
 
 Non-goals:
 
-- Do not batch multiple new malformed object shapes unless the selected
-  unexpected-key request reveals a concrete shared bug.
-- Do not revisit already-proven by-hash, single-hit by-range, sparse mixed-hit
-  by-range, malformed-start, malformed-count, one-element-array missing-count,
-  scalar non-array invalid-request, null-params invalid-params, non-empty
-  object invalid-params, empty-object invalid-params, missing-start object
-  invalid-params, missing-count object invalid-params, zero-valued
-  positive-number rejection, oversized-count rejection, or direct blob/cell
-  retrieval unless the new request regresses them.
+- Do not add more malformed-object KZG request shapes unless the non-KZG
+  negative request uncovers a shared bug.
+- Do not revisit already-proven KZG opt-in by-hash/by-range success probes,
+  malformed quantity/object envelopes, direct blob/cell retrieval, or payload
+  envelope coverage unless the new negative-path request regresses them.
 - Do not refactor general Engine RPC plumbing outside the minimal support
-  needed for the live unexpected-key object request proof.
+  needed for the live disabled-method proof.
 
 ## Acceptance Criteria
 
-- Focused process-boundary coverage proves live verifier opt-in
-  `engine_getPayloadBodiesByRangeV2` rejects the selected unexpected-key object
-  request with the documented invalid-params code/message.
-- The smoke/assertion surface fails clearly if the live request no longer
-  returns the documented validation envelope or if the runner silently returns
-  a success result instead of the error.
-- The existing sparse mixed-hit success probe, malformed-start error probe,
-  malformed-count error probe, one-element-array missing-count error probe,
-  scalar non-array invalid-request probe, null-params invalid-params probe,
-  non-empty object invalid-params probe, empty-object invalid-params probe,
-  missing-start object invalid-params probe, missing-count object
-  invalid-params probe, zero-start/zero-count error probes, and oversized
-  count error probe remain green in the same smoke path.
+- Focused process-boundary coverage proves live non-KZG
+  `engine_getPayloadBodiesByRangeV2` is rejected with the documented disabled
+  method envelope.
+- The smoke/assertion surface fails clearly if the live request becomes
+  available, returns a different error envelope, or includes a success result.
+- The existing non-KZG capability guard and KZG opt-in positive-path payload
+  body probes remain green in the same smoke path.
 - Independent verifier reviews the final diff before commit.
 
 ## Validation Plan
@@ -148,7 +122,7 @@ Gate tier:
 
 - Tier 1 if the change stays in smoke/assertion/report or adjacent core test
   code only.
-- Escalate to Tier 2 only if the live malformed request uncovers a shared
+- Escalate to Tier 2 only if the live hidden-method request uncovers a shared
   production bug.
 
 Focused gates:
@@ -158,13 +132,11 @@ Focused gates:
 - focused CLI coverage for
   `DEVNET-SMOKE-GATE-SCRIPT-ENGINE-ONLY-SERVE-MODE` if report assertions
   change
-- focused core coverage only if a new in-process malformed-request regression
-  test is added
 
 Required pre-commit gates:
 
 - `git diff --check`
-- focused escalated engine-only smoke for the selected unexpected-key object
+- focused escalated engine-only smoke for the selected non-KZG hidden-method
   path
 - independent verifier `PASS`
 - full suite only if production code changes or verifier flags broader risk
@@ -178,38 +150,32 @@ Full-suite policy:
 Escalation requirements:
 
 - Request local socket/network escalation before the focused smoke gate.
-- If the runner normalizes the selected unexpected-key object failure through a
-  different error envelope than the documented in-process path, stop and
-  record that exact mismatch instead of broadening scope.
+- If the runner normalizes the selected non-KZG request through a different
+  disabled-method envelope than expected, stop and record that exact mismatch
+  instead of broadening scope.
 
 ## Commit And Push Policy
 
 - Commit allowed: only after the applicable focused gate, `git diff --check`,
   and verifier review pass.
 - Push allowed: yes, after commit if remote authentication is available.
-- Commit message: `Smoke V2 payload body range unexpected object params`
+- Commit message: `Smoke V2 payload body range hidden without KZG`
 
 ## Blockers
 
-- If the selected unexpected-key object request proof reveals a real production
-  mismatch that needs broader Engine RPC work, stop and write that narrower
-  blocker instead of widening into a larger blob-era project.
+- If the selected non-KZG request proof reveals a real production mismatch
+  that needs broader Engine RPC work, stop and write that narrower blocker
+  instead of widening into a larger blob-era project.
 
 ## Implementer Notes
 
-- Reuse the existing engine-only `kzgOptIn` smoke child, seeded V6 known /
-  prepared block path, sparse mixed-hit success probe, malformed-start probe,
-  malformed-count probe, one-element-array missing-count probe, scalar
-  non-array invalid-request probe, null-params invalid-params probe,
-  non-empty object invalid-params probe, empty-object invalid-params probe,
-  missing-start object invalid-params probe, missing-count object
-  invalid-params probe, zero-start/zero-count probes, and oversized-count
-  probe instead of inventing a second verifier configuration flow.
-- Prefer extending the current nested report contract over adding a separate
-  smoke mode.
-- Keep the slice centered on one live unexpected-key object-valued
-  `engine_getPayloadBodiesByRangeV2` behavior, not broader Amsterdam fixture
-  realism or general malformed-request batching.
+- Reuse the existing engine-only smoke path and non-KZG capability guard
+  instead of inventing a second listener configuration flow.
+- Prefer extending the current report contract over adding a separate smoke
+  mode.
+- Keep the slice centered on one live non-KZG
+  `engine_getPayloadBodiesByRangeV2` disabled-method behavior, not broader
+  Amsterdam fixture realism or new malformed-request batching.
 
 ## Verifier Result
 

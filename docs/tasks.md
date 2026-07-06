@@ -1935,6 +1935,24 @@ ones.
     `git diff --check`, and verifier review passed. Residual risk is now
     limited to additional malformed-object `params` shapes at the same runner
     boundary or a deliberate pivot back to broader Phase B runner work.
+  - Result (2026-07-06): the same engine-only `kzgOptIn` child now also sends
+    a live unexpected-key object-valued `engine_getPayloadBodiesByRangeV2`
+    `params` request such as `{"foo":"0x1"}` and proves the current live and
+    in-process invalid-params `-32602` /
+    "start must be a non-negative quantity" envelope through the real
+    listener path. The smoke assertions now fail clearly if the live request
+    returns success, omits the error, changes the documented code/message, or
+    includes a spurious success `result`; the nested report records
+    `preparedPayloadBodiesByRangeV2UnexpectedKeyObjectParamsErrorCode` and
+    `preparedPayloadBodiesByRangeV2UnexpectedKeyObjectParamsErrorMessage`; and
+    the nested KZG connection/shutdown contract expands from twenty-five to
+    twenty-six Engine requests, including the child `--max-connections`
+    budget and shutdown telemetry checks. Focused escalated smoke, direct
+    escalated `DEVNET-SMOKE-GATE-SCRIPT-ENGINE-ONLY-SERVE-MODE` coverage,
+    `git diff --check`, and verifier review passed. Residual risk is now
+    limited to the non-KZG hidden-method rejection contract for
+    `engine_getPayloadBodiesByRangeV2` or a deliberate pivot to the next
+    broader Phase B runner task.
 - [x] `DEVNET-RUNNER-KZG-ERROR-TELEMETRY`: Lock invalid KZG verifier
   configuration as a runner-facing startup failure.
   - Result (2026-07-03): `scripts/ethereum-lisp.lisp -- devnet` subprocess

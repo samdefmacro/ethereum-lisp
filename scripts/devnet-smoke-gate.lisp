@@ -3290,7 +3290,7 @@ references/ checkouts.~%")
                         "--pid-file"
                         (namestring pid-path)
                         "--max-connections"
-                        "25"
+                        "26"
                         "--json")
                   :directory #P"/private/tmp/"
                   :output :stream
@@ -3694,11 +3694,24 @@ references/ checkouts.~%")
                     (fixture-object-field
                      get-payload-bodies-range-v2-missing-count-object-params-rpc
                      "error"))
+                  (get-payload-bodies-range-v2-unexpected-key-object-params-response
+                    (devnet-cli-http-endpoint-request
+                     engine-endpoint
+                     (devnet-cli-json-rpc-http-request
+                      "{\"jsonrpc\":\"2.0\",\"id\":739,\"method\":\"engine_getPayloadBodiesByRangeV2\",\"params\":{\"foo\":\"0x1\"}}")))
+                  (get-payload-bodies-range-v2-unexpected-key-object-params-rpc
+                    (parse-json
+                     (devnet-cli-http-body
+                      get-payload-bodies-range-v2-unexpected-key-object-params-response)))
+                  (get-payload-bodies-range-v2-unexpected-key-object-params-error
+                    (fixture-object-field
+                     get-payload-bodies-range-v2-unexpected-key-object-params-rpc
+                     "error"))
                   (get-payload-bodies-range-v2-empty-object-params-response
                     (devnet-cli-http-endpoint-request
                      engine-endpoint
                      (devnet-cli-json-rpc-http-request
-                      "{\"jsonrpc\":\"2.0\",\"id\":739,\"method\":\"engine_getPayloadBodiesByRangeV2\",\"params\":{}}")))
+                      "{\"jsonrpc\":\"2.0\",\"id\":740,\"method\":\"engine_getPayloadBodiesByRangeV2\",\"params\":{}}")))
                   (get-payload-bodies-range-v2-empty-object-params-rpc
                     (parse-json
                      (devnet-cli-http-body
@@ -4407,6 +4420,34 @@ references/ checkouts.~%")
               get-payload-bodies-range-v2-missing-count-object-params-rpc)
              (devnet-smoke-gate-require
               (= 200 (devnet-cli-http-status
+                      get-payload-bodies-range-v2-unexpected-key-object-params-response))
+              "KZG opt-in unexpected-key-object-params engine_getPayloadBodiesByRangeV2 HTTP status mismatch")
+             (devnet-smoke-gate-require
+              get-payload-bodies-range-v2-unexpected-key-object-params-error
+              "KZG opt-in unexpected-key-object-params engine_getPayloadBodiesByRangeV2 unexpectedly returned success: ~S"
+              get-payload-bodies-range-v2-unexpected-key-object-params-rpc)
+             (devnet-smoke-gate-require
+              (= -32602
+                 (fixture-object-field
+                  get-payload-bodies-range-v2-unexpected-key-object-params-error
+                  "code"))
+              "KZG opt-in unexpected-key-object-params engine_getPayloadBodiesByRangeV2 error code mismatch: ~S"
+              get-payload-bodies-range-v2-unexpected-key-object-params-error)
+             (devnet-smoke-gate-require
+              (string= "start must be a non-negative quantity"
+                       (fixture-object-field
+                        get-payload-bodies-range-v2-unexpected-key-object-params-error
+                        "message"))
+              "KZG opt-in unexpected-key-object-params engine_getPayloadBodiesByRangeV2 error message mismatch: ~S"
+              get-payload-bodies-range-v2-unexpected-key-object-params-error)
+             (devnet-smoke-gate-require
+              (not (field-present-p
+                    get-payload-bodies-range-v2-unexpected-key-object-params-rpc
+                    "result"))
+              "KZG opt-in unexpected-key-object-params engine_getPayloadBodiesByRangeV2 should not include a success result: ~S"
+              get-payload-bodies-range-v2-unexpected-key-object-params-rpc)
+             (devnet-smoke-gate-require
+              (= 200 (devnet-cli-http-status
                       get-payload-bodies-range-v2-empty-object-params-response))
               "KZG opt-in empty-object-params engine_getPayloadBodiesByRangeV2 HTTP status mismatch")
              (devnet-smoke-gate-require
@@ -4637,7 +4678,7 @@ references/ checkouts.~%")
                                              :test #'string=)))
                         "KZG opt-in log proof availability mismatch")))
                    (devnet-smoke-gate-require
-                    (string= "25"
+                    (string= "26"
                              (cdr (assoc "engineConnections"
                                          shutdown-fields
                                          :test #'string=)))
@@ -4649,7 +4690,7 @@ references/ checkouts.~%")
                                          :test #'string=)))
                     "KZG opt-in shutdown public connection count mismatch")
                    (devnet-smoke-gate-require
-                    (string= "25"
+                    (string= "26"
                              (cdr (assoc "totalConnections"
                                          shutdown-fields
                                          :test #'string=)))
@@ -4917,6 +4958,14 @@ references/ checkouts.~%")
                                 (fixture-object-field
                                  get-payload-bodies-range-v2-missing-count-object-params-error
                                  "message"))
+                          (cons "preparedPayloadBodiesByRangeV2UnexpectedKeyObjectParamsErrorCode"
+                                (fixture-object-field
+                                 get-payload-bodies-range-v2-unexpected-key-object-params-error
+                                 "code"))
+                          (cons "preparedPayloadBodiesByRangeV2UnexpectedKeyObjectParamsErrorMessage"
+                                (fixture-object-field
+                                 get-payload-bodies-range-v2-unexpected-key-object-params-error
+                                 "message"))
                           (cons "preparedPayloadBodiesByRangeV2EmptyObjectParamsErrorCode"
                                 (fixture-object-field
                                  get-payload-bodies-range-v2-empty-object-params-error
@@ -4971,9 +5020,9 @@ references/ checkouts.~%")
                                 (hex-prefix
                                  (car (last direct-blob-v2-proofs))
                                  8))
-                          (cons "engineConnections" 25)
+                          (cons "engineConnections" 26)
                           (cons "publicConnections" 0)
-                          (cons "totalConnections" 25))))))))
+                          (cons "totalConnections" 26))))))))
       (when (and process (uiop:process-alive-p process))
         (uiop:terminate-process process))
       (when (and database-path (probe-file database-path))
