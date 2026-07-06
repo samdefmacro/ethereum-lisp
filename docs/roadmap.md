@@ -786,11 +786,16 @@ Validation targets: geth `crypto`, Nethermind `Nethermind.Crypto` and
   `{"start":"0x1","count":"0x1"}` rejects with the current invalid-params
   `-32602` / `"start must be a non-negative quantity"` envelope, records that
   object-params code/message in the nested report, and expands the KZG
-  connection contract to twenty-two Engine requests.
-- *Next:* promote one empty-object `params` request such as `{}` through the
-  same `engine_getPayloadBodiesByRangeV2` runner boundary, proving the current
-  missing-params envelope before widening into unrelated blob-era runner
-  surface.
+  connection contract to twenty-two Engine requests. It now also proves one
+  empty-object `params` request such as `{}` rejects with the current
+  invalid-params `-32602` /
+  "engine_getPayloadBodiesByRangeV2 params must include start and count"
+  envelope, records that empty-object code/message in the nested report, and
+  expands the KZG connection contract to twenty-three Engine requests.
+- *Next:* promote one single-key object-valued `params` request such as
+  `{"count":"0x1"}` through the same `engine_getPayloadBodiesByRangeV2`
+  runner boundary, proving the current missing-start invalid-params envelope
+  before widening into unrelated blob-era runner surface.
 
 Detailed historical implementation notes for this section now live in
 `docs/status.md` under "Section 1: Cryptographic Primitives".
