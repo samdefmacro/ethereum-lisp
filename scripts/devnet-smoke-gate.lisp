@@ -3290,7 +3290,7 @@ references/ checkouts.~%")
                         "--pid-file"
                         (namestring pid-path)
                         "--max-connections"
-                        "18"
+                        "19"
                         "--json")
                   :directory #P"/private/tmp/"
                   :output :stream
@@ -3592,6 +3592,25 @@ references/ checkouts.~%")
                   (get-payload-bodies-range-v2-malformed-count-error
                     (fixture-object-field
                      get-payload-bodies-range-v2-malformed-count-rpc
+                     "error"))
+                  (get-payload-bodies-range-v2-params-envelope-response
+                    (devnet-cli-http-endpoint-request
+                     engine-endpoint
+                     (devnet-cli-json-rpc-http-request
+                      (json-encode
+                       (list (cons "jsonrpc" "2.0")
+                             (cons "id" 733)
+                             (cons "method"
+                                   "engine_getPayloadBodiesByRangeV2")
+                             (cons "params"
+                                   (list payload-bodies-range-v2-start-block)))))))
+                  (get-payload-bodies-range-v2-params-envelope-rpc
+                    (parse-json
+                     (devnet-cli-http-body
+                      get-payload-bodies-range-v2-params-envelope-response)))
+                  (get-payload-bodies-range-v2-params-envelope-error
+                    (fixture-object-field
+                     get-payload-bodies-range-v2-params-envelope-rpc
                      "error"))
                   (get-payload-bodies-range-v2-oversized-response
                     (devnet-cli-http-endpoint-request
@@ -4112,7 +4131,7 @@ references/ checkouts.~%")
               "KZG opt-in malformed-count engine_getPayloadBodiesByRangeV2 error code mismatch: ~S"
               get-payload-bodies-range-v2-malformed-count-error)
              (devnet-smoke-gate-require
-              (string= "count must be a non-negative quantity"
+             (string= "count must be a non-negative quantity"
                        (fixture-object-field
                         get-payload-bodies-range-v2-malformed-count-error
                         "message"))
@@ -4123,6 +4142,34 @@ references/ checkouts.~%")
                                     "result"))
               "KZG opt-in malformed-count engine_getPayloadBodiesByRangeV2 should not include a success result: ~S"
               get-payload-bodies-range-v2-malformed-count-rpc)
+             (devnet-smoke-gate-require
+              (= 200 (devnet-cli-http-status
+                      get-payload-bodies-range-v2-params-envelope-response))
+              "KZG opt-in params-envelope engine_getPayloadBodiesByRangeV2 HTTP status mismatch")
+             (devnet-smoke-gate-require
+              get-payload-bodies-range-v2-params-envelope-error
+              "KZG opt-in params-envelope engine_getPayloadBodiesByRangeV2 unexpectedly returned success: ~S"
+              get-payload-bodies-range-v2-params-envelope-rpc)
+             (devnet-smoke-gate-require
+              (= -32602
+                 (fixture-object-field
+                  get-payload-bodies-range-v2-params-envelope-error
+                  "code"))
+              "KZG opt-in params-envelope engine_getPayloadBodiesByRangeV2 error code mismatch: ~S"
+              get-payload-bodies-range-v2-params-envelope-error)
+             (devnet-smoke-gate-require
+              (string= "engine_getPayloadBodiesByRangeV2 param count is missing"
+                       (fixture-object-field
+                        get-payload-bodies-range-v2-params-envelope-error
+                        "message"))
+              "KZG opt-in params-envelope engine_getPayloadBodiesByRangeV2 error message mismatch: ~S"
+              get-payload-bodies-range-v2-params-envelope-error)
+             (devnet-smoke-gate-require
+              (not (field-present-p
+                    get-payload-bodies-range-v2-params-envelope-rpc
+                    "result"))
+              "KZG opt-in params-envelope engine_getPayloadBodiesByRangeV2 should not include a success result: ~S"
+              get-payload-bodies-range-v2-params-envelope-rpc)
              (devnet-smoke-gate-require
               (= 200 (devnet-cli-http-status
                       get-payload-bodies-range-v2-oversized-response))
@@ -4327,7 +4374,7 @@ references/ checkouts.~%")
                                              :test #'string=)))
                         "KZG opt-in log proof availability mismatch")))
                    (devnet-smoke-gate-require
-                    (string= "18"
+                    (string= "19"
                              (cdr (assoc "engineConnections"
                                          shutdown-fields
                                          :test #'string=)))
@@ -4339,7 +4386,7 @@ references/ checkouts.~%")
                                          :test #'string=)))
                     "KZG opt-in shutdown public connection count mismatch")
                    (devnet-smoke-gate-require
-                    (string= "18"
+                    (string= "19"
                              (cdr (assoc "totalConnections"
                                          shutdown-fields
                                          :test #'string=)))
@@ -4559,6 +4606,14 @@ references/ checkouts.~%")
                                 (fixture-object-field
                                  get-payload-bodies-range-v2-malformed-count-error
                                  "message"))
+                          (cons "preparedPayloadBodiesByRangeV2ParamsEnvelopeErrorCode"
+                                (fixture-object-field
+                                 get-payload-bodies-range-v2-params-envelope-error
+                                 "code"))
+                          (cons "preparedPayloadBodiesByRangeV2ParamsEnvelopeErrorMessage"
+                                (fixture-object-field
+                                 get-payload-bodies-range-v2-params-envelope-error
+                                 "message"))
                           (cons "preparedPayloadBodiesByRangeV2OversizedErrorCode"
                                 (fixture-object-field
                                  get-payload-bodies-range-v2-oversized-error
@@ -4605,9 +4660,9 @@ references/ checkouts.~%")
                                 (hex-prefix
                                  (car (last direct-blob-v2-proofs))
                                  8))
-                          (cons "engineConnections" 18)
+                          (cons "engineConnections" 19)
                           (cons "publicConnections" 0)
-                          (cons "totalConnections" 18))))))))
+                          (cons "totalConnections" 19))))))))
       (when (and process (uiop:process-alive-p process))
         (uiop:terminate-process process))
       (when (and database-path (probe-file database-path))

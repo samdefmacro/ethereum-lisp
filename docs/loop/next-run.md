@@ -19,60 +19,62 @@
   `engine_getPayloadBodiesByRangeV2`, a sparse mixed-hit
   `engine_getPayloadBodiesByRangeV2` response with a leading `null`
   placeholder, the live oversized `count > 1024` error contract, live
-  zero-start / zero-count positivity errors, and now live malformed-start and
-  malformed-count invalid-params envelopes.
+  zero-start / zero-count positivity errors, live malformed-start and
+  malformed-count invalid-params envelopes, and now a live one-element-array
+  params-envelope invalid-params contract.
 - Recent commits reviewed: the latest validated slices moved the runner proof
   from by-hash payload-body retrieval into canonical by-range retrieval, sparse
   mixed-hit range/null behavior, oversized-count request-boundary coverage,
-  non-positive request-boundary coverage, malformed-start quantity coverage,
-  and now malformed-count quantity coverage without widening production code
-  beyond the child connection budget.
+  non-positive request-boundary coverage, malformed quantity coverage, and now
+  one broader params-envelope invalid-params coverage without widening
+  production code beyond the child connection budget.
 - Relevant task/roadmap anchors: `DEVNET-RUNNER-KZG-CAPABILITY-OPT-IN` now
-  records malformed-count by-range proof; the roadmap now treats one broader
-  params-envelope contract as the next bounded gap.
+  records a one-element-array params-envelope proof; the roadmap now treats
+  one non-array `params` invalid-request contract as the next bounded gap.
 - Relevant loop state: the remaining narrow runner gap on this line is no
   longer success-path range ordering, oversized-count rejection, zero-valued
-  positivity rejection, malformed-start quantity validation, or malformed-count
-  quantity validation; it is one broader params-envelope request boundary.
+  positivity rejection, malformed-start quantity validation, malformed-count
+  quantity validation, or missing-count params-array validation; it is one
+  non-array `params` invalid-request boundary.
 
 ## Candidate Ranking
 
 ### Candidate A
 
-- Objective: prove one live runner-bound
-  `engine_getPayloadBodiesByRangeV2` params-envelope rejection for a non-array
-  or otherwise structurally invalid `params` value.
-- Value: highest; it closes the next remaining request-shape gap on the same
-  live KZG opt-in runner path after quantity-field and positivity boundaries
-  are locked.
+- Objective: prove one live runner-bound non-array
+  `engine_getPayloadBodiesByRangeV2` `params` request returns the existing
+  JSON-RPC invalid-request `-32600` / `"Invalid Request"` envelope.
+- Value: highest; it closes the remaining generic request-shape gap on the
+  same live KZG opt-in runner path after method-level quantity and missing-param
+  boundaries are locked.
 - Risk: low-medium; likely smoke/assertion/report work only unless the runner
-  boundary reveals a production mismatch in JSON-RPC parameter validation.
+  boundary diverges from the in-process JSON-RPC request validator.
 - Required validation: focused escalated
   `sbcl --script scripts/devnet-smoke-gate.lisp -- --engine-only-serve --json`,
   focused engine-only CLI coverage if report assertions change,
   `git diff --check`, verifier review, and the full suite only if production
   code changes.
 - Decision: selected.
-- Reason: one concrete params-envelope failure is the tightest remaining
-  request-boundary slice on this runner surface.
+- Reason: one concrete non-array invalid-request failure is the tightest
+  remaining request-boundary slice on this runner surface.
 
 ### Candidate B
 
-- Objective: widen the same live probe into multiple params-envelope failures
-  such as wrong param count plus malformed scalar/array shapes in one batch.
+- Objective: widen the same live probe into multiple malformed request shapes
+  such as null, scalar, and empty-object `params` values in one batch.
 - Value: medium; it could increase coverage, but it risks widening the report
-  contract before one representative envelope failure is locked.
+  contract before one representative invalid-request failure is locked.
 - Risk: medium; broader batching makes failures harder to localize and may
   force production-code work if envelopes diverge.
 - Required validation: likely the same Tier 1 focused smoke/report gates.
 - Decision: defer.
-- Reason: one representative params-envelope failure keeps the slice bounded.
+- Reason: one representative non-array failure keeps the slice bounded.
 
 ### Candidate C
 
 - Objective: widen unrelated blob-era runner surface or revisit already-proven
   by-range quantity cases.
-- Value: lower than Candidate A because the remaining gap is request-envelope
+- Value: lower than Candidate A because the remaining gap is generic request
   validation, not another quantity or success-path variant.
 - Risk: medium; it risks duplicate proof and scope creep.
 - Required validation: depends on slice.
@@ -82,10 +84,11 @@
 
 ## Selected Objective
 
-Prove one live runner-bound params-envelope rejection for
+Prove one live runner-bound non-array `params` invalid-request rejection for
 `engine_getPayloadBodiesByRangeV2` under KZG verifier opt-in, using the
-existing engine-only smoke child to send one structurally invalid `params`
-shape and lock the expected invalid-params contract.
+existing engine-only smoke child to send one scalar or otherwise non-list
+`params` shape and lock the expected generic JSON-RPC invalid-request
+contract.
 
 ## Scope
 
@@ -102,37 +105,40 @@ Allowed files/modules:
 Expected behavior changes:
 
 - The engine-only `kzgOptIn` smoke proves live
-  `engine_getPayloadBodiesByRangeV2` rejects one broader params-envelope
-  request shape, not only sparse success responses, malformed quantities,
+  `engine_getPayloadBodiesByRangeV2` rejects one non-array `params` request
+  shape with the expected generic JSON-RPC invalid-request envelope, not only
+  sparse success responses, malformed quantities, missing-array elements,
   oversized counts, or zero-valued numeric bounds.
-- The nested runner report records enough params-envelope evidence to debug
+- The nested runner report records enough non-array request evidence to debug
   error-code/message regressions at the process boundary.
 - The existing sparse mixed-hit success probe, malformed-start error probe,
-  malformed-count error probe, zero-start/zero-count error probes, and
-  oversized-count error probe remain intact on the same runner path.
+  malformed-count error probe, one-element-array missing-count error probe,
+  zero-start/zero-count error probes, and oversized-count error probe remain
+  intact on the same runner path.
 
 Non-goals:
 
-- Do not batch multiple params-envelope shapes unless the first representative
-  request reveals a concrete shared bug.
+- Do not batch multiple non-array `params` shapes unless the first
+  representative request reveals a concrete shared bug.
 - Do not revisit already-proven by-hash, single-hit by-range, sparse mixed-hit
-  by-range, malformed-start, malformed-count, zero-valued positive-number
-  rejection, oversized-count rejection, or direct blob/cell-proof retrieval
-  unless the new request regresses them.
+  by-range, malformed-start, malformed-count, one-element-array missing-count,
+  zero-valued positive-number rejection, oversized-count rejection, or direct
+  blob/cell-proof retrieval unless the new request regresses them.
 - Do not refactor general Engine RPC plumbing outside the minimal support
-  needed for the live params-envelope proof.
+  needed for the live invalid-request proof.
 
 ## Acceptance Criteria
 
 - Focused process-boundary coverage proves live verifier opt-in
-  `engine_getPayloadBodiesByRangeV2` rejects the selected params-envelope
-  request with the expected invalid-params error code/message.
+  `engine_getPayloadBodiesByRangeV2` rejects the selected non-array `params`
+  request with the expected JSON-RPC invalid-request error code/message.
 - The smoke/assertion surface fails clearly if the live request no longer
   returns the documented validation envelope or if the runner silently returns
   a success result instead of the error.
 - The existing sparse mixed-hit success probe, malformed-start error probe,
-  malformed-count error probe, zero-start/zero-count error probes, and
-  oversized-count error probe remain green in the same smoke path.
+  malformed-count error probe, one-element-array missing-count error probe,
+  zero-start/zero-count error probes, and oversized-count error probe remain
+  green in the same smoke path.
 - Independent verifier reviews the final diff before commit.
 
 ## Validation Plan
@@ -157,7 +163,7 @@ Focused gates:
 Required pre-commit gates:
 
 - `git diff --check`
-- focused escalated engine-only smoke for the new params-envelope path
+- focused escalated engine-only smoke for the new non-array `params` path
 - independent verifier `PASS`
 - full suite only if production code changes or verifier flags broader risk
 
@@ -170,7 +176,7 @@ Full-suite policy:
 Escalation requirements:
 
 - Request local socket/network escalation before the focused smoke gate.
-- If the runner normalizes the selected params-envelope failure through a
+- If the runner normalizes the selected non-array `params` failure through a
   different error envelope than the in-process core path, stop and record that
   exact mismatch instead of broadening scope.
 
@@ -179,23 +185,24 @@ Escalation requirements:
 - Commit allowed: only after the applicable focused gate, `git diff --check`,
   and verifier review pass.
 - Push allowed: yes, after commit if remote authentication is available.
-- Commit message: `Smoke V2 payload body range params envelope`
+- Commit message: `Smoke V2 payload body range invalid request`
 
 ## Blockers
 
-- If the selected params-envelope proof reveals a real production mismatch that
-  needs broader Engine RPC work, stop and write that narrower blocker instead
-  of widening into a larger blob-era project.
+- If the selected non-array invalid-request proof reveals a real production
+  mismatch that needs broader Engine RPC work, stop and write that narrower
+  blocker instead of widening into a larger blob-era project.
 
 ## Implementer Notes
 
 - Reuse the existing engine-only `kzgOptIn` smoke child, seeded V6 known /
   prepared block path, sparse mixed-hit success probe, malformed-start probe,
-  malformed-count probe, zero-start/zero-count probes, and oversized-count
-  probe instead of inventing a second verifier configuration flow.
+  malformed-count probe, one-element-array missing-count probe,
+  zero-start/zero-count probes, and oversized-count probe instead of inventing
+  a second verifier configuration flow.
 - Prefer extending the current nested report contract over adding a separate
   smoke mode.
-- Keep the slice centered on one live params-envelope
+- Keep the slice centered on one live non-array `params`
   `engine_getPayloadBodiesByRangeV2` behavior, not broader Amsterdam fixture
   realism or general malformed-request batching.
 

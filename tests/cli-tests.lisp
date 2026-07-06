@@ -489,6 +489,15 @@
                (fixture-object-field
                 report
                 "preparedPayloadBodiesByRangeV2MalformedCountErrorMessage")))
+  (is (= -32602
+         (fixture-object-field
+          report
+          "preparedPayloadBodiesByRangeV2ParamsEnvelopeErrorCode")))
+  (is (string=
+       "engine_getPayloadBodiesByRangeV2 param count is missing"
+       (fixture-object-field
+        report
+        "preparedPayloadBodiesByRangeV2ParamsEnvelopeErrorMessage")))
   (is (= -38004
          (fixture-object-field
           report
@@ -559,9 +568,9 @@
                (fixture-object-field
                 report
                 "directCellProofLookupLastProofPrefix")))
-  (is (= 18 (fixture-object-field report "engineConnections")))
+  (is (= 19 (fixture-object-field report "engineConnections")))
   (is (= 0 (fixture-object-field report "publicConnections")))
-  (is (= 18 (fixture-object-field report "totalConnections"))))
+  (is (= 19 (fixture-object-field report "totalConnections"))))
 
 (defun devnet-cli-assert-public-readiness (report)
   (is (search "ethereum-lisp"

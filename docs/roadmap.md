@@ -765,10 +765,15 @@ Validation targets: geth `crypto`, Nethermind `Nethermind.Crypto` and
   `engine_getPayloadBodiesByRangeV2` request rejects with the existing
   invalid-params `-32602` / "count must be a non-negative quantity"
   envelope, records that malformed-count code/message in the nested report,
-  and expands the KZG connection contract to eighteen Engine requests.
-- *Next:* promote one broader params-envelope
-  `engine_getPayloadBodiesByRangeV2` rejection contract to the same process
-  boundary before widening into unrelated blob-era runner surface.
+  and expands the KZG connection contract to eighteen Engine requests. It now
+  also proves a one-element `engine_getPayloadBodiesByRangeV2` params array
+  rejects with the existing invalid-params `-32602` /
+  "engine_getPayloadBodiesByRangeV2 param count is missing" envelope, records
+  that params-envelope code/message in the nested report, and expands the KZG
+  connection contract to nineteen Engine requests.
+- *Next:* promote one non-array `params`
+  `engine_getPayloadBodiesByRangeV2` invalid-request contract to the same
+  process boundary before widening into unrelated blob-era runner surface.
 
 Detailed historical implementation notes for this section now live in
 `docs/status.md` under "Section 1: Cryptographic Primitives".
