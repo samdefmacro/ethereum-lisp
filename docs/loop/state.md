@@ -19,18 +19,20 @@ Last updated: 2026-07-06
 
 No intended dirty implementation work should remain after the current validated
 batch is committed and pushed. The latest completed slice is the live
-single-key missing-start object `engine_getPayloadBodiesByRangeV2`
-invalid-params KZG opt-in runner proof; the next run spec should move forward
-from that `-32602` / `"start must be a non-negative quantity"` validation
-into one additional single-key object-valued `params` request such as
-`{"start":"0x1"}` at the same process surface instead of revisiting
+single-key missing-count object `engine_getPayloadBodiesByRangeV2`
+invalid-params KZG opt-in runner proof; the next run spec should either move
+forward from that corrected `-32602` / `"start must be a non-negative
+quantity"` validation into one additional malformed object-valued `params`
+shape such as `{"foo":"0x1"}` at the same process surface or pivot cleanly to
+the next broader Phase B runner task instead of revisiting
 already-proven V3/V4/V5/V6 payload envelopes, by-hash body retrieval,
 single-hit by-range proof, sparse mixed-hit success proof, zero-start/zero-count
 rejection, malformed-start rejection, malformed-count rejection,
 one-element-array params rejection, scalar non-array invalid-request rejection,
 null-params invalid-params rejection, non-empty object-valued invalid-params
 rejection, empty-object invalid-params rejection, single-key missing-start
-object invalid-params rejection, oversized-count rejection, or direct blob/cell-proof
+object invalid-params rejection, single-key missing-count object invalid-params
+rejection, oversized-count rejection, or direct blob/cell-proof
 lookup.
 
 Closed behavior from the latest slice:
@@ -182,6 +184,17 @@ Closed behavior from the latest slice:
   `preparedPayloadBodiesByRangeV2MissingStartObjectParamsErrorMessage`, and
   the nested KZG connection/shutdown contract expands from twenty-three to
   twenty-four Engine requests, including the child `--max-connections` cap
+  and shutdown telemetry checks.
+- The same engine-only `kzgOptIn` smoke now also sends a live single-key
+  object-valued `engine_getPayloadBodiesByRangeV2` `params` request such as
+  `{"start":"0x1"}`, proving the current live and in-process invalid-params
+  `-32602` / `"start must be a non-negative quantity"` envelope through the
+  real listener path instead of assuming a separate missing-count message.
+- The nested `kzgOptIn` report now records
+  `preparedPayloadBodiesByRangeV2MissingCountObjectParamsErrorCode` and
+  `preparedPayloadBodiesByRangeV2MissingCountObjectParamsErrorMessage`, and
+  the nested KZG connection/shutdown contract expands from twenty-four to
+  twenty-five Engine requests, including the child `--max-connections` cap
   and shutdown telemetry checks.
 - Positive `--dev.period DURATION` parses through the shared geth-style
   duration path and rejects malformed or negative values.
@@ -594,8 +607,8 @@ The old fixed heartbeat prompt is being replaced by a loop v2 process:
 ## Next Recommended Orchestrator Decision
 
 The next highest-value repository slice is to reuse the same engine-only
-`kzgOptIn` boundary and promote one additional single-key object-valued
+`kzgOptIn` boundary and promote one additional malformed object-valued
 `engine_getPayloadBodiesByRangeV2` `params` contract to the live listener.
-The best bounded follow-up is to prove a request such as `{"count":"0x1"}`
-returns the current missing-start invalid-params envelope before widening
-into unrelated blob-era runner work.
+The best bounded follow-up is to prove one unexpected-key request such as
+`{"foo":"0x1"}` returns the current positional invalid-params envelope before
+widening into unrelated blob-era runner work.

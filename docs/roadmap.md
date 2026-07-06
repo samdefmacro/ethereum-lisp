@@ -791,11 +791,22 @@ Validation targets: geth `crypto`, Nethermind `Nethermind.Crypto` and
   invalid-params `-32602` /
   "engine_getPayloadBodiesByRangeV2 params must include start and count"
   envelope, records that empty-object code/message in the nested report, and
-  expands the KZG connection contract to twenty-three Engine requests.
-- *Next:* promote one single-key object-valued `params` request such as
-  `{"count":"0x1"}` through the same `engine_getPayloadBodiesByRangeV2`
-  runner boundary, proving the current missing-start invalid-params envelope
-  before widening into unrelated blob-era runner surface.
+  expands the KZG connection contract to twenty-three Engine requests. It now
+  also proves one single-key object-valued `params` request such as
+  `{"count":"0x1"}` rejects with the current invalid-params `-32602` /
+  `"start must be a non-negative quantity"` envelope, records that
+  missing-start object code/message in the nested report, and expands the KZG
+  connection contract to twenty-four Engine requests. It now also proves one
+  single-key object-valued `params` request such as `{"start":"0x1"}` reaches
+  that same live and in-process `-32602` /
+  `"start must be a non-negative quantity"` envelope rather than a distinct
+  missing-count message, records the missing-count object code/message in the
+  nested report, and expands the KZG connection contract to twenty-five Engine
+  requests.
+- *Next:* if this malformed-object matrix stays open, promote one more bounded
+  unexpected-key object-valued `params` request such as `{"foo":"0x1"}` through
+  the same `engine_getPayloadBodiesByRangeV2` runner boundary before widening
+  into unrelated blob-era runner surface.
 
 Detailed historical implementation notes for this section now live in
 `docs/status.md` under "Section 1: Cryptographic Primitives".
