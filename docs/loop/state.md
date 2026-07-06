@@ -18,15 +18,16 @@ Last updated: 2026-07-06
 ## Current Dirty Work
 
 No intended dirty implementation work should remain after the current validated
-batch is committed and pushed. The latest completed slice is the live
-one-element-array `engine_getPayloadBodiesByRangeV2` params-envelope KZG
-opt-in runner proof; the next run spec should move forward from missing-count
-invalid-params validation into one non-array `params` invalid-request boundary
-at the same process surface instead of revisiting already-proven V3/V4/V5/V6
-payload envelopes, by-hash body retrieval, single-hit by-range proof, sparse
-mixed-hit success proof, zero-start/zero-count rejection, malformed-start
-rejection, malformed-count rejection, one-element-array params rejection,
-oversized-count rejection, or direct blob/cell-proof lookup.
+batch is committed and pushed. The latest completed slice is the live scalar
+non-array `engine_getPayloadBodiesByRangeV2` invalid-request KZG opt-in runner
+proof; the next run spec should move forward from that representative
+`-32600` / `"Invalid Request"` validation into one additional non-array
+request shape such as `params:null` at the same process surface instead of
+revisiting already-proven V3/V4/V5/V6 payload envelopes, by-hash body
+retrieval, single-hit by-range proof, sparse mixed-hit success proof,
+zero-start/zero-count rejection, malformed-start rejection, malformed-count
+rejection, one-element-array params rejection, scalar non-array invalid-request
+rejection, oversized-count rejection, or direct blob/cell-proof lookup.
 
 Closed behavior from the latest slice:
 
@@ -120,6 +121,16 @@ Closed behavior from the latest slice:
   `preparedPayloadBodiesByRangeV2ParamsEnvelopeErrorCode = -32602` and
   `preparedPayloadBodiesByRangeV2ParamsEnvelopeErrorMessage`, and the nested
   KZG connection/shutdown contract expands from eighteen to nineteen Engine
+  requests, including the child `--max-connections` cap and shutdown
+  telemetry checks.
+- The same engine-only `kzgOptIn` smoke now also sends a live scalar non-array
+  `engine_getPayloadBodiesByRangeV2` `params` request, proving the generic
+  JSON-RPC invalid-request `-32600` / `"Invalid Request"` envelope through
+  the real listener path instead of only in-process validation.
+- The nested `kzgOptIn` report now records
+  `preparedPayloadBodiesByRangeV2InvalidRequestErrorCode` and
+  `preparedPayloadBodiesByRangeV2InvalidRequestErrorMessage`, and the nested
+  KZG connection/shutdown contract expands from nineteen to twenty Engine
   requests, including the child `--max-connections` cap and shutdown
   telemetry checks.
 - Positive `--dev.period DURATION` parses through the shared geth-style
@@ -533,9 +544,9 @@ The old fixed heartbeat prompt is being replaced by a loop v2 process:
 ## Next Recommended Orchestrator Decision
 
 The next highest-value repository slice is to reuse the same engine-only
-`kzgOptIn` boundary and promote one non-array
+`kzgOptIn` boundary and promote one additional non-array
 `engine_getPayloadBodiesByRangeV2` `params` invalid-request contract to the
-live listener. The best bounded follow-up is to prove a scalar or other
-non-list `params` shape returns the existing JSON-RPC `-32600` /
+live listener. The best bounded follow-up is to prove a distinct
+`params:null` request shape returns the existing JSON-RPC `-32600` /
 `"Invalid Request"` envelope before widening into unrelated blob-era runner
 work.

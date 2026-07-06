@@ -498,6 +498,15 @@
        (fixture-object-field
         report
         "preparedPayloadBodiesByRangeV2ParamsEnvelopeErrorMessage")))
+  (is (= -32600
+         (fixture-object-field
+          report
+          "preparedPayloadBodiesByRangeV2InvalidRequestErrorCode")))
+  (is (string=
+       "Invalid Request"
+       (fixture-object-field
+        report
+        "preparedPayloadBodiesByRangeV2InvalidRequestErrorMessage")))
   (is (= -38004
          (fixture-object-field
           report
@@ -568,9 +577,9 @@
                (fixture-object-field
                 report
                 "directCellProofLookupLastProofPrefix")))
-  (is (= 19 (fixture-object-field report "engineConnections")))
+  (is (= 20 (fixture-object-field report "engineConnections")))
   (is (= 0 (fixture-object-field report "publicConnections")))
-  (is (= 19 (fixture-object-field report "totalConnections"))))
+  (is (= 20 (fixture-object-field report "totalConnections"))))
 
 (defun devnet-cli-assert-public-readiness (report)
   (is (search "ethereum-lisp"

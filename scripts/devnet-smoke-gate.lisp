@@ -3290,7 +3290,7 @@ references/ checkouts.~%")
                         "--pid-file"
                         (namestring pid-path)
                         "--max-connections"
-                        "19"
+                        "20"
                         "--json")
                   :directory #P"/private/tmp/"
                   :output :stream
@@ -3611,6 +3611,24 @@ references/ checkouts.~%")
                   (get-payload-bodies-range-v2-params-envelope-error
                     (fixture-object-field
                      get-payload-bodies-range-v2-params-envelope-rpc
+                     "error"))
+                  (get-payload-bodies-range-v2-invalid-request-response
+                    (devnet-cli-http-endpoint-request
+                     engine-endpoint
+                     (devnet-cli-json-rpc-http-request
+                      (json-encode
+                       (list (cons "jsonrpc" "2.0")
+                             (cons "id" 734)
+                             (cons "method"
+                                   "engine_getPayloadBodiesByRangeV2")
+                             (cons "params" "0x1"))))))
+                  (get-payload-bodies-range-v2-invalid-request-rpc
+                    (parse-json
+                     (devnet-cli-http-body
+                      get-payload-bodies-range-v2-invalid-request-response)))
+                  (get-payload-bodies-range-v2-invalid-request-error
+                    (fixture-object-field
+                     get-payload-bodies-range-v2-invalid-request-rpc
                      "error"))
                   (get-payload-bodies-range-v2-oversized-response
                     (devnet-cli-http-endpoint-request
@@ -4172,6 +4190,34 @@ references/ checkouts.~%")
               get-payload-bodies-range-v2-params-envelope-rpc)
              (devnet-smoke-gate-require
               (= 200 (devnet-cli-http-status
+                      get-payload-bodies-range-v2-invalid-request-response))
+              "KZG opt-in invalid-request engine_getPayloadBodiesByRangeV2 HTTP status mismatch")
+             (devnet-smoke-gate-require
+              get-payload-bodies-range-v2-invalid-request-error
+              "KZG opt-in invalid-request engine_getPayloadBodiesByRangeV2 unexpectedly returned success: ~S"
+              get-payload-bodies-range-v2-invalid-request-rpc)
+             (devnet-smoke-gate-require
+              (= -32600
+                 (fixture-object-field
+                  get-payload-bodies-range-v2-invalid-request-error
+                  "code"))
+              "KZG opt-in invalid-request engine_getPayloadBodiesByRangeV2 error code mismatch: ~S"
+              get-payload-bodies-range-v2-invalid-request-error)
+             (devnet-smoke-gate-require
+              (string= "Invalid Request"
+                       (fixture-object-field
+                        get-payload-bodies-range-v2-invalid-request-error
+                        "message"))
+              "KZG opt-in invalid-request engine_getPayloadBodiesByRangeV2 error message mismatch: ~S"
+              get-payload-bodies-range-v2-invalid-request-error)
+             (devnet-smoke-gate-require
+              (not (field-present-p
+                    get-payload-bodies-range-v2-invalid-request-rpc
+                    "result"))
+              "KZG opt-in invalid-request engine_getPayloadBodiesByRangeV2 should not include a success result: ~S"
+              get-payload-bodies-range-v2-invalid-request-rpc)
+             (devnet-smoke-gate-require
+              (= 200 (devnet-cli-http-status
                       get-payload-bodies-range-v2-oversized-response))
               "KZG opt-in oversized engine_getPayloadBodiesByRangeV2 HTTP status mismatch")
              (devnet-smoke-gate-require
@@ -4374,7 +4420,7 @@ references/ checkouts.~%")
                                              :test #'string=)))
                         "KZG opt-in log proof availability mismatch")))
                    (devnet-smoke-gate-require
-                    (string= "19"
+                    (string= "20"
                              (cdr (assoc "engineConnections"
                                          shutdown-fields
                                          :test #'string=)))
@@ -4386,7 +4432,7 @@ references/ checkouts.~%")
                                          :test #'string=)))
                     "KZG opt-in shutdown public connection count mismatch")
                    (devnet-smoke-gate-require
-                    (string= "19"
+                    (string= "20"
                              (cdr (assoc "totalConnections"
                                          shutdown-fields
                                          :test #'string=)))
@@ -4614,6 +4660,14 @@ references/ checkouts.~%")
                                 (fixture-object-field
                                  get-payload-bodies-range-v2-params-envelope-error
                                  "message"))
+                          (cons "preparedPayloadBodiesByRangeV2InvalidRequestErrorCode"
+                                (fixture-object-field
+                                 get-payload-bodies-range-v2-invalid-request-error
+                                 "code"))
+                          (cons "preparedPayloadBodiesByRangeV2InvalidRequestErrorMessage"
+                                (fixture-object-field
+                                 get-payload-bodies-range-v2-invalid-request-error
+                                 "message"))
                           (cons "preparedPayloadBodiesByRangeV2OversizedErrorCode"
                                 (fixture-object-field
                                  get-payload-bodies-range-v2-oversized-error
@@ -4660,9 +4714,9 @@ references/ checkouts.~%")
                                 (hex-prefix
                                  (car (last direct-blob-v2-proofs))
                                  8))
-                          (cons "engineConnections" 19)
+                          (cons "engineConnections" 20)
                           (cons "publicConnections" 0)
-                          (cons "totalConnections" 19))))))))
+                          (cons "totalConnections" 20))))))))
       (when (and process (uiop:process-alive-p process))
         (uiop:terminate-process process))
       (when (and database-path (probe-file database-path))

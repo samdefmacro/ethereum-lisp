@@ -770,10 +770,16 @@ Validation targets: geth `crypto`, Nethermind `Nethermind.Crypto` and
   rejects with the existing invalid-params `-32602` /
   "engine_getPayloadBodiesByRangeV2 param count is missing" envelope, records
   that params-envelope code/message in the nested report, and expands the KZG
-  connection contract to nineteen Engine requests.
-- *Next:* promote one non-array `params`
-  `engine_getPayloadBodiesByRangeV2` invalid-request contract to the same
-  process boundary before widening into unrelated blob-era runner surface.
+  connection contract to nineteen Engine requests. It now also proves one
+  scalar non-array `engine_getPayloadBodiesByRangeV2` `params` request
+  rejects with the generic JSON-RPC invalid-request `-32600` /
+  "Invalid Request" envelope, records that invalid-request code/message in the
+  nested report, and expands the KZG connection contract to twenty Engine
+  requests.
+- *Next:* promote one additional non-array request shape such as
+  `params:null` through the same `engine_getPayloadBodiesByRangeV2`
+  invalid-request boundary before widening into unrelated blob-era runner
+  surface.
 
 Detailed historical implementation notes for this section now live in
 `docs/status.md` under "Section 1: Cryptographic Primitives".
