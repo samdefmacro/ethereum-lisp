@@ -274,6 +274,8 @@
   (is (eq nil
           (fixture-object-field report "engineCapabilityHasGetBlobsV1")))
   (is (eq nil
+          (fixture-object-field report "engineCapabilityHasGetBlobsV2")))
+  (is (eq nil
           (fixture-object-field report "engineCapabilityHasPayloadBodiesV2"))))
 
 (defun devnet-cli-assert-kzg-opt-in-smoke-report (report)
@@ -312,6 +314,8 @@
           (fixture-object-field report "engineCapabilityHasNewPayloadV3")))
   (is (eq t
           (fixture-object-field report "engineCapabilityHasGetBlobsV1")))
+  (is (eq t
+          (fixture-object-field report "engineCapabilityHasGetBlobsV2")))
   (is (eq t
           (fixture-object-field report "engineCapabilityHasPayloadBodiesV2")))
   (is (stringp (fixture-object-field report "preparedPayloadV3Id")))
@@ -927,6 +931,12 @@
          (fixture-object-field report "hiddenBlobsV1ErrorCode")))
   (is (string= "Method not found"
                (fixture-object-field report "hiddenBlobsV1ErrorMessage")))
+  (is (= 200
+         (fixture-object-field report "hiddenBlobsV2Status")))
+  (is (= -32601
+         (fixture-object-field report "hiddenBlobsV2ErrorCode")))
+  (is (string= "Method not found"
+               (fixture-object-field report "hiddenBlobsV2ErrorMessage")))
   (is (= 200
          (fixture-object-field report "hiddenPayloadBodiesByRangeV2Status")))
   (is (= -32601
@@ -6070,9 +6080,9 @@ HTTPPort = 1945
                                                  "configuredPublicEndpoint")))
                (is (not (fixture-object-field report
                                                "publicEndpointConnectable")))
-               (is (= 10 (fixture-object-field report "engineConnections")))
+               (is (= 11 (fixture-object-field report "engineConnections")))
                (is (= 0 (fixture-object-field report "publicConnections")))
-               (is (= 10 (fixture-object-field report "totalConnections")))
+               (is (= 11 (fixture-object-field report "totalConnections")))
                (is (string= (namestring database-path)
                             (fixture-object-field report "databaseFile")))
                (is (probe-file database-path))
@@ -6105,7 +6115,7 @@ HTTPPort = 1945
                                               "publicRpcEnabled")))
                (is ready-record)
                (is shutdown-record)
-               (is (string= "10"
+               (is (string= "11"
                             (cdr (assoc "engineConnections"
                                         shutdown-fields
                                         :test #'string=))))
@@ -6113,7 +6123,7 @@ HTTPPort = 1945
                             (cdr (assoc "publicConnections"
                                         shutdown-fields
                                         :test #'string=))))
-               (is (string= "10"
+               (is (string= "11"
                             (cdr (assoc "totalConnections"
                                         shutdown-fields
                                         :test #'string=))))

@@ -12,27 +12,30 @@
 ## Orientation Summary
 
 - Git state: `main` contains the validated engine-only hidden-method batch plus
-  refreshed loop bookkeeping after the non-KZG blob-lookup V1 listener proof.
+  refreshed loop bookkeeping after the non-KZG blob-lookup V2 listener proof.
 - Recent commits reviewed: the latest validated slice closed the live non-KZG
-  `engine_getBlobsV1` listener rejection contract and kept the engine-only
+  `engine_getBlobsV2` listener rejection contract and kept the engine-only
   serve connection/report contract aligned with the extra live probe.
 - Relevant task/roadmap anchors: `DEVNET-RUNNER-KZG-CAPABILITY-OPT-IN` now
   records the completed KZG opt-in positive-path blob/body matrix together
-  with the live non-KZG by-range, by-hash, and blob-lookup V1 hidden-method
+  with the live non-KZG by-range, by-hash, and blob-lookup V1/V2 hidden-method
   rejection proofs.
+- This file is the fresh follow-up contract generated after the V2 slice
+  passed focused validation and verifier review; the `PENDING` verifier state
+  below applies only to the upcoming V3 slice.
 - Relevant loop state: `docs/loop/state.md` now recommends pivoting to the
-  sibling non-KZG hidden-method proof for `engine_getBlobsV2`.
+  sibling non-KZG hidden-method proof for `engine_getBlobsV3`.
 
 ## Candidate Ranking
 
 ### Candidate A
 
-- Objective: prove one live non-KZG engine-only `engine_getBlobsV2` request is
+- Objective: prove one live non-KZG engine-only `engine_getBlobsV3` request is
   rejected at the listener boundary instead of merely being hidden from
   `engine_exchangeCapabilities`.
 - Value: highest; it closes the next adjacent disabled-path blob-era process
   contract while reusing the same engine-only harness and the fail-closed
-  production filter already proven for payload-bodies V2 and blob lookup V1.
+  production filter already proven for payload-bodies V2 and blob lookup V1/V2.
 - Risk: low-medium; likely smoke/assertion/report work only unless the live
   non-KZG listener still exposes or differently normalizes the blob lookup
   method.
@@ -43,35 +46,34 @@
   verifier identifies broader risk.
 - Decision: selected.
 - Reason: it is the next highest-leverage sibling negative-path proof after
-  closing both payload-bodies V2 listener-boundary contracts and the V1 blob
-  lookup boundary.
+  closing both payload-bodies V2 listener-boundary contracts and the V1/V2
+  blob-lookup boundaries.
 
 ### Candidate B
 
-- Objective: widen the listener boundary to the later hidden KZG-backed method
-  `engine_getBlobsV3`.
-- Value: medium; it would add more negative-path breadth but skips the closest
-  sibling that the current core filter already partially covers.
-- Risk: medium.
-- Required validation: similar to Candidate A with likely more report churn.
-- Decision: defer.
-- Reason: lower leverage than finishing the V1 blob-lookup sibling contract
-  first.
-
-### Candidate C
-
 - Objective: pivot back to unrelated Phase B runner or txpool work.
 - Value: lower than Candidate A because the blob-lookup hidden-method line
-  still has an obvious listener-boundary proof missing.
+  still has one obvious listener-boundary proof missing.
 - Risk: medium.
 - Required validation: depends on slice.
 - Decision: defer.
-- Reason: lower leverage than completing the sibling blob-lookup hidden-method
-  proof.
+- Reason: lower leverage than finishing the remaining sibling blob-lookup
+  proof first.
+
+### Candidate C
+
+- Objective: widen beyond the hidden-method proof into malformed-request
+  matrices or broader Engine plumbing.
+- Value: lower than Candidate A because the clean sibling negative-path proof
+  is still available and bounded.
+- Risk: medium-high.
+- Required validation: likely broader than needed for this loop step.
+- Decision: defer.
+- Reason: unnecessary scope growth unless the V3 probe reveals a shared bug.
 
 ## Selected Objective
 
-Prove one live non-KZG engine-only `engine_getBlobsV2` request is rejected at
+Prove one live non-KZG engine-only `engine_getBlobsV3` request is rejected at
 the process boundary, using the existing engine-only smoke path without
 verifier opt-in to lock the disabled-method envelope rather than only
 capability omission.
@@ -90,7 +92,7 @@ Allowed files/modules:
 
 Expected behavior changes:
 
-- The engine-only non-KZG smoke proves live `engine_getBlobsV2` is rejected at
+- The engine-only non-KZG smoke proves live `engine_getBlobsV3` is rejected at
   the listener boundary when verifier opt-in is absent, not only omitted from
   capability advertisement.
 - The smoke/report surface records enough disabled-method error evidence to
@@ -106,14 +108,14 @@ Non-goals:
 - Do not widen the malformed-object KZG opt-in matrix or the positive-path
   blob/cell-proof evidence unless the new negative request uncovers a shared
   bug.
-- Do not widen to `engine_getBlobsV3` unless the V2 probe reveals a shared
+- Do not widen beyond `engine_getBlobsV3` unless this probe reveals a shared
   boundary bug.
 - Do not refactor general Engine RPC plumbing outside the minimal support
   needed for the live disabled-method proof.
 
 ## Acceptance Criteria
 
-- Focused process-boundary coverage proves live non-KZG `engine_getBlobsV2` is
+- Focused process-boundary coverage proves live non-KZG `engine_getBlobsV3` is
   rejected with the documented disabled method envelope.
 - The smoke/assertion surface fails clearly if the live request becomes
   available, returns a different error envelope, or includes a success result.
@@ -164,7 +166,7 @@ Escalation requirements:
 - Commit allowed: only after the applicable focused gate, `git diff --check`,
   and verifier review pass.
 - Push allowed: yes, after commit if remote authentication is available.
-- Commit message: `Smoke cell proof lookup hidden without KZG`
+- Commit message: `Smoke cell proof V3 hidden without KZG`
 
 ## Blockers
 
@@ -178,7 +180,7 @@ Escalation requirements:
   instead of inventing a second listener configuration flow.
 - Prefer extending the current report contract over adding a separate smoke
   mode.
-- Keep the slice centered on one live non-KZG `engine_getBlobsV2`
+- Keep the slice centered on one live non-KZG `engine_getBlobsV3`
   disabled-method behavior, not broader blob/cell-proof widening or new
   malformed-request batching.
 

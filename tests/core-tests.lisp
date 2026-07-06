@@ -14652,6 +14652,20 @@
            (config (make-chain-config))
            (response (parse-json
                       (engine-rpc-handle-request-json
+                       "{\"jsonrpc\":\"2.0\",\"id\":18,\"method\":\"engine_getBlobsV2\",\"params\":[[\"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"]]}"
+                       store
+                       config
+                       :allowed-method-p #'engine-rpc-engine-method-p)))
+           (error (field response "error")))
+      (is (= 18 (field response "id")))
+      (is error)
+      (is (= -32601 (field error "code")))
+      (is (string= "Method not found" (field error "message")))
+      (is (not (field response "result"))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config))
+           (response (parse-json
+                      (engine-rpc-handle-request-json
                        "{\"jsonrpc\":\"2.0\",\"id\":16,\"method\":\"engine_getPayloadBodiesByHashV2\",\"params\":[[\"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"]]}"
                        store
                        config
