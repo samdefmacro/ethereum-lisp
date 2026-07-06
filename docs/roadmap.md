@@ -756,7 +756,12 @@ Validation targets: geth `crypto`, Nethermind `Nethermind.Crypto` and
   both zero-start and zero-count error fields while expanding the KZG
   connection contract to sixteen Engine requests. The non-KZG capability
   matrix still explicitly keeps `engine_getPayloadBodiesByRangeV2` hidden.
-- *Next:* promote one broader malformed quantity or params-envelope
+  The same runner path now also proves a malformed-start
+  `engine_getPayloadBodiesByRangeV2` request rejects with the existing
+  invalid-params `-32602` / "start must be a non-negative quantity" envelope,
+  records that malformed-start code/message in the nested report, and expands
+  the KZG connection contract to seventeen Engine requests.
+- *Next:* promote the matching malformed-count or broader params-envelope
   `engine_getPayloadBodiesByRangeV2` rejection contract to the same process
   boundary before widening into unrelated blob-era runner surface.
 

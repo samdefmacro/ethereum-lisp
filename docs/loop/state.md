@@ -19,12 +19,13 @@ Last updated: 2026-07-06
 
 No intended dirty implementation work should remain after the current validated
 batch is committed and pushed. The latest completed slice is the live
-non-positive `engine_getPayloadBodiesByRangeV2` KZG opt-in runner proof; the
-next run spec should move forward from zero-start/zero-count validation into a
-broader malformed quantity or params-envelope request boundary at the same
-process surface instead of revisiting already-proven V3/V4/V5/V6 payload
+malformed-start `engine_getPayloadBodiesByRangeV2` KZG opt-in runner proof;
+the next run spec should move forward from bad-hex `start` validation into the
+matching malformed `count` or broader params-envelope request boundary at the
+same process surface instead of revisiting already-proven V3/V4/V5/V6 payload
 envelopes, by-hash body retrieval, single-hit by-range proof, sparse mixed-hit
-success proof, oversized-count rejection, or direct blob/cell-proof lookup.
+success proof, zero-start/zero-count rejection, oversized-count rejection, or
+direct blob/cell-proof lookup.
 
 Closed behavior from the latest slice:
 
@@ -89,6 +90,16 @@ Closed behavior from the latest slice:
   connection/shutdown contract expands from fourteen to sixteen Engine
   requests so both positive-number boundary probes are accounted for
   explicitly.
+- The same engine-only `kzgOptIn` smoke now also sends a live malformed-start
+  `engine_getPayloadBodiesByRangeV2` request with `start = "0xzz"`, proving
+  the existing `-32602` / "start must be a non-negative quantity" envelope
+  through the real listener path instead of only in-process validation.
+- The nested `kzgOptIn` report now records
+  `preparedPayloadBodiesByRangeV2MalformedStartErrorCode = -32602` and
+  `preparedPayloadBodiesByRangeV2MalformedStartErrorMessage`, and the nested
+  KZG connection/shutdown contract expands from sixteen to seventeen Engine
+  requests, including the child `--max-connections` cap and shutdown telemetry
+  checks.
 - Positive `--dev.period DURATION` parses through the shared geth-style
   duration path and rejects malformed or negative values.
 - Devnet summaries, readiness data, and lifecycle telemetry report
@@ -502,7 +513,6 @@ The old fixed heartbeat prompt is being replaced by a loop v2 process:
 The next highest-value repository slice is to reuse the same engine-only
 `kzgOptIn` boundary and promote one broader malformed
 `engine_getPayloadBodiesByRangeV2` quantity or params-envelope rejection to the
-live listener. The best bounded follow-up is to prove a malformed quantity
-shape such as a bad hex `start` or `count` string rejects with the existing
-JSON-RPC invalid-params envelope before widening into unrelated blob-era
-runner work.
+live listener. The best bounded follow-up is to prove the matching malformed
+`count` quantity shape rejects with the existing JSON-RPC invalid-params
+envelope before widening into unrelated blob-era runner work.
