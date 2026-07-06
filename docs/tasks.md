@@ -1848,6 +1848,20 @@ ones.
     `git diff --check`, and independent verifier review passed. Residual risk
     is now limited to additional non-array request-shape drift such as
     `params:null` or empty-object envelopes at the same runner boundary.
+  - Result (2026-07-06): the same engine-only `kzgOptIn` child now also sends
+    a live `params:null` `engine_getPayloadBodiesByRangeV2` request and proves
+    the existing invalid-params `-32602` /
+    "engine_getPayloadBodiesByRangeV2 params must include start and count"
+    envelope through the real listener path instead of relying on the stale
+    generic invalid-request assumption. The nested report records
+    `preparedPayloadBodiesByRangeV2NullParamsErrorCode` and
+    `preparedPayloadBodiesByRangeV2NullParamsErrorMessage`; the child
+    `--max-connections` budget and shutdown telemetry checks expand from
+    twenty to twenty-one Engine requests; and focused escalated smoke, direct
+    escalated `DEVNET-SMOKE-GATE-SCRIPT-ENGINE-ONLY-SERVE-MODE` coverage,
+    `git diff --check`, and independent verifier review passed. Residual risk
+    is now limited to object-valued non-array `params` drift at the same
+    runner boundary.
 - [x] `DEVNET-RUNNER-KZG-ERROR-TELEMETRY`: Lock invalid KZG verifier
   configuration as a runner-facing startup failure.
   - Result (2026-07-03): `scripts/ethereum-lisp.lisp -- devnet` subprocess
