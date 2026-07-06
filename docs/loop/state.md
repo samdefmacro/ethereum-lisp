@@ -19,10 +19,10 @@ Last updated: 2026-07-06
 
 No intended dirty implementation work should remain after the current validated
 batch is committed and pushed. The latest completed slice is the live
-non-KZG hidden `engine_getPayloadBodiesByHashV2` listener proof on top of the
-existing fail-closed Engine-method gate that keeps KZG-backed methods hidden
-unless both verifier hooks are installed. The next run spec should pivot to
-the sibling non-KZG hidden-method rejection for `engine_getBlobsV1` instead of
+non-KZG hidden `engine_getBlobsV1` listener proof on top of the existing
+fail-closed Engine-method gate that keeps KZG-backed methods hidden unless
+both verifier hooks are installed. The next run spec should pivot to the
+sibling non-KZG hidden-method rejection for `engine_getBlobsV2` instead of
 revisiting already-proven V3/V4/V5/V6 payload envelopes, by-hash/by-range
 payload-body probes, malformed-object KZG opt-in proofs, quantity/object
 rejection matrices, or direct positive-path blob/cell-proof lookup.
@@ -641,9 +641,8 @@ The old fixed heartbeat prompt is being replaced by a loop v2 process:
 
 The next highest-value repository slice is to reuse the same engine-only
 listener coverage and prove the sibling hidden-without-KZG negative request
-contract for `engine_getBlobsV1`. The best bounded follow-up is to send one
+contract for `engine_getBlobsV2`. The best bounded follow-up is to send one
 live non-KZG engine-only request for that method, require the same
 disabled-path JSON-RPC `-32601` / `"Method not found"` envelope now proven
-for payload-bodies V2, and record the result before widening into additional
-blob-era hidden methods such as `engine_getBlobsV2` / `engine_getBlobsV3` or
-unrelated Phase B runner work.
+for `engine_getBlobsV1`, and record the result before widening into
+`engine_getBlobsV3` or unrelated Phase B runner work.

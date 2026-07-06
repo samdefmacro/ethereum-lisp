@@ -1990,6 +1990,21 @@ ones.
     limited to sibling listener-boundary hidden-method proofs such as live
     non-KZG `engine_getBlobsV1` rejection or a deliberate pivot to broader
     Phase B runner work.
+  - Result (2026-07-06): the same engine-only non-KZG smoke now also sends one
+    live hidden `engine_getBlobsV1` request and proves the listener rejects it
+    with JSON-RPC `-32601` / `"Method not found"` instead of returning a
+    success `result`. The engine-only report now records
+    `hiddenBlobsV1Status`, `hiddenBlobsV1ErrorCode`, and
+    `hiddenBlobsV1ErrorMessage`; direct core coverage now proves
+    `engine_getBlobsV1` is rejected through the same non-KZG method filter;
+    and the engine-only serve connection/shutdown contract expands from nine
+    to ten Engine requests to account for the extra live probe. Focused
+    escalated engine-only smoke, focused escalated
+    `DEVNET-SMOKE-GATE-SCRIPT-ENGINE-ONLY-SERVE-MODE` coverage,
+    `git diff --check`, and verifier review passed. Residual risk is now
+    limited to sibling listener-boundary hidden-method proofs such as live
+    non-KZG `engine_getBlobsV2` rejection or a deliberate pivot to broader
+    Phase B runner work.
 - [x] `DEVNET-RUNNER-KZG-ERROR-TELEMETRY`: Lock invalid KZG verifier
   configuration as a runner-facing startup failure.
   - Result (2026-07-03): `scripts/ethereum-lisp.lisp -- devnet` subprocess

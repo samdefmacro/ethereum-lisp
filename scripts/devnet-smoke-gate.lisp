@@ -2442,10 +2442,13 @@ references/ checkouts.~%")
         (client-thread nil)
         (client-response nil)
         (blocked-client-response nil)
+        (hidden-blobs-v1-response nil)
         (hidden-payload-bodies-v2-response nil)
         (hidden-payload-bodies-by-hash-v2-response nil)
         (capabilities-response nil)
         (capabilities-result nil)
+        (hidden-blobs-v1-rpc nil)
+        (hidden-blobs-v1-error nil)
         (hidden-payload-bodies-v2-rpc nil)
         (hidden-payload-bodies-v2-error nil)
         (hidden-payload-bodies-by-hash-v2-rpc nil)
@@ -2540,6 +2543,17 @@ references/ checkouts.~%")
                              "engine_newPayloadV2"
                              "engine_forkchoiceUpdatedV2"
                              "engine_getPayloadV2"))))))
+                  (hidden-blobs-v1-body
+                    (json-encode
+                     (list
+                      (cons "jsonrpc" "2.0")
+                      (cons "id" 909)
+                      (cons "method" "engine_getBlobsV1")
+                      (cons
+                       "params"
+                       (list
+                        (list
+                         "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))))))
                   (hidden-payload-bodies-v2-body
                     (json-encode
                      (list
@@ -2604,10 +2618,10 @@ references/ checkouts.~%")
                              node))))
              (when pid-file
                (ethereum-lisp.cli::devnet-cli-write-pid-file pid-file))
-             (let ((summary
+              (let ((summary
                       (ethereum-lisp.cli:start-devnet-node
                       node
-                      :max-connections 9
+                      :max-connections 10
                       :public-rpc-enabled-p nil
                       :on-listeners-ready
                       (lambda (engine-listener public-listener)
@@ -2665,6 +2679,15 @@ references/ checkouts.~%")
                                              engine-endpoint
                                              (devnet-cli-json-rpc-http-request
                                               capabilities-body
+                                              :token token
+                                              :host "engine.runner"
+                                              :target
+                                              +devnet-smoke-gate-engine-rpc-prefix+)))
+                                      (setf hidden-blobs-v1-response
+                                            (devnet-cli-http-endpoint-request
+                                             engine-endpoint
+                                             (devnet-cli-json-rpc-http-request
+                                              hidden-blobs-v1-body
                                               :token token
                                               :host "engine.runner"
                                               :target
@@ -2769,13 +2792,13 @@ references/ checkouts.~%")
                     "Engine-only database restore head state unavailable")
                    (setf database-summary restored-summary)))
                (devnet-smoke-gate-require
-                (= 9 (getf summary :engine-connections))
+                (= 10 (getf summary :engine-connections))
                 "Engine-only serve Engine connection count mismatch")
                (devnet-smoke-gate-require
                 (= 0 (getf summary :public-connections))
                 "Engine-only serve public connection count mismatch")
                (devnet-smoke-gate-require
-                (= 9 (getf summary :total-connections))
+                (= 10 (getf summary :total-connections))
                 "Engine-only serve total connection count mismatch")
                (devnet-smoke-gate-require
                 (and engine-endpoint
@@ -2790,6 +2813,9 @@ references/ checkouts.~%")
                (devnet-smoke-gate-require
                 (= 404 (devnet-cli-http-status blocked-client-response))
                 "Engine-only serve root Engine response HTTP status mismatch")
+               (devnet-smoke-gate-require
+                (= 200 (devnet-cli-http-status hidden-blobs-v1-response))
+                "Engine-only serve hidden engine_getBlobsV1 HTTP status mismatch")
                (devnet-smoke-gate-require
                 (= 200 (devnet-cli-http-status hidden-payload-bodies-v2-response))
                 "Engine-only serve hidden engine_getPayloadBodiesByRangeV2 HTTP status mismatch")
@@ -2837,6 +2863,13 @@ references/ checkouts.~%")
                         (parse-json
                          (devnet-cli-http-body
                           hidden-payload-bodies-v2-response)))
+                      (parsed-hidden-blobs-v1-rpc
+                        (parse-json
+                         (devnet-cli-http-body hidden-blobs-v1-response)))
+                      (parsed-hidden-blobs-v1-error
+                        (fixture-object-field
+                         parsed-hidden-blobs-v1-rpc
+                         "error"))
                       (parsed-hidden-payload-bodies-v2-error
                         (fixture-object-field
                          parsed-hidden-payload-bodies-v2-rpc
@@ -2886,6 +2919,10 @@ references/ checkouts.~%")
                         (first (fixture-object-field engine-rpc "result"))))
                  (setf hidden-payload-bodies-v2-rpc
                        parsed-hidden-payload-bodies-v2-rpc
+                       hidden-blobs-v1-rpc
+                       parsed-hidden-blobs-v1-rpc
+                       hidden-blobs-v1-error
+                       parsed-hidden-blobs-v1-error
                        hidden-payload-bodies-v2-error
                        parsed-hidden-payload-bodies-v2-error
                        hidden-payload-bodies-by-hash-v2-rpc
@@ -2910,6 +2947,28 @@ references/ checkouts.~%")
                        (listp capabilities-result))
                   "Engine-only serve engine_exchangeCapabilities result missing from ~A"
                   (devnet-cli-http-body capabilities-response))
+                 (devnet-smoke-gate-require
+                  hidden-blobs-v1-error
+                  "Engine-only serve hidden engine_getBlobsV1 unexpectedly returned success: ~S"
+                  hidden-blobs-v1-rpc)
+                 (devnet-smoke-gate-require
+                  (= -32601
+                     (fixture-object-field hidden-blobs-v1-error "code"))
+                  "Engine-only serve hidden engine_getBlobsV1 error code mismatch: ~S"
+                  hidden-blobs-v1-error)
+                 (devnet-smoke-gate-require
+                  (string= "Method not found"
+                           (fixture-object-field hidden-blobs-v1-error
+                                                 "message"))
+                  "Engine-only serve hidden engine_getBlobsV1 error message mismatch: ~S"
+                  hidden-blobs-v1-error)
+                 (devnet-smoke-gate-require
+                  (not (find "result"
+                             hidden-blobs-v1-rpc
+                             :test #'string=
+                             :key #'car))
+                  "Engine-only serve hidden engine_getBlobsV1 should not include a success result: ~S"
+                  hidden-blobs-v1-rpc)
                  (devnet-smoke-gate-require
                   hidden-payload-bodies-v2-error
                   "Engine-only serve hidden engine_getPayloadBodiesByRangeV2 unexpectedly returned success: ~S"
@@ -3141,6 +3200,17 @@ references/ checkouts.~%")
                              (devnet-cli-http-status client-response))
                        (cons "engineRpcPrefixBlockedStatus"
                              (devnet-cli-http-status blocked-client-response))
+                       (cons "hiddenBlobsV1Status"
+                             (devnet-cli-http-status
+                              hidden-blobs-v1-response))
+                       (cons "hiddenBlobsV1ErrorCode"
+                             (fixture-object-field
+                              hidden-blobs-v1-error
+                              "code"))
+                       (cons "hiddenBlobsV1ErrorMessage"
+                             (fixture-object-field
+                              hidden-blobs-v1-error
+                              "message"))
                        (cons "hiddenPayloadBodiesByRangeV2Status"
                              (devnet-cli-http-status
                               hidden-payload-bodies-v2-response))
@@ -3214,9 +3284,9 @@ references/ checkouts.~%")
                              (getf summary :total-connections))
                        (cons "connectionContract"
                              (list
-                              (cons "expectedEngineConnections" 9)
+                              (cons "expectedEngineConnections" 10)
                               (cons "expectedPublicConnections" 0)
-                              (cons "expectedTotalConnections" 9)))
+                              (cons "expectedTotalConnections" 10)))
                        (cons "engineCapabilityCount"
                              (length capabilities-result))
                        (cons "engineCapabilityHasNewPayloadV1"
@@ -15574,6 +15644,12 @@ references/ checkouts.~%")
             (devnet-smoke-gate-field report "engineEndpoint"))
     (format t "rpcEndpoint=~A~%"
             (devnet-smoke-gate-field report "rpcEndpoint"))
+    (format t "hiddenBlobsV1Status=~A~%"
+            (devnet-smoke-gate-field report "hiddenBlobsV1Status"))
+    (format t "hiddenBlobsV1ErrorCode=~A~%"
+            (devnet-smoke-gate-field report "hiddenBlobsV1ErrorCode"))
+    (format t "hiddenBlobsV1ErrorMessage=~A~%"
+            (devnet-smoke-gate-field report "hiddenBlobsV1ErrorMessage"))
     (format t "readyFile=~A~%"
             (devnet-smoke-gate-field report "readyFile"))
     (format t "logFile=~A~%"

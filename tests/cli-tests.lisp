@@ -922,6 +922,12 @@
 
 (defun devnet-cli-assert-engine-only-hidden-payload-bodies-v2-report (report)
   (is (= 200
+         (fixture-object-field report "hiddenBlobsV1Status")))
+  (is (= -32601
+         (fixture-object-field report "hiddenBlobsV1ErrorCode")))
+  (is (string= "Method not found"
+               (fixture-object-field report "hiddenBlobsV1ErrorMessage")))
+  (is (= 200
          (fixture-object-field report "hiddenPayloadBodiesByRangeV2Status")))
   (is (= -32601
          (fixture-object-field
@@ -6064,9 +6070,9 @@ HTTPPort = 1945
                                                  "configuredPublicEndpoint")))
                (is (not (fixture-object-field report
                                                "publicEndpointConnectable")))
-               (is (= 9 (fixture-object-field report "engineConnections")))
+               (is (= 10 (fixture-object-field report "engineConnections")))
                (is (= 0 (fixture-object-field report "publicConnections")))
-               (is (= 9 (fixture-object-field report "totalConnections")))
+               (is (= 10 (fixture-object-field report "totalConnections")))
                (is (string= (namestring database-path)
                             (fixture-object-field report "databaseFile")))
                (is (probe-file database-path))
@@ -6099,7 +6105,7 @@ HTTPPort = 1945
                                               "publicRpcEnabled")))
                (is ready-record)
                (is shutdown-record)
-               (is (string= "9"
+               (is (string= "10"
                             (cdr (assoc "engineConnections"
                                         shutdown-fields
                                         :test #'string=))))
@@ -6107,7 +6113,7 @@ HTTPPort = 1945
                             (cdr (assoc "publicConnections"
                                         shutdown-fields
                                         :test #'string=))))
-               (is (string= "9"
+               (is (string= "10"
                             (cdr (assoc "totalConnections"
                                         shutdown-fields
                                         :test #'string=))))
@@ -7684,11 +7690,11 @@ HTTPPort = 1945
                      devnet-engine-only "configuredPublicEndpoint")))
         (is (not (fixture-object-field
                   devnet-engine-only "publicEndpointConnectable")))
-        (is (= 9 (fixture-object-field
+        (is (= 10 (fixture-object-field
                   devnet-engine-only "engineConnections")))
         (is (= 0 (fixture-object-field
                   devnet-engine-only "publicConnections")))
-        (is (= 9 (fixture-object-field
+        (is (= 10 (fixture-object-field
                   devnet-engine-only "totalConnections")))
         (let ((side-reorg-cases
                 (fixture-object-field devnet-side-reorg "cases")))
@@ -8092,7 +8098,7 @@ HTTPPort = 1945
                        devnet-engine-only "configuredPublicEndpoint")))
           (is (not (fixture-object-field
                     devnet-engine-only "publicEndpointConnectable")))
-          (is (= 9 (fixture-object-field
+          (is (= 10 (fixture-object-field
                     devnet-engine-only "engineConnections")))
           (is (= 0 (fixture-object-field
                     devnet-engine-only "publicConnections"))))))))

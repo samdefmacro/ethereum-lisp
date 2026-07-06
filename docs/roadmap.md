@@ -818,7 +818,7 @@ Validation targets: geth `crypto`, Nethermind `Nethermind.Crypto` and
   `sbcl --script tests/run-tests.lisp` gate passed with `895 tests passed, 5
   skipped`.
 - *Next:* reuse the same engine-only listener coverage to prove the sibling
-  non-KZG hidden-method rejection for `engine_getBlobsV1` instead of
+  non-KZG hidden-method rejection for `engine_getBlobsV2` instead of
   reopening the already-closed payload-bodies V2 or malformed-object matrix.
 
 Detailed historical implementation notes for this section now live in
