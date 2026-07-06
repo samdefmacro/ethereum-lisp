@@ -19,13 +19,13 @@ Last updated: 2026-07-06
 
 No intended dirty implementation work should remain after the current validated
 batch is committed and pushed. The latest completed slice is the live
-malformed-start `engine_getPayloadBodiesByRangeV2` KZG opt-in runner proof;
-the next run spec should move forward from bad-hex `start` validation into the
-matching malformed `count` or broader params-envelope request boundary at the
-same process surface instead of revisiting already-proven V3/V4/V5/V6 payload
-envelopes, by-hash body retrieval, single-hit by-range proof, sparse mixed-hit
-success proof, zero-start/zero-count rejection, oversized-count rejection, or
-direct blob/cell-proof lookup.
+malformed-count `engine_getPayloadBodiesByRangeV2` KZG opt-in runner proof;
+the next run spec should move forward from bad-hex quantity validation into
+one broader params-envelope request boundary at the same process surface
+instead of revisiting already-proven V3/V4/V5/V6 payload envelopes, by-hash
+body retrieval, single-hit by-range proof, sparse mixed-hit success proof,
+zero-start/zero-count rejection, malformed-start rejection, malformed-count
+rejection, oversized-count rejection, or direct blob/cell-proof lookup.
 
 Closed behavior from the latest slice:
 
@@ -100,6 +100,16 @@ Closed behavior from the latest slice:
   KZG connection/shutdown contract expands from sixteen to seventeen Engine
   requests, including the child `--max-connections` cap and shutdown telemetry
   checks.
+- The same engine-only `kzgOptIn` smoke now also sends a live malformed-count
+  `engine_getPayloadBodiesByRangeV2` request with `count = "0xzz"`, proving
+  the existing `-32602` / "count must be a non-negative quantity" envelope
+  through the real listener path instead of only in-process validation.
+- The nested `kzgOptIn` report now records
+  `preparedPayloadBodiesByRangeV2MalformedCountErrorCode = -32602` and
+  `preparedPayloadBodiesByRangeV2MalformedCountErrorMessage`, and the nested
+  KZG connection/shutdown contract expands from seventeen to eighteen Engine
+  requests, including the child `--max-connections` cap and shutdown
+  telemetry checks.
 - Positive `--dev.period DURATION` parses through the shared geth-style
   duration path and rejects malformed or negative values.
 - Devnet summaries, readiness data, and lifecycle telemetry report
