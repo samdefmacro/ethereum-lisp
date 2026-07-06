@@ -16,77 +16,70 @@
   `engine_getPayloadV5`, non-empty `engine_getPayloadV6`, direct
   `engine_getBlobsV1`, direct `engine_getBlobsV2` / `engine_getBlobsV3`,
   live `engine_getPayloadBodiesByHashV2`, single-hit
-  `engine_getPayloadBodiesByRangeV2`, a sparse mixed-hit
-  `engine_getPayloadBodiesByRangeV2` response with a leading `null`
-  placeholder, live oversized/zero/malformed quantity rejection, a one-element
-  params-array invalid-params contract, a scalar non-array invalid-request
-  contract, and now a distinct `params:null` invalid-params contract.
+  `engine_getPayloadBodiesByRangeV2`, sparse mixed-hit range/null behavior,
+  oversized/zero/malformed quantity rejection, one-element params-array
+  rejection, scalar non-array invalid-request, `params:null` invalid-params,
+  and now one non-empty object-valued invalid-params request shape.
 - Recent commits reviewed: the latest validated slices moved the runner proof
-  through canonical by-range retrieval, sparse mixed-hit range/null behavior,
-  oversized-count request-boundary coverage, non-positive request-boundary
-  coverage, malformed quantity coverage, missing-count params-envelope
-  coverage, scalar non-array invalid-request coverage, and now a null-params
-  invalid-params proof without widening production code.
+  through malformed quantity coverage, one-element params-envelope coverage,
+  scalar non-array invalid-request coverage, null-params invalid-params
+  coverage, and now a live non-empty object-valued
+  `engine_getPayloadBodiesByRangeV2` proof without widening production code.
 - Relevant task/roadmap anchors: `DEVNET-RUNNER-KZG-CAPABILITY-OPT-IN` now
-  records both scalar non-array invalid-request and `params:null`
-  invalid-params proofs; the remaining narrow gap on this line is one
-  object-valued non-array request shape at the same runner boundary.
-- Relevant loop state: in-process `engine-rpc-handle-get-payload-bodies-by-range`
-  currently normalizes a non-empty object-valued `params` request such as
-  `{"start":"0x1","count":"0x1"}` into the invalid-params
-  `-32602` / `"start must be a non-negative quantity"` envelope.
+  records the non-empty object-valued request proof; the remaining narrow gap
+  on this line is an empty-object `params` request at the same runner
+  boundary.
+- Relevant loop state: `docs/loop/state.md` now treats the object-valued
+  request proof as closed and recommends one empty-object `{}` request before
+  widening into unrelated blob-era runner work.
 
 ## Candidate Ranking
 
 ### Candidate A
 
-- Objective: prove one live runner-bound non-empty object-valued
-  `engine_getPayloadBodiesByRangeV2` `params` request such as
-  `{"start":"0x1","count":"0x1"}` returns the existing invalid-params
-  `-32602` / `"start must be a non-negative quantity"` envelope.
-- Value: highest; it extends the same malformed request-shape matrix with a
-  distinct non-array object form after the scalar and null proofs are locked.
+- Objective: prove one live empty-object `engine_getPayloadBodiesByRangeV2`
+  `params` request such as `{}` returns the current missing-params
+  invalid-params envelope at the engine-only KZG runner boundary.
+- Value: highest; it closes the next distinct malformed object shape on the
+  same listener path after the non-empty object proof landed.
 - Risk: low-medium; likely smoke/assertion/report work only unless the live
-  listener diverges from the in-process contract.
+  listener diverges from the documented in-process contract.
 - Required validation: focused escalated
   `sbcl --script scripts/devnet-smoke-gate.lisp -- --engine-only-serve --json`,
-  focused engine-only CLI coverage if report assertions change,
-  `git diff --check`, verifier review, and the full suite only if production
-  code changes.
+  focused CLI coverage if report assertions change, `git diff --check`,
+  verifier review, and the full suite only if production code changes.
 - Decision: selected.
-- Reason: it is the next bounded malformed shape that still exercises the same
-  process boundary without broadening into unrelated blob-era surface.
+- Reason: it extends the same malformed request-shape matrix with another
+  bounded object form without broadening into unrelated runner surface.
 
 ### Candidate B
 
-- Objective: revisit already-proven malformed quantity or scalar/null request
-  shapes on the same runner path.
-- Value: lower; it would duplicate current proof instead of extending the
-  request-shape matrix.
-- Risk: low.
-- Required validation: same as Candidate A.
+- Objective: batch multiple additional malformed object shapes on the same
+  boundary.
+- Value: lower; it risks widening scope after the selected non-empty object
+  request already proved one new shape.
+- Risk: medium; it increases validation and review cost without a clear
+  priority edge over one empty-object proof.
+- Required validation: same as Candidate A, potentially with more report churn.
 - Decision: defer.
-- Reason: lower leverage than one new object-valued request shape.
+- Reason: lower leverage than one more bounded object-shape proof.
 
 ### Candidate C
 
-- Objective: widen unrelated blob-era runner surface or broader Engine RPC
-  malformed-request batching.
-- Value: lower than Candidate A because the remaining narrow gap is still one
-  object-valued request-shape proof at the same boundary.
-- Risk: medium; it risks scope creep and unnecessary validation cost.
+- Objective: switch to unrelated blob-era or public-RPC runner surface.
+- Value: lower than Candidate A because this listener-bound malformed-request
+  line is still one bounded slice away from a cleaner close-out.
+- Risk: medium.
 - Required validation: depends on slice.
 - Decision: defer.
 - Reason: lower leverage than finishing the next malformed request-shape proof.
 
 ## Selected Objective
 
-Prove one live runner-bound non-empty object-valued
-`engine_getPayloadBodiesByRangeV2` `params` request under KZG verifier opt-in,
-using the existing engine-only smoke child to send a JSON object like
-`{"start":"0x1","count":"0x1"}` and lock the current invalid-params
-`-32602` / `"start must be a non-negative quantity"` contract at the process
-boundary.
+Prove one live empty-object `engine_getPayloadBodiesByRangeV2` `params`
+request under KZG verifier opt-in, using the existing engine-only smoke child
+to send `{}` and lock the current missing-params invalid-params envelope at
+the process boundary.
 
 ## Scope
 
@@ -103,44 +96,45 @@ Allowed files/modules:
 Expected behavior changes:
 
 - The engine-only `kzgOptIn` smoke proves live
-  `engine_getPayloadBodiesByRangeV2` rejects one object-valued `params`
-  request with the expected invalid-params envelope, not only sparse success
-  responses, malformed quantities, missing-array elements, a scalar non-array
-  invalid-request, a null-params invalid-params request, oversized counts, or
-  zero-valued numeric bounds.
-- The nested runner report records enough object-valued request evidence to
+  `engine_getPayloadBodiesByRangeV2` rejects one empty-object `params`
+  request with the documented invalid-params envelope, not only sparse
+  success responses, malformed quantities, missing-array elements, scalar
+  non-array invalid-request, null-params invalid-params, non-empty object
+  invalid-params, oversized counts, or zero-valued numeric bounds.
+- The nested runner report records enough empty-object request evidence to
   debug error-code/message regressions at the process boundary.
 - The existing sparse mixed-hit success probe, malformed-start error probe,
   malformed-count error probe, one-element-array missing-count error probe,
   scalar non-array invalid-request probe, null-params invalid-params probe,
-  zero-start/zero-count error probes, and oversized-count error probe remain
-  intact on the same runner path.
+  non-empty object invalid-params probe, zero-start/zero-count error probes,
+  and oversized-count error probe remain intact on the same runner path.
 
 Non-goals:
 
-- Do not batch multiple new malformed object shapes unless the selected object
+- Do not batch multiple new malformed object shapes unless the empty-object
   request reveals a concrete shared bug.
 - Do not revisit already-proven by-hash, single-hit by-range, sparse mixed-hit
   by-range, malformed-start, malformed-count, one-element-array missing-count,
-  scalar non-array invalid-request, null-params invalid-params, zero-valued
-  positive-number rejection, oversized-count rejection, or direct blob/cell-
-  proof retrieval unless the new request regresses them.
+  scalar non-array invalid-request, null-params invalid-params, non-empty
+  object invalid-params, zero-valued positive-number rejection, oversized-count
+  rejection, or direct blob/cell-proof retrieval unless the new request
+  regresses them.
 - Do not refactor general Engine RPC plumbing outside the minimal support
-  needed for the live object-valued request proof.
+  needed for the live empty-object request proof.
 
 ## Acceptance Criteria
 
 - Focused process-boundary coverage proves live verifier opt-in
-  `engine_getPayloadBodiesByRangeV2` rejects the selected object-valued
-  request with the expected invalid-params error code/message.
+  `engine_getPayloadBodiesByRangeV2` rejects the selected empty-object request
+  with the documented invalid-params code/message.
 - The smoke/assertion surface fails clearly if the live request no longer
   returns the documented validation envelope or if the runner silently returns
   a success result instead of the error.
 - The existing sparse mixed-hit success probe, malformed-start error probe,
   malformed-count error probe, one-element-array missing-count error probe,
   scalar non-array invalid-request probe, null-params invalid-params probe,
-  zero-start/zero-count error probes, and oversized-count error probe remain
-  green in the same smoke path.
+  non-empty object invalid-params probe, zero-start/zero-count error probes,
+  and oversized-count error probe remain green in the same smoke path.
 - Independent verifier reviews the final diff before commit.
 
 ## Validation Plan
@@ -165,7 +159,7 @@ Focused gates:
 Required pre-commit gates:
 
 - `git diff --check`
-- focused escalated engine-only smoke for the new object-valued path
+- focused escalated engine-only smoke for the empty-object path
 - independent verifier `PASS`
 - full suite only if production code changes or verifier flags broader risk
 
@@ -178,20 +172,20 @@ Full-suite policy:
 Escalation requirements:
 
 - Request local socket/network escalation before the focused smoke gate.
-- If the runner normalizes the selected object-valued failure through a
-  different error envelope than the in-process core path, stop and record that
-  exact mismatch instead of broadening scope.
+- If the runner normalizes the selected empty-object failure through a
+  different error envelope than the documented in-process path, stop and
+  record that exact mismatch instead of broadening scope.
 
 ## Commit And Push Policy
 
 - Commit allowed: only after the applicable focused gate, `git diff --check`,
   and verifier review pass.
 - Push allowed: yes, after commit if remote authentication is available.
-- Commit message: `Smoke V2 payload body range object params`
+- Commit message: `Smoke V2 payload body range empty object params`
 
 ## Blockers
 
-- If the selected object-valued request proof reveals a real production
+- If the selected empty-object request proof reveals a real production
   mismatch that needs broader Engine RPC work, stop and write that narrower
   blocker instead of widening into a larger blob-era project.
 
@@ -201,11 +195,12 @@ Escalation requirements:
   prepared block path, sparse mixed-hit success probe, malformed-start probe,
   malformed-count probe, one-element-array missing-count probe, scalar
   non-array invalid-request probe, null-params invalid-params probe,
-  zero-start/zero-count probes, and oversized-count probe instead of
-  inventing a second verifier configuration flow.
+  non-empty object invalid-params probe, zero-start/zero-count probes, and
+  oversized-count probe instead of inventing a second verifier configuration
+  flow.
 - Prefer extending the current nested report contract over adding a separate
   smoke mode.
-- Keep the slice centered on one live object-valued
+- Keep the slice centered on one live empty-object
   `engine_getPayloadBodiesByRangeV2` behavior, not broader Amsterdam fixture
   realism or general malformed-request batching.
 
@@ -213,4 +208,4 @@ Escalation requirements:
 
 - Status: `PENDING`
 - Findings: none yet.
-- Residual risk: pending implementation and focused validation.
+- Residual risk: pending implementation.
