@@ -45,6 +45,13 @@ The first mechanical split is:
   derivation, and public key recovery.
 - `crypto-empty-hashes.lisp`: canonical empty code and empty trie hashes.
 - `crypto.lisp`: compatibility package entry for crypto modules.
+- `trie-encoding.lisp`: hex-prefix nibble encoding primitives.
+- `trie-types.lisp`: Merkle Patricia Trie node and in-memory store types.
+- `trie-store.lisp`: mutable trie entry put/get/delete and ordered scans.
+- `trie-nodes.lisp`: canonical node construction, node RLP references, and
+  root hash derivation.
+- `trie-proofs.lisp`: proof construction and proof verification.
+- `trie.lisp`: compatibility package entry for trie modules.
 - `chain-config-*.lisp`: chain configuration types, fork activation
   predicates, blob schedule selection, and effective chain-rule construction.
 - `chain-config.lisp`: compatibility package entry for chain config modules.
