@@ -76,8 +76,10 @@ The first mechanical split is:
   encoding/decoding and signing hash.
 - `transactions-blob.lisp`: EIP-4844 blob transaction and blob sidecar
   structures.
-- `transactions-set-code.lisp`: EIP-7702 authorization tuples, delegation
-  code helpers, and set-code transaction encoding/decoding.
+- `transactions-set-code-authorization.lisp`: EIP-7702 authorization tuples
+  and delegation code helpers.
+- `transactions-set-code.lisp`: EIP-7702 set-code transaction
+  encoding/decoding.
 - `transactions-accessors.lisp`: cross-type transaction accessors, type
   dispatch, blob gas counting, and access-list sizing.
 - `transactions.lisp`: transaction fork validation, gas-price calculation,

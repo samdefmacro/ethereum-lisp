@@ -56,6 +56,7 @@
      (:file "transactions-access-list")
      (:file "transactions-dynamic-fee")
      (:file "transactions-blob")
+     (:file "transactions-set-code-authorization")
      (:file "transactions-set-code")
      (:file "transactions-accessors")
      (:file "transactions")

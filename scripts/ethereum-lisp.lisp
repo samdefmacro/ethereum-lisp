@@ -64,6 +64,7 @@
            "src/transactions-access-list.lisp"
            "src/transactions-dynamic-fee.lisp"
            "src/transactions-blob.lisp"
+           "src/transactions-set-code-authorization.lisp"
            "src/transactions-set-code.lisp"
            "src/transactions-accessors.lisp"
            "src/transactions.lisp"
