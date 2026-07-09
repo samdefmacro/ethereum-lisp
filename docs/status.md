@@ -19,7 +19,7 @@ Implemented:
 - ASDF/source-loadable project structure
 - byte-vector, hex, quantity, address, hash32, uint256 helpers
 - canonical RLP encoder/decoder with non-canonical rejection tests
-- self-contained test runner
+- script test runner
 - reference-source map
 
 ## Section 1: Cryptographic Primitives

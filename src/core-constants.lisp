@@ -1,0 +1,26 @@
+(in-package #:ethereum-lisp.core)
+
+;;; Protocol constants shared across core domain modules.
+
+(defparameter +empty-ommers-hash+ (keccak-256-hash (rlp-encode '())))
+(defconstant +initial-base-fee+ 1000000000)
+(defconstant +base-fee-elasticity-multiplier+ 2)
+(defconstant +base-fee-change-denominator+ 8)
+(defconstant +blob-byte-size+ +blob-gas-per-blob+)
+(defconstant +kzg-proof-size+ +kzg-commitment-size+)
+(defconstant +kzg-field-element-size+ 32)
+(defconstant +kzg-blob-field-elements-per-blob+ 4096)
+(defconstant +kzg-field-modulus+
+  #x73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001)
+(defconstant +cell-proofs-per-blob+ 128)
+(defconstant +min-blobs-per-transaction+ 1)
+(defconstant +min-blob-gas-price+ 1)
+(defconstant +blob-base-cost+ 8192)
+(defconstant +maximum-extra-data-size+ 32)
+(defconstant +gas-limit-bound-divisor+ 1024)
+(defconstant +minimum-gas-limit+ 5000)
+(defconstant +max-header-gas-limit+ #x7fffffffffffffff)
+(defconstant +block-access-list-max-code-size+ 24576)
+(defconstant +block-access-list-amsterdam-max-code-size+ 32768)
+(defconstant +block-access-list-item-gas-cost+ 2000)
+(defconstant +txpool-replacement-price-bump-percent+ 10)

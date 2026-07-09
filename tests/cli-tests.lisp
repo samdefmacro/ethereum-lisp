@@ -177,6 +177,16 @@
     (is (= (fixture-object-field report "totalConnections")
            (fixture-object-field contract "expectedTotalConnections")))))
 
+(defun devnet-cli-assert-engine-only-connection-contract (report)
+  (let ((contract (fixture-object-field report "connectionContract")))
+    (is contract)
+    (is (= (fixture-object-field report "engineConnections")
+           (fixture-object-field contract "expectedEngineConnections")))
+    (is (= (fixture-object-field report "publicConnections")
+           (fixture-object-field contract "expectedPublicConnections")))
+    (is (= (fixture-object-field report "totalConnections")
+           (fixture-object-field contract "expectedTotalConnections")))))
+
 (defun devnet-cli-assert-engine-client-version (report)
   (is (string= "CL"
                (fixture-object-field report "engineClientVersionCode")))
@@ -6080,9 +6090,7 @@ HTTPPort = 1945
                                                  "configuredPublicEndpoint")))
                (is (not (fixture-object-field report
                                                "publicEndpointConnectable")))
-               (is (= 11 (fixture-object-field report "engineConnections")))
-               (is (= 0 (fixture-object-field report "publicConnections")))
-               (is (= 11 (fixture-object-field report "totalConnections")))
+               (devnet-cli-assert-engine-only-connection-contract report)
                (is (string= (namestring database-path)
                             (fixture-object-field report "databaseFile")))
                (is (probe-file database-path))
@@ -7700,12 +7708,8 @@ HTTPPort = 1945
                      devnet-engine-only "configuredPublicEndpoint")))
         (is (not (fixture-object-field
                   devnet-engine-only "publicEndpointConnectable")))
-        (is (= 10 (fixture-object-field
-                  devnet-engine-only "engineConnections")))
-        (is (= 0 (fixture-object-field
-                  devnet-engine-only "publicConnections")))
-        (is (= 10 (fixture-object-field
-                  devnet-engine-only "totalConnections")))
+        (devnet-cli-assert-engine-only-connection-contract
+         devnet-engine-only)
         (let ((side-reorg-cases
                 (fixture-object-field devnet-side-reorg "cases")))
           (is (string= "ok"
@@ -8108,10 +8112,8 @@ HTTPPort = 1945
                        devnet-engine-only "configuredPublicEndpoint")))
           (is (not (fixture-object-field
                     devnet-engine-only "publicEndpointConnectable")))
-          (is (= 10 (fixture-object-field
-                    devnet-engine-only "engineConnections")))
-          (is (= 0 (fixture-object-field
-                    devnet-engine-only "publicConnections"))))))))
+          (devnet-cli-assert-engine-only-connection-contract
+           devnet-engine-only))))))
 
 (deftest phase-a-smoke-gate-text-output-includes-aggregate-counts
   #-sbcl

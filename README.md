@@ -20,9 +20,9 @@ txpool, RPC, and Engine API work.
 The current milestone is moving from an in-memory Engine/RPC prototype toward a
 verifiable chain-import core:
 
-- retain the self-contained Common Lisp substrate and test runner
-- keep consensus data types, RLP, Keccak, trie/state, EVM, and block execution
-  runnable without Quicklisp
+- keep a straightforward Common Lisp substrate and test runner
+- allow ASDF/Quicklisp dependencies when they make core implementation,
+  validation, or developer workflows more maintainable
 - introduce a chain-store boundary with explicit canonical indexes
 - route `engine_newPayload` through real block execution when parent state is
   available
@@ -31,8 +31,8 @@ verifiable chain-import core:
 - add external fixture harnesses before widening nonessential RPC, txpool,
   persistence, networking, or CLI surface area
 
-The project currently ships a self-contained test runner so the core suite can
-run without Quicklisp.
+The project currently ships an SBCL script entry point for running the core
+suite.
 
 Implemented so far:
 

@@ -690,8 +690,8 @@ summaries or move detailed history into a separate status document.
 
 - *Done:* ASDF/source-loadable project structure, package layout, byte-vector,
   hex, quantity, address, hash32, uint256 helpers, canonical RLP
-  encoder/decoder with non-canonical rejection tests, self-contained test
-  runner, fixture layout, and reference-source map.
+  encoder/decoder with non-canonical rejection tests, script test runner,
+  fixture layout, and reference-source map.
 - *Partial:* broader CI matrix and packaging ergonomics beyond the current
   local SBCL runner.
 - *Missing for Phase A:* no substrate blocker; keep new tooling work scoped to
