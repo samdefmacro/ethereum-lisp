@@ -57,6 +57,7 @@
      (:file "transactions-dynamic-fee")
      (:file "transactions-blob")
      (:file "transactions-set-code")
+     (:file "transactions-accessors")
      (:file "transactions")
      (:file "receipts")
      (:file "txpool-types")

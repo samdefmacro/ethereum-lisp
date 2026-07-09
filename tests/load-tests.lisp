@@ -55,6 +55,7 @@
 (load-ethereum-lisp-test-file "src/transactions-dynamic-fee.lisp")
 (load-ethereum-lisp-test-file "src/transactions-blob.lisp")
 (load-ethereum-lisp-test-file "src/transactions-set-code.lisp")
+(load-ethereum-lisp-test-file "src/transactions-accessors.lisp")
 (load-ethereum-lisp-test-file "src/transactions.lisp")
 (load-ethereum-lisp-test-file "src/receipts.lisp")
 (load-ethereum-lisp-test-file "src/txpool-types.lisp")

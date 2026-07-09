@@ -78,8 +78,10 @@ The first mechanical split is:
   structures.
 - `transactions-set-code.lisp`: EIP-7702 authorization tuples, delegation
   code helpers, and set-code transaction encoding/decoding.
-- `transactions.lisp`: cross-type transaction accessors, fork validation,
-  gas-price calculation, unified encoding/decoding, and sender dispatch.
+- `transactions-accessors.lisp`: cross-type transaction accessors, type
+  dispatch, blob gas counting, and access-list sizing.
+- `transactions.lisp`: transaction fork validation, gas-price calculation,
+  unified encoding/decoding, and sender dispatch.
 - `receipts.lisp`: withdrawals, logs, blooms, receipts, trie-list roots.
 - `txpool-types.lisp`: txpool index structure required by the store type.
 - `blocks-*.lisp` and `block-header-rlp.lisp`: block header/body structures,
