@@ -280,6 +280,7 @@
 (load-ethereum-lisp-test-file "src/cli-devnet-service.lisp")
 (load-ethereum-lisp-test-file "src/cli-devnet.lisp")
 (load-ethereum-lisp-test-file "src/cli-args.lisp")
+(load-ethereum-lisp-test-file "src/cli-config-toml.lisp")
 (load-ethereum-lisp-test-file "src/cli-config.lisp")
 (load-ethereum-lisp-test-file "src/cli-parsers.lisp")
 (load-ethereum-lisp-test-file "src/cli-options.lisp")

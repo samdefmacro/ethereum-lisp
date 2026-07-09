@@ -290,6 +290,7 @@
            "src/cli-devnet-service.lisp"
            "src/cli-devnet.lisp"
            "src/cli-args.lisp"
+           "src/cli-config-toml.lisp"
            "src/cli-config.lisp"
            "src/cli-parsers.lisp"
            "src/cli-options.lisp"

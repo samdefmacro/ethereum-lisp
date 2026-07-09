@@ -282,6 +282,7 @@
      (:file "cli-devnet-service")
      (:file "cli-devnet")
      (:file "cli-args")
+     (:file "cli-config-toml")
      (:file "cli-config")
      (:file "cli-parsers")
      (:file "cli-options")

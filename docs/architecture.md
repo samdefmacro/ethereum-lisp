@@ -436,7 +436,10 @@ The first mechanical split is:
 - `cli-devnet.lisp`: devnet compatibility loader.
 - `cli-args.lisp`: command-line token normalization, option arity metadata,
   boolean token handling, and command-token lookup.
-- `cli-config.lisp`: TOML config parsing and config-to-CLI option mapping.
+- `cli-config-toml.lisp`: minimal TOML value parsing for geth-compatible
+  devnet config files.
+- `cli-config.lisp`: geth config-file key mapping and config-to-CLI option
+  application.
 - `cli-parsers.lisp`: CLI scalar parsers for ports, durations, quantities,
   addresses, RPC prefixes, API module filters, CORS, and vhosts.
 - `cli-options.lisp`: geth-compatible devnet option aggregation.
