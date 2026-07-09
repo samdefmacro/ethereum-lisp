@@ -12,12 +12,7 @@
                                 (ensure-byte-vector
                                  (evm-context-return-data context))
                                 (make-byte-vector 0)))
-        (frame-transient-snapshot (copy-transient-storage context))
-        (frame-storage-clears-snapshot (copy-storage-clears context))
-        (frame-accessed-storage-snapshot (copy-accessed-storage context))
-        (frame-accessed-addresses-snapshot (copy-accessed-addresses context))
-        (frame-selfdestructed-snapshot
-          (copy-selfdestructed-addresses context))
+        (frame-snapshot (capture-frame-snapshot context))
         (original-storage-values
           (if context
               (evm-context-storage-originals context)
@@ -1494,18 +1489,7 @@
                                           "Byzantium" "REVERT" pc)
                     (multiple-value-bind (offset size rest) (pop2 stack)
                       (charge-memory-gas offset size)
-                      (restore-transient-storage context
-                                                 frame-transient-snapshot)
-                      (restore-storage-clears context
-                                              frame-storage-clears-snapshot)
-                      (restore-accessed-storage context
-                                                frame-accessed-storage-snapshot)
-                      (restore-accessed-addresses
-                       context
-                       frame-accessed-addresses-snapshot)
-                      (restore-selfdestructed-addresses
-                       context
-                       frame-selfdestructed-snapshot)
+                      (restore-frame-snapshot context frame-snapshot)
                       (setf return-data (memory-slice memory offset size)
                             stack rest
                             refund-counter 0

@@ -385,8 +385,8 @@ The first mechanical split is:
 - `evm-runtime-selfdestructs.lisp`: selfdestruct address snapshots, marking,
   and finalization.
 - `evm-runtime-access.lisp`: EVM access helper compatibility loader.
-- `evm-runtime-snapshots.lisp`: execution snapshot capture, access-list
-  snapshot refresh, and restore helpers for child frame rollback.
+- `evm-runtime-snapshots.lisp`: frame/execution snapshot capture,
+  access-list snapshot refresh, and restore helpers for rollback.
 - `evm-runtime-state.lisp`: account mutation, value transfer, delegated code
   resolution, and selfdestruct state updates.
 - `evm-runtime-create.lisp`: CREATE/CREATE2 address derivation, initcode gas,
