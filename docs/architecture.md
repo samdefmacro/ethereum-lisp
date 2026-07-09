@@ -142,8 +142,17 @@ The first mechanical split is:
   and block id parameter coercion.
 - `public-rpc-core.lisp`: web3/net/basic eth handlers and fee history
   helpers for the public JSON-RPC surface.
-- `public-rpc-state.lisp`: public account state, proof, call simulation, gas
-  estimation, and access-list handlers.
+- `public-rpc-state-queries.lisp`: public account balance, nonce, code, and
+  storage reads.
+- `public-rpc-state-proofs.lisp`: `eth_getProof` storage slot coercion and
+  proof response construction.
+- `public-rpc-call-objects.lisp`: public call-object parsing, transaction
+  synthesis, simulation, and `eth_call`.
+- `public-rpc-gas.lisp`: `eth_estimateGas` gas caps and binary search.
+- `public-rpc-access-lists.lisp`: `eth_createAccessList` access collection and
+  response rendering.
+- `public-rpc-state.lisp`: compatibility package entry for public state RPC
+  modules.
 - `public-rpc-transaction-objects.lisp`: transaction JSON object conversion,
   access list rendering, pending transaction helpers, and shared JSON array
   normalization.
