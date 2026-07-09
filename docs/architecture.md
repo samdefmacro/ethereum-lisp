@@ -237,8 +237,9 @@ The first mechanical split is:
   fork-aware header checks, and chain-config header validation.
 - `block-validation-body.lisp`: withdrawal, transaction, ommer, blob-gas, and
   body-config validation helpers.
-- `block-validation-roots.lisp`: body root checks, receipt/log validation, and
-  execution commitment validation.
+- `block-validation-roots.lisp`: body root and body commitment checks.
+- `block-validation-receipts.lisp`: receipt/log validation and execution
+  commitment root checks.
 - `block-validation.lisp`: block validation compatibility loader.
 - `engine-payload-status.lisp`: Engine forkchoice/newPayload status for the
   in-memory chain store.

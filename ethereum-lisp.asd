@@ -158,6 +158,7 @@
      (:file "block-validation-header")
      (:file "block-validation-body")
      (:file "block-validation-roots")
+     (:file "block-validation-receipts")
      (:file "block-validation")
      (:file "engine-payload-status")
      (:file "engine-rpc-protocol")

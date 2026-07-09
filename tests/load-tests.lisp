@@ -156,6 +156,7 @@
 (load-ethereum-lisp-test-file "src/block-validation-header.lisp")
 (load-ethereum-lisp-test-file "src/block-validation-body.lisp")
 (load-ethereum-lisp-test-file "src/block-validation-roots.lisp")
+(load-ethereum-lisp-test-file "src/block-validation-receipts.lisp")
 (load-ethereum-lisp-test-file "src/block-validation.lisp")
 (load-ethereum-lisp-test-file "src/engine-payload-status.lisp")
 (load-ethereum-lisp-test-file "src/engine-rpc-protocol.lisp")

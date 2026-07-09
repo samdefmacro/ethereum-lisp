@@ -166,6 +166,7 @@
            "src/block-validation-header.lisp"
            "src/block-validation-body.lisp"
            "src/block-validation-roots.lisp"
+           "src/block-validation-receipts.lisp"
            "src/block-validation.lisp"
            "src/engine-payload-status.lisp"
            "src/engine-rpc-protocol.lisp"
