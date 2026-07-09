@@ -34,6 +34,7 @@
      (:file "chain-store-types")
      (:file "chain-store-copy")
      (:file "chain-store-memory")
+     (:file "chain-store-state")
      (:file "txpool")
      (:file "chain-store-persistence")
      (:file "block-validation")

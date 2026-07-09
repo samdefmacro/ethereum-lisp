@@ -42,6 +42,7 @@
            "src/chain-store-types.lisp"
            "src/chain-store-copy.lisp"
            "src/chain-store-memory.lisp"
+           "src/chain-store-state.lisp"
            "src/txpool.lisp"
            "src/chain-store-persistence.lisp"
            "src/block-validation.lisp"

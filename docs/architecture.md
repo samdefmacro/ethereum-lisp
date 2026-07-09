@@ -52,8 +52,10 @@ The first mechanical split is:
   blob lookup records, and shared store key helpers.
 - `chain-store-copy.lisp`: defensive copying, store snapshot/restore, and
   atomic commit helpers for the in-memory chain store.
-- `chain-store-memory.lisp`: in-memory canonical chain, state projection,
-  filter, invalid payload, prepared payload, and blob sidecar caches.
+- `chain-store-memory.lisp`: in-memory canonical chain, filter cursors,
+  invalid payload, prepared payload, and blob sidecar caches.
+- `chain-store-state.lisp`: retained state projection, pruning, and
+  deterministic account iteration for the in-memory chain store.
 - `txpool.lisp`: pending/queued/basefee/blob txpool admission, promotion,
   revalidation, and mining selection helpers.
 - `chain-store-persistence.lisp`: chain-store KV export/import records,
