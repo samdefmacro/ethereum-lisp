@@ -231,8 +231,11 @@ The first mechanical split is:
   signing helpers.
 - `engine-rpc-http-wire.lisp`: HTTP request parsing, response formatting, CORS
   and host filtering, and request/response telemetry extraction.
-- `engine-rpc-http.lisp`: JSON-RPC request dispatch and HTTP request/stream
-  handlers.
+- `engine-rpc-dispatch.lisp` and `engine-rpc-json.lisp`: JSON-RPC object,
+  batch, string, and encoded response handling.
+- `engine-rpc-http-request.lisp` and `engine-rpc-http.lisp`: HTTP request
+  validation, JSON-RPC body handling, stream response writing, and request
+  telemetry.
 - `engine-rpc-http-service-*.lisp`: Engine HTTP service configuration, listener
   abstractions, socket listener construction, stream delegation, and serve loop.
 - `state-types.lisp`: state constants, mutable state records, proof records,
