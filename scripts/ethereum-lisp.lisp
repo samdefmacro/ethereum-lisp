@@ -57,6 +57,8 @@
            "src/public-rpc-params.lisp"
            "src/public-rpc-core.lisp"
            "src/public-rpc-state.lisp"
+           "src/public-rpc-transactions.lisp"
+           "src/public-rpc-blocks.lisp"
            "src/public-rpc.lisp"
            "src/engine-rpc-http.lisp"
            "src/state.lisp"

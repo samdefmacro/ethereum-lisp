@@ -80,8 +80,11 @@ The first mechanical split is:
   helpers for the public JSON-RPC surface.
 - `public-rpc-state.lisp`: public account state, proof, call simulation, gas
   estimation, and access-list handlers.
-- `public-rpc.lisp`: public block, transaction, txpool, receipt, log, filter,
-  and dispatch handlers.
+- `public-rpc-transactions.lisp`: transaction, receipt, raw transaction,
+  sendRawTransaction, and txpool public RPC handlers.
+- `public-rpc-blocks.lisp`: public header, block, pending block, transaction
+  count, and ommer handlers.
+- `public-rpc.lisp`: public log/filter handlers and final method dispatch.
 - `engine-rpc-http.lisp`: JSON-RPC request dispatch, HTTP parsing, JWT auth,
   listener abstractions, and stream telemetry.
 ## Dependency Rules

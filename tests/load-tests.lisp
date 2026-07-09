@@ -47,6 +47,8 @@
 (load-ethereum-lisp-test-file "src/public-rpc-params.lisp")
 (load-ethereum-lisp-test-file "src/public-rpc-core.lisp")
 (load-ethereum-lisp-test-file "src/public-rpc-state.lisp")
+(load-ethereum-lisp-test-file "src/public-rpc-transactions.lisp")
+(load-ethereum-lisp-test-file "src/public-rpc-blocks.lisp")
 (load-ethereum-lisp-test-file "src/public-rpc.lisp")
 (load-ethereum-lisp-test-file "src/engine-rpc-http.lisp")
 (load-ethereum-lisp-test-file "src/state.lisp")

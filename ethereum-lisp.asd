@@ -49,6 +49,8 @@
      (:file "public-rpc-params")
      (:file "public-rpc-core")
      (:file "public-rpc-state")
+     (:file "public-rpc-transactions")
+     (:file "public-rpc-blocks")
      (:file "public-rpc")
      (:file "engine-rpc-http")
      (:file "state")
