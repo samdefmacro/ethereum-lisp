@@ -243,6 +243,7 @@
            "src/state-db.lisp"
            "src/state-roots.lisp"
            "src/state-proofs.lisp"
+           "src/state-proof-rpc.lisp"
            "src/state-ranges.lisp"
            "src/state-genesis.lisp"
            "src/state-transactions.lisp"

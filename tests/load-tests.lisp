@@ -233,6 +233,7 @@
 (load-ethereum-lisp-test-file "src/state-db.lisp")
 (load-ethereum-lisp-test-file "src/state-roots.lisp")
 (load-ethereum-lisp-test-file "src/state-proofs.lisp")
+(load-ethereum-lisp-test-file "src/state-proof-rpc.lisp")
 (load-ethereum-lisp-test-file "src/state-ranges.lisp")
 (load-ethereum-lisp-test-file "src/state-genesis.lisp")
 (load-ethereum-lisp-test-file "src/state-transactions.lisp")

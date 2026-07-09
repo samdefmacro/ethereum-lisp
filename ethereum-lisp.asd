@@ -235,6 +235,7 @@
      (:file "state-db")
      (:file "state-roots")
      (:file "state-proofs")
+     (:file "state-proof-rpc")
      (:file "state-ranges")
      (:file "state-genesis")
      (:file "state-transactions")

@@ -351,8 +351,8 @@ The first mechanical split is:
   and storage trie proof primitives.
 - `state-roots.lisp`: account trie construction, account proofs, and state
   root rendering.
-- `state-proofs.lisp`: proof result construction, verification, and JSON-RPC
-  proof object conversion.
+- `state-proofs.lisp`: proof result construction and verification.
+- `state-proof-rpc.lisp`: JSON-RPC proof object conversion and parsing.
 - `state-ranges.lisp`: account/storage range iteration and deterministic
   state export helpers.
 - `state-genesis.lisp`: genesis allocation application, genesis state roots,
