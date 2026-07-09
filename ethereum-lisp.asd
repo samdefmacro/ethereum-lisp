@@ -30,6 +30,7 @@
      (:file "consensus-validation")
      (:file "block-access-list")
      (:file "kzg")
+     (:file "engine-payloads")
      (:file "chain-store-memory")
      (:file "txpool")
      (:file "chain-store-persistence")

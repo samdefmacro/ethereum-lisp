@@ -39,6 +39,8 @@ The first mechanical split is:
   conversion.
 - `consensus-validation.lisp`: shared block/transaction validation helpers
   and fee-market calculations used by consensus, RPC, and txpool paths.
+- `engine-payloads.lisp`: Engine payload structs, forkchoice payload
+  attributes, payload id derivation, and block/payload conversion.
 - `block-access-list.lisp`: execution request hashing, shared field
   validators, and Amsterdam block access list RLP/validation.
 - `kzg.lisp`: command-backed KZG verifier hooks and blob sidecar KZG
@@ -55,8 +57,7 @@ The first mechanical split is:
   Engine/public method filters.
 - `engine-rpc-http.lisp`: JSON-RPC request dispatch, HTTP parsing, JWT auth,
   listener abstractions, and stream telemetry.
-- `core.lisp`: remaining genesis and Engine payload conversion
-  implementation.
+- `core.lisp`: remaining genesis header/block construction implementation.
 
 ## Dependency Rules
 
