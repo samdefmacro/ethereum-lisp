@@ -183,8 +183,24 @@ The first mechanical split is:
   activation, gas constants, and fixed precompile tables.
 - `evm-runtime.lisp`: EVM word, stack, memory, access-list, transient-storage,
   state mutation, account, create/call gas, and block-context helpers.
-- `evm-precompiles.lisp`: Ethereum precompile implementations, BN254/KZG and
-  BLAKE2F helpers, and precompile dispatch.
+- `evm-precompiles-utils.lisp`: shared precompile byte, endian, and fixed-size
+  integer helpers.
+- `evm-precompiles-modexp.lisp`: EIP-198 modular exponentiation gas and
+  execution.
+- `evm-precompiles-bn254-base.lisp`: BN254 base field, G1, Fp2, and basic
+  add/mul precompile helpers.
+- `evm-precompiles-bn254-g2.lisp`: BN254 G2 parsing, subgroup checks, and
+  Fp2 equality helpers.
+- `evm-precompiles-bn254-fields.lisp`: BN254 Fp6/Fp12 arithmetic and
+  Frobenius constants.
+- `evm-precompiles-bn254-pairing.lisp`: BN254 Miller loop, final
+  exponentiation, pairing backend, and pairing precompile.
+- `evm-precompiles-kzg.lisp`: KZG point-evaluation precompile.
+- `evm-precompiles-blake2f.lisp`: BLAKE2F compression precompile and gas
+  calculation.
+- `evm-precompiles-dispatch.lisp`: ecrecover, precompile gas precheck, and
+  final precompile dispatch.
+- `evm-precompiles.lisp`: EVM precompile compatibility loader.
 - `evm.lisp`: bytecode interpreter loop and opcode execution.
 - `execution-context.lisp`: execution constants, transaction field
   validation, fork-rule helpers, access prewarming, and EVM context creation.
