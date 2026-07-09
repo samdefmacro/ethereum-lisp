@@ -1,15 +1,5 @@
 (in-package #:ethereum-lisp.cli)
 
-(defun devnet-cli-next-parsed-value (args option parser)
-  (multiple-value-bind (value rest)
-      (devnet-cli-next-value args option)
-    (values (funcall parser value option) rest)))
-
-(defun devnet-cli-next-transformed-value (args option transformer)
-  (multiple-value-bind (value rest)
-      (devnet-cli-next-value args option)
-    (values (funcall transformer value) rest)))
-
 (defun devnet-cli-options (args)
   (setf args (devnet-cli-remove-command-token args "devnet"))
   (setf args (devnet-cli-normalize-option-args args))
@@ -64,215 +54,179 @@
         (kzg-verifier-command nil)
         (kzg-verifier-timeout-seconds nil)
         (help-p nil))
-    (loop while args
-          for option = (pop args)
-          do (cond
+    (labels ((next-value (option)
+               (multiple-value-bind (value rest)
+                   (devnet-cli-next-value args option)
+                 (setf args rest)
+                 value))
+             (next-parsed-value (option parser)
+               (funcall parser (next-value option) option))
+             (next-transformed-value (option transformer)
+               (funcall transformer (next-value option)))
+             (next-optional-boolean (option)
+               (multiple-value-bind (enabled-p rest)
+                   (devnet-cli-optional-boolean-value args option)
+                 (setf args rest)
+                 enabled-p))
+             (consume-value-option (option)
+               (setf args (devnet-cli-consume-value-option args option)))
+             (consume-optional-boolean-value (option)
+               (setf args
+                     (devnet-cli-consume-optional-boolean-value
+                      args option))))
+      (loop while args
+            for option = (pop args)
+            do (cond
                ((string= option "--help")
                 (setf help-p t))
                ((string= option "--genesis")
-                (multiple-value-setq (genesis-path args)
-                  (devnet-cli-next-value args option)))
+                (setf genesis-path (next-value option)))
                ((string= option "--host")
-                (multiple-value-setq (host args)
-                  (devnet-cli-next-value args option))
+                (setf host (next-value option))
                 (setf default-public-host host))
                ((or (string= option "--engine-host")
                     (string= option "--authrpc.addr"))
-                (multiple-value-setq (host args)
-                  (devnet-cli-next-value args option)))
+                (setf host (next-value option)))
                ((string= option "--port")
-                (multiple-value-bind (value rest)
-                    (devnet-cli-next-value args option)
-                  (devnet-cli-parse-port value option)
-                  (setf args rest)))
+                (next-parsed-value option #'devnet-cli-parse-port))
                ((or (string= option "--engine-port")
                     (string= option "--authrpc.port"))
-                (multiple-value-setq (port args)
-                  (devnet-cli-next-parsed-value
-                   args option #'devnet-cli-parse-port)))
+                (setf port (next-parsed-value option #'devnet-cli-parse-port)))
                ((or (string= option "--public-host")
                     (string= option "--http.addr"))
-                (multiple-value-setq (public-host args)
-                  (devnet-cli-next-value args option)))
+                (setf public-host (next-value option)))
                ((or (string= option "--public-port")
                     (string= option "--http.port"))
-                (multiple-value-setq (public-port args)
-                  (devnet-cli-next-parsed-value
-                   args option #'devnet-cli-parse-port)))
+                (setf public-port (next-parsed-value option #'devnet-cli-parse-port)))
                ((or (string= option "--jwt-secret")
                     (string= option "--authrpc.jwtsecret"))
-                (multiple-value-setq (jwt-secret-path args)
-                  (devnet-cli-next-value args option)))
+                (setf jwt-secret-path (next-value option)))
                ((string= option "--authrpc.rpcprefix")
-                (multiple-value-setq (engine-rpc-prefix args)
-                  (devnet-cli-next-parsed-value
-                   args option #'devnet-cli-parse-rpc-prefix)))
+                (setf engine-rpc-prefix
+                      (next-parsed-value option #'devnet-cli-parse-rpc-prefix)))
                ((string= option "--http.rpcprefix")
-                (multiple-value-setq (public-rpc-prefix args)
-                  (devnet-cli-next-parsed-value
-                   args option #'devnet-cli-parse-rpc-prefix)))
+                (setf public-rpc-prefix
+                      (next-parsed-value option #'devnet-cli-parse-rpc-prefix)))
                ((string= option "--database")
-                (multiple-value-setq (database-path args)
-                  (devnet-cli-next-value args option)))
+                (setf database-path (next-value option)))
                ((string= option "--datadir")
-                (multiple-value-setq (datadir-path args)
-                  (devnet-cli-next-value args option)))
+                (setf datadir-path (next-value option)))
                ((or (string= option "--networkid")
                     (string= option "--network-id"))
-                (multiple-value-setq (network-id args)
-                  (devnet-cli-next-parsed-value
-                   args option #'devnet-cli-parse-non-negative-integer)))
+                (setf network-id
+                      (next-parsed-value option #'devnet-cli-parse-non-negative-integer)))
                ((string= option "--prune-state-before")
-                (multiple-value-setq (state-prune-before args)
-                  (devnet-cli-next-parsed-value
-                   args option #'devnet-cli-parse-non-negative-integer)))
+                (setf state-prune-before
+                      (next-parsed-value option #'devnet-cli-parse-non-negative-integer)))
                ((string= option "--max-connections")
-                (multiple-value-setq (max-connections args)
-                  (devnet-cli-next-parsed-value
-                   args option #'devnet-cli-parse-non-negative-integer)))
+                (setf max-connections
+                      (next-parsed-value option #'devnet-cli-parse-non-negative-integer)))
                ((string= option "--override.terminaltotaldifficulty")
-                (multiple-value-setq (terminal-total-difficulty args)
-                  (devnet-cli-next-parsed-value
-                   args option #'devnet-cli-parse-non-negative-quantity)))
+                (setf terminal-total-difficulty
+                      (next-parsed-value option #'devnet-cli-parse-non-negative-quantity)))
                ((string= option "--override.terminaltotaldifficultypassed")
-                (multiple-value-bind (enabled-p rest)
-                    (devnet-cli-optional-boolean-value args option)
-                  (setf terminal-total-difficulty-passed enabled-p
-                        terminal-total-difficulty-passed-specified-p t
-                        args rest)))
+                (setf terminal-total-difficulty-passed
+                      (next-optional-boolean option)
+                      terminal-total-difficulty-passed-specified-p t))
                ((string= option "--override.terminalblockhash")
-                (multiple-value-setq (terminal-block-hash args)
-                  (devnet-cli-next-parsed-value
-                   args option #'devnet-cli-parse-hash32)))
+                (setf terminal-block-hash
+                      (next-parsed-value option #'devnet-cli-parse-hash32)))
                ((string= option "--override.terminalblocknumber")
-                (multiple-value-setq (terminal-block-number args)
-                  (devnet-cli-next-parsed-value
-                   args option #'devnet-cli-parse-non-negative-quantity)))
+                (setf terminal-block-number
+                      (next-parsed-value option #'devnet-cli-parse-non-negative-quantity)))
                ((string= option "--http")
-                (multiple-value-setq (public-rpc-enabled-p args)
-                  (devnet-cli-optional-boolean-value args option)))
+                (setf public-rpc-enabled-p (next-optional-boolean option)))
                ((string= option "--http.api")
-                (multiple-value-setq (http-api-modules args)
-                  (devnet-cli-next-parsed-value
-                   args option #'devnet-cli-parse-http-api-list)))
+                (setf http-api-modules
+                      (next-parsed-value option #'devnet-cli-parse-http-api-list)))
                ((string= option "--http.corsdomain")
-                (multiple-value-setq (http-cors-origins args)
-                  (devnet-cli-next-transformed-value
-                   args option #'devnet-cli-parse-cors-origin-list)))
+                (setf http-cors-origins
+                      (next-transformed-value option #'devnet-cli-parse-cors-origin-list)))
                ((string= option "--authrpc.corsdomain")
-                (multiple-value-setq (authrpc-cors-origins args)
-                  (devnet-cli-next-transformed-value
-                   args option #'devnet-cli-parse-cors-origin-list)))
+                (setf authrpc-cors-origins
+                      (next-transformed-value option #'devnet-cli-parse-cors-origin-list)))
                ((string= option "--authrpc.vhosts")
-                (multiple-value-setq (engine-vhosts args)
-                  (devnet-cli-next-transformed-value
-                   args option #'devnet-cli-parse-vhost-list)))
+                (setf engine-vhosts
+                      (next-transformed-value option #'devnet-cli-parse-vhost-list)))
                ((string= option "--http.vhosts")
-                (multiple-value-setq (http-vhosts args)
-                  (devnet-cli-next-transformed-value
-                   args option #'devnet-cli-parse-vhost-list)))
+                (setf http-vhosts
+                      (next-transformed-value option #'devnet-cli-parse-vhost-list)))
                ((string= option "--ready-file")
-                (multiple-value-setq (ready-file args)
-                  (devnet-cli-next-value args option)))
+                (setf ready-file (next-value option)))
                ((string= option "--log-file")
-                (multiple-value-setq (log-file args)
-                  (devnet-cli-next-value args option)))
+                (setf log-file (next-value option)))
                ((string= option "--pid-file")
-                (multiple-value-setq (pid-file args)
-                  (devnet-cli-next-value args option)))
+                (setf pid-file (next-value option)))
                ((or (string= option "--kzg-verifier-command")
                     (string= option "--kzg.verifier-command"))
-                (multiple-value-setq (kzg-verifier-command args)
-                  (devnet-cli-next-value args option)))
+                (setf kzg-verifier-command (next-value option)))
                ((or (string= option "--kzg-verifier-timeout")
                     (string= option "--kzg.verifier-timeout"))
-                (multiple-value-setq (kzg-verifier-timeout-seconds args)
-                  (devnet-cli-next-parsed-value
-                   args option #'devnet-cli-parse-positive-integer)))
+                (setf kzg-verifier-timeout-seconds
+                      (next-parsed-value option #'devnet-cli-parse-positive-integer)))
                ((string= option "--no-serve")
-                (multiple-value-bind (enabled-p rest)
-                    (devnet-cli-optional-boolean-value args option)
+                (let ((enabled-p (next-optional-boolean option)))
                   (when enabled-p
-                    (setf serve-p nil))
-                  (setf args rest)))
+                    (setf serve-p nil))))
                ((string= option "--json")
-                (multiple-value-bind (enabled-p rest)
-                    (devnet-cli-optional-boolean-value args option)
+                (let ((enabled-p (next-optional-boolean option)))
                   (when enabled-p
-                    (setf summary-format :json))
-                  (setf args rest)))
+                    (setf summary-format :json))))
                ((string= option "--dev")
-                (multiple-value-setq (dev-mode-p args)
-                  (devnet-cli-optional-boolean-value args option)))
+                (setf dev-mode-p (next-optional-boolean option)))
                ((string= option "--dev.period")
-                (multiple-value-setq (dev-period-seconds args)
-                  (devnet-cli-next-parsed-value
-                   args option #'devnet-cli-parse-duration-seconds)))
+                (setf dev-period-seconds
+                      (next-parsed-value option #'devnet-cli-parse-duration-seconds)))
                ((string= option "--dev.gaslimit")
-                (multiple-value-setq (dev-gas-limit args)
-                  (devnet-cli-next-parsed-value
-                   args option #'devnet-cli-parse-uint64-quantity)))
+                (setf dev-gas-limit
+                      (next-parsed-value option #'devnet-cli-parse-uint64-quantity)))
                ((string= option "--miner.gaslimit")
-                (multiple-value-setq (miner-gas-limit args)
-                  (devnet-cli-next-parsed-value
-                   args option #'devnet-cli-parse-uint64-quantity)))
+                (setf miner-gas-limit
+                      (next-parsed-value option #'devnet-cli-parse-uint64-quantity)))
                ((or (string= option "--miner.etherbase")
                     (string= option "--etherbase"))
-                (multiple-value-setq (coinbase args)
-                  (devnet-cli-next-parsed-value
-                   args option #'devnet-cli-parse-address)))
+                (setf coinbase
+                      (next-parsed-value option #'devnet-cli-parse-address)))
                ((string= option "--rpc.allow-unprotected-txs")
-                (multiple-value-setq (allow-unprotected-transactions-p args)
-                  (devnet-cli-optional-boolean-value args option)))
+                (setf allow-unprotected-transactions-p
+                      (next-optional-boolean option)))
                ((string= option "--txpool.locals")
-                (multiple-value-setq (txpool-local-addresses args)
-                  (devnet-cli-next-parsed-value
-                   args option #'devnet-cli-parse-address-list)))
+                (setf txpool-local-addresses
+                      (next-parsed-value option #'devnet-cli-parse-address-list)))
                ((string= option "--txpool.nolocals")
-                (multiple-value-setq (txpool-no-local-exemptions-p args)
-                  (devnet-cli-optional-boolean-value args option)))
+                (setf txpool-no-local-exemptions-p
+                      (next-optional-boolean option)))
                ((string= option "--txpool.pricelimit")
-                (multiple-value-setq (txpool-price-limit args)
-                  (devnet-cli-next-parsed-value
-                   args option #'devnet-cli-parse-non-negative-quantity)))
+                (setf txpool-price-limit
+                      (next-parsed-value option #'devnet-cli-parse-non-negative-quantity)))
                ((string= option "--txpool.pricebump")
-                (multiple-value-setq (txpool-price-bump-percent args)
-                  (devnet-cli-next-parsed-value
-                   args option #'devnet-cli-parse-non-negative-integer)))
+                (setf txpool-price-bump-percent
+                      (next-parsed-value option #'devnet-cli-parse-non-negative-integer)))
                ((string= option "--txpool.accountslots")
-                (multiple-value-setq (txpool-account-slot-limit args)
-                  (devnet-cli-next-parsed-value
-                   args option #'devnet-cli-parse-non-negative-integer)))
+                (setf txpool-account-slot-limit
+                      (next-parsed-value option #'devnet-cli-parse-non-negative-integer)))
                ((string= option "--txpool.globalslots")
-                (multiple-value-setq (txpool-global-slot-limit args)
-                  (devnet-cli-next-parsed-value
-                   args option #'devnet-cli-parse-non-negative-integer)))
+                (setf txpool-global-slot-limit
+                      (next-parsed-value option #'devnet-cli-parse-non-negative-integer)))
                ((string= option "--txpool.accountqueue")
-                (multiple-value-setq (txpool-account-queue-limit args)
-                  (devnet-cli-next-parsed-value
-                   args option #'devnet-cli-parse-non-negative-integer)))
+                (setf txpool-account-queue-limit
+                      (next-parsed-value option #'devnet-cli-parse-non-negative-integer)))
                ((string= option "--txpool.globalqueue")
-                (multiple-value-setq (txpool-global-queue-limit args)
-                  (devnet-cli-next-parsed-value
-                   args option #'devnet-cli-parse-non-negative-integer)))
+                (setf txpool-global-queue-limit
+                      (next-parsed-value option #'devnet-cli-parse-non-negative-integer)))
                ((string= option "--txpool.lifetime")
-                (multiple-value-setq (txpool-lifetime-seconds args)
-                  (devnet-cli-next-parsed-value
-                   args option #'devnet-cli-parse-duration-seconds)))
+                (setf txpool-lifetime-seconds
+                      (next-parsed-value option #'devnet-cli-parse-duration-seconds)))
                ((string= option "--txpool.journal")
-                (multiple-value-setq (txpool-journal-path args)
-                  (devnet-cli-next-value args option)))
+                (setf txpool-journal-path (next-value option)))
                ((string= option "--txpool.rejournal")
-                (multiple-value-setq (txpool-rejournal-seconds args)
-                  (devnet-cli-next-parsed-value
-                   args option #'devnet-cli-parse-duration-seconds)))
+                (setf txpool-rejournal-seconds
+                      (next-parsed-value option #'devnet-cli-parse-duration-seconds)))
                ((member option *devnet-cli-value-options* :test #'string=)
-                (setf args (devnet-cli-consume-value-option args option)))
+                (consume-value-option option))
                ((member option *devnet-cli-optional-boolean-options*
                         :test #'string=)
-                (setf args
-                      (devnet-cli-consume-optional-boolean-value
-                       args option)))
+                (consume-optional-boolean-value option))
                (t
                 (error "Unknown option ~A" option))))
     (list :genesis-path genesis-path
@@ -330,4 +284,4 @@
           :pid-file pid-file
           :kzg-verifier-command kzg-verifier-command
           :kzg-verifier-timeout-seconds kzg-verifier-timeout-seconds
-          :help-p help-p)))
+          :help-p help-p))))
