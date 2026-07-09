@@ -64,6 +64,9 @@
      (:file "engine-rpc-http-service")
      (:file "state")
      (:file "evm")
+     (:file "execution-context")
+     (:file "execution-message")
+     (:file "execution-block-validation")
      (:file "execution")
      (:file "cli")))))
 

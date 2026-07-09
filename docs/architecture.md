@@ -106,6 +106,14 @@ The first mechanical split is:
   handlers.
 - `engine-rpc-http-service.lisp`: HTTP service/listener abstractions, socket
   listener construction, and service-level telemetry.
+- `execution-context.lisp`: execution constants, transaction field
+  validation, fork-rule helpers, access prewarming, and EVM context creation.
+- `execution-message.lisp`: call simulation, message application, signed
+  transaction sender recovery, and transaction-list execution.
+- `execution-block-validation.lisp`: block body/fork shape checks, execution
+  root validation, and block header snapshot/restore helpers.
+- `execution.lisp`: block execution entry points and atomic chain-store
+  commit helpers.
 ## Dependency Rules
 
 - Consensus data types may use primitives, RLP, crypto, trie, and chain rules.

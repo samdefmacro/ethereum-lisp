@@ -72,6 +72,9 @@
            "src/engine-rpc-http-service.lisp"
            "src/state.lisp"
            "src/evm.lisp"
+           "src/execution-context.lisp"
+           "src/execution-message.lisp"
+           "src/execution-block-validation.lisp"
            "src/execution.lisp"
            "src/cli.lisp"))
   (ethereum-lisp-script-load-file relative-path))
