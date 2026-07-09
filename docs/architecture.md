@@ -48,6 +48,8 @@ The first mechanical split is:
   validation.
 - `engine-payloads.lisp`: Engine payload structs, forkchoice payload
   attributes, payload id derivation, and block/payload conversion.
+- `chain-store-types.lisp`: in-memory chain store records, filter cursors,
+  blob lookup records, and shared store key helpers.
 - `chain-store-memory.lisp`: in-memory canonical chain, state projection,
   filter, invalid payload, prepared payload, and blob sidecar caches.
 - `txpool.lisp`: pending/queued/basefee/blob txpool admission, promotion,

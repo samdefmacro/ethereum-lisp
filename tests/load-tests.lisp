@@ -29,6 +29,7 @@
 (load-ethereum-lisp-test-file "src/genesis-block.lisp")
 (load-ethereum-lisp-test-file "src/kzg.lisp")
 (load-ethereum-lisp-test-file "src/engine-payloads.lisp")
+(load-ethereum-lisp-test-file "src/chain-store-types.lisp")
 (load-ethereum-lisp-test-file "src/chain-store-memory.lisp")
 (load-ethereum-lisp-test-file "src/txpool.lisp")
 (load-ethereum-lisp-test-file "src/chain-store-persistence.lisp")

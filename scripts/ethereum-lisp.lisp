@@ -39,6 +39,7 @@
            "src/genesis-block.lisp"
            "src/kzg.lisp"
            "src/engine-payloads.lisp"
+           "src/chain-store-types.lisp"
            "src/chain-store-memory.lisp"
            "src/txpool.lisp"
            "src/chain-store-persistence.lisp"
