@@ -376,8 +376,15 @@ The first mechanical split is:
   gas, jump-destination checks, and base opcode gas.
 - `evm-runtime-conversions.lisp`: word/address/hash conversions and
   difficulty/prev-randao context lookup.
-- `evm-runtime-access.lisp`: transient storage, storage/access warming,
-  selfdestruct snapshots, and dynamic SSTORE gas.
+- `evm-runtime-transient-storage.lisp`: transient storage keys, load/store,
+  and frame snapshot copy/restore helpers.
+- `evm-runtime-storage-gas.lisp`: SSTORE refund keys, cleared-slot snapshots,
+  and dynamic SSTORE gas calculation.
+- `evm-runtime-access-lists.lisp`: account/storage warm access tracking and
+  EIP-2929 access gas charging.
+- `evm-runtime-selfdestructs.lisp`: selfdestruct address snapshots, marking,
+  and finalization.
+- `evm-runtime-access.lisp`: EVM access helper compatibility loader.
 - `evm-runtime-snapshots.lisp`: execution snapshot capture, access-list
   snapshot refresh, and restore helpers for child frame rollback.
 - `evm-runtime-state.lisp`: account mutation, value transfer, delegated code
