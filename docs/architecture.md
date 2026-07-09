@@ -303,6 +303,8 @@ The first mechanical split is:
   change calculation.
 - `public-rpc-filter-handlers.lisp`: public filter install/query/uninstall
   handlers.
+- `public-rpc-dispatch-*.lisp`: public JSON-RPC dispatch context plus
+  metadata, state, block, transaction, filter, and txpool method routing.
 - `public-rpc.lisp`: final public JSON-RPC method dispatch.
 - `engine-rpc-http-auth.lisp`: Engine API JWT token creation, validation, and
   signing helpers.
