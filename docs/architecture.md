@@ -37,6 +37,8 @@ The first mechanical split is:
 - `txpool-types.lisp`: txpool index structure required by the store type.
 - `txpool.lisp`: pending/queued/basefee/blob txpool admission, promotion,
   revalidation, and mining selection helpers.
+- `chain-store-persistence.lisp`: chain-store KV export/import records,
+  validation, staging, and restore consistency.
 - `core.lisp`: remaining genesis/block/store/RPC/KZG implementation.
 
 ## Dependency Rules

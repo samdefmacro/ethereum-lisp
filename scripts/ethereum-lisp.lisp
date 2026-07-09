@@ -35,6 +35,7 @@
            "src/txpool-types.lisp"
            "src/core.lisp"
            "src/txpool.lisp"
+           "src/chain-store-persistence.lisp"
            "src/block-validation.lisp"
            "src/engine-rpc.lisp"
            "src/public-rpc.lisp"

@@ -27,6 +27,7 @@
      (:file "txpool-types")
      (:file "core")
      (:file "txpool")
+     (:file "chain-store-persistence")
      (:file "block-validation")
      (:file "engine-rpc")
      (:file "public-rpc")
