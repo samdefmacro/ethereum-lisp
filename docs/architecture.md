@@ -391,8 +391,13 @@ The first mechanical split is:
   modules.
 - `execution-block-validation.lisp`: block body/fork shape checks, execution
   root validation, and block header snapshot/restore helpers.
-- `execution.lisp`: block execution entry points and atomic chain-store
-  commit helpers.
+- `execution-block-execution.lisp`: shared block execution skeleton plus
+  signed and legacy block execution entry points.
+- `execution-chain-state.lisp`: state-db to chain-store snapshot projection
+  and retained-state reconstruction.
+- `execution-block-commit.lisp`: atomic chain-store block commit and Engine
+  payload commit entry points.
+- `execution.lisp`: compatibility package entry for block execution modules.
 - `cli-types.lisp`: devnet CLI records, defaults, embedded dev genesis, and
   shutdown signal helpers.
 - `cli-files.lisp`: CLI file, datadir, JWT secret, and KV database path
