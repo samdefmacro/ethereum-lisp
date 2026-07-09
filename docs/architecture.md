@@ -73,8 +73,15 @@ The first mechanical split is:
   conversion.
 - `consensus-validation.lisp`: shared block/transaction validation helpers
   and fee-market calculations used by consensus, RPC, and txpool paths.
-- `block-access-list.lisp`: execution request hashing, shared field
-  validators, and Amsterdam block access list RLP/validation.
+- `block-access-list-types.lisp`: Amsterdam block access list structures.
+- `block-access-list-execution-requests.lisp`: execution request validation and
+  hashing.
+- `block-access-list-validation.lisp`: shared field and ordering validators.
+- `block-access-list-rlp.lisp`: block access list RLP encoding and decoding.
+- `block-access-list-commitments.lisp`: block access list hash and encoded-body
+  consistency checks.
+- `block-access-list.lisp`: compatibility package entry for block access list
+  modules.
 - `genesis-block.lisp`: fork-aware genesis header and block construction.
 - `kzg.lisp`: command-backed KZG verifier hooks and blob sidecar KZG
   validation.
