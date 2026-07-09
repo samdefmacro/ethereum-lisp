@@ -275,10 +275,7 @@
                   (devnet-cli-next-parsed-value
                    args option #'devnet-cli-parse-duration-seconds)))
                ((member option *devnet-cli-value-options* :test #'string=)
-                (multiple-value-bind (value rest)
-                    (devnet-cli-next-value args option)
-                  (declare (ignore value))
-                  (setf args rest)))
+                (setf args (devnet-cli-consume-value-option args option)))
                ((member option *devnet-cli-optional-boolean-options*
                         :test #'string=)
                 (setf args

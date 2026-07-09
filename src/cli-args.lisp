@@ -88,3 +88,9 @@
                (not (devnet-cli-option-token-p (first args))))
     (error "~A requires a value" option))
   (values (first args) (rest args)))
+
+(defun devnet-cli-consume-value-option (args option)
+  (multiple-value-bind (value rest)
+      (devnet-cli-next-value args option)
+    (declare (ignore value))
+    rest))
