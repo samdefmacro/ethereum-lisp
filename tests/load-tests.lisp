@@ -269,6 +269,7 @@
 (load-ethereum-lisp-test-file "src/execution-apply-message.lisp")
 (load-ethereum-lisp-test-file "src/execution-message-lists.lisp")
 (load-ethereum-lisp-test-file "src/execution-message.lisp")
+(load-ethereum-lisp-test-file "src/execution-block-body-validation.lisp")
 (load-ethereum-lisp-test-file "src/execution-block-validation.lisp")
 (load-ethereum-lisp-test-file "src/execution-block-execution.lisp")
 (load-ethereum-lisp-test-file "src/execution-chain-state.lisp")

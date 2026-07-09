@@ -279,6 +279,7 @@
            "src/execution-apply-message.lisp"
            "src/execution-message-lists.lisp"
            "src/execution-message.lisp"
+           "src/execution-block-body-validation.lisp"
            "src/execution-block-validation.lisp"
            "src/execution-block-execution.lisp"
            "src/execution-chain-state.lisp"

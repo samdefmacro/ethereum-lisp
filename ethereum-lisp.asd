@@ -271,6 +271,7 @@
      (:file "execution-apply-message")
      (:file "execution-message-lists")
      (:file "execution-message")
+     (:file "execution-block-body-validation")
      (:file "execution-block-validation")
      (:file "execution-block-execution")
      (:file "execution-chain-state")

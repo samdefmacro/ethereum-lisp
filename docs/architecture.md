@@ -416,8 +416,10 @@ The first mechanical split is:
   result construction.
 - `execution-message.lisp`: compatibility package entry for execution message
   modules.
-- `execution-block-validation.lisp`: block body/fork shape checks, execution
-  root validation, and block header snapshot/restore helpers.
+- `execution-block-body-validation.lisp`: block body commitment checks,
+  access-list body normalization, and execution root validation.
+- `execution-block-validation.lisp`: fork body-shape checks and block header
+  snapshot/restore helpers.
 - `execution-block-execution.lisp`: shared block execution skeleton plus
   signed and legacy block execution entry points.
 - `execution-chain-state.lisp`: state-db to chain-store snapshot projection
