@@ -66,6 +66,7 @@ references/ checkouts.~%")
            "scripts/devnet-smoke-gate-runtime-helpers.lisp"
            "scripts/devnet-smoke-gate-engine-only.lisp"
            "scripts/devnet-smoke-gate-restored-rpc.lisp"
+           "scripts/devnet-smoke-gate-database.lisp"
            "scripts/devnet-smoke-gate-run.lisp"
            "scripts/devnet-smoke-gate-output.lisp"))
   (devnet-smoke-gate-load-file relative-path))
