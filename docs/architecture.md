@@ -30,6 +30,9 @@ only split packages when the load order and public API are clear.
 
 The first mechanical split is:
 
+- `database-*.lisp`: key-value database protocol, chain-record key encoding,
+  memory/file backends, write batches, and chain-record access helpers.
+- `database.lisp`: compatibility package entry for database modules.
 - `crypto-constants.lisp`: hash, KZG, secp256k1, SHA-256, Keccak, and
   RIPEMD-160 constants and round tables.
 - `crypto-words.lisp`: 32-bit/64-bit rotation and endian load/store helpers.
