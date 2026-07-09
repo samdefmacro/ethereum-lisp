@@ -54,8 +54,10 @@ The first mechanical split is:
   atomic commit helpers for the in-memory chain store.
 - `chain-store-filters.lisp`: in-memory block, log, and pending transaction
   filter registration and notifications.
-- `chain-store-memory.lisp`: in-memory canonical chain, invalid payload,
+- `chain-store-cache.lisp`: in-memory remote block, invalid payload,
   prepared payload, and blob sidecar caches.
+- `chain-store-memory.lisp`: in-memory canonical chain and forkchoice
+  checkpoint accessors.
 - `chain-store-state.lisp`: retained state projection, pruning, and
   deterministic account iteration for the in-memory chain store.
 - `txpool.lisp`: pending/queued/basefee/blob txpool admission, promotion,

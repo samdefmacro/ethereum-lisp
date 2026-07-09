@@ -1,5 +1,20 @@
 (in-package #:ethereum-lisp.core)
 
+(defun engine-payload-store-invalid-ancestor-status
+    (store check-hash head-hash)
+  (let ((invalid-block
+          (engine-payload-store-invalid-block store check-hash)))
+    (when invalid-block
+      (unless (string= (engine-payload-store-key check-hash)
+                       (engine-payload-store-key head-hash))
+        (engine-payload-store-mark-invalid
+         store invalid-block :head-hash head-hash))
+      (make-payload-status
+       :status +payload-status-invalid+
+       :latest-valid-hash
+       (block-header-parent-hash (block-header invalid-block))
+       :validation-error "links to previously rejected block"))))
+
 (defun engine-forkchoice-checkpoint-error-message
     (store hash label &key head-hash)
   (when (not (hash32= hash (zero-hash32)))

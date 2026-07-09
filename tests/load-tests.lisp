@@ -32,6 +32,7 @@
 (load-ethereum-lisp-test-file "src/chain-store-types.lisp")
 (load-ethereum-lisp-test-file "src/chain-store-copy.lisp")
 (load-ethereum-lisp-test-file "src/chain-store-filters.lisp")
+(load-ethereum-lisp-test-file "src/chain-store-cache.lisp")
 (load-ethereum-lisp-test-file "src/chain-store-memory.lisp")
 (load-ethereum-lisp-test-file "src/chain-store-state.lisp")
 (load-ethereum-lisp-test-file "src/txpool.lisp")
