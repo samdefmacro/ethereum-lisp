@@ -234,8 +234,24 @@ The first mechanical split is:
   final precompile dispatch.
 - `evm-precompiles.lisp`: EVM precompile compatibility loader.
 - `evm.lisp`: bytecode interpreter loop and opcode execution.
-- `execution-context.lisp`: execution constants, transaction field
-  validation, fork-rule helpers, access prewarming, and EVM context creation.
+- `execution-constants.lisp`: execution gas, nonce, code-size, refund, and
+  proof-of-work reward constants.
+- `execution-state.lisp`: account mutation helpers, code resolution, contract
+  address derivation, and collision checks.
+- `execution-rewards.lisp`: block beneficiary and ommer reward calculation.
+- `execution-gas.lisp`: transaction gas math, effective gas price, initcode
+  and runtime code limits, and intrinsic gas helpers.
+- `execution-validation.lisp`: transaction scalar, access-list, set-code,
+  sender-code, fork activation, and list validation.
+- `execution-set-code.lisp`: EIP-7702 authorization application and refund
+  accounting.
+- `execution-accounting.lisp`: sender upfront charge, value transfer,
+  gas refund, priority fee payment, and receipt finalization.
+- `execution-access.lisp`: access-list/precompile prewarming and accessed
+  address/storage table construction.
+- `execution-rules.lisp`: fork-rule selection, blob gas limits, and block blob
+  base-fee derivation.
+- `execution-context.lisp`: EVM context creation for message execution.
 - `execution-message.lisp`: call simulation, message application, signed
   transaction sender recovery, and transaction-list execution.
 - `execution-block-validation.lisp`: block body/fork shape checks, execution
