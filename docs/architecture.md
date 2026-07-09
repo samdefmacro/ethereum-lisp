@@ -195,8 +195,16 @@ The first mechanical split is:
   normalization.
 - `public-rpc-transactions.lisp`: raw transaction and transaction lookup
   handlers.
-- `public-rpc-txpool.lisp`: sendRawTransaction admission, txpool views, and
-  pending transaction handlers.
+- `public-rpc-txpool-views.lisp`: txpool JSON table and transaction view
+  helpers.
+- `public-rpc-txpool-admission.lisp`: `eth_sendRawTransaction` validation and
+  txpool admission rules.
+- `public-rpc-txpool-locals.lisp`: local transaction exemption predicates and
+  expiry cleanup.
+- `public-rpc-send-raw-transaction.lisp`: `eth_sendRawTransaction` handler.
+- `public-rpc-txpool-handlers.lisp`: `eth_pendingTransactions` and `txpool_*`
+  namespace handlers.
+- `public-rpc-txpool.lisp`: compatibility package entry for txpool RPC modules.
 - `public-rpc-receipts.lisp`: log, receipt, and block receipt result
   construction and handlers.
 - `public-rpc-blocks.lisp`: public header, block, pending block, transaction
