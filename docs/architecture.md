@@ -240,8 +240,16 @@ The first mechanical split is:
 - `engine-rpc.lisp`: final Engine API method dispatch.
 - `public-rpc-params.lisp`: shared public JSON-RPC address, hash, block tag,
   and block id parameter coercion.
-- `public-rpc-core.lisp`: web3/net/basic eth handlers and fee history
-  helpers for the public JSON-RPC surface.
+- `public-rpc-call-defaults.lisp`: default gas-limit selection for public
+  call-style methods.
+- `public-rpc-metadata.lisp`: web3, net, rpc_modules, and basic eth metadata
+  handlers.
+- `public-rpc-fees.lisp`: gas price, priority fee, base fee, and blob base-fee
+  handlers.
+- `public-rpc-fee-history.lisp`: `eth_feeHistory` parameter validation and
+  response construction.
+- `public-rpc-core.lisp`: compatibility package entry for public RPC core
+  modules.
 - `public-rpc-state-queries.lisp`: public account balance, nonce, code, and
   storage reads.
 - `public-rpc-state-proofs.lisp`: `eth_getProof` storage slot coercion and
