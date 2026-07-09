@@ -85,8 +85,24 @@ The first mechanical split is:
   blob-fee, invalid-sender cleanup, and pending revalidation.
 - `chain-store-export.lisp`: chain-store KV export records for indexes,
   blocks, state snapshots, txpool records, and payload caches.
-- `chain-store-persistence.lisp`: chain-store KV import validation, staging,
-  and restore consistency.
+- `chain-store-persistence-core.lisp`: chain-store KV import table staging,
+  block/header indexes, canonical chain indexes, and checkpoints.
+- `chain-store-persistence-receipts.lisp`: receipt/log RLP decoding and
+  receipt record validation.
+- `chain-store-persistence-state.lisp`: state snapshot import, trie-root
+  reconstruction, and state-root validation.
+- `chain-store-persistence-locations.lisp`: transaction-location record import
+  and log-index consistency checks.
+- `chain-store-persistence-txpool.lisp`: txpool record import, static/fork
+  validation, subpool restoration, and post-import txpool consistency.
+- `chain-store-persistence-side-data.lisp`: invalid-tipset and remote-block
+  record import.
+- `chain-store-persistence-blobs.lisp`: blob sidecar record decoding and
+  versioned-hash indexing.
+- `chain-store-persistence-prepared-payloads.lisp`: prepared-payload record
+  decoding and cache restoration.
+- `chain-store-persistence.lisp`: top-level chain-store KV import
+  orchestration.
 - `engine-payload-status.lisp`: Engine forkchoice/newPayload status for the
   in-memory chain store.
 - `engine-rpc-protocol.lisp`: JSON-RPC envelopes, response helpers, and
