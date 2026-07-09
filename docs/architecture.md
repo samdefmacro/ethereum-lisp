@@ -233,8 +233,8 @@ The first mechanical split is:
   and host filtering, and request/response telemetry extraction.
 - `engine-rpc-http.lisp`: JSON-RPC request dispatch and HTTP request/stream
   handlers.
-- `engine-rpc-http-service.lisp`: HTTP service/listener abstractions, socket
-  listener construction, and service-level telemetry.
+- `engine-rpc-http-service-*.lisp`: Engine HTTP service configuration, listener
+  abstractions, socket listener construction, stream delegation, and serve loop.
 - `state-types.lisp`: state constants, mutable state records, proof records,
   range records, and state key coercion helpers.
 - `state-db.lisp`: mutable account/code/storage access, copy/restore helpers,
