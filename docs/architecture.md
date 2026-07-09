@@ -110,8 +110,17 @@ The first mechanical split is:
   deterministic account iteration for the in-memory chain store.
 - `chain-store-canonical.lisp`: canonical block indexes, transaction
   location indexing, reorg handling, and txpool reinsertion after head changes.
-- `txpool-index.lisp`: pending txpool subpool tables, sender/nonce indexes,
-  replacement checks, and deterministic subpool views.
+- `txpool-index-keys.lisp`: txpool sender/nonce/hash keys and admission
+  timestamps.
+- `txpool-index-tables.lisp`: generic sender/nonce table indexing helpers.
+- `txpool-index-subpools.lisp`: pending, queued, basefee, and blob subpool
+  wrappers.
+- `txpool-index-replacement.lisp`: replacement price-bump checks.
+- `txpool-index-conflicts.lisp`: cross-subpool conflicts and replacement
+  removal.
+- `txpool-index-insert.lisp`: txpool insertion paths for all subpools.
+- `txpool-index-views.lisp`: txpool lookup, list, count, and empty views.
+- `txpool-index.lisp`: compatibility package entry for txpool index modules.
 - `txpool.lisp`: engine payload store wrappers for pending/queued/basefee/blob
   txpool subpool admission and indexing.
 - `txpool-views.lisp`: txpool lookup, list, count, sender view, and mining
