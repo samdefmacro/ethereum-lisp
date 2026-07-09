@@ -115,8 +115,18 @@ The first mechanical split is:
   checkpoint storage wrappers.
 - `chain-store-state.lisp`: retained state projection, pruning, and
   deterministic account iteration for the in-memory chain store.
-- `chain-store-canonical.lisp`: canonical block indexes, transaction
-  location indexing, reorg handling, and txpool reinsertion after head changes.
+- `chain-store-canonical-indexes.lisp`: canonical hash, block number, parent,
+  block-membership, and ancestor checks.
+- `chain-store-transaction-locations.lisp`: canonical transaction location
+  indexing and lookup.
+- `chain-store-txpool-rules.lisp`: txpool admission rules that need current
+  chain state.
+- `chain-store-reorg-txpool.lisp`: displaced transaction reinsertion after
+  canonical reorgs.
+- `chain-store-canonical-head.lisp`: canonical head updates, reorg cleanup,
+  txpool refresh, and filter notifications.
+- `chain-store-canonical.lisp`: compatibility package entry for canonical
+  chain-store modules.
 - `txpool-index-keys.lisp`: txpool sender/nonce/hash keys and admission
   timestamps.
 - `txpool-index-tables.lisp`: generic sender/nonce table indexing helpers.
