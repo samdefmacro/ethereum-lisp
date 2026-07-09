@@ -189,8 +189,15 @@ The first mechanical split is:
   shutdown signal helpers.
 - `cli-files.lisp`: CLI file, datadir, JWT secret, and KV database path
   helpers.
-- `cli-devnet.lisp`: devnet node construction, lifecycle threads, listener
-  startup, mining, journaling, and summaries.
+- `cli-devnet-node.lisp`: devnet node construction, genesis import, service
+  construction, and Merge option overrides.
+- `cli-devnet-runtime.lisp`: devnet state pruning, txpool journaling,
+  dev-period block sealing, and database export.
+- `cli-devnet-summary.lisp`: devnet status summaries and JSON summary
+  objects.
+- `cli-devnet-service.lisp`: devnet background threads, listener serving, and
+  startup orchestration.
+- `cli-devnet.lisp`: devnet compatibility loader.
 - `cli-args.lisp`: command-line token normalization, option arity metadata,
   boolean token handling, and command-token lookup.
 - `cli-config.lisp`: TOML config parsing and config-to-CLI option mapping.
