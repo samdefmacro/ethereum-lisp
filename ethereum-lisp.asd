@@ -33,6 +33,7 @@
      (:file "engine-payloads")
      (:file "chain-store-types")
      (:file "chain-store-copy")
+     (:file "chain-store-filters")
      (:file "chain-store-memory")
      (:file "chain-store-state")
      (:file "txpool")

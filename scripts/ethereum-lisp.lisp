@@ -41,6 +41,7 @@
            "src/engine-payloads.lisp"
            "src/chain-store-types.lisp"
            "src/chain-store-copy.lisp"
+           "src/chain-store-filters.lisp"
            "src/chain-store-memory.lisp"
            "src/chain-store-state.lisp"
            "src/txpool.lisp"

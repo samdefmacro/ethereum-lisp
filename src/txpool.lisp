@@ -712,16 +712,6 @@
    (engine-payload-store-txpool store)
    transaction))
 
-(defun engine-payload-store-notify-pending-transaction-filters
-    (store transaction)
-  (loop for filter
-          being the hash-values of
-            (engine-payload-memory-store-log-filters store)
-        when (typep filter 'engine-pending-transaction-filter)
-          do (engine-pending-transaction-filter-record-hash
-              filter
-              (transaction-hash transaction))))
-
 (defun engine-payload-store-put-pending-transaction
     (store transaction
      &key (price-bump-percent +txpool-replacement-price-bump-percent+)
