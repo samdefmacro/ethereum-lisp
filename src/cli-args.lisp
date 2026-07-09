@@ -27,50 +27,6 @@
                '("true" "false" "1" "0")
                :test #'string=)))
 
-(defparameter *devnet-cli-value-options*
-  '("--config" "--genesis" "--host" "--engine-host" "--authrpc.addr"
-    "--port" "--engine-port" "--authrpc.port" "--public-host"
-    "--http.addr" "--public-port" "--http.port" "--jwt-secret"
-    "--authrpc.jwtsecret" "--authrpc.rpcprefix" "--http.rpcprefix"
-    "--database" "--datadir" "--networkid" "--network-id"
-    "--prune-state-before" "--max-connections" "--http.api"
-    "--http.corsdomain" "--authrpc.corsdomain" "--authrpc.vhosts"
-    "--http.vhosts" "--http.maxclients" "--http.readtimeout"
-    "--http.writetimeout" "--http.idletimeout"
-    "--ws.addr" "--ws.port" "--ws.api" "--ws.origins" "--ws.rpcprefix"
-    "--ipcapi"
-    "--graphql.addr" "--graphql.port" "--graphql.vhosts"
-    "--graphql.corsdomain" "--syncmode" "--verbosity" "--maxpeers"
-    "--log.file" "--log.format" "--log.maxsize" "--log.maxbackups"
-    "--log.maxage" "--nat" "--identity" "--gcmode" "--cache"
-    "--cache.database" "--cache.gc" "--cache.trie" "--state.scheme" "--db.engine"
-    "--datadir.ancient" "--ipcpath" "--netrestrict" "--nodekey"
-    "--nodekeyhex" "--discovery.port" "--discovery.dns"
-    "--txlookuplimit" "--history.transactions" "--bootnodes"
-    "--rpc.gascap" "--rpc.evmtimeout" "--rpc.txfeecap"
-    "--rpc.batch-request-limit" "--rpc.batch-response-max-size"
-    "--override.terminaltotaldifficulty" "--override.terminalblockhash"
-    "--override.terminalblocknumber"
-    "--miner.etherbase" "--etherbase" "--miner.gaslimit"
-    "--miner.gasprice" "--unlock" "--password" "--metrics.addr"
-    "--metrics.port" "--pprof.addr" "--pprof.port" "--txpool.locals"
-    "--txpool.journal" "--txpool.rejournal"
-    "--txpool.accountslots" "--txpool.globalslots"
-    "--txpool.lifetime"
-    "--txpool.blobpool.datacap" "--txpool.blobpool.pricebump"
-    "--dev.period" "--dev.gaslimit"
-    "--kzg-verifier-command" "--kzg.verifier-command"
-    "--kzg-verifier-timeout" "--kzg.verifier-timeout"
-    "--ready-file" "--log-file" "--pid-file"))
-
-(defparameter *devnet-cli-optional-boolean-options*
-  '("--http" "--ws" "--graphql" "--nodiscover" "--ipcdisable"
-    "--allow-insecure-unlock" "--mine" "--metrics" "--pprof"
-    "--snapshot" "--rpc.allow-unprotected-txs" "--txpool.nolocals"
-    "--log.compress" "--override.terminaltotaldifficultypassed"
-    "--mainnet" "--sepolia" "--holesky" "--hoodi" "--goerli"
-    "--dev" "--nousb" "--json" "--no-serve"))
-
 (defun devnet-cli-command-position (args command)
   (let ((args (devnet-cli-normalize-option-args args))
         (position 0))
@@ -100,6 +56,19 @@
                (t
                 (return (and (string= token command) position))))
           finally (return nil))))
+
+(defun devnet-cli-remove-command-token (args command)
+  (let* ((args (devnet-cli-normalize-option-args args))
+         (position (devnet-cli-command-position args command)))
+    (if position
+        (loop for arg in args
+              for index from 0
+              unless (= index position)
+                collect arg)
+        args)))
+
+(defun devnet-cli-init-command-p (args)
+  (devnet-cli-command-position args "init"))
 
 (defun devnet-cli-optional-boolean-value (args option)
   (if (and args

@@ -462,8 +462,9 @@ The first mechanical split is:
 - `cli-devnet-service.lisp`: devnet listener serving and
   startup orchestration.
 - `cli-devnet.lisp`: devnet compatibility loader.
-- `cli-args.lisp`: command-line token normalization, option arity metadata,
-  boolean token handling, and command-token lookup.
+- `cli-option-definitions.lisp`: geth-compatible option arity metadata.
+- `cli-args.lisp`: command-line token normalization, boolean token handling,
+  and command-token lookup.
 - `cli-config-toml.lisp`: minimal TOML value parsing for geth-compatible
   devnet config files.
 - `cli-config.lisp`: geth config-file key mapping and config-to-CLI option

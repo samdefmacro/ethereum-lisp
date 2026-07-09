@@ -296,6 +296,7 @@
      (:file "cli-devnet-background")
      (:file "cli-devnet-service")
      (:file "cli-devnet")
+     (:file "cli-option-definitions")
      (:file "cli-args")
      (:file "cli-config-toml")
      (:file "cli-config")

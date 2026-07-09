@@ -304,6 +304,7 @@
            "src/cli-devnet-background.lisp"
            "src/cli-devnet-service.lisp"
            "src/cli-devnet.lisp"
+           "src/cli-option-definitions.lisp"
            "src/cli-args.lisp"
            "src/cli-config-toml.lisp"
            "src/cli-config.lisp"

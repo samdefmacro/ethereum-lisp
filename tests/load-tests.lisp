@@ -294,6 +294,7 @@
 (load-ethereum-lisp-test-file "src/cli-devnet-background.lisp")
 (load-ethereum-lisp-test-file "src/cli-devnet-service.lisp")
 (load-ethereum-lisp-test-file "src/cli-devnet.lisp")
+(load-ethereum-lisp-test-file "src/cli-option-definitions.lisp")
 (load-ethereum-lisp-test-file "src/cli-args.lisp")
 (load-ethereum-lisp-test-file "src/cli-config-toml.lisp")
 (load-ethereum-lisp-test-file "src/cli-config.lisp")

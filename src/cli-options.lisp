@@ -387,17 +387,3 @@
           :kzg-verifier-command kzg-verifier-command
           :kzg-verifier-timeout-seconds kzg-verifier-timeout-seconds
           :help-p help-p)))
-
-
-(defun devnet-cli-remove-command-token (args command)
-  (let* ((args (devnet-cli-normalize-option-args args))
-         (position (devnet-cli-command-position args command)))
-    (if position
-        (loop for arg in args
-              for index from 0
-              unless (= index position)
-                collect arg)
-        args)))
-
-(defun devnet-cli-init-command-p (args)
-  (devnet-cli-command-position args "init"))
