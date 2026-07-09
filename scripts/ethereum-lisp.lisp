@@ -282,6 +282,7 @@
            "src/evm-precompiles-dispatch.lisp"
            "src/evm-precompiles.lisp"
            "src/evm-interpreter-results.lisp"
+           "src/evm-interpreter-create.lisp"
            "src/evm.lisp"
            "src/execution-constants.lisp"
            "src/execution-state.lisp"

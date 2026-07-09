@@ -653,8 +653,8 @@
                    ((= op #xf0)
                     (unless (and context (evm-context-state context))
                       (fail "CREATE requires an EVM context with state"))
-                   (when (evm-context-read-only-p context)
-                     (fail "CREATE is not allowed in read-only EVM context"))
+                    (when (evm-context-read-only-p context)
+                      (fail "CREATE is not allowed in read-only EVM context"))
                     (multiple-value-bind (value offset size rest) (pop3 stack)
                       (charge-extra-gas
                        (create-initcode-extra-gas
@@ -669,103 +669,18 @@
                                (create-address creator
                                                (state-account-nonce
                                                 creator-account)))
-                             (initcode (memory-slice memory offset size))
-                             (child-return-data (make-byte-vector 0))
-                             (child-gas-limit
-                               (child-create-gas-limit gas-limit gas-used))
-                             (child-started-p nil)
-                             (child-gas-used 0)
-                             (child-logs '())
-                             (success-address 0))
-                        (when (< (state-account-balance creator-account) value)
-                          (fail "Insufficient balance for CREATE value"))
-                        (increment-account-nonce state creator)
-                        (mark-account-accessed context new-address)
-                        (if (contract-address-collision-p state new-address)
-                            (setf child-gas-used (or child-gas-limit 0))
-                            (let ((snapshot
-                                    (capture-execution-snapshot
-                                     state context)))
-                              (handler-case
-                                  (progn
-                                    (transfer-call-value state creator new-address value)
-                                    (let ((created-account
-                                            (account-or-empty state new-address)))
-                                      (put-account-values
-                                       state
-                                       new-address
-                                       1
-                                       (state-account-balance created-account)
-                                       (state-account-code-hash created-account)))
-                                    (let* ((child-context
-                                             (make-child-evm-context
-                                              context
-                                              :state state
-                                              :address new-address
-                                              :caller creator
-                                              :call-value value
-                                              :input (make-byte-vector 0)))
-                                           (child-result
-                                             (progn
-                                               (setf child-started-p t)
-                                               (if child-gas-limit
-                                                   (execute-bytecode
-                                                    initcode
-                                                    :context child-context
-                                                    :gas-limit child-gas-limit)
-                                                   (execute-bytecode
-                                                    initcode
-                                                    :context child-context)))))
-                                      (setf child-gas-used
-                                            (evm-result-gas-used child-result))
-                                      (setf child-return-data
-                                            (evm-result-return-data child-result))
-                                      (if (eq (evm-result-status child-result)
-                                              :reverted)
-                                          (restore-execution-snapshot
-                                           state context snapshot)
-                                          (progn
-                                            (setf child-logs
-                                                  (evm-result-logs child-result))
-                                            (when (invalid-created-runtime-code-p
-                                                   child-return-data
-                                                   (evm-context-chain-rules
-                                                    context))
-                                              (fail "CREATE produced invalid runtime code"))
-                                            (incf child-gas-used
-                                                  (created-code-deposit-gas
-                                                   child-return-data))
-                                            (when (and gas-limit
-                                                       (> (+ gas-used
-                                                             child-gas-used)
-                                                          gas-limit))
-                                              (fail "CREATE code deposit out of gas"))
-                                            (state-db-set-code state
-                                                               new-address
-                                                               child-return-data)
-                                            (incf refund-counter
-                                                  (evm-result-refund-counter
-                                                   child-result))
-                                            (setf success-address
-                                                  (address-to-word
-                                                   new-address)
-                                                  child-return-data
-                                                  (make-byte-vector 0))))))
-                                (evm-error ()
-                                  (restore-execution-snapshot
-                                   state context snapshot)
-                                  (setf success-address 0
-                                        child-return-data
-                                        (make-byte-vector 0)
-                                        child-logs '()
-                                        child-gas-used
-                                          (failed-create-child-gas-used
-                                           child-started-p child-gas-limit
-                                           child-gas-used))))))
-                        (charge-extra-gas child-gas-used)
-                        (setf return-data-buffer child-return-data
-                              logs (prepend-child-logs child-logs logs)
-                              stack (stack-push rest success-address))))
+                             (initcode (memory-slice memory offset size)))
+                        (multiple-value-bind
+                              (success-address child-return-data child-gas-used
+                               child-logs child-refund-counter)
+                            (execute-contract-creation
+                             state context creator new-address value initcode
+                             gas-limit gas-used "CREATE")
+                          (charge-extra-gas child-gas-used)
+                          (incf refund-counter child-refund-counter)
+                          (setf return-data-buffer child-return-data
+                                logs (prepend-child-logs child-logs logs)
+                                stack (stack-push rest success-address)))))
                     (incf pc))
                    ((= op #xf5)
                     (unless (and context (evm-context-state context))
@@ -786,105 +701,20 @@
                         (setf memory (ensure-memory-size memory (+ offset size)))
                         (let* ((state (evm-context-state context))
                                (creator (evm-context-address context))
-                               (creator-account (account-or-empty state creator))
                                (initcode (memory-slice memory offset size))
                                (new-address
-                                 (create2-address creator salt initcode))
-                               (child-return-data (make-byte-vector 0))
-                               (child-gas-limit
-                                 (child-create-gas-limit gas-limit gas-used))
-                               (child-started-p nil)
-                               (child-gas-used 0)
-                               (child-logs '())
-                               (success-address 0))
-                          (when (< (state-account-balance creator-account) value)
-                            (fail "Insufficient balance for CREATE2 value"))
-                          (increment-account-nonce state creator)
-                          (mark-account-accessed context new-address)
-                          (if (contract-address-collision-p state new-address)
-                              (setf child-gas-used (or child-gas-limit 0))
-                              (let ((snapshot
-                                      (capture-execution-snapshot
-                                       state context)))
-                                (handler-case
-                                    (progn
-                                      (transfer-call-value state creator new-address value)
-                                      (let ((created-account
-                                              (account-or-empty state new-address)))
-                                        (put-account-values
-                                         state
-                                         new-address
-                                         1
-                                         (state-account-balance created-account)
-                                         (state-account-code-hash created-account)))
-                                      (let* ((child-context
-                                               (make-child-evm-context
-                                                context
-                                                :state state
-                                                :address new-address
-                                                :caller creator
-                                                :call-value value
-                                                :input (make-byte-vector 0)))
-                                             (child-result
-                                               (progn
-                                                 (setf child-started-p t)
-                                                 (if child-gas-limit
-                                                     (execute-bytecode
-                                                      initcode
-                                                      :context child-context
-                                                      :gas-limit child-gas-limit)
-                                                     (execute-bytecode
-                                                      initcode
-                                                      :context child-context)))))
-                                        (setf child-gas-used
-                                              (evm-result-gas-used child-result))
-                                        (setf child-return-data
-                                              (evm-result-return-data child-result))
-                                        (if (eq (evm-result-status child-result)
-                                                :reverted)
-                                            (restore-execution-snapshot
-                                             state context snapshot)
-                                            (progn
-                                              (setf child-logs
-                                                    (evm-result-logs child-result))
-                                              (when (invalid-created-runtime-code-p
-                                                     child-return-data
-                                                     (evm-context-chain-rules
-                                                      context))
-                                                (fail "CREATE2 produced invalid runtime code"))
-                                              (incf child-gas-used
-                                                    (created-code-deposit-gas
-                                                     child-return-data))
-                                              (when (and gas-limit
-                                                         (> (+ gas-used
-                                                               child-gas-used)
-                                                            gas-limit))
-                                                (fail "CREATE2 code deposit out of gas"))
-                                              (state-db-set-code state
-                                                                 new-address
-                                                                 child-return-data)
-                                              (incf refund-counter
-                                                    (evm-result-refund-counter
-                                                     child-result))
-                                              (setf success-address
-                                                    (address-to-word new-address)
-                                                    child-return-data
-                                                    (make-byte-vector 0))))))
-                                  (evm-error ()
-                                    (restore-execution-snapshot
-                                     state context snapshot)
-                                    (setf success-address 0
-                                          child-return-data
-                                          (make-byte-vector 0)
-                                          child-logs '()
-                                          child-gas-used
-                                          (failed-create-child-gas-used
-                                           child-started-p child-gas-limit
-                                           child-gas-used))))))
-                          (charge-extra-gas child-gas-used)
-                          (setf return-data-buffer child-return-data
-                                logs (prepend-child-logs child-logs logs)
-                                stack (stack-push rest success-address)))))
+                                 (create2-address creator salt initcode)))
+                          (multiple-value-bind
+                                (success-address child-return-data child-gas-used
+                                 child-logs child-refund-counter)
+                              (execute-contract-creation
+                               state context creator new-address value initcode
+                               gas-limit gas-used "CREATE2")
+                            (charge-extra-gas child-gas-used)
+                            (incf refund-counter child-refund-counter)
+                            (setf return-data-buffer child-return-data
+                                  logs (prepend-child-logs child-logs logs)
+                                  stack (stack-push rest success-address))))))
                     (incf pc))
                    ((= op #xf1)
                     (unless (and context (evm-context-state context))

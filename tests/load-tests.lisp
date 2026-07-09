@@ -272,6 +272,7 @@
 (load-ethereum-lisp-test-file "src/evm-precompiles-dispatch.lisp")
 (load-ethereum-lisp-test-file "src/evm-precompiles.lisp")
 (load-ethereum-lisp-test-file "src/evm-interpreter-results.lisp")
+(load-ethereum-lisp-test-file "src/evm-interpreter-create.lisp")
 (load-ethereum-lisp-test-file "src/evm.lisp")
 (load-ethereum-lisp-test-file "src/execution-constants.lisp")
 (load-ethereum-lisp-test-file "src/execution-state.lisp")

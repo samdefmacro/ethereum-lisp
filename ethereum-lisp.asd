@@ -274,6 +274,7 @@
      (:file "evm-precompiles-dispatch")
      (:file "evm-precompiles")
      (:file "evm-interpreter-results")
+     (:file "evm-interpreter-create")
      (:file "evm")
      (:file "execution-constants")
      (:file "execution-state")
