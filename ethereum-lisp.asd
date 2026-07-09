@@ -161,6 +161,7 @@
      (:file "engine-payload-status")
      (:file "engine-rpc-protocol")
      (:file "engine-rpc-field-codecs")
+     (:file "engine-rpc-payload-input-codecs")
      (:file "engine-rpc-payload-codecs")
      (:file "engine-rpc-forkchoice-codecs")
      (:file "engine-rpc-capabilities")

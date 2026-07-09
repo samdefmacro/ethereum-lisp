@@ -169,6 +169,7 @@
            "src/engine-payload-status.lisp"
            "src/engine-rpc-protocol.lisp"
            "src/engine-rpc-field-codecs.lisp"
+           "src/engine-rpc-payload-input-codecs.lisp"
            "src/engine-rpc-payload-codecs.lisp"
            "src/engine-rpc-forkchoice-codecs.lisp"
            "src/engine-rpc-capabilities.lisp"

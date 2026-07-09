@@ -159,6 +159,7 @@
 (load-ethereum-lisp-test-file "src/engine-payload-status.lisp")
 (load-ethereum-lisp-test-file "src/engine-rpc-protocol.lisp")
 (load-ethereum-lisp-test-file "src/engine-rpc-field-codecs.lisp")
+(load-ethereum-lisp-test-file "src/engine-rpc-payload-input-codecs.lisp")
 (load-ethereum-lisp-test-file "src/engine-rpc-payload-codecs.lisp")
 (load-ethereum-lisp-test-file "src/engine-rpc-forkchoice-codecs.lisp")
 (load-ethereum-lisp-test-file "src/engine-rpc-capabilities.lisp")
