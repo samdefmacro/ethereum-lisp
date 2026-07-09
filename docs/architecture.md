@@ -228,8 +228,14 @@ The first mechanical split is:
 - `public-rpc-txpool.lisp`: compatibility package entry for txpool RPC modules.
 - `public-rpc-receipts.lisp`: log, receipt, and block receipt result
   construction and handlers.
-- `public-rpc-blocks.lisp`: public header, block, pending block, transaction
-  count, and ommer handlers.
+- `public-rpc-header-objects.lisp`: public header result objects and header
+  lookup handlers.
+- `public-rpc-block-*.lisp`: public block RLP sizing, block result objects,
+  block lookup handlers, and transaction-count handlers.
+- `public-rpc-ommer-handlers.lisp`: public ommer count and ommer lookup
+  handlers.
+- `public-rpc-blocks.lisp`: compatibility package entry for public block RPC
+  modules.
 - `public-rpc-log-filters.lisp`: public log filter parsing, matching, block
   selection, and log result construction.
 - `public-rpc-filter-changes.lisp`: log, block, and pending-transaction filter
