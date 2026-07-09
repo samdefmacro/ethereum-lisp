@@ -267,6 +267,7 @@
      (:file "execution-state")
      (:file "execution-rewards")
      (:file "execution-gas")
+     (:file "execution-transaction-fields")
      (:file "execution-validation")
      (:file "execution-set-code")
      (:file "execution-accounting")

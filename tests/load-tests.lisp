@@ -265,6 +265,7 @@
 (load-ethereum-lisp-test-file "src/execution-state.lisp")
 (load-ethereum-lisp-test-file "src/execution-rewards.lisp")
 (load-ethereum-lisp-test-file "src/execution-gas.lisp")
+(load-ethereum-lisp-test-file "src/execution-transaction-fields.lisp")
 (load-ethereum-lisp-test-file "src/execution-validation.lisp")
 (load-ethereum-lisp-test-file "src/execution-set-code.lisp")
 (load-ethereum-lisp-test-file "src/execution-accounting.lisp")

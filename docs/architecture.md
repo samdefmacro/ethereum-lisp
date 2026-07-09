@@ -409,8 +409,10 @@ The first mechanical split is:
 - `execution-rewards.lisp`: block beneficiary and ommer reward calculation.
 - `execution-gas.lisp`: transaction gas math, effective gas price, initcode
   and runtime code limits, and intrinsic gas helpers.
-- `execution-validation.lisp`: transaction scalar, access-list, set-code,
-  sender-code, fork activation, and list validation.
+- `execution-transaction-fields.lisp`: execution transaction scalar,
+  access-list, set-code, and sender-code field validation.
+- `execution-validation.lisp`: fork-aware transaction and transaction-list
+  validation orchestration.
 - `execution-set-code.lisp`: EIP-7702 authorization application and refund
   accounting.
 - `execution-accounting.lisp`: sender upfront charge, value transfer,

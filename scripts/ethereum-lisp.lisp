@@ -275,6 +275,7 @@
            "src/execution-state.lisp"
            "src/execution-rewards.lisp"
            "src/execution-gas.lisp"
+           "src/execution-transaction-fields.lisp"
            "src/execution-validation.lisp"
            "src/execution-set-code.lisp"
            "src/execution-accounting.lisp"
