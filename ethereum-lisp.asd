@@ -26,6 +26,7 @@
      (:file "receipts")
      (:file "txpool-types")
      (:file "core")
+     (:file "consensus-validation")
      (:file "block-access-list")
      (:file "kzg")
      (:file "txpool")

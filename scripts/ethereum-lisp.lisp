@@ -34,6 +34,7 @@
            "src/receipts.lisp"
            "src/txpool-types.lisp"
            "src/core.lisp"
+           "src/consensus-validation.lisp"
            "src/block-access-list.lisp"
            "src/kzg.lisp"
            "src/txpool.lisp"

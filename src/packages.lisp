@@ -999,6 +999,12 @@
    #:execute-bytecode))
 
 (defpackage #:ethereum-lisp.execution
+  (:shadow
+   #:validate-access-list-fields
+   #:validate-set-code-authorization-fields
+   #:validate-set-code-transaction-fields
+   #:validate-transaction-data-field
+   #:validate-transaction-recipient-field)
   (:use #:cl
         #:ethereum-lisp.bytes
         #:ethereum-lisp.rlp
