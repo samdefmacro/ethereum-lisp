@@ -711,40 +711,13 @@
                                        (state-account-balance created-account)
                                        (state-account-code-hash created-account)))
                                     (let* ((child-context
-                                             (make-evm-context
+                                             (make-child-evm-context
+                                              context
                                               :state state
                                               :address new-address
                                               :caller creator
-                                              :origin (evm-context-origin context)
                                               :call-value value
-                                              :gas-price (evm-context-gas-price context)
-                                              :input (make-byte-vector 0)
-                                              :coinbase (evm-context-coinbase context)
-                                              :timestamp (evm-context-timestamp context)
-                                              :block-number (evm-context-block-number context)
-                                              :prev-randao (evm-context-prev-randao context)
-                                              :difficulty (evm-context-difficulty context)
-                                              :random-p (evm-context-random-p context)
-                                              :gas-limit (evm-context-gas-limit context)
-                                              :chain-id (evm-context-chain-id context)
-                                              :chain-rules (evm-context-chain-rules context)
-                                              :base-fee (evm-context-base-fee context)
-                                              :blob-hashes (evm-context-blob-hashes context)
-                                              :blob-base-fee (evm-context-blob-base-fee context)
-                                              :transient-storage
-                                              (evm-context-transient-storage context)
-                                              :storage-originals
-                                              (evm-context-storage-originals context)
-                                              :storage-clears
-                                              (evm-context-storage-clears context)
-                                              :selfdestructed-addresses
-                                              (evm-context-selfdestructed-addresses
-                                               context)
-                                              :accessed-storage
-                                              (evm-context-accessed-storage context)
-                                              :accessed-addresses
-                                              (evm-context-accessed-addresses context)
-                                              :block-hashes (evm-context-block-hashes context)))
+                                              :input (make-byte-vector 0)))
                                            (child-result
                                              (progn
                                                (setf child-started-p t)
@@ -875,40 +848,13 @@
                                          (state-account-balance created-account)
                                          (state-account-code-hash created-account)))
                                       (let* ((child-context
-                                               (make-evm-context
+                                               (make-child-evm-context
+                                                context
                                                 :state state
                                                 :address new-address
                                                 :caller creator
-                                                :origin (evm-context-origin context)
                                                 :call-value value
-                                                :gas-price (evm-context-gas-price context)
-                                                :input (make-byte-vector 0)
-                                                :coinbase (evm-context-coinbase context)
-                                                :timestamp (evm-context-timestamp context)
-                                                :block-number (evm-context-block-number context)
-                                                :prev-randao (evm-context-prev-randao context)
-                                                :difficulty (evm-context-difficulty context)
-                                                :random-p (evm-context-random-p context)
-                                                :gas-limit (evm-context-gas-limit context)
-                                                :chain-id (evm-context-chain-id context)
-                                                :chain-rules (evm-context-chain-rules context)
-                                                :base-fee (evm-context-base-fee context)
-                                                :blob-hashes (evm-context-blob-hashes context)
-                                                :blob-base-fee (evm-context-blob-base-fee context)
-                                                :transient-storage
-                                                (evm-context-transient-storage context)
-                                                :storage-originals
-                                                (evm-context-storage-originals context)
-                                                :storage-clears
-                                                (evm-context-storage-clears context)
-                                                :selfdestructed-addresses
-                                                (evm-context-selfdestructed-addresses
-                                                 context)
-                                                :accessed-storage
-                                                (evm-context-accessed-storage context)
-                                                :accessed-addresses
-                                                (evm-context-accessed-addresses context)
-                                                :block-hashes (evm-context-block-hashes context)))
+                                                :input (make-byte-vector 0)))
                                              (child-result
                                                (progn
                                                  (setf child-started-p t)
@@ -1089,41 +1035,17 @@
                                       (if (zerop (length callee-code))
                                           (setf success 1)
                                           (let* ((child-context
-                                                   (make-evm-context
+                                                   (make-child-evm-context
+                                                    context
                                                     :state state
                                                     :address callee
-                                                    :caller (evm-context-address context)
-                                                    :origin (evm-context-origin context)
+                                                    :caller (evm-context-address
+                                                             context)
                                                     :call-value value
-                                                    :gas-price (evm-context-gas-price context)
                                                     :input args
-                                                    :coinbase (evm-context-coinbase context)
-                                                    :timestamp (evm-context-timestamp context)
-                                                    :block-number (evm-context-block-number context)
-                                                    :prev-randao (evm-context-prev-randao context)
-                                                    :difficulty (evm-context-difficulty context)
-                                                    :random-p (evm-context-random-p context)
-                                                    :gas-limit (evm-context-gas-limit context)
-                                                    :chain-id (evm-context-chain-id context)
-                                                    :chain-rules (evm-context-chain-rules context)
-                                                    :base-fee (evm-context-base-fee context)
-                                                    :blob-hashes (evm-context-blob-hashes context)
-                                                    :blob-base-fee (evm-context-blob-base-fee context)
-                                                    :transient-storage
-                                                    (evm-context-transient-storage context)
-                                                    :storage-originals
-                                                    (evm-context-storage-originals context)
-                                                    :storage-clears
-                                                    (evm-context-storage-clears context)
-                                                    :selfdestructed-addresses
-                                                    (evm-context-selfdestructed-addresses
-                                                     context)
-                                                    :accessed-storage
-                                                    (evm-context-accessed-storage context)
-                                                    :accessed-addresses
-                                                    (evm-context-accessed-addresses context)
-                                                    :block-hashes (evm-context-block-hashes context)
-                                                    :read-only-p (evm-context-read-only-p context)))
+                                                    :read-only-p
+                                                    (evm-context-read-only-p
+                                                     context)))
                                                   (child-result
                                                    (progn
                                                      (setf child-started-p t)
@@ -1298,41 +1220,18 @@
                                       (if (zerop (length callee-code))
                                           (setf success 1)
                                           (let* ((child-context
-                                                   (make-evm-context
+                                                   (make-child-evm-context
+                                                    context
                                                     :state state
-                                                    :address (evm-context-address context)
-                                                    :caller (evm-context-address context)
-                                                    :origin (evm-context-origin context)
+                                                    :address (evm-context-address
+                                                              context)
+                                                    :caller (evm-context-address
+                                                             context)
                                                     :call-value value
-                                                    :gas-price (evm-context-gas-price context)
                                                     :input args
-                                                    :coinbase (evm-context-coinbase context)
-                                                    :timestamp (evm-context-timestamp context)
-                                                    :block-number (evm-context-block-number context)
-                                                    :prev-randao (evm-context-prev-randao context)
-                                                    :difficulty (evm-context-difficulty context)
-                                                    :random-p (evm-context-random-p context)
-                                                    :gas-limit (evm-context-gas-limit context)
-                                                    :chain-id (evm-context-chain-id context)
-                                                    :chain-rules (evm-context-chain-rules context)
-                                                    :base-fee (evm-context-base-fee context)
-                                                    :blob-hashes (evm-context-blob-hashes context)
-                                                    :blob-base-fee (evm-context-blob-base-fee context)
-                                                    :transient-storage
-                                                    (evm-context-transient-storage context)
-                                                    :storage-originals
-                                                    (evm-context-storage-originals context)
-                                                    :storage-clears
-                                                    (evm-context-storage-clears context)
-                                                    :selfdestructed-addresses
-                                                    (evm-context-selfdestructed-addresses
-                                                     context)
-                                                    :accessed-storage
-                                                    (evm-context-accessed-storage context)
-                                                    :accessed-addresses
-                                                    (evm-context-accessed-addresses context)
-                                                    :block-hashes (evm-context-block-hashes context)
-                                                    :read-only-p (evm-context-read-only-p context)))
+                                                    :read-only-p
+                                                    (evm-context-read-only-p
+                                                     context)))
                                                   (child-result
                                                    (progn
                                                      (setf child-started-p t)
@@ -1471,41 +1370,20 @@
                                       (if (zerop (length callee-code))
                                           (setf success 1)
                                           (let* ((child-context
-                                                   (make-evm-context
+                                                   (make-child-evm-context
+                                                    context
                                                     :state state
-                                                    :address (evm-context-address context)
-                                                    :caller (evm-context-caller context)
-                                                    :origin (evm-context-origin context)
-                                                    :call-value (evm-context-call-value context)
-                                                    :gas-price (evm-context-gas-price context)
-                                                    :input args
-                                                    :coinbase (evm-context-coinbase context)
-                                                    :timestamp (evm-context-timestamp context)
-                                                    :block-number (evm-context-block-number context)
-                                                    :prev-randao (evm-context-prev-randao context)
-                                                    :difficulty (evm-context-difficulty context)
-                                                    :random-p (evm-context-random-p context)
-                                                    :gas-limit (evm-context-gas-limit context)
-                                                    :chain-id (evm-context-chain-id context)
-                                                    :chain-rules (evm-context-chain-rules context)
-                                                    :base-fee (evm-context-base-fee context)
-                                                    :blob-hashes (evm-context-blob-hashes context)
-                                                    :blob-base-fee (evm-context-blob-base-fee context)
-                                                    :transient-storage
-                                                    (evm-context-transient-storage context)
-                                                    :storage-originals
-                                                    (evm-context-storage-originals context)
-                                                    :storage-clears
-                                                    (evm-context-storage-clears context)
-                                                    :selfdestructed-addresses
-                                                    (evm-context-selfdestructed-addresses
+                                                    :address (evm-context-address
+                                                              context)
+                                                    :caller (evm-context-caller
+                                                             context)
+                                                    :call-value
+                                                    (evm-context-call-value
                                                      context)
-                                                    :accessed-storage
-                                                    (evm-context-accessed-storage context)
-                                                    :accessed-addresses
-                                                    (evm-context-accessed-addresses context)
-                                                    :block-hashes (evm-context-block-hashes context)
-                                                    :read-only-p (evm-context-read-only-p context)))
+                                                    :input args
+                                                    :read-only-p
+                                                    (evm-context-read-only-p
+                                                     context)))
                                                   (child-result
                                                    (progn
                                                      (setf child-started-p t)
@@ -1641,40 +1519,14 @@
                                       (if (zerop (length callee-code))
                                           (setf success 1)
                                           (let* ((child-context
-                                                   (make-evm-context
+                                                   (make-child-evm-context
+                                                    context
                                                     :state state
                                                     :address callee
-                                                    :caller (evm-context-address context)
-                                                    :origin (evm-context-origin context)
+                                                    :caller (evm-context-address
+                                                             context)
                                                     :call-value 0
-                                                    :gas-price (evm-context-gas-price context)
                                                     :input args
-                                                    :coinbase (evm-context-coinbase context)
-                                                    :timestamp (evm-context-timestamp context)
-                                                    :block-number (evm-context-block-number context)
-                                                    :prev-randao (evm-context-prev-randao context)
-                                                    :difficulty (evm-context-difficulty context)
-                                                    :random-p (evm-context-random-p context)
-                                                    :gas-limit (evm-context-gas-limit context)
-                                                    :chain-id (evm-context-chain-id context)
-                                                    :chain-rules (evm-context-chain-rules context)
-                                                    :base-fee (evm-context-base-fee context)
-                                                    :blob-hashes (evm-context-blob-hashes context)
-                                                    :blob-base-fee (evm-context-blob-base-fee context)
-                                                    :transient-storage
-                                                    (evm-context-transient-storage context)
-                                                    :storage-originals
-                                                    (evm-context-storage-originals context)
-                                                    :storage-clears
-                                                    (evm-context-storage-clears context)
-                                                    :selfdestructed-addresses
-                                                    (evm-context-selfdestructed-addresses
-                                                     context)
-                                                    :accessed-storage
-                                                    (evm-context-accessed-storage context)
-                                                    :accessed-addresses
-                                                    (evm-context-accessed-addresses context)
-                                                    :block-hashes (evm-context-block-hashes context)
                                                     :read-only-p t))
                                                   (child-result
                                                    (progn
