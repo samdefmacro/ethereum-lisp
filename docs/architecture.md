@@ -34,7 +34,18 @@ The first mechanical split is:
   metadata helpers.
 - `core-constants.lisp`: protocol constants shared across core modules.
 - `accounts.lisp`: state account encoding and hashing.
-- `transactions.lisp`: transaction envelopes, RLP, signing hashes, senders.
+- `transactions-legacy.lisp`: legacy transaction envelope, RLP, signing hash,
+  EIP-155 chain-id handling, and sender recovery.
+- `transactions-access-list.lisp`: EIP-2930 access lists and access-list
+  transaction encoding/decoding.
+- `transactions-dynamic-fee.lisp`: EIP-1559 dynamic-fee transaction
+  encoding/decoding and signing hash.
+- `transactions-blob.lisp`: EIP-4844 blob transaction and blob sidecar
+  structures.
+- `transactions-set-code.lisp`: EIP-7702 authorization tuples, delegation
+  code helpers, and set-code transaction encoding/decoding.
+- `transactions.lisp`: cross-type transaction accessors, fork validation,
+  gas-price calculation, unified encoding/decoding, and sender dispatch.
 - `receipts.lisp`: withdrawals, logs, blooms, receipts, trie-list roots.
 - `txpool-types.lisp`: txpool index structure required by the store type.
 - `blocks.lisp`: block header/body structures, block hashing, and block RLP
