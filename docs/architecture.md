@@ -176,8 +176,11 @@ The first mechanical split is:
   in-memory chain store.
 - `engine-rpc-protocol.lisp`: JSON-RPC envelopes, response helpers, and
   Engine/public method filters.
-- `engine-rpc-codecs.lisp`: Engine API field coercion, payload/status object
-  rendering, capability lists, and payload attribute validation.
+- `engine-rpc-*-codecs.lisp`: Engine API field coercion, payload/status object
+  rendering, and payload attribute validation.
+- `engine-rpc-capabilities.lisp`: Engine capability lists, client version, and
+  transition configuration rendering.
+- `engine-rpc-codecs.lisp`: compatibility package entry for Engine RPC codecs.
 - `engine-rpc-new-payload.lisp`: `engine_newPayload*`, capability exchange,
   client version, and transition configuration handlers.
 - `engine-rpc-errors.lisp`: Engine API error condition and protocol error
