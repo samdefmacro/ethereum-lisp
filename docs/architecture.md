@@ -80,8 +80,15 @@ The first mechanical split is:
   helpers for the public JSON-RPC surface.
 - `public-rpc-state.lisp`: public account state, proof, call simulation, gas
   estimation, and access-list handlers.
-- `public-rpc-transactions.lisp`: transaction, receipt, raw transaction,
-  sendRawTransaction, and txpool public RPC handlers.
+- `public-rpc-transaction-objects.lisp`: transaction JSON object conversion,
+  access list rendering, pending transaction helpers, and shared JSON array
+  normalization.
+- `public-rpc-transactions.lisp`: raw transaction and transaction lookup
+  handlers.
+- `public-rpc-txpool.lisp`: sendRawTransaction admission, txpool views, and
+  pending transaction handlers.
+- `public-rpc-receipts.lisp`: log, receipt, and block receipt result
+  construction and handlers.
 - `public-rpc-blocks.lisp`: public header, block, pending block, transaction
   count, and ommer handlers.
 - `public-rpc.lisp`: public log/filter handlers and final method dispatch.
