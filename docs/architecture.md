@@ -37,6 +37,8 @@ The first mechanical split is:
 - `txpool-types.lisp`: txpool index structure required by the store type.
 - `block-access-list.lisp`: execution request hashing, shared field
   validators, and Amsterdam block access list RLP/validation.
+- `kzg.lisp`: command-backed KZG verifier hooks and blob sidecar KZG
+  validation.
 - `txpool.lisp`: pending/queued/basefee/blob txpool admission, promotion,
   revalidation, and mining selection helpers.
 - `chain-store-persistence.lisp`: chain-store KV export/import records,
@@ -47,7 +49,7 @@ The first mechanical split is:
   Engine/public method filters.
 - `engine-rpc-http.lisp`: JSON-RPC request dispatch, HTTP parsing, JWT auth,
   listener abstractions, and stream telemetry.
-- `core.lisp`: remaining genesis/block/store/KZG implementation.
+- `core.lisp`: remaining genesis/block/store implementation.
 
 ## Dependency Rules
 

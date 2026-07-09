@@ -27,6 +27,7 @@
      (:file "txpool-types")
      (:file "core")
      (:file "block-access-list")
+     (:file "kzg")
      (:file "txpool")
      (:file "chain-store-persistence")
      (:file "block-validation")
