@@ -57,8 +57,17 @@ The first mechanical split is:
 - `genesis-block.lisp`: fork-aware genesis header and block construction.
 - `kzg.lisp`: command-backed KZG verifier hooks and blob sidecar KZG
   validation.
-- `engine-payloads.lisp`: Engine payload structs, forkchoice payload
-  attributes, payload id derivation, and block/payload conversion.
+- `engine-payload-types.lisp`: Engine payload structs, forkchoice payload
+  attributes, status constants, and prepared payload validation.
+- `engine-payload-codecs.lisp`: defensive payload copying and block-to-payload
+  conversion.
+- `engine-payload-blocks.lisp`: executable-data transaction decoding,
+  versioned-hash validation, and payload-to-block reconstruction.
+- `engine-payload-validation.lisp`: `newPayload` parameter, fork-version, and
+  payload status validation.
+- `engine-payload-build.lisp`: payload-id derivation and empty payload
+  construction.
+- `engine-payloads.lisp`: Engine payload compatibility loader.
 - `chain-store-types.lisp`: in-memory chain store records, filter cursors,
   blob lookup records, and shared store key helpers.
 - `chain-store-copy.lisp`: defensive copying, store snapshot/restore, and
