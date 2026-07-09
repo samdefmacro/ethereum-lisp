@@ -149,13 +149,6 @@
 (defconstant +eth-rpc-max-fee-history-block-count+ 1024)
 (defconstant +eth-rpc-max-fee-history-reward-percentiles+ 100)
 
-(defun eth-rpc-head-block-tag-p (value)
-  (and (stringp value)
-       (or (string= value "latest")
-           (string= value "pending")
-           (string= value "safe")
-           (string= value "finalized"))))
-
 (defun eth-rpc-fee-history-block-count (params method)
   (let ((count (parse-genesis-quantity
                 (engine-rpc-required-param params 0 "block count" method)

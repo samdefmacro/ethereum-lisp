@@ -74,10 +74,14 @@ The first mechanical split is:
   in-memory chain store.
 - `engine-rpc-protocol.lisp`: JSON-RPC envelopes, response helpers, and
   Engine/public method filters.
+- `public-rpc-params.lisp`: shared public JSON-RPC address, hash, block tag,
+  and block id parameter coercion.
 - `public-rpc-core.lisp`: web3/net/basic eth handlers and fee history
   helpers for the public JSON-RPC surface.
-- `public-rpc.lisp`: public eth/txpool/filter JSON-RPC state, block,
-  transaction, receipt, and log handlers.
+- `public-rpc-state.lisp`: public account state, proof, call simulation, gas
+  estimation, and access-list handlers.
+- `public-rpc.lisp`: public block, transaction, txpool, receipt, log, filter,
+  and dispatch handlers.
 - `engine-rpc-http.lisp`: JSON-RPC request dispatch, HTTP parsing, JWT auth,
   listener abstractions, and stream telemetry.
 ## Dependency Rules
