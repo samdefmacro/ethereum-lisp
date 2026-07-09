@@ -42,6 +42,9 @@ The first mechanical split is:
   derivation, and public key recovery.
 - `crypto-empty-hashes.lisp`: canonical empty code and empty trie hashes.
 - `crypto.lisp`: compatibility package entry for crypto modules.
+- `chain-config-*.lisp`: chain configuration types, fork activation
+  predicates, blob schedule selection, and effective chain-rule construction.
+- `chain-config.lisp`: compatibility package entry for chain config modules.
 - `genesis-types.lisp`: genesis constants and alloc account structure.
 - `genesis-object-fields.lisp`: shared genesis object lookup and scalar field
   parsing helpers.
