@@ -181,6 +181,7 @@
      (:file "public-rpc-gas")
      (:file "public-rpc-access-lists")
      (:file "public-rpc-state")
+     (:file "public-rpc-transaction-fields")
      (:file "public-rpc-transaction-objects")
      (:file "public-rpc-transactions")
      (:file "public-rpc-txpool-views")

@@ -189,6 +189,7 @@
            "src/public-rpc-gas.lisp"
            "src/public-rpc-access-lists.lisp"
            "src/public-rpc-state.lisp"
+           "src/public-rpc-transaction-fields.lisp"
            "src/public-rpc-transaction-objects.lisp"
            "src/public-rpc-transactions.lisp"
            "src/public-rpc-txpool-views.lisp"

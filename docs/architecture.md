@@ -276,8 +276,10 @@ The first mechanical split is:
   response rendering.
 - `public-rpc-state.lisp`: compatibility package entry for public state RPC
   modules.
-- `public-rpc-transaction-objects.lisp`: transaction JSON object conversion,
-  access list rendering, pending transaction helpers, and shared JSON array
+- `public-rpc-transaction-fields.lisp`: transaction JSON field rendering,
+  access list rendering, type-specific fields, and sender/gas-price helpers.
+- `public-rpc-transaction-objects.lisp`: transaction JSON object assembly,
+  lookup wrappers, pending transaction helpers, and shared JSON array
   normalization.
 - `public-rpc-transactions.lisp`: raw transaction and transaction lookup
   handlers.

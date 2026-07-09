@@ -179,6 +179,7 @@
 (load-ethereum-lisp-test-file "src/public-rpc-gas.lisp")
 (load-ethereum-lisp-test-file "src/public-rpc-access-lists.lisp")
 (load-ethereum-lisp-test-file "src/public-rpc-state.lisp")
+(load-ethereum-lisp-test-file "src/public-rpc-transaction-fields.lisp")
 (load-ethereum-lisp-test-file "src/public-rpc-transaction-objects.lisp")
 (load-ethereum-lisp-test-file "src/public-rpc-transactions.lisp")
 (load-ethereum-lisp-test-file "src/public-rpc-txpool-views.lisp")
