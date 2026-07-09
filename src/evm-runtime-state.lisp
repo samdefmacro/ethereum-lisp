@@ -1,21 +1,47 @@
 (in-package #:ethereum-lisp.evm)
 
-(defun restore-execution-snapshot (state state-snapshot context
-                                   transient-snapshot
-                                   &optional storage-clears-snapshot
-                                             accessed-storage-snapshot
-                                             accessed-addresses-snapshot
-                                             selfdestructed-snapshot)
-  (state-db-restore state state-snapshot)
-  (restore-transient-storage context transient-snapshot)
-  (when storage-clears-snapshot
-    (restore-storage-clears context storage-clears-snapshot))
-  (when accessed-storage-snapshot
-    (restore-accessed-storage context accessed-storage-snapshot))
-  (when accessed-addresses-snapshot
-    (restore-accessed-addresses context accessed-addresses-snapshot))
-  (when selfdestructed-snapshot
-    (restore-selfdestructed-addresses context selfdestructed-snapshot)))
+(defstruct (evm-execution-snapshot
+            (:constructor make-evm-execution-snapshot
+                (&key state transient-storage storage-clears accessed-storage
+                      accessed-addresses selfdestructed-addresses)))
+  state
+  transient-storage
+  storage-clears
+  accessed-storage
+  accessed-addresses
+  selfdestructed-addresses)
+
+(defun capture-execution-snapshot (state context)
+  (make-evm-execution-snapshot
+   :state (state-db-copy state)
+   :transient-storage (copy-transient-storage context)
+   :storage-clears (copy-storage-clears context)
+   :accessed-storage (copy-accessed-storage context)
+   :accessed-addresses (copy-accessed-addresses context)
+   :selfdestructed-addresses (copy-selfdestructed-addresses context)))
+
+(defun refresh-execution-snapshot-accessed-addresses (snapshot context)
+  (setf (evm-execution-snapshot-accessed-addresses snapshot)
+        (copy-accessed-addresses context))
+  snapshot)
+
+(defun restore-execution-snapshot (state context snapshot)
+  (state-db-restore state (evm-execution-snapshot-state snapshot))
+  (restore-transient-storage
+   context
+   (evm-execution-snapshot-transient-storage snapshot))
+  (restore-storage-clears
+   context
+   (evm-execution-snapshot-storage-clears snapshot))
+  (restore-accessed-storage
+   context
+   (evm-execution-snapshot-accessed-storage snapshot))
+  (restore-accessed-addresses
+   context
+   (evm-execution-snapshot-accessed-addresses snapshot))
+  (restore-selfdestructed-addresses
+   context
+   (evm-execution-snapshot-selfdestructed-addresses snapshot)))
 
 (defun account-balance (state address)
   (let ((account (state-db-get-account state address)))

@@ -688,17 +688,9 @@
                         (mark-account-accessed context new-address)
                         (if (contract-address-collision-p state new-address)
                             (setf child-gas-used (or child-gas-limit 0))
-                            (let ((snapshot (state-db-copy state))
-                                  (transient-snapshot
-                                    (copy-transient-storage context))
-                                  (storage-clears-snapshot
-                                    (copy-storage-clears context))
-                                  (accessed-storage-snapshot
-                                    (copy-accessed-storage context))
-                                  (accessed-addresses-snapshot
-                                    (copy-accessed-addresses context))
-                                  (selfdestructed-snapshot
-                                    (copy-selfdestructed-addresses context)))
+                            (let ((snapshot
+                                    (capture-execution-snapshot
+                                     state context)))
                               (handler-case
                                   (progn
                                     (transfer-call-value state creator new-address value)
@@ -736,11 +728,7 @@
                                       (if (eq (evm-result-status child-result)
                                               :reverted)
 	                                          (restore-execution-snapshot
-	                                           state snapshot context transient-snapshot
-	                                           storage-clears-snapshot
-	                                           accessed-storage-snapshot
-	                                           accessed-addresses-snapshot
-                                             selfdestructed-snapshot)
+	                                           state context snapshot)
 	                                          (progn
                                             (setf child-logs
                                                   (evm-result-logs child-result))
@@ -770,11 +758,7 @@
                                                   (make-byte-vector 0))))))
                                 (evm-error ()
                                   (restore-execution-snapshot
-                                   state snapshot context transient-snapshot
-                                   storage-clears-snapshot
-                                   accessed-storage-snapshot
-                                   accessed-addresses-snapshot
-                                   selfdestructed-snapshot)
+                                   state context snapshot)
                                   (setf success-address 0
                                         child-return-data
                                         (make-byte-vector 0)
@@ -825,17 +809,9 @@
                           (mark-account-accessed context new-address)
                           (if (contract-address-collision-p state new-address)
                               (setf child-gas-used (or child-gas-limit 0))
-                              (let ((snapshot (state-db-copy state))
-                                    (transient-snapshot
-                                      (copy-transient-storage context))
-                                    (storage-clears-snapshot
-                                      (copy-storage-clears context))
-                                    (accessed-storage-snapshot
-                                      (copy-accessed-storage context))
-                                    (accessed-addresses-snapshot
-                                      (copy-accessed-addresses context))
-                                    (selfdestructed-snapshot
-                                      (copy-selfdestructed-addresses context)))
+                              (let ((snapshot
+                                      (capture-execution-snapshot
+                                       state context)))
                                 (handler-case
                                     (progn
                                       (transfer-call-value state creator new-address value)
@@ -873,11 +849,7 @@
                                         (if (eq (evm-result-status child-result)
                                                 :reverted)
 	                                            (restore-execution-snapshot
-	                                             state snapshot context transient-snapshot
-	                                             storage-clears-snapshot
-	                                             accessed-storage-snapshot
-	                                             accessed-addresses-snapshot
-                                               selfdestructed-snapshot)
+	                                             state context snapshot)
 	                                            (progn
                                               (setf child-logs
                                                     (evm-result-logs child-result))
@@ -906,11 +878,7 @@
                                                     (make-byte-vector 0))))))
                                   (evm-error ()
                                     (restore-execution-snapshot
-                                     state snapshot context transient-snapshot
-                                     storage-clears-snapshot
-                                     accessed-storage-snapshot
-                                     accessed-addresses-snapshot
-                                     selfdestructed-snapshot)
+                                     state context snapshot)
                                     (setf success-address 0
                                           child-return-data
                                           (make-byte-vector 0)
@@ -946,17 +914,8 @@
                              (list return-offset return-size)))
                       (let* ((state (evm-context-state context))
                              (callee (word-to-address address-word))
-                             (snapshot (state-db-copy state))
-                             (transient-snapshot
-                               (copy-transient-storage context))
-                             (storage-clears-snapshot
-                               (copy-storage-clears context))
-                             (accessed-storage-snapshot
-                               (copy-accessed-storage context))
-                             (accessed-addresses-snapshot
-                               (copy-accessed-addresses context))
-                             (selfdestructed-snapshot
-                               (copy-selfdestructed-addresses context))
+                             (snapshot
+                               (capture-execution-snapshot state context))
                              (args (memory-slice memory args-offset args-size))
                              (success 0)
                              (child-return-data (make-byte-vector 0))
@@ -978,8 +937,8 @@
                          context
                          callee
                          #'charge-extra-gas)
-                        (setf accessed-addresses-snapshot
-                              (copy-accessed-addresses context))
+                        (refresh-execution-snapshot-accessed-addresses
+                         snapshot context)
                         (let* ((required-value-gas
                                   (call-value-extra-gas state callee value
                                                         :new-account-p t))
@@ -1058,11 +1017,7 @@
                                                   (evm-result-return-data child-result))
                                             (if (eq (evm-result-status child-result) :reverted)
                                                 (restore-execution-snapshot
-                                                 state snapshot context transient-snapshot
-                                                 storage-clears-snapshot
-                                                 accessed-storage-snapshot
-                                                 accessed-addresses-snapshot
-                                                 selfdestructed-snapshot)
+                                                 state context snapshot)
                                                 (progn
                                                   (incf refund-counter
                                                         (evm-result-refund-counter
@@ -1072,11 +1027,7 @@
                                                         (evm-result-logs child-result))))))))))
                           (evm-precompile-error (condition)
                             (restore-execution-snapshot
-                             state snapshot context transient-snapshot
-                             storage-clears-snapshot
-                             accessed-storage-snapshot
-                             accessed-addresses-snapshot
-                             selfdestructed-snapshot)
+                             state context snapshot)
                             (setf success 0
                                   child-return-data (make-byte-vector 0)
                                   child-logs '()
@@ -1085,11 +1036,7 @@
                                        child-gas-limit)))
                           (evm-error ()
                             (restore-execution-snapshot
-                             state snapshot context transient-snapshot
-                             storage-clears-snapshot
-                             accessed-storage-snapshot
-                             accessed-addresses-snapshot
-                             selfdestructed-snapshot)
+                             state context snapshot)
                             (setf success 0
                                   child-return-data (make-byte-vector 0)
                                   child-logs '()
@@ -1135,17 +1082,8 @@
                              (list return-offset return-size)))
                       (let* ((state (evm-context-state context))
                              (code-address (word-to-address address-word))
-                             (snapshot (state-db-copy state))
-                             (transient-snapshot
-                               (copy-transient-storage context))
-                             (storage-clears-snapshot
-                               (copy-storage-clears context))
-                             (accessed-storage-snapshot
-                               (copy-accessed-storage context))
-                             (accessed-addresses-snapshot
-                               (copy-accessed-addresses context))
-                             (selfdestructed-snapshot
-                               (copy-selfdestructed-addresses context))
+                             (snapshot
+                               (capture-execution-snapshot state context))
                              (args (memory-slice memory args-offset args-size))
                              (success 0)
                              (child-return-data (make-byte-vector 0))
@@ -1167,8 +1105,8 @@
                          context
                          code-address
                          #'charge-extra-gas)
-                        (setf accessed-addresses-snapshot
-                              (copy-accessed-addresses context))
+                        (refresh-execution-snapshot-accessed-addresses
+                         snapshot context)
                         (let* ((required-value-gas
                                   (call-value-extra-gas state code-address value))
                                (stipend-discount-p
@@ -1244,11 +1182,7 @@
                                                   (evm-result-return-data child-result))
                                             (if (eq (evm-result-status child-result) :reverted)
                                                 (restore-execution-snapshot
-                                                 state snapshot context transient-snapshot
-                                                 storage-clears-snapshot
-                                                 accessed-storage-snapshot
-                                                 accessed-addresses-snapshot
-                                                 selfdestructed-snapshot)
+                                                 state context snapshot)
                                                 (progn
                                                   (incf refund-counter
                                                         (evm-result-refund-counter
@@ -1258,11 +1192,7 @@
                                                         (evm-result-logs child-result))))))))))
                           (evm-precompile-error (condition)
                             (restore-execution-snapshot
-                             state snapshot context transient-snapshot
-                             storage-clears-snapshot
-                             accessed-storage-snapshot
-                             accessed-addresses-snapshot
-                             selfdestructed-snapshot)
+                             state context snapshot)
                             (setf success 0
                                   child-return-data (make-byte-vector 0)
                                   child-logs '()
@@ -1271,11 +1201,7 @@
                                        child-gas-limit)))
                           (evm-error ()
                             (restore-execution-snapshot
-                             state snapshot context transient-snapshot
-                             storage-clears-snapshot
-                             accessed-storage-snapshot
-                             accessed-addresses-snapshot
-                             selfdestructed-snapshot)
+                             state context snapshot)
                             (setf success 0
                                   child-return-data (make-byte-vector 0)
                                   child-logs '()
@@ -1316,17 +1242,8 @@
                              (list return-offset return-size)))
                       (let* ((state (evm-context-state context))
                              (code-address (word-to-address address-word))
-                             (snapshot (state-db-copy state))
-                             (transient-snapshot
-                               (copy-transient-storage context))
-                             (storage-clears-snapshot
-                               (copy-storage-clears context))
-                             (accessed-storage-snapshot
-                               (copy-accessed-storage context))
-                             (accessed-addresses-snapshot
-                               (copy-accessed-addresses context))
-                             (selfdestructed-snapshot
-                               (copy-selfdestructed-addresses context))
+                             (snapshot
+                               (capture-execution-snapshot state context))
                              (args (memory-slice memory args-offset args-size))
                              (success 0)
                              (child-return-data (make-byte-vector 0))
@@ -1338,8 +1255,8 @@
                          context
                          code-address
                          #'charge-extra-gas)
-                        (setf accessed-addresses-snapshot
-                              (copy-accessed-addresses context))
+                        (refresh-execution-snapshot-accessed-addresses
+                         snapshot context)
                         (setf child-gas-limit
                               (child-call-gas-limit
                                call-gas gas-limit gas-used))
@@ -1397,11 +1314,7 @@
                                                   (evm-result-return-data child-result))
                                             (if (eq (evm-result-status child-result) :reverted)
                                                 (restore-execution-snapshot
-                                                 state snapshot context transient-snapshot
-                                                 storage-clears-snapshot
-                                                 accessed-storage-snapshot
-                                                 accessed-addresses-snapshot
-                                                 selfdestructed-snapshot)
+                                                 state context snapshot)
                                                 (progn
                                                   (incf refund-counter
                                                         (evm-result-refund-counter
@@ -1411,11 +1324,7 @@
                                                         (evm-result-logs child-result))))))))))
                           (evm-precompile-error (condition)
                             (restore-execution-snapshot
-                             state snapshot context transient-snapshot
-                             storage-clears-snapshot
-                             accessed-storage-snapshot
-                             accessed-addresses-snapshot
-                             selfdestructed-snapshot)
+                             state context snapshot)
                             (setf success 0
                                   child-return-data (make-byte-vector 0)
                                   child-logs '()
@@ -1424,11 +1333,7 @@
                                        child-gas-limit)))
                           (evm-error ()
                             (restore-execution-snapshot
-                             state snapshot context transient-snapshot
-                             storage-clears-snapshot
-                             accessed-storage-snapshot
-                             accessed-addresses-snapshot
-                             selfdestructed-snapshot)
+                             state context snapshot)
                             (setf success 0
                                   child-return-data (make-byte-vector 0)
                                   child-logs '()
@@ -1466,17 +1371,8 @@
                              (list return-offset return-size)))
                       (let* ((state (evm-context-state context))
                              (callee (word-to-address address-word))
-                             (snapshot (state-db-copy state))
-                             (transient-snapshot
-                               (copy-transient-storage context))
-                             (storage-clears-snapshot
-                               (copy-storage-clears context))
-                             (accessed-storage-snapshot
-                               (copy-accessed-storage context))
-                             (accessed-addresses-snapshot
-                               (copy-accessed-addresses context))
-                             (selfdestructed-snapshot
-                               (copy-selfdestructed-addresses context))
+                             (snapshot
+                               (capture-execution-snapshot state context))
                              (args (memory-slice memory args-offset args-size))
                              (success 0)
                              (child-return-data (make-byte-vector 0))
@@ -1487,8 +1383,8 @@
                          context
                          callee
                          #'charge-extra-gas)
-                        (setf accessed-addresses-snapshot
-                              (copy-accessed-addresses context))
+                        (refresh-execution-snapshot-accessed-addresses
+                         snapshot context)
                         (setf child-gas-limit
                               (child-call-gas-limit
                                call-gas gas-limit gas-used))
@@ -1541,11 +1437,7 @@
                                                   (evm-result-return-data child-result))
                                             (if (eq (evm-result-status child-result) :reverted)
                                                 (restore-execution-snapshot
-                                                 state snapshot context transient-snapshot
-                                                 storage-clears-snapshot
-                                                 accessed-storage-snapshot
-                                                 accessed-addresses-snapshot
-                                                 selfdestructed-snapshot)
+                                                 state context snapshot)
                                                 (progn
                                                   (incf refund-counter
                                                         (evm-result-refund-counter
@@ -1553,11 +1445,7 @@
                                                   (setf success 1)))))))))
                           (evm-precompile-error (condition)
                             (restore-execution-snapshot
-                             state snapshot context transient-snapshot
-                             storage-clears-snapshot
-                             accessed-storage-snapshot
-                             accessed-addresses-snapshot
-                             selfdestructed-snapshot)
+                             state context snapshot)
                             (setf success 0
                                   child-return-data (make-byte-vector 0)
                                   child-gas-used
@@ -1565,11 +1453,7 @@
                                        child-gas-limit)))
                           (evm-error ()
                             (restore-execution-snapshot
-                             state snapshot context transient-snapshot
-                             storage-clears-snapshot
-                             accessed-storage-snapshot
-                             accessed-addresses-snapshot
-                             selfdestructed-snapshot)
+                             state context snapshot)
                             (setf success 0
                                   child-return-data (make-byte-vector 0)
                                   child-gas-used (if child-started-p
