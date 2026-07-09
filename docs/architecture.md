@@ -133,8 +133,10 @@ The first mechanical split is:
   filter registration and notifications.
 - `chain-store-cache.lisp`: in-memory remote block, invalid payload,
   prepared payload, and blob sidecar caches.
-- `chain-store-memory.lisp`: in-memory canonical chain and forkchoice
-  checkpoint storage wrappers.
+- `chain-store-memory-blocks.lisp`: in-memory block storage, lookup, and
+  forkchoice checkpoint updates.
+- `chain-store-memory.lisp`: public chain-store wrappers around the
+  memory-store implementation.
 - `chain-store-state-availability.lisp`: retained state availability checks
   and state snapshot pruning.
 - `chain-store-account-state.lisp`: retained account balance, nonce, code, and

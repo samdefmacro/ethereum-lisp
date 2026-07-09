@@ -102,6 +102,7 @@
            "src/chain-store-copy.lisp"
            "src/chain-store-filters.lisp"
            "src/chain-store-cache.lisp"
+           "src/chain-store-memory-blocks.lisp"
            "src/chain-store-memory.lisp"
            "src/chain-store-state-availability.lisp"
            "src/chain-store-account-state.lisp"

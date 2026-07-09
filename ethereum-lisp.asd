@@ -94,6 +94,7 @@
      (:file "chain-store-copy")
      (:file "chain-store-filters")
      (:file "chain-store-cache")
+     (:file "chain-store-memory-blocks")
      (:file "chain-store-memory")
      (:file "chain-store-state-availability")
      (:file "chain-store-account-state")
