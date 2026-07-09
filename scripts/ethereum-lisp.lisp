@@ -33,6 +33,7 @@
            "src/transactions.lisp"
            "src/receipts.lisp"
            "src/txpool-types.lisp"
+           "src/blocks.lisp"
            "src/core.lisp"
            "src/consensus-validation.lisp"
            "src/block-access-list.lisp"

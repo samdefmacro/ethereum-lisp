@@ -25,6 +25,7 @@
      (:file "transactions")
      (:file "receipts")
      (:file "txpool-types")
+     (:file "blocks")
      (:file "core")
      (:file "consensus-validation")
      (:file "block-access-list")
