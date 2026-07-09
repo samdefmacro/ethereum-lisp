@@ -165,8 +165,14 @@ The first mechanical split is:
   tail draining after basefee promotion.
 - `txpool-promotion.lisp`: compatibility package entry for txpool promotion
   modules.
-- `txpool-cleanup.lisp`: txpool stale, expired, sender-code, gas-limit,
-  blob-fee, invalid-sender cleanup, and pending revalidation.
+- `txpool-cleanup-lifecycle.lisp`: stale nonce and expired queued-view
+  transaction removal.
+- `txpool-cleanup-new-head.lisp`: invalid sender, sender-code, gas-limit, and
+  blob-fee cleanup after canonical-head changes.
+- `txpool-pending-revalidation.lisp`: pending transaction demotion and sender
+  revalidation after canonical-head changes.
+- `txpool-cleanup.lisp`: compatibility package entry for txpool cleanup
+  modules.
 - `chain-store-export-indexes.lisp`: checkpoint and index KV export records.
 - `chain-store-export-blocks.lisp`: block and receipt KV export records.
 - `chain-store-export-transactions.lisp`: transaction location KV export
