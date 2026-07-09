@@ -38,6 +38,7 @@
      (:file "chain-store-memory")
      (:file "chain-store-state")
      (:file "chain-store-canonical")
+     (:file "txpool-index")
      (:file "txpool")
      (:file "chain-store-persistence")
      (:file "block-validation")

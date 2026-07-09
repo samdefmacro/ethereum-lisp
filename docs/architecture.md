@@ -62,6 +62,8 @@ The first mechanical split is:
   deterministic account iteration for the in-memory chain store.
 - `chain-store-canonical.lisp`: canonical block indexes, transaction
   location indexing, reorg handling, and txpool reinsertion after head changes.
+- `txpool-index.lisp`: pending txpool subpool tables, sender/nonce indexes,
+  replacement checks, and deterministic subpool views.
 - `txpool.lisp`: pending/queued/basefee/blob txpool admission, promotion,
   revalidation, and mining selection helpers.
 - `chain-store-persistence.lisp`: chain-store KV export/import records,
