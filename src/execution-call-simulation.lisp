@@ -7,6 +7,30 @@
              table)
     copy))
 
+(defun execution-empty-access-table ()
+  (make-hash-table :test 'equalp))
+
+(defun execution-empty-access-tables ()
+  (values (execution-empty-access-table)
+          (execution-empty-access-table)))
+
+(defun execution-context-access-tables (context)
+  (values (execution-copy-equalp-table
+           (evm-context-accessed-addresses context))
+          (execution-copy-equalp-table
+           (evm-context-accessed-storage context))))
+
+(defun execution-failed-call-values
+    (gas-used &optional accessed-addresses accessed-storage)
+  (multiple-value-bind (empty-addresses empty-storage)
+      (unless (and accessed-addresses accessed-storage)
+        (execution-empty-access-tables))
+    (values :failed
+            (make-byte-vector 0)
+            gas-used
+            (or accessed-addresses empty-addresses)
+            (or accessed-storage empty-storage))))
+
 (defun execute-contract-creation-call
     (state sender tx effective-chain-rules
      &key (base-fee 0)
@@ -32,11 +56,7 @@
          (intrinsic-gas (execution-transaction-intrinsic-gas
                          tx effective-chain-rules)))
     (if (execution-contract-address-collision-p call-state contract)
-        (values :failed
-                (make-byte-vector 0)
-                gas-limit
-                (make-hash-table :test 'equalp)
-                (make-hash-table :test 'equalp))
+        (execution-failed-call-values gas-limit)
         (handler-case
             (let ((context nil))
               (transfer-call-value-for-simulation
@@ -71,12 +91,10 @@
                         :context context
                         :gas-limit (- gas-limit intrinsic-gas)))
                      (return-data (copy-seq (evm-result-return-data result)))
-                     (accessed-addresses
-                       (execution-copy-equalp-table
-                        (evm-context-accessed-addresses context)))
-                     (accessed-storage
-                       (execution-copy-equalp-table
-                        (evm-context-accessed-storage context))))
+                     (accessed-addresses nil)
+                     (accessed-storage nil))
+                (multiple-value-setq (accessed-addresses accessed-storage)
+                  (execution-context-access-tables context))
                 (if (eq (evm-result-status result) :reverted)
                     (values :reverted
                             return-data
@@ -92,22 +110,15 @@
                                return-data
                                (evm-context-chain-rules context))
                               (> gas-used gas-limit))
-                          (values :failed
-                                  (make-byte-vector 0)
-                                  gas-limit
-                                  accessed-addresses
-                                  accessed-storage)
+                          (execution-failed-call-values
+                           gas-limit accessed-addresses accessed-storage)
                           (values (evm-result-status result)
                                   return-data
                                   gas-used
                                   accessed-addresses
                                   accessed-storage))))))
           (evm-error ()
-            (values :failed
-                    (make-byte-vector 0)
-                    gas-limit
-                    (make-hash-table :test 'equalp)
-                    (make-hash-table :test 'equalp)))))))
+            (execution-failed-call-values gas-limit))))))
 
 (defun execute-message-call
     (state sender tx
@@ -159,11 +170,13 @@ mutated."
       (transfer-call-value-for-simulation
        call-state sender recipient (transaction-value tx))
       (if (zerop (length code))
-          (values :successful
-                  (make-byte-vector 0)
-                  intrinsic-gas
-                  (make-hash-table :test 'equalp)
-                  (make-hash-table :test 'equalp))
+          (multiple-value-bind (accessed-addresses accessed-storage)
+              (execution-empty-access-tables)
+            (values :successful
+                    (make-byte-vector 0)
+                    intrinsic-gas
+                    accessed-addresses
+                    accessed-storage))
           (handler-case
               (let ((context
                       (make-message-evm-context
@@ -186,17 +199,13 @@ mutated."
                          code
                          :context context
                          :gas-limit (- gas-limit intrinsic-gas))))
-                (values (evm-result-status result)
-                        (copy-seq (evm-result-return-data result))
-                        (transaction-evm-gas-used
-                         tx result effective-chain-rules)
-                        (execution-copy-equalp-table
-                         (evm-context-accessed-addresses context))
-                        (execution-copy-equalp-table
-                         (evm-context-accessed-storage context)))))
+                  (multiple-value-bind (accessed-addresses accessed-storage)
+                      (execution-context-access-tables context)
+                    (values (evm-result-status result)
+                            (copy-seq (evm-result-return-data result))
+                            (transaction-evm-gas-used
+                             tx result effective-chain-rules)
+                            accessed-addresses
+                            accessed-storage))))
             (evm-error ()
-              (values :failed
-                      (make-byte-vector 0)
-                      gas-limit
-                      (make-hash-table :test 'equalp)
-                      (make-hash-table :test 'equalp))))))))
+              (execution-failed-call-values gas-limit)))))))
