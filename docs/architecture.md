@@ -57,9 +57,11 @@ The first mechanical split is:
 - `chain-store-cache.lisp`: in-memory remote block, invalid payload,
   prepared payload, and blob sidecar caches.
 - `chain-store-memory.lisp`: in-memory canonical chain and forkchoice
-  checkpoint accessors.
+  checkpoint storage wrappers.
 - `chain-store-state.lisp`: retained state projection, pruning, and
   deterministic account iteration for the in-memory chain store.
+- `chain-store-canonical.lisp`: canonical block indexes, transaction
+  location indexing, reorg handling, and txpool reinsertion after head changes.
 - `txpool.lisp`: pending/queued/basefee/blob txpool admission, promotion,
   revalidation, and mining selection helpers.
 - `chain-store-persistence.lisp`: chain-store KV export/import records,
