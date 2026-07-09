@@ -27,6 +27,19 @@
                '("true" "false" "1" "0")
                :test #'string=)))
 
+(defun devnet-cli-consume-present-value (args)
+  (if (and args
+           (not (devnet-cli-option-token-p (first args))))
+      (rest args)
+      args))
+
+(defun devnet-cli-consume-present-boolean-token (args)
+  (if (and args
+           (not (devnet-cli-option-token-p (first args)))
+           (devnet-cli-boolean-token-p (first args)))
+      (rest args)
+      args))
+
 (defun devnet-cli-command-position (args command)
   (let ((args (devnet-cli-normalize-option-args args))
         (position 0))

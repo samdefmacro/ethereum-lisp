@@ -14,16 +14,12 @@
                          (not (devnet-cli-option-token-p (first args))))
                 (return (first args))))
              ((member option *devnet-cli-value-options* :test #'string=)
-              (when (and args
-                         (not (devnet-cli-option-token-p (first args))))
-                (pop args)))
+              (setf args (devnet-cli-consume-present-value args)))
              ((member option
                       *devnet-cli-optional-boolean-options*
                       :test #'string=)
-              (when (and args
-                         (not (devnet-cli-option-token-p (first args)))
-                         (devnet-cli-boolean-token-p (first args)))
-                (pop args))))))
+              (setf args
+                    (devnet-cli-consume-present-boolean-token args))))))
 
 (defun devnet-cli-log-error-event (args condition)
   (let ((log-file (devnet-cli-error-log-file args)))
