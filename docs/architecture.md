@@ -30,6 +30,14 @@ only split packages when the load order and public API are clear.
 
 The first mechanical split is:
 
+- `packages-foundation.lisp`: base package definitions for bytes, hex,
+  database, telemetry, RLP, types, crypto, and trie.
+- `packages-core.lisp`: `ethereum-lisp.core` package definition and exported
+  core protocol surface.
+- `packages-runtime.lisp`: state, EVM, execution, and CLI package definitions.
+- `packages-facade.lisp`: top-level `ethereum-lisp` facade imports and
+  exports.
+- `packages.lisp`: package compatibility loader.
 - `database-*.lisp`: key-value database protocol, chain-record key encoding,
   memory/file backends, write batches, and chain-record access helpers.
 - `database.lisp`: compatibility package entry for database modules.

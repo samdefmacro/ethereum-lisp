@@ -8,7 +8,11 @@
   ((:module "src"
     :serial t
     :components
-    ((:file "packages")
+    ((:file "packages-foundation")
+     (:file "packages-core")
+     (:file "packages-runtime")
+     (:file "packages-facade")
+     (:file "packages")
      (:file "bytes")
      (:file "hex")
      (:file "database-types")

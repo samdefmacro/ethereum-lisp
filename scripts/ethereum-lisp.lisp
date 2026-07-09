@@ -16,7 +16,11 @@
 (require :asdf)
 
 (dolist (relative-path
-         '("src/packages.lisp"
+         '("src/packages-foundation.lisp"
+           "src/packages-core.lisp"
+           "src/packages-runtime.lisp"
+           "src/packages-facade.lisp"
+           "src/packages.lisp"
            "src/bytes.lisp"
            "src/hex.lisp"
            "src/database-types.lisp"
