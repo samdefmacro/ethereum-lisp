@@ -72,8 +72,9 @@ The first mechanical split is:
   gas-price calculation, unified encoding/decoding, and sender dispatch.
 - `receipts.lisp`: withdrawals, logs, blooms, receipts, trie-list roots.
 - `txpool-types.lisp`: txpool index structure required by the store type.
-- `blocks.lisp`: block header/body structures, block hashing, and block RLP
-  conversion.
+- `blocks-*.lisp` and `block-header-rlp.lisp`: block header/body structures,
+  block hashing, construction, and block RLP encode/decode helpers.
+- `blocks.lisp`: compatibility package entry for block modules.
 - `consensus-validation.lisp`: shared block/transaction validation helpers
   and fee-market calculations used by consensus, RPC, and txpool paths.
 - `block-access-list-types.lisp`: Amsterdam block access list structures.
