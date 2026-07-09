@@ -90,8 +90,12 @@ The first mechanical split is:
 - `block-access-list.lisp`: compatibility package entry for block access list
   modules.
 - `genesis-block.lisp`: fork-aware genesis header and block construction.
-- `kzg.lisp`: command-backed KZG verifier hooks and blob sidecar KZG
+- `kzg-verifier-hooks.lisp`: optional KZG point/blob proof verifier hook
+  variables and availability checks.
+- `kzg-command-verifier.lisp`: command-backed KZG verifier adapter.
+- `kzg-validation.lisp`: KZG field, point/blob proof, and blob sidecar
   validation.
+- `kzg.lisp`: compatibility package entry for KZG modules.
 - `engine-payload-types.lisp`: Engine payload structs, forkchoice payload
   attributes, status constants, and prepared payload validation.
 - `engine-payload-codecs.lisp`: defensive payload copying and block-to-payload
