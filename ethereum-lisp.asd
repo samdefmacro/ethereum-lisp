@@ -32,6 +32,7 @@
      (:file "kzg")
      (:file "engine-payloads")
      (:file "chain-store-types")
+     (:file "chain-store-copy")
      (:file "chain-store-memory")
      (:file "txpool")
      (:file "chain-store-persistence")

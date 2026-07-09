@@ -50,6 +50,8 @@ The first mechanical split is:
   attributes, payload id derivation, and block/payload conversion.
 - `chain-store-types.lisp`: in-memory chain store records, filter cursors,
   blob lookup records, and shared store key helpers.
+- `chain-store-copy.lisp`: defensive copying, store snapshot/restore, and
+  atomic commit helpers for the in-memory chain store.
 - `chain-store-memory.lisp`: in-memory canonical chain, state projection,
   filter, invalid payload, prepared payload, and blob sidecar caches.
 - `txpool.lisp`: pending/queued/basefee/blob txpool admission, promotion,
