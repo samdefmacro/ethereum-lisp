@@ -64,8 +64,14 @@ The first mechanical split is:
   location indexing, reorg handling, and txpool reinsertion after head changes.
 - `txpool-index.lisp`: pending txpool subpool tables, sender/nonce indexes,
   replacement checks, and deterministic subpool views.
-- `txpool.lisp`: pending/queued/basefee/blob txpool admission, promotion,
-  revalidation, and mining selection helpers.
+- `txpool.lisp`: engine payload store wrappers for pending/queued/basefee/blob
+  txpool subpool admission and indexing.
+- `txpool-views.lisp`: txpool lookup, list, count, sender view, and mining
+  selection helpers.
+- `txpool-promotion.lisp`: queued/basefee transaction promotion and
+  overbudget parked-transaction pruning.
+- `txpool-cleanup.lisp`: txpool stale, expired, sender-code, gas-limit,
+  blob-fee, invalid-sender cleanup, and pending revalidation.
 - `chain-store-export.lisp`: chain-store KV export records for indexes,
   blocks, state snapshots, txpool records, and payload caches.
 - `chain-store-persistence.lisp`: chain-store KV import validation, staging,
