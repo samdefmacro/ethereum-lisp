@@ -297,6 +297,7 @@
            "src/execution.lisp"
            "src/cli-types.lisp"
            "src/cli-files.lisp"
+           "src/cli-devnet-persistence.lisp"
            "src/cli-devnet-node.lisp"
            "src/cli-devnet-runtime.lisp"
            "src/cli-devnet-summary.lisp"

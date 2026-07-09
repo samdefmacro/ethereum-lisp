@@ -289,6 +289,7 @@
      (:file "execution")
      (:file "cli-types")
      (:file "cli-files")
+     (:file "cli-devnet-persistence")
      (:file "cli-devnet-node")
      (:file "cli-devnet-runtime")
      (:file "cli-devnet-summary")

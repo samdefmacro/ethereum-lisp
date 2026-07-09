@@ -450,6 +450,8 @@ The first mechanical split is:
   shutdown signal helpers.
 - `cli-files.lisp`: CLI file, datadir, JWT secret, and KV database path
   helpers.
+- `cli-devnet-persistence.lisp`: devnet persisted chain and txpool import
+  helpers.
 - `cli-devnet-node.lisp`: devnet node construction, genesis import, service
   construction, and Merge option overrides.
 - `cli-devnet-runtime.lisp`: devnet state pruning, txpool journaling,
