@@ -245,8 +245,17 @@ The first mechanical split is:
 - `public-rpc.lisp`: final public JSON-RPC method dispatch.
 - `engine-rpc-http-auth.lisp`: Engine API JWT token creation, validation, and
   signing helpers.
-- `engine-rpc-http-wire.lisp`: HTTP request parsing, response formatting, CORS
-  and host filtering, and request/response telemetry extraction.
+- `engine-rpc-http-parsing.lisp`: HTTP request-line, target, header,
+  content-type, content-length, boundary, and body parsing helpers.
+- `engine-rpc-http-telemetry.lisp`: HTTP request/response telemetry
+  extraction for JSON-RPC methods, error codes, and payload statuses.
+- `engine-rpc-http-request-read.lisp`: stream-to-request-string reader.
+- `engine-rpc-http-response.lisp`: HTTP response and error response
+  formatting helpers.
+- `engine-rpc-http-policy.lisp`: CORS response headers and host allowlist
+  checks.
+- `engine-rpc-http-wire.lisp`: compatibility package entry for HTTP wire
+  modules.
 - `engine-rpc-dispatch.lisp` and `engine-rpc-json.lisp`: JSON-RPC object,
   batch, string, and encoded response handling.
 - `engine-rpc-http-request.lisp` and `engine-rpc-http.lisp`: HTTP request
