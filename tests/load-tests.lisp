@@ -82,6 +82,7 @@
 (load-ethereum-lisp-test-file "src/kzg.lisp")
 (load-ethereum-lisp-test-file "src/engine-payload-types.lisp")
 (load-ethereum-lisp-test-file "src/engine-payload-codecs.lisp")
+(load-ethereum-lisp-test-file "src/engine-payload-block-fields.lisp")
 (load-ethereum-lisp-test-file "src/engine-payload-blocks.lisp")
 (load-ethereum-lisp-test-file "src/engine-payload-validation.lisp")
 (load-ethereum-lisp-test-file "src/engine-payload-build.lisp")

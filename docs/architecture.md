@@ -116,8 +116,10 @@ The first mechanical split is:
   attributes, status constants, and prepared payload validation.
 - `engine-payload-codecs.lisp`: defensive payload copying and block-to-payload
   conversion.
-- `engine-payload-blocks.lisp`: executable-data transaction decoding,
-  versioned-hash validation, and payload-to-block reconstruction.
+- `engine-payload-block-fields.lisp`: executable-data transaction decoding,
+  versioned-hash validation, and required field checks.
+- `engine-payload-blocks.lisp`: executable-data payload-to-block
+  reconstruction.
 - `engine-payload-validation.lisp`: `newPayload` parameter, fork-version, and
   payload status validation.
 - `engine-payload-build.lisp`: payload-id derivation and empty payload

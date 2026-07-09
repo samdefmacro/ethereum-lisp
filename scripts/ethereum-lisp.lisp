@@ -92,6 +92,7 @@
            "src/kzg.lisp"
            "src/engine-payload-types.lisp"
            "src/engine-payload-codecs.lisp"
+           "src/engine-payload-block-fields.lisp"
            "src/engine-payload-blocks.lisp"
            "src/engine-payload-validation.lisp"
            "src/engine-payload-build.lisp"

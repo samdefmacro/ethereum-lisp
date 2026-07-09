@@ -84,6 +84,7 @@
      (:file "kzg")
      (:file "engine-payload-types")
      (:file "engine-payload-codecs")
+     (:file "engine-payload-block-fields")
      (:file "engine-payload-blocks")
      (:file "engine-payload-validation")
      (:file "engine-payload-build")
