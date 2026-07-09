@@ -69,6 +69,93 @@
    (devnet-cli-public-api-method-filter (getf options :http-api-modules))
    :telemetry-sink telemetry-sink))
 
+(defun devnet-cli-export-node-database (node options)
+  (devnet-node-export-database
+   node
+   :state-prune-before (getf options :state-prune-before)))
+
+(defun devnet-cli-log-event-when-enabled (node options name &rest arguments)
+  (when (getf options :log-file)
+    (apply #'devnet-cli-log-event node name arguments)))
+
+(defun devnet-cli-run-no-serve-node (node options output-stream)
+  (devnet-cli-export-node-database node options)
+  (when (getf options :ready-file)
+    (devnet-cli-write-ready-file
+     node
+     (getf options :ready-file)
+     :public-rpc-enabled-p (getf options :public-rpc-enabled-p)))
+  (devnet-cli-log-event-when-enabled
+   node
+   options
+   "devnet.ready"
+   :public-rpc-enabled-p (getf options :public-rpc-enabled-p))
+  (devnet-cli-print-summary
+   node
+   output-stream
+   :format (getf options :summary-format)
+   :public-rpc-enabled-p (getf options :public-rpc-enabled-p))
+  (devnet-cli-log-event-when-enabled
+   node
+   options
+   "devnet.shutdown"
+   :public-rpc-enabled-p (getf options :public-rpc-enabled-p)))
+
+(defun devnet-cli-run-serve-node (node options output-stream error-stream)
+  (let ((bound-engine-endpoint nil)
+        (bound-rpc-endpoint nil)
+        (ready-p nil)
+        (serve-summary nil))
+    (unwind-protect
+         (setf serve-summary
+               (start-devnet-node
+                node
+                :max-connections (getf options :max-connections)
+                :install-signal-handlers-p t
+                :signal-stream error-stream
+                :on-listeners-ready
+                (lambda (engine-listener public-listener)
+                  (setf bound-engine-endpoint
+                        (engine-rpc-http-listener-endpoint engine-listener)
+                        bound-rpc-endpoint
+                        (and public-listener
+                             (engine-rpc-http-listener-endpoint
+                              public-listener)))
+                  (when (getf options :ready-file)
+                    (devnet-cli-write-ready-file
+                     node
+                     (getf options :ready-file)
+                     :engine-endpoint bound-engine-endpoint
+                     :rpc-endpoint bound-rpc-endpoint
+                     :public-rpc-enabled-p
+                     (getf options :public-rpc-enabled-p)))
+                  (devnet-cli-log-event-when-enabled
+                   node
+                   options
+                   "devnet.ready"
+                   :engine-endpoint bound-engine-endpoint
+                   :rpc-endpoint bound-rpc-endpoint
+                   :public-rpc-enabled-p (getf options :public-rpc-enabled-p))
+                  (setf ready-p t)
+                  (devnet-cli-print-summary
+                   node
+                   output-stream
+                   :format (getf options :summary-format)
+                   :engine-endpoint bound-engine-endpoint
+                   :rpc-endpoint bound-rpc-endpoint
+                   :public-rpc-enabled-p (getf options :public-rpc-enabled-p)))
+                :public-rpc-enabled-p (getf options :public-rpc-enabled-p)))
+      (devnet-cli-export-node-database node options)
+      (when (or ready-p serve-summary)
+        (devnet-cli-log-event-when-enabled
+         node
+         options
+         "devnet.shutdown"
+         :engine-endpoint bound-engine-endpoint
+         :rpc-endpoint bound-rpc-endpoint
+         :public-rpc-enabled-p (getf options :public-rpc-enabled-p)
+         :connection-summary serve-summary)))))
+
 (defun devnet-cli-run (args output-stream error-stream)
   (handler-case
       (cond
@@ -115,105 +202,10 @@
                            (devnet-cli-write-pid-file
                             (getf options :pid-file)))
                          (if (getf options :serve-p)
-                             (let ((bound-engine-endpoint nil)
-                                   (bound-rpc-endpoint nil)
-                                   (ready-p nil)
-                                   (serve-summary nil))
-                               (unwind-protect
-                                    (setf
-                                     serve-summary
-                                     (start-devnet-node
-                                      node
-                                      :max-connections
-                                      (getf options :max-connections)
-                                      :install-signal-handlers-p t
-                                      :signal-stream error-stream
-                                      :on-listeners-ready
-                                      (lambda (engine-listener public-listener)
-                                        (setf bound-engine-endpoint
-                                              (engine-rpc-http-listener-endpoint
-                                               engine-listener)
-                                              bound-rpc-endpoint
-                                              (and public-listener
-                                                   (engine-rpc-http-listener-endpoint
-                                                    public-listener)))
-                                        (when (getf options :ready-file)
-                                          (devnet-cli-write-ready-file
-                                           node
-                                           (getf options :ready-file)
-                                           :engine-endpoint
-                                           bound-engine-endpoint
-                                           :rpc-endpoint bound-rpc-endpoint
-                                           :public-rpc-enabled-p
-                                           (getf options
-                                                 :public-rpc-enabled-p)))
-                                        (when (getf options :log-file)
-                                          (devnet-cli-log-event
-                                           node
-                                           "devnet.ready"
-                                           :engine-endpoint
-                                           bound-engine-endpoint
-                                           :rpc-endpoint bound-rpc-endpoint
-                                           :public-rpc-enabled-p
-                                           (getf options
-                                                 :public-rpc-enabled-p)))
-                                        (setf ready-p t)
-                                        (devnet-cli-print-summary
-                                         node
-                                         output-stream
-                                         :format
-                                         (getf options :summary-format)
-                                         :engine-endpoint
-                                         bound-engine-endpoint
-                                         :rpc-endpoint bound-rpc-endpoint
-                                         :public-rpc-enabled-p
-                                         (getf options
-                                               :public-rpc-enabled-p)))
-                                      :public-rpc-enabled-p
-                                      (getf options :public-rpc-enabled-p)))
-                                 (devnet-node-export-database
-                                  node
-                                  :state-prune-before
-                                  (getf options :state-prune-before))
-                                 (when (and (getf options :log-file)
-                                            (or ready-p serve-summary))
-                                   (devnet-cli-log-event
-                                    node
-                                    "devnet.shutdown"
-                                    :engine-endpoint bound-engine-endpoint
-                                    :rpc-endpoint bound-rpc-endpoint
-                                    :public-rpc-enabled-p
-                                    (getf options :public-rpc-enabled-p)
-                                    :connection-summary serve-summary))))
-                             (progn
-                               (devnet-node-export-database
-                                node
-                                :state-prune-before
-                                (getf options :state-prune-before))
-                               (when (getf options :ready-file)
-                                 (devnet-cli-write-ready-file
-                                  node
-                                  (getf options :ready-file)
-                                  :public-rpc-enabled-p
-                                  (getf options :public-rpc-enabled-p)))
-                               (when (getf options :log-file)
-                                 (devnet-cli-log-event
-                                  node
-                                  "devnet.ready"
-                                  :public-rpc-enabled-p
-                                  (getf options :public-rpc-enabled-p)))
-                               (devnet-cli-print-summary
-                                node
-                                output-stream
-                                :format (getf options :summary-format)
-                                :public-rpc-enabled-p
-                                (getf options :public-rpc-enabled-p))
-                               (when (getf options :log-file)
-                                 (devnet-cli-log-event
-                                  node
-                                  "devnet.shutdown"
-                                  :public-rpc-enabled-p
-                                  (getf options :public-rpc-enabled-p)))))
+                             (devnet-cli-run-serve-node
+                              node options output-stream error-stream)
+                             (devnet-cli-run-no-serve-node
+                              node options output-stream))
                          0))))))))))
     (error (condition)
       (ignore-errors
