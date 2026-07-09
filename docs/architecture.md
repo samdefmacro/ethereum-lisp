@@ -34,7 +34,10 @@ The first mechanical split is:
 - `accounts.lisp`: state account encoding and hashing.
 - `transactions.lisp`: transaction envelopes, RLP, signing hashes, senders.
 - `receipts.lisp`: withdrawals, logs, blooms, receipts, trie-list roots.
-- `core.lisp`: remaining genesis/block/store/txpool/RPC/KZG implementation.
+- `txpool-types.lisp`: txpool index structure required by the store type.
+- `txpool.lisp`: pending/queued/basefee/blob txpool admission, promotion,
+  revalidation, and mining selection helpers.
+- `core.lisp`: remaining genesis/block/store/RPC/KZG implementation.
 
 ## Dependency Rules
 
