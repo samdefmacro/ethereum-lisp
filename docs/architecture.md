@@ -252,8 +252,17 @@ The first mechanical split is:
 - `execution-rules.lisp`: fork-rule selection, blob gas limits, and block blob
   base-fee derivation.
 - `execution-context.lisp`: EVM context creation for message execution.
-- `execution-message.lisp`: call simulation, message application, signed
-  transaction sender recovery, and transaction-list execution.
+- `execution-call-simulation.lisp`: copied-state call execution for
+  `eth_call`, gas estimation, and access-list simulation.
+- `execution-apply-contract.lisp`: state-mutating contract creation.
+- `execution-signatures.lisp`: transaction chain-id selection and sender
+  recovery helpers.
+- `execution-apply-message.lisp`: state-mutating message application and
+  signed/legacy wrappers.
+- `execution-message-lists.lisp`: transaction-list execution and execution
+  result construction.
+- `execution-message.lisp`: compatibility package entry for execution message
+  modules.
 - `execution-block-validation.lisp`: block body/fork shape checks, execution
   root validation, and block header snapshot/restore helpers.
 - `execution.lisp`: block execution entry points and atomic chain-store
