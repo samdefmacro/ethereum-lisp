@@ -20,6 +20,55 @@
                   (setf error-stream value)))))
     (values args output-stream error-stream)))
 
+(defun devnet-cli-make-node (options genesis-path genesis-json telemetry-sink)
+  (make-devnet-node
+   :genesis-path genesis-path
+   :genesis-json genesis-json
+   :dev-mode-p (and genesis-json (getf options :dev-mode-p))
+   :host (getf options :host)
+   :port (getf options :port)
+   :public-host (getf options :public-host)
+   :public-port (getf options :public-port)
+   :jwt-secret-path (getf options :jwt-secret-path)
+   :engine-rpc-prefix (getf options :engine-rpc-prefix)
+   :public-rpc-prefix (getf options :public-rpc-prefix)
+   :log-path (getf options :log-file)
+   :database-path (getf options :database-path)
+   :pid-file-path (getf options :pid-file)
+   :network-id (getf options :network-id)
+   :public-api-modules (getf options :http-api-modules)
+   :engine-cors-origins (getf options :authrpc-cors-origins)
+   :public-cors-origins (getf options :http-cors-origins)
+   :engine-vhosts (getf options :engine-vhosts)
+   :public-vhosts (getf options :http-vhosts)
+   :terminal-total-difficulty (getf options :terminal-total-difficulty)
+   :terminal-total-difficulty-passed
+   (getf options :terminal-total-difficulty-passed)
+   :terminal-total-difficulty-passed-specified-p
+   (getf options :terminal-total-difficulty-passed-specified-p)
+   :terminal-block-hash (getf options :terminal-block-hash)
+   :terminal-block-number (getf options :terminal-block-number)
+   :dev-period-seconds (getf options :dev-period-seconds)
+   :coinbase (getf options :coinbase)
+   :allow-unprotected-transactions-p
+   (getf options :allow-unprotected-transactions-p)
+   :txpool-price-limit (getf options :txpool-price-limit)
+   :txpool-price-bump-percent (getf options :txpool-price-bump-percent)
+   :txpool-account-slot-limit (getf options :txpool-account-slot-limit)
+   :txpool-global-slot-limit (getf options :txpool-global-slot-limit)
+   :txpool-account-queue-limit (getf options :txpool-account-queue-limit)
+   :txpool-global-queue-limit (getf options :txpool-global-queue-limit)
+   :txpool-local-addresses (getf options :txpool-local-addresses)
+   :txpool-no-local-exemptions-p (getf options :txpool-no-local-exemptions-p)
+   :txpool-lifetime-seconds (getf options :txpool-lifetime-seconds)
+   :txpool-journal-path (getf options :txpool-journal-path)
+   :txpool-rejournal-seconds (getf options :txpool-rejournal-seconds)
+   :kzg-verifier-command (getf options :kzg-verifier-command)
+   :kzg-verifier-timeout-seconds (getf options :kzg-verifier-timeout-seconds)
+   :public-allowed-method-p
+   (devnet-cli-public-api-method-filter (getf options :http-api-modules))
+   :telemetry-sink telemetry-sink))
+
 (defun devnet-cli-run (args output-stream error-stream)
   (handler-case
       (cond
@@ -59,84 +108,9 @@
                      (getf options :kzg-verifier-timeout-seconds)
                      (lambda ()
                        (let ((node
-                               (make-devnet-node
-                                :genesis-path genesis-path
-                                :genesis-json genesis-json
-                                :dev-mode-p (and genesis-json
-                                                 (getf options :dev-mode-p))
-                                :host (getf options :host)
-                                :port (getf options :port)
-                                :public-host (getf options :public-host)
-                                :public-port (getf options :public-port)
-                                :jwt-secret-path (getf options :jwt-secret-path)
-                                :engine-rpc-prefix
-                                (getf options :engine-rpc-prefix)
-                                :public-rpc-prefix
-                                (getf options :public-rpc-prefix)
-                                :log-path (getf options :log-file)
-                                :database-path (getf options :database-path)
-                                :pid-file-path (getf options :pid-file)
-                                :network-id (getf options :network-id)
-                                :public-api-modules
-                                (getf options :http-api-modules)
-                                :engine-cors-origins
-                                (getf options :authrpc-cors-origins)
-                                :public-cors-origins
-                                (getf options :http-cors-origins)
-                                :engine-vhosts
-                                (getf options :engine-vhosts)
-                                :public-vhosts
-                                (getf options :http-vhosts)
-                                :terminal-total-difficulty
-                                (getf options :terminal-total-difficulty)
-                                :terminal-total-difficulty-passed
-                                (getf options
-                                      :terminal-total-difficulty-passed)
-                                :terminal-total-difficulty-passed-specified-p
-                                (getf options
-                                      :terminal-total-difficulty-passed-specified-p)
-                                :terminal-block-hash
-                                (getf options :terminal-block-hash)
-                                :terminal-block-number
-                                (getf options :terminal-block-number)
-                                :dev-mode-p (getf options :dev-mode-p)
-                                :dev-period-seconds
-                                (getf options :dev-period-seconds)
-                                :coinbase (getf options :coinbase)
-                                :allow-unprotected-transactions-p
-                                (getf options
-                                      :allow-unprotected-transactions-p)
-                                :txpool-price-limit
-                                (getf options :txpool-price-limit)
-                                :txpool-price-bump-percent
-                                (getf options :txpool-price-bump-percent)
-                                :txpool-account-slot-limit
-                                (getf options :txpool-account-slot-limit)
-                                :txpool-global-slot-limit
-                                (getf options :txpool-global-slot-limit)
-                                :txpool-account-queue-limit
-                                (getf options :txpool-account-queue-limit)
-                                :txpool-global-queue-limit
-                                (getf options :txpool-global-queue-limit)
-                                :txpool-local-addresses
-                                (getf options :txpool-local-addresses)
-                                :txpool-no-local-exemptions-p
-                                (getf options :txpool-no-local-exemptions-p)
-                                :txpool-lifetime-seconds
-                                (getf options :txpool-lifetime-seconds)
-                                :txpool-journal-path
-                                (getf options :txpool-journal-path)
-                                :txpool-rejournal-seconds
-                                (getf options :txpool-rejournal-seconds)
-                                :kzg-verifier-command
-                                (getf options :kzg-verifier-command)
-                                :kzg-verifier-timeout-seconds
-                                (getf options
-                                      :kzg-verifier-timeout-seconds)
-                                :public-allowed-method-p
-                                (devnet-cli-public-api-method-filter
-                                 (getf options :http-api-modules))
-                                :telemetry-sink telemetry-sink)))
+                               (devnet-cli-make-node
+                                options genesis-path genesis-json
+                                telemetry-sink)))
                          (when (getf options :pid-file)
                            (devnet-cli-write-pid-file
                             (getf options :pid-file)))
