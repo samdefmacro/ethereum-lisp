@@ -426,6 +426,8 @@ The first mechanical split is:
   return-data, and log merge helpers for the bytecode interpreter.
 - `evm-interpreter-create.lisp`: shared CREATE/CREATE2 child execution,
   rollback, code-deposit, and result mapping helpers.
+- `evm-interpreter-call.lisp`: shared CALL/CALLCODE/DELEGATECALL/STATICCALL
+  child execution, precompile dispatch, rollback, and result mapping helpers.
 - `evm.lisp`: bytecode interpreter loop and opcode execution.
 - `execution-constants.lisp`: execution gas, nonce, code-size, refund, and
   proof-of-work reward constants.
