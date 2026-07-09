@@ -180,6 +180,7 @@
      (:file "public-rpc-state-queries")
      (:file "public-rpc-state-proofs")
      (:file "public-rpc-call-objects")
+     (:file "public-rpc-call-simulation")
      (:file "public-rpc-gas")
      (:file "public-rpc-access-lists")
      (:file "public-rpc-state")

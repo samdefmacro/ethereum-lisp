@@ -178,6 +178,7 @@
 (load-ethereum-lisp-test-file "src/public-rpc-state-queries.lisp")
 (load-ethereum-lisp-test-file "src/public-rpc-state-proofs.lisp")
 (load-ethereum-lisp-test-file "src/public-rpc-call-objects.lisp")
+(load-ethereum-lisp-test-file "src/public-rpc-call-simulation.lisp")
 (load-ethereum-lisp-test-file "src/public-rpc-gas.lisp")
 (load-ethereum-lisp-test-file "src/public-rpc-access-lists.lisp")
 (load-ethereum-lisp-test-file "src/public-rpc-state.lisp")

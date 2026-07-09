@@ -188,6 +188,7 @@
            "src/public-rpc-state-queries.lisp"
            "src/public-rpc-state-proofs.lisp"
            "src/public-rpc-call-objects.lisp"
+           "src/public-rpc-call-simulation.lisp"
            "src/public-rpc-gas.lisp"
            "src/public-rpc-access-lists.lisp"
            "src/public-rpc-state.lisp"

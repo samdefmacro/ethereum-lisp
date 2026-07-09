@@ -274,8 +274,10 @@ The first mechanical split is:
   storage reads.
 - `public-rpc-state-proofs.lisp`: `eth_getProof` storage slot coercion and
   proof response construction.
-- `public-rpc-call-objects.lisp`: public call-object parsing, transaction
-  synthesis, simulation, and `eth_call`.
+- `public-rpc-call-objects.lisp`: public call-object parsing and transaction
+  synthesis.
+- `public-rpc-call-simulation.lisp`: public call simulation and `eth_call`
+  response handling.
 - `public-rpc-gas.lisp`: `eth_estimateGas` gas caps and binary search.
 - `public-rpc-access-lists.lisp`: `eth_createAccessList` access collection and
   response rendering.
