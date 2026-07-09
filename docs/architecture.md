@@ -39,7 +39,14 @@ The first mechanical split is:
   revalidation, and mining selection helpers.
 - `chain-store-persistence.lisp`: chain-store KV export/import records,
   validation, staging, and restore consistency.
-- `core.lisp`: remaining genesis/block/store/RPC/KZG implementation.
+- `engine-payload-status.lisp`: Engine forkchoice/newPayload status for the
+  in-memory chain store.
+- `engine-rpc-protocol.lisp`: JSON-RPC envelopes, response helpers, and
+  Engine/public method filters.
+- `engine-rpc-http.lisp`: JSON-RPC request dispatch, HTTP parsing, JWT auth,
+  listener abstractions, and stream telemetry.
+- `core.lisp`: remaining genesis/block/store/block-access-list/KZG
+  implementation.
 
 ## Dependency Rules
 
