@@ -98,8 +98,14 @@ The first mechanical split is:
 - `public-rpc-blocks.lisp`: public header, block, pending block, transaction
   count, and ommer handlers.
 - `public-rpc.lisp`: public log/filter handlers and final method dispatch.
-- `engine-rpc-http.lisp`: JSON-RPC request dispatch, HTTP parsing, JWT auth,
-  listener abstractions, and stream telemetry.
+- `engine-rpc-http-auth.lisp`: Engine API JWT token creation, validation, and
+  signing helpers.
+- `engine-rpc-http-wire.lisp`: HTTP request parsing, response formatting, CORS
+  and host filtering, and request/response telemetry extraction.
+- `engine-rpc-http.lisp`: JSON-RPC request dispatch and HTTP request/stream
+  handlers.
+- `engine-rpc-http-service.lisp`: HTTP service/listener abstractions, socket
+  listener construction, and service-level telemetry.
 ## Dependency Rules
 
 - Consensus data types may use primitives, RLP, crypto, trie, and chain rules.
