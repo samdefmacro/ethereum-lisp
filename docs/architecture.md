@@ -89,12 +89,15 @@ The first mechanical split is:
 - `blocks.lisp`: compatibility package entry for block modules.
 - `consensus-validation.lisp`: shared consensus validation primitives,
   hash equality, sized-byte checks, and fee-market calculations.
+- `consensus-field-validation.lisp`: shared scalar, byte, hash, address, and
+  ordering validators for consensus-facing objects.
 - `consensus-transaction-validation.lisp`: consensus-facing transaction field
   validation for block, RPC, and txpool admission paths.
 - `block-access-list-types.lisp`: Amsterdam block access list structures.
 - `block-access-list-execution-requests.lisp`: execution request validation and
   hashing.
-- `block-access-list-validation.lisp`: shared field and ordering validators.
+- `block-access-list-validation.lisp`: Amsterdam block access list account,
+  storage, and ordering validators.
 - `block-access-list-rlp.lisp`: block access list RLP encoding and decoding.
 - `block-access-list-commitments.lisp`: block access list hash and encoded-body
   consistency checks.

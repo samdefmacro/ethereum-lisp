@@ -68,6 +68,7 @@
      (:file "blocks-rlp-encode")
      (:file "blocks")
      (:file "consensus-validation")
+     (:file "consensus-field-validation")
      (:file "consensus-transaction-validation")
      (:file "block-access-list-types")
      (:file "block-access-list-execution-requests")
