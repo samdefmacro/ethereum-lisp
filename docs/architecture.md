@@ -129,8 +129,19 @@ The first mechanical split is:
   overbudget parked-transaction pruning.
 - `txpool-cleanup.lisp`: txpool stale, expired, sender-code, gas-limit,
   blob-fee, invalid-sender cleanup, and pending revalidation.
-- `chain-store-export.lisp`: chain-store KV export records for indexes,
-  blocks, state snapshots, txpool records, and payload caches.
+- `chain-store-export-indexes.lisp`: checkpoint and index KV export records.
+- `chain-store-export-blocks.lisp`: block and receipt KV export records.
+- `chain-store-export-transactions.lisp`: transaction location KV export
+  records.
+- `chain-store-export-state.lisp`: state snapshot KV export records.
+- `chain-store-export-txpool.lisp`: txpool KV export records.
+- `chain-store-export-invalid-tipsets.lisp`: invalid tipset KV export records.
+- `chain-store-export-remote-blocks.lisp`: remote block KV export records.
+- `chain-store-export-blob-sidecars.lisp`: blob sidecar KV export records.
+- `chain-store-export-prepared-payloads.lisp`: prepared payload KV export
+  records.
+- `chain-store-export.lisp`: compatibility package entry for chain-store export
+  modules.
 - `chain-store-persistence-core.lisp`: chain-store KV import table staging,
   block/header indexes, canonical chain indexes, and checkpoints.
 - `chain-store-persistence-receipts.lisp`: receipt/log RLP decoding and
