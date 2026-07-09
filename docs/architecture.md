@@ -124,8 +124,13 @@ The first mechanical split is:
   prepared payload, and blob sidecar caches.
 - `chain-store-memory.lisp`: in-memory canonical chain and forkchoice
   checkpoint storage wrappers.
-- `chain-store-state.lisp`: retained state projection, pruning, and
-  deterministic account iteration for the in-memory chain store.
+- `chain-store-state-availability.lisp`: retained state availability checks
+  and state snapshot pruning.
+- `chain-store-account-state.lisp`: retained account balance, nonce, code, and
+  storage read/write helpers.
+- `chain-store-state-iteration.lisp`: retained account and storage iteration
+  helpers for export and state projection.
+- `chain-store-state.lisp`: chain-store state compatibility loader.
 - `chain-store-canonical-indexes.lisp`: canonical hash, block number, parent,
   block-membership, and ancestor checks.
 - `chain-store-transaction-locations.lisp`: canonical transaction location
