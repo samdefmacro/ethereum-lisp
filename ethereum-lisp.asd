@@ -29,6 +29,7 @@
      (:file "consensus-validation")
      (:file "block-access-list")
      (:file "kzg")
+     (:file "chain-store-memory")
      (:file "txpool")
      (:file "chain-store-persistence")
      (:file "block-validation")

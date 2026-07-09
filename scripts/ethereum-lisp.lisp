@@ -37,6 +37,7 @@
            "src/consensus-validation.lisp"
            "src/block-access-list.lisp"
            "src/kzg.lisp"
+           "src/chain-store-memory.lisp"
            "src/txpool.lisp"
            "src/chain-store-persistence.lisp"
            "src/block-validation.lisp"

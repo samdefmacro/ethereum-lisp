@@ -27,6 +27,7 @@
 (load-ethereum-lisp-test-file "src/consensus-validation.lisp")
 (load-ethereum-lisp-test-file "src/block-access-list.lisp")
 (load-ethereum-lisp-test-file "src/kzg.lisp")
+(load-ethereum-lisp-test-file "src/chain-store-memory.lisp")
 (load-ethereum-lisp-test-file "src/txpool.lisp")
 (load-ethereum-lisp-test-file "src/chain-store-persistence.lisp")
 (load-ethereum-lisp-test-file "src/block-validation.lisp")

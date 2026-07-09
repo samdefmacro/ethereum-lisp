@@ -41,6 +41,8 @@ The first mechanical split is:
   validators, and Amsterdam block access list RLP/validation.
 - `kzg.lisp`: command-backed KZG verifier hooks and blob sidecar KZG
   validation.
+- `chain-store-memory.lisp`: in-memory canonical chain, state projection,
+  filter, invalid payload, prepared payload, and blob sidecar caches.
 - `txpool.lisp`: pending/queued/basefee/blob txpool admission, promotion,
   revalidation, and mining selection helpers.
 - `chain-store-persistence.lisp`: chain-store KV export/import records,
@@ -51,7 +53,7 @@ The first mechanical split is:
   Engine/public method filters.
 - `engine-rpc-http.lisp`: JSON-RPC request dispatch, HTTP parsing, JWT auth,
   listener abstractions, and stream telemetry.
-- `core.lisp`: remaining genesis/block/store and Engine payload conversion
+- `core.lisp`: remaining genesis/block and Engine payload conversion
   implementation.
 
 ## Dependency Rules
