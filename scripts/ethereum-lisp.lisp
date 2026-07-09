@@ -76,6 +76,7 @@
            "src/blocks-rlp-encode.lisp"
            "src/blocks.lisp"
            "src/consensus-validation.lisp"
+           "src/consensus-transaction-validation.lisp"
            "src/block-access-list-types.lisp"
            "src/block-access-list-execution-requests.lisp"
            "src/block-access-list-validation.lisp"

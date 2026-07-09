@@ -66,6 +66,7 @@
 (load-ethereum-lisp-test-file "src/blocks-rlp-encode.lisp")
 (load-ethereum-lisp-test-file "src/blocks.lisp")
 (load-ethereum-lisp-test-file "src/consensus-validation.lisp")
+(load-ethereum-lisp-test-file "src/consensus-transaction-validation.lisp")
 (load-ethereum-lisp-test-file "src/block-access-list-types.lisp")
 (load-ethereum-lisp-test-file "src/block-access-list-execution-requests.lisp")
 (load-ethereum-lisp-test-file "src/block-access-list-validation.lisp")
