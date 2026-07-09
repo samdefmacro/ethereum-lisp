@@ -106,6 +106,15 @@ The first mechanical split is:
   handlers.
 - `engine-rpc-http-service.lisp`: HTTP service/listener abstractions, socket
   listener construction, and service-level telemetry.
+- `state.lisp`: mutable account/storage state, trie roots, proofs, genesis
+  state construction, and legacy transaction compatibility helpers.
+- `evm-types.lisp`: EVM errors, result/context records, precompile address
+  activation, gas constants, and fixed precompile tables.
+- `evm-runtime.lisp`: EVM word, stack, memory, access-list, transient-storage,
+  state mutation, account, create/call gas, and block-context helpers.
+- `evm-precompiles.lisp`: Ethereum precompile implementations, BN254/KZG and
+  BLAKE2F helpers, and precompile dispatch.
+- `evm.lisp`: bytecode interpreter loop and opcode execution.
 - `execution-context.lisp`: execution constants, transaction field
   validation, fork-rule helpers, access prewarming, and EVM context creation.
 - `execution-message.lisp`: call simulation, message application, signed
