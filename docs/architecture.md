@@ -456,7 +456,8 @@ The first mechanical split is:
   dev-period block sealing, and database export.
 - `cli-devnet-summary.lisp`: devnet status summaries and JSON summary
   objects.
-- `cli-devnet-service.lisp`: devnet background threads, listener serving, and
+- `cli-devnet-background.lisp`: devnet periodic background worker threads.
+- `cli-devnet-service.lisp`: devnet listener serving and
   startup orchestration.
 - `cli-devnet.lisp`: devnet compatibility loader.
 - `cli-args.lisp`: command-line token normalization, option arity metadata,

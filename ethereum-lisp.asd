@@ -292,6 +292,7 @@
      (:file "cli-devnet-node")
      (:file "cli-devnet-runtime")
      (:file "cli-devnet-summary")
+     (:file "cli-devnet-background")
      (:file "cli-devnet-service")
      (:file "cli-devnet")
      (:file "cli-args")

@@ -300,6 +300,7 @@
            "src/cli-devnet-node.lisp"
            "src/cli-devnet-runtime.lisp"
            "src/cli-devnet-summary.lisp"
+           "src/cli-devnet-background.lisp"
            "src/cli-devnet-service.lisp"
            "src/cli-devnet.lisp"
            "src/cli-args.lisp"
