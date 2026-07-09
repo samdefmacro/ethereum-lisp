@@ -161,6 +161,7 @@
            "src/chain-store-persistence-blobs.lisp"
            "src/chain-store-persistence-prepared-payloads.lisp"
            "src/chain-store-persistence.lisp"
+           "src/block-validation-fees.lisp"
            "src/block-validation-forks.lisp"
            "src/block-validation-header.lisp"
            "src/block-validation-body.lisp"

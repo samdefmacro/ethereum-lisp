@@ -229,8 +229,10 @@ The first mechanical split is:
   decoding and cache restoration.
 - `chain-store-persistence.lisp`: top-level chain-store KV import
   orchestration.
-- `block-validation-forks.lisp`: fork-specific block header gas, blob gas,
-  withdrawals, requests, Amsterdam, and Merge field rules.
+- `block-validation-fees.lisp`: base-fee, gas-limit, blob-gas, and blob base
+  fee validation.
+- `block-validation-forks.lisp`: fork-specific header field presence and Merge
+  transition checks.
 - `block-validation-header.lisp`: header shape validation, parent linkage,
   fork-aware header checks, and chain-config header validation.
 - `block-validation-body.lisp`: withdrawal, transaction, ommer, blob-gas, and

@@ -151,6 +151,7 @@
 (load-ethereum-lisp-test-file "src/chain-store-persistence-blobs.lisp")
 (load-ethereum-lisp-test-file "src/chain-store-persistence-prepared-payloads.lisp")
 (load-ethereum-lisp-test-file "src/chain-store-persistence.lisp")
+(load-ethereum-lisp-test-file "src/block-validation-fees.lisp")
 (load-ethereum-lisp-test-file "src/block-validation-forks.lisp")
 (load-ethereum-lisp-test-file "src/block-validation-header.lisp")
 (load-ethereum-lisp-test-file "src/block-validation-body.lisp")

@@ -153,6 +153,7 @@
      (:file "chain-store-persistence-blobs")
      (:file "chain-store-persistence-prepared-payloads")
      (:file "chain-store-persistence")
+     (:file "block-validation-fees")
      (:file "block-validation-forks")
      (:file "block-validation-header")
      (:file "block-validation-body")
