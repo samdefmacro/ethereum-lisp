@@ -277,6 +277,7 @@
            "src/evm-precompiles-blake2f.lisp"
            "src/evm-precompiles-dispatch.lisp"
            "src/evm-precompiles.lisp"
+           "src/evm-interpreter-results.lisp"
            "src/evm.lisp"
            "src/execution-constants.lisp"
            "src/execution-state.lisp"

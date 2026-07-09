@@ -727,9 +727,9 @@
                                             (evm-result-return-data child-result))
                                       (if (eq (evm-result-status child-result)
                                               :reverted)
-	                                          (restore-execution-snapshot
-	                                           state context snapshot)
-	                                          (progn
+                                          (restore-execution-snapshot
+                                           state context snapshot)
+                                          (progn
                                             (setf child-logs
                                                   (evm-result-logs child-result))
                                             (when (invalid-created-runtime-code-p
@@ -764,13 +764,12 @@
                                         (make-byte-vector 0)
                                         child-logs '()
                                         child-gas-used
-                                          (if (and child-started-p
-                                                   child-gas-limit)
-                                              child-gas-limit
-                                              child-gas-used))))))
+                                          (failed-create-child-gas-used
+                                           child-started-p child-gas-limit
+                                           child-gas-used))))))
                         (charge-extra-gas child-gas-used)
                         (setf return-data-buffer child-return-data
-                              logs (append (reverse child-logs) logs)
+                              logs (prepend-child-logs child-logs logs)
                               stack (stack-push rest success-address))))
                     (incf pc))
                    ((= op #xf5)
@@ -783,11 +782,11 @@
                       (fail "CREATE2 is not allowed in read-only EVM context"))
                     (multiple-value-bind (value offset size rest1) (pop3 stack)
                       (multiple-value-bind (salt rest) (pop1 rest1)
-	                        (charge-extra-gas
-	                         (create-initcode-extra-gas
-	                          size
-	                          :create2-p t
-	                          :rules (evm-context-chain-rules context)))
+                        (charge-extra-gas
+                         (create-initcode-extra-gas
+                          size
+                          :create2-p t
+                          :rules (evm-context-chain-rules context)))
                         (charge-memory-gas offset size)
                         (setf memory (ensure-memory-size memory (+ offset size)))
                         (let* ((state (evm-context-state context))
@@ -848,9 +847,9 @@
                                               (evm-result-return-data child-result))
                                         (if (eq (evm-result-status child-result)
                                                 :reverted)
-	                                            (restore-execution-snapshot
-	                                             state context snapshot)
-	                                            (progn
+                                            (restore-execution-snapshot
+                                             state context snapshot)
+                                            (progn
                                               (setf child-logs
                                                     (evm-result-logs child-result))
                                               (when (invalid-created-runtime-code-p
@@ -884,13 +883,12 @@
                                           (make-byte-vector 0)
                                           child-logs '()
                                           child-gas-used
-                                          (if (and child-started-p
-                                                   child-gas-limit)
-                                              child-gas-limit
-                                              child-gas-used))))))
+                                          (failed-create-child-gas-used
+                                           child-started-p child-gas-limit
+                                           child-gas-used))))))
                           (charge-extra-gas child-gas-used)
                           (setf return-data-buffer child-return-data
-                                logs (append (reverse child-logs) logs)
+                                logs (prepend-child-logs child-logs logs)
                                 stack (stack-push rest success-address)))))
                     (incf pc))
                    ((= op #xf1)
@@ -1011,20 +1009,19 @@
                                                    (execute-bytecode callee-code
                                                                      :context child-context
                                                                      :gas-limit child-gas-limit))))
-                                            (setf child-gas-used
-                                                  (evm-result-gas-used child-result))
-                                            (setf child-return-data
-                                                  (evm-result-return-data child-result))
-                                            (if (eq (evm-result-status child-result) :reverted)
-                                                (restore-execution-snapshot
-                                                 state context snapshot)
-                                                (progn
-                                                  (incf refund-counter
-                                                        (evm-result-refund-counter
-                                                         child-result))
-                                                  (setf success 1
-                                                        child-logs
-                                                        (evm-result-logs child-result))))))))))
+                                            (multiple-value-bind
+                                                  (child-success result-gas
+                                                   result-return-data result-logs
+                                                   result-refund)
+                                                (apply-child-execution-result
+                                                 state context snapshot child-result)
+                                              (setf success child-success
+                                                    child-gas-used result-gas
+                                                    child-return-data
+                                                    result-return-data
+                                                    child-logs result-logs)
+                                              (incf refund-counter
+                                                    result-refund))))))))
                           (evm-precompile-error (condition)
                             (restore-execution-snapshot
                              state context snapshot)
@@ -1032,28 +1029,27 @@
                                   child-return-data (make-byte-vector 0)
                                   child-logs '()
                                   child-gas-used
-                                  (min (evm-precompile-error-gas-used condition)
-                                       child-gas-limit)))
+                                  (failed-precompile-child-gas-used
+                                   condition child-gas-limit)))
                           (evm-error ()
                             (restore-execution-snapshot
                              state context snapshot)
                             (setf success 0
                                   child-return-data (make-byte-vector 0)
                                   child-logs '()
-                                  child-gas-used (if child-started-p
-                                                     child-gas-limit
-                                                     child-gas-used))))
+                                  child-gas-used
+                                  (failed-child-execution-gas-used
+                                   child-started-p child-gas-limit
+                                   child-gas-used))))
                         (charge-extra-gas
                          (if precompile-callee-p
                              child-gas-used
                              (call-child-gas-charge child-gas-used value)))
                         (setf return-data-buffer child-return-data
                               memory
-                              (copy-into-memory
-                               memory
-                               return-offset
-                               (call-output-data-slice child-return-data return-size))
-                              logs (append (reverse child-logs) logs)
+                              (copy-child-return-data-to-memory
+                               memory return-offset return-size child-return-data)
+                              logs (prepend-child-logs child-logs logs)
                               stack (stack-push rest success))))
                     (incf pc))
                    ((= op #xf3)
@@ -1176,20 +1172,19 @@
                                                    (execute-bytecode callee-code
                                                                      :context child-context
                                                                      :gas-limit child-gas-limit))))
-                                            (setf child-gas-used
-                                                  (evm-result-gas-used child-result))
-                                            (setf child-return-data
-                                                  (evm-result-return-data child-result))
-                                            (if (eq (evm-result-status child-result) :reverted)
-                                                (restore-execution-snapshot
-                                                 state context snapshot)
-                                                (progn
-                                                  (incf refund-counter
-                                                        (evm-result-refund-counter
-                                                         child-result))
-                                                  (setf success 1
-                                                        child-logs
-                                                        (evm-result-logs child-result))))))))))
+                                            (multiple-value-bind
+                                                  (child-success result-gas
+                                                   result-return-data result-logs
+                                                   result-refund)
+                                                (apply-child-execution-result
+                                                 state context snapshot child-result)
+                                              (setf success child-success
+                                                    child-gas-used result-gas
+                                                    child-return-data
+                                                    result-return-data
+                                                    child-logs result-logs)
+                                              (incf refund-counter
+                                                    result-refund))))))))
                           (evm-precompile-error (condition)
                             (restore-execution-snapshot
                              state context snapshot)
@@ -1197,28 +1192,27 @@
                                   child-return-data (make-byte-vector 0)
                                   child-logs '()
                                   child-gas-used
-                                  (min (evm-precompile-error-gas-used condition)
-                                       child-gas-limit)))
+                                  (failed-precompile-child-gas-used
+                                   condition child-gas-limit)))
                           (evm-error ()
                             (restore-execution-snapshot
                              state context snapshot)
                             (setf success 0
                                   child-return-data (make-byte-vector 0)
                                   child-logs '()
-                                  child-gas-used (if child-started-p
-                                                     child-gas-limit
-                                                     child-gas-used))))
+                                  child-gas-used
+                                  (failed-child-execution-gas-used
+                                   child-started-p child-gas-limit
+                                   child-gas-used))))
                         (charge-extra-gas
                          (if precompile-code-address-p
                              child-gas-used
                              (call-child-gas-charge child-gas-used value)))
                         (setf return-data-buffer child-return-data
                               memory
-                              (copy-into-memory
-                               memory
-                               return-offset
-                               (call-output-data-slice child-return-data return-size))
-                              logs (append (reverse child-logs) logs)
+                              (copy-child-return-data-to-memory
+                               memory return-offset return-size child-return-data)
+                              logs (prepend-child-logs child-logs logs)
                               stack (stack-push rest success))))
                     (incf pc))
                    ((= op #xf4)
@@ -1308,20 +1302,19 @@
                                                       callee-code
                                                       :context child-context
                                                       :gas-limit child-gas-limit))))
-                                            (setf child-gas-used
-                                                  (evm-result-gas-used child-result))
-                                            (setf child-return-data
-                                                  (evm-result-return-data child-result))
-                                            (if (eq (evm-result-status child-result) :reverted)
-                                                (restore-execution-snapshot
-                                                 state context snapshot)
-                                                (progn
-                                                  (incf refund-counter
-                                                        (evm-result-refund-counter
-                                                         child-result))
-                                                  (setf success 1
-                                                        child-logs
-                                                        (evm-result-logs child-result))))))))))
+                                            (multiple-value-bind
+                                                  (child-success result-gas
+                                                   result-return-data result-logs
+                                                   result-refund)
+                                                (apply-child-execution-result
+                                                 state context snapshot child-result)
+                                              (setf success child-success
+                                                    child-gas-used result-gas
+                                                    child-return-data
+                                                    result-return-data
+                                                    child-logs result-logs)
+                                              (incf refund-counter
+                                                    result-refund))))))))
                           (evm-precompile-error (condition)
                             (restore-execution-snapshot
                              state context snapshot)
@@ -1329,25 +1322,24 @@
                                   child-return-data (make-byte-vector 0)
                                   child-logs '()
                                   child-gas-used
-                                  (min (evm-precompile-error-gas-used condition)
-                                       child-gas-limit)))
+                                  (failed-precompile-child-gas-used
+                                   condition child-gas-limit)))
                           (evm-error ()
                             (restore-execution-snapshot
                              state context snapshot)
                             (setf success 0
                                   child-return-data (make-byte-vector 0)
                                   child-logs '()
-                                  child-gas-used (if child-started-p
-                                                     child-gas-limit
-                                                     child-gas-used))))
+                                  child-gas-used
+                                  (failed-child-execution-gas-used
+                                   child-started-p child-gas-limit
+                                   child-gas-used))))
                         (charge-extra-gas child-gas-used)
                         (setf return-data-buffer child-return-data
                               memory
-                              (copy-into-memory
-                               memory
-                               return-offset
-                               (call-output-data-slice child-return-data return-size))
-                              logs (append (reverse child-logs) logs)
+                              (copy-child-return-data-to-memory
+                               memory return-offset return-size child-return-data)
+                              logs (prepend-child-logs child-logs logs)
                               stack (stack-push rest success))))
                     (incf pc))
                    ((= op #xfa)
@@ -1431,41 +1423,41 @@
                                                       callee-code
                                                       :context child-context
                                                       :gas-limit child-gas-limit))))
-                                            (setf child-gas-used
-                                                  (evm-result-gas-used child-result))
-                                            (setf child-return-data
-                                                  (evm-result-return-data child-result))
-                                            (if (eq (evm-result-status child-result) :reverted)
-                                                (restore-execution-snapshot
-                                                 state context snapshot)
-                                                (progn
-                                                  (incf refund-counter
-                                                        (evm-result-refund-counter
-                                                         child-result))
-                                                  (setf success 1)))))))))
+                                            (multiple-value-bind
+                                                  (child-success result-gas
+                                                   result-return-data result-logs
+                                                   result-refund)
+                                                (apply-child-execution-result
+                                                 state context snapshot child-result)
+                                              (declare (ignore result-logs))
+                                              (setf success child-success
+                                                    child-gas-used result-gas
+                                                    child-return-data
+                                                    result-return-data)
+                                              (incf refund-counter
+                                                    result-refund))))))))
                           (evm-precompile-error (condition)
                             (restore-execution-snapshot
                              state context snapshot)
                             (setf success 0
                                   child-return-data (make-byte-vector 0)
                                   child-gas-used
-                                  (min (evm-precompile-error-gas-used condition)
-                                       child-gas-limit)))
+                                  (failed-precompile-child-gas-used
+                                   condition child-gas-limit)))
                           (evm-error ()
                             (restore-execution-snapshot
                              state context snapshot)
                             (setf success 0
                                   child-return-data (make-byte-vector 0)
-                                  child-gas-used (if child-started-p
-                                                     child-gas-limit
-                                                     child-gas-used))))
+                                  child-gas-used
+                                  (failed-child-execution-gas-used
+                                   child-started-p child-gas-limit
+                                   child-gas-used))))
                         (charge-extra-gas child-gas-used)
                         (setf return-data-buffer child-return-data
                               memory
-                              (copy-into-memory
-                               memory
-                               return-offset
-                               (call-output-data-slice child-return-data return-size))
+                              (copy-child-return-data-to-memory
+                               memory return-offset return-size child-return-data)
                               stack (stack-push rest success))))
                     (incf pc))
                    ((= op #xff)
