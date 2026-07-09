@@ -366,6 +366,8 @@ The first mechanical split is:
 - `state.lisp`: state package compatibility loader.
 - `evm-types.lisp`: EVM errors, result/context records, precompile address
   activation, gas constants, and fixed precompile tables.
+- `evm-runtime-context.lisp`: child EVM context construction and inherited
+  frame fields for CREATE and CALL-family opcodes.
 - `evm-runtime-base.lisp`: EVM word arithmetic, fork checks, errors, and stack
   pop/push helpers.
 - `evm-runtime-memory.lisp`: memory expansion, data slicing, memory copy, and
@@ -376,8 +378,10 @@ The first mechanical split is:
   difficulty/prev-randao context lookup.
 - `evm-runtime-access.lisp`: transient storage, storage/access warming,
   selfdestruct snapshots, and dynamic SSTORE gas.
-- `evm-runtime-state.lisp`: execution snapshot restore, account mutation,
-  value transfer, delegated code resolution, and selfdestruct state updates.
+- `evm-runtime-snapshots.lisp`: execution snapshot capture, access-list
+  snapshot refresh, and restore helpers for child frame rollback.
+- `evm-runtime-state.lisp`: account mutation, value transfer, delegated code
+  resolution, and selfdestruct state updates.
 - `evm-runtime-create.lisp`: CREATE/CREATE2 address derivation, initcode gas,
   code size limits, and created-code validation.
 - `evm-runtime-gas.lisp`: remaining gas, EIP-150 child gas, and call stipend
