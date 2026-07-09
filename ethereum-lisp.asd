@@ -68,6 +68,13 @@
      (:file "execution-message")
      (:file "execution-block-validation")
      (:file "execution")
+     (:file "cli-types")
+     (:file "cli-files")
+     (:file "cli-devnet")
+     (:file "cli-options")
+     (:file "cli-output")
+     (:file "cli-telemetry")
+     (:file "cli-init")
      (:file "cli")))))
 
 (asdf:defsystem #:ethereum-lisp/test

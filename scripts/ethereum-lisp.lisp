@@ -76,6 +76,13 @@
            "src/execution-message.lisp"
            "src/execution-block-validation.lisp"
            "src/execution.lisp"
+           "src/cli-types.lisp"
+           "src/cli-files.lisp"
+           "src/cli-devnet.lisp"
+           "src/cli-options.lisp"
+           "src/cli-output.lisp"
+           "src/cli-telemetry.lisp"
+           "src/cli-init.lisp"
            "src/cli.lisp"))
   (ethereum-lisp-script-load-file relative-path))
 

@@ -114,6 +114,20 @@ The first mechanical split is:
   root validation, and block header snapshot/restore helpers.
 - `execution.lisp`: block execution entry points and atomic chain-store
   commit helpers.
+- `cli-types.lisp`: devnet CLI records, defaults, embedded dev genesis, and
+  shutdown signal helpers.
+- `cli-files.lisp`: CLI file, datadir, JWT secret, and KV database path
+  helpers.
+- `cli-devnet.lisp`: devnet node construction, lifecycle threads, listener
+  startup, mining, journaling, and summaries.
+- `cli-options.lisp`: geth-compatible CLI/config parsing and public RPC
+  method filter construction.
+- `cli-output.lisp`: CLI usage, version, summary, ready-file, and pid-file
+  output helpers.
+- `cli-telemetry.lisp`: CLI telemetry fields, KZG verifier scoping, and error
+  logging.
+- `cli-init.lisp`: `init` command option parsing and datadir initialization.
+- `cli.lisp`: top-level command dispatcher.
 ## Dependency Rules
 
 - Consensus data types may use primitives, RLP, crypto, trie, and chain rules.
