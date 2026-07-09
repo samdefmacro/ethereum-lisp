@@ -103,6 +103,15 @@ The first mechanical split is:
   decoding and cache restoration.
 - `chain-store-persistence.lisp`: top-level chain-store KV import
   orchestration.
+- `block-validation-forks.lisp`: fork-specific block header gas, blob gas,
+  withdrawals, requests, Amsterdam, and Merge field rules.
+- `block-validation-header.lisp`: header shape validation, parent linkage,
+  fork-aware header checks, and chain-config header validation.
+- `block-validation-body.lisp`: withdrawal, transaction, ommer, blob-gas, and
+  body-config validation helpers.
+- `block-validation-roots.lisp`: body root checks, receipt/log validation, and
+  execution commitment validation.
+- `block-validation.lisp`: block validation compatibility loader.
 - `engine-payload-status.lisp`: Engine forkchoice/newPayload status for the
   in-memory chain store.
 - `engine-rpc-protocol.lisp`: JSON-RPC envelopes, response helpers, and
