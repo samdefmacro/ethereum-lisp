@@ -30,6 +30,18 @@ only split packages when the load order and public API are clear.
 
 The first mechanical split is:
 
+- `crypto-constants.lisp`: hash, KZG, secp256k1, SHA-256, Keccak, and
+  RIPEMD-160 constants and round tables.
+- `crypto-words.lisp`: 32-bit/64-bit rotation and endian load/store helpers.
+- `crypto-keccak.lisp`: Ethereum legacy Keccak-256 sponge implementation.
+- `crypto-sha256.lisp`: SHA-256 compression and digest helpers.
+- `crypto-ripemd160.lisp`: RIPEMD-160 compression and digest helpers.
+- `crypto-kzg.lisp`: KZG commitment versioned-hash conversion.
+- `crypto-math.lisp`: fixed-width integer encoding and modular arithmetic.
+- `crypto-secp256k1.lisp`: secp256k1 point arithmetic, key/address
+  derivation, and public key recovery.
+- `crypto-empty-hashes.lisp`: canonical empty code and empty trie hashes.
+- `crypto.lisp`: compatibility package entry for crypto modules.
 - `genesis.lisp`: genesis JSON parsing, alloc/config decoding, and genesis
   metadata helpers.
 - `core-constants.lisp`: protocol constants shared across core modules.
