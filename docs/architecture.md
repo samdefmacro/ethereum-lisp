@@ -182,8 +182,12 @@ The first mechanical split is:
   helpers.
 - `cli-devnet.lisp`: devnet node construction, lifecycle threads, listener
   startup, mining, journaling, and summaries.
-- `cli-options.lisp`: geth-compatible CLI/config parsing and public RPC
-  method filter construction.
+- `cli-args.lisp`: command-line token normalization, option arity metadata,
+  boolean token handling, and command-token lookup.
+- `cli-config.lisp`: TOML config parsing and config-to-CLI option mapping.
+- `cli-parsers.lisp`: CLI scalar parsers for ports, durations, quantities,
+  addresses, RPC prefixes, API module filters, CORS, and vhosts.
+- `cli-options.lisp`: geth-compatible devnet option aggregation.
 - `cli-output.lisp`: CLI usage, version, summary, ready-file, and pid-file
   output helpers.
 - `cli-telemetry.lisp`: CLI telemetry fields, KZG verifier scoping, and error
