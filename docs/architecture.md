@@ -66,8 +66,10 @@ The first mechanical split is:
   replacement checks, and deterministic subpool views.
 - `txpool.lisp`: pending/queued/basefee/blob txpool admission, promotion,
   revalidation, and mining selection helpers.
-- `chain-store-persistence.lisp`: chain-store KV export/import records,
-  validation, staging, and restore consistency.
+- `chain-store-export.lisp`: chain-store KV export records for indexes,
+  blocks, state snapshots, txpool records, and payload caches.
+- `chain-store-persistence.lisp`: chain-store KV import validation, staging,
+  and restore consistency.
 - `engine-payload-status.lisp`: Engine forkchoice/newPayload status for the
   in-memory chain store.
 - `engine-rpc-protocol.lisp`: JSON-RPC envelopes, response helpers, and

@@ -48,6 +48,7 @@
            "src/chain-store-canonical.lisp"
            "src/txpool-index.lisp"
            "src/txpool.lisp"
+           "src/chain-store-export.lisp"
            "src/chain-store-persistence.lisp"
            "src/block-validation.lisp"
            "src/engine-payload-status.lisp"

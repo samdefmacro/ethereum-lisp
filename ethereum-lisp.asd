@@ -40,6 +40,7 @@
      (:file "chain-store-canonical")
      (:file "txpool-index")
      (:file "txpool")
+     (:file "chain-store-export")
      (:file "chain-store-persistence")
      (:file "block-validation")
      (:file "engine-payload-status")

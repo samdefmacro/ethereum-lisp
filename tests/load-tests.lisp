@@ -38,6 +38,7 @@
 (load-ethereum-lisp-test-file "src/chain-store-canonical.lisp")
 (load-ethereum-lisp-test-file "src/txpool-index.lisp")
 (load-ethereum-lisp-test-file "src/txpool.lisp")
+(load-ethereum-lisp-test-file "src/chain-store-export.lisp")
 (load-ethereum-lisp-test-file "src/chain-store-persistence.lisp")
 (load-ethereum-lisp-test-file "src/block-validation.lisp")
 (load-ethereum-lisp-test-file "src/engine-payload-status.lisp")
