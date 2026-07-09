@@ -34,6 +34,7 @@
            "src/receipts.lisp"
            "src/txpool-types.lisp"
            "src/core.lisp"
+           "src/block-access-list.lisp"
            "src/txpool.lisp"
            "src/chain-store-persistence.lisp"
            "src/block-validation.lisp"

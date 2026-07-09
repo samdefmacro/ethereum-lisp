@@ -24,6 +24,7 @@
 (load-ethereum-lisp-test-file "src/receipts.lisp")
 (load-ethereum-lisp-test-file "src/txpool-types.lisp")
 (load-ethereum-lisp-test-file "src/core.lisp")
+(load-ethereum-lisp-test-file "src/block-access-list.lisp")
 (load-ethereum-lisp-test-file "src/txpool.lisp")
 (load-ethereum-lisp-test-file "src/chain-store-persistence.lisp")
 (load-ethereum-lisp-test-file "src/block-validation.lisp")
