@@ -155,7 +155,13 @@ The first mechanical split is:
   construction and handlers.
 - `public-rpc-blocks.lisp`: public header, block, pending block, transaction
   count, and ommer handlers.
-- `public-rpc.lisp`: public log/filter handlers and final method dispatch.
+- `public-rpc-log-filters.lisp`: public log filter parsing, matching, block
+  selection, and log result construction.
+- `public-rpc-filter-changes.lisp`: log, block, and pending-transaction filter
+  change calculation.
+- `public-rpc-filter-handlers.lisp`: public filter install/query/uninstall
+  handlers.
+- `public-rpc.lisp`: final public JSON-RPC method dispatch.
 - `engine-rpc-http-auth.lisp`: Engine API JWT token creation, validation, and
   signing helpers.
 - `engine-rpc-http-wire.lisp`: HTTP request parsing, response formatting, CORS
