@@ -303,6 +303,7 @@
      (:file "cli-output")
      (:file "cli-kzg")
      (:file "cli-telemetry")
+     (:file "cli-telemetry-sinks")
      (:file "cli-init")
      (:file "cli")))))
 

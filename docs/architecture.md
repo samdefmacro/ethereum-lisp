@@ -472,7 +472,9 @@ The first mechanical split is:
 - `cli-output.lisp`: CLI usage, version, summary, ready-file, and pid-file
   output helpers.
 - `cli-kzg.lisp`: CLI-scoped KZG verifier hook configuration.
-- `cli-telemetry.lisp`: CLI telemetry fields and error logging.
+- `cli-telemetry.lisp`: CLI telemetry fields and lifecycle event emission.
+- `cli-telemetry-sinks.lisp`: CLI telemetry stream sink selection and error
+  logging.
 - `cli-init.lisp`: `init` command option parsing and datadir initialization.
 - `cli.lisp`: top-level command dispatcher.
 ## Dependency Rules

@@ -311,6 +311,7 @@
            "src/cli-output.lisp"
            "src/cli-kzg.lisp"
            "src/cli-telemetry.lisp"
+           "src/cli-telemetry-sinks.lisp"
            "src/cli-init.lisp"
            "src/cli.lisp"))
   (ethereum-lisp-script-load-file relative-path))
