@@ -149,10 +149,8 @@
                   (devnet-cli-next-parsed-value
                    args option #'devnet-cli-parse-non-negative-quantity)))
                ((string= option "--http")
-                (multiple-value-bind (enabled-p rest)
-                    (devnet-cli-optional-boolean-value args option)
-                  (setf public-rpc-enabled-p enabled-p
-                        args rest)))
+                (multiple-value-setq (public-rpc-enabled-p args)
+                  (devnet-cli-optional-boolean-value args option)))
                ((string= option "--http.api")
                 (multiple-value-setq (http-api-modules args)
                   (devnet-cli-next-parsed-value
@@ -204,10 +202,8 @@
                     (setf summary-format :json))
                   (setf args rest)))
                ((string= option "--dev")
-                (multiple-value-bind (enabled-p rest)
-                    (devnet-cli-optional-boolean-value args option)
-                  (setf dev-mode-p enabled-p
-                        args rest)))
+                (multiple-value-setq (dev-mode-p args)
+                  (devnet-cli-optional-boolean-value args option)))
                ((string= option "--dev.period")
                 (multiple-value-setq (dev-period-seconds args)
                   (devnet-cli-next-parsed-value
@@ -226,19 +222,15 @@
                   (devnet-cli-next-parsed-value
                    args option #'devnet-cli-parse-address)))
                ((string= option "--rpc.allow-unprotected-txs")
-                (multiple-value-bind (enabled-p rest)
-                    (devnet-cli-optional-boolean-value args option)
-                  (setf allow-unprotected-transactions-p enabled-p
-                        args rest)))
+                (multiple-value-setq (allow-unprotected-transactions-p args)
+                  (devnet-cli-optional-boolean-value args option)))
                ((string= option "--txpool.locals")
                 (multiple-value-setq (txpool-local-addresses args)
                   (devnet-cli-next-parsed-value
                    args option #'devnet-cli-parse-address-list)))
                ((string= option "--txpool.nolocals")
-                (multiple-value-bind (enabled-p rest)
-                    (devnet-cli-optional-boolean-value args option)
-                  (setf txpool-no-local-exemptions-p enabled-p
-                        args rest)))
+                (multiple-value-setq (txpool-no-local-exemptions-p args)
+                  (devnet-cli-optional-boolean-value args option)))
                ((string= option "--txpool.pricelimit")
                 (multiple-value-setq (txpool-price-limit args)
                   (devnet-cli-next-parsed-value
