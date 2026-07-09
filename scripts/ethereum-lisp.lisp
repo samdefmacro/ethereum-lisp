@@ -309,6 +309,7 @@
            "src/cli-parsers.lisp"
            "src/cli-options.lisp"
            "src/cli-output.lisp"
+           "src/cli-kzg.lisp"
            "src/cli-telemetry.lisp"
            "src/cli-init.lisp"
            "src/cli.lisp"))

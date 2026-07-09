@@ -471,8 +471,8 @@ The first mechanical split is:
 - `cli-options.lisp`: geth-compatible devnet option aggregation.
 - `cli-output.lisp`: CLI usage, version, summary, ready-file, and pid-file
   output helpers.
-- `cli-telemetry.lisp`: CLI telemetry fields, KZG verifier scoping, and error
-  logging.
+- `cli-kzg.lisp`: CLI-scoped KZG verifier hook configuration.
+- `cli-telemetry.lisp`: CLI telemetry fields and error logging.
 - `cli-init.lisp`: `init` command option parsing and datadir initialization.
 - `cli.lisp`: top-level command dispatcher.
 ## Dependency Rules

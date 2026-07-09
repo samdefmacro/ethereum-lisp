@@ -301,6 +301,7 @@
      (:file "cli-parsers")
      (:file "cli-options")
      (:file "cli-output")
+     (:file "cli-kzg")
      (:file "cli-telemetry")
      (:file "cli-init")
      (:file "cli")))))

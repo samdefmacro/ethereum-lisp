@@ -299,6 +299,7 @@
 (load-ethereum-lisp-test-file "src/cli-parsers.lisp")
 (load-ethereum-lisp-test-file "src/cli-options.lisp")
 (load-ethereum-lisp-test-file "src/cli-output.lisp")
+(load-ethereum-lisp-test-file "src/cli-kzg.lisp")
 (load-ethereum-lisp-test-file "src/cli-telemetry.lisp")
 (load-ethereum-lisp-test-file "src/cli-init.lisp")
 (load-ethereum-lisp-test-file "src/cli.lisp")
