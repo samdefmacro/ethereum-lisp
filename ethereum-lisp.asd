@@ -46,6 +46,7 @@
      (:file "engine-payload-status")
      (:file "engine-rpc-protocol")
      (:file "engine-rpc")
+     (:file "public-rpc-core")
      (:file "public-rpc")
      (:file "engine-rpc-http")
      (:file "state")

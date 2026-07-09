@@ -54,6 +54,7 @@
            "src/engine-payload-status.lisp"
            "src/engine-rpc-protocol.lisp"
            "src/engine-rpc.lisp"
+           "src/public-rpc-core.lisp"
            "src/public-rpc.lisp"
            "src/engine-rpc-http.lisp"
            "src/state.lisp"
