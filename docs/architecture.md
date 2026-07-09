@@ -105,8 +105,19 @@ The first mechanical split is:
 - `engine-payloads.lisp`: Engine payload compatibility loader.
 - `chain-store-types.lisp`: in-memory chain store records, filter cursors,
   blob lookup records, and shared store key helpers.
-- `chain-store-copy.lisp`: defensive copying, store snapshot/restore, and
-  atomic commit helpers for the in-memory chain store.
+- `chain-store-memory-guards.lisp`: shared memory-store type checks for
+  in-memory-only chain-store operations.
+- `chain-store-copy-values.lisp`: defensive copying for shared store values,
+  filters, checkpoints, and blob proof records.
+- `chain-store-copy-blocks.lisp`: defensive copying for block headers, logs,
+  receipts, blocks, prepared payloads, and transactions.
+- `chain-store-copy-txpool.lisp`: txpool deep-copy helpers that preserve
+  shared transaction identity across txpool indexes.
+- `chain-store-copy-locations.lisp`: transaction-location deep-copy helpers
+  that keep copied blocks, receipts, and transactions aligned.
+- `chain-store-snapshots.lisp`: memory-store snapshot/restore and atomic commit
+  helpers.
+- `chain-store-copy.lisp`: chain-store copy compatibility loader.
 - `chain-store-filters.lisp`: in-memory block, log, and pending transaction
   filter registration and notifications.
 - `chain-store-cache.lisp`: in-memory remote block, invalid payload,
