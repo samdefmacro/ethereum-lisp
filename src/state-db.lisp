@@ -1,0 +1,184 @@
+(in-package #:ethereum-lisp.state)
+
+(defun state-db-get-object (state address)
+  (gethash (address-key address) (state-db-objects state)))
+
+(defun state-db-get-account (state address)
+  (let ((object (state-db-get-object state address)))
+    (and object
+         (state-object-account object)
+         (account-with-storage-root object))))
+
+(defun empty-state-account-p (account)
+  (and account
+       (zerop (state-account-nonce account))
+       (zerop (state-account-balance account))
+       (bytes= (hash32-bytes (state-account-storage-root account))
+               (hash32-bytes +empty-trie-hash+))
+       (bytes= (hash32-bytes (state-account-code-hash account))
+               (hash32-bytes +empty-code-hash+))))
+
+(defun empty-state-object-p (object)
+  (and object
+       (empty-state-account-p (state-object-account object))
+       (zerop (length (state-object-code object)))
+       (zerop (hash-table-count (state-object-storage object)))))
+
+(defun prune-empty-state-object (state key object)
+  (when (empty-state-object-p object)
+    (remhash key (state-db-objects state)))
+  state)
+
+(defun state-object-code-hash (object account)
+  (if (plusp (length (state-object-code object)))
+      (keccak-256-hash (state-object-code object))
+      (state-account-code-hash account)))
+
+(defun state-account-with-object-commitments (object account)
+  (make-state-account
+   :nonce (state-account-nonce account)
+   :balance (state-account-balance account)
+   :storage-root (storage-root object)
+   :code-hash (state-object-code-hash object account)))
+
+(defun state-db-set-account (state address account)
+  (let* ((key (address-key address))
+         (object (or (gethash key (state-db-objects state))
+                     (setf (gethash key (state-db-objects state))
+                           (make-state-object)))))
+    (setf (state-object-account object)
+          (state-account-with-object-commitments object account))
+    state))
+
+(defun state-db-clear-account (state address)
+  (remhash (address-key address) (state-db-objects state))
+  state)
+
+(defun state-db-set-code (state address code)
+  (let* ((key (address-key address))
+         (code (ensure-byte-vector code))
+         (object (or (gethash key (state-db-objects state))
+                     (and (plusp (length code))
+                          (setf (gethash key (state-db-objects state))
+                                (make-state-object))))))
+    (when object
+      (setf (state-object-code object) code)
+      (let ((account (or (state-object-account object) (make-state-account))))
+        (setf (state-object-account object)
+              (make-state-account
+               :nonce (state-account-nonce account)
+               :balance (state-account-balance account)
+               :storage-root (state-account-storage-root account)
+               :code-hash (keccak-256-hash code))))
+      (prune-empty-state-object state key object))
+    state))
+
+(defun state-db-get-code (state address)
+  (let ((object (state-db-get-object state address)))
+    (if object
+        (state-object-code object)
+        (make-byte-vector 0))))
+
+(defun state-db-get-code-hash (state address)
+  (let ((account (state-db-get-account state address)))
+    (if account
+        (state-account-code-hash account)
+        +empty-code-hash+)))
+
+(defun copy-state-account (account)
+  (and account
+       (make-state-account
+        :nonce (state-account-nonce account)
+        :balance (state-account-balance account)
+        :storage-root (state-account-storage-root account)
+        :code-hash (state-account-code-hash account))))
+
+(defun copy-hash-table (table)
+  (let ((copy (make-hash-table :test (hash-table-test table))))
+    (maphash (lambda (key value)
+               (setf (gethash key copy) value))
+             table)
+    copy))
+
+(defun clone-state-object (object)
+  (make-state-object
+   :account (copy-state-account (state-object-account object))
+   :code (subseq (state-object-code object) 0)
+   :storage (copy-hash-table (state-object-storage object))))
+
+(defun state-db-copy (state)
+  (let ((copy (make-state-db)))
+    (maphash (lambda (address object)
+               (setf (gethash address (state-db-objects copy))
+                     (clone-state-object object)))
+             (state-db-objects state))
+    copy))
+
+(defun state-db-restore (state snapshot)
+  (clrhash (state-db-objects state))
+  (maphash (lambda (address object)
+             (setf (gethash address (state-db-objects state))
+                   (clone-state-object object)))
+           (state-db-objects snapshot))
+  state)
+
+(defun state-db-set-storage (state address slot value)
+  (let* ((key (address-key address))
+         (value (ensure-state-uint256 value "Storage value"))
+         (object (or (gethash key (state-db-objects state))
+                     (and (not (zerop value))
+                          (setf (gethash key (state-db-objects state))
+                                (make-state-object
+                                 :account (make-state-account))))))
+         (storage-key (storage-key slot))
+         (storage (and object (state-object-storage object))))
+    (cond
+      ((zerop value)
+       (when object
+         (remhash storage-key storage)
+         (prune-empty-state-object state key object)))
+      (t
+       (setf (gethash storage-key storage) value)))
+    state))
+
+(defun state-db-get-storage (state address slot)
+  (let ((object (state-db-get-object state address)))
+    (if object
+        (gethash (storage-key slot) (state-object-storage object) 0)
+        0)))
+
+(defun uint256-to-32-byte-hash (value)
+  (let ((out (make-byte-vector 32))
+        (bytes (integer-to-minimal-bytes (ensure-state-uint256 value "Storage slot"))))
+    (replace out bytes :start1 (- 32 (length bytes)))
+    (make-hash32 out)))
+
+(defun state-db-storage-proof-key (slot)
+  (keccak-256 (hash32-bytes slot)))
+
+(defun state-object-storage-trie (object)
+  (let ((trie (make-mpt)))
+    (when object
+      (maphash (lambda (slot value)
+                 (mpt-put trie
+                          (state-db-storage-proof-key (hash32-from-hex slot))
+                          (rlp-encode value)))
+               (state-object-storage object)))
+    trie))
+
+(defun storage-root (object)
+  (make-hash32 (mpt-root-hash (state-object-storage-trie object))))
+
+(defun state-db-get-storage-root (state address)
+  (storage-root (state-db-get-object state address)))
+
+(defun state-db-get-storage-proof (state address slot)
+  (mpt-get-proof (state-object-storage-trie (state-db-get-object state address))
+                 (state-db-storage-proof-key slot)))
+
+(defun state-db-verify-storage-proof (storage-root slot proof)
+  (mpt-verify-proof storage-root (state-db-storage-proof-key slot) proof))
+
+(defun account-with-storage-root (object)
+  (let ((account (or (state-object-account object) (make-state-account))))
+    (state-account-with-object-commitments object account)))

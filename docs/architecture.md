@@ -146,8 +146,21 @@ The first mechanical split is:
   handlers.
 - `engine-rpc-http-service.lisp`: HTTP service/listener abstractions, socket
   listener construction, and service-level telemetry.
-- `state.lisp`: mutable account/storage state, trie roots, proofs, genesis
-  state construction, and legacy transaction compatibility helpers.
+- `state-types.lisp`: state constants, mutable state records, proof records,
+  range records, and state key coercion helpers.
+- `state-db.lisp`: mutable account/code/storage access, copy/restore helpers,
+  and storage trie proof primitives.
+- `state-roots.lisp`: account trie construction, account proofs, and state
+  root rendering.
+- `state-proofs.lisp`: proof result construction, verification, and JSON-RPC
+  proof object conversion.
+- `state-ranges.lisp`: account/storage range iteration and deterministic
+  state export helpers.
+- `state-genesis.lisp`: genesis allocation application, genesis state roots,
+  and genesis block/header construction.
+- `state-transactions.lisp`: withdrawal balance updates, intrinsic gas, and
+  standalone legacy transaction execution fallback.
+- `state.lisp`: state package compatibility loader.
 - `evm-types.lisp`: EVM errors, result/context records, precompile address
   activation, gas constants, and fixed precompile tables.
 - `evm-runtime.lisp`: EVM word, stack, memory, access-list, transient-storage,
