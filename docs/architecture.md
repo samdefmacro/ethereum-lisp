@@ -155,8 +155,16 @@ The first mechanical split is:
 - `txpool.lisp`: compatibility package entry for txpool store modules.
 - `txpool-views.lisp`: txpool lookup, list, count, sender view, and mining
   selection helpers.
-- `txpool-promotion.lisp`: queued/basefee transaction promotion and
-  overbudget parked-transaction pruning.
+- `txpool-parked-pruning.lisp`: overbudget parked-transaction ordering,
+  removal, and balance-aware pruning.
+- `txpool-promotion-rules.lisp`: shared funding, nonce, local exemption, and
+  pending insertion helpers for txpool promotion.
+- `txpool-queued-promotion.lisp`: queued transaction promotion by sender and
+  nonce continuity.
+- `txpool-basefee-promotion.lisp`: basefee transaction promotion and queued
+  tail draining after basefee promotion.
+- `txpool-promotion.lisp`: compatibility package entry for txpool promotion
+  modules.
 - `txpool-cleanup.lisp`: txpool stale, expired, sender-code, gas-limit,
   blob-fee, invalid-sender cleanup, and pending revalidation.
 - `chain-store-export-indexes.lisp`: checkpoint and index KV export records.
