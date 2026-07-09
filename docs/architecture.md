@@ -181,8 +181,25 @@ The first mechanical split is:
 - `state.lisp`: state package compatibility loader.
 - `evm-types.lisp`: EVM errors, result/context records, precompile address
   activation, gas constants, and fixed precompile tables.
-- `evm-runtime.lisp`: EVM word, stack, memory, access-list, transient-storage,
-  state mutation, account, create/call gas, and block-context helpers.
+- `evm-runtime-base.lisp`: EVM word arithmetic, fork checks, errors, and stack
+  pop/push helpers.
+- `evm-runtime-memory.lisp`: memory expansion, data slicing, memory copy, and
+  mload/mstore helpers.
+- `evm-runtime-opcodes.lisp`: PUSH immediate decoding, byte extraction, EXP
+  gas, jump-destination checks, and base opcode gas.
+- `evm-runtime-conversions.lisp`: word/address/hash conversions and
+  difficulty/prev-randao context lookup.
+- `evm-runtime-access.lisp`: transient storage, storage/access warming,
+  selfdestruct snapshots, and dynamic SSTORE gas.
+- `evm-runtime-state.lisp`: execution snapshot restore, account mutation,
+  value transfer, delegated code resolution, and selfdestruct state updates.
+- `evm-runtime-create.lisp`: CREATE/CREATE2 address derivation, initcode gas,
+  code size limits, and created-code validation.
+- `evm-runtime-gas.lisp`: remaining gas, EIP-150 child gas, and call stipend
+  accounting helpers.
+- `evm-runtime-block.lisp`: nonce increment, account-code hash, blockhash, and
+  blobhash word helpers.
+- `evm-runtime.lisp`: EVM runtime compatibility loader.
 - `evm-precompiles-utils.lisp`: shared precompile byte, endian, and fixed-size
   integer helpers.
 - `evm-precompiles-modexp.lisp`: EIP-198 modular exponentiation gas and
