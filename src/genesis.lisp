@@ -587,3 +587,25 @@
 
 (defun chain-config-from-genesis-json-file (path)
   (chain-config-from-genesis-json-string (read-text-file path)))
+
+(defun genesis-alloc-from-genesis-json-string (string)
+  (genesis-alloc-from-genesis-object (parse-json string)))
+
+(defun genesis-alloc-from-genesis-json-file (path)
+  (genesis-alloc-from-genesis-json-string (read-text-file path)))
+
+(defun genesis-expected-state-root-from-genesis-object (object)
+  (let ((state-root (genesis-object-field object "stateRoot")))
+    (when state-root
+      (unless (stringp state-root)
+        (block-validation-fail "Genesis stateRoot must be a hash32"))
+      (handler-case
+          (hash32-from-hex state-root)
+        (error ()
+          (block-validation-fail "Genesis stateRoot must be a hash32"))))))
+
+(defun genesis-expected-state-root-from-genesis-json-string (string)
+  (genesis-expected-state-root-from-genesis-object (parse-json string)))
+
+(defun genesis-expected-state-root-from-genesis-json-file (path)
+  (genesis-expected-state-root-from-genesis-json-string (read-text-file path)))

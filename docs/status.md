@@ -899,10 +899,11 @@ indexed transaction only when both fee cap and priority fee clear the bump
 threshold. The txpool object now also has queued, basefee, and blob placeholder
 subpools, and `txpool_*` RPC views read queued data from the queued subpool
 instead of hard-coded empty placeholders. Public JSON-RPC and txpool
-placeholder handlers have also been split out of `src/core.lisp` into
-`src/public-rpc.lisp` behind a dedicated public method dispatcher, leaving the
-core RPC path focused on the generic JSON-RPC envelope, Engine/Public dispatch
-delegation, and HTTP serving shell.
+placeholder handlers now live in `src/public-rpc.lisp` behind a dedicated
+public method dispatcher. The generic JSON-RPC protocol and transport layers
+have since moved into `src/engine-rpc-protocol.lisp` and
+`src/engine-rpc-http.lisp`, and the former `src/core.lisp` catch-all file has
+been retired.
 Filter lifecycle scope is intentionally polling-only for now. The current
 filter ids belong to the JSON-RPC polling methods (`eth_newFilter`,
 `eth_newBlockFilter`, `eth_newPendingTransactionFilter`,

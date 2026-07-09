@@ -30,6 +30,8 @@ only split packages when the load order and public API are clear.
 
 The first mechanical split is:
 
+- `genesis.lisp`: genesis JSON parsing, alloc/config decoding, and genesis
+  metadata helpers.
 - `core-constants.lisp`: protocol constants shared across core modules.
 - `accounts.lisp`: state account encoding and hashing.
 - `transactions.lisp`: transaction envelopes, RLP, signing hashes, senders.
@@ -39,12 +41,13 @@ The first mechanical split is:
   conversion.
 - `consensus-validation.lisp`: shared block/transaction validation helpers
   and fee-market calculations used by consensus, RPC, and txpool paths.
-- `engine-payloads.lisp`: Engine payload structs, forkchoice payload
-  attributes, payload id derivation, and block/payload conversion.
 - `block-access-list.lisp`: execution request hashing, shared field
   validators, and Amsterdam block access list RLP/validation.
+- `genesis-block.lisp`: fork-aware genesis header and block construction.
 - `kzg.lisp`: command-backed KZG verifier hooks and blob sidecar KZG
   validation.
+- `engine-payloads.lisp`: Engine payload structs, forkchoice payload
+  attributes, payload id derivation, and block/payload conversion.
 - `chain-store-memory.lisp`: in-memory canonical chain, state projection,
   filter, invalid payload, prepared payload, and blob sidecar caches.
 - `txpool.lisp`: pending/queued/basefee/blob txpool admission, promotion,
@@ -57,8 +60,6 @@ The first mechanical split is:
   Engine/public method filters.
 - `engine-rpc-http.lisp`: JSON-RPC request dispatch, HTTP parsing, JWT auth,
   listener abstractions, and stream telemetry.
-- `core.lisp`: remaining genesis header/block construction implementation.
-
 ## Dependency Rules
 
 - Consensus data types may use primitives, RLP, crypto, trie, and chain rules.

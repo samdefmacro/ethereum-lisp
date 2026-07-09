@@ -151,8 +151,8 @@ Required pre-commit gates:
 Full-suite policy:
 
 - Not required for smoke/assertion-only report work.
-- Mandatory once before commit if any production file such as `src/core.lisp`
-  changes.
+- Mandatory once before commit if production files such as `src/engine-rpc.lisp`
+  or `src/chain-store-memory.lisp` change.
 
 Escalation requirements:
 
