@@ -42,8 +42,17 @@ The first mechanical split is:
   derivation, and public key recovery.
 - `crypto-empty-hashes.lisp`: canonical empty code and empty trie hashes.
 - `crypto.lisp`: compatibility package entry for crypto modules.
-- `genesis.lisp`: genesis JSON parsing, alloc/config decoding, and genesis
-  metadata helpers.
+- `genesis-types.lisp`: genesis constants and alloc account structure.
+- `genesis-object-fields.lisp`: shared genesis object lookup and scalar field
+  parsing helpers.
+- `genesis-alloc.lisp`: genesis account code, storage, and alloc parsing.
+- `genesis-json-read.lisp`: small JSON reader and JSON shape predicates.
+- `genesis-json-write.lisp`: JSON writer helpers.
+- `genesis-chain-config.lisp`: genesis config to fork-rule chain config
+  conversion.
+- `genesis-io.lisp`: genesis JSON string/file entry points and expected
+  state-root parsing.
+- `genesis.lisp`: compatibility package entry for genesis modules.
 - `core-constants.lisp`: protocol constants shared across core modules.
 - `accounts.lisp`: state account encoding and hashing.
 - `transactions-legacy.lisp`: legacy transaction envelope, RLP, signing hash,
