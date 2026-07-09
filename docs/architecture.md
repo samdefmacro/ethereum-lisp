@@ -128,8 +128,10 @@ The first mechanical split is:
 - `txpool-index-insert.lisp`: txpool insertion paths for all subpools.
 - `txpool-index-views.lisp`: txpool lookup, list, count, and empty views.
 - `txpool-index.lisp`: compatibility package entry for txpool index modules.
-- `txpool.lisp`: engine payload store wrappers for pending/queued/basefee/blob
-  txpool subpool admission and indexing.
+- `txpool-store-*.lisp`: engine payload store wrappers for txpool access,
+  conflict/replacement checks, subpool indexing, admission, sender views, and
+  accounting.
+- `txpool.lisp`: compatibility package entry for txpool store modules.
 - `txpool-views.lisp`: txpool lookup, list, count, sender view, and mining
   selection helpers.
 - `txpool-promotion.lisp`: queued/basefee transaction promotion and
