@@ -9122,6 +9122,9 @@ splits can land after the Phase A smoke path closes.
 
 ## Recently Completed
 
+- [x] Make `ethereum-lisp` the canonical owner-grouped public API manifest,
+  generate `ethereum-lisp.core` as an exact compatibility facade, and replace
+  test and CLI dependencies on the broad legacy package with true owners.
 - [x] Document optional local Reth reference availability and skip/reporting
   rules.
 - [x] Add Reth/Rust as a formal reference target and align README/roadmap/tasks

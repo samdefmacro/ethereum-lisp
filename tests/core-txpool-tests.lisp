@@ -13,9 +13,10 @@
           (find-symbol name index)
         (multiple-value-bind (core-symbol core-status)
             (find-symbol name core)
+          (is index-symbol)
           (is (eq :external index-status))
-          (is (eq :inherited core-status))
-          (is (eq index-symbol core-symbol)))))
+          (is (null core-symbol))
+          (is (null core-status)))))
     (dolist (name '("ENGINE-PAYLOAD-MEMORY-STORE" "CHAIN-STORE-PUT-BLOCK"))
       (multiple-value-bind (symbol status)
           (find-symbol name index)
@@ -37,9 +38,10 @@
           (find-symbol name txpool)
         (multiple-value-bind (core-symbol core-status)
             (find-symbol name core)
+          (is txpool-symbol)
           (is (eq :external txpool-status))
-          (is core-status)
-          (is (eq txpool-symbol core-symbol)))))
+          (is (null core-symbol))
+          (is (null core-status)))))
     (dolist (name '("CHAIN-STORE-SET-CANONICAL-HEAD"
                     "ENGINE-PAYLOAD-STORE-SUBPOOL-VIEWS"))
       (multiple-value-bind (symbol status)
@@ -80,44 +82,44 @@
                                :gas-used 0)
             :transactions (list transaction))))
     (is (typep
-         (ethereum-lisp.core::engine-payload-memory-store-txpool store)
-         'ethereum-lisp.core::engine-pending-txpool))
+         (ethereum-lisp.chain-store.model:engine-payload-memory-store-txpool store)
+         'ethereum-lisp.txpool.index:engine-pending-txpool))
     (is (= 0
-           (ethereum-lisp.core::engine-payload-store-queued-transaction-count
+           (ethereum-lisp.txpool:engine-payload-store-queued-transaction-count
             store)))
     (is (= 0
-           (ethereum-lisp.core::engine-payload-store-basefee-transaction-count
+           (ethereum-lisp.txpool:engine-payload-store-basefee-transaction-count
             store)))
     (is (= 0
-           (ethereum-lisp.core::engine-payload-store-blob-transaction-count
+           (ethereum-lisp.txpool:engine-payload-store-blob-transaction-count
             store)))
-    (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+    (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
      store transaction)
-    (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+    (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
      store transaction)
     (let* ((sender-index
-             (ethereum-lisp.core::engine-payload-store-pending-transactions-by-sender
+             (ethereum-lisp.txpool:engine-payload-store-pending-transactions-by-sender
               store))
            (sender-transactions (gethash sender-key sender-index)))
       (is (= 1
-             (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+             (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
               store)))
       (is (= 1 (hash-table-count sender-index)))
       (is (= 1 (hash-table-count sender-transactions)))
       (is (eq transaction (gethash nonce-key sender-transactions)))
       (is (eq transaction
-              (ethereum-lisp.core::engine-payload-store-pending-transaction
+              (ethereum-lisp.txpool:engine-payload-store-pending-transaction
                store hash))))
     (engine-payload-store-put-block store block)
     (let* ((sender-index
-             (ethereum-lisp.core::engine-payload-store-pending-transactions-by-sender
+             (ethereum-lisp.txpool:engine-payload-store-pending-transactions-by-sender
               store))
            (sender-transactions (gethash sender-key sender-index)))
       (is (= 0
-             (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+             (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
               store)))
       (is (null
-           (ethereum-lisp.core::engine-payload-store-pending-transaction
+           (ethereum-lisp.txpool:engine-payload-store-pending-transaction
             store hash)))
       (is (null sender-transactions))
       (is (zerop (hash-table-count sender-index))))))
@@ -161,11 +163,11 @@
                       (hash32-to-hex (transaction-hash mined-transaction)))))
     (is (bytes= (address-bytes (transaction-sender pending-transaction))
                 (address-bytes (transaction-sender mined-transaction))))
-    (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+    (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
      store pending-transaction)
     (engine-payload-store-put-block store block)
     (let* ((sender-index
-             (ethereum-lisp.core::engine-payload-store-pending-transactions-by-sender
+             (ethereum-lisp.txpool:engine-payload-store-pending-transactions-by-sender
               store))
            (sender-transactions (gethash sender-key sender-index))
            (location
@@ -173,10 +175,10 @@
               store
               (transaction-hash mined-transaction))))
       (is (= 0
-             (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+             (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
               store)))
       (is (null
-           (ethereum-lisp.core::engine-payload-store-pending-transaction
+           (ethereum-lisp.txpool:engine-payload-store-pending-transaction
             store
             (transaction-hash pending-transaction))))
       (is (null sender-transactions))
@@ -189,7 +191,7 @@
   (labels ((put-queued (store transaction)
              (setf
               (gethash
-               (ethereum-lisp.core::engine-pending-txpool-hash-key
+               (ethereum-lisp.txpool.index:engine-pending-txpool-hash-key
                 (transaction-hash transaction))
                (ethereum-lisp.txpool::engine-payload-store-queued-transaction-table
                 store))
@@ -252,7 +254,7 @@
                       "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20")))
               private-key))
            (sender-key
-             (ethereum-lisp.core::engine-payload-store-pending-sender-key
+             (ethereum-lisp.txpool.index:engine-payload-store-pending-sender-key
               queued-conflict))
            (block
              (make-block
@@ -270,35 +272,35 @@
                   (address-bytes (transaction-sender mined-conflict))))
       (put-queued store queued-conflict)
       (put-queued store queued-exact)
-      (ethereum-lisp.core::engine-payload-store-put-basefee-transaction
+      (ethereum-lisp.txpool:engine-payload-store-put-basefee-transaction
        store
        basefee-exact)
-      (ethereum-lisp.core::engine-payload-store-put-blob-transaction
+      (ethereum-lisp.txpool:engine-payload-store-put-blob-transaction
        store
        blob-exact)
       (is (= 2
-             (ethereum-lisp.core::engine-payload-store-queued-transaction-count
+             (ethereum-lisp.txpool:engine-payload-store-queued-transaction-count
               store)))
       (is (= 1
-             (ethereum-lisp.core::engine-payload-store-basefee-transaction-count
+             (ethereum-lisp.txpool:engine-payload-store-basefee-transaction-count
               store)))
       (is (= 1
-             (ethereum-lisp.core::engine-payload-store-blob-transaction-count
+             (ethereum-lisp.txpool:engine-payload-store-blob-transaction-count
               store)))
       (engine-payload-store-put-block store block)
       (let ((queued-sender-transactions
               (gethash
                sender-key
-               (ethereum-lisp.core::engine-payload-store-queued-sender-index
+               (ethereum-lisp.txpool:engine-payload-store-queued-sender-index
                 store))))
         (is (= 0
-               (ethereum-lisp.core::engine-payload-store-queued-transaction-count
+               (ethereum-lisp.txpool:engine-payload-store-queued-transaction-count
                 store)))
         (is (= 0
-               (ethereum-lisp.core::engine-payload-store-basefee-transaction-count
+               (ethereum-lisp.txpool:engine-payload-store-basefee-transaction-count
                 store)))
         (is (= 0
-               (ethereum-lisp.core::engine-payload-store-blob-transaction-count
+               (ethereum-lisp.txpool:engine-payload-store-blob-transaction-count
                 store)))
         (is (null queued-sender-transactions))))))
 
@@ -338,17 +340,17 @@
          (block-hash (block-hash block))
          (polluted-hash (transaction-hash polluted-transaction)))
     (is (null (transaction-sender polluted-transaction)))
-    (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+    (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
      store pending-transaction)
     (signals block-validation-error
       (engine-payload-store-put-block store block))
     (is (null (chain-store-known-block store block-hash)))
     (is (null (chain-store-transaction-location store polluted-hash)))
     (is (= 1
-           (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+           (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
             store)))
     (is (eq pending-transaction
-            (ethereum-lisp.core::engine-payload-store-pending-transaction
+            (ethereum-lisp.txpool:engine-payload-store-pending-transaction
              store
              (transaction-hash pending-transaction))))))
 
@@ -391,38 +393,38 @@
          (nonce-key (write-to-string
                      (transaction-nonce base-transaction)
                      :base 10)))
-    (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+    (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
      store base-transaction)
     (signals block-validation-error
-      (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+      (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
        store underpriced-transaction))
     (is (= 1
-           (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+           (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
             store)))
     (is (eq base-transaction
-            (ethereum-lisp.core::engine-payload-store-pending-transaction
+            (ethereum-lisp.txpool:engine-payload-store-pending-transaction
              store (transaction-hash base-transaction))))
-    (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+    (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
      store replacement-transaction)
     (let* ((sender-index
-             (ethereum-lisp.core::engine-payload-store-pending-transactions-by-sender
+             (ethereum-lisp.txpool:engine-payload-store-pending-transactions-by-sender
               store))
            (sender-transactions (gethash sender-key sender-index)))
       (is (= 1
-             (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+             (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
               store)))
       (is (null
-           (ethereum-lisp.core::engine-payload-store-pending-transaction
+           (ethereum-lisp.txpool:engine-payload-store-pending-transaction
             store (transaction-hash base-transaction))))
       (is (eq replacement-transaction
-              (ethereum-lisp.core::engine-payload-store-pending-transaction
+              (ethereum-lisp.txpool:engine-payload-store-pending-transaction
                store (transaction-hash replacement-transaction))))
       (is (eq replacement-transaction
               (gethash nonce-key sender-transactions))))))
 
 (deftest engine-pending-transaction-filter-records-hashes-in-order
   (let ((filter
-          (ethereum-lisp.core::make-engine-pending-transaction-filter))
+          (ethereum-lisp.chain-store.model:make-engine-pending-transaction-filter))
         (first-hash
           (hash32-from-hex
            "0x0101010101010101010101010101010101010101010101010101010101010101"))
@@ -430,23 +432,23 @@
           (hash32-from-hex
            "0x0202020202020202020202020202020202020202020202020202020202020202")))
     (is (eq filter
-            (ethereum-lisp.core::engine-pending-transaction-filter-record-hash
+            (ethereum-lisp.chain-store.model:engine-pending-transaction-filter-record-hash
              filter
              first-hash)))
-    (ethereum-lisp.core::engine-pending-transaction-filter-record-hash
+    (ethereum-lisp.chain-store.model:engine-pending-transaction-filter-record-hash
      filter
      second-hash)
     (is (equal
          (list first-hash second-hash)
-         (ethereum-lisp.core::engine-pending-transaction-filter-hashes
+         (ethereum-lisp.chain-store.model:engine-pending-transaction-filter-hashes
           filter)))
     (signals block-validation-error
-      (ethereum-lisp.core::engine-pending-transaction-filter-record-hash
+      (ethereum-lisp.chain-store.model:engine-pending-transaction-filter-record-hash
        filter
        (make-array 31 :element-type '(unsigned-byte 8) :initial-element 0)))))
 
 (deftest engine-pending-txpool-rejects-unrecoverable-sender
-  (let* ((txpool (ethereum-lisp.core::make-engine-pending-txpool))
+  (let* ((txpool (ethereum-lisp.txpool.index:make-engine-pending-txpool))
          (recipient
            (address-from-hex "0x3535353535353535353535353535353535353535"))
          (transaction
@@ -458,56 +460,56 @@
          (zero-sender-key (address-to-hex (zero-address))))
     (is (null (transaction-sender transaction)))
     (signals block-validation-error
-      (ethereum-lisp.core::engine-pending-txpool-put-pending-transaction
+      (ethereum-lisp.txpool.index:engine-pending-txpool-put-pending-transaction
        txpool
        transaction))
     (signals block-validation-error
-      (ethereum-lisp.core::engine-pending-txpool-put-queued-transaction
+      (ethereum-lisp.txpool.index:engine-pending-txpool-put-queued-transaction
        txpool
        transaction))
     (signals block-validation-error
-      (ethereum-lisp.core::engine-pending-txpool-put-basefee-transaction
+      (ethereum-lisp.txpool.index:engine-pending-txpool-put-basefee-transaction
        txpool
        transaction))
     (signals block-validation-error
-      (ethereum-lisp.core::engine-pending-txpool-put-blob-transaction
+      (ethereum-lisp.txpool.index:engine-pending-txpool-put-blob-transaction
        txpool
        transaction))
     (is (= 0
-           (ethereum-lisp.core::engine-pending-txpool-pending-count
+           (ethereum-lisp.txpool.index:engine-pending-txpool-pending-count
             txpool)))
     (is (= 0
-           (ethereum-lisp.core::engine-pending-txpool-queued-count
+           (ethereum-lisp.txpool.index:engine-pending-txpool-queued-count
             txpool)))
     (is (= 0
-           (ethereum-lisp.core::engine-pending-txpool-basefee-count
+           (ethereum-lisp.txpool.index:engine-pending-txpool-basefee-count
             txpool)))
     (is (= 0
-           (ethereum-lisp.core::engine-pending-txpool-blob-count
+           (ethereum-lisp.txpool.index:engine-pending-txpool-blob-count
             txpool)))
     (is (null
          (gethash
           zero-sender-key
-          (ethereum-lisp.core::engine-pending-txpool-transactions-by-sender
+          (ethereum-lisp.txpool.index:engine-pending-txpool-transactions-by-sender
            txpool))))
     (is (null
          (gethash
           zero-sender-key
-          (ethereum-lisp.core::engine-pending-txpool-queued-transactions-by-sender
+          (ethereum-lisp.txpool.index:engine-pending-txpool-queued-transactions-by-sender
            txpool))))
     (is (null
          (gethash
           zero-sender-key
-          (ethereum-lisp.core::engine-pending-txpool-basefee-transactions-by-sender
+          (ethereum-lisp.txpool.index:engine-pending-txpool-basefee-transactions-by-sender
            txpool))))
     (is (null
          (gethash
           zero-sender-key
-          (ethereum-lisp.core::engine-pending-txpool-blob-transactions-by-sender
+          (ethereum-lisp.txpool.index:engine-pending-txpool-blob-transactions-by-sender
            txpool))))))
 
 (deftest engine-pending-txpool-replaces-same-sender-nonce-directly
-  (let* ((txpool (ethereum-lisp.core::make-engine-pending-txpool))
+  (let* ((txpool (ethereum-lisp.txpool.index:make-engine-pending-txpool))
          (recipient
            (address-from-hex "0x3535353535353535353535353535353535353535"))
          (private-key 1)
@@ -546,57 +548,57 @@
                      (transaction-nonce base-transaction)
                      :base 10)))
     (multiple-value-bind (stored inserted-p)
-        (ethereum-lisp.core::engine-pending-txpool-put-pending-transaction
+        (ethereum-lisp.txpool.index:engine-pending-txpool-put-pending-transaction
          txpool
          base-transaction)
       (is (eq base-transaction stored))
       (is inserted-p))
     (is (= 1
-           (ethereum-lisp.core::engine-pending-txpool-pending-count
+           (ethereum-lisp.txpool.index:engine-pending-txpool-pending-count
             txpool)))
     (is (eq base-transaction
-            (ethereum-lisp.core::engine-pending-txpool-pending-transaction
+            (ethereum-lisp.txpool.index:engine-pending-txpool-pending-transaction
              txpool
              (transaction-hash base-transaction))))
     (is (equal (list base-transaction)
-               (ethereum-lisp.core::engine-pending-txpool-pending-transactions
+               (ethereum-lisp.txpool.index:engine-pending-txpool-pending-transactions
                 txpool)))
     (multiple-value-bind (stored inserted-p)
-        (ethereum-lisp.core::engine-pending-txpool-put-pending-transaction
+        (ethereum-lisp.txpool.index:engine-pending-txpool-put-pending-transaction
          txpool
          base-transaction)
       (is (eq base-transaction stored))
       (is (null inserted-p)))
     (signals block-validation-error
-      (ethereum-lisp.core::engine-pending-txpool-put-pending-transaction
+      (ethereum-lisp.txpool.index:engine-pending-txpool-put-pending-transaction
        txpool
        underpriced-transaction))
     (multiple-value-bind (stored inserted-p)
-        (ethereum-lisp.core::engine-pending-txpool-put-pending-transaction
+        (ethereum-lisp.txpool.index:engine-pending-txpool-put-pending-transaction
          txpool
          replacement-transaction)
       (is (eq replacement-transaction stored))
       (is inserted-p))
     (let* ((sender-index
-             (ethereum-lisp.core::engine-pending-txpool-transactions-by-sender
+             (ethereum-lisp.txpool.index:engine-pending-txpool-transactions-by-sender
               txpool))
            (sender-transactions (gethash sender-key sender-index)))
       (is (= 1
-             (ethereum-lisp.core::engine-pending-txpool-pending-count
+             (ethereum-lisp.txpool.index:engine-pending-txpool-pending-count
               txpool)))
       (is (null
-           (ethereum-lisp.core::engine-pending-txpool-pending-transaction
+           (ethereum-lisp.txpool.index:engine-pending-txpool-pending-transaction
             txpool
             (transaction-hash base-transaction))))
       (is (eq replacement-transaction
-              (ethereum-lisp.core::engine-pending-txpool-pending-transaction
+              (ethereum-lisp.txpool.index:engine-pending-txpool-pending-transaction
                txpool
                (transaction-hash replacement-transaction))))
       (is (eq replacement-transaction
               (gethash nonce-key sender-transactions))))))
 
 (deftest engine-pending-txpool-rejects-zero-fee-same-nonce-replacement
-  (let* ((txpool (ethereum-lisp.core::make-engine-pending-txpool))
+  (let* ((txpool (ethereum-lisp.txpool.index:make-engine-pending-txpool))
          (recipient
            (address-from-hex "0x3535353535353535353535353535353535353535"))
          (alternate-recipient
@@ -629,41 +631,41 @@
              :to alternate-recipient)
             private-key
             1)))
-    (ethereum-lisp.core::engine-pending-txpool-put-pending-transaction
+    (ethereum-lisp.txpool.index:engine-pending-txpool-put-pending-transaction
      txpool
      base-transaction)
     (signals block-validation-error
-      (ethereum-lisp.core::engine-pending-txpool-put-pending-transaction
+      (ethereum-lisp.txpool.index:engine-pending-txpool-put-pending-transaction
        txpool
        same-price-transaction))
     (is (= 1
-           (ethereum-lisp.core::engine-pending-txpool-pending-count
+           (ethereum-lisp.txpool.index:engine-pending-txpool-pending-count
             txpool)))
     (is (eq base-transaction
-            (ethereum-lisp.core::engine-pending-txpool-pending-transaction
+            (ethereum-lisp.txpool.index:engine-pending-txpool-pending-transaction
              txpool
              (transaction-hash base-transaction))))
     (is (null
-         (ethereum-lisp.core::engine-pending-txpool-pending-transaction
+         (ethereum-lisp.txpool.index:engine-pending-txpool-pending-transaction
           txpool
           (transaction-hash same-price-transaction))))
-    (ethereum-lisp.core::engine-pending-txpool-put-pending-transaction
+    (ethereum-lisp.txpool.index:engine-pending-txpool-put-pending-transaction
      txpool
      bumped-transaction)
     (is (= 1
-           (ethereum-lisp.core::engine-pending-txpool-pending-count
+           (ethereum-lisp.txpool.index:engine-pending-txpool-pending-count
             txpool)))
     (is (null
-         (ethereum-lisp.core::engine-pending-txpool-pending-transaction
+         (ethereum-lisp.txpool.index:engine-pending-txpool-pending-transaction
           txpool
           (transaction-hash base-transaction))))
     (is (eq bumped-transaction
-            (ethereum-lisp.core::engine-pending-txpool-pending-transaction
+            (ethereum-lisp.txpool.index:engine-pending-txpool-pending-transaction
              txpool
              (transaction-hash bumped-transaction))))))
 
 (deftest engine-pending-txpool-indexes-basefee-and-blob-subpools
-  (let* ((txpool (ethereum-lisp.core::make-engine-pending-txpool))
+  (let* ((txpool (ethereum-lisp.txpool.index:make-engine-pending-txpool))
          (recipient
            (address-from-hex "0x3535353535353535353535353535353535353535"))
          (private-key 1)
@@ -707,83 +709,83 @@
            (address-to-hex
             (or (transaction-sender basefee-transaction)
                 (zero-address)))))
-    (ethereum-lisp.core::engine-pending-txpool-put-basefee-transaction
+    (ethereum-lisp.txpool.index:engine-pending-txpool-put-basefee-transaction
      txpool
      basefee-transaction)
-    (ethereum-lisp.core::engine-pending-txpool-put-blob-transaction
+    (ethereum-lisp.txpool.index:engine-pending-txpool-put-blob-transaction
      txpool
      blob-transaction)
     (is (eq basefee-transaction
-            (ethereum-lisp.core::engine-pending-txpool-basefee-transaction
+            (ethereum-lisp.txpool.index:engine-pending-txpool-basefee-transaction
              txpool
              (transaction-hash basefee-transaction))))
     (is (eq blob-transaction
-            (ethereum-lisp.core::engine-pending-txpool-blob-transaction
+            (ethereum-lisp.txpool.index:engine-pending-txpool-blob-transaction
              txpool
              (transaction-hash blob-transaction))))
     (let ((basefee-by-nonce
             (gethash
              sender-key
-             (ethereum-lisp.core::engine-pending-txpool-basefee-transactions-by-sender
+             (ethereum-lisp.txpool.index:engine-pending-txpool-basefee-transactions-by-sender
               txpool)))
           (blob-by-nonce
             (gethash
              sender-key
-             (ethereum-lisp.core::engine-pending-txpool-blob-transactions-by-sender
+             (ethereum-lisp.txpool.index:engine-pending-txpool-blob-transactions-by-sender
               txpool))))
       (is (eq basefee-transaction (gethash "6" basefee-by-nonce)))
       (is (eq blob-transaction (gethash "7" blob-by-nonce))))
     (signals block-validation-error
-      (ethereum-lisp.core::engine-pending-txpool-put-basefee-transaction
+      (ethereum-lisp.txpool.index:engine-pending-txpool-put-basefee-transaction
        txpool
        underpriced-basefee))
-    (ethereum-lisp.core::engine-pending-txpool-put-basefee-transaction
+    (ethereum-lisp.txpool.index:engine-pending-txpool-put-basefee-transaction
      txpool
      replacement-basefee)
     (let ((basefee-by-nonce
             (gethash
              sender-key
-             (ethereum-lisp.core::engine-pending-txpool-basefee-transactions-by-sender
+             (ethereum-lisp.txpool.index:engine-pending-txpool-basefee-transactions-by-sender
               txpool))))
       (is (= 1
-             (ethereum-lisp.core::engine-pending-txpool-basefee-count
+             (ethereum-lisp.txpool.index:engine-pending-txpool-basefee-count
               txpool)))
       (is (eq replacement-basefee (gethash "6" basefee-by-nonce)))
       (is (null
            (gethash
-            (ethereum-lisp.core::engine-pending-txpool-hash-key
+            (ethereum-lisp.txpool.index:engine-pending-txpool-hash-key
              (transaction-hash basefee-transaction))
-            (ethereum-lisp.core::engine-pending-txpool-basefee-transactions
+            (ethereum-lisp.txpool.index:engine-pending-txpool-basefee-transactions
              txpool)))))
-    (ethereum-lisp.core::engine-pending-txpool-remove-basefee-transaction
+    (ethereum-lisp.txpool.index:engine-pending-txpool-remove-basefee-transaction
      txpool
      (transaction-hash replacement-basefee))
-    (ethereum-lisp.core::engine-pending-txpool-remove-blob-transaction
+    (ethereum-lisp.txpool.index:engine-pending-txpool-remove-blob-transaction
      txpool
      (transaction-hash blob-transaction))
     (is (null
-         (ethereum-lisp.core::engine-pending-txpool-basefee-transaction
+         (ethereum-lisp.txpool.index:engine-pending-txpool-basefee-transaction
           txpool
           (transaction-hash replacement-basefee))))
     (is (null
-         (ethereum-lisp.core::engine-pending-txpool-blob-transaction
+         (ethereum-lisp.txpool.index:engine-pending-txpool-blob-transaction
           txpool
           (transaction-hash blob-transaction))))
     (is (= 0
-           (ethereum-lisp.core::engine-pending-txpool-basefee-count
+           (ethereum-lisp.txpool.index:engine-pending-txpool-basefee-count
             txpool)))
     (is (= 0
-           (ethereum-lisp.core::engine-pending-txpool-blob-count
+           (ethereum-lisp.txpool.index:engine-pending-txpool-blob-count
             txpool)))
     (is (null
          (gethash
           sender-key
-          (ethereum-lisp.core::engine-pending-txpool-basefee-transactions-by-sender
+          (ethereum-lisp.txpool.index:engine-pending-txpool-basefee-transactions-by-sender
            txpool))))
     (is (null
          (gethash
           sender-key
-          (ethereum-lisp.core::engine-pending-txpool-blob-transactions-by-sender
+          (ethereum-lisp.txpool.index:engine-pending-txpool-blob-transactions-by-sender
            txpool))))))
 
 (deftest engine-payload-store-rejects-non-blob-blob-subpool-insertion
@@ -800,14 +802,14 @@
             1
             1)))
     (signals block-validation-error
-      (ethereum-lisp.core::engine-payload-store-put-blob-transaction
+      (ethereum-lisp.txpool:engine-payload-store-put-blob-transaction
        store
        transaction))
     (is (= 0
-           (ethereum-lisp.core::engine-payload-store-blob-transaction-count
+           (ethereum-lisp.txpool:engine-payload-store-blob-transaction-count
             store)))
     (is (null
-         (ethereum-lisp.core::engine-payload-store-pooled-transaction
+         (ethereum-lisp.txpool:engine-payload-store-pooled-transaction
           store
           (transaction-hash transaction))))))
 
@@ -830,23 +832,23 @@
             1))
          (hash (transaction-hash transaction)))
     (dolist (putter
-              (list #'ethereum-lisp.core::engine-payload-store-put-pending-transaction
-                    #'ethereum-lisp.core::engine-payload-store-put-queued-transaction
-                    #'ethereum-lisp.core::engine-payload-store-put-basefee-transaction))
+              (list #'ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
+                    #'ethereum-lisp.txpool:engine-payload-store-put-queued-transaction
+                    #'ethereum-lisp.txpool:engine-payload-store-put-basefee-transaction))
       (let ((store (make-engine-payload-memory-store)))
         (signals block-validation-error
           (funcall putter store transaction))
         (is (= 0
-               (+ (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+               (+ (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
                    store)
-                  (ethereum-lisp.core::engine-payload-store-queued-transaction-count
+                  (ethereum-lisp.txpool:engine-payload-store-queued-transaction-count
                    store)
-                  (ethereum-lisp.core::engine-payload-store-basefee-transaction-count
+                  (ethereum-lisp.txpool:engine-payload-store-basefee-transaction-count
                    store)
-                  (ethereum-lisp.core::engine-payload-store-blob-transaction-count
+                  (ethereum-lisp.txpool:engine-payload-store-blob-transaction-count
                    store))))
         (is (null
-             (ethereum-lisp.core::engine-payload-store-pooled-transaction
+             (ethereum-lisp.txpool:engine-payload-store-pooled-transaction
               store
               hash)))))))
 
@@ -891,26 +893,26 @@
             2
             1))
          (sender (transaction-sender sender-nonce-zero :expected-chain-id 1)))
-    (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+    (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
      store
      sender-nonce-two)
-    (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+    (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
      store
      other-sender)
-    (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+    (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
      store
      sender-nonce-zero)
     (let ((sender-transactions
-            (ethereum-lisp.core::engine-payload-store-pending-sender-transactions
+            (ethereum-lisp.txpool:engine-payload-store-pending-sender-transactions
              store
              sender)))
       (is (= 2 (length sender-transactions)))
       (is (eq sender-nonce-zero (first sender-transactions)))
       (is (eq sender-nonce-two (second sender-transactions))))
     (is (=
-         (+ (ethereum-lisp.core::engine-payload-store-txpool-upfront-cost
+         (+ (ethereum-lisp.txpool:engine-payload-store-txpool-upfront-cost
              sender-nonce-two)
-            (ethereum-lisp.core::engine-payload-store-txpool-upfront-cost
+            (ethereum-lisp.txpool:engine-payload-store-txpool-upfront-cost
              replacement))
          (ethereum-lisp.txpool::engine-payload-store-pending-sender-expenditure
           store
@@ -991,22 +993,22 @@
            (sender-key (address-to-hex sender))
            (other-sender
              (transaction-sender other-transaction :expected-chain-id 1)))
-      (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+      (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
        store
        pending-transaction)
-      (ethereum-lisp.core::engine-payload-store-put-queued-transaction
+      (ethereum-lisp.txpool:engine-payload-store-put-queued-transaction
        store
        queued-transaction)
-      (ethereum-lisp.core::engine-payload-store-put-basefee-transaction
+      (ethereum-lisp.txpool:engine-payload-store-put-basefee-transaction
        store
        basefee-transaction)
-      (ethereum-lisp.core::engine-payload-store-put-blob-transaction
+      (ethereum-lisp.txpool:engine-payload-store-put-blob-transaction
        store
        blob-transaction)
-      (ethereum-lisp.core::engine-payload-store-put-queued-transaction
+      (ethereum-lisp.txpool:engine-payload-store-put-queued-transaction
        store
        queued-high-nonce-transaction)
-      (ethereum-lisp.core::engine-payload-store-put-queued-transaction
+      (ethereum-lisp.txpool:engine-payload-store-put-queued-transaction
        store
        other-transaction)
       (let* ((response
@@ -1087,7 +1089,7 @@
                      (field (field other-queued "1") "hash")))))))
 
 (deftest engine-pending-txpool-copy-isolates-sender-indexes
-  (let* ((txpool (ethereum-lisp.core::make-engine-pending-txpool))
+  (let* ((txpool (ethereum-lisp.txpool.index:make-engine-pending-txpool))
          (recipient
            (address-from-hex "0x3535353535353535353535353535353535353535"))
          (transaction
@@ -1107,43 +1109,43 @@
                      (transaction-nonce transaction)
                      :base 10))
          (original-encoding (transaction-encoding transaction)))
-    (ethereum-lisp.core::engine-pending-txpool-put-pending-transaction
+    (ethereum-lisp.txpool.index:engine-pending-txpool-put-pending-transaction
      txpool
      transaction)
-    (let* ((copy (ethereum-lisp.core::engine-pending-txpool-copy txpool))
+    (let* ((copy (ethereum-lisp.txpool.index:engine-pending-txpool-copy txpool))
            (sender-transactions
              (gethash
               sender-key
-              (ethereum-lisp.core::engine-pending-txpool-transactions-by-sender
+              (ethereum-lisp.txpool.index:engine-pending-txpool-transactions-by-sender
                txpool)))
            (copy-sender-transactions
              (gethash
               sender-key
-              (ethereum-lisp.core::engine-pending-txpool-transactions-by-sender
+              (ethereum-lisp.txpool.index:engine-pending-txpool-transactions-by-sender
                copy)))
            (copy-indexed-transaction
              (gethash nonce-key copy-sender-transactions))
            (copy-pending-transaction
-             (ethereum-lisp.core::engine-pending-txpool-pending-transaction
+             (ethereum-lisp.txpool.index:engine-pending-txpool-pending-transaction
               copy
               (transaction-hash transaction))))
       (is (not (eq txpool copy)))
       (is (not (eq
-                (ethereum-lisp.core::engine-pending-txpool-transactions
+                (ethereum-lisp.txpool.index:engine-pending-txpool-transactions
                  txpool)
-                (ethereum-lisp.core::engine-pending-txpool-transactions
+                (ethereum-lisp.txpool.index:engine-pending-txpool-transactions
                  copy))))
       (is (not (eq sender-transactions copy-sender-transactions)))
-      (ethereum-lisp.core::engine-pending-txpool-remove-pending-transaction
+      (ethereum-lisp.txpool.index:engine-pending-txpool-remove-pending-transaction
        txpool
        (transaction-hash transaction))
       (is (= 0
              (hash-table-count
-              (ethereum-lisp.core::engine-pending-txpool-transactions
+              (ethereum-lisp.txpool.index:engine-pending-txpool-transactions
                txpool))))
       (is (= 1
              (hash-table-count
-              (ethereum-lisp.core::engine-pending-txpool-transactions
+              (ethereum-lisp.txpool.index:engine-pending-txpool-transactions
                copy))))
       (is (not (eq transaction copy-indexed-transaction)))
       (is (eq copy-pending-transaction copy-indexed-transaction))

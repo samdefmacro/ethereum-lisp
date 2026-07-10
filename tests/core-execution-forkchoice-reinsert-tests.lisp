@@ -58,19 +58,19 @@
      store (block-hash new-canonical-child) sender 0)
     (chain-store-put-account-balance
      store (block-hash new-canonical-child) sender 1000000)
-    (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+    (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
      store overgas-conflict)
     (chain-store-set-canonical-head store (block-hash new-canonical-child))
     (is (null
-         (ethereum-lisp.core::engine-payload-store-pooled-transaction
+         (ethereum-lisp.txpool:engine-payload-store-pooled-transaction
           store
           overgas-hash)))
     (is (= 1
-           (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+           (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
             store)))
     (is (bytes= (transaction-encoding displaced-transaction)
                 (transaction-encoding
-                 (ethereum-lisp.core::engine-payload-store-pending-transaction
+                 (ethereum-lisp.txpool:engine-payload-store-pending-transaction
                   store
                   displaced-hash))))))
 
@@ -155,10 +155,10 @@
         (is (null (chain-store-transaction-location
                    store transaction-hash)))
         (is (= 0
-               (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+               (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
                 store)))
         (is (null
-             (ethereum-lisp.core::engine-payload-store-pending-transaction
+             (ethereum-lisp.txpool:engine-payload-store-pending-transaction
               store
               transaction-hash)))))))
 
@@ -245,10 +245,10 @@
         (is (null (chain-store-transaction-location
                    store transaction-hash)))
         (is (= 0
-               (ethereum-lisp.core::engine-payload-store-blob-transaction-count
+               (ethereum-lisp.txpool:engine-payload-store-blob-transaction-count
                 store)))
         (is (null
-             (ethereum-lisp.core::engine-payload-store-blob-transaction
+             (ethereum-lisp.txpool:engine-payload-store-blob-transaction
               store
               transaction-hash)))))))
 
@@ -362,7 +362,7 @@
                      (field payload-status "status")))
         (is (null (chain-store-transaction-location store transaction-hash)))
         (is (typep
-             (ethereum-lisp.core::engine-payload-store-pending-transaction
+             (ethereum-lisp.txpool:engine-payload-store-pending-transaction
               store
               transaction-hash)
              'legacy-transaction))

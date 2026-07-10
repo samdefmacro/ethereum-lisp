@@ -104,7 +104,7 @@
                                :gas-used 0)))
          (new-invalid-block-hash (block-hash new-invalid-block))
          (pending-filter-id
-           (ethereum-lisp.core::engine-payload-store-put-pending-transaction-filter
+           (ethereum-lisp.chain-store:engine-payload-store-put-pending-transaction-filter
             store)))
     (state-db-set-account state address (make-state-account :balance 10))
     (setf (aref commitment 0) #x11
@@ -114,34 +114,34 @@
                    :proofs (list proof))
           versioned-hash (first (blob-sidecar-versioned-hashes sidecar)))
     (chain-store-put-prepared-payload store prepared-payload)
-    (ethereum-lisp.core::engine-payload-store-put-blob-sidecar store sidecar)
-    (ethereum-lisp.core::engine-payload-store-mark-invalid store invalid-block)
+    (ethereum-lisp.chain-store:engine-payload-store-put-blob-sidecar store sidecar)
+    (ethereum-lisp.chain-store:engine-payload-store-mark-invalid store invalid-block)
     (signals error
       (execute-atomic-block-commit
        store state
        (lambda ()
          (chain-store-put-block store block :state-available-p t)
          (chain-store-put-account-balance store block-hash address 99)
-         (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+         (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
           store transaction)
-         (setf (ethereum-lisp.core::engine-prepared-payload-version
+         (setf (ethereum-lisp.engine-payloads:engine-prepared-payload-version
                 (chain-store-prepared-payload store payload-id))
                6)
          (setf (aref
-                (ethereum-lisp.core::engine-blob-and-proofs-blob
-                 (ethereum-lisp.core::engine-payload-store-blob-and-proofs-v1
+                (ethereum-lisp.chain-store.model:engine-blob-and-proofs-blob
+                 (ethereum-lisp.chain-store:engine-payload-store-blob-and-proofs-v1
                   store versioned-hash))
                 0)
                #xff)
-         (setf (ethereum-lisp.core::chain-store-checkpoint-label
+         (setf (ethereum-lisp.chain-store.model:chain-store-checkpoint-label
                 (chain-store-head-checkpoint store))
                :mutated-head)
          (setf (block-header-gas-used
                 (block-header
-                 (ethereum-lisp.core::engine-payload-store-invalid-block
+                 (ethereum-lisp.chain-store:engine-payload-store-invalid-block
                   store invalid-block-hash)))
                77)
-         (ethereum-lisp.core::engine-payload-store-mark-invalid
+         (ethereum-lisp.chain-store:engine-payload-store-mark-invalid
           store new-invalid-block)
          (state-db-set-account state address
                                (make-state-account :balance 99))
@@ -152,30 +152,30 @@
     (is (not (chain-store-state-available-p store block-hash)))
     (is (= 0 (chain-store-account-balance store block-hash address)))
     (is (= 0
-           (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+           (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
             store)))
-    (is (null (ethereum-lisp.core::engine-payload-store-pending-transaction
+    (is (null (ethereum-lisp.txpool:engine-payload-store-pending-transaction
                store transaction-hash)))
     (is (null
-         (ethereum-lisp.core::engine-pending-transaction-filter-hashes
-          (ethereum-lisp.core::engine-payload-store-log-filter
+         (ethereum-lisp.chain-store.model:engine-pending-transaction-filter-hashes
+          (ethereum-lisp.chain-store:engine-payload-store-log-filter
            store pending-filter-id))))
     (is (= 3
-           (ethereum-lisp.core::engine-prepared-payload-version
+           (ethereum-lisp.engine-payloads:engine-prepared-payload-version
             (chain-store-prepared-payload store payload-id))))
     (is (= #xaa
            (aref
-            (ethereum-lisp.core::engine-blob-and-proofs-blob
-             (ethereum-lisp.core::engine-payload-store-blob-and-proofs-v1
+            (ethereum-lisp.chain-store.model:engine-blob-and-proofs-blob
+             (ethereum-lisp.chain-store:engine-payload-store-blob-and-proofs-v1
               store versioned-hash))
             0)))
     (is (eq :head
-            (ethereum-lisp.core::chain-store-checkpoint-label
+            (ethereum-lisp.chain-store.model:chain-store-checkpoint-label
              (chain-store-head-checkpoint store))))
     (is (not (eq head-checkpoint
                  (chain-store-head-checkpoint store))))
     (let ((cached-invalid
-            (ethereum-lisp.core::engine-payload-store-invalid-block
+            (ethereum-lisp.chain-store:engine-payload-store-invalid-block
              store invalid-block-hash)))
       (is cached-invalid)
       (is (not (eq invalid-block cached-invalid)))
@@ -183,9 +183,8 @@
              (block-header-gas-used
               (block-header cached-invalid)))))
     (is (null
-         (ethereum-lisp.core::engine-payload-store-invalid-block
+         (ethereum-lisp.chain-store:engine-payload-store-invalid-block
           store new-invalid-block-hash)))
     (is (= 10
            (state-account-balance
             (state-db-get-account state address))))))
-

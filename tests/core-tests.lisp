@@ -1,5 +1,25 @@
 (in-package #:ethereum-lisp.test)
 
+(deftest core-package-is-a-compatibility-facade
+  (let ((api (find-package '#:ethereum-lisp))
+        (core (find-package '#:ethereum-lisp.core)))
+    (is (member api (package-use-list core)))
+    (is (= 2 (length (package-use-list core))))
+    (is (every (lambda (package)
+                 (member package (list (find-package '#:cl) api)))
+               (package-use-list core)))
+    (do-external-symbols (api-symbol api)
+      (multiple-value-bind (core-symbol core-status)
+          (find-symbol (symbol-name api-symbol) core)
+        (is (eq :external core-status))
+        (is (eq api-symbol core-symbol))))
+    (do-external-symbols (core-symbol core)
+      (multiple-value-bind (api-symbol api-status)
+          (find-symbol (symbol-name core-symbol) api)
+        (is (eq :external api-status))
+        (is (eq api-symbol core-symbol))
+        (is (not (eq core (symbol-package core-symbol))))))))
+
 (defparameter *ethereum-lisp-core-tests-root*
   (merge-pathnames "../" (or *load-truename* *default-pathname-defaults*)))
 

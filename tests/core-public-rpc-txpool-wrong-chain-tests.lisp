@@ -136,7 +136,7 @@
              (cdr (assoc name object :test #'string=)))
            (empty-object-p (object)
              (or (null object)
-                 (typep object 'ethereum-lisp.core::json-empty-object)))
+                 (typep object 'ethereum-lisp.json:json-empty-object)))
            (send-raw (transaction id store config)
              (parse-json
               (engine-rpc-handle-request-json
@@ -195,11 +195,11 @@
       (chain-store-put-account-nonce store (block-hash head-block) sender 0)
       (chain-store-put-account-balance
        store (block-hash head-block) sender 1000000)
-      (ethereum-lisp.core::engine-payload-store-put-queued-transaction
+      (ethereum-lisp.txpool:engine-payload-store-put-queued-transaction
        store
        wrong-chain-nonce-one)
       (is (= 1
-             (ethereum-lisp.core::engine-payload-store-queued-transaction-count
+             (ethereum-lisp.txpool:engine-payload-store-queued-transaction-count
               store)))
       (let ((wrong-chain-pre-cleanup-status-response
               (request
@@ -310,7 +310,7 @@
              (cdr (assoc name object :test #'string=)))
            (empty-object-p (object)
              (or (null object)
-                 (typep object 'ethereum-lisp.core::json-empty-object)))
+                 (typep object 'ethereum-lisp.json:json-empty-object)))
            (request (json store config)
              (parse-json
               (engine-rpc-handle-request-json json store config)))
@@ -371,7 +371,7 @@
       (chain-store-put-account-nonce store (block-hash head-block) sender 0)
       (chain-store-put-account-balance
        store (block-hash head-block) sender 1000000)
-      (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+      (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
        store
        wrong-chain-nonce-zero)
       (let* ((pre-count-response

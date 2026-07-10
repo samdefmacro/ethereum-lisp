@@ -1,11 +1,15 @@
 (defpackage #:ethereum-lisp.cli
   (:use #:cl
-        #:ethereum-lisp.hex
-        #:ethereum-lisp.types
-        #:ethereum-lisp.telemetry
-        #:ethereum-lisp.core
-        #:ethereum-lisp.state
-        #:ethereum-lisp.execution)
+        #:ethereum-lisp
+        #:ethereum-lisp.telemetry)
+  (:import-from #:ethereum-lisp.txpool
+                #:engine-payload-store-pending-mining-transactions
+                #:engine-payload-store-pooled-transactions
+                #:engine-select-mining-transactions)
+  (:import-from #:ethereum-lisp.chain-store.persistence
+                #:chain-store-export-txpool-records-to-kv
+                #:chain-store-import-txpool-records-from-kv
+                #:chain-store-restore-txpool-consistency)
   (:export
    #:devnet-node
    #:make-devnet-node

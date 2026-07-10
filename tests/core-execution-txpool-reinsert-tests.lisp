@@ -56,7 +56,7 @@
                'engine-transaction-location))
     (is (typep (gethash
                 transaction-key
-                (ethereum-lisp.core::engine-payload-memory-store-transaction-locations
+                (ethereum-lisp.chain-store.model:engine-payload-memory-store-transaction-locations
                  store))
                'engine-transaction-location))
     (chain-store-set-canonical-head store (block-hash new-canonical-child))
@@ -64,7 +64,7 @@
     (is (null
          (gethash
           transaction-key
-          (ethereum-lisp.core::engine-payload-memory-store-transaction-locations
+          (ethereum-lisp.chain-store.model:engine-payload-memory-store-transaction-locations
            store))))))
 
 (deftest chain-store-reorg-preserves-shared-transaction-location
@@ -132,7 +132,7 @@
                   (transaction-encoding
                    (engine-transaction-location-transaction new-location)))))
     (is (null
-         (ethereum-lisp.core::engine-payload-store-pooled-transaction
+         (ethereum-lisp.txpool:engine-payload-store-pooled-transaction
           store
           transaction-hash)))))
 
@@ -194,23 +194,23 @@
      store (block-hash new-canonical-child) sender 0)
     (chain-store-put-account-balance
      store (block-hash new-canonical-child) sender 21000)
-    (ethereum-lisp.core::engine-payload-store-put-queued-transaction
+    (ethereum-lisp.txpool:engine-payload-store-put-queued-transaction
      store queued-transaction)
     (chain-store-set-canonical-head store (block-hash new-canonical-child))
     (is (null (chain-store-transaction-location store displaced-hash)))
     (is (= 0
-           (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+           (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
             store)))
     (is (= 1
-           (ethereum-lisp.core::engine-payload-store-queued-transaction-count
+           (ethereum-lisp.txpool:engine-payload-store-queued-transaction-count
             store)))
     (is (null
-         (ethereum-lisp.core::engine-payload-store-pooled-transaction
+         (ethereum-lisp.txpool:engine-payload-store-pooled-transaction
           store
           displaced-hash)))
     (is (bytes= (transaction-encoding queued-transaction)
                 (transaction-encoding
-                 (ethereum-lisp.core::engine-payload-store-queued-transaction
+                 (ethereum-lisp.txpool:engine-payload-store-queued-transaction
                   store
                   queued-hash))))))
 
@@ -273,22 +273,22 @@
      store (block-hash new-canonical-child) sender 0)
     (chain-store-put-account-balance
      store (block-hash new-canonical-child) sender 1000000)
-    (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+    (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
      store local-conflict)
     (is (typep (chain-store-transaction-location store displaced-hash)
                'engine-transaction-location))
     (chain-store-set-canonical-head store (block-hash new-canonical-child))
     (is (null (chain-store-transaction-location store displaced-hash)))
     (is (= 1
-           (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+           (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
             store)))
     (is (null
-         (ethereum-lisp.core::engine-payload-store-pooled-transaction
+         (ethereum-lisp.txpool:engine-payload-store-pooled-transaction
           store
           displaced-hash)))
     (is (bytes= (transaction-encoding local-conflict)
                 (transaction-encoding
-                 (ethereum-lisp.core::engine-payload-store-pending-transaction
+                 (ethereum-lisp.txpool:engine-payload-store-pending-transaction
                   store
                   conflict-hash))))))
 
@@ -351,17 +351,17 @@
      :expected-chain-id 1)
     (is (null (chain-store-transaction-location store displaced-hash)))
     (is (= 0
-           (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+           (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
             store)))
     (is (= 0
-           (ethereum-lisp.core::engine-payload-store-queued-transaction-count
+           (ethereum-lisp.txpool:engine-payload-store-queued-transaction-count
             store)))
     (is (= 1
-           (ethereum-lisp.core::engine-payload-store-basefee-transaction-count
+           (ethereum-lisp.txpool:engine-payload-store-basefee-transaction-count
             store)))
     (is (bytes= (transaction-encoding displaced-transaction)
                 (transaction-encoding
-                 (ethereum-lisp.core::engine-payload-store-basefee-transaction
+                 (ethereum-lisp.txpool:engine-payload-store-basefee-transaction
                   store
                   displaced-hash))))))
 

@@ -6,6 +6,7 @@
 (defun load-ethereum-lisp-test-file (relative-path)
   (load (merge-pathnames relative-path *ethereum-lisp-test-loader-root*)))
 
+(load-ethereum-lisp-test-file "src/package-tools.lisp")
 (load-ethereum-lisp-test-file "src/packages-foundation.lisp")
 (load-ethereum-lisp-test-file "src/packages-json.lisp")
 (load-ethereum-lisp-test-file "src/packages-protocol.lisp")
@@ -21,9 +22,9 @@
 (load-ethereum-lisp-test-file "src/packages-persistence.lisp")
 (load-ethereum-lisp-test-file "src/packages-runtime.lisp")
 (load-ethereum-lisp-test-file "src/packages-api.lisp")
+(load-ethereum-lisp-test-file "src/packages-facade.lisp")
 (load-ethereum-lisp-test-file "src/packages-core.lisp")
 (load-ethereum-lisp-test-file "src/packages-cli.lisp")
-(load-ethereum-lisp-test-file "src/packages-facade.lisp")
 (load-ethereum-lisp-test-file "src/packages.lisp")
 (load-ethereum-lisp-test-file "src/bytes.lisp")
 (load-ethereum-lisp-test-file "src/hex.lisp")

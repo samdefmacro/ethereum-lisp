@@ -236,36 +236,36 @@
                    sender-b-nonce-zero
                    sender-a-nonce-one
                    sender-a-nonce-zero))
-      (ethereum-lisp.core::engine-payload-store-put-basefee-transaction
+      (ethereum-lisp.txpool:engine-payload-store-put-basefee-transaction
        store
        transaction))
     (let ((promoted
-            (ethereum-lisp.core::engine-payload-store-promote-basefee-transactions
+            (ethereum-lisp.txpool:engine-payload-store-promote-basefee-transactions
              store))
           (sender-a-pending
-            (ethereum-lisp.core::engine-payload-store-pending-sender-transactions
+            (ethereum-lisp.txpool:engine-payload-store-pending-sender-transactions
              store
              sender-a))
           (sender-b-pending
-            (ethereum-lisp.core::engine-payload-store-pending-sender-transactions
+            (ethereum-lisp.txpool:engine-payload-store-pending-sender-transactions
              store
              sender-b)))
       (is (= 3 (length promoted)))
       (is (= 3
-             (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+             (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
               store)))
       (is (= 1
-             (ethereum-lisp.core::engine-payload-store-basefee-transaction-count
+             (ethereum-lisp.txpool:engine-payload-store-basefee-transaction-count
               store)))
       (is (eq sender-a-nonce-zero (first sender-a-pending)))
       (is (eq sender-a-nonce-one (second sender-a-pending)))
       (is (eq sender-b-nonce-zero (first sender-b-pending)))
       (is (null
-           (ethereum-lisp.core::engine-payload-store-pending-transaction
+           (ethereum-lisp.txpool:engine-payload-store-pending-transaction
             store
             (transaction-hash sender-a-nonce-three))))
       (is (eq sender-a-nonce-three
-              (ethereum-lisp.core::engine-payload-store-pooled-transaction
+              (ethereum-lisp.txpool:engine-payload-store-pooled-transaction
                store
                (transaction-hash sender-a-nonce-three)))))))
 
@@ -303,28 +303,28 @@
     (chain-store-put-account-nonce store (block-hash head-block) sender 0)
     (chain-store-put-account-balance
      store (block-hash head-block) sender 21000)
-    (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+    (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
      store
      closing-transaction)
-    (ethereum-lisp.core::engine-payload-store-put-queued-transaction
+    (ethereum-lisp.txpool:engine-payload-store-put-queued-transaction
      store
      gap-transaction)
     (is (null
-         (ethereum-lisp.core::engine-payload-store-promote-queued-transactions
+         (ethereum-lisp.txpool:engine-payload-store-promote-queued-transactions
           store
           :sender sender)))
     (is (= 1
-           (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+           (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
             store)))
     (is (= 1
-           (ethereum-lisp.core::engine-payload-store-queued-transaction-count
+           (ethereum-lisp.txpool:engine-payload-store-queued-transaction-count
             store)))
     (is (eq closing-transaction
-            (ethereum-lisp.core::engine-payload-store-pending-transaction
+            (ethereum-lisp.txpool:engine-payload-store-pending-transaction
              store
              (transaction-hash closing-transaction))))
     (is (eq gap-transaction
-            (ethereum-lisp.core::engine-payload-store-queued-transaction
+            (ethereum-lisp.txpool:engine-payload-store-queued-transaction
              store
              (transaction-hash gap-transaction))))))
 
@@ -363,26 +363,26 @@
     (chain-store-put-account-nonce store (block-hash head-block) sender 0)
     (chain-store-put-account-balance
      store (block-hash head-block) sender 84000)
-    (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+    (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
      store
      closing-transaction)
-    (ethereum-lisp.core::engine-payload-store-put-basefee-transaction
+    (ethereum-lisp.txpool:engine-payload-store-put-basefee-transaction
      store
      gap-transaction)
     (is (null
-         (ethereum-lisp.core::engine-payload-store-promote-basefee-transactions
+         (ethereum-lisp.txpool:engine-payload-store-promote-basefee-transactions
           store)))
     (is (= 1
-           (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+           (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
             store)))
     (is (= 1
-           (ethereum-lisp.core::engine-payload-store-basefee-transaction-count
+           (ethereum-lisp.txpool:engine-payload-store-basefee-transaction-count
             store)))
     (is (eq closing-transaction
-            (ethereum-lisp.core::engine-payload-store-pending-transaction
+            (ethereum-lisp.txpool:engine-payload-store-pending-transaction
              store
              (transaction-hash closing-transaction))))
     (is (eq gap-transaction
-            (ethereum-lisp.core::engine-payload-store-basefee-transaction
+            (ethereum-lisp.txpool:engine-payload-store-basefee-transaction
              store
              (transaction-hash gap-transaction))))))

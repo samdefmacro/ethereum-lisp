@@ -140,27 +140,27 @@
                                        :gas-limit 30000000))))
     (chain-store-put-block store head-block :state-available-p t)
     (chain-store-put-account-nonce store (block-hash head-block) sender 0)
-    (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+    (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
      store
      transaction)
     (is (= 1
-           (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+           (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
             store)))
     (is (= 0
-           (ethereum-lisp.core::engine-payload-store-queued-transaction-count
+           (ethereum-lisp.txpool:engine-payload-store-queued-transaction-count
             store)))
     (is (= 1
            (length
-            (ethereum-lisp.core::engine-payload-store-revalidate-pending-transactions
+            (ethereum-lisp.txpool:engine-payload-store-revalidate-pending-transactions
              store))))
     (is (= 0
-           (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+           (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
             store)))
     (is (= 1
-           (ethereum-lisp.core::engine-payload-store-queued-transaction-count
+           (ethereum-lisp.txpool:engine-payload-store-queued-transaction-count
             store)))
     (is (eq transaction
-            (ethereum-lisp.core::engine-payload-store-queued-transaction
+            (ethereum-lisp.txpool:engine-payload-store-queued-transaction
              store
              (transaction-hash transaction))))))
 

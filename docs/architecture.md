@@ -24,12 +24,12 @@ through a broad package dependency.
 
 ## Current Package Boundary
 
-The project still has a legacy `ethereum-lisp.core` package. File size and
-name prefixes are not module boundaries: a refactor must first identify an
-owner, its public contract, and the allowed dependency direction. Split code
-only when the resulting units have cohesive behavior and communicate through
-an explicit API or state object. Keep compatibility facades thin, and move
-implementation symbols into narrower packages as their contracts stabilize.
+`ethereum-lisp` is the canonical public API. The legacy `ethereum-lisp.core`
+package is generated directly from that API and owns no symbols or
+implementation. File size and name prefixes are not module boundaries: a
+refactor must first identify an owner, its public contract, and the allowed
+dependency direction. Split code only when the resulting units have cohesive
+behavior and communicate through an explicit API or state object.
 
 The current source ownership map is:
 
@@ -47,14 +47,17 @@ The current source ownership map is:
   package definition over JSON and protocol-model contracts.
 - `packages-consensus.lisp`: pure transaction, header, body, fork, root, and
   receipt consensus-validation package definition.
-- `packages-core.lisp`: compatibility aggregate for the remaining core
-  protocol surface; it re-exports narrower domain APIs while callers migrate.
+- `package-tools.lisp`: package-definition helpers for owner-grouped public
+  APIs and exact compatibility re-exports.
+- `packages-facade.lisp`: the single public API manifest, grouped by the
+  package that owns each symbol. Every public symbol is listed once.
+- `packages-core.lisp`: generated compatibility facade over
+  `ethereum-lisp`; it owns no symbols and cannot expose internal APIs.
 - `packages-runtime.lisp`: state, EVM, and execution package definitions with
   explicit lower-layer dependencies and no core aggregate dependency.
-- `packages-cli.lisp`: the CLI composition package, loaded after the core
-  compatibility facade and runtime domains.
-- `packages-facade.lisp`: top-level `ethereum-lisp` facade imports and
-  exports.
+- `packages-cli.lisp`: the CLI composition package. It consumes the canonical
+  public API and explicitly imports the small txpool and persistence ports
+  needed for node assembly; it does not depend on `ethereum-lisp.core`.
 - `packages.lisp`: package compatibility loader.
 - `database-*.lisp`: key-value database protocol, chain-record key encoding,
   memory/file backends, write batches, and chain-record access helpers.

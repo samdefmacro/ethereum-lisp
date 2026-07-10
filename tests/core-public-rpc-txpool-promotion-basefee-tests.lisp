@@ -48,14 +48,14 @@
     (chain-store-put-block store genesis :state-available-p t)
     (chain-store-put-block store old-canonical-child :state-available-p t)
     (chain-store-put-block store new-canonical-child :state-available-p t)
-    (ethereum-lisp.core::engine-payload-store-put-blob-transaction
+    (ethereum-lisp.txpool:engine-payload-store-put-blob-transaction
      store
      transaction)
     (is (= 1
-           (ethereum-lisp.core::engine-payload-store-blob-transaction-count
+           (ethereum-lisp.txpool:engine-payload-store-blob-transaction-count
             store)))
     (is (typep
-         (ethereum-lisp.core::engine-payload-store-blob-transaction
+         (ethereum-lisp.txpool:engine-payload-store-blob-transaction
           store
           transaction-hash)
          'blob-transaction))
@@ -64,10 +64,10 @@
      (block-hash new-canonical-child)
      :chain-config config)
     (is (= 0
-           (ethereum-lisp.core::engine-payload-store-blob-transaction-count
+           (ethereum-lisp.txpool:engine-payload-store-blob-transaction-count
             store)))
     (is (null
-         (ethereum-lisp.core::engine-payload-store-pooled-transaction
+         (ethereum-lisp.txpool:engine-payload-store-pooled-transaction
           store
           transaction-hash)))))
 

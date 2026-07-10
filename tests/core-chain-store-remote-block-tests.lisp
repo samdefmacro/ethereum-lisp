@@ -26,7 +26,7 @@
          (remote-id (hash32-bytes (block-hash remote))))
     (unwind-protect
          (progn
-           (ethereum-lisp.core::engine-payload-store-put-remote-block
+           (ethereum-lisp.chain-store:engine-payload-store-put-remote-block
             source remote)
            (let ((database (make-file-key-value-database path)))
              (chain-store-export-to-kv source database))
@@ -39,7 +39,7 @@
              (is (eq restored
                      (chain-store-import-from-kv restored database))))
            (let ((restored-remote
-                   (ethereum-lisp.core::engine-payload-store-remote-block
+                   (ethereum-lisp.chain-store:engine-payload-store-remote-block
                     restored
                     (block-hash remote))))
              (is restored-remote)
@@ -88,18 +88,18 @@
          (remote-hash (block-hash remote))
          (invalid-hash (block-hash invalid)))
     (is (eq remote
-            (ethereum-lisp.core::engine-payload-store-put-remote-block
+            (ethereum-lisp.chain-store:engine-payload-store-put-remote-block
              store remote)))
     (is (eq invalid
-            (ethereum-lisp.core::engine-payload-store-mark-invalid
+            (ethereum-lisp.chain-store:engine-payload-store-mark-invalid
              store invalid)))
     (setf (block-header-gas-used (block-header remote)) 77
           (block-header-gas-used (block-header invalid)) 88)
     (let ((cached-remote
-            (ethereum-lisp.core::engine-payload-store-remote-block
+            (ethereum-lisp.chain-store:engine-payload-store-remote-block
              store remote-hash))
           (cached-invalid
-            (ethereum-lisp.core::engine-payload-store-invalid-block
+            (ethereum-lisp.chain-store:engine-payload-store-invalid-block
              store invalid-hash)))
       (is cached-remote)
       (is cached-invalid)
@@ -110,10 +110,10 @@
       (setf (block-header-gas-used (block-header cached-remote)) 11
             (block-header-gas-used (block-header cached-invalid)) 22))
     (let ((cached-remote
-            (ethereum-lisp.core::engine-payload-store-remote-block
+            (ethereum-lisp.chain-store:engine-payload-store-remote-block
              store remote-hash))
           (cached-invalid
-            (ethereum-lisp.core::engine-payload-store-invalid-block
+            (ethereum-lisp.chain-store:engine-payload-store-invalid-block
              store invalid-hash)))
       (is cached-remote)
       (is cached-invalid)
@@ -167,9 +167,9 @@
              :timestamp 90))))
     (unwind-protect
          (progn
-           (ethereum-lisp.core::engine-payload-store-put-remote-block
+           (ethereum-lisp.chain-store:engine-payload-store-put-remote-block
             target target-block)
-           (ethereum-lisp.core::engine-payload-store-put-remote-block
+           (ethereum-lisp.chain-store:engine-payload-store-put-remote-block
             source remote)
            (let ((database (make-file-key-value-database path)))
              (chain-store-export-to-kv source database)
@@ -182,11 +182,11 @@
              (chain-store-import-from-kv
               target
               (make-file-key-value-database path)))
-           (is (ethereum-lisp.core::engine-payload-store-remote-block
+           (is (ethereum-lisp.chain-store:engine-payload-store-remote-block
                 target
                 (block-hash target-block)))
            (is (not
-                (ethereum-lisp.core::engine-payload-store-remote-block
+                (ethereum-lisp.chain-store:engine-payload-store-remote-block
                  target
                  (block-hash remote)))))
       (when (probe-file path)
@@ -227,7 +227,7 @@
              :timestamp 70))))
     (unwind-protect
          (progn
-           (ethereum-lisp.core::engine-payload-store-put-remote-block
+           (ethereum-lisp.chain-store:engine-payload-store-put-remote-block
             target target-remote)
            (chain-store-put-block source known-block :state-available-p t)
            (let ((database (make-file-key-value-database path)))
@@ -241,12 +241,12 @@
              (is (eq target
                      (chain-store-import-from-kv target database))))
            (is (not
-                (ethereum-lisp.core::engine-payload-store-remote-block
+                (ethereum-lisp.chain-store:engine-payload-store-remote-block
                  target
                  (block-hash target-remote))))
            (is (chain-store-known-block target (block-hash known-block)))
            (is (not
-                (ethereum-lisp.core::engine-payload-store-remote-block
+                (ethereum-lisp.chain-store:engine-payload-store-remote-block
                  target
                  (block-hash known-block)))))
       (when (probe-file path)
@@ -287,9 +287,9 @@
              :timestamp 90))))
     (unwind-protect
          (progn
-           (ethereum-lisp.core::engine-payload-store-put-remote-block
+           (ethereum-lisp.chain-store:engine-payload-store-put-remote-block
             target target-remote)
-           (ethereum-lisp.core::engine-payload-store-mark-invalid
+           (ethereum-lisp.chain-store:engine-payload-store-mark-invalid
             source invalid-block)
            (let ((database (make-file-key-value-database path)))
              (chain-store-export-to-kv source database)
@@ -302,14 +302,14 @@
              (is (eq target
                      (chain-store-import-from-kv target database))))
            (is (not
-                (ethereum-lisp.core::engine-payload-store-remote-block
+                (ethereum-lisp.chain-store:engine-payload-store-remote-block
                  target
                  (block-hash target-remote))))
-           (is (ethereum-lisp.core::engine-payload-store-invalid-block
+           (is (ethereum-lisp.chain-store:engine-payload-store-invalid-block
                 target
                 (block-hash invalid-block)))
            (is (not
-                (ethereum-lisp.core::engine-payload-store-remote-block
+                (ethereum-lisp.chain-store:engine-payload-store-remote-block
                  target
                  (block-hash invalid-block)))))
       (when (probe-file path)

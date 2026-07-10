@@ -43,11 +43,11 @@
                      :prev-randao (zero-hash32)
                      :suggested-fee-recipient (zero-address)))
                   (child-block
-                    (ethereum-lisp.core::engine-build-empty-payload
+                    (ethereum-lisp.engine-payloads:engine-build-empty-payload
                      genesis-block
                      payload-attributes))
                   (prepared-block
-                    (ethereum-lisp.core::engine-build-empty-payload
+                    (ethereum-lisp.engine-payloads:engine-build-empty-payload
                      child-block
                      (make-payload-attributes-v1
                       :timestamp

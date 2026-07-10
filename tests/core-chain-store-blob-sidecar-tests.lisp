@@ -31,7 +31,7 @@
           versioned-hash-id (hash32-bytes versioned-hash))
     (unwind-protect
          (progn
-           (ethereum-lisp.core::engine-payload-store-put-blob-sidecar
+           (ethereum-lisp.chain-store:engine-payload-store-put-blob-sidecar
             source sidecar)
            (let ((database (make-file-key-value-database path)))
              (chain-store-export-to-kv source database))
@@ -42,33 +42,33 @@
                (is present-p)
                (is (bytes= record
                            (ethereum-lisp.chain-store.persistence::chain-store-blob-sidecar-record-rlp
-                            (ethereum-lisp.core::engine-payload-store-blob-and-proofs-v1
+                            (ethereum-lisp.chain-store:engine-payload-store-blob-and-proofs-v1
                              source versioned-hash))))))
            (let ((database (make-file-key-value-database path)))
              (is (eq restored
                      (chain-store-import-from-kv restored database))))
            (let ((restored-blob
-                   (ethereum-lisp.core::engine-payload-store-blob-and-proofs-v2
+                   (ethereum-lisp.chain-store:engine-payload-store-blob-and-proofs-v2
                     restored
                     versioned-hash)))
              (is restored-blob)
              (is (bytes= blob
-                         (ethereum-lisp.core::engine-blob-and-proofs-blob
+                         (ethereum-lisp.chain-store.model:engine-blob-and-proofs-blob
                           restored-blob)))
              (is (bytes= commitment
-                         (ethereum-lisp.core::engine-blob-and-proofs-commitment
+                         (ethereum-lisp.chain-store.model:engine-blob-and-proofs-commitment
                           restored-blob)))
              (is (bytes= (first proofs)
-                         (ethereum-lisp.core::engine-blob-and-proofs-proof
+                         (ethereum-lisp.chain-store.model:engine-blob-and-proofs-proof
                           restored-blob)))
              (is (= +cell-proofs-per-blob+
                     (length
-                     (ethereum-lisp.core::engine-blob-and-proofs-cell-proofs
+                     (ethereum-lisp.chain-store.model:engine-blob-and-proofs-cell-proofs
                       restored-blob))))
              (is (bytes= (car (last proofs))
                          (car
                           (last
-                           (ethereum-lisp.core::engine-blob-and-proofs-cell-proofs
+                           (ethereum-lisp.chain-store.model:engine-blob-and-proofs-cell-proofs
                             restored-blob))))))
            (let ((database (make-file-key-value-database path)))
              (chain-store-export-to-kv
@@ -102,43 +102,43 @@
                    :commitments (list commitment)
                    :proofs proofs)
           versioned-hash (first (blob-sidecar-versioned-hashes sidecar)))
-    (ethereum-lisp.core::engine-payload-store-put-blob-sidecar store sidecar)
+    (ethereum-lisp.chain-store:engine-payload-store-put-blob-sidecar store sidecar)
     (let ((lookup
-            (ethereum-lisp.core::engine-payload-store-blob-and-proofs-v2
+            (ethereum-lisp.chain-store:engine-payload-store-blob-and-proofs-v2
              store
              versioned-hash)))
-      (setf (aref (ethereum-lisp.core::engine-blob-and-proofs-blob lookup) 0)
+      (setf (aref (ethereum-lisp.chain-store.model:engine-blob-and-proofs-blob lookup) 0)
             #x11)
-      (setf (aref (ethereum-lisp.core::engine-blob-and-proofs-commitment
+      (setf (aref (ethereum-lisp.chain-store.model:engine-blob-and-proofs-commitment
                    lookup)
                   0)
             #x22)
-      (setf (aref (ethereum-lisp.core::engine-blob-and-proofs-proof lookup)
+      (setf (aref (ethereum-lisp.chain-store.model:engine-blob-and-proofs-proof lookup)
                   0)
             #x33)
       (setf (aref
              (first
-              (ethereum-lisp.core::engine-blob-and-proofs-cell-proofs lookup))
+              (ethereum-lisp.chain-store.model:engine-blob-and-proofs-cell-proofs lookup))
              0)
             #x44))
     (let ((lookup
-            (ethereum-lisp.core::engine-payload-store-blob-and-proofs-v2
+            (ethereum-lisp.chain-store:engine-payload-store-blob-and-proofs-v2
              store
              versioned-hash)))
       (is (= #xaa
-             (aref (ethereum-lisp.core::engine-blob-and-proofs-blob lookup)
+             (aref (ethereum-lisp.chain-store.model:engine-blob-and-proofs-blob lookup)
                    0)))
       (is (= #xbb
-             (aref (ethereum-lisp.core::engine-blob-and-proofs-commitment
+             (aref (ethereum-lisp.chain-store.model:engine-blob-and-proofs-commitment
                     lookup)
                    0)))
       (is (= 0
-             (aref (ethereum-lisp.core::engine-blob-and-proofs-proof lookup)
+             (aref (ethereum-lisp.chain-store.model:engine-blob-and-proofs-proof lookup)
                    0)))
       (is (= 0
              (aref
               (first
-               (ethereum-lisp.core::engine-blob-and-proofs-cell-proofs lookup))
+               (ethereum-lisp.chain-store.model:engine-blob-and-proofs-cell-proofs lookup))
               0))))))
 
 (deftest chain-store-import-from-kv-rejects-corrupt-blob-sidecar-record
@@ -181,9 +181,9 @@
           (first (blob-sidecar-versioned-hashes source-sidecar)))
     (unwind-protect
          (progn
-           (ethereum-lisp.core::engine-payload-store-put-blob-sidecar
+           (ethereum-lisp.chain-store:engine-payload-store-put-blob-sidecar
             target target-sidecar)
-           (ethereum-lisp.core::engine-payload-store-put-blob-sidecar
+           (ethereum-lisp.chain-store:engine-payload-store-put-blob-sidecar
             source source-sidecar)
            (let ((database (make-file-key-value-database path)))
              (chain-store-export-to-kv source database)
@@ -200,11 +200,11 @@
              (chain-store-import-from-kv
               target
               (make-file-key-value-database path)))
-           (is (ethereum-lisp.core::engine-payload-store-blob-and-proofs-v1
+           (is (ethereum-lisp.chain-store:engine-payload-store-blob-and-proofs-v1
                 target
                 target-versioned-hash))
            (is (not
-                (ethereum-lisp.core::engine-payload-store-blob-and-proofs-v1
+                (ethereum-lisp.chain-store:engine-payload-store-blob-and-proofs-v1
                  target
                  source-versioned-hash))))
       (when (probe-file path)
@@ -241,31 +241,31 @@
                           :proofs (list source-proof))
           source-versioned-hash
           (first (blob-sidecar-versioned-hashes source-sidecar)))
-    (ethereum-lisp.core::engine-payload-store-put-blob-sidecar
+    (ethereum-lisp.chain-store:engine-payload-store-put-blob-sidecar
      target target-sidecar)
     (let ((source-cache (make-engine-payload-memory-store)))
-      (ethereum-lisp.core::engine-payload-store-put-blob-sidecar
+      (ethereum-lisp.chain-store:engine-payload-store-put-blob-sidecar
        source-cache source-sidecar)
       (kv-put-chain-record
        database
        :blob-sidecar
        (hash32-bytes target-versioned-hash)
        (ethereum-lisp.chain-store.persistence::chain-store-blob-sidecar-record-rlp
-        (ethereum-lisp.core::engine-payload-store-blob-and-proofs-v1
+        (ethereum-lisp.chain-store:engine-payload-store-blob-and-proofs-v1
          source-cache source-versioned-hash))))
     (signals block-validation-error
       (chain-store-import-from-kv target database))
     (let ((target-cache
-            (ethereum-lisp.core::engine-payload-store-blob-and-proofs-v1
+            (ethereum-lisp.chain-store:engine-payload-store-blob-and-proofs-v1
              target target-versioned-hash)))
       (is target-cache)
       (is (bytes= target-blob
-                  (ethereum-lisp.core::engine-blob-and-proofs-blob
+                  (ethereum-lisp.chain-store.model:engine-blob-and-proofs-blob
                    target-cache)))
       (is (bytes= target-commitment
-                  (ethereum-lisp.core::engine-blob-and-proofs-commitment
+                  (ethereum-lisp.chain-store.model:engine-blob-and-proofs-commitment
                    target-cache))))
     (is (not
-         (ethereum-lisp.core::engine-payload-store-blob-and-proofs-v1
+         (ethereum-lisp.chain-store:engine-payload-store-blob-and-proofs-v1
           target source-versioned-hash)))))
 

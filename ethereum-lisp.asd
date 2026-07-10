@@ -8,7 +8,8 @@
   ((:module "src"
     :serial t
     :components
-    ((:file "packages-foundation")
+    ((:file "package-tools")
+     (:file "packages-foundation")
      (:file "packages-json")
      (:file "packages-protocol")
      (:file "packages-models")
@@ -23,9 +24,9 @@
      (:file "packages-persistence")
      (:file "packages-runtime")
      (:file "packages-api")
+     (:file "packages-facade")
      (:file "packages-core")
      (:file "packages-cli")
-     (:file "packages-facade")
      (:file "packages")
      (:file "bytes")
      (:file "hex")

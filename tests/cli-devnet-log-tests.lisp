@@ -26,7 +26,7 @@
             (getf options :terminal-block-number)))
          (config (ethereum-lisp.cli:devnet-node-config node))
          (transition
-           (ethereum-lisp.core::engine-rpc-transition-configuration-object
+           (ethereum-lisp.engine-api:engine-rpc-transition-configuration-object
             config)))
     (is (= 12345 (chain-config-terminal-total-difficulty config)))
     (is (not (chain-config-terminal-total-difficulty-passed config)))

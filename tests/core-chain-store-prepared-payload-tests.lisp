@@ -53,11 +53,11 @@
                      (chain-store-prepared-payload restored payload-id)))
                (is restored-payload)
                (is (= 5
-                      (ethereum-lisp.core::engine-prepared-payload-version
+                      (ethereum-lisp.engine-payloads:engine-prepared-payload-version
                        restored-payload)))
                (is (bytes= (block-rlp block)
                            (block-rlp
-                            (ethereum-lisp.core::engine-prepared-payload-block
+                            (ethereum-lisp.engine-payloads:engine-prepared-payload-block
                              restored-payload)))))
              (let* ((response
                       (engine-rpc-handle-request
@@ -147,7 +147,7 @@
     (chain-store-put-prepared-payload store descendant-prepared-payload)
     (is (chain-store-prepared-payload store invalid-payload-id))
     (is (chain-store-prepared-payload store descendant-payload-id))
-    (ethereum-lisp.core::engine-payload-store-mark-invalid
+    (ethereum-lisp.chain-store:engine-payload-store-mark-invalid
      store invalid-block :head-hash (block-hash descendant-block))
     (is (not (chain-store-prepared-payload store invalid-payload-id)))
     (is (not (chain-store-prepared-payload store descendant-payload-id)))))
@@ -434,7 +434,7 @@
             :block invalid-block)))
     (unwind-protect
          (progn
-           (ethereum-lisp.core::engine-payload-store-mark-invalid
+           (ethereum-lisp.chain-store:engine-payload-store-mark-invalid
             source invalid-block)
            (let ((database (make-file-key-value-database path)))
              (chain-store-export-to-kv source database)
@@ -447,7 +447,7 @@
            (let ((database (make-file-key-value-database path)))
              (is (eq target
                      (chain-store-import-from-kv target database))))
-           (is (ethereum-lisp.core::engine-payload-store-invalid-block
+           (is (ethereum-lisp.chain-store:engine-payload-store-invalid-block
                 target
                 (block-hash invalid-block)))
            (is (not (chain-store-prepared-payload target payload-id))))
@@ -565,9 +565,9 @@
     (let* ((stored
              (chain-store-prepared-payload store payload-id))
            (stored-block
-             (ethereum-lisp.core::engine-prepared-payload-block stored))
+             (ethereum-lisp.engine-payloads:engine-prepared-payload-block stored))
            (stored-bundle
-             (ethereum-lisp.core::engine-prepared-payload-blobs-bundle stored)))
+             (ethereum-lisp.engine-payloads:engine-prepared-payload-blobs-bundle stored)))
       (is stored)
       (is (not (eq prepared-payload stored)))
       (is (not (eq block stored-block)))
@@ -586,9 +586,9 @@
     (let* ((stored
              (chain-store-prepared-payload store payload-id))
            (stored-block
-             (ethereum-lisp.core::engine-prepared-payload-block stored))
+             (ethereum-lisp.engine-payloads:engine-prepared-payload-block stored))
            (stored-bundle
-             (ethereum-lisp.core::engine-prepared-payload-blobs-bundle stored)))
+             (ethereum-lisp.engine-payloads:engine-prepared-payload-blobs-bundle stored)))
       (is stored)
       (is (bytes= original-extra-data
                   (block-header-extra-data (block-header stored-block))))

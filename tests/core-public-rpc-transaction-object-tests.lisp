@@ -194,7 +194,7 @@
              (cdr (assoc name object :test #'string=)))
            (empty-object-p (object)
              (or (null object)
-                 (typep object 'ethereum-lisp.core::json-empty-object))))
+                 (typep object 'ethereum-lisp.json:json-empty-object))))
     (let* ((store (make-engine-payload-memory-store))
            (recipient
              (address-from-hex "0x3535353535353535353535353535353535353535"))
@@ -219,7 +219,7 @@
            (pending-filter-id (field pending-filter-response "result")))
       (is sender)
       (is (null (transaction-sender transaction :expected-chain-id 1)))
-      (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+      (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
        store
        transaction)
       (let* ((pending-response

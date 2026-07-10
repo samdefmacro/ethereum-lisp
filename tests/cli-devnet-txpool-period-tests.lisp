@@ -22,7 +22,7 @@
                    0
                    +devnet-cli-txpool-pending-gas-price+))
                 (transaction-hash (transaction-hash transaction)))
-           (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+           (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
             seed-store
             transaction)
            (ethereum-lisp.cli::devnet-node-export-database seed-node)
@@ -48,7 +48,7 @@
                                       :test #'string=))))
              (is (bytes= (transaction-encoding transaction)
                          (transaction-encoding
-                          (ethereum-lisp.core::engine-payload-store-pending-transaction
+                          (ethereum-lisp.txpool:engine-payload-store-pending-transaction
                            restored-store
                            transaction-hash)))))))
       (when (probe-file journal-path)
@@ -82,7 +82,7 @@
                      0
                      +devnet-cli-txpool-pending-gas-price+))
                   (transaction-hash (transaction-hash transaction)))
-             (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+             (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
               seed-store
               transaction)
              (ethereum-lisp.cli::devnet-node-export-database seed-node)
@@ -106,7 +106,7 @@
                       (ethereum-lisp.cli:devnet-node-store restored-node)))
                (is (bytes= (transaction-encoding transaction)
                            (transaction-encoding
-                            (ethereum-lisp.core::engine-payload-store-pending-transaction
+                            (ethereum-lisp.txpool:engine-payload-store-pending-transaction
                              restored-store
                              transaction-hash)))))))
       (when (probe-file database-path)
@@ -150,7 +150,7 @@
                           (cdr (assoc "txpoolRejournalSeconds"
                                       telemetry-fields
                                       :test #'string=))))
-             (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+             (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
               (ethereum-lisp.cli:devnet-node-store node)
               transaction)
              (setf now 109)

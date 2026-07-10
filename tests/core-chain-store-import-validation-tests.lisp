@@ -479,7 +479,7 @@
              :head-block-hash (block-hash head)
              :safe-block-hash (block-hash genesis)
              :finalized-block-hash (block-hash genesis)))
-           (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+           (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
             target target-transaction)
            (let ((database (make-file-key-value-database path)))
              (chain-store-export-to-kv source database)
@@ -495,14 +495,14 @@
               target
               (make-file-key-value-database path)))
            (is (= 1
-                  (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+                  (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
                    target)))
            (is (eq target-transaction
-                   (ethereum-lisp.core::engine-payload-store-pending-transaction
+                   (ethereum-lisp.txpool:engine-payload-store-pending-transaction
                     target
                     (transaction-hash target-transaction))))
            (is (null
-                (ethereum-lisp.core::engine-payload-store-pooled-transaction
+                (ethereum-lisp.txpool:engine-payload-store-pooled-transaction
                  target
                  transaction-hash)))
            (is (null (chain-store-transaction-location

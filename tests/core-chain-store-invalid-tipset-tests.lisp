@@ -49,9 +49,9 @@
          (propagated-id (hash32-bytes (block-hash propagated-head))))
     (unwind-protect
          (progn
-           (ethereum-lisp.core::engine-payload-store-mark-invalid
+           (ethereum-lisp.chain-store:engine-payload-store-mark-invalid
             source invalid-child)
-           (ethereum-lisp.core::engine-payload-store-mark-invalid
+           (ethereum-lisp.chain-store:engine-payload-store-mark-invalid
             source invalid-child
             :head-hash (block-hash propagated-head))
            (let ((database (make-file-key-value-database path)))
@@ -70,11 +70,11 @@
              (is (eq restored
                      (chain-store-import-from-kv restored database))))
            (let ((direct
-                   (ethereum-lisp.core::engine-payload-store-invalid-block
+                   (ethereum-lisp.chain-store:engine-payload-store-invalid-block
                     restored
                     (block-hash invalid-child)))
                  (propagated
-                   (ethereum-lisp.core::engine-payload-store-invalid-block
+                   (ethereum-lisp.chain-store:engine-payload-store-invalid-block
                     restored
                     (block-hash propagated-head))))
              (is direct)
@@ -82,7 +82,7 @@
              (is (bytes= (block-rlp invalid-child)
                          (block-rlp direct))))
            (let ((status
-                   (ethereum-lisp.core::engine-payload-store-invalid-ancestor-status
+                   (ethereum-lisp.engine:engine-payload-store-invalid-ancestor-status
                     restored
                     (block-hash invalid-child)
                     (block-hash propagated-head))))
@@ -94,7 +94,7 @@
                          (hash32-bytes
                           (payload-status-latest-valid-hash status))))
              (let ((propagated
-                     (ethereum-lisp.core::engine-payload-store-invalid-block
+                     (ethereum-lisp.chain-store:engine-payload-store-invalid-block
                       restored
                       (block-hash propagated-head))))
                (is propagated)
@@ -139,7 +139,7 @@
     (unwind-protect
          (progn
            (chain-store-put-block store block)
-           (ethereum-lisp.core::engine-payload-store-mark-invalid store block)
+           (ethereum-lisp.chain-store:engine-payload-store-mark-invalid store block)
            (let ((database (make-file-key-value-database path)))
              (kv-put-chain-record
               database
@@ -213,7 +213,7 @@
            (is (chain-store-known-block target (block-hash target-block)))
            (is (not (chain-store-known-block target (block-hash known-block))))
            (is (not
-                (ethereum-lisp.core::engine-payload-store-invalid-block
+                (ethereum-lisp.chain-store:engine-payload-store-invalid-block
                  target
                  (block-hash known-block)))))
       (when (probe-file path)
@@ -266,9 +266,9 @@
              :timestamp 12))))
     (unwind-protect
          (progn
-           (ethereum-lisp.core::engine-payload-store-mark-invalid
+           (ethereum-lisp.chain-store:engine-payload-store-mark-invalid
             target target-block)
-           (ethereum-lisp.core::engine-payload-store-mark-invalid
+           (ethereum-lisp.chain-store:engine-payload-store-mark-invalid
             source invalid-block)
            (let ((database (make-file-key-value-database path)))
              (chain-store-export-to-kv source database)
@@ -281,15 +281,15 @@
              (chain-store-import-from-kv
               target
               (make-file-key-value-database path)))
-           (is (ethereum-lisp.core::engine-payload-store-invalid-block
+           (is (ethereum-lisp.chain-store:engine-payload-store-invalid-block
                 target
                 (block-hash target-block)))
            (is (not
-                (ethereum-lisp.core::engine-payload-store-invalid-block
+                (ethereum-lisp.chain-store:engine-payload-store-invalid-block
                  target
                  (block-hash invalid-block))))
            (is (not
-                (ethereum-lisp.core::engine-payload-store-invalid-block
+                (ethereum-lisp.chain-store:engine-payload-store-invalid-block
                  target
                  (block-hash replacement)))))
       (when (probe-file path)
@@ -331,9 +331,9 @@
              :timestamp 11))))
     (unwind-protect
          (progn
-           (ethereum-lisp.core::engine-payload-store-mark-invalid
+           (ethereum-lisp.chain-store:engine-payload-store-mark-invalid
             target target-block)
-           (ethereum-lisp.core::engine-payload-store-mark-invalid
+           (ethereum-lisp.chain-store:engine-payload-store-mark-invalid
             source invalid-block)
            (let ((database (make-file-key-value-database path)))
              (chain-store-export-to-kv source database)
@@ -346,11 +346,11 @@
              (chain-store-import-from-kv
               target
               (make-file-key-value-database path)))
-           (is (ethereum-lisp.core::engine-payload-store-invalid-block
+           (is (ethereum-lisp.chain-store:engine-payload-store-invalid-block
                 target
                 (block-hash target-block)))
            (is (not
-                (ethereum-lisp.core::engine-payload-store-invalid-block
+                (ethereum-lisp.chain-store:engine-payload-store-invalid-block
                  target
                  (block-hash invalid-block)))))
       (when (probe-file path)

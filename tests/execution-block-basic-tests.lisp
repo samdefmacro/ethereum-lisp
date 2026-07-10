@@ -354,7 +354,7 @@
       (is (= 1500000000000000000
              (state-account-balance
               (state-db-get-account state ommer-beneficiary))))
-      (is (string= (hash32-to-hex (ethereum-lisp.core::ommers-hash
+      (is (string= (hash32-to-hex (ethereum-lisp.blocks:ommers-hash
                                     (list ommer)))
                    (hash32-to-hex
                     (block-header-ommers-hash (block-header block)))))

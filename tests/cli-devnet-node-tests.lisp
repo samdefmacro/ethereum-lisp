@@ -91,7 +91,7 @@
               engine-store
               engine-config
               :network-id
-              (ethereum-lisp.core::engine-rpc-http-service-network-id
+              (ethereum-lisp.rpc-http:engine-rpc-http-service-network-id
                public-service)
               :allowed-method-p public-filter)))
           (chain-id-response
@@ -101,10 +101,10 @@
               engine-store
               engine-config
               :network-id
-              (ethereum-lisp.core::engine-rpc-http-service-network-id
+              (ethereum-lisp.rpc-http:engine-rpc-http-service-network-id
                public-service)
               :coinbase
-              (ethereum-lisp.core::engine-rpc-http-service-coinbase
+              (ethereum-lisp.rpc-http:engine-rpc-http-service-coinbase
                public-service)
               :allowed-method-p public-filter)))
           (public-coinbase-response
@@ -114,10 +114,10 @@
               engine-store
               engine-config
               :network-id
-              (ethereum-lisp.core::engine-rpc-http-service-network-id
+              (ethereum-lisp.rpc-http:engine-rpc-http-service-network-id
                public-service)
               :coinbase
-              (ethereum-lisp.core::engine-rpc-http-service-coinbase
+              (ethereum-lisp.rpc-http:engine-rpc-http-service-coinbase
                public-service)
               :allowed-method-p public-filter)))
           (network-response
@@ -127,7 +127,7 @@
               engine-store
               engine-config
               :network-id
-              (ethereum-lisp.core::engine-rpc-http-service-network-id
+              (ethereum-lisp.rpc-http:engine-rpc-http-service-network-id
                public-service)
               :allowed-method-p public-filter))))
       (is (string= (address-to-hex coinbase)
@@ -135,11 +135,11 @@
                          :coinbase)))
       (is (bytes= (address-bytes coinbase)
                   (address-bytes
-                   (ethereum-lisp.core::engine-rpc-http-service-coinbase
+                   (ethereum-lisp.rpc-http:engine-rpc-http-service-coinbase
                     engine-service))))
       (is (bytes= (address-bytes coinbase)
                   (address-bytes
-                   (ethereum-lisp.core::engine-rpc-http-service-coinbase
+                   (ethereum-lisp.rpc-http:engine-rpc-http-service-coinbase
                     public-service))))
       (is (= -32601
              (fixture-object-field
@@ -204,7 +204,7 @@
               store
               config
               :network-id
-              (ethereum-lisp.core::engine-rpc-http-service-network-id
+              (ethereum-lisp.rpc-http:engine-rpc-http-service-network-id
                public-service)
               :allowed-method-p public-filter)))
           (web3-response
@@ -214,7 +214,7 @@
               store
               config
               :network-id
-              (ethereum-lisp.core::engine-rpc-http-service-network-id
+              (ethereum-lisp.rpc-http:engine-rpc-http-service-network-id
                public-service)
               :allowed-method-p public-filter)))
           (rpc-modules-response
@@ -224,7 +224,7 @@
               store
               config
               :network-id
-              (ethereum-lisp.core::engine-rpc-http-service-network-id
+              (ethereum-lisp.rpc-http:engine-rpc-http-service-network-id
                public-service)
               :allowed-method-p public-filter)))
           (txpool-response
@@ -234,7 +234,7 @@
               store
               config
               :network-id
-              (ethereum-lisp.core::engine-rpc-http-service-network-id
+              (ethereum-lisp.rpc-http:engine-rpc-http-service-network-id
                public-service)
               :allowed-method-p public-filter))))
       (is (string= "0x539"

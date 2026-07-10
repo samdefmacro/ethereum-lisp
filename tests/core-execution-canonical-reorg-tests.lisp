@@ -247,24 +247,24 @@
                                           :cumulative-gas-used 21000)))))
     (chain-store-put-block store genesis)
     (chain-store-put-block store canonical-child)
-    (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+    (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
      store
      transaction)
     (chain-store-put-block store sidechain-child)
     (is (= 1
-           (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+           (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
             store)))
     (is (eq transaction
-            (ethereum-lisp.core::engine-payload-store-pending-transaction
+            (ethereum-lisp.txpool:engine-payload-store-pending-transaction
              store
              transaction-hash)))
     (is (null (chain-store-transaction-location store transaction-hash)))
     (chain-store-set-canonical-head store (block-hash sidechain-child))
     (is (= 0
-           (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+           (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
             store)))
     (is (null
-         (ethereum-lisp.core::engine-payload-store-pending-transaction
+         (ethereum-lisp.txpool:engine-payload-store-pending-transaction
           store
           transaction-hash)))
     (let ((location
@@ -326,15 +326,15 @@
     (is (typep (chain-store-transaction-location store transaction-hash)
                'engine-transaction-location))
     (is (= 0
-           (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+           (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
             store)))
     (chain-store-set-canonical-head store (block-hash new-canonical-child))
     (is (null (chain-store-transaction-location store transaction-hash)))
     (is (= 1
-           (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+           (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
             store)))
     (is (bytes= (transaction-encoding transaction)
                 (transaction-encoding
-                 (ethereum-lisp.core::engine-payload-store-pending-transaction
+                 (ethereum-lisp.txpool:engine-payload-store-pending-transaction
                   store
                   transaction-hash))))))

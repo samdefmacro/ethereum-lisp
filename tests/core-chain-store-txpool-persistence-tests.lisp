@@ -48,13 +48,13 @@
            (transaction-sender pending :expected-chain-id 1)))
     (unwind-protect
          (progn
-           (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+           (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
             source pending)
-           (ethereum-lisp.core::engine-payload-store-put-queued-transaction
+           (ethereum-lisp.txpool:engine-payload-store-put-queued-transaction
             source queued)
-           (ethereum-lisp.core::engine-payload-store-put-basefee-transaction
+           (ethereum-lisp.txpool:engine-payload-store-put-basefee-transaction
             source basefee)
-           (ethereum-lisp.core::engine-payload-store-put-blob-transaction
+           (ethereum-lisp.txpool:engine-payload-store-put-blob-transaction
             source blob)
            (let ((database (make-file-key-value-database path)))
              (chain-store-export-to-kv source database))
@@ -70,44 +70,44 @@
              (is (eq restored
                      (chain-store-import-from-kv restored database))))
            (is (= 1
-                  (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+                  (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
                    restored)))
            (is (= 1
-                  (ethereum-lisp.core::engine-payload-store-queued-transaction-count
+                  (ethereum-lisp.txpool:engine-payload-store-queued-transaction-count
                    restored)))
            (is (= 1
-                  (ethereum-lisp.core::engine-payload-store-basefee-transaction-count
+                  (ethereum-lisp.txpool:engine-payload-store-basefee-transaction-count
                    restored)))
            (is (= 1
-                  (ethereum-lisp.core::engine-payload-store-blob-transaction-count
+                  (ethereum-lisp.txpool:engine-payload-store-blob-transaction-count
                    restored)))
            (is (bytes= (transaction-encoding pending)
                        (transaction-encoding
-                        (ethereum-lisp.core::engine-payload-store-pooled-transaction
+                        (ethereum-lisp.txpool:engine-payload-store-pooled-transaction
                          restored
                          pending-hash))))
-           (is (eq (ethereum-lisp.core::engine-payload-store-pooled-transaction
+           (is (eq (ethereum-lisp.txpool:engine-payload-store-pooled-transaction
                     restored
                     (transaction-hash queued))
-                   (ethereum-lisp.core::engine-payload-store-queued-transaction
+                   (ethereum-lisp.txpool:engine-payload-store-queued-transaction
                     restored
                     (transaction-hash queued))))
            (is (bytes= (transaction-encoding basefee)
                        (transaction-encoding
-                        (ethereum-lisp.core::engine-payload-store-pooled-transaction
+                        (ethereum-lisp.txpool:engine-payload-store-pooled-transaction
                          restored
                          (transaction-hash basefee)))))
            (is (typep blob 'blob-transaction))
            (is (bytes= (transaction-encoding blob)
                        (transaction-encoding
-                        (ethereum-lisp.core::engine-payload-store-pooled-transaction
+                        (ethereum-lisp.txpool:engine-payload-store-pooled-transaction
                          restored
                          (transaction-hash blob)))))
-           (is (eq (ethereum-lisp.core::engine-payload-store-pending-transaction
+           (is (eq (ethereum-lisp.txpool:engine-payload-store-pending-transaction
                     restored
                     pending-hash)
                    (first
-                    (ethereum-lisp.core::engine-payload-store-pending-sender-transactions
+                    (ethereum-lisp.txpool:engine-payload-store-pending-sender-transactions
                      restored
                      pending-sender))))
            (let ((database (make-file-key-value-database path)))
@@ -227,34 +227,34 @@
              (is (eq restored
                      (chain-store-import-from-kv restored database))))
            (is (= 2
-                  (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+                  (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
                    restored)))
            (is (= 0
-                  (ethereum-lisp.core::engine-payload-store-queued-transaction-count
+                  (ethereum-lisp.txpool:engine-payload-store-queued-transaction-count
                    restored)))
            (is (= 0
-                  (ethereum-lisp.core::engine-payload-store-basefee-transaction-count
+                  (ethereum-lisp.txpool:engine-payload-store-basefee-transaction-count
                    restored)))
            (is (eq nil
-                   (ethereum-lisp.core::engine-payload-store-pooled-transaction
+                   (ethereum-lisp.txpool:engine-payload-store-pooled-transaction
                     restored
                     (transaction-hash stale-pending))))
            (is (eq nil
-                   (ethereum-lisp.core::engine-payload-store-pooled-transaction
+                   (ethereum-lisp.txpool:engine-payload-store-pooled-transaction
                     restored
                     (transaction-hash queued-over-gas))))
            (is (bytes= (transaction-encoding basefee-ready)
                        (transaction-encoding
-                        (ethereum-lisp.core::engine-payload-store-pending-transaction
+                        (ethereum-lisp.txpool:engine-payload-store-pending-transaction
                          restored
                          (transaction-hash basefee-ready)))))
            (is (bytes= (transaction-encoding queued-ready)
                        (transaction-encoding
-                        (ethereum-lisp.core::engine-payload-store-pending-transaction
+                        (ethereum-lisp.txpool:engine-payload-store-pending-transaction
                          restored
                          (transaction-hash queued-ready)))))
            (let ((sender-transactions
-                   (ethereum-lisp.core::engine-payload-store-pending-sender-transactions
+                   (ethereum-lisp.txpool:engine-payload-store-pending-sender-transactions
                     restored
                     sender)))
              (is (= 2 (length sender-transactions)))
@@ -336,21 +336,21 @@
              (is (eq restored
                      (chain-store-import-from-kv restored database))))
            (is (= 0
-                  (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+                  (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
                    restored)))
            (is (= 0
-                  (ethereum-lisp.core::engine-payload-store-queued-transaction-count
+                  (ethereum-lisp.txpool:engine-payload-store-queued-transaction-count
                    restored)))
            (is (= 1
-                  (ethereum-lisp.core::engine-payload-store-basefee-transaction-count
+                  (ethereum-lisp.txpool:engine-payload-store-basefee-transaction-count
                    restored)))
            (is (bytes= (transaction-encoding basefee-parked)
                        (transaction-encoding
-                        (ethereum-lisp.core::engine-payload-store-basefee-transaction
+                        (ethereum-lisp.txpool:engine-payload-store-basefee-transaction
                          restored
                          (transaction-hash basefee-parked)))))
            (is (null
-                (ethereum-lisp.core::engine-payload-store-pooled-transaction
+                (ethereum-lisp.txpool:engine-payload-store-pooled-transaction
                  restored
                  (transaction-hash queued-overbudget)))))
       (when (probe-file path)
@@ -452,19 +452,19 @@
              (is (eq restored
                      (chain-store-import-from-kv restored database))))
            (is (= 0
-                  (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+                  (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
                    restored)))
            (is (= 0
-                  (ethereum-lisp.core::engine-payload-store-queued-transaction-count
+                  (ethereum-lisp.txpool:engine-payload-store-queued-transaction-count
                    restored)))
            (is (= 0
-                  (ethereum-lisp.core::engine-payload-store-basefee-transaction-count
+                  (ethereum-lisp.txpool:engine-payload-store-basefee-transaction-count
                    restored)))
            (dolist (transaction (list pending-transaction
                                       queued-transaction
                                       basefee-transaction))
              (is (null
-                  (ethereum-lisp.core::engine-payload-store-pooled-transaction
+                  (ethereum-lisp.txpool:engine-payload-store-pooled-transaction
                    restored
                    (transaction-hash transaction))))))
       (when (probe-file path)
@@ -505,7 +505,7 @@
                                    :expected-chain-id nil))
            (is (null (transaction-sender wrong-chain-transaction
                                          :expected-chain-id 1)))
-           (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+           (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
             target target-transaction)
            (let ((database (make-file-key-value-database path)))
              (kv-put-chain-record
@@ -521,10 +521,10 @@
               (make-file-key-value-database path)
               :expected-chain-id 1))
            (is (= 1
-                  (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+                  (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
                    target)))
            (is (eq target-transaction
-                   (ethereum-lisp.core::engine-payload-store-pending-transaction
+                   (ethereum-lisp.txpool:engine-payload-store-pending-transaction
                     target
                     (transaction-hash target-transaction)))))
       (when (probe-file path)
@@ -575,10 +575,10 @@
               :expected-chain-id 1337
               :chain-config cancun-config)
              (is (= 1
-                    (ethereum-lisp.core::engine-payload-store-blob-transaction-count
+                    (ethereum-lisp.txpool:engine-payload-store-blob-transaction-count
                      restored)))
              (is (typep
-                  (ethereum-lisp.core::engine-payload-store-blob-transaction
+                  (ethereum-lisp.txpool:engine-payload-store-blob-transaction
                    restored
                    (transaction-hash transaction))
                   'blob-transaction))))
@@ -699,7 +699,7 @@
            (progn
              (is (transaction-sender malformed :expected-chain-id 1337))
              (signals block-validation-error
-               (ethereum-lisp.core::validate-set-code-authorization-signatures
+               (ethereum-lisp.consensus:validate-set-code-authorization-signatures
                 malformed))
              (let ((database (make-file-key-value-database path)))
                (kv-put-chain-record
@@ -759,9 +759,9 @@
             1)))
     (unwind-protect
          (progn
-           (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+           (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
             target target-transaction)
-           (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+           (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
             source transaction)
            (let ((database (make-file-key-value-database path)))
              (chain-store-export-to-kv source database)
@@ -777,10 +777,10 @@
               target
               (make-file-key-value-database path)))
            (is (= 1
-                  (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+                  (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
                    target)))
            (is (eq target-transaction
-                   (ethereum-lisp.core::engine-payload-store-pending-transaction
+                   (ethereum-lisp.txpool:engine-payload-store-pending-transaction
                     target
                     (transaction-hash target-transaction)))))
       (when (probe-file path)
@@ -837,7 +837,7 @@
               target
               (make-file-key-value-database path)))
            (is (= 0
-                  (ethereum-lisp.core::engine-payload-store-blob-transaction-count
+                  (ethereum-lisp.txpool:engine-payload-store-blob-transaction-count
                    target))))))
       (with-database-record
        :pending
@@ -851,7 +851,7 @@
               :expected-chain-id 1337
               :chain-config config))
            (is (= 0
-                  (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+                  (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
                    target)))))))))
 
 (deftest chain-store-import-from-kv-rejects-conflicting-txpool-records
@@ -902,7 +902,7 @@
                        (address-bytes
                         (transaction-sender queued-conflict
                                             :expected-chain-id 1))))
-           (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+           (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
             target target-transaction)
            (let ((database (make-file-key-value-database path)))
              (kv-put-chain-record
@@ -924,21 +924,21 @@
               target
               (make-file-key-value-database path)))
            (is (= 1
-                  (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+                  (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
                    target)))
            (is (= 0
-                  (ethereum-lisp.core::engine-payload-store-queued-transaction-count
+                  (ethereum-lisp.txpool:engine-payload-store-queued-transaction-count
                    target)))
            (is (eq target-transaction
-                   (ethereum-lisp.core::engine-payload-store-pending-transaction
+                   (ethereum-lisp.txpool:engine-payload-store-pending-transaction
                     target
                     (transaction-hash target-transaction))))
            (is (null
-                (ethereum-lisp.core::engine-payload-store-pooled-transaction
+                (ethereum-lisp.txpool:engine-payload-store-pooled-transaction
                  target
                  (transaction-hash pending))))
            (is (null
-                (ethereum-lisp.core::engine-payload-store-pooled-transaction
+                (ethereum-lisp.txpool:engine-payload-store-pooled-transaction
                  target
                  (transaction-hash queued-conflict)))))
       (when (probe-file path)

@@ -83,7 +83,7 @@
           (called nil))
       (replace invalid-blob
                (ethereum-lisp.crypto::integer-to-fixed-bytes
-                ethereum-lisp.core::+kzg-field-modulus+
+                ethereum-lisp.kzg:+kzg-field-modulus+
                 32)
                :start1 0)
       (let ((*kzg-blob-proof-verifier*
@@ -135,8 +135,8 @@
          (blob (make-byte-vector +blob-byte-size+))
          (commitment (make-byte-vector +kzg-commitment-size+))
          (proof (make-byte-vector +kzg-proof-size+))
-         (z (make-byte-vector ethereum-lisp.core::+kzg-field-element-size+))
-         (y (make-byte-vector ethereum-lisp.core::+kzg-field-element-size+))
+         (z (make-byte-vector ethereum-lisp.kzg:+kzg-field-element-size+))
+         (y (make-byte-vector ethereum-lisp.kzg:+kzg-field-element-size+))
          (old-point-verifier *kzg-point-proof-verifier*)
          (old-blob-verifier *kzg-blob-proof-verifier*))
     (labels ((file-contents (path)
@@ -188,7 +188,7 @@
                (verify-kzg-point-proof commitment z y proof))
              (signals error
                (verify-kzg-blob-proof blob commitment proof))
-             (let ((ethereum-lisp.core::*kzg-verifier-command-timeout-seconds*
+             (let ((ethereum-lisp.kzg:*kzg-verifier-command-timeout-seconds*
                      0))
                (configure-kzg-proof-command-verifiers
                 (list "sh" (namestring sleep-script-path)))

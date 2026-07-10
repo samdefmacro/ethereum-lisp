@@ -363,16 +363,16 @@
     (chain-store-put-account-nonce store (block-hash parent-block) sender 0)
     (chain-store-put-account-balance
      store (block-hash parent-block) sender 1000000000)
-    (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+    (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
      store
      pending-transaction)
-    (ethereum-lisp.core::engine-payload-store-put-queued-transaction
+    (ethereum-lisp.txpool:engine-payload-store-put-queued-transaction
      store
      queued-transaction)
-    (ethereum-lisp.core::engine-payload-store-put-basefee-transaction
+    (ethereum-lisp.txpool:engine-payload-store-put-basefee-transaction
      store
      basefee-transaction)
-    (ethereum-lisp.core::engine-payload-store-put-blob-transaction
+    (ethereum-lisp.txpool:engine-payload-store-put-blob-transaction
      store
      blob-transaction)
     (chain-store-put-block store child-block :state-available-p t)
@@ -383,23 +383,23 @@
      store (block-hash child-block) sender #(1 2 3))
     (chain-store-set-canonical-head store (block-hash child-block))
     (is (= 0
-           (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+           (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
             store)))
     (is (= 0
-           (ethereum-lisp.core::engine-payload-store-queued-transaction-count
+           (ethereum-lisp.txpool:engine-payload-store-queued-transaction-count
             store)))
     (is (= 0
-           (ethereum-lisp.core::engine-payload-store-basefee-transaction-count
+           (ethereum-lisp.txpool:engine-payload-store-basefee-transaction-count
             store)))
     (is (= 0
-           (ethereum-lisp.core::engine-payload-store-blob-transaction-count
+           (ethereum-lisp.txpool:engine-payload-store-blob-transaction-count
             store)))
     (dolist (transaction (list pending-transaction
                                queued-transaction
                                basefee-transaction
                                blob-transaction))
       (is (null
-           (ethereum-lisp.core::engine-payload-store-pooled-transaction
+           (ethereum-lisp.txpool:engine-payload-store-pooled-transaction
             store
             (transaction-hash transaction)))))))
 

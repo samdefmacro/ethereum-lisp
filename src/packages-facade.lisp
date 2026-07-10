@@ -1,6 +1,5 @@
-(defpackage #:ethereum-lisp
-  (:use #:cl)
-  (:import-from #:ethereum-lisp.bytes
+(ethereum-lisp.package-tools:define-api-package #:ethereum-lisp
+  (#:ethereum-lisp.bytes
    #:byte-vector
    #:byte-vector-p
    #:make-byte-vector
@@ -11,12 +10,12 @@
    #:bytes-to-integer
    #:ascii-to-bytes
    #:bytes-to-ascii)
-  (:import-from #:ethereum-lisp.hex
+  (#:ethereum-lisp.hex
    #:bytes-to-hex
    #:hex-to-bytes
    #:quantity-to-hex
    #:hex-to-quantity)
-  (:import-from #:ethereum-lisp.database
+  (#:ethereum-lisp.database
    #:key-value-database
    #:memory-key-value-database
    #:file-key-value-database
@@ -51,7 +50,7 @@
    #:kv-batch-put-chain-checkpoint
    #:kv-batch-delete-chain-checkpoint
    #:kv-chain-checkpoints)
-  (:import-from #:ethereum-lisp.rlp
+  (#:ethereum-lisp.rlp
    #:rlp-error
    #:rlp-list
    #:rlp-list-p
@@ -60,7 +59,7 @@
    #:rlp-encode
    #:rlp-decode
    #:rlp-decode-one)
-  (:import-from #:ethereum-lisp.types
+  (#:ethereum-lisp.types
    #:+uint256-max+
    #:uint256-p
    #:address
@@ -77,7 +76,7 @@
    #:hash32-from-hex
    #:hash32-to-hex
    #:zero-hash32)
-  (:import-from #:ethereum-lisp.crypto
+  (#:ethereum-lisp.crypto
    #:keccak-256
    #:keccak-256-hash
    #:keccak-256-hex
@@ -95,7 +94,7 @@
    #:kzg-commitment-to-versioned-hash
    #:+empty-code-hash+
    #:+empty-trie-hash+)
-  (:import-from #:ethereum-lisp.trie.encoding
+  (#:ethereum-lisp.trie.encoding
    #:+terminator-nibble+
    #:has-terminator-p
    #:keybytes-to-nibbles
@@ -103,7 +102,7 @@
    #:hex-prefix-encode
    #:hex-prefix-decode
    #:common-prefix-length)
-  (:import-from #:ethereum-lisp.trie
+  (#:ethereum-lisp.trie
    #:mpt
    #:make-mpt
    #:mpt-put
@@ -116,27 +115,93 @@
    #:mpt-root-hash
    #:mpt-root-hex
    #:mpt-root-node)
-  (:import-from #:ethereum-lisp.core
+  (#:ethereum-lisp.blocks
    #:+empty-ommers-hash+
    #:ommers-hash
    #:+initial-base-fee+
+   #:+maximum-extra-data-size+
+   #:block-header
+   #:make-block-header
+   #:block-header-parent-hash
+   #:block-header-ommers-hash
+   #:block-header-beneficiary
+   #:block-header-state-root
+   #:block-header-transactions-root
+   #:block-header-receipts-root
+   #:block-header-logs-bloom
+   #:block-header-difficulty
+   #:block-header-number
+   #:block-header-gas-limit
+   #:block-header-gas-used
+   #:block-header-timestamp
+   #:block-header-extra-data
+   #:block-header-mix-hash
+   #:block-header-nonce
+   #:block-header-base-fee-per-gas
+   #:block-header-withdrawals-root
+   #:block-header-blob-gas-used
+   #:block-header-excess-blob-gas
+   #:block-header-parent-beacon-root
+   #:block-header-requests-hash
+   #:block-header-block-access-list-hash
+   #:block-header-slot-number
+   #:block-header-rlp
+   #:block-header-hash
+   #:ethereum-block
+   #:make-block
+   #:block-transactions
+   #:block-ommers
+   #:block-withdrawals
+   #:block-withdrawals-present-p
+   #:block-requests
+   #:block-requests-present-p
+   #:block-block-access-list
+   #:block-block-access-list-present-p
+   #:block-encoded-block-access-list
+   #:block-hash
+   #:block-rlp
+   #:block-from-rlp)
+  (#:ethereum-lisp.consensus
    #:+base-fee-elasticity-multiplier+
    #:+base-fee-change-denominator+
+   #:+min-blobs-per-transaction+
+   #:+min-blob-gas-price+
+   #:+blob-base-cost+
+   #:+gas-limit-bound-divisor+
+   #:+minimum-gas-limit+
+   #:expected-base-fee-per-gas
+   #:validate-block-base-fee
+   #:validate-gas-limit-delta
+   #:adjusted-parent-gas-limit-for-1559
+   #:validate-block-blob-gas-fields
+   #:expected-excess-blob-gas
+   #:fake-exponential
+   #:blob-base-fee
+   #:block-header-blob-base-fee
+   #:validate-block-excess-blob-gas
+   #:block-header-cancun-fields-present-p
+   #:validate-block-cancun-fields
+   #:validate-block-withdrawals-field
+   #:validate-block-requests-hash-field
+   #:block-header-amsterdam-fields-present-p
+   #:validate-block-amsterdam-fields
+   #:validate-block-amsterdam-slot-number
+   #:validate-block-header-basics
+   #:validate-block-header-against-config
+   #:validate-blob-versioned-hash
+   #:validate-blob-transaction-fields
+   #:validate-blob-transaction-fee-cap
+   #:validate-withdrawal-fields
+   #:validate-withdrawal-list-fields
+   #:validate-block-transactions-against-config
+   #:validate-block-body-against-config
+   #:validate-block-against-config
+   #:validate-block-body-roots
+   #:blob-gas-used
+   #:receipts-gas-used
+   #:validate-block-execution-roots)
+  (#:ethereum-lisp.chain-config
    #:+blob-gas-per-blob+
-   #:+blob-byte-size+
-   #:+kzg-proof-size+
-   #:*kzg-point-proof-verifier*
-   #:*kzg-blob-proof-verifier*
-   #:*kzg-verifier-command-timeout-seconds*
-   #:kzg-point-proof-verification-available-p
-   #:kzg-blob-proof-verification-available-p
-   #:kzg-proof-verification-available-p
-   #:verify-kzg-point-proof
-   #:verify-kzg-blob-proof
-   #:make-kzg-point-proof-command-verifier
-   #:make-kzg-blob-proof-command-verifier
-   #:configure-kzg-proof-command-verifiers
-   #:+cell-proofs-per-blob+
    #:+target-blobs-per-block+
    #:+max-blobs-per-block+
    #:+osaka-target-blobs-per-block+
@@ -149,36 +214,18 @@
    #:+bpo3-max-blobs-per-block+
    #:+bpo4-target-blobs-per-block+
    #:+bpo4-max-blobs-per-block+
-   #:+min-blobs-per-transaction+
-   #:+min-blob-gas-price+
    #:+blob-base-fee-update-fraction+
    #:+osaka-blob-base-fee-update-fraction+
    #:+bpo1-blob-base-fee-update-fraction+
    #:+bpo2-blob-base-fee-update-fraction+
    #:+bpo3-blob-base-fee-update-fraction+
    #:+bpo4-blob-base-fee-update-fraction+
-   #:+blob-base-cost+
-   #:+maximum-extra-data-size+
-   #:+block-access-list-max-code-size+
-   #:+block-access-list-amsterdam-max-code-size+
-   #:+block-access-list-item-gas-cost+
-   #:+gas-limit-bound-divisor+
-   #:+minimum-gas-limit+
-   #:+genesis-gas-limit+
-   #:+genesis-difficulty+
    #:blob-schedule-entry
    #:make-blob-schedule-entry
    #:blob-schedule-entry-timestamp
    #:blob-schedule-entry-target-blobs
    #:blob-schedule-entry-max-blobs
    #:blob-schedule-entry-update-fraction
-   #:genesis-account
-   #:make-genesis-account
-   #:genesis-account-address
-   #:genesis-account-balance
-   #:genesis-account-nonce
-   #:genesis-account-code
-   #:genesis-account-storage
    #:chain-config
    #:make-chain-config
    #:chain-config-chain-id
@@ -243,24 +290,6 @@
    #:chain-config-ubt-genesis-p
    #:chain-config-expanded-blob-schedule-p
    #:chain-config-blob-schedule
-   #:parse-json
-   #:json-encode
-   #:chain-config-from-genesis-config
-   #:chain-config-from-genesis-json-string
-   #:chain-config-from-genesis-json-file
-   #:genesis-alloc-from-genesis-object
-   #:genesis-alloc-from-genesis-json-string
-   #:genesis-alloc-from-genesis-json-file
-   #:genesis-expected-state-root-from-genesis-object
-   #:genesis-expected-state-root-from-genesis-json-string
-   #:genesis-expected-state-root-from-genesis-json-file
-   #:genesis-header-from-genesis-object
-   #:genesis-header-from-genesis-json-string
-   #:genesis-header-from-genesis-json-file
-   #:genesis-block-from-genesis-header
-   #:genesis-block-from-genesis-object
-   #:genesis-block-from-genesis-json-string
-   #:genesis-block-from-genesis-json-file
    #:chain-config-rules
    #:chain-rules
    #:make-chain-rules
@@ -290,16 +319,94 @@
    #:chain-rules-blob-schedule-max-gas
    #:chain-rules-blob-schedule-update-fraction
    #:chain-rules-expanded-blob-schedule-p
-   #:chain-rules-blob-schedule
+   #:chain-rules-blob-schedule)
+  (#:ethereum-lisp.kzg
+   #:+blob-byte-size+
+   #:+kzg-proof-size+
+   #:*kzg-point-proof-verifier*
+   #:*kzg-blob-proof-verifier*
+   #:*kzg-verifier-command-timeout-seconds*
+   #:kzg-point-proof-verification-available-p
+   #:kzg-blob-proof-verification-available-p
+   #:kzg-proof-verification-available-p
+   #:verify-kzg-point-proof
+   #:verify-kzg-blob-proof
+   #:make-kzg-point-proof-command-verifier
+   #:make-kzg-blob-proof-command-verifier
+   #:configure-kzg-proof-command-verifiers
+   #:+cell-proofs-per-blob+
+   #:validate-blob-sidecar-fields)
+  (#:ethereum-lisp.block-access-lists
+   #:+block-access-list-max-code-size+
+   #:+block-access-list-amsterdam-max-code-size+
+   #:+block-access-list-item-gas-cost+
+   #:block-access-account
+   #:make-block-access-account
+   #:block-access-account-address
+   #:block-access-account-storage-writes
+   #:block-access-account-storage-reads
+   #:block-access-account-balance-changes
+   #:block-access-account-nonce-changes
+   #:block-access-account-code-changes
+   #:block-access-storage-write
+   #:make-block-access-storage-write
+   #:block-access-storage-write-tx-index
+   #:block-access-storage-write-value-after
+   #:block-access-slot-writes
+   #:make-block-access-slot-writes
+   #:block-access-slot-writes-slot
+   #:block-access-slot-writes-accesses
+   #:block-access-balance-change
+   #:make-block-access-balance-change
+   #:block-access-balance-change-tx-index
+   #:block-access-balance-change-balance
+   #:block-access-nonce-change
+   #:make-block-access-nonce-change
+   #:block-access-nonce-change-tx-index
+   #:block-access-nonce-change-nonce
+   #:block-access-code-change
+   #:make-block-access-code-change
+   #:block-access-code-change-tx-index
+   #:block-access-code-change-code
+   #:block-access-account-rlp
+   #:block-access-list-rlp
+   #:block-access-list-from-rlp
+   #:block-access-list-rlp-hash
+   #:block-access-list-hash
+   #:block-access-list-item-count
+   #:validate-block-access-account-fields
+   #:validate-block-access-list-fields)
+  (#:ethereum-lisp.genesis
+   #:+genesis-gas-limit+
+   #:+genesis-difficulty+
+   #:genesis-account
+   #:make-genesis-account
+   #:genesis-account-address
+   #:genesis-account-balance
+   #:genesis-account-nonce
+   #:genesis-account-code
+   #:genesis-account-storage
+   #:chain-config-from-genesis-config
+   #:chain-config-from-genesis-json-string
+   #:chain-config-from-genesis-json-file
+   #:genesis-alloc-from-genesis-object
+   #:genesis-alloc-from-genesis-json-string
+   #:genesis-alloc-from-genesis-json-file
+   #:genesis-expected-state-root-from-genesis-object
+   #:genesis-expected-state-root-from-genesis-json-string
+   #:genesis-expected-state-root-from-genesis-json-file
+   #:genesis-header-from-genesis-object
+   #:genesis-header-from-genesis-json-string
+   #:genesis-header-from-genesis-json-file
+   #:genesis-block-from-genesis-header
+   #:genesis-block-from-genesis-object
+   #:genesis-block-from-genesis-json-string
+   #:genesis-block-from-genesis-json-file)
+  (#:ethereum-lisp.json
+   #:parse-json
+   #:json-encode)
+  (#:ethereum-lisp.transactions
    #:chain-rules-transaction-type-supported-p
-   #:state-account
-   #:make-state-account
-   #:state-account-nonce
-   #:state-account-balance
-   #:state-account-storage-root
-   #:state-account-code-hash
-   #:state-account-rlp
-   #:state-account-hash
    #:legacy-transaction
    #:make-legacy-transaction
    #:legacy-transaction-nonce
@@ -442,49 +549,17 @@
    #:transaction-max-fee-per-gas
    #:validate-1559-transaction-fees
    #:transaction-effective-gas-price
-   #:transaction-priority-fee-per-gas
-   #:block-header
-   #:make-block-header
-   #:block-header-parent-hash
-   #:block-header-ommers-hash
-   #:block-header-beneficiary
-   #:block-header-state-root
-   #:block-header-transactions-root
-   #:block-header-receipts-root
-   #:block-header-logs-bloom
-   #:block-header-difficulty
-   #:block-header-number
-   #:block-header-gas-limit
-   #:block-header-gas-used
-   #:block-header-timestamp
-   #:block-header-extra-data
-   #:block-header-mix-hash
-   #:block-header-nonce
-   #:block-header-base-fee-per-gas
-   #:block-header-withdrawals-root
-   #:block-header-blob-gas-used
-   #:block-header-excess-blob-gas
-   #:block-header-parent-beacon-root
-   #:block-header-requests-hash
-   #:block-header-block-access-list-hash
-   #:block-header-slot-number
-   #:block-header-rlp
-   #:block-header-hash
-   #:ethereum-block
-   #:make-block
-   #:block-header
-   #:block-transactions
-   #:block-ommers
-   #:block-withdrawals
-   #:block-withdrawals-present-p
-   #:block-requests
-   #:block-requests-present-p
-   #:block-block-access-list
-   #:block-block-access-list-present-p
-   #:block-encoded-block-access-list
-   #:block-hash
-   #:block-rlp
-   #:block-from-rlp
+   #:transaction-priority-fee-per-gas)
+  (#:ethereum-lisp.accounts
+   #:state-account
+   #:make-state-account
+   #:state-account-nonce
+   #:state-account-balance
+   #:state-account-storage-root
+   #:state-account-code-hash
+   #:state-account-rlp
+   #:state-account-hash)
+  (#:ethereum-lisp.engine-payloads
    #:executable-data
    #:make-executable-data
    #:executable-data-parent-hash
@@ -543,7 +618,8 @@
    #:executable-data-to-block-no-hash
    #:executable-data-to-block
    #:engine-new-payload-params-status
-   #:engine-new-payload-version-status
+   #:engine-new-payload-version-status)
+  (#:ethereum-lisp.chain-store.model
    #:chain-store-checkpoint
    #:make-chain-store-checkpoint
    #:chain-store-checkpoint-label
@@ -555,7 +631,8 @@
    #:engine-transaction-location-index
    #:engine-transaction-location-transaction
    #:engine-transaction-location-receipt
-   #:engine-transaction-location-log-index-start
+   #:engine-transaction-location-log-index-start)
+  (#:ethereum-lisp.chain-store
    #:engine-payload-store-put-block
    #:engine-payload-store-known-block
    #:engine-payload-store-block-by-number
@@ -569,7 +646,6 @@
    #:engine-payload-store-remote-block
    #:engine-payload-store-mark-invalid
    #:engine-payload-store-invalid-block
-   #:engine-payload-store-invalid-ancestor-status
    #:engine-payload-id-to-hex
    #:engine-payload-store-put-prepared-payload
    #:engine-payload-store-prepared-payload
@@ -577,7 +653,6 @@
    #:chain-store-known-block
    #:chain-store-block-by-number
    #:chain-store-canonical-hash
-   #:chain-store-set-canonical-head
    #:chain-store-head-number
    #:chain-store-block-tag-number
    #:chain-store-latest-block
@@ -602,17 +677,25 @@
    #:chain-store-head-block
    #:chain-store-safe-block
    #:chain-store-finalized-block
+   #:chain-store-put-prepared-payload
+   #:chain-store-prepared-payload
+   #:engine-payload-store-put-blob-sidecar
+   #:engine-payload-store-blob-and-proofs-v1
+   #:engine-payload-store-blob-and-proofs-v2)
+  (#:ethereum-lisp.engine
+   #:engine-payload-store-invalid-ancestor-status
+   #:engine-forkchoice-memory-status
+   #:engine-new-payload-memory-status)
+  (#:ethereum-lisp.canonical-chain
+   #:chain-store-set-canonical-head)
+  (#:ethereum-lisp.chain-store.persistence
    #:chain-store-export-indexes-to-kv
    #:chain-store-export-block-records-to-kv
    #:chain-store-export-transaction-locations-to-kv
    #:chain-store-export-state-records-to-kv
    #:chain-store-export-to-kv
-   #:chain-store-import-from-kv
-   #:chain-store-put-prepared-payload
-   #:chain-store-prepared-payload
-   #:engine-payload-store-put-blob-sidecar
-   #:engine-payload-store-blob-and-proofs-v1
-   #:engine-payload-store-blob-and-proofs-v2
+   #:chain-store-import-from-kv)
+  (#:ethereum-lisp.engine-api
    #:+engine-rpc-capabilities+
    #:engine-rpc-capabilities
    #:+engine-rpc-client-version+
@@ -622,17 +705,18 @@
    #:engine-rpc-executable-data-object
    #:engine-rpc-payload-status-object
    #:engine-rpc-forkchoice-state-from-object
-   #:engine-forkchoice-memory-status
    #:engine-rpc-forkchoice-response-object
    #:engine-rpc-handle-get-payload-v1
    #:engine-rpc-handle-forkchoice-updated-v1
    #:engine-rpc-engine-method-p
    #:engine-rpc-public-method-p
-   #:engine-rpc-any-method-p
+   #:engine-rpc-any-method-p)
+  (#:ethereum-lisp.rpc
    #:engine-rpc-handle-request
    #:engine-rpc-handle-request-value
    #:engine-rpc-handle-request-string
-   #:engine-rpc-handle-request-json
+   #:engine-rpc-handle-request-json)
+  (#:ethereum-lisp.rpc-http
    #:+engine-rpc-http-accepted-content-types+
    #:engine-rpc-http-accepted-content-type-p
    #:+engine-rpc-default-http-host+
@@ -670,81 +754,15 @@
    #:engine-rpc-handle-http-request-string
    #:engine-rpc-handle-http-stream
    #:engine-rpc-http-service-handle-stream
-   #:engine-rpc-http-service-serve-listener
-   #:engine-new-payload-memory-status
+   #:engine-rpc-http-service-serve-listener)
+  (#:ethereum-lisp.execution-requests
    #:execution-requests-hash
-   #:block-access-account
-   #:make-block-access-account
-   #:block-access-account-address
-   #:block-access-account-storage-writes
-   #:block-access-account-storage-reads
-   #:block-access-account-balance-changes
-   #:block-access-account-nonce-changes
-   #:block-access-account-code-changes
-   #:block-access-storage-write
-   #:make-block-access-storage-write
-   #:block-access-storage-write-tx-index
-   #:block-access-storage-write-value-after
-   #:block-access-slot-writes
-   #:make-block-access-slot-writes
-   #:block-access-slot-writes-slot
-   #:block-access-slot-writes-accesses
-   #:block-access-balance-change
-   #:make-block-access-balance-change
-   #:block-access-balance-change-tx-index
-   #:block-access-balance-change-balance
-   #:block-access-nonce-change
-   #:make-block-access-nonce-change
-   #:block-access-nonce-change-tx-index
-   #:block-access-nonce-change-nonce
-   #:block-access-code-change
-   #:make-block-access-code-change
-   #:block-access-code-change-tx-index
-   #:block-access-code-change-code
-   #:block-access-account-rlp
-   #:block-access-list-rlp
-   #:block-access-list-from-rlp
-   #:block-access-list-rlp-hash
-   #:block-access-list-hash
-   #:block-access-list-item-count
-   #:block-validation-error
-   #:block-validation-error-message
-   #:expected-base-fee-per-gas
-   #:validate-block-base-fee
-   #:validate-gas-limit-delta
-   #:adjusted-parent-gas-limit-for-1559
-   #:validate-block-blob-gas-fields
-   #:expected-excess-blob-gas
-   #:fake-exponential
-   #:blob-base-fee
-   #:block-header-blob-base-fee
-   #:validate-block-excess-blob-gas
-   #:block-header-cancun-fields-present-p
-   #:validate-block-cancun-fields
-   #:validate-block-withdrawals-field
-   #:validate-block-requests-hash-field
-   #:block-header-amsterdam-fields-present-p
-   #:validate-block-amsterdam-fields
-   #:validate-block-amsterdam-slot-number
-   #:validate-block-header-basics
-   #:validate-block-header-against-config
-   #:validate-blob-versioned-hash
-   #:validate-blob-transaction-fields
-   #:validate-blob-transaction-fee-cap
-   #:validate-blob-sidecar-fields
-   #:validate-withdrawal-fields
-   #:validate-withdrawal-list-fields
    #:validate-execution-request-fields
-   #:validate-execution-request-list-fields
-   #:validate-block-access-account-fields
-   #:validate-block-access-list-fields
-   #:validate-block-transactions-against-config
-   #:validate-block-body-against-config
-   #:validate-block-against-config
-   #:validate-block-body-roots
-   #:blob-gas-used
-   #:receipts-gas-used
-   #:validate-block-execution-roots
+   #:validate-execution-request-list-fields)
+  (#:ethereum-lisp.validation
+   #:block-validation-error
+   #:block-validation-error-message)
+  (#:ethereum-lisp.receipts
    #:withdrawal
    #:make-withdrawal
    #:withdrawal-index
@@ -776,7 +794,7 @@
    #:transaction-list-root
    #:receipt-list-root
    #:transaction-receipt-list-root)
-  (:import-from #:ethereum-lisp.evm
+  (#:ethereum-lisp.evm
    #:evm-error
    #:precompile-address
    #:prewarm-precompile-addresses
@@ -817,7 +835,7 @@
    #:evm-result-gas-used
    #:evm-result-refund-counter
    #:execute-bytecode)
-  (:import-from #:ethereum-lisp.state
+  (#:ethereum-lisp.state
    #:state-db
    #:make-state-db
    #:state-storage-proof
@@ -900,7 +918,7 @@
    #:execution-result-transactions-root
    #:execution-result-receipts-root
    #:execute-legacy-transactions)
-  (:import-from #:ethereum-lisp.execution
+  (#:ethereum-lisp.execution
    #:execute-message-call
    #:apply-legacy-message
    #:apply-signed-message
@@ -915,907 +933,6 @@
    #:execute-and-commit-block
    #:execute-and-commit-signed-block
    #:execute-signed-block)
-  (:export
-   #:byte-vector
-   #:byte-vector-p
-   #:make-byte-vector
-   #:ensure-byte-vector
-   #:bytes=
-   #:concat-bytes
-   #:integer-to-minimal-bytes
-   #:bytes-to-integer
-   #:ascii-to-bytes
-   #:bytes-to-ascii
-   #:bytes-to-hex
-   #:hex-to-bytes
-   #:quantity-to-hex
-   #:hex-to-quantity
-   #:key-value-database
-   #:memory-key-value-database
-   #:file-key-value-database
-   #:make-memory-key-value-database
-   #:make-file-key-value-database
-   #:kv-get
-   #:kv-put
-   #:kv-delete
-   #:kv-write-batch
-   #:make-kv-write-batch
-   #:kv-batch-put
-   #:kv-batch-delete
-   #:kv-apply-batch
-   #:kv-iterator
-   #:kv-chain-record-key
-   #:kv-put-chain-record
-   #:kv-get-chain-record
-   #:kv-delete-chain-record
-   #:kv-batch-put-chain-record
-   #:kv-batch-delete-chain-record
-   #:kv-chain-records
-   #:kv-chain-record-entries
-   #:kv-put-chain-canonical-hash
-   #:kv-get-chain-canonical-hash
-   #:kv-delete-chain-canonical-hash
-   #:kv-batch-put-chain-canonical-hash
-   #:kv-batch-delete-chain-canonical-hash
-   #:kv-chain-canonical-hashes
-   #:kv-put-chain-checkpoint
-   #:kv-get-chain-checkpoint
-   #:kv-delete-chain-checkpoint
-   #:kv-batch-put-chain-checkpoint
-   #:kv-batch-delete-chain-checkpoint
-   #:kv-chain-checkpoints
-   #:rlp-error
-   #:rlp-list
-   #:rlp-list-p
-   #:rlp-list-items
-   #:make-rlp-list
-   #:rlp-encode
-   #:rlp-decode
-   #:rlp-decode-one
-   #:+uint256-max+
-   #:uint256-p
-   #:address
-   #:address-p
-   #:address-bytes
-   #:make-address
-   #:address-from-hex
-   #:address-to-hex
-   #:zero-address
-   #:hash32
-   #:hash32-p
-   #:hash32-bytes
-   #:make-hash32
-   #:hash32-from-hex
-   #:hash32-to-hex
-   #:zero-hash32
-   #:keccak-256
-   #:keccak-256-hash
-   #:keccak-256-hex
-   #:sha256
-   #:sha256-hash
-   #:sha256-hex
-   #:ripemd160
-   #:ripemd160-hex
-   #:secp256k1-private-key-address
-   #:secp256k1-recover-public-key
-   #:secp256k1-recover-address
-   #:secp256k1-valid-signature-values-p
-   #:+kzg-commitment-size+
-   #:+kzg-commitment-version+
-   #:kzg-commitment-to-versioned-hash
-   #:+empty-code-hash+
-   #:+empty-trie-hash+
-   #:+terminator-nibble+
-   #:has-terminator-p
-   #:keybytes-to-nibbles
-   #:nibbles-to-keybytes
-   #:hex-prefix-encode
-   #:hex-prefix-decode
-   #:common-prefix-length
-   #:mpt
-   #:make-mpt
-   #:mpt-put
-   #:mpt-delete
-   #:mpt-get
-   #:mpt-entry-pairs
-   #:mpt-entry-range
-   #:mpt-get-proof
-   #:mpt-verify-proof
-   #:mpt-root-hash
-   #:mpt-root-hex
-   #:mpt-root-node
-   #:+empty-ommers-hash+
-   #:ommers-hash
-   #:+initial-base-fee+
-   #:+base-fee-elasticity-multiplier+
-   #:+base-fee-change-denominator+
-   #:+blob-gas-per-blob+
-   #:+blob-byte-size+
-   #:+kzg-proof-size+
-   #:*kzg-point-proof-verifier*
-   #:*kzg-blob-proof-verifier*
-   #:*kzg-verifier-command-timeout-seconds*
-   #:kzg-point-proof-verification-available-p
-   #:kzg-blob-proof-verification-available-p
-   #:kzg-proof-verification-available-p
-   #:verify-kzg-point-proof
-   #:verify-kzg-blob-proof
-   #:make-kzg-point-proof-command-verifier
-   #:make-kzg-blob-proof-command-verifier
-   #:configure-kzg-proof-command-verifiers
-   #:+cell-proofs-per-blob+
-   #:+target-blobs-per-block+
-   #:+max-blobs-per-block+
-   #:+osaka-target-blobs-per-block+
-   #:+osaka-max-blobs-per-block+
-   #:+bpo1-target-blobs-per-block+
-   #:+bpo1-max-blobs-per-block+
-   #:+bpo2-target-blobs-per-block+
-   #:+bpo2-max-blobs-per-block+
-   #:+bpo3-target-blobs-per-block+
-   #:+bpo3-max-blobs-per-block+
-   #:+bpo4-target-blobs-per-block+
-   #:+bpo4-max-blobs-per-block+
-   #:+min-blobs-per-transaction+
-   #:+min-blob-gas-price+
-   #:+blob-base-fee-update-fraction+
-   #:+osaka-blob-base-fee-update-fraction+
-   #:+bpo1-blob-base-fee-update-fraction+
-   #:+bpo2-blob-base-fee-update-fraction+
-   #:+bpo3-blob-base-fee-update-fraction+
-   #:+bpo4-blob-base-fee-update-fraction+
-   #:+blob-base-cost+
-   #:+maximum-extra-data-size+
-   #:+block-access-list-max-code-size+
-   #:+block-access-list-amsterdam-max-code-size+
-   #:+block-access-list-item-gas-cost+
-   #:+gas-limit-bound-divisor+
-   #:+minimum-gas-limit+
-   #:+genesis-gas-limit+
-   #:+genesis-difficulty+
-   #:blob-schedule-entry
-   #:make-blob-schedule-entry
-   #:blob-schedule-entry-timestamp
-   #:blob-schedule-entry-target-blobs
-   #:blob-schedule-entry-max-blobs
-   #:blob-schedule-entry-update-fraction
-   #:genesis-account
-   #:make-genesis-account
-   #:genesis-account-address
-   #:genesis-account-balance
-   #:genesis-account-nonce
-   #:genesis-account-code
-   #:genesis-account-storage
-   #:chain-config
-   #:make-chain-config
-   #:chain-config-chain-id
-   #:chain-config-homestead-block
-   #:chain-config-dao-fork-block
-   #:chain-config-dao-fork-support
-   #:chain-config-eip150-block
-   #:chain-config-eip155-block
-   #:chain-config-eip158-block
-   #:chain-config-byzantium-block
-   #:chain-config-constantinople-block
-   #:chain-config-petersburg-block
-   #:chain-config-istanbul-block
-   #:chain-config-muir-glacier-block
-   #:chain-config-berlin-block
-   #:chain-config-london-block
-   #:chain-config-arrow-glacier-block
-   #:chain-config-gray-glacier-block
-   #:chain-config-shanghai-time
-   #:chain-config-cancun-time
-   #:chain-config-prague-time
-   #:chain-config-osaka-time
-   #:chain-config-bpo1-time
-   #:chain-config-bpo2-time
-   #:chain-config-bpo3-time
-   #:chain-config-bpo4-time
-   #:chain-config-bpo5-time
-   #:chain-config-amsterdam-time
-   #:chain-config-ubt-time
-   #:chain-config-enable-ubt-at-genesis-p
-   #:chain-config-terminal-total-difficulty
-   #:chain-config-terminal-total-difficulty-passed
-   #:chain-config-terminal-block-hash
-   #:chain-config-terminal-block-number
-   #:chain-config-merge-netsplit-block
-   #:chain-config-deposit-contract-address
-   #:chain-config-custom-blob-schedule
-   #:fork-block-active-p
-   #:fork-time-active-p
-   #:chain-config-homestead-p
-   #:chain-config-dao-fork-p
-   #:chain-config-eip150-p
-   #:chain-config-eip155-p
-   #:chain-config-eip158-p
-   #:chain-config-byzantium-p
-   #:chain-config-constantinople-p
-   #:chain-config-petersburg-p
-   #:chain-config-istanbul-p
-   #:chain-config-berlin-p
-   #:chain-config-london-p
-   #:chain-config-shanghai-p
-   #:chain-config-cancun-p
-   #:chain-config-prague-p
-   #:chain-config-osaka-p
-   #:chain-config-bpo1-p
-   #:chain-config-bpo2-p
-   #:chain-config-bpo3-p
-   #:chain-config-bpo4-p
-   #:chain-config-bpo5-p
-   #:chain-config-amsterdam-p
-   #:chain-config-ubt-p
-   #:chain-config-ubt-genesis-p
-   #:chain-config-expanded-blob-schedule-p
-   #:chain-config-blob-schedule
-   #:parse-json
-   #:json-encode
-   #:chain-config-from-genesis-config
-   #:chain-config-from-genesis-json-string
-   #:chain-config-from-genesis-json-file
-   #:genesis-alloc-from-genesis-object
-   #:genesis-alloc-from-genesis-json-string
-   #:genesis-alloc-from-genesis-json-file
-   #:genesis-expected-state-root-from-genesis-object
-   #:genesis-expected-state-root-from-genesis-json-string
-   #:genesis-expected-state-root-from-genesis-json-file
-   #:genesis-header-from-genesis-object
-   #:genesis-header-from-genesis-json-string
-   #:genesis-header-from-genesis-json-file
-   #:genesis-block-from-genesis-header
-   #:genesis-block-from-genesis-object
-   #:genesis-block-from-genesis-json-string
-   #:genesis-block-from-genesis-json-file
-   #:chain-config-rules
-   #:chain-rules
-   #:make-chain-rules
-   #:chain-rules-chain-id
-   #:chain-rules-homestead-p
-   #:chain-rules-eip150-p
-   #:chain-rules-eip155-p
-   #:chain-rules-eip158-p
-   #:chain-rules-byzantium-p
-   #:chain-rules-constantinople-p
-   #:chain-rules-petersburg-p
-   #:chain-rules-istanbul-p
-   #:chain-rules-berlin-p
-   #:chain-rules-london-p
-   #:chain-rules-shanghai-p
-   #:chain-rules-cancun-p
-   #:chain-rules-prague-p
-   #:chain-rules-osaka-p
-   #:chain-rules-bpo1-p
-   #:chain-rules-bpo2-p
-   #:chain-rules-bpo3-p
-   #:chain-rules-bpo4-p
-   #:chain-rules-bpo5-p
-   #:chain-rules-amsterdam-p
-   #:chain-rules-ubt-p
-   #:chain-rules-blob-schedule-target-gas
-   #:chain-rules-blob-schedule-max-gas
-   #:chain-rules-blob-schedule-update-fraction
-   #:chain-rules-expanded-blob-schedule-p
-   #:chain-rules-blob-schedule
-   #:chain-rules-transaction-type-supported-p
-   #:state-account
-   #:make-state-account
-   #:state-account-nonce
-   #:state-account-balance
-   #:state-account-storage-root
-   #:state-account-code-hash
-   #:state-account-rlp
-   #:state-account-hash
-   #:legacy-transaction
-   #:make-legacy-transaction
-   #:legacy-transaction-nonce
-   #:legacy-transaction-gas-price
-   #:legacy-transaction-gas-limit
-   #:legacy-transaction-to
-   #:legacy-transaction-value
-   #:legacy-transaction-data
-   #:legacy-transaction-v
-   #:legacy-transaction-r
-   #:legacy-transaction-s
-   #:legacy-transaction-rlp
-   #:legacy-transaction-from-rlp
-   #:legacy-transaction-hash
-   #:legacy-transaction-signing-payload
-   #:legacy-transaction-signing-hash
-   #:legacy-transaction-protected-p
-   #:legacy-transaction-chain-id
-   #:legacy-transaction-sender
-   #:access-list-entry
-   #:make-access-list-entry
-   #:access-list-entry-address
-   #:access-list-entry-storage-keys
-   #:access-list-storage-key-count
-   #:access-list-transaction
-   #:make-access-list-transaction
-   #:access-list-transaction-chain-id
-   #:access-list-transaction-nonce
-   #:access-list-transaction-gas-price
-   #:access-list-transaction-gas-limit
-   #:access-list-transaction-to
-   #:access-list-transaction-value
-   #:access-list-transaction-data
-   #:access-list-transaction-access-list
-   #:access-list-transaction-y-parity
-   #:access-list-transaction-r
-   #:access-list-transaction-s
-   #:access-list-transaction-encoding
-   #:access-list-transaction-from-rlp
-   #:access-list-transaction-hash
-   #:access-list-transaction-signing-payload
-   #:access-list-transaction-signing-hash
-   #:access-list-transaction-sender
-   #:dynamic-fee-transaction
-   #:make-dynamic-fee-transaction
-   #:dynamic-fee-transaction-chain-id
-   #:dynamic-fee-transaction-nonce
-   #:dynamic-fee-transaction-max-priority-fee-per-gas
-   #:dynamic-fee-transaction-max-fee-per-gas
-   #:dynamic-fee-transaction-gas-limit
-   #:dynamic-fee-transaction-to
-   #:dynamic-fee-transaction-value
-   #:dynamic-fee-transaction-data
-   #:dynamic-fee-transaction-access-list
-   #:dynamic-fee-transaction-y-parity
-   #:dynamic-fee-transaction-r
-   #:dynamic-fee-transaction-s
-   #:dynamic-fee-transaction-encoding
-   #:dynamic-fee-transaction-from-rlp
-   #:dynamic-fee-transaction-hash
-   #:dynamic-fee-transaction-signing-payload
-   #:dynamic-fee-transaction-signing-hash
-   #:dynamic-fee-transaction-sender
-   #:blob-transaction
-   #:make-blob-transaction
-   #:blob-transaction-chain-id
-   #:blob-transaction-nonce
-   #:blob-transaction-gas-limit
-   #:blob-transaction-to
-   #:blob-transaction-value
-   #:blob-transaction-data
-   #:blob-transaction-access-list
-   #:blob-transaction-y-parity
-   #:blob-transaction-r
-   #:blob-transaction-s
-   #:blob-transaction-max-priority-fee-per-gas
-   #:blob-transaction-max-fee-per-gas
-   #:blob-transaction-blob-versioned-hashes
-   #:blob-transaction-max-fee-per-blob-gas
-   #:blob-transaction-encoding
-   #:blob-transaction-from-rlp
-   #:blob-transaction-hash
-   #:blob-transaction-signing-hash
-   #:blob-transaction-sender
-   #:blob-sidecar
-   #:make-blob-sidecar
-   #:blob-sidecar-blobs
-   #:blob-sidecar-commitments
-   #:blob-sidecar-proofs
-   #:blob-sidecar-versioned-hashes
-   #:set-code-authorization
-   #:make-set-code-authorization
-   #:set-code-authorization-chain-id
-   #:set-code-authorization-address
-   #:set-code-authorization-nonce
-   #:set-code-authorization-y-parity
-   #:set-code-authorization-r
-   #:set-code-authorization-s
-   #:set-code-authorization-from-rlp-object
-   #:set-code-authorization-signing-hash
-   #:set-code-authorization-authority
-   #:set-code-delegation-code
-   #:set-code-delegation-target
-   #:set-code-transaction
-   #:make-set-code-transaction
-   #:set-code-transaction-chain-id
-   #:set-code-transaction-nonce
-   #:set-code-transaction-max-priority-fee-per-gas
-   #:set-code-transaction-max-fee-per-gas
-   #:set-code-transaction-gas-limit
-   #:set-code-transaction-to
-   #:set-code-transaction-value
-   #:set-code-transaction-data
-   #:set-code-transaction-access-list
-   #:set-code-transaction-authorization-list
-   #:set-code-transaction-y-parity
-   #:set-code-transaction-r
-   #:set-code-transaction-s
-   #:set-code-transaction-encoding
-   #:set-code-transaction-from-rlp
-   #:set-code-transaction-hash
-   #:set-code-transaction-signing-hash
-   #:set-code-transaction-sender
-   #:transaction-encoding
-   #:transaction-from-encoding
-   #:transaction-hash
-   #:transaction-sender
-   #:transaction-nonce
-   #:transaction-gas-limit
-   #:transaction-to
-   #:transaction-value
-   #:transaction-data
-   #:transaction-access-list
-   #:transaction-authorization-list
-   #:transaction-type
-   #:validate-transaction-type-for-config
-   #:transaction-blob-versioned-hashes
-   #:transaction-blob-gas-used
-   #:transaction-max-priority-fee-per-gas
-   #:transaction-max-fee-per-gas
-   #:validate-1559-transaction-fees
-   #:transaction-effective-gas-price
-   #:transaction-priority-fee-per-gas
-   #:block-header
-   #:make-block-header
-   #:block-header-parent-hash
-   #:block-header-ommers-hash
-   #:block-header-beneficiary
-   #:block-header-state-root
-   #:block-header-transactions-root
-   #:block-header-receipts-root
-   #:block-header-logs-bloom
-   #:block-header-difficulty
-   #:block-header-number
-   #:block-header-gas-limit
-   #:block-header-gas-used
-   #:block-header-timestamp
-   #:block-header-extra-data
-   #:block-header-mix-hash
-   #:block-header-nonce
-   #:block-header-base-fee-per-gas
-   #:block-header-withdrawals-root
-   #:block-header-blob-gas-used
-   #:block-header-excess-blob-gas
-   #:block-header-parent-beacon-root
-   #:block-header-requests-hash
-   #:block-header-block-access-list-hash
-   #:block-header-slot-number
-   #:block-header-rlp
-   #:block-header-hash
-   #:ethereum-block
-   #:make-block
-   #:block-header
-   #:block-transactions
-   #:block-ommers
-   #:block-withdrawals
-   #:block-withdrawals-present-p
-   #:block-requests
-   #:block-requests-present-p
-   #:block-block-access-list
-   #:block-block-access-list-present-p
-   #:block-encoded-block-access-list
-   #:block-hash
-   #:block-rlp
-   #:block-from-rlp
-   #:executable-data
-   #:make-executable-data
-   #:executable-data-parent-hash
-   #:executable-data-fee-recipient
-   #:executable-data-state-root
-   #:executable-data-receipts-root
-   #:executable-data-logs-bloom
-   #:executable-data-random
-   #:executable-data-number
-   #:executable-data-gas-limit
-   #:executable-data-gas-used
-   #:executable-data-timestamp
-   #:executable-data-extra-data
-   #:executable-data-base-fee-per-gas
-   #:executable-data-block-hash
-   #:executable-data-transactions
-   #:executable-data-withdrawals
-   #:executable-data-withdrawals-present-p
-   #:executable-data-blob-gas-used
-   #:executable-data-excess-blob-gas
-   #:executable-data-slot-number
-   #:execution-payload-envelope
-   #:make-execution-payload-envelope
-   #:execution-payload-envelope-execution-payload
-   #:execution-payload-envelope-block-value
-   #:execution-payload-envelope-blobs-bundle
-   #:execution-payload-envelope-requests
-   #:execution-payload-envelope-override-p
-   #:+payload-status-valid+
-   #:+payload-status-invalid+
-   #:+payload-status-syncing+
-   #:+payload-status-accepted+
-   #:payload-status
-   #:make-payload-status
-   #:payload-status-status
-   #:payload-status-latest-valid-hash
-   #:payload-status-validation-error
-   #:payload-status-witness
-   #:forkchoice-state
-   #:make-forkchoice-state
-   #:forkchoice-state-head-block-hash
-   #:forkchoice-state-safe-block-hash
-   #:forkchoice-state-finalized-block-hash
-   #:payload-attributes-v1
-   #:make-payload-attributes-v1
-   #:payload-attributes-v1-timestamp
-   #:payload-attributes-v1-prev-randao
-   #:payload-attributes-v1-suggested-fee-recipient
-   #:engine-prepared-payload
-   #:make-engine-prepared-payload
-   #:engine-prepared-payload-payload-id
-   #:engine-prepared-payload-version
-   #:engine-prepared-payload-block
-   #:block-to-executable-data
-   #:executable-data-decoded-transactions
-   #:executable-data-to-block-no-hash
-   #:executable-data-to-block
-   #:engine-new-payload-params-status
-   #:engine-new-payload-version-status
-   #:chain-store-checkpoint
-   #:make-chain-store-checkpoint
-   #:chain-store-checkpoint-label
-   #:chain-store-checkpoint-block-hash
-   #:engine-payload-memory-store
-   #:make-engine-payload-memory-store
-   #:engine-transaction-location
-   #:engine-transaction-location-block
-   #:engine-transaction-location-index
-   #:engine-transaction-location-transaction
-   #:engine-transaction-location-receipt
-   #:engine-transaction-location-log-index-start
-   #:engine-payload-store-put-block
-   #:engine-payload-store-known-block
-   #:engine-payload-store-block-by-number
-   #:engine-payload-store-canonical-hash
-   #:engine-payload-store-transaction-location
-   #:engine-payload-store-put-account-balance
-   #:engine-payload-store-put-account-nonce
-   #:engine-payload-store-put-account-code
-   #:engine-payload-store-put-account-storage
-   #:engine-payload-store-state-available-p
-   #:engine-payload-store-remote-block
-   #:engine-payload-store-mark-invalid
-   #:engine-payload-store-invalid-block
-   #:engine-payload-store-invalid-ancestor-status
-   #:engine-payload-id-to-hex
-   #:engine-payload-store-put-prepared-payload
-   #:engine-payload-store-prepared-payload
-   #:chain-store-put-block
-   #:chain-store-known-block
-   #:chain-store-block-by-number
-   #:chain-store-canonical-hash
-   #:chain-store-set-canonical-head
-   #:chain-store-head-number
-   #:chain-store-block-tag-number
-   #:chain-store-latest-block
-   #:chain-store-transaction-location
-   #:chain-store-block-receipts
-   #:chain-store-state-available-p
-   #:chain-store-prune-state-before
-   #:chain-store-atomic-commit
-   #:chain-store-put-account-balance
-   #:chain-store-account-balance
-   #:chain-store-put-account-nonce
-   #:chain-store-account-nonce
-   #:chain-store-put-account-code
-   #:chain-store-account-code
-   #:chain-store-put-account-storage
-   #:chain-store-account-storage
-   #:chain-store-for-each-account
-   #:chain-store-update-forkchoice-checkpoints
-   #:chain-store-head-checkpoint
-   #:chain-store-safe-checkpoint
-   #:chain-store-finalized-checkpoint
-   #:chain-store-head-block
-   #:chain-store-safe-block
-   #:chain-store-finalized-block
-   #:chain-store-export-indexes-to-kv
-   #:chain-store-export-block-records-to-kv
-   #:chain-store-export-transaction-locations-to-kv
-   #:chain-store-export-state-records-to-kv
-   #:chain-store-export-to-kv
-   #:chain-store-import-from-kv
-   #:chain-store-put-prepared-payload
-   #:chain-store-prepared-payload
-   #:engine-payload-store-put-blob-sidecar
-   #:engine-payload-store-blob-and-proofs-v1
-   #:engine-payload-store-blob-and-proofs-v2
-   #:+engine-rpc-capabilities+
-   #:engine-rpc-capabilities
-   #:+engine-rpc-client-version+
-   #:engine-rpc-client-version
-   #:engine-rpc-transition-configuration-object
-   #:engine-rpc-executable-data-from-object
-   #:engine-rpc-executable-data-object
-   #:engine-rpc-payload-status-object
-   #:engine-rpc-forkchoice-state-from-object
-   #:engine-forkchoice-memory-status
-   #:engine-rpc-forkchoice-response-object
-   #:engine-rpc-handle-get-payload-v1
-   #:engine-rpc-handle-forkchoice-updated-v1
-   #:engine-rpc-engine-method-p
-   #:engine-rpc-public-method-p
-   #:engine-rpc-any-method-p
-   #:engine-rpc-handle-request
-   #:engine-rpc-handle-request-value
-   #:engine-rpc-handle-request-string
-   #:engine-rpc-handle-request-json
-   #:+engine-rpc-http-accepted-content-types+
-   #:engine-rpc-http-accepted-content-type-p
-   #:+engine-rpc-default-http-host+
-   #:+engine-rpc-default-http-port+
-   #:+engine-rpc-jwt-expiry-seconds+
-   #:engine-rpc-http-service
-   #:make-engine-rpc-http-service
-   #:engine-rpc-http-service-host
-   #:engine-rpc-http-service-port
-   #:engine-rpc-http-service-store
-   #:engine-rpc-http-service-config
-   #:engine-rpc-http-service-jwt-secret
-   #:engine-rpc-http-service-now-provider
-   #:engine-rpc-http-service-import-function
-   #:engine-rpc-http-service-telemetry-sink
-   #:engine-rpc-http-service-allowed-method-p
-   #:engine-rpc-http-service-coinbase
-   #:engine-rpc-http-service-rpc-prefix
-   #:engine-rpc-http-service-endpoint
-   #:engine-rpc-http-connection
-   #:make-engine-rpc-http-connection
-   #:engine-rpc-http-connection-input-stream
-   #:engine-rpc-http-connection-output-stream
-   #:engine-rpc-http-connection-close-function
-   #:engine-rpc-http-connection-close
-   #:engine-rpc-http-listener
-   #:make-engine-rpc-http-listener
-   #:make-engine-rpc-http-socket-listener
-   #:engine-rpc-http-listener-endpoint
-   #:engine-rpc-http-listener-accept-function
-   #:engine-rpc-http-listener-close-function
-   #:engine-rpc-http-listener-accept
-   #:engine-rpc-http-listener-close
-   #:engine-rpc-make-jwt-token
-   #:engine-rpc-handle-http-request-string
-   #:engine-rpc-handle-http-stream
-   #:engine-rpc-http-service-handle-stream
-   #:engine-rpc-http-service-serve-listener
-   #:engine-new-payload-memory-status
-   #:execution-requests-hash
-   #:block-access-account
-   #:make-block-access-account
-   #:block-access-account-address
-   #:block-access-account-storage-writes
-   #:block-access-account-storage-reads
-   #:block-access-account-balance-changes
-   #:block-access-account-nonce-changes
-   #:block-access-account-code-changes
-   #:block-access-storage-write
-   #:make-block-access-storage-write
-   #:block-access-storage-write-tx-index
-   #:block-access-storage-write-value-after
-   #:block-access-slot-writes
-   #:make-block-access-slot-writes
-   #:block-access-slot-writes-slot
-   #:block-access-slot-writes-accesses
-   #:block-access-balance-change
-   #:make-block-access-balance-change
-   #:block-access-balance-change-tx-index
-   #:block-access-balance-change-balance
-   #:block-access-nonce-change
-   #:make-block-access-nonce-change
-   #:block-access-nonce-change-tx-index
-   #:block-access-nonce-change-nonce
-   #:block-access-code-change
-   #:make-block-access-code-change
-   #:block-access-code-change-tx-index
-   #:block-access-code-change-code
-   #:block-access-account-rlp
-   #:block-access-list-rlp
-   #:block-access-list-from-rlp
-   #:block-access-list-rlp-hash
-   #:block-access-list-hash
-   #:block-access-list-item-count
-   #:block-validation-error
-   #:block-validation-error-message
-   #:expected-base-fee-per-gas
-   #:validate-block-base-fee
-   #:validate-gas-limit-delta
-   #:adjusted-parent-gas-limit-for-1559
-   #:validate-block-blob-gas-fields
-   #:expected-excess-blob-gas
-   #:fake-exponential
-   #:blob-base-fee
-   #:block-header-blob-base-fee
-   #:validate-block-excess-blob-gas
-   #:block-header-cancun-fields-present-p
-   #:validate-block-cancun-fields
-   #:validate-block-withdrawals-field
-   #:validate-block-requests-hash-field
-   #:block-header-amsterdam-fields-present-p
-   #:validate-block-amsterdam-fields
-   #:validate-block-amsterdam-slot-number
-   #:validate-block-header-basics
-   #:validate-block-header-against-config
-   #:validate-blob-versioned-hash
-   #:validate-blob-transaction-fields
-   #:validate-blob-transaction-fee-cap
-   #:validate-blob-sidecar-fields
-   #:validate-withdrawal-fields
-   #:validate-withdrawal-list-fields
-   #:validate-execution-request-fields
-   #:validate-execution-request-list-fields
-   #:validate-block-access-account-fields
-   #:validate-block-access-list-fields
-   #:validate-block-transactions-against-config
-   #:validate-block-body-against-config
-   #:validate-block-against-config
-   #:validate-block-body-roots
-   #:blob-gas-used
-   #:receipts-gas-used
-   #:validate-block-execution-roots
-   #:withdrawal
-   #:make-withdrawal
-   #:withdrawal-index
-   #:withdrawal-validator-index
-   #:withdrawal-address
-   #:withdrawal-amount
-   #:withdrawal-rlp
-   #:withdrawal-list-root
-   #:log-entry
-   #:make-log-entry
-   #:log-entry-address
-   #:log-entry-topics
-   #:log-entry-data
-   #:log-entry-rlp-object
-   #:bloom
-   #:make-bloom
-   #:bloom-bytes
-   #:bloom-add
-   #:bloom-contains-p
-   #:receipt
-   #:make-receipt
-   #:receipt-status
-   #:receipt-cumulative-gas-used
-   #:receipt-logs
-   #:receipt-rlp
-   #:transaction-receipt-encoding
-   #:receipt-bloom
-   #:derive-list-root
-   #:transaction-list-root
-   #:receipt-list-root
-   #:transaction-receipt-list-root
-   #:evm-error
-   #:precompile-address
-   #:prewarm-precompile-addresses
-   #:evm-context
-   #:make-evm-context
-   #:evm-context-state
-   #:evm-context-address
-   #:evm-context-caller
-   #:evm-context-origin
-   #:evm-context-call-value
-   #:evm-context-gas-price
-   #:evm-context-input
-   #:evm-context-return-data
-   #:evm-context-coinbase
-   #:evm-context-timestamp
-   #:evm-context-block-number
-   #:evm-context-prev-randao
-   #:evm-context-gas-limit
-   #:evm-context-chain-id
-   #:evm-context-chain-rules
-   #:evm-context-base-fee
-   #:evm-context-blob-hashes
-   #:evm-context-blob-base-fee
-   #:evm-context-transient-storage
-   #:evm-context-storage-originals
-   #:evm-context-storage-clears
-   #:evm-context-accessed-storage
-   #:evm-context-accessed-addresses
-   #:evm-context-block-hashes
-   #:evm-context-read-only-p
-   #:evm-result
-   #:evm-result-status
-   #:evm-result-stack
-   #:evm-result-memory
-   #:evm-result-return-data
-   #:evm-result-logs
-   #:evm-result-pc
-   #:evm-result-gas-used
-   #:evm-result-refund-counter
-   #:execute-bytecode
-   #:state-db
-   #:make-state-db
-   #:state-storage-proof
-   #:make-state-storage-proof
-   #:state-storage-proof-slot
-   #:state-storage-proof-value
-   #:state-storage-proof-proof
-   #:state-proof-result
-   #:make-state-proof-result
-   #:state-proof-result-address
-   #:state-proof-result-balance
-   #:state-proof-result-nonce
-   #:state-proof-result-code-hash
-   #:state-proof-result-storage-root
-   #:state-proof-result-account-proof
-   #:state-proof-result-storage-proofs
-   #:state-account-range-entry
-   #:state-account-range-entry-proof-key
-   #:state-account-range-entry-address
-   #:state-account-range-entry-account
-   #:state-account-range-entry-code
-   #:state-account-range-entry-storage-entries
-   #:state-storage-range-entry
-   #:state-storage-range-entry-proof-key
-   #:state-storage-range-entry-slot
-   #:state-storage-range-entry-value
-   #:state-db-get-account
-   #:state-db-set-account
-   #:state-db-clear-account
-   #:state-db-set-code
-   #:state-db-get-code
-   #:state-db-get-code-hash
-   #:state-db-copy
-   #:state-db-restore
-   #:state-db-set-storage
-   #:state-db-get-storage
-   #:state-db-get-storage-root
-   #:state-db-get-storage-proof
-   #:state-db-verify-storage-proof
-   #:state-db-get-account-proof
-   #:state-db-verify-account-proof
-   #:state-db-get-proof
-   #:state-db-verify-proof
-   #:state-proof-result-rpc-object
-   #:state-proof-result-from-rpc-object
-   #:state-db-account-range
-   #:state-db-storage-range
-   #:state-db-for-each-account
-   #:state-db-root
-   #:state-db-root-hex
-   #:apply-genesis-account
-   #:apply-genesis-alloc
-   #:state-db-from-genesis-alloc
-   #:state-db-from-genesis-json-string
-   #:state-db-from-genesis-json-file
-   #:genesis-state-root-from-genesis-alloc
-   #:genesis-state-root-from-genesis-json-string
-   #:genesis-state-root-from-genesis-json-file
-   #:validate-genesis-state-root
-   #:validate-genesis-json-state-root
-   #:genesis-header-from-state-genesis-object
-   #:genesis-header-from-state-genesis-json-string
-   #:genesis-header-from-state-genesis-json-file
-   #:genesis-block-from-state-genesis-object
-   #:genesis-block-from-state-genesis-json-string
-   #:genesis-block-from-state-genesis-json-file
-   #:+wei-per-gwei+
-   #:state-db-add-balance
-   #:apply-withdrawal
-   #:apply-withdrawals
-   #:transaction-validation-error
-   #:transaction-intrinsic-gas
-   #:apply-legacy-transaction
-   #:apply-message
-   #:apply-message-list
-   #:execution-result
-   #:make-execution-result
-   #:execution-result-receipts
-   #:execution-result-state-root
-   #:execution-result-transactions-root
-   #:execution-result-receipts-root
-   #:execute-legacy-transactions
-   #:execute-message-call
-   #:apply-legacy-message
-   #:apply-signed-message
-   #:apply-signed-message-list
-   #:execute-legacy-messages
-   #:execute-signed-messages
-   #:execute-legacy-block
-   #:execute-atomic-block-commit
-   #:commit-state-db-to-chain-store
-   #:chain-store-state-db
-   #:execute-and-commit-engine-payload
-   #:execute-and-commit-block
-   #:execute-and-commit-signed-block
-   #:execute-signed-block))
+ )
+
+(in-package #:cl-user)
