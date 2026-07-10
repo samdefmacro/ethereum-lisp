@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.genesis)
 
 (defun genesis-blob-schedule-timestamp-field (fork-name)
   (cond

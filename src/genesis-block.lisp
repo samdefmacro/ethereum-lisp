@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.genesis)
 
 (defun parse-genesis-hash32-field (object name label &key default)
   (let ((value (if (listp name)

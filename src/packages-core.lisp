@@ -13,7 +13,8 @@
         #:ethereum-lisp.execution-requests
         #:ethereum-lisp.block-access-lists
         #:ethereum-lisp.blocks
-        #:ethereum-lisp.json)
+        #:ethereum-lisp.json
+        #:ethereum-lisp.genesis)
   (:import-from #:ethereum-lisp.database
    #:key-value-database
    #:make-kv-write-batch

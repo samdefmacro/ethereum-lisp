@@ -13,6 +13,7 @@
      (:file "packages-protocol")
      (:file "packages-models")
      (:file "packages-blocks")
+     (:file "packages-genesis")
      (:file "packages-core")
      (:file "packages-runtime")
      (:file "packages-facade")

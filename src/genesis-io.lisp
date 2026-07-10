@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.genesis)
 
 (defun chain-config-from-genesis-json-string (string)
   (let* ((genesis-object (parse-json string))

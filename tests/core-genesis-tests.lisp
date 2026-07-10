@@ -485,6 +485,30 @@
         (is (null symbol))
         (is (null status))))))
 
+(deftest genesis-package-boundary
+  (let ((genesis (find-package '#:ethereum-lisp.genesis))
+        (json (find-package '#:ethereum-lisp.json))
+        (chain-config (find-package '#:ethereum-lisp.chain-config))
+        (blocks (find-package '#:ethereum-lisp.blocks))
+        (core (find-package '#:ethereum-lisp.core)))
+    (is (not (member core (package-use-list genesis))))
+    (dolist (dependency (list json chain-config blocks))
+      (is (member dependency (package-use-list genesis))))
+    (dolist (name '("GENESIS-ACCOUNT" "CHAIN-CONFIG-FROM-GENESIS-CONFIG"
+                    "GENESIS-BLOCK-FROM-GENESIS-OBJECT"))
+      (multiple-value-bind (genesis-symbol genesis-status)
+          (find-symbol name genesis)
+        (multiple-value-bind (core-symbol core-status)
+            (find-symbol name core)
+          (is (eq :external genesis-status))
+          (is (eq :external core-status))
+          (is (eq genesis-symbol core-symbol)))))
+    (dolist (name '("STATE-ACCOUNT" "TRANSACTION-FROM-ENCODING"))
+      (multiple-value-bind (symbol status)
+          (find-symbol name genesis)
+        (is (null symbol))
+        (is (null status))))))
+
 (deftest json-encode-round-trips-rpc-shaped-objects
   (let* ((object
            (list (cons "jsonrpc" "2.0")

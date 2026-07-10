@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.genesis)
 
 (defun parse-genesis-code (value label)
   (cond

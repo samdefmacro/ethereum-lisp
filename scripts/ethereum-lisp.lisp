@@ -21,6 +21,7 @@
            "src/packages-protocol.lisp"
            "src/packages-models.lisp"
            "src/packages-blocks.lisp"
+           "src/packages-genesis.lisp"
            "src/packages-core.lisp"
            "src/packages-runtime.lisp"
            "src/packages-facade.lisp"

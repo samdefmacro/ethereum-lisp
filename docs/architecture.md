@@ -43,6 +43,8 @@ The current source ownership map is:
   definitions, ordered by their explicit domain dependencies.
 - `packages-blocks.lisp`: execution-request, block-access-list, and block
   package definitions with their dependency order made explicit.
+- `packages-genesis.lisp`: genesis data, parsing, and block-construction
+  package definition over JSON and protocol-model contracts.
 - `packages-core.lisp`: compatibility aggregate for the remaining core
   protocol surface; it re-exports narrower domain APIs while callers migrate.
 - `packages-runtime.lisp`: state, EVM, execution, and CLI package definitions.
@@ -86,15 +88,10 @@ The current source ownership map is:
 - `ethereum-lisp.json` / `json-read.lisp` / `json-write.lisp` /
   `json-object-fields.lisp`: JSON parsing, encoding, shape predicates, object
   access, and quantity decoding without genesis or RPC ownership.
-- `genesis-types.lisp`: genesis constants and alloc account structure.
-- `genesis-fields.lisp`: genesis-specific boolean, uint256, and address field
-  parsing built on the generic JSON object API.
-- `genesis-alloc.lisp`: genesis account code, storage, and alloc parsing.
-- `genesis-chain-config.lisp`: genesis config to fork-rule chain config
-  conversion.
-- `genesis-io.lisp`: genesis JSON string/file entry points and expected
-  state-root parsing.
-- `genesis.lisp`: compatibility package entry for genesis modules.
+- `ethereum-lisp.genesis` / `genesis-*.lisp`: genesis account values,
+  genesis-specific field and alloc parsing, chain-config conversion, file I/O,
+  and fork-aware genesis block construction. It consumes JSON, chain config,
+  receipt, execution-request, and block contracts without depending on core.
 - `core-constants.lisp`: protocol constants shared across core modules.
 - `ethereum-lisp.accounts` / `accounts.lisp`: state-account values, encoding,
   and hashing, independent from the core compatibility aggregate.

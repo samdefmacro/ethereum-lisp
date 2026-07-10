@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.genesis)
 
 (defun parse-genesis-boolean-field (object name label)
   (unless (json-object-field-present-p object name)

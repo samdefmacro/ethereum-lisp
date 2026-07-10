@@ -2,7 +2,6 @@
 
 ;;; Protocol constants shared across core domain modules.
 
-(defconstant +initial-base-fee+ 1000000000)
 (defconstant +base-fee-elasticity-multiplier+ 2)
 (defconstant +base-fee-change-denominator+ 8)
 (defconstant +blob-byte-size+ +blob-gas-per-blob+)

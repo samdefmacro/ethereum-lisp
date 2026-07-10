@@ -73,6 +73,7 @@
         #:ethereum-lisp.block-access-lists)
   (:export
    #:+empty-ommers-hash+
+   #:+initial-base-fee+
    #:block-header
    #:block-header-p
    #:make-block-header
