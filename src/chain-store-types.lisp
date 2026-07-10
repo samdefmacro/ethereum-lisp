@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.chain-store.model)
 
 (defstruct (chain-store-checkpoint
             (:constructor make-chain-store-checkpoint

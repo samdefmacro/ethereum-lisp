@@ -1,5 +1,27 @@
 (in-package #:ethereum-lisp.test)
 
+(deftest chain-store-model-package-boundary
+  (let ((model (find-package '#:ethereum-lisp.chain-store.model))
+        (txpool-index (find-package '#:ethereum-lisp.txpool.index))
+        (core (find-package '#:ethereum-lisp.core)))
+    (is (not (member core (package-use-list model))))
+    (is (member txpool-index (package-use-list model)))
+    (dolist (name '("ENGINE-PAYLOAD-MEMORY-STORE"
+                    "CHAIN-STORE-CHECKPOINT"
+                    "ENGINE-TRANSACTION-LOCATION"))
+      (multiple-value-bind (model-symbol model-status)
+          (find-symbol name model)
+        (multiple-value-bind (core-symbol core-status)
+            (find-symbol name core)
+          (is (eq :external model-status))
+          (is (eq :external core-status))
+          (is (eq model-symbol core-symbol)))))
+    (dolist (name '("CHAIN-STORE-PUT-BLOCK" "CHAIN-STORE-IMPORT-FROM-KV"))
+      (multiple-value-bind (symbol status)
+          (find-symbol name model)
+        (is (null symbol))
+        (is (null status))))))
+
 (deftest chain-store-interface-wraps-memory-payload-store
   (let* ((store (make-engine-payload-memory-store))
          (payload-id #(3 2 3 4 5 6 7 8))
@@ -271,4 +293,3 @@
       (is (= 1 (length receipts)))
       (is (bytes= expected-receipt-rlp
                   (receipt-rlp (first receipts)))))))
-

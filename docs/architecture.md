@@ -144,16 +144,19 @@ The current source ownership map is:
   values and statuses, defensive codecs, block mapping, fork-version checks,
   payload-id derivation, and empty payload construction. Stores and RPC depend
   on this contract; the package has no store, RPC, or HTTP dependency.
-- `chain-store-types.lisp`: in-memory chain store records, filter cursors,
-  blob lookup records, and shared store key helpers.
+- `ethereum-lisp.chain-store.model` / `chain-store-types.lisp`: in-memory
+  store, checkpoint, transaction-location, filter, and blob lookup records.
+  The model owns no storage behavior and depends only on protocol types and
+  the txpool index model.
 - `chain-store-memory-guards.lisp`: shared memory-store type checks for
   in-memory-only chain-store operations.
 - `chain-store-copy-values.lisp`: defensive copying for shared store values,
   filters, checkpoints, and blob proof records.
 - `chain-store-copy-blocks.lisp`: defensive copying for block headers, logs,
   receipts, blocks, prepared payloads, and transactions.
-- `chain-store-copy-txpool.lisp`: txpool deep-copy helpers that preserve
-  shared transaction identity across txpool indexes.
+- `txpool-index-copy.lisp`: txpool deep-copy behavior that preserves shared
+  transaction identity across subpool and sender indexes without depending on
+  chain-store copying helpers.
 - `chain-store-copy-locations.lisp`: transaction-location deep-copy helpers
   that keep copied blocks, receipts, and transactions aligned.
 - `chain-store-snapshots.lisp`: memory-store snapshot/restore and atomic commit

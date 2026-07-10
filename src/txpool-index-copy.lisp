@@ -1,9 +1,9 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.txpool.index)
 
 (defun engine-pending-txpool-copy-transaction (transaction transaction-copies)
   (or (gethash transaction transaction-copies)
       (setf (gethash transaction transaction-copies)
-            (engine-payload-store-copy-transaction transaction))))
+            (transaction-from-encoding (transaction-encoding transaction)))))
 
 (defun engine-pending-txpool-copy-transaction-table
     (table transaction-copies)

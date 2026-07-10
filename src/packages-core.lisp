@@ -18,7 +18,8 @@
         #:ethereum-lisp.consensus
         #:ethereum-lisp.kzg
         #:ethereum-lisp.engine-payloads
-        #:ethereum-lisp.txpool.index)
+        #:ethereum-lisp.txpool.index
+        #:ethereum-lisp.chain-store.model)
   (:import-from #:ethereum-lisp.database
    #:key-value-database
    #:make-kv-write-batch

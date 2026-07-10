@@ -69,4 +69,5 @@
    #:engine-pending-txpool-queued-count
    #:engine-pending-txpool-basefee-count
    #:engine-pending-txpool-blob-count
-   #:engine-pending-txpool-empty-p))
+   #:engine-pending-txpool-empty-p
+   #:engine-pending-txpool-copy))
