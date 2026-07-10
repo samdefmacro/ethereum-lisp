@@ -2,14 +2,6 @@
 
 ;;; Account payload encoding used by state, genesis, and trie commitments.
 
-(defun optional-bytes (value size label)
-  (cond
-    ((null value) (make-byte-vector 0))
-    ((and size (= (length (ensure-byte-vector value)) size))
-     (ensure-byte-vector value))
-    (size (error "~A must be exactly ~D bytes" label size))
-    (t (ensure-byte-vector value))))
-
 (defstruct (state-account (:constructor make-state-account
                              (&key (nonce 0)
                                    (balance 0)

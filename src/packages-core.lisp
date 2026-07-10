@@ -146,7 +146,9 @@
   (:import-from #:ethereum-lisp.validation
    #:block-validation-error
    #:block-validation-error-message
-   #:block-validation-fail)
+   #:block-validation-fail
+   #:ensure-uint256
+   #:optional-bytes)
   (:export
    #:+empty-ommers-hash+
    #:ommers-hash

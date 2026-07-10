@@ -79,11 +79,13 @@
    #:telemetry-metric))
 
 (defpackage #:ethereum-lisp.validation
-  (:use #:cl)
+  (:use #:cl #:ethereum-lisp.bytes)
   (:export
    #:block-validation-error
    #:block-validation-error-message
-   #:block-validation-fail))
+   #:block-validation-fail
+   #:ensure-uint256
+   #:optional-bytes))
 
 (defpackage #:ethereum-lisp.rlp
   (:use #:cl #:ethereum-lisp.bytes)

@@ -49,7 +49,7 @@
            "src/trie-nodes.lisp"
            "src/trie-proofs.lisp"
            "src/trie.lisp"
-           "src/core-validation-errors.lisp"
+           "src/validation.lisp"
            "src/chain-config-types.lisp"
            "src/chain-config-forks.lisp"
            "src/chain-config-blob-schedule.lisp"

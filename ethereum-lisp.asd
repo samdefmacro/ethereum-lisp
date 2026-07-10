@@ -41,7 +41,7 @@
      (:file "trie-nodes")
      (:file "trie-proofs")
      (:file "trie")
-     (:file "core-validation-errors")
+     (:file "validation")
      (:file "chain-config-types")
      (:file "chain-config-forks")
      (:file "chain-config-blob-schedule")

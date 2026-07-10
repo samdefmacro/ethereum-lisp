@@ -63,9 +63,9 @@ The current source ownership map is:
   root hash derivation.
 - `trie-proofs.lisp`: proof construction and proof verification.
 - `trie.lisp`: compatibility package entry for trie modules.
-- `ethereum-lisp.validation` / `core-validation-errors.lisp`: shared block
-  validation condition and formatted failure helper. Core re-exports the
-  public condition for compatibility.
+- `ethereum-lisp.validation` / `validation.lisp`: shared block validation
+  condition plus protocol value and fixed-byte validation helpers. Core
+  re-exports the public condition for compatibility.
 - `ethereum-lisp.chain-config` / `chain-config-*.lisp`: an independent
   protocol package for chain configuration types, fork activation predicates,
   blob schedule selection, and effective chain-rule construction. Core

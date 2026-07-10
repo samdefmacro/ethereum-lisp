@@ -13,8 +13,3 @@
   (nonce 0 :type (integer 0 *))
   (code (make-byte-vector 0) :type byte-vector)
   (storage nil :type list))
-
-(defun ensure-uint256 (value label)
-  (unless (uint256-p value)
-    (error "~A must be a uint256, got ~S" label value))
-  value)
