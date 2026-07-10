@@ -136,19 +136,10 @@ The current source ownership map is:
 - `ethereum-lisp.kzg` / `kzg-*.lisp`: KZG constants, verifier ports,
   command-backed adapter, field/blob proof verification, and sidecar
   validation. CLI configures the verifier port without owning KZG behavior.
-- `engine-payload-types.lisp`: Engine payload structs, forkchoice payload
-  attributes, status constants, and prepared payload validation.
-- `engine-payload-codecs.lisp`: defensive payload copying and block-to-payload
-  conversion.
-- `engine-payload-block-fields.lisp`: executable-data transaction decoding,
-  versioned-hash validation, and required field checks.
-- `engine-payload-blocks.lisp`: executable-data payload-to-block
-  reconstruction.
-- `engine-payload-validation.lisp`: `newPayload` parameter, fork-version, and
-  payload status validation.
-- `engine-payload-build.lisp`: payload-id derivation and empty payload
-  construction.
-- `engine-payloads.lisp`: Engine payload compatibility loader.
+- `ethereum-lisp.engine-payloads` / `engine-payload-*.lisp`: Engine payload
+  values and statuses, defensive codecs, block mapping, fork-version checks,
+  payload-id derivation, and empty payload construction. Stores and RPC depend
+  on this contract; the package has no store, RPC, or HTTP dependency.
 - `chain-store-types.lisp`: in-memory chain store records, filter cursors,
   blob lookup records, and shared store key helpers.
 - `chain-store-memory-guards.lisp`: shared memory-store type checks for

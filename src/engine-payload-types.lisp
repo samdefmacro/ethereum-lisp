@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.engine-payloads)
 
 (defstruct (executable-data (:constructor make-executable-data
                               (&key parent-hash

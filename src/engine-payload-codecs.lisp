@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.engine-payloads)
 
 (defun maybe-copy-bytes (bytes)
   (when bytes

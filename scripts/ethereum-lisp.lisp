@@ -24,6 +24,7 @@
            "src/packages-genesis.lisp"
            "src/packages-consensus.lisp"
            "src/packages-kzg.lisp"
+           "src/packages-engine.lisp"
            "src/packages-core.lisp"
            "src/packages-runtime.lisp"
            "src/packages-facade.lisp"

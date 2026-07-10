@@ -14,6 +14,7 @@
 (load-ethereum-lisp-test-file "src/packages-genesis.lisp")
 (load-ethereum-lisp-test-file "src/packages-consensus.lisp")
 (load-ethereum-lisp-test-file "src/packages-kzg.lisp")
+(load-ethereum-lisp-test-file "src/packages-engine.lisp")
 (load-ethereum-lisp-test-file "src/packages-core.lisp")
 (load-ethereum-lisp-test-file "src/packages-runtime.lisp")
 (load-ethereum-lisp-test-file "src/packages-facade.lisp")

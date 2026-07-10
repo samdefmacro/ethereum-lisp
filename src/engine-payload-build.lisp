@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.engine-payloads)
 
 (defun engine-payload-id (version parent-hash attributes)
   (unless (and (integerp version) (<= 0 version 255))

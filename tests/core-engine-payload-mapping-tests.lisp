@@ -1,5 +1,28 @@
 (in-package #:ethereum-lisp.test)
 
+(deftest engine-payload-package-boundary
+  (let ((payloads (find-package '#:ethereum-lisp.engine-payloads))
+        (blocks (find-package '#:ethereum-lisp.blocks))
+        (consensus (find-package '#:ethereum-lisp.consensus))
+        (core (find-package '#:ethereum-lisp.core)))
+    (is (not (member core (package-use-list payloads))))
+    (is (member blocks (package-use-list payloads)))
+    (is (member consensus (package-use-list payloads)))
+    (dolist (name '("EXECUTABLE-DATA" "PAYLOAD-STATUS"
+                    "EXECUTABLE-DATA-TO-BLOCK"))
+      (multiple-value-bind (payload-symbol payload-status)
+          (find-symbol name payloads)
+        (multiple-value-bind (core-symbol core-status)
+            (find-symbol name core)
+          (is (eq :external payload-status))
+          (is (eq :external core-status))
+          (is (eq payload-symbol core-symbol)))))
+    (dolist (name '("ENGINE-PAYLOAD-MEMORY-STORE" "ENGINE-RPC-HANDLE-REQUEST"))
+      (multiple-value-bind (symbol status)
+          (find-symbol name payloads)
+        (is (null symbol))
+        (is (null status))))))
+
 (deftest block-derives-body-roots
   (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
          (topic (hash32-from-hex
@@ -239,4 +262,3 @@
     (is (= 0 (length (block-transactions block))))
     (is (= 0 (length (block-ommers block))))
     (is (bytes= encoded (block-rlp block)))))
-

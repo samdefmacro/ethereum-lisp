@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.engine-payloads)
 
 ;;;; Reconstruct local blocks from Engine executable-data payloads.
 

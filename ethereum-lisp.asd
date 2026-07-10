@@ -16,6 +16,7 @@
      (:file "packages-genesis")
      (:file "packages-consensus")
      (:file "packages-kzg")
+     (:file "packages-engine")
      (:file "packages-core")
      (:file "packages-runtime")
      (:file "packages-facade")
