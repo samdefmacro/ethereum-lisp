@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.chain-config)
 
 (defun chain-config-rules (config block-number timestamp)
   (multiple-value-bind (target-blob-gas max-blob-gas update-fraction)

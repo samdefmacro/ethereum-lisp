@@ -185,6 +185,28 @@
     (is (not (chain-config-petersburg-p config 6)))
     (is (chain-config-petersburg-p config 7))))
 
+(deftest chain-config-package-boundary
+  (let ((chain-config-package
+          (find-package '#:ethereum-lisp.chain-config))
+        (core-package
+          (find-package '#:ethereum-lisp.core)))
+    (is (not (member core-package
+                     (package-use-list chain-config-package))))
+    (dolist (name '("CHAIN-CONFIG" "CHAIN-CONFIG-RULES"
+                    "CHAIN-RULES-CANCUN-P"))
+      (multiple-value-bind (chain-config-symbol chain-config-status)
+          (find-symbol name chain-config-package)
+        (multiple-value-bind (core-symbol core-status)
+            (find-symbol name core-package)
+          (is (eq :external chain-config-status))
+          (is (eq :external core-status))
+          (is (eq chain-config-symbol core-symbol)))))
+    (multiple-value-bind (symbol status)
+        (find-symbol "CHAIN-RULES-TRANSACTION-TYPE-SUPPORTED-P"
+                     chain-config-package)
+      (is (null symbol))
+      (is (null status)))))
+
 (deftest chain-config-rules-snapshot
   (let* ((config (make-chain-config :chain-id 5
                                     :berlin-block 5
@@ -670,4 +692,3 @@
     (is (string= (hash32-to-hex (block-access-list-hash '()))
                  (hash32-to-hex
                   (block-header-block-access-list-hash header))))))
-

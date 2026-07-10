@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.chain-config)
 
 (defun fork-block-active-p (fork-block block-number)
   (and fork-block block-number (>= block-number fork-block)))

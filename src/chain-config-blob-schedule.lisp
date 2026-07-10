@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.chain-config)
 
 (defun blob-schedule-values (target-blobs max-blobs update-fraction)
   (values (* target-blobs +blob-gas-per-blob+)

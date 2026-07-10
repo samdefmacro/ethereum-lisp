@@ -66,8 +66,10 @@ The current source ownership map is:
 - `ethereum-lisp.validation` / `core-validation-errors.lisp`: shared block
   validation condition and formatted failure helper. Core re-exports the
   public condition for compatibility.
-- `chain-config-*.lisp`: chain configuration types, fork activation
-  predicates, blob schedule selection, and effective chain-rule construction.
+- `ethereum-lisp.chain-config` / `chain-config-*.lisp`: an independent
+  protocol package for chain configuration types, fork activation predicates,
+  blob schedule selection, and effective chain-rule construction. Core
+  re-exports this API for compatibility.
 - `chain-config.lisp`: compatibility package entry for chain config modules.
 - `genesis-types.lisp`: genesis constants and alloc account structure.
 - `genesis-object-fields.lisp`: shared genesis object lookup and scalar field

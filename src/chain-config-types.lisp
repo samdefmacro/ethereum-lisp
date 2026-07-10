@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.chain-config)
 
 (defconstant +blob-gas-per-blob+ 131072)
 (defconstant +target-blobs-per-block+ 3)
