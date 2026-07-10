@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.txpool.index)
 
 (defun engine-pending-txpool-remove-pending-conflict (txpool transaction)
   (when (transaction-sender transaction)

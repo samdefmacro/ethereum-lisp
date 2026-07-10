@@ -40,5 +40,10 @@
 (defun hash32-to-hex (hash)
   (bytes-to-hex (hash32-bytes hash)))
 
+(defun hash32= (left right)
+  (and left
+       right
+       (bytes= (hash32-bytes left) (hash32-bytes right))))
+
 (defun zero-hash32 ()
   (make-hash32 (make-byte-vector 32)))

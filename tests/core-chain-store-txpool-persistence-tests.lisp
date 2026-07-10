@@ -651,7 +651,8 @@
            (transaction-from-encoding
             (hex-to-bytes
              "0x03f8b1820539806485174876e800825208940c2c51a0990aee1d73c1228de1586883415575088080c083020000f842a00100c9fbdf97f747e85847b4f3fff408f89c26842f77c882858bf2c89923849aa00138e3896f3c27f2389147507f8bcec52028b0efca6ee842ed83c9158873943880a0dbac3f97a532c9b00e6239b29036245a5bfbb96940b9d848634661abee98b945a03eec8525f261c2e79798f7b45a5d6ccaefa24576d53ba5023e919b86841c0675")))
-         (malformed (ethereum-lisp.core::copy-blob-transaction transaction)))
+         (malformed
+           (transaction-from-encoding (transaction-encoding transaction))))
     (setf (blob-transaction-blob-versioned-hashes malformed) '())
     (unwind-protect
          (progn
@@ -690,8 +691,8 @@
              (transaction-from-encoding
               (hex-to-bytes
                "0x04f90126820539800285012a05f2008307a1209471562b71999873db5b286df957af199ec94617f78080c0f8baf85c82053994000000000000000000000000000000000000aaaa0101a07ed17af7d2d2b9ba7d797a202125bf505b9a0f962a67b3b61b56783d8faf7461a001b73b6e586edc706dce6c074eaec28692fa6359fb3446a2442f36777e1c0669f85a8094000000000000000000000000000000000000bbbb8001a05011890f198f0356a887b0779bde5afa1ed04e6acb1e3f37f8f18c7b6f521b98a056c3fa3456b103f3ef4a0acb4b647b9cab9ec4bc68fbcdf1e10b49fb2bcbcf6101a0167b0ecfc343a497095c22ee4270d3cc3b971cc3599fc73bbff727e0d2ed432da01c003c72306807492bf1150e39b2f79da23b49a4e83eb6e9209ae30d3572368f")))
-           (malformed (ethereum-lisp.core::copy-set-code-transaction
-                       transaction)))
+           (malformed
+             (transaction-from-encoding (transaction-encoding transaction))))
       (setf (set-code-authorization-s (first-authorization malformed))
             #x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a1)
       (unwind-protect
@@ -942,4 +943,3 @@
                  (transaction-hash queued-conflict)))))
       (when (probe-file path)
         (delete-file path)))))
-

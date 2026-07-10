@@ -127,6 +127,7 @@
    #:make-hash32
    #:hash32-from-hex
    #:hash32-to-hex
+   #:hash32=
    #:zero-hash32))
 
 (defpackage #:ethereum-lisp.crypto

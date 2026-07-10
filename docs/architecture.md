@@ -116,7 +116,11 @@ The current source ownership map is:
 - `ethereum-lisp.receipts` / `receipts.lisp`: withdrawals, logs, blooms,
   receipts, and trie-list roots. The package depends explicitly on the
   transaction contract used for typed receipt and transaction roots.
-- `txpool-types.lisp`: txpool index structure required by the store type.
+- `ethereum-lisp.txpool.index` / `txpool-types.lisp` /
+  `txpool-index-*.lisp`: store-independent pending, queued, basefee, and blob
+  indexes, sender/nonce/hash keys, conflict handling, replacement rules,
+  insertion, and views. Chain store holds this model, but the model has no
+  chain-store dependency.
 - `ethereum-lisp.blocks` / `blocks-*.lisp` / `block-header-rlp.lisp`: block
   header/body values, canonical codecs, commitment derivation, construction,
   and hashing. It depends on transaction, receipt, execution-request, and
@@ -182,17 +186,6 @@ The current source ownership map is:
   txpool refresh, and filter notifications.
 - `chain-store-canonical.lisp`: compatibility package entry for canonical
   chain-store modules.
-- `txpool-index-keys.lisp`: txpool sender/nonce/hash keys and admission
-  timestamps.
-- `txpool-index-tables.lisp`: generic sender/nonce table indexing helpers.
-- `txpool-index-subpools.lisp`: pending, queued, basefee, and blob subpool
-  wrappers.
-- `txpool-index-replacement.lisp`: replacement price-bump checks.
-- `txpool-index-conflicts.lisp`: cross-subpool conflicts and replacement
-  removal.
-- `txpool-index-insert.lisp`: txpool insertion paths for all subpools.
-- `txpool-index-views.lisp`: txpool lookup, list, count, and empty views.
-- `txpool-index.lisp`: compatibility package entry for txpool index modules.
 - `txpool-store-*.lisp`: engine payload store wrappers for txpool access,
   conflict/replacement checks, subpool indexing, admission, sender views, and
   accounting.

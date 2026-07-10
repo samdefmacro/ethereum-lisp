@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.txpool.index)
 
 (defun engine-pending-txpool-replacement-price-bumped-p
     (old-transaction new-transaction price-function

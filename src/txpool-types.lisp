@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.txpool.index)
 
 (defstruct (engine-pending-txpool
             (:constructor make-engine-pending-txpool

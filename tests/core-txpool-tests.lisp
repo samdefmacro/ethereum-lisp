@@ -1,5 +1,27 @@
 (in-package #:ethereum-lisp.test)
 
+(deftest txpool-index-package-boundary
+  (let ((index (find-package '#:ethereum-lisp.txpool.index))
+        (transactions (find-package '#:ethereum-lisp.transactions))
+        (core (find-package '#:ethereum-lisp.core)))
+    (is (not (member core (package-use-list index))))
+    (is (member transactions (package-use-list index)))
+    (dolist (name '("ENGINE-PENDING-TXPOOL"
+                    "ENGINE-PENDING-TXPOOL-PUT-PENDING-TRANSACTION"
+                    "ENGINE-PENDING-TXPOOL-PENDING-COUNT"))
+      (multiple-value-bind (index-symbol index-status)
+          (find-symbol name index)
+        (multiple-value-bind (core-symbol core-status)
+            (find-symbol name core)
+          (is (eq :external index-status))
+          (is (eq :inherited core-status))
+          (is (eq index-symbol core-symbol)))))
+    (dolist (name '("ENGINE-PAYLOAD-MEMORY-STORE" "CHAIN-STORE-PUT-BLOCK"))
+      (multiple-value-bind (symbol status)
+          (find-symbol name index)
+        (is (null symbol))
+        (is (null status))))))
+
 (deftest engine-payload-store-indexes-pending-transactions-by-sender-nonce
   (let* ((store (make-engine-payload-memory-store))
          (recipient
@@ -1104,4 +1126,3 @@
                   (transaction-encoding copy-indexed-transaction)))
       (is (not (bytes= original-encoding
                        (transaction-encoding transaction)))))))
-

@@ -19,7 +19,6 @@
    #:+gas-limit-bound-divisor+
    #:+minimum-gas-limit+
    #:expected-base-fee-per-gas
-   #:hash32=
    #:validate-sized-byte-vector
    #:validate-optional-hash32-field
    #:validate-optional-address-field

@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.txpool.index)
 
 (defun engine-pending-txpool-sender (transaction)
   (or (transaction-sender transaction)
@@ -12,7 +12,9 @@
   (write-to-string (transaction-nonce transaction) :base 10))
 
 (defun engine-pending-txpool-hash-key (hash)
-  (engine-payload-store-key hash))
+  (unless (hash32-p hash)
+    (block-validation-fail "Txpool hash key must be a hash32"))
+  (hash32-to-hex hash))
 
 (defun engine-pending-txpool-transaction-hash-key (transaction)
   (engine-pending-txpool-hash-key (transaction-hash transaction)))

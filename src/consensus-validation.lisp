@@ -36,11 +36,6 @@
                                        change-denominator))))
              (max 0 (- parent-base-fee fee-delta))))))))
 
-(defun hash32= (left right)
-  (and left
-       right
-       (bytes= (hash32-bytes left) (hash32-bytes right))))
-
 (defun validate-sized-byte-vector (value size label)
   (let ((bytes (handler-case
                    (ensure-byte-vector value)
