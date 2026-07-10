@@ -24,6 +24,25 @@
 (defun eip3860-initcode-rules-active-p (rules)
   (or (null rules) (chain-rules-shanghai-p rules)))
 
+(defun transaction-intrinsic-gas (transaction &key (eip3860-p t))
+  (let ((gas (if (transaction-to transaction)
+                 +transaction-gas+
+                 +contract-creation-transaction-gas+))
+        (access-list (transaction-access-list transaction))
+        (authorization-list (transaction-authorization-list transaction)))
+    (loop for byte across (ensure-byte-vector (transaction-data transaction))
+          do (incf gas (if (zerop byte) 4 16)))
+    (when (and eip3860-p (not (transaction-to transaction)))
+      (incf gas (* +initcode-word-gas+
+                   (ceiling (length (ensure-byte-vector
+                                     (transaction-data transaction)))
+                            32))))
+    (incf gas (* 2400 (length access-list)))
+    (incf gas (* 1900 (access-list-storage-key-count access-list)))
+    (incf gas (* +set-code-authorization-intrinsic-gas+
+                 (length authorization-list)))
+    gas))
+
 (defun execution-transaction-intrinsic-gas (tx rules)
   (transaction-intrinsic-gas
    tx

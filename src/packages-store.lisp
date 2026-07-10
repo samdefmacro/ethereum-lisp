@@ -53,6 +53,7 @@
    #:engine-log-filter-criteria
    #:engine-log-filter-last-block-number
    #:engine-log-filter-pending-changes
+   #:engine-log-filter-block-hash-p
    #:engine-log-filter-block-hash-consumed-p
    #:engine-log-filter-change
    #:engine-log-filter-change-p
@@ -76,7 +77,6 @@
   (:use #:cl
         #:ethereum-lisp.bytes
         #:ethereum-lisp.hex
-        #:ethereum-lisp.json
         #:ethereum-lisp.types
         #:ethereum-lisp.rlp
         #:ethereum-lisp.crypto

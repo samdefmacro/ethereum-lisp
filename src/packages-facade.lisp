@@ -879,13 +879,17 @@
    #:state-db-verify-account-proof
    #:state-db-get-proof
    #:state-db-verify-proof
-   #:state-proof-result-rpc-object
-   #:state-proof-result-from-rpc-object
    #:state-db-account-range
    #:state-db-storage-range
    #:state-db-for-each-account
    #:state-db-root
    #:state-db-root-hex
+   #:+wei-per-gwei+
+   #:state-db-add-balance)
+  (#:ethereum-lisp.state-proof-json
+   #:state-proof-result-rpc-object
+   #:state-proof-result-from-rpc-object)
+  (#:ethereum-lisp.genesis-state
    #:apply-genesis-account
    #:apply-genesis-alloc
    #:state-db-from-genesis-alloc
@@ -901,9 +905,9 @@
    #:genesis-header-from-state-genesis-json-file
    #:genesis-block-from-state-genesis-object
    #:genesis-block-from-state-genesis-json-string
-   #:genesis-block-from-state-genesis-json-file
-   #:+wei-per-gwei+
-   #:state-db-add-balance
+   #:genesis-block-from-state-genesis-json-file)
+  (#:ethereum-lisp.execution
+   #:execute-message-call
    #:apply-withdrawal
    #:apply-withdrawals
    #:transaction-validation-error
@@ -917,22 +921,21 @@
    #:execution-result-state-root
    #:execution-result-transactions-root
    #:execution-result-receipts-root
-   #:execute-legacy-transactions)
-  (#:ethereum-lisp.execution
-   #:execute-message-call
+   #:execute-legacy-transactions
    #:apply-legacy-message
    #:apply-signed-message
    #:apply-signed-message-list
    #:execute-legacy-messages
    #:execute-signed-messages
    #:execute-legacy-block
+   #:execute-signed-block)
+  (#:ethereum-lisp.execution-service
    #:execute-atomic-block-commit
    #:commit-state-db-to-chain-store
    #:chain-store-state-db
    #:execute-and-commit-engine-payload
    #:execute-and-commit-block
-   #:execute-and-commit-signed-block
-   #:execute-signed-block)
+   #:execute-and-commit-signed-block)
  )
 
 (in-package #:cl-user)

@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.state)
+(in-package #:ethereum-lisp.state-proof-json)
 
 ;;;; JSON-RPC object conversion for state proof results.
 

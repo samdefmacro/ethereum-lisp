@@ -26,10 +26,12 @@
   (let ((store (find-package '#:ethereum-lisp.chain-store))
         (model (find-package '#:ethereum-lisp.chain-store.model))
         (txpool-index (find-package '#:ethereum-lisp.txpool.index))
+        (json (find-package '#:ethereum-lisp.json))
         (core (find-package '#:ethereum-lisp.core)))
     (is (not (member core (package-use-list store))))
     (is (member model (package-use-list store)))
     (is (member txpool-index (package-use-list store)))
+    (is (not (member json (package-use-list store))))
     (dolist (name '("ENGINE-PAYLOAD-STORE-PUT-BLOCK"
                     "CHAIN-STORE-ATOMIC-COMMIT"
                     "CHAIN-STORE-PUT-ACCOUNT-BALANCE"))

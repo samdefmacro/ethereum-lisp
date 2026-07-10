@@ -11,8 +11,23 @@
     (eth-rpc-log-filter-addresses filter method)
     (eth-rpc-log-filter-topics filter method)
     (eth-rpc-log-filter-blocks filter store method)
-    (quantity-to-hex
-     (engine-payload-store-put-log-filter store filter))))
+    (let* ((block-hash-p
+             (json-object-field-present-p filter "blockHash"))
+           (from-block (json-object-field filter "fromBlock"))
+           (start-at-head-p
+             (and (not block-hash-p)
+                  (or (null from-block)
+                      (and (stringp from-block)
+                           (or (string= from-block "latest")
+                               (string= from-block "pending")))))))
+      (quantity-to-hex
+       (engine-payload-store-put-log-filter
+        store
+        filter
+        :block-hash-p block-hash-p
+        :last-block-number
+        (and start-at-head-p
+             (engine-payload-store-head-number store)))))))
 
 (defun engine-rpc-handle-eth-new-block-filter (params store)
   (when params

@@ -27,7 +27,7 @@
                     (chain-config-rules config
                                         (block-header-number header)
                                         (block-header-timestamp header)))))
-    (ethereum-lisp.state:transaction-intrinsic-gas
+    (ethereum-lisp.execution:transaction-intrinsic-gas
      tx
      :eip3860-p (or (null rules) (chain-rules-shanghai-p rules)))))
 

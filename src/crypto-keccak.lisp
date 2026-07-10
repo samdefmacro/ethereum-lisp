@@ -79,3 +79,6 @@
 
 (defun keccak-256-hex (&rest chunks)
   (bytes-to-hex (apply #'keccak-256 chunks)))
+
+(defparameter +empty-code-hash+ (keccak-256-hash #()))
+(defparameter +empty-trie-hash+ (keccak-256-hash #(128)))

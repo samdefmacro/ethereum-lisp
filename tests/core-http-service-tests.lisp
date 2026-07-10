@@ -4,10 +4,13 @@
   (let ((http (find-package '#:ethereum-lisp.rpc-http))
         (rpc (find-package '#:ethereum-lisp.rpc))
         (execution (find-package '#:ethereum-lisp.execution))
+        (execution-service
+          (find-package '#:ethereum-lisp.execution-service))
         (core (find-package '#:ethereum-lisp.core)))
     (is (not (member core (package-use-list http))))
     (is (member rpc (package-use-list http)))
     (is (not (member execution (package-use-list http))))
+    (is (not (member execution-service (package-use-list http))))
     (dolist (name '("RPC-HTTP-HANDLE-REQUEST"
                     "RPC-HTTP-HANDLE-STREAM"
                     "MAKE-ENGINE-RPC-HTTP-SERVICE"

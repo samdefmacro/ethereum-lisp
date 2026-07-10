@@ -21,6 +21,8 @@
       :last-block-number (engine-log-filter-last-block-number filter)
       :pending-changes
       (copy-list (engine-log-filter-pending-changes filter))
+      :block-hash-p
+      (engine-log-filter-block-hash-p filter)
       :block-hash-consumed-p
       (engine-log-filter-block-hash-consumed-p filter)))
     ((typep filter 'engine-block-filter)

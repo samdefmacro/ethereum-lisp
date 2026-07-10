@@ -19,7 +19,7 @@
          (quantity-to-hex (bytes-to-integer (hash32-bytes slot)))))))
 
 (defun eth-rpc-state-db-from-chain-store (store block-hash)
-  (ethereum-lisp.execution:chain-store-state-db store block-hash))
+  (ethereum-lisp.execution-service:chain-store-state-db store block-hash))
 
 (defun eth-rpc-proof-node-hex-list (proof)
   (mapcar #'bytes-to-hex proof))

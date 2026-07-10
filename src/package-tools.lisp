@@ -2,7 +2,8 @@
   (:use #:cl)
   (:export
    #:define-api-package
-   #:define-reexport-package))
+   #:define-reexport-package
+   #:reexport-symbols))
 
 (in-package #:ethereum-lisp.package-tools)
 
@@ -30,8 +31,22 @@
                   collect (make-symbol (symbol-name symbol)))
             #'string<
             :key #'symbol-name)))
-    `(defpackage ,name
-       (:use #:cl ,source)
-       (:export ,@exports))))
+       `(defpackage ,name
+          (:use #:cl ,source)
+          (:export ,@exports))))
+
+(defun reexport-symbols (target source names)
+  "Re-export selected external symbols from SOURCE through TARGET."
+  (let ((target-package (or (find-package target)
+                            (error "Package ~A does not exist" target)))
+        (source-package (or (find-package source)
+                            (error "Package ~A does not exist" source))))
+    (dolist (name names target-package)
+      (multiple-value-bind (symbol status)
+          (find-symbol (string name) source-package)
+        (unless (eq :external status)
+          (error "~A is not external in package ~A" name source))
+        (shadowing-import symbol target-package)
+        (export symbol target-package)))))
 
 (in-package #:cl-user)

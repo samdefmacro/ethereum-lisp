@@ -1,9 +1,6 @@
 (in-package #:ethereum-lisp.state)
 
 (defconstant +wei-per-gwei+ 1000000000)
-(defconstant +transaction-gas+ 21000)
-(defconstant +contract-creation-transaction-gas+ 53000)
-(defconstant +initcode-word-gas+ 2)
 
 (defstruct state-object
   account

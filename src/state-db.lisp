@@ -50,6 +50,47 @@
           (state-account-with-object-commitments object account))
     state))
 
+(defun state-db-account-or-empty (state address)
+  (or (state-db-get-account state address)
+      (make-state-account)))
+
+(defun state-db-put-account-values (state address nonce balance code-hash)
+  (state-db-set-account
+   state
+   address
+   (make-state-account :nonce nonce
+                       :balance balance
+                       :code-hash code-hash)))
+
+(defun state-db-transfer-value (state sender recipient value)
+  (unless (bytes= (address-bytes sender) (address-bytes recipient))
+    (when (plusp value)
+      (let ((sender-account (state-db-account-or-empty state sender))
+            (recipient-account (state-db-account-or-empty state recipient)))
+        (state-db-put-account-values
+         state sender
+         (state-account-nonce sender-account)
+         (- (state-account-balance sender-account) value)
+         (state-account-code-hash sender-account))
+        (state-db-put-account-values
+         state recipient
+         (state-account-nonce recipient-account)
+         (+ (state-account-balance recipient-account) value)
+         (state-account-code-hash recipient-account)))))
+  state)
+
+(defun state-db-add-balance (state address amount)
+  (let ((amount (ensure-state-uint256 amount "Balance amount")))
+    (unless (zerop amount)
+      (let ((account (state-db-account-or-empty state address)))
+        (state-db-put-account-values
+         state
+         address
+         (state-account-nonce account)
+         (+ (state-account-balance account) amount)
+         (state-account-code-hash account)))))
+  state)
+
 (defun state-db-clear-account (state address)
   (remhash (address-key address) (state-db-objects state))
   state)

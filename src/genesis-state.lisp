@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.state)
+(in-package #:ethereum-lisp.genesis-state)
 
 (defun apply-genesis-account (state account)
   (let ((address (genesis-account-address account)))

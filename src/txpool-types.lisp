@@ -1,5 +1,7 @@
 (in-package #:ethereum-lisp.txpool.index)
 
+(defconstant +txpool-replacement-price-bump-percent+ 10)
+
 (defstruct (engine-pending-txpool
             (:constructor make-engine-pending-txpool
                 (&key (transactions (make-hash-table :test 'equal))

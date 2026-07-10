@@ -53,8 +53,8 @@ The current source ownership map is:
   package that owns each symbol. Every public symbol is listed once.
 - `packages-core.lisp`: generated compatibility facade over
   `ethereum-lisp`; it owns no symbols and cannot expose internal APIs.
-- `packages-runtime.lisp`: state, EVM, and execution package definitions with
-  explicit lower-layer dependencies and no core aggregate dependency.
+- `packages-runtime.lisp`: state, EVM, execution, and their explicit
+  genesis/store bridge package definitions, with no core aggregate dependency.
 - `packages-cli.lisp`: the CLI composition package. It consumes the canonical
   public API and explicitly imports the small txpool and persistence ports
   needed for node assembly; it does not depend on `ethereum-lisp.core`.
@@ -63,14 +63,14 @@ The current source ownership map is:
 - `crypto-constants.lisp`: hash, KZG, secp256k1, SHA-256, Keccak, and
   RIPEMD-160 constants and round tables.
 - `crypto-words.lisp`: 32-bit/64-bit rotation and endian load/store helpers.
-- `crypto-keccak.lisp`: Ethereum legacy Keccak-256 sponge implementation.
+- `crypto-keccak.lisp`: Ethereum legacy Keccak-256 sponge implementation and
+  its canonical empty code/trie hashes.
 - `crypto-sha256.lisp`: SHA-256 compression and digest helpers.
 - `crypto-ripemd160.lisp`: RIPEMD-160 compression and digest helpers.
 - `crypto-kzg.lisp`: KZG commitment versioned-hash conversion.
 - `crypto-math.lisp`: fixed-width integer encoding and modular arithmetic.
 - `crypto-secp256k1.lisp`: secp256k1 point arithmetic, key/address
   derivation, and public key recovery.
-- `crypto-empty-hashes.lisp`: canonical empty code and empty trie hashes.
 - `trie-encoding.lisp`: hex-prefix nibble encoding primitives.
 - `trie-types.lisp`: Merkle Patricia Trie node and in-memory store types.
 - `trie-store.lisp`: mutable trie entry put/get/delete and ordered scans.
@@ -193,8 +193,6 @@ The current source ownership map is:
   modules: the database adapter for atomic KV export and staged, validated
   import. It depends on database, chain-store, and txpool contracts; none of
   those domains depend on persistence.
-- `chain-store-memory-guards.lisp`: shared memory-store type checks for
-  in-memory-only chain-store operations.
 - `chain-store-copy-values.lisp`: defensive copying for shared store values,
   filters, checkpoints, and blob proof records.
 - `chain-store-copy-blocks.lisp`: defensive copying for block headers, logs,
@@ -204,10 +202,11 @@ The current source ownership map is:
   chain-store copying helpers.
 - `chain-store-copy-locations.lisp`: transaction-location deep-copy helpers
   that keep copied blocks, receipts, and transactions aligned.
-- `chain-store-snapshots.lisp`: memory-store snapshot/restore and atomic commit
-  helpers.
+- `chain-store-snapshots.lisp`: shared in-memory-store guard plus memory-store
+  snapshot/restore and atomic commit helpers.
 - `chain-store-filters.lisp`: in-memory block, log, and pending transaction
-  filter registration and notifications.
+  filter registration and notifications using explicit filter metadata rather
+  than inspecting JSON-RPC request objects.
 - `chain-store-cache.lisp`: in-memory remote block, invalid payload,
   prepared payload, and blob sidecar caches.
 - `chain-store-memory-blocks.lisp`: in-memory block storage, lookup, and
@@ -311,8 +310,6 @@ The current source ownership map is:
 - `engine-api-dispatch.lisp`: final Engine API method dispatch.
 - `public-rpc-params.lisp`: shared public JSON-RPC address, hash, block tag,
   and block id parameter coercion.
-- `public-rpc-call-defaults.lisp`: default gas-limit selection for public
-  call-style methods.
 - `public-rpc-metadata.lisp`: web3, net, rpc_modules, and basic eth metadata
   handlers.
 - `public-rpc-fees.lisp`: gas price, priority fee, base fee, and blob base-fee
@@ -323,8 +320,8 @@ The current source ownership map is:
   storage reads.
 - `public-rpc-state-proofs.lisp`: `eth_getProof` storage slot coercion and
   proof response construction.
-- `public-rpc-call-objects.lisp`: public call-object parsing and transaction
-  synthesis.
+- `public-rpc-call-objects.lisp`: public call-object parsing, simulation gas
+  defaults, and transaction synthesis.
 - `public-rpc-call-simulation.lisp`: public call simulation and `eth_call`
   response handling.
 - `public-rpc-gas.lisp`: `eth_estimateGas` gas caps and binary search.
@@ -374,20 +371,20 @@ The current source ownership map is:
 - `rpc-http/listener.lisp`: connection/listener contracts and the SBCL socket
   adapter.
 - `rpc-http/server.lisp`: configured stream delegation and listener serve loop.
-- `state-types.lisp`: state constants, mutable state records, proof records,
+- `state-types.lisp`: state units, mutable state records, proof records,
   range records, and state key coercion helpers.
 - `state-db.lisp`: mutable account/code/storage access, copy/restore helpers,
   and storage trie proof primitives.
 - `state-roots.lisp`: account trie construction, account proofs, and state
   root rendering.
 - `state-proofs.lisp`: proof result construction and verification.
-- `state-proof-rpc.lisp`: JSON-RPC proof object conversion and parsing.
+- `ethereum-lisp.state-proof-json` / `state-proof-json.lisp`: state-proof
+  JSON-RPC object conversion and parsing outside the state domain.
 - `state-ranges.lisp`: account/storage range iteration and deterministic
   state export helpers.
-- `state-genesis.lisp`: genesis allocation application, genesis state roots,
-  and genesis block/header construction.
-- `state-transactions.lisp`: withdrawal balance updates, intrinsic gas, and
-  standalone legacy transaction execution fallback.
+- `ethereum-lisp.genesis-state` / `genesis-state.lisp`: the application bridge
+  that materializes genesis allocations in state and derives genesis roots,
+  headers, and blocks. The state domain itself has no genesis dependency.
 - `evm-types.lisp`: EVM errors, result/context records, precompile address
   activation, gas constants, and fixed precompile tables.
 - `ethereum-lisp.evm` is a public facade that only re-exports the supported
@@ -455,8 +452,8 @@ The current source ownership map is:
   opcode-family dispatch.
 - `evm.lisp`: stable public execution entry point; it owns frame lifetime but
   contains no opcode semantics.
-- `execution-constants.lisp`: execution gas, nonce, code-size, refund, and
-  proof-of-work reward constants.
+- `execution-contract.lisp`: execution validation condition plus gas, nonce,
+  code-size, refund, and proof-of-work reward constants.
 - `execution-state.lisp`: account mutation helpers, code resolution, contract
   address derivation, and collision checks.
 - `execution-rewards.lisp`: block beneficiary and ommer reward calculation.
@@ -484,16 +481,18 @@ The current source ownership map is:
   signed/legacy wrappers.
 - `execution-message-lists.lisp`: transaction-list execution and execution
   result construction.
+- `execution-legacy.lisp`: withdrawal application and legacy transaction-list
+  entry points over the EVM-backed message executor, without a partial state
+  fallback.
 - `execution-block-body-validation.lisp`: block body commitment checks,
   access-list body normalization, and execution root validation.
 - `execution-block-validation.lisp`: fork body-shape checks and block header
   snapshot/restore helpers.
 - `execution-block-execution.lisp`: shared block execution skeleton plus
   signed and legacy block execution entry points.
-- `execution-chain-state.lisp`: state-db to chain-store snapshot projection
-  and retained-state reconstruction.
-- `execution-block-commit.lisp`: atomic chain-store block commit and Engine
-  payload commit entry points.
+- `ethereum-lisp.execution-service` / `execution-service.lisp`: state-db and
+  chain-store projection, atomic block commit, and Engine payload import. The
+  execution domain itself contains no storage adapter dependency.
 - `cli-types.lisp`: devnet CLI records, defaults, embedded dev genesis, and
   shutdown signal helpers.
 - `cli-files.lisp`: CLI file, datadir, JWT secret, and KV database path
@@ -530,9 +529,11 @@ The current source ownership map is:
 ## Dependency Rules
 
 - Consensus data types may use primitives, RLP, crypto, trie, and chain rules.
-- State may use consensus account types and trie commitments.
+- State may use account types and trie commitments, but not genesis parsing.
+- Genesis-state assembly may bridge genesis input and mutable state.
 - EVM may use state and consensus types, but not RPC or CLI.
-- Execution may use EVM, state, consensus types, and chain store.
+- Execution may use EVM, state, and consensus types, but not chain store.
+- Execution services may bridge pure execution, state, and chain-store APIs.
 - RPC may use execution and store APIs, but protocol types must not depend on
   RPC JSON shapes.
 - HTTP transport may call RPC dispatch, but RPC dispatch should not depend on
@@ -543,9 +544,9 @@ The current source ownership map is:
 
 Prefer behavior-preserving slices:
 
-1. Move cohesive definitions into a smaller file.
-2. Update ASDF load order.
-3. Run the full test suite.
-4. Only then extract shared helpers or change package exports.
+1. Identify the owner, public contract, invariants, and allowed dependencies.
+2. Define or tighten the package boundary and its tests.
+3. Move or consolidate the cohesive implementation behind that boundary.
+4. Update load order and run the full test suite.
 
 Avoid mixing file moves, semantic fixes, and API changes in one slice.

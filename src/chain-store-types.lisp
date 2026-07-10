@@ -71,11 +71,13 @@
 
 (defstruct (engine-log-filter
             (:constructor make-engine-log-filter
-                (&key criteria last-block-number block-hash-consumed-p
+                (&key criteria last-block-number block-hash-p
+                      block-hash-consumed-p
                       pending-changes)))
   criteria
   last-block-number
   pending-changes
+  (block-hash-p nil :type boolean)
   (block-hash-consumed-p nil :type boolean))
 
 (defstruct (engine-log-filter-change

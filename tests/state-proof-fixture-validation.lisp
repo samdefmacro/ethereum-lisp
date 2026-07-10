@@ -193,7 +193,7 @@
    "State proof reference fixture storageProof entry")
   (let ((key (fixture-required-field proof "key")))
     (handler-case
-        (ethereum-lisp.state::state-proof-rpc-storage-key key)
+        (ethereum-lisp.state-proof-json::state-proof-rpc-storage-key key)
       (error ()
         (error "State proof reference fixture storageProof key is invalid"))))
   (validate-state-proof-fixture-canonical-quantity-field
@@ -227,7 +227,7 @@
   (let ((seen (make-hash-table :test 'equal)))
     (dolist (entry storage-proof)
       (let ((key (hash32-to-hex
-                  (ethereum-lisp.state::state-proof-rpc-storage-key
+                  (ethereum-lisp.state-proof-json::state-proof-rpc-storage-key
                    (fixture-required-field entry "key")))))
         (when (gethash key seen)
           (error "State proof reference fixture storageProof has duplicate key ~A"
@@ -425,4 +425,3 @@
       (unless (gethash name case-by-name)
         (error "State proof fixture is missing required seed case ~A"
                name)))))
-

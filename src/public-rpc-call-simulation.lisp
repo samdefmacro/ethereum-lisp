@@ -10,7 +10,7 @@
        :gas-limit-override gas-limit)
     (handler-case
         (ethereum-lisp.execution:execute-message-call
-         (ethereum-lisp.execution:chain-store-state-db
+         (ethereum-lisp.execution-service:chain-store-state-db
           store (block-hash block))
          sender
          tx
@@ -28,7 +28,7 @@
          :difficulty (block-header-difficulty (block-header block))
          :random-p t
          :context-gas-limit (block-header-gas-limit (block-header block)))
-      (ethereum-lisp.state:transaction-validation-error ()
+      (ethereum-lisp.execution:transaction-validation-error ()
         (block-validation-fail
          "~A transaction is invalid" method)))))
 

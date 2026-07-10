@@ -45,7 +45,7 @@
 
 (defun engine-log-filter-changes (log-filter store method)
   (let ((criteria (engine-log-filter-criteria log-filter)))
-    (if (json-object-field-present-p criteria "blockHash")
+    (if (engine-log-filter-block-hash-p log-filter)
         (if (engine-log-filter-block-hash-consumed-p log-filter)
             (eth-rpc-json-array '())
             (prog1 (eth-rpc-filter-logs criteria store method)

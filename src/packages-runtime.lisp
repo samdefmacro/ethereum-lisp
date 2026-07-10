@@ -7,11 +7,7 @@
         #:ethereum-lisp.crypto
         #:ethereum-lisp.trie
         #:ethereum-lisp.validation
-        #:ethereum-lisp.json
-        #:ethereum-lisp.genesis
-        #:ethereum-lisp.accounts
-        #:ethereum-lisp.transactions
-        #:ethereum-lisp.receipts)
+        #:ethereum-lisp.accounts)
   (:export
    #:state-db
    #:make-state-db
@@ -56,13 +52,40 @@
    #:state-db-verify-account-proof
    #:state-db-get-proof
    #:state-db-verify-proof
-   #:state-proof-result-rpc-object
-   #:state-proof-result-from-rpc-object
    #:state-db-account-range
    #:state-db-storage-range
    #:state-db-for-each-account
    #:state-db-root
    #:state-db-root-hex
+   #:+wei-per-gwei+
+   #:state-db-add-balance))
+
+(defpackage #:ethereum-lisp.state-proof-json
+  (:use #:cl
+        #:ethereum-lisp.bytes
+        #:ethereum-lisp.hex
+        #:ethereum-lisp.types
+        #:ethereum-lisp.state)
+  (:export
+   #:state-proof-result-rpc-object
+   #:state-proof-result-from-rpc-object))
+
+(ethereum-lisp.package-tools:reexport-symbols
+ '#:ethereum-lisp.state
+ '#:ethereum-lisp.state-proof-json
+ '(#:state-proof-result-rpc-object
+   #:state-proof-result-from-rpc-object))
+
+(defpackage #:ethereum-lisp.genesis-state
+  (:use #:cl
+        #:ethereum-lisp.bytes
+        #:ethereum-lisp.types
+        #:ethereum-lisp.validation
+        #:ethereum-lisp.json
+        #:ethereum-lisp.genesis
+        #:ethereum-lisp.accounts
+        #:ethereum-lisp.state)
+  (:export
    #:apply-genesis-account
    #:apply-genesis-alloc
    #:state-db-from-genesis-alloc
@@ -78,23 +101,27 @@
    #:genesis-header-from-state-genesis-json-file
    #:genesis-block-from-state-genesis-object
    #:genesis-block-from-state-genesis-json-string
-   #:genesis-block-from-state-genesis-json-file
-   #:+wei-per-gwei+
-   #:state-db-add-balance
-   #:apply-withdrawal
-   #:apply-withdrawals
-   #:transaction-validation-error
-   #:transaction-intrinsic-gas
-   #:apply-legacy-transaction
-   #:apply-message
-   #:apply-message-list
-   #:execution-result
-   #:make-execution-result
-   #:execution-result-receipts
-   #:execution-result-state-root
-   #:execution-result-transactions-root
-   #:execution-result-receipts-root
-   #:execute-legacy-transactions))
+   #:genesis-block-from-state-genesis-json-file))
+
+(ethereum-lisp.package-tools:reexport-symbols
+ '#:ethereum-lisp.state
+ '#:ethereum-lisp.genesis-state
+ '(#:apply-genesis-account
+   #:apply-genesis-alloc
+   #:state-db-from-genesis-alloc
+   #:state-db-from-genesis-json-string
+   #:state-db-from-genesis-json-file
+   #:genesis-state-root-from-genesis-alloc
+   #:genesis-state-root-from-genesis-json-string
+   #:genesis-state-root-from-genesis-json-file
+   #:validate-genesis-state-root
+   #:validate-genesis-json-state-root
+   #:genesis-header-from-state-genesis-object
+   #:genesis-header-from-state-genesis-json-string
+   #:genesis-header-from-state-genesis-json-file
+   #:genesis-block-from-state-genesis-object
+   #:genesis-block-from-state-genesis-json-string
+   #:genesis-block-from-state-genesis-json-file))
 
 (defpackage #:ethereum-lisp.evm.internal
   (:use #:cl
@@ -263,21 +290,73 @@
         #:ethereum-lisp.block-access-lists
         #:ethereum-lisp.blocks
         #:ethereum-lisp.consensus
-        #:ethereum-lisp.chain-store
         #:ethereum-lisp.state
         #:ethereum-lisp.evm)
   (:export
    #:execute-message-call
+   #:apply-withdrawal
+   #:apply-withdrawals
+   #:transaction-validation-error
+   #:transaction-intrinsic-gas
+   #:apply-legacy-transaction
+   #:apply-message
+   #:apply-message-list
+   #:execution-result
+   #:make-execution-result
+   #:execution-result-receipts
+   #:execution-result-state-root
+   #:execution-result-transactions-root
+   #:execution-result-receipts-root
+   #:execute-legacy-transactions
    #:apply-legacy-message
    #:apply-signed-message
    #:apply-signed-message-list
    #:execute-legacy-messages
    #:execute-signed-messages
    #:execute-legacy-block
+   #:execute-signed-block))
+
+(ethereum-lisp.package-tools:reexport-symbols
+ '#:ethereum-lisp.state
+ '#:ethereum-lisp.execution
+ '(#:apply-withdrawal
+   #:apply-withdrawals
+   #:transaction-validation-error
+   #:transaction-intrinsic-gas
+   #:apply-legacy-transaction
+   #:apply-message
+   #:apply-message-list
+   #:execution-result
+   #:make-execution-result
+   #:execution-result-receipts
+   #:execution-result-state-root
+   #:execution-result-transactions-root
+   #:execution-result-receipts-root
+   #:execute-legacy-transactions))
+
+(defpackage #:ethereum-lisp.execution-service
+  (:use #:cl
+        #:ethereum-lisp.validation
+        #:ethereum-lisp.chain-config
+        #:ethereum-lisp.accounts
+        #:ethereum-lisp.blocks
+        #:ethereum-lisp.chain-store
+        #:ethereum-lisp.state
+        #:ethereum-lisp.execution)
+  (:export
    #:execute-atomic-block-commit
    #:commit-state-db-to-chain-store
    #:chain-store-state-db
    #:execute-and-commit-engine-payload
    #:execute-and-commit-block
-   #:execute-and-commit-signed-block
-   #:execute-signed-block))
+   #:execute-and-commit-signed-block))
+
+(ethereum-lisp.package-tools:reexport-symbols
+ '#:ethereum-lisp.execution
+ '#:ethereum-lisp.execution-service
+ '(#:execute-atomic-block-commit
+   #:commit-state-db-to-chain-store
+   #:chain-store-state-db
+   #:execute-and-commit-engine-payload
+   #:execute-and-commit-block
+   #:execute-and-commit-signed-block))

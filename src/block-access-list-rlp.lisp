@@ -191,3 +191,7 @@
                                 :max-code-size max-code-size
                                 :max-items max-items)
     (keccak-256-hash bytes)))
+
+(defun block-access-list-hash (block-access-list)
+  (validate-block-access-list-fields block-access-list)
+  (keccak-256-hash (block-access-list-rlp block-access-list)))

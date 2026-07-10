@@ -32,9 +32,7 @@
           being the hash-values of
             (engine-payload-memory-store-log-filters store)
         when (and (typep filter 'engine-log-filter)
-                  (not (json-object-field-present-p
-                        (engine-log-filter-criteria filter)
-                        "blockHash")))
+                  (not (engine-log-filter-block-hash-p filter)))
           do (engine-log-filter-record-change
               filter
               block
@@ -50,21 +48,16 @@
               filter
               (transaction-hash transaction))))
 
-(defun engine-payload-store-put-log-filter (store filter)
+(defun engine-payload-store-put-log-filter
+    (store criteria &key block-hash-p last-block-number)
   (unless (typep store 'engine-payload-memory-store)
     (block-validation-fail "Engine payload store must be a memory store"))
   (let ((id (engine-payload-memory-store-next-log-filter-id store)))
     (setf (gethash id (engine-payload-memory-store-log-filters store))
           (make-engine-log-filter
-           :criteria filter
-           :last-block-number
-           (unless (json-object-field-present-p filter "blockHash")
-             (let ((from-block (json-object-field filter "fromBlock")))
-               (when (or (null from-block)
-                         (and (stringp from-block)
-                              (or (string= from-block "latest")
-                                  (string= from-block "pending"))))
-                 (engine-payload-memory-store-head-number store))))))
+           :criteria criteria
+           :block-hash-p block-hash-p
+           :last-block-number last-block-number))
     (incf (engine-payload-memory-store-next-log-filter-id store))
     id))
 

@@ -9122,6 +9122,15 @@ splits can land after the Phase A smoke path closes.
 
 ## Recently Completed
 
+- [x] Consolidate tiny constants, hashes, commitments, and guard fragments into
+  their actual type, codec, validation, or atomic-store owners instead of
+  preserving same-prefix files without independent contracts.
+- [x] Extract `genesis-state` and `execution-service` application bridges so
+  state no longer depends on genesis and pure execution no longer depends on
+  chain-store, while preserving old qualified names as compatibility exports.
+- [x] Move proof JSON codecs and transaction execution out of state, remove
+  the partial legacy execution fallback, and keep chain-store filters
+  independent from JSON-RPC object structure.
 - [x] Delete empty one-form compatibility source files and remove their ASDF,
   manual-loader, and architecture-documentation entries.
 - [x] Make `ethereum-lisp` the canonical owner-grouped public API manifest,

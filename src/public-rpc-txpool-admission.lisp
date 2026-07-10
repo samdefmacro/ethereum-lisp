@@ -93,7 +93,7 @@
        :chain-config config
        :label "eth_sendRawTransaction")
       (let ((intrinsic-gas
-              (ethereum-lisp.state:transaction-intrinsic-gas
+              (ethereum-lisp.execution:transaction-intrinsic-gas
                transaction
                :eip3860-p (or (null rules)
                                (chain-rules-shanghai-p rules)))))
