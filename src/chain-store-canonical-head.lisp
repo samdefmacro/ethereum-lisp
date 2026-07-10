@@ -124,7 +124,6 @@
        :expected-chain-id expected-chain-id)
       (engine-payload-store-promote-queued-transactions
        store
-       nil
        :expected-chain-id expected-chain-id)
       (engine-payload-store-promote-basefee-and-queued-transactions
        store

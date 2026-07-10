@@ -177,4 +177,20 @@
    #:engine-payload-store-index-block-transactions
    #:engine-payload-store-remove-block-transaction-locations
    #:engine-payload-store-remove-included-block-transactions
-   #:engine-payload-store-transaction-location))
+   #:engine-payload-store-transaction-location
+   #:chain-store-put-block
+   #:chain-store-known-block
+   #:chain-store-block-by-number
+   #:chain-store-canonical-hash
+   #:chain-store-head-number
+   #:chain-store-block-tag-number
+   #:chain-store-latest-block
+   #:chain-store-transaction-location
+   #:chain-store-block-receipts
+   #:chain-store-update-forkchoice-checkpoints
+   #:chain-store-head-checkpoint
+   #:chain-store-safe-checkpoint
+   #:chain-store-finalized-checkpoint
+   #:chain-store-head-block
+   #:chain-store-safe-block
+   #:chain-store-finalized-block))

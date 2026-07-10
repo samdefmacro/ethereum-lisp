@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.txpool)
 
 (defun engine-payload-store-promote-basefee-transactions
     (store &key expected-chain-id account-slot-limit global-slot-limit
@@ -117,7 +117,7 @@
                     (nconc queued-promoted
                            (engine-payload-store-promote-queued-transactions
                             store
-                            sender
+                            :sender sender
                             :expected-chain-id expected-chain-id
                             :account-slot-limit account-slot-limit
                             :global-slot-limit global-slot-limit

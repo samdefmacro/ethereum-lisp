@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.txpool)
 
 (defun engine-payload-store-promote-queued-sender-transactions
     (store sender head base-fee &key expected-chain-id
@@ -58,10 +58,10 @@
     (nreverse promoted-transactions)))
 
 (defun engine-payload-store-promote-queued-transactions
-    (store &optional sender &key expected-chain-id
-                                account-slot-limit
-                                global-slot-limit
-                                local-transaction-predicate)
+    (store &key sender expected-chain-id
+                account-slot-limit
+                global-slot-limit
+                local-transaction-predicate)
   (let* ((head (chain-store-latest-block store))
          (header (and head (block-header head)))
          (base-fee (and header (block-header-base-fee-per-gas header)))

@@ -79,7 +79,8 @@
               :global-slot-limit
               (unless local-transaction-p txpool-global-slot-limit))
              (engine-payload-store-promote-queued-transactions
-              store sender
+              store
+              :sender sender
               :expected-chain-id (chain-config-chain-id config)
               :account-slot-limit txpool-account-slot-limit
               :global-slot-limit txpool-global-slot-limit

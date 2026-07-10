@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.txpool)
 
 (defun engine-payload-store-pending-sender-transactions
     (store sender)

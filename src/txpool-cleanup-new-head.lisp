@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.txpool)
 
 (defun engine-payload-store-sender-code-invalid-txpool-transaction-p
     (store head transaction &key expected-chain-id)
@@ -13,33 +13,15 @@
 
 (defun engine-payload-store-remove-sender-code-invalid-txpool-transactions
     (store &key expected-chain-id)
-  (let ((head (chain-store-latest-block store))
-        (removed-transactions nil))
+  (let ((head (chain-store-latest-block store)))
     (when (and head
                (chain-store-state-available-p store (block-hash head)))
-      (flet ((remove-sender-code-invalid
-                 (transactions remove-function)
-               (dolist (transaction transactions)
-                 (when (engine-payload-store-sender-code-invalid-txpool-transaction-p
-                        store head transaction
-                        :expected-chain-id expected-chain-id)
-                   (funcall remove-function
-                            (engine-payload-store-txpool store)
-                            (transaction-hash transaction))
-                   (push transaction removed-transactions)))))
-        (remove-sender-code-invalid
-         (engine-payload-store-pending-transactions store)
-         #'engine-pending-txpool-remove-pending-transaction)
-        (remove-sender-code-invalid
-         (engine-payload-store-queued-transactions store)
-         #'engine-pending-txpool-remove-queued-transaction)
-        (remove-sender-code-invalid
-         (engine-payload-store-basefee-transactions store)
-         #'engine-pending-txpool-remove-basefee-transaction)
-        (remove-sender-code-invalid
-         (engine-payload-store-blob-transactions store)
-         #'engine-pending-txpool-remove-blob-transaction)))
-    (nreverse removed-transactions)))
+      (engine-payload-store-remove-txpool-transactions-if
+       store
+       (lambda (transaction)
+         (engine-payload-store-sender-code-invalid-txpool-transaction-p
+          store head transaction
+          :expected-chain-id expected-chain-id))))))
 
 (defun engine-payload-store-over-gas-limit-txpool-transaction-p
     (head transaction)
@@ -47,30 +29,13 @@
      (block-header-gas-limit (block-header head))))
 
 (defun engine-payload-store-remove-over-gas-limit-txpool-transactions (store)
-  (let ((head (chain-store-latest-block store))
-        (removed-transactions nil))
+  (let ((head (chain-store-latest-block store)))
     (when head
-      (flet ((remove-over-gas (transactions remove-function)
-               (dolist (transaction transactions)
-                 (when (engine-payload-store-over-gas-limit-txpool-transaction-p
-                        head transaction)
-                   (funcall remove-function
-                            (engine-payload-store-txpool store)
-                            (transaction-hash transaction))
-                   (push transaction removed-transactions)))))
-        (remove-over-gas
-         (engine-payload-store-pending-transactions store)
-         #'engine-pending-txpool-remove-pending-transaction)
-        (remove-over-gas
-         (engine-payload-store-queued-transactions store)
-         #'engine-pending-txpool-remove-queued-transaction)
-        (remove-over-gas
-         (engine-payload-store-basefee-transactions store)
-         #'engine-pending-txpool-remove-basefee-transaction)
-        (remove-over-gas
-         (engine-payload-store-blob-transactions store)
-         #'engine-pending-txpool-remove-blob-transaction)))
-    (nreverse removed-transactions)))
+      (engine-payload-store-remove-txpool-transactions-if
+       store
+       (lambda (transaction)
+         (engine-payload-store-over-gas-limit-txpool-transaction-p
+          head transaction))))))
 
 (defun engine-payload-store-remove-underpriced-blob-txpool-transactions
     (store &key chain-config)
@@ -92,31 +57,13 @@
 
 (defun engine-payload-store-remove-invalid-sender-txpool-transactions
     (store &key expected-chain-id)
-  (let ((removed-transactions nil))
-    (when expected-chain-id
-      (flet ((remove-invalid-sender
-                 (transactions remove-function)
-               (dolist (transaction transactions)
-                 (when (null (transaction-sender
-                              transaction
-                              :expected-chain-id expected-chain-id))
-                   (funcall remove-function
-                            (engine-payload-store-txpool store)
-                            (transaction-hash transaction))
-                   (push transaction removed-transactions)))))
-        (remove-invalid-sender
-         (engine-payload-store-pending-transactions store)
-         #'engine-pending-txpool-remove-pending-transaction)
-        (remove-invalid-sender
-         (engine-payload-store-queued-transactions store)
-         #'engine-pending-txpool-remove-queued-transaction)
-        (remove-invalid-sender
-         (engine-payload-store-basefee-transactions store)
-         #'engine-pending-txpool-remove-basefee-transaction)
-        (remove-invalid-sender
-         (engine-payload-store-blob-transactions store)
-         #'engine-pending-txpool-remove-blob-transaction)))
-    (nreverse removed-transactions)))
+  (when expected-chain-id
+    (engine-payload-store-remove-txpool-transactions-if
+     store
+     (lambda (transaction)
+       (null (transaction-sender
+              transaction
+              :expected-chain-id expected-chain-id))))))
 
 (defun engine-payload-store-chain-config-expected-chain-id
     (expected-chain-id chain-config)

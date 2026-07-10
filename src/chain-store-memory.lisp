@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.chain-store)
 
 ;;;; Public chain-store wrappers around the memory-store implementation.
 
@@ -22,14 +22,6 @@
   (engine-payload-store-canonical-hash
    (chain-store-require-memory-store store)
    number))
-
-(defun chain-store-set-canonical-head
-    (store hash &key expected-chain-id chain-config)
-  (engine-payload-store-set-canonical-head
-   (chain-store-require-memory-store store)
-   hash
-   :expected-chain-id expected-chain-id
-   :chain-config chain-config))
 
 (defun chain-store-head-number (store)
   (engine-payload-store-head-number

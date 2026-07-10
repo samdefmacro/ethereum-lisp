@@ -312,7 +312,7 @@
     (is (null
          (ethereum-lisp.core::engine-payload-store-promote-queued-transactions
           store
-          sender)))
+          :sender sender)))
     (is (= 1
            (ethereum-lisp.core::engine-payload-store-pending-transaction-count
             store)))
@@ -386,4 +386,3 @@
             (ethereum-lisp.core::engine-payload-store-basefee-transaction
              store
              (transaction-hash gap-transaction))))))
-

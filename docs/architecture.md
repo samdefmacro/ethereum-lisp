@@ -150,8 +150,14 @@ The current source ownership map is:
   the txpool index model.
 - `ethereum-lisp.chain-store` / chain-store memory, copy, cache, filter,
   state, canonical-index, and transaction-location modules: pure in-memory
-  store behavior over the model. Canonical-head/reorg and txpool persistence
-  remain application adapters until their txpool coordination is extracted.
+  store behavior and public queries over the model. Canonical-head and
+  persistence remain application adapters because they coordinate multiple
+  services.
+- `ethereum-lisp.txpool` / txpool store, admission, views, accounting,
+  promotion, cleanup, and reorg modules: transaction-pool policy over the
+  index model and chain-store query contract. It depends on chain-store in one
+  direction and owns all subpool lifecycle decisions; canonical-head only
+  orchestrates the resulting service operations.
 - `chain-store-memory-guards.lisp`: shared memory-store type checks for
   in-memory-only chain-store operations.
 - `chain-store-copy-values.lisp`: defensive copying for shared store values,
@@ -172,7 +178,7 @@ The current source ownership map is:
   prepared payload, and blob sidecar caches.
 - `chain-store-memory-blocks.lisp`: in-memory block storage, lookup, and
   forkchoice checkpoint updates.
-- `chain-store-memory.lisp`: public chain-store wrappers around the
+- `chain-store-memory.lisp`: public chain-store queries and commands around the
   memory-store implementation.
 - `chain-store-state-availability.lisp`: retained state availability checks
   and state snapshot pruning.
@@ -185,18 +191,20 @@ The current source ownership map is:
   block-membership, and ancestor checks.
 - `chain-store-transaction-locations.lisp`: canonical transaction location
   indexing and lookup.
-- `chain-store-txpool-rules.lisp`: txpool admission rules that need current
+- `txpool-chain-rules.lisp`: txpool admission rules that need current
   chain state.
-- `chain-store-reorg-txpool.lisp`: displaced transaction reinsertion after
+- `txpool-reorg.lisp`: displaced transaction reinsertion after
   canonical reorgs.
 - `chain-store-canonical-head.lisp`: canonical head updates, reorg cleanup,
   txpool refresh, and filter notifications.
 - `chain-store-canonical.lisp`: compatibility package entry for canonical
   chain-store modules.
-- `txpool-store-*.lisp`: engine payload store wrappers for txpool access,
-  conflict/replacement checks, subpool indexing, admission, sender views, and
-  accounting.
-- `txpool.lisp`: compatibility package entry for txpool store modules.
+- `txpool-store.lisp`: the chain-store adapter for txpool access,
+  conflict/replacement checks, and low-level subpool indexing.
+- `txpool-store-admission.lisp`: validated insertion into pending, queued,
+  basefee, and blob subpools through one shared admission path.
+- `txpool-store-views.lisp` and `txpool-store-accounting.lisp`: sender-index
+  queries and replacement-aware balance accounting.
 - `txpool-views.lisp`: txpool lookup, list, count, sender view, and mining
   selection helpers.
 - `txpool-parked-pruning.lisp`: overbudget parked-transaction ordering,
@@ -207,16 +215,12 @@ The current source ownership map is:
   nonce continuity.
 - `txpool-basefee-promotion.lisp`: basefee transaction promotion and queued
   tail draining after basefee promotion.
-- `txpool-promotion.lisp`: compatibility package entry for txpool promotion
-  modules.
 - `txpool-cleanup-lifecycle.lisp`: stale nonce and expired queued-view
   transaction removal.
 - `txpool-cleanup-new-head.lisp`: invalid sender, sender-code, gas-limit, and
   blob-fee cleanup after canonical-head changes.
 - `txpool-pending-revalidation.lisp`: pending transaction demotion and sender
   revalidation after canonical-head changes.
-- `txpool-cleanup.lisp`: compatibility package entry for txpool cleanup
-  modules.
 - `chain-store-export-indexes.lisp`: checkpoint and index KV export records.
 - `chain-store-export-blocks.lisp`: block and receipt KV export records.
 - `chain-store-export-transactions.lisp`: transaction location KV export

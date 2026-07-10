@@ -22,6 +22,34 @@
         (is (null symbol))
         (is (null status))))))
 
+(deftest txpool-service-package-boundary
+  (let ((txpool (find-package '#:ethereum-lisp.txpool))
+        (index (find-package '#:ethereum-lisp.txpool.index))
+        (chain-store (find-package '#:ethereum-lisp.chain-store))
+        (core (find-package '#:ethereum-lisp.core)))
+    (is (not (member core (package-use-list txpool))))
+    (is (member index (package-use-list txpool)))
+    (is (member chain-store (package-use-list txpool)))
+    (dolist (name '("ENGINE-PAYLOAD-STORE-PUT-PENDING-TRANSACTION"
+                    "ENGINE-PAYLOAD-STORE-POOLED-TRANSACTIONS"
+                    "ENGINE-PAYLOAD-STORE-PROMOTE-QUEUED-TRANSACTIONS"))
+      (multiple-value-bind (txpool-symbol txpool-status)
+          (find-symbol name txpool)
+        (multiple-value-bind (core-symbol core-status)
+            (find-symbol name core)
+          (is (eq :external txpool-status))
+          (is core-status)
+          (is (eq txpool-symbol core-symbol)))))
+    (dolist (name '("CHAIN-STORE-SET-CANONICAL-HEAD"
+                    "ENGINE-PAYLOAD-STORE-SUBPOOL-VIEWS"))
+      (multiple-value-bind (symbol status)
+          (find-symbol name txpool)
+        (if (string= name "CHAIN-STORE-SET-CANONICAL-HEAD")
+            (progn
+              (is (null symbol))
+              (is (null status)))
+            (is (eq :internal status)))))))
+
 (deftest engine-payload-store-indexes-pending-transactions-by-sender-nonce
   (let* ((store (make-engine-payload-memory-store))
          (recipient
@@ -163,10 +191,10 @@
               (gethash
                (ethereum-lisp.core::engine-pending-txpool-hash-key
                 (transaction-hash transaction))
-               (ethereum-lisp.core::engine-payload-store-queued-transaction-table
+               (ethereum-lisp.txpool::engine-payload-store-queued-transaction-table
                 store))
               transaction)
-             (ethereum-lisp.core::engine-payload-store-index-queued-transaction
+             (ethereum-lisp.txpool::engine-payload-store-index-queued-transaction
               store
               transaction)))
     (let* ((store (make-engine-payload-memory-store))
@@ -884,7 +912,7 @@
              sender-nonce-two)
             (ethereum-lisp.core::engine-payload-store-txpool-upfront-cost
              replacement))
-         (ethereum-lisp.core::engine-payload-store-pending-sender-expenditure
+         (ethereum-lisp.txpool::engine-payload-store-pending-sender-expenditure
           store
           sender
           replacement)))))
