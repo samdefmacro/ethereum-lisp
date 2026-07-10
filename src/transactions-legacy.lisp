@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.transactions)
 
 ;;; Transaction envelope types, RLP encodings, signing hashes, and sender recovery.
 
@@ -22,7 +22,7 @@
   (r 0 :type (integer 0 *))
   (s 0 :type (integer 0 *)))
 
-(defun transaction-to-bytes (to)
+(defun transaction-recipient-bytes (to)
   (etypecase to
     (null (make-byte-vector 0))
     (address (address-bytes to))
@@ -41,7 +41,7 @@
     (ensure-uint256 (legacy-transaction-nonce transaction) "Transaction nonce")
     (ensure-uint256 (legacy-transaction-gas-price transaction) "Transaction gas price")
     (ensure-uint256 (legacy-transaction-gas-limit transaction) "Transaction gas limit")
-    (transaction-to-bytes (legacy-transaction-to transaction))
+    (transaction-recipient-bytes (legacy-transaction-to transaction))
     (ensure-uint256 (legacy-transaction-value transaction) "Transaction value")
     (ensure-byte-vector (legacy-transaction-data transaction))
     (ensure-uint256 (legacy-transaction-v transaction) "Transaction v")
@@ -55,19 +55,6 @@
       ((= (length bytes) 20) (make-address bytes))
       (t (block-validation-fail
           "Legacy transaction recipient must be empty or 20 bytes")))))
-
-(defun rlp-uint-field (value label)
-  (unless (byte-vector-p value)
-    (block-validation-fail "~A must be RLP bytes" label))
-  (when (and (plusp (length value))
-             (zerop (aref value 0)))
-    (block-validation-fail "~A must be canonically encoded" label))
-  (bytes-to-integer value))
-
-(defun rlp-bytes-field (value label)
-  (unless (byte-vector-p value)
-    (block-validation-fail "~A must be RLP bytes" label))
-  (copy-seq value))
 
 (defun legacy-transaction-from-rlp (bytes)
   (handler-case
@@ -109,7 +96,7 @@
                            "Transaction gas price")
            (ensure-uint256 (legacy-transaction-gas-limit transaction)
                            "Transaction gas limit")
-           (transaction-to-bytes (legacy-transaction-to transaction))
+           (transaction-recipient-bytes (legacy-transaction-to transaction))
            (ensure-uint256 (legacy-transaction-value transaction)
                            "Transaction value")
            (ensure-byte-vector (legacy-transaction-data transaction)))))

@@ -9,6 +9,25 @@
     (is (string= "0xf8448080a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
                  (bytes-to-hex (state-account-rlp account))))))
 
+(deftest transaction-package-boundary
+  (let ((transactions (find-package '#:ethereum-lisp.transactions))
+        (core (find-package '#:ethereum-lisp.core)))
+    (is (not (member core (package-use-list transactions))))
+    (dolist (name '("LEGACY-TRANSACTION" "TRANSACTION-FROM-ENCODING"
+                    "SET-CODE-TRANSACTION"))
+      (multiple-value-bind (transaction-symbol transaction-status)
+          (find-symbol name transactions)
+        (multiple-value-bind (core-symbol core-status)
+            (find-symbol name core)
+          (is (eq :external transaction-status))
+          (is (eq :external core-status))
+          (is (eq transaction-symbol core-symbol)))))
+    (dolist (name '("STATE-ACCOUNT" "BLOCK-HEADER" "RECEIPT"))
+      (multiple-value-bind (symbol status)
+          (find-symbol name transactions)
+        (is (null symbol))
+        (is (null status))))))
+
 (deftest legacy-transaction-rlp-contract-creation
   (let ((tx (make-legacy-transaction :nonce 1
                                      :gas-price 2
@@ -419,4 +438,3 @@
                    (address-to-hex
                     (set-code-authorization-authority
                      (second authorizations))))))))
-

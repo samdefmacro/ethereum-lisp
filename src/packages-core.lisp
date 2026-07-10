@@ -1,126 +1,3 @@
-(defpackage #:ethereum-lisp.chain-config
-  (:use #:cl #:ethereum-lisp.validation)
-  (:export
-   #:+blob-gas-per-blob+
-   #:+target-blobs-per-block+
-   #:+max-blobs-per-block+
-   #:+osaka-target-blobs-per-block+
-   #:+osaka-max-blobs-per-block+
-   #:+bpo1-target-blobs-per-block+
-   #:+bpo1-max-blobs-per-block+
-   #:+bpo2-target-blobs-per-block+
-   #:+bpo2-max-blobs-per-block+
-   #:+bpo3-target-blobs-per-block+
-   #:+bpo3-max-blobs-per-block+
-   #:+bpo4-target-blobs-per-block+
-   #:+bpo4-max-blobs-per-block+
-   #:+blob-base-fee-update-fraction+
-   #:+osaka-blob-base-fee-update-fraction+
-   #:+bpo1-blob-base-fee-update-fraction+
-   #:+bpo2-blob-base-fee-update-fraction+
-   #:+bpo3-blob-base-fee-update-fraction+
-   #:+bpo4-blob-base-fee-update-fraction+
-   #:blob-schedule-entry
-   #:make-blob-schedule-entry
-   #:blob-schedule-entry-timestamp
-   #:blob-schedule-entry-target-blobs
-   #:blob-schedule-entry-max-blobs
-   #:blob-schedule-entry-update-fraction
-   #:chain-config
-   #:make-chain-config
-   #:chain-config-chain-id
-   #:chain-config-homestead-block
-   #:chain-config-dao-fork-block
-   #:chain-config-dao-fork-support
-   #:chain-config-eip150-block
-   #:chain-config-eip155-block
-   #:chain-config-eip158-block
-   #:chain-config-byzantium-block
-   #:chain-config-constantinople-block
-   #:chain-config-petersburg-block
-   #:chain-config-istanbul-block
-   #:chain-config-muir-glacier-block
-   #:chain-config-berlin-block
-   #:chain-config-london-block
-   #:chain-config-arrow-glacier-block
-   #:chain-config-gray-glacier-block
-   #:chain-config-shanghai-time
-   #:chain-config-cancun-time
-   #:chain-config-prague-time
-   #:chain-config-osaka-time
-   #:chain-config-bpo1-time
-   #:chain-config-bpo2-time
-   #:chain-config-bpo3-time
-   #:chain-config-bpo4-time
-   #:chain-config-bpo5-time
-   #:chain-config-amsterdam-time
-   #:chain-config-ubt-time
-   #:chain-config-enable-ubt-at-genesis-p
-   #:chain-config-terminal-total-difficulty
-   #:chain-config-terminal-total-difficulty-passed
-   #:chain-config-terminal-block-hash
-   #:chain-config-terminal-block-number
-   #:chain-config-merge-netsplit-block
-   #:chain-config-deposit-contract-address
-   #:chain-config-custom-blob-schedule
-   #:fork-block-active-p
-   #:fork-time-active-p
-   #:chain-config-homestead-p
-   #:chain-config-dao-fork-p
-   #:chain-config-eip150-p
-   #:chain-config-eip155-p
-   #:chain-config-eip158-p
-   #:chain-config-byzantium-p
-   #:chain-config-constantinople-p
-   #:chain-config-petersburg-p
-   #:chain-config-istanbul-p
-   #:chain-config-berlin-p
-   #:chain-config-london-p
-   #:chain-config-shanghai-p
-   #:chain-config-cancun-p
-   #:chain-config-prague-p
-   #:chain-config-osaka-p
-   #:chain-config-bpo1-p
-   #:chain-config-bpo2-p
-   #:chain-config-bpo3-p
-   #:chain-config-bpo4-p
-   #:chain-config-bpo5-p
-   #:chain-config-amsterdam-p
-   #:chain-config-ubt-p
-   #:chain-config-ubt-genesis-p
-   #:chain-config-expanded-blob-schedule-p
-   #:chain-config-blob-schedule
-   #:chain-config-rules
-   #:chain-rules
-   #:make-chain-rules
-   #:chain-rules-chain-id
-   #:chain-rules-homestead-p
-   #:chain-rules-eip150-p
-   #:chain-rules-eip155-p
-   #:chain-rules-eip158-p
-   #:chain-rules-byzantium-p
-   #:chain-rules-constantinople-p
-   #:chain-rules-petersburg-p
-   #:chain-rules-istanbul-p
-   #:chain-rules-berlin-p
-   #:chain-rules-london-p
-   #:chain-rules-shanghai-p
-   #:chain-rules-cancun-p
-   #:chain-rules-prague-p
-   #:chain-rules-osaka-p
-   #:chain-rules-bpo1-p
-   #:chain-rules-bpo2-p
-   #:chain-rules-bpo3-p
-   #:chain-rules-bpo4-p
-   #:chain-rules-bpo5-p
-   #:chain-rules-amsterdam-p
-   #:chain-rules-ubt-p
-   #:chain-rules-blob-schedule-target-gas
-   #:chain-rules-blob-schedule-max-gas
-   #:chain-rules-blob-schedule-update-fraction
-   #:chain-rules-expanded-blob-schedule-p
-   #:chain-rules-blob-schedule))
-
 (defpackage #:ethereum-lisp.core
   (:use #:cl
         #:ethereum-lisp.bytes
@@ -129,7 +6,8 @@
         #:ethereum-lisp.rlp
         #:ethereum-lisp.crypto
         #:ethereum-lisp.trie
-        #:ethereum-lisp.chain-config)
+        #:ethereum-lisp.chain-config
+        #:ethereum-lisp.transactions)
   (:import-from #:ethereum-lisp.database
    #:key-value-database
    #:make-kv-write-batch
@@ -148,7 +26,9 @@
    #:block-validation-error-message
    #:block-validation-fail
    #:ensure-uint256
-   #:optional-bytes)
+   #:optional-bytes
+   #:rlp-uint-field
+   #:rlp-bytes-field)
   (:export
    #:+empty-ommers-hash+
    #:ommers-hash

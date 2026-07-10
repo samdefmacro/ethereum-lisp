@@ -35,8 +35,10 @@ The current source ownership map is:
 
 - `packages-foundation.lisp`: base package definitions for bytes, hex,
   database, telemetry, RLP, types, crypto, and trie.
-- `packages-core.lisp`: `ethereum-lisp.core` package definition and exported
-  core protocol surface.
+- `packages-protocol.lisp`: independent chain-configuration and transaction
+  domain package definitions.
+- `packages-core.lisp`: compatibility aggregate for the remaining core
+  protocol surface; it re-exports narrower domain APIs while callers migrate.
 - `packages-runtime.lisp`: state, EVM, execution, and CLI package definitions.
 - `packages-facade.lisp`: top-level `ethereum-lisp` facade imports and
   exports.
@@ -71,6 +73,10 @@ The current source ownership map is:
   blob schedule selection, and effective chain-rule construction. Core
   re-exports this API for compatibility.
 - `chain-config.lisp`: compatibility package entry for chain config modules.
+- `ethereum-lisp.transactions` / `transactions-*.lisp`: the transaction
+  domain owns envelopes, codecs, signatures, common accessors, fee rules, and
+  fork support policy. It depends on chain rules and protocol primitives, not
+  on `ethereum-lisp.core`; core re-exports its public API for compatibility.
 - `genesis-types.lisp`: genesis constants and alloc account structure.
 - `genesis-object-fields.lisp`: shared genesis object lookup and scalar field
   parsing helpers.

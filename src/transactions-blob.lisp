@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.transactions)
 
 (defstruct (blob-transaction (:constructor make-blob-transaction
                                (&key (chain-id 0)

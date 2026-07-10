@@ -9,6 +9,7 @@
     :serial t
     :components
     ((:file "packages-foundation")
+     (:file "packages-protocol")
      (:file "packages-core")
      (:file "packages-runtime")
      (:file "packages-facade")

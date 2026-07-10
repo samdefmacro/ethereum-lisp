@@ -51,7 +51,7 @@
 (defun validate-transaction-recipient-field (transaction)
   (handler-case
       (progn
-        (transaction-to-bytes (transaction-to transaction))
+        (transaction-recipient-bytes (transaction-to transaction))
         t)
     (error ()
       (block-validation-fail

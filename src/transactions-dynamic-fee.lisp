@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.transactions)
 
 (defstruct (dynamic-fee-transaction (:constructor make-dynamic-fee-transaction
                                      (&key (chain-id 0)
@@ -35,7 +35,7 @@
    (ensure-uint256 (dynamic-fee-transaction-max-fee-per-gas transaction)
                    "Transaction max fee")
    (ensure-uint256 (dynamic-fee-transaction-gas-limit transaction) "Transaction gas limit")
-   (transaction-to-bytes (dynamic-fee-transaction-to transaction))
+   (transaction-recipient-bytes (dynamic-fee-transaction-to transaction))
    (ensure-uint256 (dynamic-fee-transaction-value transaction) "Transaction value")
    (ensure-byte-vector (dynamic-fee-transaction-data transaction))
    (access-list-rlp-object (dynamic-fee-transaction-access-list transaction))
@@ -89,7 +89,7 @@
    (ensure-uint256 (dynamic-fee-transaction-max-fee-per-gas transaction)
                    "Transaction max fee")
    (ensure-uint256 (dynamic-fee-transaction-gas-limit transaction) "Transaction gas limit")
-   (transaction-to-bytes (dynamic-fee-transaction-to transaction))
+   (transaction-recipient-bytes (dynamic-fee-transaction-to transaction))
    (ensure-uint256 (dynamic-fee-transaction-value transaction) "Transaction value")
    (ensure-byte-vector (dynamic-fee-transaction-data transaction))
    (access-list-rlp-object (dynamic-fee-transaction-access-list transaction))))

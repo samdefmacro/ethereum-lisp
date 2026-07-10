@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.transactions)
 
 ;;;; Transaction validation, pricing, encoding, and sender recovery.
 

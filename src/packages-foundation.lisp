@@ -85,7 +85,9 @@
    #:block-validation-error-message
    #:block-validation-fail
    #:ensure-uint256
-   #:optional-bytes))
+   #:optional-bytes
+   #:rlp-uint-field
+   #:rlp-bytes-field))
 
 (defpackage #:ethereum-lisp.rlp
   (:use #:cl #:ethereum-lisp.bytes)

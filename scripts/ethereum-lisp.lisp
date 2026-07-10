@@ -17,6 +17,7 @@
 
 (dolist (relative-path
          '("src/packages-foundation.lisp"
+           "src/packages-protocol.lisp"
            "src/packages-core.lisp"
            "src/packages-runtime.lisp"
            "src/packages-facade.lisp"

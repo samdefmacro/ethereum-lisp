@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.transactions)
 
 (defstruct (access-list-entry (:constructor make-access-list-entry
                                  (&key address (storage-keys '()))))
@@ -80,7 +80,7 @@
    (ensure-uint256 (access-list-transaction-nonce transaction) "Transaction nonce")
    (ensure-uint256 (access-list-transaction-gas-price transaction) "Transaction gas price")
    (ensure-uint256 (access-list-transaction-gas-limit transaction) "Transaction gas limit")
-   (transaction-to-bytes (access-list-transaction-to transaction))
+   (transaction-recipient-bytes (access-list-transaction-to transaction))
    (ensure-uint256 (access-list-transaction-value transaction) "Transaction value")
    (ensure-byte-vector (access-list-transaction-data transaction))
    (access-list-rlp-object (access-list-transaction-access-list transaction))
@@ -128,7 +128,7 @@
    (ensure-uint256 (access-list-transaction-nonce transaction) "Transaction nonce")
    (ensure-uint256 (access-list-transaction-gas-price transaction) "Transaction gas price")
    (ensure-uint256 (access-list-transaction-gas-limit transaction) "Transaction gas limit")
-   (transaction-to-bytes (access-list-transaction-to transaction))
+   (transaction-recipient-bytes (access-list-transaction-to transaction))
    (ensure-uint256 (access-list-transaction-value transaction) "Transaction value")
    (ensure-byte-vector (access-list-transaction-data transaction))
    (access-list-rlp-object (access-list-transaction-access-list transaction))))

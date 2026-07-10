@@ -24,3 +24,16 @@
      (error "~A must be exactly ~D bytes" label size))
     (t
      (ensure-byte-vector value))))
+
+(defun rlp-uint-field (value label)
+  (unless (byte-vector-p value)
+    (block-validation-fail "~A must be RLP bytes" label))
+  (when (and (plusp (length value))
+             (zerop (aref value 0)))
+    (block-validation-fail "~A must be canonically encoded" label))
+  (bytes-to-integer value))
+
+(defun rlp-bytes-field (value label)
+  (unless (byte-vector-p value)
+    (block-validation-fail "~A must be RLP bytes" label))
+  (copy-seq value))
