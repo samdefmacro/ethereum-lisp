@@ -70,12 +70,6 @@
    #:state-proof-result-rpc-object
    #:state-proof-result-from-rpc-object))
 
-(ethereum-lisp.package-tools:reexport-symbols
- '#:ethereum-lisp.state
- '#:ethereum-lisp.state-proof-json
- '(#:state-proof-result-rpc-object
-   #:state-proof-result-from-rpc-object))
-
 (defpackage #:ethereum-lisp.genesis-state
   (:use #:cl
         #:ethereum-lisp.bytes
@@ -87,26 +81,6 @@
         #:ethereum-lisp.state)
   (:export
    #:apply-genesis-account
-   #:apply-genesis-alloc
-   #:state-db-from-genesis-alloc
-   #:state-db-from-genesis-json-string
-   #:state-db-from-genesis-json-file
-   #:genesis-state-root-from-genesis-alloc
-   #:genesis-state-root-from-genesis-json-string
-   #:genesis-state-root-from-genesis-json-file
-   #:validate-genesis-state-root
-   #:validate-genesis-json-state-root
-   #:genesis-header-from-state-genesis-object
-   #:genesis-header-from-state-genesis-json-string
-   #:genesis-header-from-state-genesis-json-file
-   #:genesis-block-from-state-genesis-object
-   #:genesis-block-from-state-genesis-json-string
-   #:genesis-block-from-state-genesis-json-file))
-
-(ethereum-lisp.package-tools:reexport-symbols
- '#:ethereum-lisp.state
- '#:ethereum-lisp.genesis-state
- '(#:apply-genesis-account
    #:apply-genesis-alloc
    #:state-db-from-genesis-alloc
    #:state-db-from-genesis-json-string
@@ -180,52 +154,8 @@
    #:finalize-evm-selfdestructs
    #:execute-bytecode))
 
-(defpackage #:ethereum-lisp.evm
-  (:use #:cl)
-  (:import-from #:ethereum-lisp.evm.internal
-   #:evm-error
-   #:precompile-address
-   #:prewarm-precompile-addresses
-   #:evm-context
-   #:make-evm-context
-   #:evm-context-state
-   #:evm-context-address
-   #:evm-context-caller
-   #:evm-context-origin
-   #:evm-context-call-value
-   #:evm-context-gas-price
-   #:evm-context-input
-   #:evm-context-return-data
-   #:evm-context-coinbase
-   #:evm-context-timestamp
-   #:evm-context-block-number
-   #:evm-context-prev-randao
-   #:evm-context-gas-limit
-   #:evm-context-chain-id
-   #:evm-context-chain-rules
-   #:evm-context-base-fee
-   #:evm-context-blob-hashes
-   #:evm-context-blob-base-fee
-   #:evm-context-transient-storage
-   #:evm-context-storage-originals
-   #:evm-context-storage-clears
-   #:evm-context-selfdestructed-addresses
-   #:evm-context-accessed-storage
-   #:evm-context-accessed-addresses
-   #:evm-context-block-hashes
-   #:evm-context-read-only-p
-   #:evm-result
-   #:evm-result-status
-   #:evm-result-stack
-   #:evm-result-memory
-   #:evm-result-return-data
-   #:evm-result-logs
-   #:evm-result-pc
-   #:evm-result-gas-used
-   #:evm-result-refund-counter
-   #:finalize-evm-selfdestructs
-   #:execute-bytecode)
-  (:export
+(ethereum-lisp.package-tools:define-api-package #:ethereum-lisp.evm
+  (#:ethereum-lisp.evm.internal
    #:evm-error
    #:precompile-address
    #:prewarm-precompile-addresses
@@ -316,24 +246,6 @@
    #:execute-legacy-block
    #:execute-signed-block))
 
-(ethereum-lisp.package-tools:reexport-symbols
- '#:ethereum-lisp.state
- '#:ethereum-lisp.execution
- '(#:apply-withdrawal
-   #:apply-withdrawals
-   #:transaction-validation-error
-   #:transaction-intrinsic-gas
-   #:apply-legacy-transaction
-   #:apply-message
-   #:apply-message-list
-   #:execution-result
-   #:make-execution-result
-   #:execution-result-receipts
-   #:execution-result-state-root
-   #:execution-result-transactions-root
-   #:execution-result-receipts-root
-   #:execute-legacy-transactions))
-
 (defpackage #:ethereum-lisp.execution-service
   (:use #:cl
         #:ethereum-lisp.validation
@@ -345,16 +257,6 @@
         #:ethereum-lisp.execution)
   (:export
    #:execute-atomic-block-commit
-   #:commit-state-db-to-chain-store
-   #:chain-store-state-db
-   #:execute-and-commit-engine-payload
-   #:execute-and-commit-block
-   #:execute-and-commit-signed-block))
-
-(ethereum-lisp.package-tools:reexport-symbols
- '#:ethereum-lisp.execution
- '#:ethereum-lisp.execution-service
- '(#:execute-atomic-block-commit
    #:commit-state-db-to-chain-store
    #:chain-store-state-db
    #:execute-and-commit-engine-payload

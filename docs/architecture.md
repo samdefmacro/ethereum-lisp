@@ -534,6 +534,11 @@ The current source ownership map is:
 - EVM may use state and consensus types, but not RPC or CLI.
 - Execution may use EVM, state, and consensus types, but not chain store.
 - Execution services may bridge pure execution, state, and chain-store APIs.
+- Bridge and transport APIs are exported only by their owning packages; domain
+  packages do not re-export higher-layer symbols for qualified-name
+  compatibility. The top-level public facade is the compatibility boundary.
+- Architecture tests require the project package graph to remain acyclic and
+  every non-facade package to own each symbol it exports.
 - RPC may use execution and store APIs, but protocol types must not depend on
   RPC JSON shapes.
 - HTTP transport may call RPC dispatch, but RPC dispatch should not depend on

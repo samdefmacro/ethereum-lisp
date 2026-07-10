@@ -7,6 +7,37 @@
     (replace result bytes :end2 available)
     result))
 
+(defun assert-symbol-owned-only-by (name owner &rest non-owners)
+  (multiple-value-bind (symbol status)
+      (find-symbol name owner)
+    (is (eq :external status))
+    (is (eq owner (symbol-package symbol))))
+  (dolist (package non-owners)
+    (multiple-value-bind (symbol status)
+        (find-symbol name package)
+      (declare (ignore symbol))
+      (is (not (eq :external status))))))
+
+(defun ethereum-lisp-project-package-p (package)
+  (let ((name (package-name package)))
+    (or (string= name "ETHEREUM-LISP")
+        (and (> (length name) (length "ETHEREUM-LISP."))
+             (string= name "ETHEREUM-LISP."
+                      :end1 (length "ETHEREUM-LISP."))))))
+
+(defun ethereum-lisp-project-dependencies (package)
+  (remove-if-not #'ethereum-lisp-project-package-p
+                 (package-use-list package)))
+
+(defun ethereum-lisp-package-dependency-cycle-p (package &optional path)
+  (if (member package path)
+      t
+      (some (lambda (dependency)
+              (ethereum-lisp-package-dependency-cycle-p
+               dependency
+               (cons package path)))
+            (ethereum-lisp-project-dependencies package))))
+
 (deftest evm-adds-two-numbers
   (let ((result (execute-bytecode #(96 2 96 3 1 0))))
     (is (eq :stopped (evm-result-status result)))
@@ -32,6 +63,22 @@
                      (package-use-list public))))
     (is (not (member (find-package '#:ethereum-lisp.state)
                      (package-use-list public))))))
+
+(deftest project-package-dependency-graph-is-acyclic
+  (dolist (package (list-all-packages))
+    (when (ethereum-lisp-project-package-p package)
+      (is (not (ethereum-lisp-package-dependency-cycle-p package))))))
+
+(deftest domain-packages-own-their-external-symbols
+  (let ((facades (mapcar #'find-package
+                         '(#:ethereum-lisp
+                           #:ethereum-lisp.core
+                           #:ethereum-lisp.evm))))
+    (dolist (package (list-all-packages))
+      (when (and (ethereum-lisp-project-package-p package)
+                 (not (member package facades)))
+        (do-external-symbols (symbol package)
+          (is (eq package (symbol-package symbol))))))))
 
 (deftest runtime-domain-packages-do-not-depend-on-core
   (let ((core (find-package '#:ethereum-lisp.core))
@@ -63,40 +110,14 @@
     (is (member execution (package-use-list execution-service)))
     (dolist (name '("STATE-DB-FROM-GENESIS-ALLOC"
                     "GENESIS-BLOCK-FROM-STATE-GENESIS-JSON-STRING"))
-      (multiple-value-bind (owner-symbol owner-status)
-          (find-symbol name genesis-state)
-        (multiple-value-bind (compatibility-symbol compatibility-status)
-            (find-symbol name state)
-          (is (eq :external owner-status))
-          (is (eq :external compatibility-status))
-          (is (eq owner-symbol compatibility-symbol))
-          (is (eq genesis-state (symbol-package owner-symbol))))))
-    (multiple-value-bind (owner-symbol owner-status)
-        (find-symbol "STATE-PROOF-RESULT-RPC-OBJECT" state-proof-json)
-      (multiple-value-bind (compatibility-symbol compatibility-status)
-          (find-symbol "STATE-PROOF-RESULT-RPC-OBJECT" state)
-        (is (eq :external owner-status))
-        (is (eq :external compatibility-status))
-        (is (eq owner-symbol compatibility-symbol))
-        (is (eq state-proof-json (symbol-package owner-symbol)))))
-    (multiple-value-bind (owner-symbol owner-status)
-        (find-symbol "TRANSACTION-INTRINSIC-GAS" execution)
-      (multiple-value-bind (compatibility-symbol compatibility-status)
-          (find-symbol "TRANSACTION-INTRINSIC-GAS" state)
-        (is (eq :external owner-status))
-        (is (eq :external compatibility-status))
-        (is (eq owner-symbol compatibility-symbol))
-        (is (eq execution (symbol-package owner-symbol)))))
+      (assert-symbol-owned-only-by name genesis-state state))
+    (assert-symbol-owned-only-by
+     "STATE-PROOF-RESULT-RPC-OBJECT" state-proof-json state)
+    (assert-symbol-owned-only-by
+     "TRANSACTION-INTRINSIC-GAS" execution state)
     (dolist (name '("CHAIN-STORE-STATE-DB"
                     "EXECUTE-AND-COMMIT-ENGINE-PAYLOAD"))
-      (multiple-value-bind (owner-symbol owner-status)
-          (find-symbol name execution-service)
-        (multiple-value-bind (compatibility-symbol compatibility-status)
-            (find-symbol name execution)
-          (is (eq :external owner-status))
-          (is (eq :external compatibility-status))
-          (is (eq owner-symbol compatibility-symbol))
-          (is (eq execution-service (symbol-package owner-symbol))))))))
+      (assert-symbol-owned-only-by name execution-service execution))))
 
 (deftest evm-context-carries-chain-rules
   (let* ((rules (make-chain-rules :chain-id 1 :london-p t :prague-p t))

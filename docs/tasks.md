@@ -9127,7 +9127,8 @@ splits can land after the Phase A smoke path closes.
   preserving same-prefix files without independent contracts.
 - [x] Extract `genesis-state` and `execution-service` application bridges so
   state no longer depends on genesis and pure execution no longer depends on
-  chain-store, while preserving old qualified names as compatibility exports.
+  chain-store. Remove wrong-owner qualified compatibility exports; the
+  top-level public facade remains the supported compatibility boundary.
 - [x] Move proof JSON codecs and transaction execution out of state, remove
   the partial legacy execution fallback, and keep chain-store filters
   independent from JSON-RPC object structure.
