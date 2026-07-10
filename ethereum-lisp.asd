@@ -9,6 +9,7 @@
     :serial t
     :components
     ((:file "packages-foundation")
+     (:file "packages-json")
      (:file "packages-protocol")
      (:file "packages-models")
      (:file "packages-blocks")
@@ -51,10 +52,11 @@
      (:file "chain-config-rules")
      (:file "chain-config")
      (:file "genesis-types")
-     (:file "genesis-object-fields")
+     (:file "json-object-fields")
+     (:file "genesis-fields")
      (:file "genesis-alloc")
-     (:file "genesis-json-read")
-     (:file "genesis-json-write")
+     (:file "json-read")
+     (:file "json-write")
      (:file "genesis-chain-config")
      (:file "genesis-io")
      (:file "genesis")

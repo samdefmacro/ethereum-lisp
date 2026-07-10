@@ -124,9 +124,9 @@
         (block-validation-fail "JWT ~A is not valid JSON" label)))))
 
 (defun engine-rpc-required-jwt-field (object name)
-  (unless (genesis-object-field-present-p object name)
+  (unless (json-object-field-present-p object name)
     (block-validation-fail "JWT field ~A is missing" name))
-  (genesis-object-field object name))
+  (json-object-field object name))
 
 (defun engine-rpc-validate-jwt-token (token secret now)
   (unless (and (byte-vector-p secret) (= 32 (length secret)))
@@ -137,7 +137,7 @@
            (payload (engine-rpc-jwt-object payload-part "payload"))
            (algorithm (engine-rpc-required-jwt-field header "alg"))
            (issued-at (engine-rpc-required-jwt-field payload "iat"))
-           (expires-at (genesis-object-field payload "exp"))
+           (expires-at (json-object-field payload "exp"))
            (signing-input (concatenate 'string header-part "." payload-part))
            (expected-signature
              (engine-rpc-base64url-decode

@@ -17,6 +17,7 @@
 
 (dolist (relative-path
          '("src/packages-foundation.lisp"
+           "src/packages-json.lisp"
            "src/packages-protocol.lisp"
            "src/packages-models.lisp"
            "src/packages-blocks.lisp"
@@ -59,10 +60,11 @@
            "src/chain-config-rules.lisp"
            "src/chain-config.lisp"
            "src/genesis-types.lisp"
-           "src/genesis-object-fields.lisp"
+           "src/json-object-fields.lisp"
+           "src/genesis-fields.lisp"
            "src/genesis-alloc.lisp"
-           "src/genesis-json-read.lisp"
-           "src/genesis-json-write.lisp"
+           "src/json-read.lisp"
+           "src/json-write.lisp"
            "src/genesis-chain-config.lisp"
            "src/genesis-io.lisp"
            "src/genesis.lisp"

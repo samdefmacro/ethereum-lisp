@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.json)
 
 (defun json-whitespace-p (char)
   (member char '(#\Space #\Tab #\Newline #\Return)))

@@ -32,12 +32,12 @@
      (bytes-to-integer
       (hash32-bytes (parse-genesis-storage-hash32 value label))))
     (t
-     (let ((quantity (parse-genesis-quantity value label :required-p t)))
+     (let ((quantity (parse-json-quantity value label :required-p t)))
        (ensure-uint256 quantity label)))))
 
 (defun parse-genesis-storage (object label)
   (when object
-    (loop for (slot . value) in (genesis-object-entries object label)
+    (loop for (slot . value) in (json-object-entries object label)
           collect (cons (parse-genesis-storage-slot
                          slot (format nil "~A slot" label))
                         (parse-genesis-storage-value
@@ -59,15 +59,15 @@
                  (format nil "~A nonce" label))
                 0)
      :code (parse-genesis-code
-            (genesis-object-field account-object "code")
+            (json-object-field account-object "code")
             (format nil "~A code" label))
      :storage (parse-genesis-storage
-               (genesis-object-field account-object "storage")
+               (json-object-field account-object "storage")
                (format nil "~A storage" label)))))
 
 (defun genesis-alloc-from-genesis-object (object)
-  (let ((alloc-object (genesis-object-field object "alloc")))
+  (let ((alloc-object (json-object-field object "alloc")))
     (when alloc-object
       (loop for (address-key . account-object)
-              in (genesis-object-entries alloc-object "alloc")
+              in (json-object-entries alloc-object "alloc")
             collect (genesis-account-from-entry address-key account-object)))))

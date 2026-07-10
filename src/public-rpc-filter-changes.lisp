@@ -23,14 +23,14 @@
                   (engine-log-filter-change-removed-p change)))))
 
 (defun eth-rpc-log-filter-range-bounds (filter store method)
-  (unless (genesis-object-field-present-p filter "blockHash")
+  (unless (json-object-field-present-p filter "blockHash")
     (values
      (eth-rpc-block-number-param
-      (list (or (genesis-object-field filter "fromBlock") "latest"))
+      (list (or (json-object-field filter "fromBlock") "latest"))
       store
       method)
      (eth-rpc-block-number-param
-      (list (or (genesis-object-field filter "toBlock") "latest"))
+      (list (or (json-object-field filter "toBlock") "latest"))
       store
       method))))
 
@@ -45,7 +45,7 @@
 
 (defun engine-log-filter-changes (log-filter store method)
   (let ((criteria (engine-log-filter-criteria log-filter)))
-    (if (genesis-object-field-present-p criteria "blockHash")
+    (if (json-object-field-present-p criteria "blockHash")
         (if (engine-log-filter-block-hash-consumed-p log-filter)
             (eth-rpc-json-array '())
             (prog1 (eth-rpc-filter-logs criteria store method)

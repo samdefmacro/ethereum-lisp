@@ -35,6 +35,8 @@ The current source ownership map is:
 
 - `packages-foundation.lisp`: base package definitions for bytes, hex,
   database, telemetry, RLP, types, crypto, and trie.
+- `packages-json.lisp`: generic JSON value, object-access, and quantity codec
+  package definition shared by genesis, Engine API, and public RPC.
 - `packages-protocol.lisp`: independent chain-configuration and transaction
   domain package definitions.
 - `packages-models.lisp`: account and receipt protocol-model package
@@ -81,12 +83,13 @@ The current source ownership map is:
   domain owns envelopes, codecs, signatures, common accessors, fee rules, and
   fork support policy. It depends on chain rules and protocol primitives, not
   on `ethereum-lisp.core`; core re-exports its public API for compatibility.
+- `ethereum-lisp.json` / `json-read.lisp` / `json-write.lisp` /
+  `json-object-fields.lisp`: JSON parsing, encoding, shape predicates, object
+  access, and quantity decoding without genesis or RPC ownership.
 - `genesis-types.lisp`: genesis constants and alloc account structure.
-- `genesis-object-fields.lisp`: shared genesis object lookup and scalar field
-  parsing helpers.
+- `genesis-fields.lisp`: genesis-specific boolean, uint256, and address field
+  parsing built on the generic JSON object API.
 - `genesis-alloc.lisp`: genesis account code, storage, and alloc parsing.
-- `genesis-json-read.lisp`: small JSON reader and JSON shape predicates.
-- `genesis-json-write.lisp`: JSON writer helpers.
 - `genesis-chain-config.lisp`: genesis config to fork-rule chain config
   conversion.
 - `genesis-io.lisp`: genesis JSON string/file entry points and expected

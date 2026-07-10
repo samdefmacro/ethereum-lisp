@@ -467,6 +467,24 @@
     (chain-config-from-genesis-json-string
      "{\"config\":{\"chainId\":1.5}}")))
 
+(deftest json-package-boundary
+  (let ((json (find-package '#:ethereum-lisp.json))
+        (core (find-package '#:ethereum-lisp.core)))
+    (is (not (member core (package-use-list json))))
+    (dolist (name '("PARSE-JSON" "JSON-ENCODE"))
+      (multiple-value-bind (json-symbol json-status)
+          (find-symbol name json)
+        (multiple-value-bind (core-symbol core-status)
+            (find-symbol name core)
+          (is (eq :external json-status))
+          (is (eq :external core-status))
+          (is (eq json-symbol core-symbol)))))
+    (dolist (name '("GENESIS-ACCOUNT" "CHAIN-CONFIG-FROM-GENESIS-CONFIG"))
+      (multiple-value-bind (symbol status)
+          (find-symbol name json)
+        (is (null symbol))
+        (is (null status))))))
+
 (deftest json-encode-round-trips-rpc-shaped-objects
   (let* ((object
            (list (cons "jsonrpc" "2.0")
@@ -492,10 +510,10 @@
 (deftest json-empty-array-marker-rejects-empty-strings
   (let ((empty-array
           (parse-json "[]" :preserve-empty-arrays t)))
-    (is (ethereum-lisp.core::json-empty-array-p empty-array))
-    (is (ethereum-lisp.core::json-array-p empty-array))
-    (is (not (ethereum-lisp.core::json-empty-array-p "")))
-    (is (not (ethereum-lisp.core::json-array-p "")))))
+    (is (ethereum-lisp.json:json-empty-array-p empty-array))
+    (is (ethereum-lisp.json:json-array-p empty-array))
+    (is (not (ethereum-lisp.json:json-empty-array-p "")))
+    (is (not (ethereum-lisp.json:json-array-p "")))))
 
 (deftest genesis-alloc-from-json-parses-account-fields
   (let* ((json (concatenate

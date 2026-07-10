@@ -1,16 +1,16 @@
 (in-package #:ethereum-lisp.core)
 
 (defun engine-rpc-required-field (object name)
-  (unless (genesis-object-field-present-p object name)
+  (unless (json-object-field-present-p object name)
     (block-validation-fail "Engine RPC field ~A is missing" name))
-  (genesis-object-field object name))
+  (json-object-field object name))
 
 (defun engine-rpc-optional-quantity-field (object name)
-  (when (genesis-object-field-present-p object name)
-    (parse-genesis-field object name :label name)))
+  (when (json-object-field-present-p object name)
+    (parse-json-quantity-field object name :label name)))
 
 (defun engine-rpc-required-quantity-field (object name)
-  (parse-genesis-field object name :label name :required-p t))
+  (parse-json-quantity-field object name :label name :required-p t))
 
 (defun engine-rpc-hash32 (value label)
   (unless (stringp value)
@@ -50,8 +50,8 @@
   (engine-rpc-bytes (engine-rpc-required-field object name) name))
 
 (defun engine-rpc-optional-bytes-field (object name)
-  (when (genesis-object-field-present-p object name)
-    (engine-rpc-bytes (genesis-object-field object name) name)))
+  (when (json-object-field-present-p object name)
+    (engine-rpc-bytes (json-object-field object name) name)))
 
 (defun engine-rpc-byte-list (values label)
   (unless (json-array-p values)

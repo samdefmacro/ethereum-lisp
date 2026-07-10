@@ -32,7 +32,7 @@
           being the hash-values of
             (engine-payload-memory-store-log-filters store)
         when (and (typep filter 'engine-log-filter)
-                  (not (genesis-object-field-present-p
+                  (not (json-object-field-present-p
                         (engine-log-filter-criteria filter)
                         "blockHash")))
           do (engine-log-filter-record-change
@@ -58,8 +58,8 @@
           (make-engine-log-filter
            :criteria filter
            :last-block-number
-           (unless (genesis-object-field-present-p filter "blockHash")
-             (let ((from-block (genesis-object-field filter "fromBlock")))
+           (unless (json-object-field-present-p filter "blockHash")
+             (let ((from-block (json-object-field filter "fromBlock")))
                (when (or (null from-block)
                          (and (stringp from-block)
                               (or (string= from-block "latest")

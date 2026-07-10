@@ -34,7 +34,7 @@
     filter))
 
 (defun eth-rpc-log-filter-addresses (filter method)
-  (let ((value (genesis-object-field filter "address")))
+  (let ((value (json-object-field filter "address")))
     (cond
       ((null value) nil)
       ((stringp value)
@@ -71,7 +71,7 @@
       "~A topic filter slots must be null, a topic, or topic array" method))))
 
 (defun eth-rpc-log-filter-topics (filter method)
-  (let ((topics (genesis-object-field filter "topics")))
+  (let ((topics (json-object-field filter "topics")))
     (cond
       ((null topics) nil)
       ((json-array-p topics)
@@ -83,20 +83,20 @@
         "~A topics filter must be an array" method)))))
 
 (defun eth-rpc-log-filter-from-pending-p (filter)
-  (and (not (genesis-object-field-present-p filter "blockHash"))
+  (and (not (json-object-field-present-p filter "blockHash"))
        (eth-rpc-pending-block-tag-p
-        (genesis-object-field filter "fromBlock"))))
+        (json-object-field filter "fromBlock"))))
 
 (defun eth-rpc-log-filter-blocks (filter store method)
   (cond
-    ((genesis-object-field-present-p filter "blockHash")
-     (when (or (genesis-object-field-present-p filter "fromBlock")
-               (genesis-object-field-present-p filter "toBlock"))
+    ((json-object-field-present-p filter "blockHash")
+     (when (or (json-object-field-present-p filter "fromBlock")
+               (json-object-field-present-p filter "toBlock"))
        (block-validation-fail
         "~A blockHash cannot be combined with fromBlock or toBlock"
         method))
      (let ((block-hash (eth-rpc-hash-param
-                        (list (genesis-object-field filter "blockHash"))
+                        (list (json-object-field filter "blockHash"))
                         method
                         "block hash")))
        (let ((block (chain-store-known-block store block-hash)))
@@ -104,20 +104,20 @@
              (list block)
              '()))))
     ((eth-rpc-log-filter-from-pending-p filter)
-     (when (genesis-object-field-present-p filter "toBlock")
+     (when (json-object-field-present-p filter "toBlock")
        (eth-rpc-block-number-param
-        (list (genesis-object-field filter "toBlock"))
+        (list (json-object-field filter "toBlock"))
         store
         method))
      '())
     (t
      (let* ((from-number (eth-rpc-block-number-param
-                          (list (or (genesis-object-field filter "fromBlock")
+                          (list (or (json-object-field filter "fromBlock")
                                     "latest"))
                           store
                           method))
             (to-number (eth-rpc-block-number-param
-                        (list (or (genesis-object-field filter "toBlock")
+                        (list (or (json-object-field filter "toBlock")
                                   "latest"))
                         store
                         method)))

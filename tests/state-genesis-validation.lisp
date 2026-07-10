@@ -30,7 +30,7 @@
 (defparameter +phase-a-shanghai-genesis-account-fields+
   '("balance" "nonce" "code" "storage"))
 
-(defun validate-phase-a-shanghai-genesis-object-fields
+(defun validate-phase-a-shanghai-json-object-fields
     (object allowed-fields label)
   (unless (listp object)
     (error "~A must be a JSON object" label))
@@ -93,7 +93,7 @@
                field)))))
 
 (defun validate-phase-a-shanghai-genesis-config-shape (config)
-  (validate-phase-a-shanghai-genesis-object-fields
+  (validate-phase-a-shanghai-json-object-fields
    config
    +phase-a-shanghai-genesis-config-fields+
    "Phase A Shanghai genesis config")
@@ -134,7 +134,7 @@
   (validate-phase-a-shanghai-genesis-address-string
    address
    "Phase A Shanghai genesis account address")
-  (validate-phase-a-shanghai-genesis-object-fields
+  (validate-phase-a-shanghai-json-object-fields
    account
    +phase-a-shanghai-genesis-account-fields+
    (format nil "Phase A Shanghai genesis account ~A" address))
@@ -178,7 +178,7 @@
          (cdr entry))))))
 
 (defun validate-phase-a-shanghai-genesis-fixture-shape (fixture)
-  (validate-phase-a-shanghai-genesis-object-fields
+  (validate-phase-a-shanghai-json-object-fields
    fixture
    +phase-a-shanghai-genesis-top-level-fields+
    "Phase A Shanghai genesis fixture")

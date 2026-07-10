@@ -4,7 +4,7 @@
 (defconstant +eth-rpc-max-fee-history-reward-percentiles+ 100)
 
 (defun eth-rpc-fee-history-block-count (params method)
-  (let ((count (parse-genesis-quantity
+  (let ((count (parse-json-quantity
                 (engine-rpc-required-param params 0 "block count" method)
                 "fee history block count"
                 :required-p t)))
@@ -19,8 +19,8 @@
       ((eth-rpc-head-block-tag-p value)
        (chain-store-block-tag-number store value))
       ((and (stringp value) (string= value "earliest")) 0)
-      ((and (stringp value) (genesis-hex-quantity-string-p value))
-       (parse-genesis-quantity value "newest block" :required-p t))
+      ((and (stringp value) (json-hex-quantity-string-p value))
+       (parse-json-quantity value "newest block" :required-p t))
       (t
        (block-validation-fail
         "~A newest block must be latest, pending, safe, finalized, earliest, or a hex quantity"

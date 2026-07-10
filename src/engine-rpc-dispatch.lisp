@@ -17,7 +17,7 @@
                             txpool-lifetime-seconds
                             txpool-now)
   (let ((id (and (listp request)
-                 (genesis-object-field request "id")))
+                 (json-object-field request "id")))
         (notification-p (engine-rpc-notification-request-p request)))
     (handler-case
         (let ((response
@@ -30,10 +30,10 @@
                       (engine-rpc-invalid-request-response)))
                   (let* ((method (engine-rpc-required-field request "method"))
                          (params
-                           (if (genesis-object-field-present-p request
+                           (if (json-object-field-present-p request
                                                                "params")
                                (json-array-values
-                                (genesis-object-field request "params"))
+                                (json-object-field request "params"))
                                '())))
                     (unless (functionp allowed-method-p)
                       (block-validation-fail

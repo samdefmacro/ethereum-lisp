@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.json)
 
 (defstruct (json-empty-object
             (:constructor make-json-empty-object ())))

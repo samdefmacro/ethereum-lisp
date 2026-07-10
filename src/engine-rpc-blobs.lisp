@@ -90,7 +90,7 @@
    #'engine-rpc-payload-body-v2-object))
 
 (defun engine-rpc-quantity-param (params index label method)
-  (parse-genesis-quantity
+  (parse-json-quantity
    (engine-rpc-required-param params index label method)
    label
    :required-p t))

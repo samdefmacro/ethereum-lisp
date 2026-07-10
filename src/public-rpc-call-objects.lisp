@@ -3,25 +3,25 @@
 ;;;; Public JSON-RPC call object parsing and transaction synthesis.
 
 (defun eth-rpc-call-object-optional-address (object name method)
-  (when (genesis-object-field-present-p object name)
-    (eth-rpc-address-param (genesis-object-field object name) method name)))
+  (when (json-object-field-present-p object name)
+    (eth-rpc-address-param (json-object-field object name) method name)))
 
 (defun eth-rpc-call-object-quantity-field (object name method &key default)
-  (if (genesis-object-field-present-p object name)
-      (parse-genesis-quantity
-       (genesis-object-field object name)
+  (if (json-object-field-present-p object name)
+      (parse-json-quantity
+       (json-object-field object name)
        name
        :required-p t)
       default))
 
 (defun eth-rpc-call-object-data (object method)
-  (let* ((data-present-p (genesis-object-field-present-p object "data"))
-         (input-present-p (genesis-object-field-present-p object "input"))
+  (let* ((data-present-p (json-object-field-present-p object "data"))
+         (input-present-p (json-object-field-present-p object "input"))
          (data (when data-present-p
-                 (engine-rpc-bytes (genesis-object-field object "data")
+                 (engine-rpc-bytes (json-object-field object "data")
                                    (format nil "~A data" method))))
          (input (when input-present-p
-                  (engine-rpc-bytes (genesis-object-field object "input")
+                  (engine-rpc-bytes (json-object-field object "input")
                                     (format nil "~A input" method)))))
     (or input data (make-byte-vector 0))))
 
@@ -36,11 +36,11 @@
 (defun eth-rpc-call-object-access-list-entry (entry method)
   (unless (json-object-p entry)
     (block-validation-fail "~A accessList entry must be an object" method))
-  (unless (genesis-object-field-present-p entry "address")
+  (unless (json-object-field-present-p entry "address")
     (block-validation-fail "~A accessList entry address is missing" method))
-  (unless (genesis-object-field-present-p entry "storageKeys")
+  (unless (json-object-field-present-p entry "storageKeys")
     (block-validation-fail "~A accessList entry storageKeys is missing" method))
-  (let ((storage-keys (genesis-object-field entry "storageKeys")))
+  (let ((storage-keys (json-object-field entry "storageKeys")))
     (when (json-object-p storage-keys)
       (block-validation-fail
        "~A accessList storageKeys must be an array"
@@ -52,7 +52,7 @@
     (make-access-list-entry
      :address
      (eth-rpc-address-param
-      (genesis-object-field entry "address")
+      (json-object-field entry "address")
       method
       "accessList address")
      :storage-keys
@@ -62,8 +62,8 @@
       (json-array-values storage-keys)))))
 
 (defun eth-rpc-call-object-access-list (object method)
-  (if (genesis-object-field-present-p object "accessList")
-      (let ((access-list (genesis-object-field object "accessList")))
+  (if (json-object-field-present-p object "accessList")
+      (let ((access-list (json-object-field object "accessList")))
         (when (json-object-p access-list)
           (block-validation-fail
            "~A accessList must be an array"
@@ -82,11 +82,11 @@
 
 (defun eth-rpc-call-object-fees (object method)
   (let ((gas-price-present-p
-          (genesis-object-field-present-p object "gasPrice"))
+          (json-object-field-present-p object "gasPrice"))
         (max-fee-present-p
-          (genesis-object-field-present-p object "maxFeePerGas"))
+          (json-object-field-present-p object "maxFeePerGas"))
         (max-priority-present-p
-          (genesis-object-field-present-p object "maxPriorityFeePerGas")))
+          (json-object-field-present-p object "maxPriorityFeePerGas")))
     (when (and gas-price-present-p
                (or max-fee-present-p max-priority-present-p))
       (block-validation-fail
@@ -107,7 +107,7 @@
 
 (defun eth-rpc-call-object-chain-id (object method config)
   (let ((chain-id (if config (chain-config-chain-id config) 0)))
-    (when (genesis-object-field-present-p object "chainId")
+    (when (json-object-field-present-p object "chainId")
       (let ((supplied
               (eth-rpc-call-object-quantity-field
                object "chainId" method :default chain-id)))

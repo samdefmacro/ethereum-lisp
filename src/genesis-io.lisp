@@ -2,7 +2,7 @@
 
 (defun chain-config-from-genesis-json-string (string)
   (let* ((genesis-object (parse-json string))
-         (config-object (or (genesis-object-field genesis-object "config")
+         (config-object (or (json-object-field genesis-object "config")
                             genesis-object)))
     (chain-config-from-genesis-config config-object)))
 
@@ -22,7 +22,7 @@
   (genesis-alloc-from-genesis-json-string (read-text-file path)))
 
 (defun genesis-expected-state-root-from-genesis-object (object)
-  (let ((state-root (genesis-object-field object "stateRoot")))
+  (let ((state-root (json-object-field object "stateRoot")))
     (when state-root
       (unless (stringp state-root)
         (block-validation-fail "Genesis stateRoot must be a hash32"))

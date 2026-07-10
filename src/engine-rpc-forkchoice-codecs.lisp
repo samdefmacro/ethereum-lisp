@@ -19,7 +19,7 @@
     (block-validation-fail
      "~A payloadAttributes must be an object or null" method))
   (when (and withdrawals-field-required-p
-             (not (genesis-object-field-present-p object "withdrawals")))
+             (not (json-object-field-present-p object "withdrawals")))
     (block-validation-fail "~A payloadAttributes withdrawals is missing" method))
   (make-payload-attributes-v1
    :timestamp (engine-rpc-required-quantity-field object "timestamp")
@@ -28,7 +28,7 @@
    (engine-rpc-required-address-field object "suggestedFeeRecipient")
    :withdrawals (engine-rpc-withdrawals-field object)
    :withdrawals-present-p
-   (genesis-object-field-present-p object "withdrawals")))
+   (json-object-field-present-p object "withdrawals")))
 
 (defun engine-rpc-validate-payload-attributes-v2 (object)
   (engine-rpc-validate-payload-attributes-v1
@@ -40,7 +40,7 @@
            object
            :method "engine_forkchoiceUpdatedV3"
            :withdrawals-field-required-p t)))
-    (unless (genesis-object-field-present-p object "parentBeaconBlockRoot")
+    (unless (json-object-field-present-p object "parentBeaconBlockRoot")
       (block-validation-fail
        "engine_forkchoiceUpdatedV3 payloadAttributes parentBeaconBlockRoot is missing"))
     (setf (payload-attributes-v1-parent-beacon-root attributes)
@@ -51,7 +51,7 @@
 
 (defun engine-rpc-validate-payload-attributes-v4 (object)
   (let ((attributes (engine-rpc-validate-payload-attributes-v3 object)))
-    (unless (genesis-object-field-present-p object "slotNumber")
+    (unless (json-object-field-present-p object "slotNumber")
       (block-validation-fail
        "engine_forkchoiceUpdatedV4 payloadAttributes slotNumber is missing"))
     (setf (payload-attributes-v1-slot-number attributes)

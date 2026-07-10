@@ -11,8 +11,8 @@
    :amount (engine-rpc-required-quantity-field object "amount")))
 
 (defun engine-rpc-withdrawals-field (object)
-  (when (genesis-object-field-present-p object "withdrawals")
-    (let ((withdrawals (genesis-object-field object "withdrawals")))
+  (when (json-object-field-present-p object "withdrawals")
+    (let ((withdrawals (json-object-field object "withdrawals")))
       (unless (json-array-p withdrawals)
         (block-validation-fail "withdrawals must be a list"))
       (loop for withdrawal in (json-array-values withdrawals)
@@ -22,7 +22,7 @@
   (unless (listp object)
     (block-validation-fail "Engine RPC payload must be an object"))
   (let ((withdrawals-present-p
-          (genesis-object-field-present-p object "withdrawals")))
+          (json-object-field-present-p object "withdrawals")))
     (make-executable-data
      :parent-hash (engine-rpc-required-hash32-field object "parentHash")
      :fee-recipient (engine-rpc-required-address-field object "feeRecipient")

@@ -2,8 +2,8 @@
 
 (defun parse-genesis-hash32-field (object name label &key default)
   (let ((value (if (listp name)
-                   (genesis-object-field-any object name)
-                   (genesis-object-field object name))))
+                   (json-object-field-any object name)
+                   (json-object-field object name))))
     (cond
       ((null value) default)
       ((stringp value)
@@ -15,8 +15,8 @@
 
 (defun parse-genesis-bytes-field (object name label &key default)
   (let ((value (if (listp name)
-                   (genesis-object-field-any object name)
-                   (genesis-object-field object name))))
+                   (json-object-field-any object name)
+                   (json-object-field object name))))
     (cond
       ((null value) default)
       ((stringp value)
@@ -27,7 +27,7 @@
       (t (block-validation-fail "~A must be hex bytes" label)))))
 
 (defun genesis-uint64-field (object name label &key default)
-  (let ((value (parse-genesis-field object name :label label)))
+  (let ((value (parse-json-quantity-field object name :label label)))
     (cond
       ((null value) default)
       ((< value (expt 2 64)) value)
@@ -43,7 +43,7 @@
 
 (defun genesis-config-from-genesis-object (object &key config)
   (or config
-      (let ((config-object (genesis-object-field object "config")))
+      (let ((config-object (json-object-field object "config")))
         (and config-object (chain-config-from-genesis-config config-object)))))
 
 (defun genesis-header-from-genesis-object (object &key state-root config)
@@ -60,7 +60,7 @@
                         raw-gas-limit))
          (gas-used (genesis-uint64-field object "gasUsed" "Genesis gas used"
                                          :default 0))
-         (difficulty (or (parse-genesis-field object "difficulty"
+         (difficulty (or (parse-json-quantity-field object "difficulty"
                                               :label "Genesis difficulty")
                          (and config
                               (eql 0
@@ -68,7 +68,7 @@
                                     config))
                               0)
                          +genesis-difficulty+))
-         (base-fee (parse-genesis-field object "baseFeePerGas"
+         (base-fee (parse-json-quantity-field object "baseFeePerGas"
                                         :label "Genesis base fee"))
          (parent-beacon-root (parse-genesis-hash32-field
                               object '("parentBeaconBlockRoot"

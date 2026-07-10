@@ -23,8 +23,8 @@
   (engine-rpc-hash32 (first params) label))
 
 (defun eth-rpc-block-object-require-canonical-p (object method)
-  (if (genesis-object-field-present-p object "requireCanonical")
-      (let ((value (genesis-object-field object "requireCanonical")))
+  (if (json-object-field-present-p object "requireCanonical")
+      (let ((value (json-object-field object "requireCanonical")))
         (unless (or (eq value t) (eq value :true)
                     (eq value nil) (eq value :false))
           (block-validation-fail
@@ -43,16 +43,16 @@
        (chain-store-block-tag-number store value))
       ((and (stringp value) (string= value "earliest")) 0)
       ((and (stringp value)
-            (genesis-hex-quantity-string-p value))
-       (parse-genesis-quantity value "block number" :required-p t))
+            (json-hex-quantity-string-p value))
+       (parse-json-quantity value "block number" :required-p t))
       (t
        (block-validation-fail
         "~A block number must be latest, pending, safe, finalized, earliest, or a hex quantity"
         method)))))
 
 (defun eth-rpc-block-object-param (object store method)
-  (let ((hash-present-p (genesis-object-field-present-p object "blockHash"))
-        (number-present-p (genesis-object-field-present-p object "blockNumber")))
+  (let ((hash-present-p (json-object-field-present-p object "blockHash"))
+        (number-present-p (json-object-field-present-p object "blockNumber")))
     (when (or (and hash-present-p number-present-p)
               (and (not hash-present-p) (not number-present-p)))
       (block-validation-fail
@@ -60,7 +60,7 @@
        method))
     (if hash-present-p
         (let* ((hash (eth-rpc-hash-param
-                      (list (genesis-object-field object "blockHash"))
+                      (list (json-object-field object "blockHash"))
                       method
                       "block hash"))
                (block (chain-store-known-block store hash))
@@ -75,14 +75,14 @@
              method))
           block)
         (progn
-          (when (genesis-object-field-present-p object "requireCanonical")
+          (when (json-object-field-present-p object "requireCanonical")
             (block-validation-fail
              "~A requireCanonical requires blockHash"
              method))
           (chain-store-block-by-number
            store
            (eth-rpc-block-number-param
-            (list (genesis-object-field object "blockNumber"))
+            (list (json-object-field object "blockNumber"))
             store
             method))))))
 
@@ -112,20 +112,20 @@
     (cond
       ((eth-rpc-pending-block-tag-p value) t)
       ((json-object-p value)
-       (let ((hash-present-p (genesis-object-field-present-p value "blockHash"))
+       (let ((hash-present-p (json-object-field-present-p value "blockHash"))
              (number-present-p
-               (genesis-object-field-present-p value "blockNumber")))
+               (json-object-field-present-p value "blockNumber")))
          (when (or (and hash-present-p number-present-p)
                    (and (not hash-present-p) (not number-present-p)))
            (block-validation-fail
             "~A block id object must contain exactly one of blockHash or blockNumber"
             method))
          (when (and number-present-p
-                    (genesis-object-field-present-p value "requireCanonical"))
+                    (json-object-field-present-p value "requireCanonical"))
            (block-validation-fail
             "~A requireCanonical requires blockHash"
             method))
          (and number-present-p
               (eth-rpc-pending-block-tag-p
-               (genesis-object-field value "blockNumber")))))
+               (json-object-field value "blockNumber")))))
       (t nil))))
