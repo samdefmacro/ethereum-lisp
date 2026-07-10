@@ -1,52 +1,9 @@
 (in-package #:ethereum-lisp.evm)
 
 (defun execute-bytecode (code &key context gas-limit (max-steps 100000))
-  (let ((code (ensure-byte-vector code))
-        (pc 0)
-        (steps 0)
-        (gas-used 0)
-        (stack '())
-        (memory (make-byte-vector 0))
-        (return-data (make-byte-vector 0))
-        (return-data-buffer (if context
-                                (ensure-byte-vector
-                                 (evm-context-return-data context))
-                                (make-byte-vector 0)))
-        (frame-snapshot (capture-frame-snapshot context))
-        (original-storage-values
-          (if context
-              (evm-context-storage-originals context)
-              (make-hash-table :test 'equalp)))
-        (cleared-storage-slots
-          (if context
-              (evm-context-storage-clears context)
-              (make-hash-table :test 'equalp)))
-        (logs '())
-        (refund-counter 0)
-        (status :stopped))
-    (labels ((binary (fn)
-               (multiple-value-bind (a b rest) (pop2 stack)
-                 (setf stack (stack-push rest (funcall fn a b)))))
-             (comparison (predicate)
-               (binary (lambda (a b) (if (funcall predicate a b) 1 0))))
-             (charge-extra-gas (amount)
-               (incf gas-used amount)
-               (when (and gas-limit (> gas-used gas-limit))
-                 (fail "EVM out of gas at pc ~D" pc)))
-             (charge-call-value-gas (required charged)
-               ;; The OOG boundary uses the undiscounted cost; the successful
-               ;; charge may still apply the value-call stipend discount.
-               (if (and gas-limit (> (+ gas-used required) gas-limit))
-                   (charge-extra-gas required)
-                   (charge-extra-gas charged)))
-             (charge-memory-gas (offset size)
-               (charge-extra-gas
-                (memory-expansion-gas memory offset size)))
-             (charge-copy-gas (offset size)
-               (charge-extra-gas
-                (+ (memory-expansion-gas memory offset size)
-                   (* +copy-word-gas+ (memory-word-count size))))))
-      (loop while (< pc (length code))
+  (let ((machine (make-evm-machine code context gas-limit max-steps)))
+    (with-evm-machine-state (machine)
+      (loop while (and (< pc (length code)) (not halted-p))
             do (let ((op (aref code pc)))
                  (incf steps)
                  (when (> steps max-steps)
@@ -56,8 +13,7 @@
                    (fail "EVM out of gas at pc ~D" pc))
                  (cond
                    ((= op #x00)
-                    (setf status :stopped)
-                    (return))
+                    (halt-evm-machine machine :stopped))
                    ((= op #x01) (binary #'+) (incf pc))
                    ((= op #x02) (binary #'*) (incf pc))
                    ((= op #x03) (binary #'-) (incf pc))
@@ -808,8 +764,8 @@
                       (charge-memory-gas offset size)
                       (setf return-data (memory-slice memory offset size)
                             stack rest
-                            status :returned)
-                      (return)))
+                            status :returned
+                            halted-p t)))
                    ((= op #xf2)
                     (unless (and context (evm-context-state context))
                       (fail "CALLCODE requires an EVM context with state"))
@@ -1041,8 +997,8 @@
                            context
                            (evm-context-address context))))
                       (setf stack rest
-                            status :selfdestructed)
-                      (return)))
+                            status :selfdestructed
+                            halted-p t)))
                    ((= op #xfd)
                     (require-context-fork context #'chain-rules-byzantium-p
                                           "Byzantium" "REVERT" pc)
@@ -1052,15 +1008,8 @@
                       (setf return-data (memory-slice memory offset size)
                             stack rest
                             refund-counter 0
-                            status :reverted)
-                      (return)))
+                            status :reverted
+                            halted-p t)))
                    (t
                     (fail "Unsupported EVM opcode 0x~2,'0X at pc ~D" op pc))))))
-    (make-evm-result :status status
-                     :stack stack
-                     :memory memory
-                     :return-data return-data
-                     :logs (nreverse logs)
-                     :pc pc
-                     :gas-used gas-used
-                     :refund-counter refund-counter)))
+    (evm-machine-result machine)))

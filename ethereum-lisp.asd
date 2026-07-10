@@ -276,6 +276,7 @@
      (:file "evm-interpreter-results")
      (:file "evm-interpreter-create")
      (:file "evm-interpreter-call")
+     (:file "evm-interpreter-machine")
      (:file "evm")
      (:file "execution-constants")
      (:file "execution-state")
