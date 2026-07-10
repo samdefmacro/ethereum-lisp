@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.public-api)
 
 ;;;; Per-transaction JSON field formatting helpers.
 

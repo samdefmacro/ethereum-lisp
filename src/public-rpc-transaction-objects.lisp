@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.public-api)
 
 ;;;; Transaction JSON object assembly and pending-transaction lookup helpers.
 

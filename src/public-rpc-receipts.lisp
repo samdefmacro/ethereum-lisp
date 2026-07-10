@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.public-api)
 
 (defun eth-rpc-contract-creation-address (transaction sender)
   (when (and (null (transaction-to transaction)) sender)
@@ -64,7 +64,7 @@
           (cons "from" (address-to-hex from))
           (cons "to"
                 (eth-rpc-address-or-null
-                 (nth-value 3
+                 (nth-value 2
                             (eth-rpc-transaction-core-fields
                              transaction))))
           (cons "cumulativeGasUsed"

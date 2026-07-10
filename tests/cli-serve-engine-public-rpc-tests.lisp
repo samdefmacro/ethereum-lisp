@@ -659,7 +659,7 @@
                         (fixture-object-field
                          public-protocol-version-json "id")))
                  (is (string= (quantity-to-hex
-                               ethereum-lisp.core::+eth-protocol-version+)
+                               ethereum-lisp.public-api::+eth-protocol-version+)
                               (fixture-object-field
                                public-protocol-version-json "result")))
                  (is (= 523
@@ -806,4 +806,3 @@
         (delete-file log-path))
       (when (probe-file pid-path)
         (delete-file pid-path)))))
-

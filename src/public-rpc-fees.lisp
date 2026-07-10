@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.public-api)
 
 (defun engine-rpc-suggest-gas-tip-cap (store)
   (declare (ignore store))

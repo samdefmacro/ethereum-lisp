@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.public-api)
 
 (defconstant +eth-rpc-max-fee-history-block-count+ 1024)
 (defconstant +eth-rpc-max-fee-history-reward-percentiles+ 100)

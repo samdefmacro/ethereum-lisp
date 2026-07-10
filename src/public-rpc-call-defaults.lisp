@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.public-api)
 
 (defconstant +eth-rpc-default-call-gas-limit+ (1- (ash 1 64)))
 

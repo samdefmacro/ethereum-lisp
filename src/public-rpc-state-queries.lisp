@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.public-api)
 
 (defun eth-rpc-storage-slot-param-values (value method)
   (handler-case

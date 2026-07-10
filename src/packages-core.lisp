@@ -27,7 +27,8 @@
         #:ethereum-lisp.canonical-chain
         #:ethereum-lisp.engine
         #:ethereum-lisp.chain-store.persistence
-        #:ethereum-lisp.engine-api)
+        #:ethereum-lisp.engine-api
+        #:ethereum-lisp.public-api)
   (:import-from #:ethereum-lisp.database
    #:key-value-database
    #:make-kv-write-batch

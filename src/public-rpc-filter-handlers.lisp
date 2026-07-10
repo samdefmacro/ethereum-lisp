@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.public-api)
 
 (defun engine-rpc-handle-eth-get-logs (params store)
   (let* ((method "eth_getLogs")

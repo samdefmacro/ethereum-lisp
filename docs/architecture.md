@@ -161,6 +161,10 @@ The current source ownership map is:
   `engine-api-methods.lisp`, and `engine-api-dispatch.lisp`: the Engine JSON-RPC
   wire adapter over `json-rpc` and the Engine service. It contains no Public
   RPC routing or HTTP transport.
+- `ethereum-lisp.public-api` / Public RPC codecs, handlers, namespace routers,
+  and `public-api-dispatch.lisp`: the public JSON-RPC adapter over state,
+  execution, chain-store, txpool, and shared Engine payload rendering. Only
+  the aggregate public method handler is exported; HTTP remains outside.
 - `ethereum-lisp.chain-store.model` / `chain-store-types.lisp`: in-memory
   store, checkpoint, transaction-location, filter, and blob lookup records.
   The model owns no storage behavior and depends only on protocol types and
@@ -311,8 +315,6 @@ The current source ownership map is:
   handlers.
 - `public-rpc-fee-history.lisp`: `eth_feeHistory` parameter validation and
   response construction.
-- `public-rpc-core.lisp`: compatibility package entry for public RPC core
-  modules.
 - `public-rpc-state-queries.lisp`: public account balance, nonce, code, and
   storage reads.
 - `public-rpc-state-proofs.lisp`: `eth_getProof` storage slot coercion and
@@ -324,8 +326,6 @@ The current source ownership map is:
 - `public-rpc-gas.lisp`: `eth_estimateGas` gas caps and binary search.
 - `public-rpc-access-lists.lisp`: `eth_createAccessList` access collection and
   response rendering.
-- `public-rpc-state.lisp`: compatibility package entry for public state RPC
-  modules.
 - `public-rpc-transaction-fields.lisp`: transaction JSON field rendering,
   access list rendering, type-specific fields, and sender/gas-price helpers.
 - `public-rpc-transaction-objects.lisp`: transaction JSON object assembly,
@@ -342,7 +342,6 @@ The current source ownership map is:
 - `public-rpc-send-raw-transaction.lisp`: `eth_sendRawTransaction` handler.
 - `public-rpc-txpool-handlers.lisp`: `eth_pendingTransactions` and `txpool_*`
   namespace handlers.
-- `public-rpc-txpool.lisp`: compatibility package entry for txpool RPC modules.
 - `public-rpc-receipts.lisp`: log, receipt, and block receipt result
   construction and handlers.
 - `public-rpc-header-objects.lisp`: public header result objects and header
@@ -351,8 +350,6 @@ The current source ownership map is:
   block lookup handlers, and transaction-count handlers.
 - `public-rpc-ommer-handlers.lisp`: public ommer count and ommer lookup
   handlers.
-- `public-rpc-blocks.lisp`: compatibility package entry for public block RPC
-  modules.
 - `public-rpc-log-filters.lisp`: public log filter parsing, matching, block
   selection, and log result construction.
 - `public-rpc-filter-changes.lisp`: log, block, and pending-transaction filter
@@ -361,7 +358,7 @@ The current source ownership map is:
   handlers.
 - `public-rpc-dispatch-*.lisp`: public JSON-RPC dispatch context plus
   metadata, state, block, transaction, filter, and txpool method routing.
-- `public-rpc.lisp`: final public JSON-RPC method dispatch.
+- `public-api-dispatch.lisp`: final public JSON-RPC method dispatch.
 - `engine-rpc-http-auth.lisp`: Engine API JWT token creation, validation, and
   signing helpers.
 - `engine-rpc-http-parsing.lisp`: HTTP request-line, target, header,

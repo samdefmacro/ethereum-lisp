@@ -44,3 +44,35 @@
    #:engine-rpc-error-code
    #:engine-rpc-error-message
    #:engine-rpc-handle-engine-method))
+
+(defpackage #:ethereum-lisp.public-api
+  (:use #:cl
+        #:ethereum-lisp.bytes
+        #:ethereum-lisp.hex
+        #:ethereum-lisp.types
+        #:ethereum-lisp.rlp
+        #:ethereum-lisp.crypto
+        #:ethereum-lisp.validation
+        #:ethereum-lisp.json
+        #:ethereum-lisp.json-rpc
+        #:ethereum-lisp.chain-config
+        #:ethereum-lisp.genesis
+        #:ethereum-lisp.accounts
+        #:ethereum-lisp.transactions
+        #:ethereum-lisp.receipts
+        #:ethereum-lisp.execution-requests
+        #:ethereum-lisp.block-access-lists
+        #:ethereum-lisp.blocks
+        #:ethereum-lisp.consensus
+        #:ethereum-lisp.kzg
+        #:ethereum-lisp.engine-payloads
+        #:ethereum-lisp.txpool.index
+        #:ethereum-lisp.chain-store.model
+        #:ethereum-lisp.chain-store
+        #:ethereum-lisp.txpool
+        #:ethereum-lisp.state
+        #:ethereum-lisp.evm
+        #:ethereum-lisp.execution
+        #:ethereum-lisp.engine-api)
+  (:export
+   #:engine-rpc-handle-public-method))

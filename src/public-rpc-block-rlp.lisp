@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.public-api)
 
 (defun eth-rpc-rlp-length-prefix (offset length)
   (if (<= length 55)

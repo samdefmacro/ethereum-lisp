@@ -4313,30 +4313,31 @@ splits can land after the Phase A smoke path closes.
   - Acceptance: `eth_*`, `net_*`, `web3_*`, `txpool_*`, and filter handlers are
     isolated while preserving current JSON output.
   - Validation: `sbcl --script tests/run-tests.lisp`.
-  - Progress: started `src/public-rpc.lisp` and moved `web3_*`, `net_*`, and
+  - Progress: introduced the `ethereum-lisp.public-api` boundary and moved
+    `web3_*`, `net_*`, and
     basic node/head/fee `eth_*` handlers (`eth_chainId`, `eth_blockNumber`,
     `eth_protocolVersion`, `eth_syncing`, `eth_accounts`, `eth_coinbase`,
     `eth_mining`, `eth_hashrate`, `eth_gasPrice`,
     `eth_maxPriorityFeePerGas`, `eth_baseFee`, `eth_blobBaseFee`) out of
-    `src/core.lisp`.
+    `src/core.lisp` into focused public API implementation files.
   - Progress: moved `eth_feeHistory` and its block-window, reward percentile,
-    base-fee/blob-fee helper logic into `src/public-rpc.lisp`.
+    base-fee/blob-fee helper logic into the public API package.
   - Progress: moved account/storage read and proof RPC helpers into
-    `src/public-rpc.lisp`, covering `eth_getBalance`,
+    the public API package, covering `eth_getBalance`,
     `eth_getTransactionCount`, `eth_getCode`, `eth_getStorageAt`, and
     `eth_getProof`.
   - Progress: moved header query serialization and `eth_getHeaderByNumber` /
-    `eth_getHeaderByHash` helpers into `src/public-rpc.lisp`.
+    `eth_getHeaderByHash` helpers into the public API package.
   - Progress: moved block query shaping and handlers into
-    `src/public-rpc.lisp`, covering `eth_getBlockByNumber`,
+    the public API package, covering `eth_getBlockByNumber`,
     `eth_getBlockByHash`, block transaction counts, uncle counts, and
     uncle-by-index lookups.
   - Progress: moved transaction query, raw transaction, send raw transaction,
-    receipt, and block receipt helpers/handlers into `src/public-rpc.lisp`.
+    receipt, and block receipt helpers/handlers into the public API package.
   - Progress: moved `eth_pendingTransactions` and `txpool_*` placeholder
-    helpers/handlers into `src/public-rpc.lisp`.
+    helpers/handlers into the public API package.
   - Progress: moved log query and filter helpers/handlers into
-    `src/public-rpc.lisp`, covering `eth_getLogs`, filter installation,
+    the public API package, covering `eth_getLogs`, filter installation,
     filter changes/log retrieval, and filter uninstall.
   - Progress: public RPC request parsing now preserves empty JSON arrays where
     filter semantics need to distinguish them from `null`. Log filters treat
@@ -4345,10 +4346,10 @@ splits can land after the Phase A smoke path closes.
     `params:[]`, access lists, withdrawals, proof slots, and fee-history
     percentiles remain accepted.
   - Result: complete. Public `web3_*`, `net_*`, `eth_*`, filter, pending
-    transaction, and `txpool_*` handlers now live in `src/public-rpc.lisp`
-    behind `engine-rpc-handle-public-method`; `src/core.lisp` keeps the
-    generic JSON-RPC envelope/HTTP service and delegates to Engine/Public
-    method dispatchers.
+    transaction, and `txpool_*` handlers now live behind the
+    `ethereum-lisp.public-api:engine-rpc-handle-public-method` entry point.
+    The generic JSON-RPC envelope and HTTP transport remain separate concerns;
+    `ethereum-lisp.core` only re-exports the compatibility surface.
 
 ## P0: Chain Store And Canonical Indexes
 

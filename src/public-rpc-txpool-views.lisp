@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.public-api)
 
 (defun eth-rpc-hash-table-object (table)
   (if (zerop (hash-table-count table))

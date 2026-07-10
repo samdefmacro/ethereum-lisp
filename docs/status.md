@@ -899,8 +899,8 @@ indexed transaction only when both fee cap and priority fee clear the bump
 threshold. The txpool object now also has queued, basefee, and blob placeholder
 subpools, and `txpool_*` RPC views read queued data from the queued subpool
 instead of hard-coded empty placeholders. Public JSON-RPC and txpool
-placeholder handlers now live in `src/public-rpc.lisp` behind a dedicated
-public method dispatcher. The generic JSON-RPC protocol now lives in
+placeholder handlers now live behind the dedicated dispatcher in
+`src/public-api-dispatch.lisp`. The generic JSON-RPC protocol now lives in
 `src/json-rpc-protocol.lisp`, independently from Engine/public method filters
 and `src/engine-rpc-http.lisp`; the former `src/core.lisp` catch-all file has
 been retired.

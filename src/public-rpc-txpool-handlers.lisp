@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.public-api)
 
 (defun engine-rpc-handle-eth-pending-transactions (params store config)
   (when params

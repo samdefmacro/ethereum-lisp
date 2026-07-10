@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.public-api)
 
 (defun eth-rpc-pending-block-tag-p (value)
   (and (stringp value) (string= value "pending")))

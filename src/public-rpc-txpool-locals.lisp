@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.public-api)
 
 (defun eth-rpc-local-transaction-p
     (sender txpool-local-addresses txpool-no-local-exemptions-p)

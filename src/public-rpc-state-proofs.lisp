@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.public-api)
 
 (defconstant +eth-get-proof-max-storage-keys+ 1024)
 

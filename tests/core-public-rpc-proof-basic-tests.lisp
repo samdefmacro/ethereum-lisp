@@ -115,7 +115,7 @@
                   "\"params\":[\"" (address-to-hex address)
                   "\","
                   (json-string-list
-                   (loop repeat (1+ ethereum-lisp.core::+eth-get-proof-max-storage-keys+)
+                   (loop repeat (1+ ethereum-lisp.public-api::+eth-get-proof-max-storage-keys+)
                          collect "0x0"))
                   ",\"0x1c\"]}")
                  store
@@ -354,4 +354,3 @@
        branch-extension-state
        (commit-state-block store branch-extension-state 34 340)
        missing))))
-

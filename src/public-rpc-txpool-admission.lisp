@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.public-api)
 
 (defun eth-rpc-validate-set-code-authorization-signatures (transaction)
   (validate-set-code-authorization-signatures transaction))

@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.public-api)
 
 (defun eth-rpc-call-status-success-p (status)
   (member status '(:stopped :returned :selfdestructed :successful)))

@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.public-api)
 
 ;;;; Public JSON-RPC txpool namespace dispatch.
 
