@@ -273,10 +273,10 @@
      (:file "evm-precompiles-blake2f")
      (:file "evm-precompiles-dispatch")
      (:file "evm-precompiles")
+     (:file "evm-interpreter-machine")
      (:file "evm-interpreter-results")
      (:file "evm-interpreter-create")
      (:file "evm-interpreter-call")
-     (:file "evm-interpreter-machine")
      (:module "evm-interpreter"
       :pathname "evm/"
       :serial t

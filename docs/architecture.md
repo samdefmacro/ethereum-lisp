@@ -433,8 +433,9 @@ The current source ownership map is:
   return-data, and log merge helpers for the bytecode interpreter.
 - `evm-interpreter-create.lisp`: shared CREATE/CREATE2 child execution,
   rollback, code-deposit, and result mapping helpers.
-- `evm-interpreter-call.lisp`: shared CALL/CALLCODE/DELEGATECALL/STATICCALL
-  child execution, precompile dispatch, rollback, and result mapping helpers.
+- `evm-interpreter-call.lisp`: declarative CALL-family plans plus the shared
+  memory, access-gas, snapshot, child execution, rollback, and result-merge
+  pipeline.
 - `evm-interpreter-machine.lisp`: explicit mutable call-frame state and the
   stack, gas, memory, halt, and result operations that preserve its invariants.
 - `evm/opcodes/`: opcode semantics grouped by protocol responsibility:

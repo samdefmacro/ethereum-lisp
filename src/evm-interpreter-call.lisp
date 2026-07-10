@@ -1,5 +1,144 @@
 (in-package #:ethereum-lisp.evm.internal)
 
+(defstruct evm-message-call
+  "The semantic differences between CALL-family opcodes.
+
+Memory expansion, access charging, snapshots, child execution, and result
+merging are deliberately not configurable; those are shared EVM invariants."
+  (requested-gas 0 :type (integer 0 *))
+  code-address
+  (args-offset 0 :type (integer 0 *))
+  (args-size 0 :type (integer 0 *))
+  (return-offset 0 :type (integer 0 *))
+  (return-size 0 :type (integer 0 *))
+  rest-stack
+  child-address
+  child-caller
+  (child-value 0 :type (integer 0 *))
+  read-only-p
+  charge-value-gas-p
+  new-account-p
+  funding-address
+  value-transfer-from
+  value-transfer-to
+  balance-check-address
+  (balance-check-value 0 :type (integer 0 *))
+  balance-check-message
+  (merge-logs-p t :type boolean))
+
+(defun execute-evm-message-call (machine call)
+  "Execute one CALL-family operation described by CALL and update MACHINE."
+  (with-slots (requested-gas code-address args-offset args-size
+               return-offset return-size rest-stack child-address
+               child-caller child-value read-only-p charge-value-gas-p
+               new-account-p funding-address value-transfer-from
+               value-transfer-to balance-check-address balance-check-value
+               balance-check-message merge-logs-p)
+      call
+    (let* ((context (evm-machine-context machine))
+           (state (evm-context-state context))
+           (input-region (list args-offset args-size))
+           (output-region (list return-offset return-size)))
+      (evm-machine-charge-gas
+       machine
+       (memory-regions-expansion-gas
+        (evm-machine-memory machine)
+        input-region
+        output-region))
+      (setf (evm-machine-memory machine)
+            (ensure-memory-regions
+             (evm-machine-memory machine)
+             input-region
+             output-region))
+      (let* ((snapshot (capture-execution-snapshot state context))
+             (args (memory-slice
+                    (evm-machine-memory machine)
+                    args-offset
+                    args-size))
+             (precompile-p
+               (active-precompile-address-p
+                code-address
+                (evm-context-chain-rules context)))
+             (insufficient-balance-p
+               (and funding-address
+                    (plusp child-value)
+                    (< (account-balance state funding-address)
+                       child-value))))
+        (charge-account-access-gas
+         context
+         code-address
+         (lambda (amount)
+           (evm-machine-charge-gas machine amount)))
+        ;; Warmth survives a failed child, so the rollback snapshot must include
+        ;; the just-accessed code address before child execution starts.
+        (refresh-execution-snapshot-accessed-addresses snapshot context)
+        (when charge-value-gas-p
+          (let* ((required-value-gas
+                   (call-value-extra-gas
+                    state code-address child-value
+                    :new-account-p new-account-p))
+                 (stipend-discount-p
+                   (or insufficient-balance-p
+                       precompile-p
+                       (and (plusp child-value)
+                            (evm-machine-gas-limit machine)
+                            (= (+ (evm-machine-gas-used machine)
+                                  required-value-gas)
+                               (evm-machine-gas-limit machine))))))
+            (evm-machine-charge-call-value-gas
+             machine
+             required-value-gas
+             (call-value-extra-gas
+              state code-address child-value
+              :new-account-p new-account-p
+              :stipend-discount-p stipend-discount-p))))
+        (let ((child-gas-limit
+                (child-call-gas-limit
+                 requested-gas
+                 (evm-machine-gas-limit machine)
+                 (evm-machine-gas-used machine)
+                 :stipend (if (and charge-value-gas-p
+                                   (plusp child-value))
+                              +call-stipend+
+                              0))))
+          (multiple-value-bind
+                (success child-return-data child-gas-used
+                 child-logs child-refund-counter)
+              (execute-message-call-child
+               state context snapshot code-address args child-gas-limit
+               :child-address child-address
+               :child-caller child-caller
+               :child-call-value child-value
+               :read-only-p read-only-p
+               :precompile-address-p precompile-p
+               :value-transfer-from value-transfer-from
+               :value-transfer-to value-transfer-to
+               :balance-check-address balance-check-address
+               :balance-check-value balance-check-value
+               :balance-check-message balance-check-message)
+            (evm-machine-charge-gas
+             machine
+             (if (and charge-value-gas-p (not precompile-p))
+                 (call-child-gas-charge child-gas-used child-value)
+                 child-gas-used))
+            (incf (evm-machine-refund-counter machine)
+                  child-refund-counter)
+            (setf (evm-machine-return-data-buffer machine)
+                  child-return-data
+                  (evm-machine-memory machine)
+                  (copy-child-return-data-to-memory
+                   (evm-machine-memory machine)
+                   return-offset
+                   return-size
+                   child-return-data)
+                  (evm-machine-stack machine)
+                  (stack-push rest-stack success))
+            (when merge-logs-p
+              (setf (evm-machine-logs machine)
+                    (prepend-child-logs
+                     child-logs
+                     (evm-machine-logs machine))))))))))
+
 (defun execute-message-call-child (state
                                    context
                                    snapshot
