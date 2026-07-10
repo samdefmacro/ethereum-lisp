@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.block-access-lists)
 
 ;;;; Amsterdam block access list account, storage, and ordering validators.
 

@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.block-access-lists)
 
 (defstruct (block-access-account (:constructor make-block-access-account
                                       (&key address

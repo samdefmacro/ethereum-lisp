@@ -21,8 +21,9 @@
                       :size 256))
          (encoded-block-access-list
            (when (executable-data-block-access-list payload)
-             (block-access-list-rlp-input-bytes
-              (executable-data-block-access-list payload))))
+             (validate-byte-sequence-field
+              (executable-data-block-access-list payload)
+              "Executable data block access list")))
          (block-access-list
            (when encoded-block-access-list
              (block-access-list-from-rlp encoded-block-access-list))))

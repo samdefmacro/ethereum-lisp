@@ -9,7 +9,9 @@
         #:ethereum-lisp.chain-config
         #:ethereum-lisp.transactions
         #:ethereum-lisp.accounts
-        #:ethereum-lisp.receipts)
+        #:ethereum-lisp.receipts
+        #:ethereum-lisp.execution-requests
+        #:ethereum-lisp.block-access-lists)
   (:import-from #:ethereum-lisp.database
    #:key-value-database
    #:make-kv-write-batch
@@ -30,7 +32,11 @@
    #:ensure-uint256
    #:optional-bytes
    #:rlp-uint-field
-   #:rlp-bytes-field)
+   #:rlp-bytes-field
+   #:validate-byte-sequence-field
+   #:byte-vector-lexicographic<
+   #:uint32-value-p
+   #:uint64-value-p)
   (:export
    #:+empty-ommers-hash+
    #:ommers-hash

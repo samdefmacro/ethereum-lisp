@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.execution-requests)
 
 (defun validate-execution-request-fields (request)
   (let ((bytes (handler-case

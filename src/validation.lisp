@@ -37,3 +37,34 @@
   (unless (byte-vector-p value)
     (block-validation-fail "~A must be RLP bytes" label))
   (copy-seq value))
+
+(defun validate-byte-sequence-field (value label &key size)
+  (let ((bytes (handler-case
+                   (ensure-byte-vector value)
+                 (error ()
+                   (block-validation-fail "~A must be a byte sequence"
+                                          label)))))
+    (when (and size (/= size (length bytes)))
+      (block-validation-fail "~A must be exactly ~D bytes" label size))
+    bytes))
+
+(defun byte-vector-lexicographic< (left right)
+  (let ((left (ensure-byte-vector left))
+        (right (ensure-byte-vector right)))
+    (loop for index below (min (length left) (length right))
+          for left-byte = (aref left index)
+          for right-byte = (aref right index)
+          when (< left-byte right-byte)
+            do (return t)
+          when (> left-byte right-byte)
+            do (return nil)
+          finally (return (< (length left) (length right))))))
+
+(defun uint32-value-p (value)
+  (and (integerp value)
+       (<= 0 value)
+       (< value (expt 2 32))))
+
+(defun uint64-value-p (value)
+  (and (integerp value)
+       (<= 0 value (1- (ash 1 64)))))

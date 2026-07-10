@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.block-access-lists)
 
 (defun hash32-uint256 (hash)
   (bytes-to-integer (hash32-bytes hash)))

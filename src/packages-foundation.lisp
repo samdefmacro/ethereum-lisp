@@ -87,7 +87,11 @@
    #:ensure-uint256
    #:optional-bytes
    #:rlp-uint-field
-   #:rlp-bytes-field))
+   #:rlp-bytes-field
+   #:validate-byte-sequence-field
+   #:byte-vector-lexicographic<
+   #:uint32-value-p
+   #:uint64-value-p))
 
 (defpackage #:ethereum-lisp.rlp
   (:use #:cl #:ethereum-lisp.bytes)

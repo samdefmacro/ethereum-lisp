@@ -41,10 +41,6 @@
        right
        (bytes= (hash32-bytes left) (hash32-bytes right))))
 
-(defun uint64-value-p (value)
-  (and (integerp value)
-       (<= 0 value (1- (ash 1 64)))))
-
 (defun validate-sized-byte-vector (value size label)
   (let ((bytes (handler-case
                    (ensure-byte-vector value)

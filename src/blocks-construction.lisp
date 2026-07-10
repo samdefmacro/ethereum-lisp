@@ -16,7 +16,8 @@
        "Block access list cannot be supplied as both typed data and RLP"))
     (when block-access-list-rlp-supplied-p
       (setf encoded-block-access-list
-            (block-access-list-rlp-input-bytes block-access-list-rlp)
+            (validate-byte-sequence-field block-access-list-rlp
+                                          "Block access list RLP")
             block-access-list
             (block-access-list-from-rlp encoded-block-access-list)
             block-access-list-supplied-p t))

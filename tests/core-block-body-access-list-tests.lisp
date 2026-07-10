@@ -1,5 +1,29 @@
 (in-package #:ethereum-lisp.test)
 
+(deftest block-body-collaborator-package-boundaries
+  (let ((requests (find-package '#:ethereum-lisp.execution-requests))
+        (access-lists (find-package '#:ethereum-lisp.block-access-lists))
+        (core (find-package '#:ethereum-lisp.core)))
+    (is (not (member core (package-use-list requests))))
+    (is (not (member core (package-use-list access-lists))))
+    (is (not (member requests (package-use-list access-lists))))
+    (dolist (entry `((,requests "EXECUTION-REQUESTS-HASH")
+                     (,access-lists "BLOCK-ACCESS-ACCOUNT")
+                     (,access-lists "BLOCK-ACCESS-LIST-FROM-RLP")))
+      (destructuring-bind (owner name) entry
+        (multiple-value-bind (owned-symbol owned-status)
+            (find-symbol name owner)
+          (multiple-value-bind (core-symbol core-status)
+              (find-symbol name core)
+            (is (eq :external owned-status))
+            (is (eq :external core-status))
+            (is (eq owned-symbol core-symbol))))))
+    (dolist (package (list requests access-lists))
+      (multiple-value-bind (symbol status)
+          (find-symbol "BLOCK-HEADER" package)
+        (is (null symbol))
+        (is (null status))))))
+
 (deftest block-body-validates-execution-requests-hash
   (let* ((block (make-block :requests (list #(#x00 #xbb) #(#x01 #xaa))))
          (header (block-header block)))
@@ -165,4 +189,3 @@
           (block-block-access-list-present-p block) t)
     (signals block-validation-error
       (validate-block-body-roots block))))
-

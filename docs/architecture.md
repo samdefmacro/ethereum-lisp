@@ -39,6 +39,8 @@ The current source ownership map is:
   domain package definitions.
 - `packages-models.lisp`: account and receipt protocol-model package
   definitions, ordered by their explicit domain dependencies.
+- `packages-blocks.lisp`: execution-request and block-access-list package
+  definitions used by block assembly and validation.
 - `packages-core.lisp`: compatibility aggregate for the remaining core
   protocol surface; it re-exports narrower domain APIs while callers migrate.
 - `packages-runtime.lisp`: state, EVM, execution, and CLI package definitions.
@@ -122,16 +124,13 @@ The current source ownership map is:
   ordering validators for consensus-facing objects.
 - `consensus-transaction-validation.lisp`: consensus-facing transaction field
   validation for block, RPC, and txpool admission paths.
-- `block-access-list-types.lisp`: Amsterdam block access list structures.
-- `block-access-list-execution-requests.lisp`: execution request validation and
-  hashing.
-- `block-access-list-validation.lisp`: Amsterdam block access list account,
-  storage, and ordering validators.
-- `block-access-list-rlp.lisp`: block access list RLP encoding and decoding.
-- `block-access-list-commitments.lisp`: block access list hash and encoded-body
-  consistency checks.
-- `block-access-list.lisp`: compatibility package entry for block access list
-  modules.
+- `ethereum-lisp.execution-requests` / `execution-requests.lisp`: execution
+  request validation and hashing, independent from block access lists.
+- `ethereum-lisp.block-access-lists` / `block-access-list-*.lisp`: Amsterdam
+  access-list values, field validation, RLP codecs, and body hashing.
+- `blocks-access-list-commitment.lisp`: block-level consistency check between
+  typed and encoded access-list bodies; this adapter owns the dependency on a
+  block object instead of placing it in the access-list package.
 - `genesis-block.lisp`: fork-aware genesis header and block construction.
 - `kzg-verifier-hooks.lisp`: optional KZG point/blob proof verifier hook
   variables and availability checks.
