@@ -19,6 +19,10 @@
    #:kv-chain-checkpoints
    #:kv-batch-put-chain-checkpoint
    #:kv-batch-delete-chain-checkpoint)
+  (:import-from #:ethereum-lisp.validation
+   #:block-validation-error
+   #:block-validation-error-message
+   #:block-validation-fail)
   (:export
    #:+empty-ommers-hash+
    #:ommers-hash
@@ -686,4 +690,3 @@
    #:transaction-list-root
    #:receipt-list-root
    #:transaction-receipt-list-root))
-

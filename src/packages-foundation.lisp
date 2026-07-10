@@ -78,6 +78,13 @@
    #:telemetry-log
    #:telemetry-metric))
 
+(defpackage #:ethereum-lisp.validation
+  (:use #:cl)
+  (:export
+   #:block-validation-error
+   #:block-validation-error-message
+   #:block-validation-fail))
+
 (defpackage #:ethereum-lisp.rlp
   (:use #:cl #:ethereum-lisp.bytes)
   (:export
@@ -163,4 +170,3 @@
    #:mpt-root-hash
    #:mpt-root-hex
    #:mpt-root-node))
-

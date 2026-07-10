@@ -2,6 +2,16 @@
 
 ;;;; Transaction validation, pricing, encoding, and sender recovery.
 
+(defun chain-rules-transaction-type-supported-p (rules transaction)
+  "Return whether RULES activate the envelope type used by TRANSACTION."
+  (case (transaction-type transaction)
+    (0 t)
+    (1 (chain-rules-berlin-p rules))
+    (2 (chain-rules-london-p rules))
+    (3 (chain-rules-cancun-p rules))
+    (4 (chain-rules-prague-p rules))
+    (otherwise nil)))
+
 (defun validate-transaction-type-for-config
     (transaction config block-number timestamp)
   (let* ((rules (chain-config-rules config block-number timestamp))

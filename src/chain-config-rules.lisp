@@ -29,12 +29,3 @@
      :blob-schedule-target-gas target-blob-gas
      :blob-schedule-max-gas max-blob-gas
      :blob-schedule-update-fraction update-fraction)))
-
-(defun chain-rules-transaction-type-supported-p (rules transaction)
-  (case (transaction-type transaction)
-    (0 t)
-    (1 (chain-rules-berlin-p rules))
-    (2 (chain-rules-london-p rules))
-    (3 (chain-rules-cancun-p rules))
-    (4 (chain-rules-prague-p rules))
-    (otherwise nil)))

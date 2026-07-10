@@ -39,6 +39,7 @@
 (load-ethereum-lisp-test-file "src/trie-nodes.lisp")
 (load-ethereum-lisp-test-file "src/trie-proofs.lisp")
 (load-ethereum-lisp-test-file "src/trie.lisp")
+(load-ethereum-lisp-test-file "src/core-validation-errors.lisp")
 (load-ethereum-lisp-test-file "src/chain-config-types.lisp")
 (load-ethereum-lisp-test-file "src/chain-config-forks.lisp")
 (load-ethereum-lisp-test-file "src/chain-config-blob-schedule.lisp")
