@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.consensus)
 
 ;;;; Block body commitment validation against header roots.
 

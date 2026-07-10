@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.consensus)
 
 ;;;; Fee-market and blob-gas validation shared by block header paths.
 

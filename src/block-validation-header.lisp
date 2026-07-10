@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.consensus)
 
 (defun validate-block-header-field-shapes
     (header &key require-parent-hash-p)

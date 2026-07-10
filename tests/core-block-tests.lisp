@@ -34,6 +34,31 @@
     (is (eq transactions-root
             (block-header-transactions-root (block-header block))))))
 
+(deftest consensus-package-boundary
+  (let ((consensus (find-package '#:ethereum-lisp.consensus))
+        (blocks (find-package '#:ethereum-lisp.blocks))
+        (transactions (find-package '#:ethereum-lisp.transactions))
+        (receipts (find-package '#:ethereum-lisp.receipts))
+        (core (find-package '#:ethereum-lisp.core)))
+    (is (not (member core (package-use-list consensus))))
+    (dolist (dependency (list blocks transactions receipts))
+      (is (member dependency (package-use-list consensus))))
+    (dolist (name '("VALIDATE-BLOCK-AGAINST-CONFIG"
+                    "VALIDATE-BLOCK-EXECUTION-ROOTS"
+                    "EXPECTED-BASE-FEE-PER-GAS"))
+      (multiple-value-bind (consensus-symbol consensus-status)
+          (find-symbol name consensus)
+        (multiple-value-bind (core-symbol core-status)
+            (find-symbol name core)
+          (is (eq :external consensus-status))
+          (is (eq :external core-status))
+          (is (eq consensus-symbol core-symbol)))))
+    (dolist (name '("CHAIN-STORE-CHECKPOINT" "EXECUTABLE-DATA"))
+      (multiple-value-bind (symbol status)
+          (find-symbol name consensus)
+        (is (null symbol))
+        (is (null status))))))
+
 (deftest transaction-type-validation-uses-chain-config
   (let* ((config (make-chain-config :berlin-block 5
                                     :london-block 10

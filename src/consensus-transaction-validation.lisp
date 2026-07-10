@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.consensus)
 
 ;;;; Consensus-facing transaction field validation for block and payload checks.
 

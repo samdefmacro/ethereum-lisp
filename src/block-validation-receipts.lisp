@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.consensus)
 
 ;;;; Receipt, log, and execution commitment validation for block roots.
 

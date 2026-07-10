@@ -17,6 +17,9 @@
         #:ethereum-lisp.crypto
         #:ethereum-lisp.validation)
   (:export
+   #:+block-access-list-max-code-size+
+   #:+block-access-list-amsterdam-max-code-size+
+   #:+block-access-list-item-gas-cost+
    #:block-access-account
    #:block-access-account-p
    #:make-block-access-account
@@ -74,6 +77,8 @@
   (:export
    #:+empty-ommers-hash+
    #:+initial-base-fee+
+   #:+maximum-extra-data-size+
+   #:+max-header-gas-limit+
    #:block-header
    #:block-header-p
    #:make-block-header

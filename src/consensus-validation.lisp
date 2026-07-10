@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.consensus)
 
 ;;;; Shared consensus validation primitives used across block, payload, and
 ;;;; persistence checks.

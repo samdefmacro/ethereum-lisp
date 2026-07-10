@@ -45,6 +45,8 @@ The current source ownership map is:
   package definitions with their dependency order made explicit.
 - `packages-genesis.lisp`: genesis data, parsing, and block-construction
   package definition over JSON and protocol-model contracts.
+- `packages-consensus.lisp`: pure transaction, header, body, fork, root, and
+  receipt consensus-validation package definition.
 - `packages-core.lisp`: compatibility aggregate for the remaining core
   protocol surface; it re-exports narrower domain APIs while callers migrate.
 - `packages-runtime.lisp`: state, EVM, execution, and CLI package definitions.
@@ -119,12 +121,10 @@ The current source ownership map is:
   header/body values, canonical codecs, commitment derivation, construction,
   and hashing. It depends on transaction, receipt, execution-request, and
   block-access-list contracts, never on the core compatibility aggregate.
-- `consensus-validation.lisp`: shared consensus validation primitives,
-  hash equality, sized-byte checks, and fee-market calculations.
-- `consensus-field-validation.lisp`: shared scalar, byte, hash, address, and
-  ordering validators for consensus-facing objects.
-- `consensus-transaction-validation.lisp`: consensus-facing transaction field
-  validation for block, RPC, and txpool admission paths.
+- `ethereum-lisp.consensus` / `consensus-*.lisp` /
+  `block-validation-*.lisp`: protocol constants and pure transaction, header,
+  fork, fee, body, root, and receipt validation. The package consumes stable
+  protocol models and never accesses stores, Engine state, txpool, or RPC.
 - `ethereum-lisp.execution-requests` / `execution-requests.lisp`: execution
   request validation and hashing, independent from block access lists.
 - `ethereum-lisp.block-access-lists` / `block-access-list-*.lisp`: Amsterdam

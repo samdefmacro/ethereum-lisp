@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.consensus)
 
 (defun validate-withdrawal-fields (withdrawal)
   (unless (uint256-p (withdrawal-index withdrawal))
