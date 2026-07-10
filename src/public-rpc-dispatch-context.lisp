@@ -43,6 +43,6 @@
   (string= (public-rpc-dispatch-context-method context) name))
 
 (defun public-rpc-dispatch-response (context result)
-  (engine-rpc-response
+  (json-rpc-response
    (public-rpc-dispatch-context-id context)
    :result result))

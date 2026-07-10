@@ -43,7 +43,7 @@
     (or (string= path rpc-prefix)
         (and (< (length rpc-prefix) (length path))
              (not (string= rpc-prefix "/"))
-             (engine-rpc-string-prefix-p rpc-prefix path)
+             (string-prefix-p rpc-prefix path)
              (char= #\/ (char path (length rpc-prefix)))))))
 
 (defun engine-rpc-http-headers (lines)

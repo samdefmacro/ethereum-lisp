@@ -90,6 +90,11 @@ The current source ownership map is:
 - `ethereum-lisp.json` / `json-read.lisp` / `json-write.lisp` /
   `json-object-fields.lisp`: JSON parsing, encoding, shape predicates, object
   access, and quantity decoding without genesis or RPC ownership.
+- `ethereum-lisp.json-rpc` / `json-rpc-protocol.lisp`: transport-independent
+  JSON-RPC 2.0 envelope validation and success/error response construction.
+  It contains no Engine, public method, chain, or HTTP policy.
+- `engine-api-methods.lisp`: Engine and public namespace method filters,
+  including direct KZG capability checks through the KZG package contract.
 - `ethereum-lisp.genesis` / `genesis-*.lisp`: genesis account values,
   genesis-specific field and alloc parsing, chain-config conversion, file I/O,
   and fork-aware genesis block construction. It consumes JSON, chain config,
@@ -269,8 +274,6 @@ The current source ownership map is:
 - `block-validation.lisp`: block validation compatibility loader.
 - `engine-payload-status.lisp`: Engine forkchoice/newPayload status for the
   in-memory chain store.
-- `engine-rpc-protocol.lisp`: JSON-RPC envelopes, response helpers, and
-  Engine/public method filters.
 - `engine-rpc-field-codecs.lisp`: Engine API field coercion.
 - `engine-rpc-payload-input-codecs.lisp`: Engine payload JSON object decoding.
 - `engine-rpc-payload-codecs.lisp`: Engine payload/status object rendering.

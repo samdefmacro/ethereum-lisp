@@ -18,16 +18,16 @@
                             txpool-now)
   (let ((id (and (listp request)
                  (json-object-field request "id")))
-        (notification-p (engine-rpc-notification-request-p request)))
+        (notification-p (json-rpc-notification-p request)))
     (handler-case
         (let ((response
                 (progn
                   (unless (listp request)
                     (block-validation-fail
                      "JSON-RPC request must be an object"))
-                  (unless (engine-rpc-request-envelope-valid-p request)
+                  (unless (json-rpc-request-valid-p request)
                     (return-from engine-rpc-handle-request
-                      (engine-rpc-invalid-request-response)))
+                      (json-rpc-invalid-request-response)))
                   (let* ((method (engine-rpc-required-field request "method"))
                          (params
                            (if (json-object-field-present-p request
@@ -39,10 +39,10 @@
                       (block-validation-fail
                        "JSON-RPC method filter must be a function"))
                     (if (not (funcall allowed-method-p method))
-                        (engine-rpc-response
+                        (json-rpc-response
                          id
                          :error
-                         (engine-rpc-error-object -32601 "Method not found"))
+                         (json-rpc-error-object -32601 "Method not found"))
                         (or
                          (engine-rpc-handle-engine-method
                           id method params store config
@@ -73,27 +73,27 @@
                           txpool-lifetime-seconds
                           :txpool-now
                           txpool-now)
-                         (engine-rpc-response
+                         (json-rpc-response
                           id
                           :error
-                          (engine-rpc-error-object
+                          (json-rpc-error-object
                            -32601 "Method not found"))))))))
           (unless notification-p
             response))
       (engine-rpc-error (condition)
         (unless notification-p
-          (engine-rpc-response
+          (json-rpc-response
            id
            :error
-           (engine-rpc-error-object
+           (json-rpc-error-object
             (engine-rpc-error-code condition)
             (engine-rpc-error-message condition)))))
       (block-validation-error (condition)
         (unless notification-p
-          (engine-rpc-response
+          (json-rpc-response
            id
            :error
-           (engine-rpc-error-object
+           (json-rpc-error-object
             -32602
             (block-validation-error-message condition))))))))
 
@@ -171,7 +171,7 @@
                                txpool-lifetime-seconds
                                :txpool-now
                                txpool-now)
-                              (engine-rpc-invalid-request-response))
+                              (json-rpc-invalid-request-response))
            when response
              collect response))
-    (t (engine-rpc-invalid-request-response))))
+    (t (json-rpc-invalid-request-response))))

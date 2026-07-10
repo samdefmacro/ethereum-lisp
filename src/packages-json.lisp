@@ -21,3 +21,15 @@
    #:json-empty-object-p
    #:make-json-empty-object
    #:+json-empty-object+))
+
+(defpackage #:ethereum-lisp.json-rpc
+  (:use #:cl #:ethereum-lisp.json)
+  (:export
+   #:json-rpc-response
+   #:json-rpc-error-object
+   #:json-rpc-invalid-request-response
+   #:json-rpc-parse-error-response
+   #:json-rpc-version-valid-p
+   #:json-rpc-notification-p
+   #:json-rpc-request-id-valid-p
+   #:json-rpc-request-valid-p))

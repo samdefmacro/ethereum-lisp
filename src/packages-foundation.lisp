@@ -20,6 +20,11 @@
    #:quantity-to-hex
    #:hex-to-quantity))
 
+(defpackage #:ethereum-lisp.strings
+  (:use #:cl)
+  (:export
+   #:string-prefix-p))
+
 (defpackage #:ethereum-lisp.database
   (:use #:cl #:ethereum-lisp.bytes #:ethereum-lisp.hex)
   (:export

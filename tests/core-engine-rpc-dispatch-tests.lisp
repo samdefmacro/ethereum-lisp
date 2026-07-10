@@ -1,5 +1,26 @@
 (in-package #:ethereum-lisp.test)
 
+(deftest json-rpc-protocol-package-boundary
+  (let ((protocol (find-package '#:ethereum-lisp.json-rpc))
+        (json (find-package '#:ethereum-lisp.json))
+        (core (find-package '#:ethereum-lisp.core)))
+    (is (not (member core (package-use-list protocol))))
+    (is (member json (package-use-list protocol)))
+    (dolist (name '("JSON-RPC-RESPONSE"
+                    "JSON-RPC-INVALID-REQUEST-RESPONSE"
+                    "JSON-RPC-REQUEST-VALID-P"))
+      (multiple-value-bind (protocol-symbol protocol-status)
+          (find-symbol name protocol)
+        (multiple-value-bind (core-symbol core-status)
+            (find-symbol name core)
+          (is (eq :external protocol-status))
+          (is (eq :inherited core-status))
+          (is (eq protocol-symbol core-symbol)))))
+    (multiple-value-bind (symbol status)
+        (find-symbol "ENGINE-RPC-ENGINE-METHOD-P" protocol)
+      (is (null symbol))
+      (is (null status)))))
+
 (deftest engine-rpc-handle-request-dispatches-new-payload
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))
@@ -242,4 +263,3 @@
                 store
                 config)))
         (is (string= "" notifications-json))))))
-

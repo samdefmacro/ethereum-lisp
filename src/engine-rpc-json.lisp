@@ -21,7 +21,7 @@
               (parse-json request-json :preserve-empty-arrays t)
             (block-validation-error ()
               (return-from engine-rpc-handle-request-string
-                (engine-rpc-parse-error-response))))))
+                (json-rpc-parse-error-response))))))
     (engine-rpc-handle-request-value
      request
      store

@@ -2,6 +2,7 @@
   (:use #:cl
         #:ethereum-lisp.bytes
         #:ethereum-lisp.hex
+        #:ethereum-lisp.strings
         #:ethereum-lisp.types
         #:ethereum-lisp.rlp
         #:ethereum-lisp.crypto
@@ -14,6 +15,7 @@
         #:ethereum-lisp.block-access-lists
         #:ethereum-lisp.blocks
         #:ethereum-lisp.json
+        #:ethereum-lisp.json-rpc
         #:ethereum-lisp.genesis
         #:ethereum-lisp.consensus
         #:ethereum-lisp.kzg

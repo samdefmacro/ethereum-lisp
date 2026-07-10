@@ -164,7 +164,7 @@
 (defun engine-rpc-http-authorized-p (authorization secret now)
   (unless authorization
     (block-validation-fail "missing token"))
-  (unless (engine-rpc-string-prefix-p "Bearer " authorization)
+  (unless (string-prefix-p "Bearer " authorization)
     (block-validation-fail "missing token"))
   (engine-rpc-validate-jwt-token
    (subseq authorization (length "Bearer "))

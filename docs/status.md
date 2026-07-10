@@ -900,9 +900,9 @@ threshold. The txpool object now also has queued, basefee, and blob placeholder
 subpools, and `txpool_*` RPC views read queued data from the queued subpool
 instead of hard-coded empty placeholders. Public JSON-RPC and txpool
 placeholder handlers now live in `src/public-rpc.lisp` behind a dedicated
-public method dispatcher. The generic JSON-RPC protocol and transport layers
-have since moved into `src/engine-rpc-protocol.lisp` and
-`src/engine-rpc-http.lisp`, and the former `src/core.lisp` catch-all file has
+public method dispatcher. The generic JSON-RPC protocol now lives in
+`src/json-rpc-protocol.lisp`, independently from Engine/public method filters
+and `src/engine-rpc-http.lisp`; the former `src/core.lisp` catch-all file has
 been retired.
 Filter lifecycle scope is intentionally polling-only for now. The current
 filter ids belong to the JSON-RPC polling methods (`eth_newFilter`,
