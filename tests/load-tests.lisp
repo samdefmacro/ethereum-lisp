@@ -133,6 +133,7 @@
 (load-ethereum-lisp-test-file "src/txpool-queued-promotion.lisp")
 (load-ethereum-lisp-test-file "src/txpool-basefee-promotion.lisp")
 (load-ethereum-lisp-test-file "src/txpool-cleanup-lifecycle.lisp")
+(load-ethereum-lisp-test-file "src/node-store-blocks.lisp")
 (load-ethereum-lisp-test-file "src/txpool-cleanup-new-head.lisp")
 (load-ethereum-lisp-test-file "src/txpool-pending-revalidation.lisp")
 (load-ethereum-lisp-test-file "src/txpool-reorg.lisp")

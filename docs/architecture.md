@@ -182,14 +182,15 @@ The current source ownership map is:
   aggregate that composes one chain-store state component with one txpool
   index component. Cross-domain lifecycle ownership belongs here rather than
   in either domain model.
-- `ethereum-lisp.node-store` / `node-store-snapshots.lisp`: atomic snapshot,
-  rollback, and component replacement for the complete in-memory node. It is
-  the lifecycle boundary that may coordinate both mutable domains.
+- `ethereum-lisp.node-store` / `node-store-snapshots.lisp` and
+  `node-store-blocks.lisp`: atomic snapshot, rollback, component replacement,
+  and block-import orchestration for the complete in-memory node. It is the
+  lifecycle boundary that may coordinate both mutable domains.
 - `ethereum-lisp.chain-store` / chain-store memory, copy, cache, filter,
   state, canonical-index, and transaction-location modules: in-memory chain
   behavior over the chain component protocol. It does not depend on the node
-  aggregate; canonical-head remains an application service because it
-  coordinates multiple domains.
+  aggregate or txpool; canonical-head remains an application service because
+  it coordinates multiple domains.
 - `ethereum-lisp.txpool` / txpool store, admission, views, accounting,
   promotion, cleanup, and reorg modules: transaction-pool policy over the
   index model and chain-store query contract. It depends on chain-store in one

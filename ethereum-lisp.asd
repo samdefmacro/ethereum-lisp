@@ -135,6 +135,7 @@
      (:file "txpool-queued-promotion")
      (:file "txpool-basefee-promotion")
      (:file "txpool-cleanup-lifecycle")
+     (:file "node-store-blocks")
      (:file "txpool-cleanup-new-head")
      (:file "txpool-pending-revalidation")
      (:file "txpool-reorg")

@@ -105,7 +105,6 @@
         #:ethereum-lisp.consensus
         #:ethereum-lisp.kzg
         #:ethereum-lisp.engine-payloads
-        #:ethereum-lisp.txpool.index
         #:ethereum-lisp.chain-store.model
         #:ethereum-lisp.chain-store.state)
   (:export
@@ -152,7 +151,7 @@
    #:engine-payload-store-put-blob-sidecar
    #:engine-payload-store-blob-and-proofs-v1
    #:engine-payload-store-blob-and-proofs-v2
-   #:engine-payload-store-put-block
+   #:memory-chain-store-put-block
    #:engine-payload-store-known-block
    #:engine-payload-store-checkpoint-number
    #:engine-payload-store-head-number
@@ -191,7 +190,6 @@
    #:engine-payload-store-put-transaction-location
    #:engine-payload-store-index-block-transactions
    #:engine-payload-store-remove-block-transaction-locations
-   #:engine-payload-store-remove-included-block-transactions
    #:engine-payload-store-transaction-location
    #:chain-store-put-block
    #:chain-store-known-block

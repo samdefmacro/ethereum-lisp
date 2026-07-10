@@ -634,7 +634,6 @@
    #:engine-payload-memory-store
    #:make-engine-payload-memory-store)
   (#:ethereum-lisp.chain-store
-   #:engine-payload-store-put-block
    #:engine-payload-store-known-block
    #:engine-payload-store-block-by-number
    #:engine-payload-store-canonical-hash
@@ -683,7 +682,8 @@
    #:engine-payload-store-blob-and-proofs-v1
    #:engine-payload-store-blob-and-proofs-v2)
   (#:ethereum-lisp.node-store
-   #:chain-store-atomic-commit)
+   #:chain-store-atomic-commit
+   #:engine-payload-store-put-block)
   (#:ethereum-lisp.engine
    #:engine-payload-store-invalid-ancestor-status
    #:engine-forkchoice-memory-status

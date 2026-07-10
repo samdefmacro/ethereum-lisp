@@ -1,5 +1,12 @@
 (in-package #:ethereum-lisp.txpool)
 
+(defun engine-payload-store-remove-included-block-transactions (store block)
+  (let ((txpool (engine-payload-store-txpool store)))
+    (dolist (transaction (block-transactions block))
+      (engine-pending-txpool-remove-included-transaction
+       txpool transaction)))
+  block)
+
 (defun engine-payload-store-subpool-views
     (store &key (include-pending-p t))
   (append

@@ -61,16 +61,6 @@
           (remhash transaction-key locations)))))
   block)
 
-(defun engine-payload-store-remove-included-block-transactions (store block)
-  (let ((txpool (txpool-component store)))
-    (unless txpool
-      (block-validation-fail "Txpool component is not available"))
-    (dolist (transaction (block-transactions block))
-      (engine-pending-txpool-remove-included-transaction
-       txpool
-       transaction)))
-  block)
-
 (defun engine-payload-store-transaction-location (store hash)
   (setf store (chain-store-require-memory-store store))
   (let ((location

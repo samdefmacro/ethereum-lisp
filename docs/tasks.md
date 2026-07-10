@@ -9122,6 +9122,9 @@ splits can land after the Phase A smoke path closes.
 
 ## Recently Completed
 
+- [x] Make block storage a pure chain-store operation and move imported-block
+  sender validation plus txpool reconciliation to the cross-domain node-store
+  service.
 - [x] Replace node-state field forwarding with chain-store and txpool
   component protocols; move atomic snapshot/rollback ownership to the
   cross-domain `node-store` lifecycle service.

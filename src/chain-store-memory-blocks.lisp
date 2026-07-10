@@ -2,59 +2,51 @@
 
 ;;;; In-memory block storage and forkchoice checkpoint updates.
 
-(defun engine-payload-store-put-block
+(defun memory-chain-store-put-block
     (store block &key (state-available-p nil))
-  (let ((txpool (txpool-component store)))
-    (setf store (chain-store-require-memory-store store))
-    (unless (typep block 'ethereum-block)
-      (block-validation-fail "Engine payload store block must be a block"))
-    (when (and txpool (not (engine-pending-txpool-empty-p txpool)))
-      (dolist (transaction (block-transactions block))
-        (engine-pending-txpool-sender transaction)))
-    (let ((stored-block (engine-payload-store-copy-block block))
-          (key (engine-payload-store-key (block-hash block)))
-          (canonicalized-p nil)
-          (notify-head-p nil))
-      (remhash key (memory-chain-store-remote-blocks store))
-      (setf (gethash key (memory-chain-store-blocks store)) stored-block)
-      (engine-payload-store-prune-prepared-payloads-for-block store key)
-      (let ((number (block-header-number (block-header stored-block))))
-        (when (and (integerp number) (not (minusp number)))
+  (setf store (chain-store-require-memory-store store))
+  (unless (typep block 'ethereum-block)
+    (block-validation-fail "Chain store block must be a block"))
+  (let ((stored-block (engine-payload-store-copy-block block))
+        (key (engine-payload-store-key (block-hash block)))
+        (canonicalized-p nil)
+        (notify-head-p nil))
+    (remhash key (memory-chain-store-remote-blocks store))
+    (setf (gethash key (memory-chain-store-blocks store)) stored-block)
+    (engine-payload-store-prune-prepared-payloads-for-block store key)
+    (let ((number (block-header-number (block-header stored-block))))
+      (when (and (integerp number) (not (minusp number)))
+        (setf (gethash number
+                       (memory-chain-store-number-blocks store))
+              stored-block)
+        (when (and (not (gethash
+                         number
+                         (memory-chain-store-canonical-hashes store)))
+                   (engine-payload-store-canonical-parent-p
+                    store stored-block))
           (setf (gethash number
-                         (memory-chain-store-number-blocks store))
-                stored-block)
-          (when (and (not (gethash
-                           number
-                           (memory-chain-store-canonical-hashes store)))
-                     (engine-payload-store-canonical-parent-p
-                      store stored-block))
-            (setf (gethash number
-                           (memory-chain-store-canonical-hashes store))
-                  key
-                  canonicalized-p t))
-          (when (and canonicalized-p
-                     (> number (memory-chain-store-head-number store)))
-            (setf notify-head-p t
-                  (memory-chain-store-head-number store) number))))
-      (loop with receipts = (block-receipts stored-block)
-            with log-index-start = 0
-            for transaction in (block-transactions stored-block)
-            for index from 0
-            for receipt = (nth index receipts)
-            do (engine-payload-store-put-transaction-location
-                store stored-block index transaction receipt log-index-start)
-               (when receipt
-                 (incf log-index-start (length (receipt-logs receipt)))))
-      (when (and txpool
-                 (engine-payload-store-canonical-block-p store stored-block))
-        (engine-payload-store-remove-included-block-transactions
-         txpool stored-block))
-      (if state-available-p
-          (setf (gethash key (memory-chain-store-state-blocks store)) t)
-          (remhash key (memory-chain-store-state-blocks store)))
-      (when notify-head-p
-        (engine-payload-store-notify-block-filters store stored-block))
-      block)))
+                         (memory-chain-store-canonical-hashes store))
+                key
+                canonicalized-p t))
+        (when (and canonicalized-p
+                   (> number (memory-chain-store-head-number store)))
+          (setf notify-head-p t
+                (memory-chain-store-head-number store) number))))
+    (loop with receipts = (block-receipts stored-block)
+          with log-index-start = 0
+          for transaction in (block-transactions stored-block)
+          for index from 0
+          for receipt = (nth index receipts)
+          do (engine-payload-store-put-transaction-location
+              store stored-block index transaction receipt log-index-start)
+             (when receipt
+               (incf log-index-start (length (receipt-logs receipt)))))
+    (if state-available-p
+        (setf (gethash key (memory-chain-store-state-blocks store)) t)
+        (remhash key (memory-chain-store-state-blocks store)))
+    (when notify-head-p
+      (engine-payload-store-notify-block-filters store stored-block))
+    block))
 
 (defun engine-payload-store-known-block
     (store hash)

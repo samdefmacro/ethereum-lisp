@@ -49,8 +49,8 @@
    (lambda ()
      (multiple-value-bind (block receipts)
          (funcall executor)
-       (chain-store-put-block store block
-                              :state-available-p state-available-p)
+       (engine-payload-store-put-block
+        store block :state-available-p state-available-p)
        (when state-available-p
          (commit-state-db-to-chain-store store (block-hash block) state))
        (values block receipts)))))

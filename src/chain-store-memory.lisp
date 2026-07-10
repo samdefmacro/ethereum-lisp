@@ -3,8 +3,8 @@
 ;;;; Public chain-store wrappers around the memory-store implementation.
 
 (defun chain-store-put-block (store block &key (state-available-p nil))
-  (engine-payload-store-put-block
-   store
+  (memory-chain-store-put-block
+   (chain-store-require-memory-store store)
    block
    :state-available-p state-available-p))
 

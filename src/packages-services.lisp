@@ -1,15 +1,3 @@
-(defpackage #:ethereum-lisp.node-store
-  (:use #:cl
-        #:ethereum-lisp.validation
-        #:ethereum-lisp.txpool.index
-        #:ethereum-lisp.chain-store.state
-        #:ethereum-lisp.node-state
-        #:ethereum-lisp.chain-store)
-  (:export
-   #:engine-payload-store-snapshot
-   #:engine-payload-store-restore
-   #:chain-store-atomic-commit))
-
 (defpackage #:ethereum-lisp.txpool
   (:use #:cl
         #:ethereum-lisp.bytes
@@ -58,9 +46,25 @@
    #:engine-payload-store-promote-basefee-and-queued-transactions
    #:engine-payload-store-prune-overbudget-parked-transactions
    #:engine-payload-store-remove-expired-txpool-queued-view-transactions
+   #:engine-payload-store-remove-included-block-transactions
    #:engine-payload-store-remove-new-head-invalid-txpool-transactions
    #:engine-payload-store-revalidate-pending-transactions
    #:engine-payload-store-reinsert-displaced-block-transactions))
+
+(defpackage #:ethereum-lisp.node-store
+  (:use #:cl
+        #:ethereum-lisp.validation
+        #:ethereum-lisp.blocks
+        #:ethereum-lisp.txpool.index
+        #:ethereum-lisp.chain-store.state
+        #:ethereum-lisp.node-state
+        #:ethereum-lisp.chain-store
+        #:ethereum-lisp.txpool)
+  (:export
+   #:engine-payload-store-snapshot
+   #:engine-payload-store-restore
+   #:chain-store-atomic-commit
+   #:engine-payload-store-put-block))
 
 (defpackage #:ethereum-lisp.canonical-chain
   (:use #:cl
@@ -87,6 +91,7 @@
         #:ethereum-lisp.engine-payloads
         #:ethereum-lisp.chain-store.model
         #:ethereum-lisp.node-state
+        #:ethereum-lisp.node-store
         #:ethereum-lisp.chain-store)
   (:export
    #:engine-payload-store-invalid-ancestor-status
