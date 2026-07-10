@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.chain-store.persistence)
 
 (defun state-storage-entry-rlp-object (entry)
   (make-rlp-list
@@ -49,10 +49,6 @@
    (engine-payload-memory-store-state-blocks store)))
 
 (defun chain-store-export-state-records-to-kv (store database)
-  (let ((store (chain-store-require-memory-store store)))
-    (unless (typep database 'key-value-database)
-      (block-validation-fail
-       "Chain state record export target must be a key-value database"))
-    (let ((batch (make-kv-write-batch)))
-      (chain-store-populate-state-record-export-batch store database batch)
-      (kv-apply-batch database batch))))
+  (chain-store-apply-export-batch
+   store database "state record"
+   #'chain-store-populate-state-record-export-batch))

@@ -20,6 +20,7 @@
      (:file "packages-txpool")
      (:file "packages-store")
      (:file "packages-services")
+     (:file "packages-persistence")
      (:file "packages-core")
      (:file "packages-runtime")
      (:file "packages-facade")

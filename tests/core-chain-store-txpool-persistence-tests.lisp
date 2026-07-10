@@ -199,28 +199,28 @@
               database
               :txpool
               (hash32-bytes (transaction-hash stale-pending))
-              (ethereum-lisp.core::chain-store-txpool-transaction-record-rlp
+              (ethereum-lisp.chain-store.persistence::chain-store-txpool-transaction-record-rlp
                :pending
                stale-pending))
              (kv-put-chain-record
               database
               :txpool
               (hash32-bytes (transaction-hash basefee-ready))
-              (ethereum-lisp.core::chain-store-txpool-transaction-record-rlp
+              (ethereum-lisp.chain-store.persistence::chain-store-txpool-transaction-record-rlp
                :basefee
                basefee-ready))
              (kv-put-chain-record
               database
               :txpool
               (hash32-bytes (transaction-hash queued-ready))
-              (ethereum-lisp.core::chain-store-txpool-transaction-record-rlp
+              (ethereum-lisp.chain-store.persistence::chain-store-txpool-transaction-record-rlp
                :queued
                queued-ready))
              (kv-put-chain-record
               database
               :txpool
               (hash32-bytes (transaction-hash queued-over-gas))
-              (ethereum-lisp.core::chain-store-txpool-transaction-record-rlp
+              (ethereum-lisp.chain-store.persistence::chain-store-txpool-transaction-record-rlp
                :queued
                queued-over-gas)))
            (let ((database (make-file-key-value-database path)))
@@ -322,14 +322,14 @@
               database
               :txpool
               (hash32-bytes (transaction-hash basefee-parked))
-              (ethereum-lisp.core::chain-store-txpool-transaction-record-rlp
+              (ethereum-lisp.chain-store.persistence::chain-store-txpool-transaction-record-rlp
                :basefee
                basefee-parked))
              (kv-put-chain-record
               database
               :txpool
               (hash32-bytes (transaction-hash queued-overbudget))
-              (ethereum-lisp.core::chain-store-txpool-transaction-record-rlp
+              (ethereum-lisp.chain-store.persistence::chain-store-txpool-transaction-record-rlp
                :queued
                queued-overbudget)))
            (let ((database (make-file-key-value-database path)))
@@ -431,21 +431,21 @@
               database
               :txpool
               (hash32-bytes (transaction-hash pending-transaction))
-              (ethereum-lisp.core::chain-store-txpool-transaction-record-rlp
+              (ethereum-lisp.chain-store.persistence::chain-store-txpool-transaction-record-rlp
                :pending
                pending-transaction))
              (kv-put-chain-record
               database
               :txpool
               (hash32-bytes (transaction-hash queued-transaction))
-              (ethereum-lisp.core::chain-store-txpool-transaction-record-rlp
+              (ethereum-lisp.chain-store.persistence::chain-store-txpool-transaction-record-rlp
                :queued
                queued-transaction))
              (kv-put-chain-record
               database
               :txpool
               (hash32-bytes (transaction-hash basefee-transaction))
-              (ethereum-lisp.core::chain-store-txpool-transaction-record-rlp
+              (ethereum-lisp.chain-store.persistence::chain-store-txpool-transaction-record-rlp
                :basefee
                basefee-transaction)))
            (let ((database (make-file-key-value-database path)))
@@ -512,7 +512,7 @@
               database
               :txpool
               (hash32-bytes (transaction-hash wrong-chain-transaction))
-              (ethereum-lisp.core::chain-store-txpool-transaction-record-rlp
+              (ethereum-lisp.chain-store.persistence::chain-store-txpool-transaction-record-rlp
                :pending
                wrong-chain-transaction)))
            (signals block-validation-error
@@ -559,7 +559,7 @@
               database
               :txpool
               (hash32-bytes (transaction-hash transaction))
-              (ethereum-lisp.core::chain-store-txpool-transaction-record-rlp
+              (ethereum-lisp.chain-store.persistence::chain-store-txpool-transaction-record-rlp
                :blob
                transaction)))
            (signals block-validation-error
@@ -623,7 +623,7 @@
               database
               :txpool
               (hash32-bytes (transaction-hash transaction))
-              (ethereum-lisp.core::chain-store-txpool-transaction-record-rlp
+              (ethereum-lisp.chain-store.persistence::chain-store-txpool-transaction-record-rlp
                :blob
                transaction)))
            (signals block-validation-error
@@ -664,7 +664,7 @@
               database
               :txpool
               (hash32-bytes (transaction-hash malformed))
-              (ethereum-lisp.core::chain-store-txpool-transaction-record-rlp
+              (ethereum-lisp.chain-store.persistence::chain-store-txpool-transaction-record-rlp
                :blob
                malformed)))
            (signals block-validation-error
@@ -706,7 +706,7 @@
                 database
                 :txpool
                 (hash32-bytes (transaction-hash malformed))
-                (ethereum-lisp.core::chain-store-txpool-transaction-record-rlp
+                (ethereum-lisp.chain-store.persistence::chain-store-txpool-transaction-record-rlp
                  :pending
                  malformed)))
              (signals block-validation-error
@@ -769,7 +769,7 @@
               database
               :txpool
               (hash32-bytes (transaction-hash transaction))
-              (ethereum-lisp.core::chain-store-txpool-transaction-record-rlp
+              (ethereum-lisp.chain-store.persistence::chain-store-txpool-transaction-record-rlp
                :pending
                replacement)))
            (signals block-validation-error
@@ -803,7 +803,7 @@
                          database
                          :txpool
                          (hash32-bytes (transaction-hash transaction))
-                         (ethereum-lisp.core::chain-store-txpool-transaction-record-rlp
+                         (ethereum-lisp.chain-store.persistence::chain-store-txpool-transaction-record-rlp
                           subpool
                           transaction)))
                       (funcall thunk path))
@@ -909,14 +909,14 @@
               database
               :txpool
               (hash32-bytes (transaction-hash pending))
-              (ethereum-lisp.core::chain-store-txpool-transaction-record-rlp
+              (ethereum-lisp.chain-store.persistence::chain-store-txpool-transaction-record-rlp
                :pending
                pending))
              (kv-put-chain-record
               database
               :txpool
               (hash32-bytes (transaction-hash queued-conflict))
-              (ethereum-lisp.core::chain-store-txpool-transaction-record-rlp
+              (ethereum-lisp.chain-store.persistence::chain-store-txpool-transaction-record-rlp
                :queued
                queued-conflict)))
            (signals block-validation-error

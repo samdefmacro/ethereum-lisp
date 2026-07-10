@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.chain-store.persistence)
 
 (defparameter +chain-store-txpool-subpool-labels+
   '((:pending . "pending")
@@ -59,10 +59,6 @@
         (kv-batch-delete-chain-record batch :txpool (car entry))))))
 
 (defun chain-store-export-txpool-records-to-kv (store database)
-  (let ((store (chain-store-require-memory-store store)))
-    (unless (typep database 'key-value-database)
-      (block-validation-fail
-       "Chain txpool export target must be a key-value database"))
-    (let ((batch (make-kv-write-batch)))
-      (chain-store-populate-txpool-record-export-batch store database batch)
-      (kv-apply-batch database batch))))
+  (chain-store-apply-export-batch
+   store database "txpool"
+   #'chain-store-populate-txpool-record-export-batch))

@@ -1,4 +1,15 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.chain-store.persistence)
+
+(defun chain-store-apply-export-batch
+    (store database record-label populate-batch)
+  (let ((store (chain-store-require-memory-store store)))
+    (unless (typep database 'key-value-database)
+      (block-validation-fail
+       "Chain ~A export target must be a key-value database"
+       record-label))
+    (let ((batch (make-kv-write-batch)))
+      (funcall populate-batch store database batch)
+      (kv-apply-batch database batch))))
 
 (defun chain-store-export-checkpoint-to-kv (batch checkpoint)
   (let ((label (and checkpoint
@@ -48,9 +59,5 @@
    (engine-payload-memory-store-finalized-checkpoint store)))
 
 (defun chain-store-export-indexes-to-kv (store database)
-  (let ((store (chain-store-require-memory-store store)))
-    (unless (typep database 'key-value-database)
-      (block-validation-fail "Chain index export target must be a key-value database"))
-    (let ((batch (make-kv-write-batch)))
-      (chain-store-populate-index-export-batch store database batch)
-      (kv-apply-batch database batch))))
+  (chain-store-apply-export-batch
+   store database "index" #'chain-store-populate-index-export-batch))

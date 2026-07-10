@@ -150,14 +150,17 @@ The current source ownership map is:
   the txpool index model.
 - `ethereum-lisp.chain-store` / chain-store memory, copy, cache, filter,
   state, canonical-index, and transaction-location modules: pure in-memory
-  store behavior and public queries over the model. Canonical-head and
-  persistence remain application adapters because they coordinate multiple
-  services.
+  store behavior and public queries over the model. Canonical-head remains an
+  application service because it coordinates multiple domains.
 - `ethereum-lisp.txpool` / txpool store, admission, views, accounting,
   promotion, cleanup, and reorg modules: transaction-pool policy over the
   index model and chain-store query contract. It depends on chain-store in one
   direction and owns all subpool lifecycle decisions; canonical-head only
   orchestrates the resulting service operations.
+- `ethereum-lisp.chain-store.persistence` / chain-store export and persistence
+  modules: the database adapter for atomic KV export and staged, validated
+  import. It depends on database, chain-store, and txpool contracts; none of
+  those domains depend on persistence.
 - `chain-store-memory-guards.lisp`: shared memory-store type checks for
   in-memory-only chain-store operations.
 - `chain-store-copy-values.lisp`: defensive copying for shared store values,

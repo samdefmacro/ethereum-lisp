@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.chain-store.persistence)
 
 (defun chain-store-byte-list-rlp-object (values)
   (apply #'make-rlp-list (mapcar #'maybe-copy-bytes values)))
@@ -57,11 +57,6 @@
          (car entry))))))
 
 (defun chain-store-export-prepared-payloads-to-kv (store database)
-  (let ((store (chain-store-require-memory-store store)))
-    (unless (typep database 'key-value-database)
-      (block-validation-fail
-       "Chain prepared-payload export target must be a key-value database"))
-    (let ((batch (make-kv-write-batch)))
-      (chain-store-populate-prepared-payload-export-batch
-       store database batch)
-      (kv-apply-batch database batch))))
+  (chain-store-apply-export-batch
+   store database "prepared-payload"
+   #'chain-store-populate-prepared-payload-export-batch))

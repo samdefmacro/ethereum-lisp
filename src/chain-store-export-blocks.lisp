@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.chain-store.persistence)
 
 (defun block-receipts-record-rlp (block)
   (let ((transactions (block-transactions block))
@@ -21,7 +21,8 @@
     (kv-batch-put-chain-record
      batch :receipt identifier (block-receipts-record-rlp block))))
 
-(defun chain-store-populate-block-record-export-batch (store batch)
+(defun chain-store-populate-block-record-export-batch (store database batch)
+  (declare (ignore database))
   (maphash
    (lambda (key block)
      (declare (ignore key))
@@ -29,10 +30,6 @@
    (engine-payload-memory-store-blocks store)))
 
 (defun chain-store-export-block-records-to-kv (store database)
-  (let ((store (chain-store-require-memory-store store)))
-    (unless (typep database 'key-value-database)
-      (block-validation-fail
-       "Chain block record export target must be a key-value database"))
-    (let ((batch (make-kv-write-batch)))
-      (chain-store-populate-block-record-export-batch store batch)
-      (kv-apply-batch database batch))))
+  (chain-store-apply-export-batch
+   store database "block record"
+   #'chain-store-populate-block-record-export-batch))

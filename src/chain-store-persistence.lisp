@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.chain-store.persistence)
 
 (defun chain-store-import-from-kv
     (store database &key expected-chain-id chain-config)

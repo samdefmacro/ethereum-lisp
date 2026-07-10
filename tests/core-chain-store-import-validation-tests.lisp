@@ -487,7 +487,7 @@
               database
               :txpool
               (hash32-bytes transaction-hash)
-              (ethereum-lisp.core::chain-store-txpool-transaction-record-rlp
+              (ethereum-lisp.chain-store.persistence::chain-store-txpool-transaction-record-rlp
                :pending
                transaction)))
            (signals block-validation-error

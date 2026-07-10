@@ -41,7 +41,7 @@
                   database :blob-sidecar versioned-hash-id)
                (is present-p)
                (is (bytes= record
-                           (ethereum-lisp.core::chain-store-blob-sidecar-record-rlp
+                           (ethereum-lisp.chain-store.persistence::chain-store-blob-sidecar-record-rlp
                             (ethereum-lisp.core::engine-payload-store-blob-and-proofs-v1
                              source versioned-hash))))))
            (let ((database (make-file-key-value-database path)))
@@ -250,7 +250,7 @@
        database
        :blob-sidecar
        (hash32-bytes target-versioned-hash)
-       (ethereum-lisp.core::chain-store-blob-sidecar-record-rlp
+       (ethereum-lisp.chain-store.persistence::chain-store-blob-sidecar-record-rlp
         (ethereum-lisp.core::engine-payload-store-blob-and-proofs-v1
          source-cache source-versioned-hash))))
     (signals block-validation-error

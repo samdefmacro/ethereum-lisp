@@ -1,5 +1,31 @@
 (in-package #:ethereum-lisp.test)
 
+(deftest chain-store-persistence-package-boundary
+  (let ((persistence
+          (find-package '#:ethereum-lisp.chain-store.persistence))
+        (database (find-package '#:ethereum-lisp.database))
+        (chain-store (find-package '#:ethereum-lisp.chain-store))
+        (txpool (find-package '#:ethereum-lisp.txpool))
+        (core (find-package '#:ethereum-lisp.core)))
+    (is (not (member core (package-use-list persistence))))
+    (is (member database (package-use-list persistence)))
+    (is (member chain-store (package-use-list persistence)))
+    (is (member txpool (package-use-list persistence)))
+    (dolist (name '("CHAIN-STORE-EXPORT-TO-KV"
+                    "CHAIN-STORE-IMPORT-FROM-KV"
+                    "CHAIN-STORE-EXPORT-TXPOOL-RECORDS-TO-KV"))
+      (multiple-value-bind (persistence-symbol persistence-status)
+          (find-symbol name persistence)
+        (multiple-value-bind (core-symbol core-status)
+            (find-symbol name core)
+          (is (eq :external persistence-status))
+          (is (eq :external core-status))
+          (is (eq persistence-symbol core-symbol)))))
+    (multiple-value-bind (symbol status)
+        (find-symbol "CHAIN-STORE-SET-CANONICAL-HEAD" persistence)
+      (is (null symbol))
+      (is (null status)))))
+
 (deftest chain-store-export-indexes-to-kv-syncs-canonical-and-checkpoints
   (let* ((path
            (merge-pathnames
@@ -991,4 +1017,3 @@
                       restored (block-hash branch-a-2) recipient slot))))
       (when (probe-file path)
         (delete-file path)))))
-

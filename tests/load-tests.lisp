@@ -18,6 +18,7 @@
 (load-ethereum-lisp-test-file "src/packages-txpool.lisp")
 (load-ethereum-lisp-test-file "src/packages-store.lisp")
 (load-ethereum-lisp-test-file "src/packages-services.lisp")
+(load-ethereum-lisp-test-file "src/packages-persistence.lisp")
 (load-ethereum-lisp-test-file "src/packages-core.lisp")
 (load-ethereum-lisp-test-file "src/packages-runtime.lisp")
 (load-ethereum-lisp-test-file "src/packages-facade.lisp")

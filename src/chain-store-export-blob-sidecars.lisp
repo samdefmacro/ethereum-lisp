@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.chain-store.persistence)
 
 (defun chain-store-blob-sidecar-record-rlp (blob-and-proofs)
   (rlp-encode
@@ -35,10 +35,6 @@
          (car entry))))))
 
 (defun chain-store-export-blob-sidecars-to-kv (store database)
-  (let ((store (chain-store-require-memory-store store)))
-    (unless (typep database 'key-value-database)
-      (block-validation-fail
-       "Chain blob-sidecar export target must be a key-value database"))
-    (let ((batch (make-kv-write-batch)))
-      (chain-store-populate-blob-sidecar-export-batch store database batch)
-      (kv-apply-batch database batch))))
+  (chain-store-apply-export-batch
+   store database "blob-sidecar"
+   #'chain-store-populate-blob-sidecar-export-batch))

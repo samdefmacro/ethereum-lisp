@@ -21,7 +21,8 @@
         #:ethereum-lisp.txpool.index
         #:ethereum-lisp.chain-store.model
         #:ethereum-lisp.chain-store
-        #:ethereum-lisp.txpool)
+        #:ethereum-lisp.txpool
+        #:ethereum-lisp.chain-store.persistence)
   (:import-from #:ethereum-lisp.database
    #:key-value-database
    #:make-kv-write-batch

@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.chain-store.persistence)
 
 (defun chain-store-clear-readable-tables (store)
   (setf (engine-payload-memory-store-blocks store)

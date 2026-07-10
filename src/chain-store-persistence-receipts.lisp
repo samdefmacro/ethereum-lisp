@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.chain-store.persistence)
 
 (defun log-entry-from-rlp-object (value)
   (let ((fields (rlp-list-field value "Receipt log entry")))

@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.chain-store.persistence)
 
 (defun transaction-location-record-rlp (location)
   (rlp-encode
@@ -38,11 +38,6 @@
          (car entry))))))
 
 (defun chain-store-export-transaction-locations-to-kv (store database)
-  (let ((store (chain-store-require-memory-store store)))
-    (unless (typep database 'key-value-database)
-      (block-validation-fail
-       "Chain transaction location export target must be a key-value database"))
-    (let ((batch (make-kv-write-batch)))
-      (chain-store-populate-transaction-location-export-batch
-       store database batch)
-      (kv-apply-batch database batch))))
+  (chain-store-apply-export-batch
+   store database "transaction location"
+   #'chain-store-populate-transaction-location-export-batch))

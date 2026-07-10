@@ -44,7 +44,7 @@
                     database :prepared-payload payload-id-bytes)
                  (is present-p)
                  (is (bytes= record
-                             (ethereum-lisp.core::chain-store-prepared-payload-record-rlp
+                             (ethereum-lisp.chain-store.persistence::chain-store-prepared-payload-record-rlp
                               prepared-payload)))))
              (let ((database (make-file-key-value-database path)))
                (is (eq restored
@@ -186,7 +186,7 @@
               database
               :prepared-payload
               payload-id-bytes
-              (ethereum-lisp.core::chain-store-prepared-payload-record-rlp
+              (ethereum-lisp.chain-store.persistence::chain-store-prepared-payload-record-rlp
                prepared-payload))
              (chain-store-export-to-kv store database))
            (let ((database (make-file-key-value-database path)))
@@ -279,7 +279,7 @@
                 database
                 :prepared-payload
                 (ensure-byte-vector payload-id)
-                (ethereum-lisp.core::chain-store-prepared-payload-record-rlp
+                (ethereum-lisp.chain-store.persistence::chain-store-prepared-payload-record-rlp
                  prepared-payload)))
              (let ((database (make-file-key-value-database path)))
                (is (eq target
@@ -396,7 +396,7 @@
               database
               :prepared-payload
               (ensure-byte-vector payload-id)
-              (ethereum-lisp.core::chain-store-prepared-payload-record-rlp
+              (ethereum-lisp.chain-store.persistence::chain-store-prepared-payload-record-rlp
                prepared-payload)))
            (let ((database (make-file-key-value-database path)))
              (is (eq target
@@ -442,7 +442,7 @@
               database
               :prepared-payload
               (ensure-byte-vector payload-id)
-              (ethereum-lisp.core::chain-store-prepared-payload-record-rlp
+              (ethereum-lisp.chain-store.persistence::chain-store-prepared-payload-record-rlp
                prepared-payload)))
            (let ((database (make-file-key-value-database path)))
              (is (eq target
@@ -653,7 +653,7 @@
               database
               :prepared-payload
               (ensure-byte-vector source-payload-id)
-              (ethereum-lisp.core::chain-store-prepared-payload-record-rlp
+              (ethereum-lisp.chain-store.persistence::chain-store-prepared-payload-record-rlp
                replacement-payload)))
            (signals block-validation-error
              (chain-store-import-from-kv
@@ -693,7 +693,7 @@
      database
      :prepared-payload
      (ensure-byte-vector mismatched-payload-id)
-     (ethereum-lisp.core::chain-store-prepared-payload-record-rlp
+     (ethereum-lisp.chain-store.persistence::chain-store-prepared-payload-record-rlp
       mismatched-payload))
     (signals block-validation-error
       (chain-store-import-from-kv target database))

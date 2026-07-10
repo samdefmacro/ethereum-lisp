@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.chain-store.persistence)
 
 (defun chain-store-export-remote-block-to-kv (batch block-key block)
   (kv-batch-put-chain-record
@@ -30,10 +30,6 @@
          (car entry))))))
 
 (defun chain-store-export-remote-blocks-to-kv (store database)
-  (let ((store (chain-store-require-memory-store store)))
-    (unless (typep database 'key-value-database)
-      (block-validation-fail
-       "Chain remote-block export target must be a key-value database"))
-    (let ((batch (make-kv-write-batch)))
-      (chain-store-populate-remote-block-export-batch store database batch)
-      (kv-apply-batch database batch))))
+  (chain-store-apply-export-batch
+   store database "remote-block"
+   #'chain-store-populate-remote-block-export-batch))

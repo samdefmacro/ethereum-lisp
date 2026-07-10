@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.chain-store.persistence)
 
 (defun chain-store-export-invalid-tipset-to-kv
     (batch tipset-key invalid-block)
@@ -38,11 +38,6 @@
          (car entry))))))
 
 (defun chain-store-export-invalid-tipsets-to-kv (store database)
-  (let ((store (chain-store-require-memory-store store)))
-    (unless (typep database 'key-value-database)
-      (block-validation-fail
-       "Chain invalid-tipset export target must be a key-value database"))
-    (let ((batch (make-kv-write-batch)))
-      (chain-store-populate-invalid-tipset-export-batch
-       store database batch)
-      (kv-apply-batch database batch))))
+  (chain-store-apply-export-batch
+   store database "invalid-tipset"
+   #'chain-store-populate-invalid-tipset-export-batch))
