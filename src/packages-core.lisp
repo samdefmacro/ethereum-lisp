@@ -28,7 +28,8 @@
         #:ethereum-lisp.engine
         #:ethereum-lisp.chain-store.persistence
         #:ethereum-lisp.engine-api
-        #:ethereum-lisp.public-api)
+        #:ethereum-lisp.public-api
+        #:ethereum-lisp.rpc)
   (:import-from #:ethereum-lisp.database
    #:key-value-database
    #:make-kv-write-batch

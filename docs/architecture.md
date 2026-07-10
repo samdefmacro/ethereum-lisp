@@ -103,7 +103,6 @@ The current source ownership map is:
   genesis-specific field and alloc parsing, chain-config conversion, file I/O,
   and fork-aware genesis block construction. It consumes JSON, chain config,
   receipt, execution-request, and block contracts without depending on core.
-- `core-constants.lisp`: protocol constants shared across core modules.
 - `ethereum-lisp.accounts` / `accounts.lisp`: state-account values, encoding,
   and hashing, independent from the core compatibility aggregate.
 - `transactions-legacy.lisp`: legacy transaction envelope, RLP, signing hash,
@@ -370,10 +369,9 @@ The current source ownership map is:
   formatting helpers.
 - `engine-rpc-http-policy.lisp`: CORS response headers and host allowlist
   checks.
-- `engine-rpc-http-wire.lisp`: compatibility package entry for HTTP wire
-  modules.
-- `engine-rpc-dispatch.lisp` and `engine-rpc-json.lisp`: JSON-RPC object,
-  batch, string, and encoded response handling.
+- `ethereum-lisp.rpc` / `rpc-router.lisp` and `rpc-json.lisp`: JSON-RPC
+  request context, Engine/Public method composition, batch handling, and JSON
+  codecs. The package has no HTTP transport dependency.
 - `engine-rpc-http-request.lisp` and `engine-rpc-http.lisp`: HTTP request
   validation, JSON-RPC body handling, stream response writing, and request
   telemetry.

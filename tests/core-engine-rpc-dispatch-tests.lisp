@@ -1,5 +1,55 @@
 (in-package #:ethereum-lisp.test)
 
+(deftest rpc-package-boundary
+  (let ((rpc (find-package '#:ethereum-lisp.rpc))
+        (json-rpc (find-package '#:ethereum-lisp.json-rpc))
+        (engine-api (find-package '#:ethereum-lisp.engine-api))
+        (public-api (find-package '#:ethereum-lisp.public-api))
+        (core (find-package '#:ethereum-lisp.core)))
+    (is (not (member core (package-use-list rpc))))
+    (is (member json-rpc (package-use-list rpc)))
+    (is (member engine-api (package-use-list rpc)))
+    (is (member public-api (package-use-list rpc)))
+    (dolist (name '("RPC-CONTEXT"
+                    "MAKE-RPC-CONTEXT"
+                    "RPC-HANDLE-REQUEST"
+                    "RPC-HANDLE-REQUEST-VALUE"
+                    "RPC-HANDLE-REQUEST-STRING"
+                    "RPC-HANDLE-REQUEST-JSON"))
+      (multiple-value-bind (symbol status)
+          (find-symbol name rpc)
+        (is symbol)
+        (is (eq :external status))))
+    (dolist (name '("ENGINE-RPC-HANDLE-REQUEST"
+                    "ENGINE-RPC-HANDLE-REQUEST-VALUE"
+                    "ENGINE-RPC-HANDLE-REQUEST-STRING"
+                    "ENGINE-RPC-HANDLE-REQUEST-JSON"))
+      (multiple-value-bind (rpc-symbol rpc-status)
+          (find-symbol name rpc)
+        (multiple-value-bind (core-symbol core-status)
+            (find-symbol name core)
+          (is (eq :external rpc-status))
+          (is (eq :external core-status))
+          (is (eq rpc-symbol core-symbol)))))
+    (multiple-value-bind (symbol status)
+        (find-symbol "ENGINE-RPC-HANDLE-HTTP-REQUEST-STRING" rpc)
+      (is (null symbol))
+      (is (null status)))))
+
+(deftest rpc-context-handles-json-request
+  (let* ((context
+           (ethereum-lisp.rpc:make-rpc-context
+            (make-engine-payload-memory-store)
+            (make-chain-config)))
+         (response
+           (parse-json
+            (ethereum-lisp.rpc:rpc-handle-request-json
+             "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_chainId\",\"params\":[]}"
+             context))))
+    (is (= 1 (cdr (assoc "id" response :test #'string=))))
+    (is (string= "0x1"
+                 (cdr (assoc "result" response :test #'string=))))))
+
 (deftest json-rpc-protocol-package-boundary
   (let ((protocol (find-package '#:ethereum-lisp.json-rpc))
         (json (find-package '#:ethereum-lisp.json))

@@ -76,3 +76,22 @@
         #:ethereum-lisp.engine-api)
   (:export
    #:engine-rpc-handle-public-method))
+
+(defpackage #:ethereum-lisp.rpc
+  (:use #:cl
+        #:ethereum-lisp.validation
+        #:ethereum-lisp.json
+        #:ethereum-lisp.json-rpc
+        #:ethereum-lisp.engine-api
+        #:ethereum-lisp.public-api)
+  (:export
+   #:rpc-context
+   #:make-rpc-context
+   #:rpc-handle-request
+   #:rpc-handle-request-value
+   #:rpc-handle-request-string
+   #:rpc-handle-request-json
+   #:engine-rpc-handle-request
+   #:engine-rpc-handle-request-value
+   #:engine-rpc-handle-request-string
+   #:engine-rpc-handle-request-json))
