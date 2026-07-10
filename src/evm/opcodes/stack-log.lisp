@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.evm)
+(in-package #:ethereum-lisp.evm.internal)
 
 (defun execute-stack-log-opcode (machine opcode)
   "Execute PUSH, DUP, SWAP, and LOG opcode families."
@@ -51,6 +51,5 @@
          (incf pc))
         (t
          (fail "Unsupported EVM opcode 0x~2,'0X at pc ~D" op pc))))))
-
 
 

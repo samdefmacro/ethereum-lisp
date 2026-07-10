@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.evm)
+(in-package #:ethereum-lisp.evm.internal)
 
 (defun bn254-modular-inverse (value)
   (labels ((egcd (a b)

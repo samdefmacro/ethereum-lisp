@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.evm)
+(in-package #:ethereum-lisp.evm.internal)
 
 (defun integer-to-fixed-bytes (value size)
   (let* ((minimal (integer-to-minimal-bytes value))

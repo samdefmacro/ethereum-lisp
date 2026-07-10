@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.evm)
+(in-package #:ethereum-lisp.evm.internal)
 
 (defun account-balance (state address)
   (let ((account (state-db-get-account state address)))

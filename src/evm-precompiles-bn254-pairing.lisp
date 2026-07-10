@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.evm)
+(in-package #:ethereum-lisp.evm.internal)
 
 (defun bn254-twist-point (x y z tt)
   (list x y z tt))

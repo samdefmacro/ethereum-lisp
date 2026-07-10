@@ -377,6 +377,10 @@ The current source ownership map is:
 - `state.lisp`: state package compatibility loader.
 - `evm-types.lisp`: EVM errors, result/context records, precompile address
   activation, gas constants, and fixed precompile tables.
+- `ethereum-lisp.evm` is a public facade that only re-exports the supported
+  context, result, precompile-address, and execution API.
+  `ethereum-lisp.evm.internal` owns runtime, precompile, and interpreter
+  implementation symbols; application layers must not use that package.
 - `evm-runtime-context.lisp`: child EVM context construction and inherited
   frame fields for CREATE and CALL-family opcodes.
 - `evm-runtime-base.lisp`: EVM word arithmetic, fork checks, errors, and stack

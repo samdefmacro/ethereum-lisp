@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.evm)
+(in-package #:ethereum-lisp.evm.internal)
 
 (defun execute-system-opcode (machine opcode)
   "Execute contract creation, calls, returns, reverts, and self-destruction."
@@ -411,6 +411,5 @@
                  halted-p t)))
         (t
          (fail "Unsupported EVM opcode 0x~2,'0X at pc ~D" op pc))))))
-
 
 

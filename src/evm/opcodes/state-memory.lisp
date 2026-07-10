@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.evm)
+(in-package #:ethereum-lisp.evm.internal)
 
 (defun execute-state-memory-opcode (machine opcode)
   "Execute stack, memory, storage, jump, and transient-storage opcodes."
@@ -188,6 +188,5 @@
          (incf pc))
         (t
          (fail "Unsupported EVM opcode 0x~2,'0X at pc ~D" op pc))))))
-
 
 

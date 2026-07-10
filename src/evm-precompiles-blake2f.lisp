@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.evm)
+(in-package #:ethereum-lisp.evm.internal)
 
 (defun blake2b-mix (v a b c d x y)
   (setf (aref v a) (u64 (+ (aref v a) (aref v b) x))

@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.evm)
+(in-package #:ethereum-lisp.evm.internal)
 
 (defun execute-arithmetic-opcode (machine opcode)
   "Execute arithmetic, comparison, bitwise, and KECCAK256 opcodes."
@@ -108,6 +108,5 @@
          (incf pc))
         (t
          (fail "Unsupported EVM opcode 0x~2,'0X at pc ~D" op pc))))))
-
 
 

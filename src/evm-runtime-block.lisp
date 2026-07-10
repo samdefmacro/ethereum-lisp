@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.evm)
+(in-package #:ethereum-lisp.evm.internal)
 
 (defun increment-account-nonce (state address)
   (let ((account (account-or-empty state address)))

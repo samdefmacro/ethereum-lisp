@@ -149,8 +149,8 @@
              (fixed32-integer 0)
              (fixed32-integer #x100000000)
              (fixed32-integer 1))))
-      (signals ethereum-lisp.evm::evm-error
-        (ethereum-lisp.evm::ensure-precompile-upfront-gas
+      (signals ethereum-lisp.evm.internal::evm-error
+        (ethereum-lisp.evm.internal::ensure-precompile-upfront-gas
          (ethereum-lisp.evm:precompile-address 5)
          input
          (make-chain-rules :byzantium-p t)
@@ -310,7 +310,7 @@
         (seen-false-p nil))
     (dolist (case cases)
       (multiple-value-bind (output gas)
-          (ethereum-lisp.evm::run-bn254-pairing-precompile
+          (ethereum-lisp.evm.internal::run-bn254-pairing-precompile
            (getf case :input))
         (is (= (getf case :gas) gas))
         (is (bytes= (getf case :expected) output))
@@ -330,10 +330,10 @@
            (pairing-code-sized (input)
              (let* ((input (ensure-byte-vector input))
                     (size (length input))
-                    (size-bytes (ethereum-lisp.evm::integer-to-fixed-bytes
+                    (size-bytes (ethereum-lisp.evm.internal::integer-to-fixed-bytes
                                  size 2))
                     (gas (+ 45000 (* 34000 (floor size 192))))
-                    (gas-bytes (ethereum-lisp.evm::integer-to-fixed-bytes
+                    (gas-bytes (ethereum-lisp.evm.internal::integer-to-fixed-bytes
                                 gas 3)))
                (concat-bytes
                 (vector 97 (aref size-bytes 0) (aref size-bytes 1)
@@ -346,11 +346,11 @@
                         241 96 32 95 243)
                 input)))
            (fixed32 (value)
-             (ethereum-lisp.evm::integer-to-fixed-bytes value 32))
+             (ethereum-lisp.evm.internal::integer-to-fixed-bytes value 32))
            (bn254-negate-field (bytes)
-             (mod (- ethereum-lisp.evm::+bn254-field-prime+
+             (mod (- ethereum-lisp.evm.internal::+bn254-field-prime+
                      (bytes-to-integer bytes))
-                  ethereum-lisp.evm::+bn254-field-prime+))
+                  ethereum-lisp.evm.internal::+bn254-field-prime+))
            (negate-g2 (point)
              (concat-bytes
               (subseq point 0 64)
@@ -507,22 +507,22 @@
                   (evm-result-return-data
                    g2-negation-unbalanced-duplicate-result)))
       (multiple-value-bind (output gas)
-          (ethereum-lisp.evm::run-bn254-pairing-precompile
+          (ethereum-lisp.evm.internal::run-bn254-pairing-precompile
            (concat-bytes g g2))
         (is (bytes= (make-byte-vector 32) output))
         (is (= (+ 45000 34000) gas)))
       (multiple-value-bind (output gas)
-          (ethereum-lisp.evm::run-bn254-pairing-precompile
+          (ethereum-lisp.evm.internal::run-bn254-pairing-precompile
            geth-jeff6-false)
         (is (bytes= (make-byte-vector 32) output))
         (is (= (+ 45000 (* 34000 2)) gas)))
       (let ((backend-pairs nil))
-        (let ((ethereum-lisp.evm::*bn254-pairing-checker*
+        (let ((ethereum-lisp.evm.internal::*bn254-pairing-checker*
                 (lambda (pairs)
                   (setf backend-pairs pairs)
                   t)))
           (multiple-value-bind (output gas)
-              (ethereum-lisp.evm::run-bn254-pairing-precompile
+              (ethereum-lisp.evm.internal::run-bn254-pairing-precompile
                (concat-bytes g (make-byte-vector 128) g g2))
             (is (= 1 (aref output 31)))
             (is (= (+ 45000 (* 34000 2)) gas))
@@ -563,7 +563,7 @@
                        (kzg-commitment-to-versioned-hash commitment)))
                     (input
                       (make-byte-vector
-                       ethereum-lisp.evm::+kzg-point-evaluation-input-size+)))
+                       ethereum-lisp.evm.internal::+kzg-point-evaluation-input-size+)))
                (replace input versioned-hash :start1 0)
                (when z
                  (replace input z :start1 32))
@@ -589,10 +589,10 @@
            (unverified-proof-error
              (handler-case
                  (progn
-                   (ethereum-lisp.evm::run-kzg-point-evaluation-precompile
+                   (ethereum-lisp.evm.internal::run-kzg-point-evaluation-precompile
                     unverified-proof-input)
                    nil)
-               (ethereum-lisp.evm::evm-precompile-error (condition)
+               (ethereum-lisp.evm.internal::evm-precompile-error (condition)
                  condition))))
       (is (= 0 (first (evm-result-stack short-result))))
       (is (bytes= (byte-prefix-padded short-input 32)
@@ -604,8 +604,8 @@
       (is (bytes= (byte-prefix-padded unverified-proof-input 32)
                   (evm-result-return-data unverified-proof-result)))
       (is unverified-proof-error)
-      (is (= ethereum-lisp.evm::+kzg-point-evaluation-gas+
-             (ethereum-lisp.evm::evm-precompile-error-gas-used
+      (is (= ethereum-lisp.evm.internal::+kzg-point-evaluation-gas+
+             (ethereum-lisp.evm.internal::evm-precompile-error-gas-used
               unverified-proof-error)))
       (is (search "KZG point proof verification is not available"
                   (princ-to-string unverified-proof-error)
@@ -616,10 +616,10 @@
                   (setf observed (list commitment z y proof))
                   t)))
           (multiple-value-bind (output gas)
-              (ethereum-lisp.evm::run-kzg-point-evaluation-precompile
+              (ethereum-lisp.evm.internal::run-kzg-point-evaluation-precompile
                unverified-proof-input)
-            (is (= ethereum-lisp.evm::+kzg-point-evaluation-gas+ gas))
-            (is (bytes= (ethereum-lisp.evm::kzg-point-evaluation-return-value)
+            (is (= ethereum-lisp.evm.internal::+kzg-point-evaluation-gas+ gas))
+            (is (bytes= (ethereum-lisp.evm.internal::kzg-point-evaluation-return-value)
                         output))))
         (is (bytes= (subseq unverified-proof-input 96 144)
                     (first observed)))
@@ -633,22 +633,22 @@
               (lambda (commitment z y proof)
                 (declare (ignore commitment z y proof))
                 nil)))
-        (signals ethereum-lisp.evm::evm-precompile-error
-          (ethereum-lisp.evm::run-kzg-point-evaluation-precompile
+        (signals ethereum-lisp.evm.internal::evm-precompile-error
+          (ethereum-lisp.evm.internal::run-kzg-point-evaluation-precompile
            unverified-proof-input)))
       (let* ((called nil)
              (invalid-z-input
                (matched-version-input
-                :z (ethereum-lisp.evm::integer-to-fixed-bytes
-                    ethereum-lisp.evm::+bls-field-modulus+
+                :z (ethereum-lisp.evm.internal::integer-to-fixed-bytes
+                    ethereum-lisp.evm.internal::+bls-field-modulus+
                     32))))
         (let ((*kzg-point-proof-verifier*
                 (lambda (commitment z y proof)
                   (declare (ignore commitment z y proof))
                   (setf called t)
                   t)))
-          (signals ethereum-lisp.evm::evm-precompile-error
-            (ethereum-lisp.evm::run-kzg-point-evaluation-precompile
+          (signals ethereum-lisp.evm.internal::evm-precompile-error
+            (ethereum-lisp.evm.internal::run-kzg-point-evaluation-precompile
              invalid-z-input)))
         (is (null called))))))
 
@@ -660,7 +660,7 @@
                          (kzg-commitment-to-versioned-hash commitment)))
                       (input
                         (make-byte-vector
-                         ethereum-lisp.evm::+kzg-point-evaluation-input-size+)))
+                         ethereum-lisp.evm.internal::+kzg-point-evaluation-input-size+)))
                  (replace input versioned-hash :start1 0)
                  (replace input z :start1 32)
                  (replace input y :start1 64)
@@ -692,14 +692,14 @@
              (progn
                (configure-kzg-proof-command-verifiers (namestring script))
                (multiple-value-bind (output gas)
-                   (ethereum-lisp.evm::run-kzg-point-evaluation-precompile
+                   (ethereum-lisp.evm.internal::run-kzg-point-evaluation-precompile
                     valid-input)
-                 (is (= ethereum-lisp.evm::+kzg-point-evaluation-gas+ gas))
+                 (is (= ethereum-lisp.evm.internal::+kzg-point-evaluation-gas+ gas))
                  (is (bytes=
-                      (ethereum-lisp.evm::kzg-point-evaluation-return-value)
+                      (ethereum-lisp.evm.internal::kzg-point-evaluation-return-value)
                       output)))
-               (signals ethereum-lisp.evm::evm-precompile-error
-                 (ethereum-lisp.evm::run-kzg-point-evaluation-precompile
+               (signals ethereum-lisp.evm.internal::evm-precompile-error
+                 (ethereum-lisp.evm.internal::run-kzg-point-evaluation-precompile
                   invalid-input)))
           (setf *kzg-point-proof-verifier* old-point-verifier
                 *kzg-blob-proof-verifier* old-blob-verifier))))))
@@ -768,24 +768,24 @@
     (let ((bad-flag-error
             (handler-case
                 (progn
-                  (ethereum-lisp.evm::run-blake2f-precompile bad-flag-input)
+                  (ethereum-lisp.evm.internal::run-blake2f-precompile bad-flag-input)
                   nil)
-              (ethereum-lisp.evm::evm-precompile-error (condition)
+              (ethereum-lisp.evm.internal::evm-precompile-error (condition)
                 condition)))
           (short-error
             (handler-case
                 (progn
-                  (ethereum-lisp.evm::run-blake2f-precompile short-input)
+                  (ethereum-lisp.evm.internal::run-blake2f-precompile short-input)
                   nil)
-              (ethereum-lisp.evm::evm-precompile-error (condition)
+              (ethereum-lisp.evm.internal::evm-precompile-error (condition)
                 condition))))
       (is bad-flag-error)
-      (is (= ethereum-lisp.evm::+precompile-consume-all-child-gas+
-             (ethereum-lisp.evm::evm-precompile-error-gas-used
+      (is (= ethereum-lisp.evm.internal::+precompile-consume-all-child-gas+
+             (ethereum-lisp.evm.internal::evm-precompile-error-gas-used
               bad-flag-error)))
       (is short-error)
-      (is (= ethereum-lisp.evm::+precompile-consume-all-child-gas+
-             (ethereum-lisp.evm::evm-precompile-error-gas-used short-error))))
+      (is (= ethereum-lisp.evm.internal::+precompile-consume-all-child-gas+
+             (ethereum-lisp.evm.internal::evm-precompile-error-gas-used short-error))))
     (is (= 0 (first (evm-result-stack bad-flag-result))))
     (is (= 188 (evm-result-gas-used bad-flag-result)))
     (is (bytes= (byte-prefix-padded bad-flag-input 64)
@@ -795,4 +795,3 @@
            (evm-result-gas-used bad-flag-result)))
     (is (bytes= (byte-prefix-padded (subseq short-input 1) 64)
                 (evm-result-return-data short-result)))))
-

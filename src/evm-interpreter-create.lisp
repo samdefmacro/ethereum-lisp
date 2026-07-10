@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.evm)
+(in-package #:ethereum-lisp.evm.internal)
 
 (defun execute-create-initcode (initcode child-context child-gas-limit)
   (if child-gas-limit

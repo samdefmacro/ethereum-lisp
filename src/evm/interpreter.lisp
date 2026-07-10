@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.evm)
+(in-package #:ethereum-lisp.evm.internal)
 
 (defun execute-opcode (machine opcode)
   "Dispatch OPCODE to its semantic family."

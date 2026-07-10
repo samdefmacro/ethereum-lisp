@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.evm)
+(in-package #:ethereum-lisp.evm.internal)
 
 (defun transient-storage-key (address slot)
   (concat-bytes (address-bytes address)

@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.evm)
+(in-package #:ethereum-lisp.evm.internal)
 
 (defun copy-selfdestructed-addresses (context)
   (let ((copy (make-hash-table :test 'equalp)))

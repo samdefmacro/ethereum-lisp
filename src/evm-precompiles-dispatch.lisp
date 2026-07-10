@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.evm)
+(in-package #:ethereum-lisp.evm.internal)
 
 (defun ensure-precompile-upfront-gas (address input rules child-gas-limit)
   (case (address-to-word address)

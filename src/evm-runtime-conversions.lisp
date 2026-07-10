@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.evm)
+(in-package #:ethereum-lisp.evm.internal)
 
 (defun word-to-hash32 (value)
   (let ((out (make-byte-vector 32)))

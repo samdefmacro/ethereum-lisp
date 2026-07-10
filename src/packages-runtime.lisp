@@ -91,7 +91,7 @@
    #:execution-result-receipts-root
    #:execute-legacy-transactions))
 
-(defpackage #:ethereum-lisp.evm
+(defpackage #:ethereum-lisp.evm.internal
   (:use #:cl
         #:ethereum-lisp.bytes
         #:ethereum-lisp.rlp
@@ -99,6 +99,95 @@
         #:ethereum-lisp.crypto
         #:ethereum-lisp.core
         #:ethereum-lisp.state)
+  (:export
+   #:evm-error
+   #:precompile-address
+   #:prewarm-precompile-addresses
+   #:evm-context
+   #:make-evm-context
+   #:evm-context-state
+   #:evm-context-address
+   #:evm-context-caller
+   #:evm-context-origin
+   #:evm-context-call-value
+   #:evm-context-gas-price
+   #:evm-context-input
+   #:evm-context-return-data
+   #:evm-context-coinbase
+   #:evm-context-timestamp
+   #:evm-context-block-number
+   #:evm-context-prev-randao
+   #:evm-context-gas-limit
+   #:evm-context-chain-id
+   #:evm-context-chain-rules
+   #:evm-context-base-fee
+   #:evm-context-blob-hashes
+   #:evm-context-blob-base-fee
+   #:evm-context-transient-storage
+   #:evm-context-storage-originals
+   #:evm-context-storage-clears
+   #:evm-context-selfdestructed-addresses
+   #:evm-context-accessed-storage
+   #:evm-context-accessed-addresses
+   #:evm-context-block-hashes
+   #:evm-context-read-only-p
+   #:evm-result
+   #:evm-result-status
+   #:evm-result-stack
+   #:evm-result-memory
+   #:evm-result-return-data
+   #:evm-result-logs
+   #:evm-result-pc
+   #:evm-result-gas-used
+   #:evm-result-refund-counter
+   #:finalize-evm-selfdestructs
+   #:execute-bytecode))
+
+(defpackage #:ethereum-lisp.evm
+  (:use #:cl)
+  (:import-from #:ethereum-lisp.evm.internal
+   #:evm-error
+   #:precompile-address
+   #:prewarm-precompile-addresses
+   #:evm-context
+   #:make-evm-context
+   #:evm-context-state
+   #:evm-context-address
+   #:evm-context-caller
+   #:evm-context-origin
+   #:evm-context-call-value
+   #:evm-context-gas-price
+   #:evm-context-input
+   #:evm-context-return-data
+   #:evm-context-coinbase
+   #:evm-context-timestamp
+   #:evm-context-block-number
+   #:evm-context-prev-randao
+   #:evm-context-gas-limit
+   #:evm-context-chain-id
+   #:evm-context-chain-rules
+   #:evm-context-base-fee
+   #:evm-context-blob-hashes
+   #:evm-context-blob-base-fee
+   #:evm-context-transient-storage
+   #:evm-context-storage-originals
+   #:evm-context-storage-clears
+   #:evm-context-selfdestructed-addresses
+   #:evm-context-accessed-storage
+   #:evm-context-accessed-addresses
+   #:evm-context-block-hashes
+   #:evm-context-read-only-p
+   #:evm-result
+   #:evm-result-status
+   #:evm-result-stack
+   #:evm-result-memory
+   #:evm-result-return-data
+   #:evm-result-logs
+   #:evm-result-pc
+   #:evm-result-gas-used
+   #:evm-result-refund-counter
+   #:finalize-evm-selfdestructs
+   #:execute-bytecode)
   (:export
    #:evm-error
    #:precompile-address

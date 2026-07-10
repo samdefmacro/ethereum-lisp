@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.evm)
+(in-package #:ethereum-lisp.evm.internal)
 
 (defun execute-bytecode (code &key context gas-limit (max-steps 100000))
   "Execute CODE in a fresh EVM call frame and return its EVM-RESULT."

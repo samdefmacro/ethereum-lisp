@@ -13,6 +13,26 @@
     (is (= 5 (first (evm-result-stack result))))
     (is (= 9 (evm-result-gas-used result)))))
 
+(deftest evm-public-package-is-a-thin-facade
+  (let ((public (find-package '#:ethereum-lisp.evm))
+        (internal (find-package '#:ethereum-lisp.evm.internal)))
+    (dolist (name '("EVM-CONTEXT" "EVM-RESULT" "EXECUTE-BYTECODE"))
+      (multiple-value-bind (public-symbol public-status)
+          (find-symbol name public)
+        (multiple-value-bind (internal-symbol internal-status)
+            (find-symbol name internal)
+          (is (eq :external public-status))
+          (is (eq :external internal-status))
+          (is (eq public-symbol internal-symbol)))))
+    (multiple-value-bind (symbol status)
+        (find-symbol "RUN-PRECOMPILE" public)
+      (is (null symbol))
+      (is (null status)))
+    (is (not (member (find-package '#:ethereum-lisp.core)
+                     (package-use-list public))))
+    (is (not (member (find-package '#:ethereum-lisp.state)
+                     (package-use-list public))))))
+
 (deftest evm-context-carries-chain-rules
   (let* ((rules (make-chain-rules :chain-id 1 :london-p t :prague-p t))
          (context (make-evm-context :chain-id 1 :chain-rules rules)))
@@ -211,34 +231,33 @@
          (cancun-context (make-evm-context :chain-rules cancun-rules))
          (frontier-accesses (evm-context-accessed-addresses frontier-context))
          (cancun-accesses (evm-context-accessed-addresses cancun-context)))
-    (is (ethereum-lisp.evm::active-precompile-address-number-p 4
+    (is (ethereum-lisp.evm.internal::active-precompile-address-number-p 4
                                                               frontier-rules))
-    (is (not (ethereum-lisp.evm::active-precompile-address-number-p
+    (is (not (ethereum-lisp.evm.internal::active-precompile-address-number-p
               5 frontier-rules)))
-    (is (ethereum-lisp.evm::active-precompile-address-number-p 5
+    (is (ethereum-lisp.evm.internal::active-precompile-address-number-p 5
                                                               byzantium-rules))
-    (is (not (ethereum-lisp.evm::active-precompile-address-number-p
+    (is (not (ethereum-lisp.evm.internal::active-precompile-address-number-p
               9 byzantium-rules)))
-    (is (ethereum-lisp.evm::active-precompile-address-number-p 9
+    (is (ethereum-lisp.evm.internal::active-precompile-address-number-p 9
                                                               istanbul-rules))
-    (is (ethereum-lisp.evm::active-precompile-address-number-p 10
+    (is (ethereum-lisp.evm.internal::active-precompile-address-number-p 10
                                                               cancun-rules))
-    (is (gethash (address-bytes (ethereum-lisp.evm::precompile-address 4))
+    (is (gethash (address-bytes (ethereum-lisp.evm.internal::precompile-address 4))
                  frontier-accesses))
-    (is (not (gethash (address-bytes (ethereum-lisp.evm::precompile-address 5))
+    (is (not (gethash (address-bytes (ethereum-lisp.evm.internal::precompile-address 5))
                       frontier-accesses)))
-    (is (gethash (address-bytes (ethereum-lisp.evm::precompile-address 10))
+    (is (gethash (address-bytes (ethereum-lisp.evm.internal::precompile-address 10))
                  cancun-accesses))
     (multiple-value-bind (output gas active-p)
-        (ethereum-lisp.evm::run-precompile
-         (ethereum-lisp.evm::precompile-address 5) #() frontier-rules)
+        (ethereum-lisp.evm.internal::run-precompile
+         (ethereum-lisp.evm.internal::precompile-address 5) #() frontier-rules)
       (is (null output))
       (is (= 0 gas))
       (is (not active-p)))
     (multiple-value-bind (output gas active-p)
-        (ethereum-lisp.evm::run-precompile
-         (ethereum-lisp.evm::precompile-address 5) #() byzantium-rules)
+        (ethereum-lisp.evm.internal::run-precompile
+         (ethereum-lisp.evm.internal::precompile-address 5) #() byzantium-rules)
       (is (byte-vector-p output))
       (is (plusp gas))
       (is active-p))))
-

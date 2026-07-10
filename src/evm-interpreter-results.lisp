@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.evm)
+(in-package #:ethereum-lisp.evm.internal)
 
 (defun apply-child-execution-result (state context snapshot child-result)
   (let ((child-gas-used (evm-result-gas-used child-result))

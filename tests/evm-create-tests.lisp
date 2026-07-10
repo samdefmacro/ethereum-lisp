@@ -34,34 +34,34 @@
                                      :london-p t
                                      :shanghai-p t
                                      :amsterdam-p t))
-        (oversized (1+ ethereum-lisp.evm::+max-initcode-size+)))
+        (oversized (1+ ethereum-lisp.evm.internal::+max-initcode-size+)))
     (is (= 0
-           (ethereum-lisp.evm::create-initcode-extra-gas
+           (ethereum-lisp.evm.internal::create-initcode-extra-gas
             oversized
             :rules pre-shanghai)))
-    (is (= (* ethereum-lisp.evm::+keccak256-word-gas+
+    (is (= (* ethereum-lisp.evm.internal::+keccak256-word-gas+
               (ceiling oversized 32))
-           (ethereum-lisp.evm::create-initcode-extra-gas
+           (ethereum-lisp.evm.internal::create-initcode-extra-gas
             oversized
             :create2-p t
             :rules pre-shanghai)))
     (signals evm-error
-      (ethereum-lisp.evm::create-initcode-extra-gas
+      (ethereum-lisp.evm.internal::create-initcode-extra-gas
        oversized
        :rules shanghai))
     (signals evm-error
-      (ethereum-lisp.evm::create-initcode-extra-gas
+      (ethereum-lisp.evm.internal::create-initcode-extra-gas
        oversized
        :create2-p t
        :rules shanghai))
-    (is (= (* ethereum-lisp.evm::+initcode-word-gas+
+    (is (= (* ethereum-lisp.evm.internal::+initcode-word-gas+
               (ceiling oversized 32))
-           (ethereum-lisp.evm::create-initcode-extra-gas
+           (ethereum-lisp.evm.internal::create-initcode-extra-gas
             oversized
             :rules amsterdam)))
     (signals evm-error
-      (ethereum-lisp.evm::create-initcode-extra-gas
-       (1+ ethereum-lisp.evm::+amsterdam-max-initcode-size+)
+      (ethereum-lisp.evm.internal::create-initcode-extra-gas
+       (1+ ethereum-lisp.evm.internal::+amsterdam-max-initcode-size+)
        :rules amsterdam))))
 
 (deftest evm-created-runtime-code-size-follows-amsterdam-rules
@@ -72,15 +72,15 @@
                                      :london-p t
                                      :shanghai-p t
                                      :amsterdam-p t)))
-    (is (ethereum-lisp.evm::invalid-created-runtime-code-p
-         (make-byte-vector (1+ ethereum-lisp.evm::+max-contract-code-size+))
+    (is (ethereum-lisp.evm.internal::invalid-created-runtime-code-p
+         (make-byte-vector (1+ ethereum-lisp.evm.internal::+max-contract-code-size+))
          pre-amsterdam))
-    (is (not (ethereum-lisp.evm::invalid-created-runtime-code-p
-              (make-byte-vector (1+ ethereum-lisp.evm::+max-contract-code-size+))
+    (is (not (ethereum-lisp.evm.internal::invalid-created-runtime-code-p
+              (make-byte-vector (1+ ethereum-lisp.evm.internal::+max-contract-code-size+))
               amsterdam)))
-    (is (ethereum-lisp.evm::invalid-created-runtime-code-p
+    (is (ethereum-lisp.evm.internal::invalid-created-runtime-code-p
          (make-byte-vector
-          (1+ ethereum-lisp.evm::+amsterdam-max-contract-code-size+))
+          (1+ ethereum-lisp.evm.internal::+amsterdam-max-contract-code-size+))
          amsterdam))))
 
 (deftest evm-create-prewarms-created-address-for-initcode
@@ -461,7 +461,6 @@
         (is (= 32253 (evm-result-gas-used result)))
         (is (= 1 (state-account-nonce (state-db-get-account state creator))))
         (is (bytes= #(0) (state-db-get-code state expected-address)))))))
-
 (deftest evm-create2-retains-initcode-logs
   (let* ((state (make-state-db))
          (creator (address-from-hex "0x00000000000000000000000000000000000000aa"))

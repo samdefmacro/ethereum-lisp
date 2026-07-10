@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.evm)
+(in-package #:ethereum-lisp.evm.internal)
 
 (defun bn254-g2-curve-constant ()
   (let ((inverse-82 (bn254-modular-inverse 82)))

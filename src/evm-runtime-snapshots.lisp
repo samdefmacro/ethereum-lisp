@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.evm)
+(in-package #:ethereum-lisp.evm.internal)
 
 (defstruct (evm-frame-snapshot
             (:constructor make-evm-frame-snapshot

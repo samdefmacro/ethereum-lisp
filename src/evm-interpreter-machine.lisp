@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.evm)
+(in-package #:ethereum-lisp.evm.internal)
 
 (defstruct (evm-machine (:constructor %make-evm-machine))
   "Mutable state for one EVM call frame.
