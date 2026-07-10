@@ -51,11 +51,14 @@
 
 (defpackage #:ethereum-lisp.chain-store.state
   (:use #:cl
+        #:ethereum-lisp.validation
         #:ethereum-lisp.chain-store.model)
   (:export
    #:memory-chain-store
    #:memory-chain-store-p
    #:make-memory-chain-store
+   #:chain-store-component
+   #:chain-store-require-memory-store
    #:memory-chain-store-blocks
    #:memory-chain-store-number-blocks
    #:memory-chain-store-canonical-hashes
@@ -85,26 +88,7 @@
    #:engine-payload-memory-store-p
    #:make-engine-payload-memory-store
    #:engine-payload-memory-store-chain-store
-   #:engine-payload-memory-store-blocks
-   #:engine-payload-memory-store-number-blocks
-   #:engine-payload-memory-store-canonical-hashes
-   #:engine-payload-memory-store-transaction-locations
-   #:engine-payload-memory-store-account-balances
-   #:engine-payload-memory-store-account-nonces
-   #:engine-payload-memory-store-account-codes
-   #:engine-payload-memory-store-account-storage
-   #:engine-payload-memory-store-head-number
-   #:engine-payload-memory-store-state-blocks
-   #:engine-payload-memory-store-remote-blocks
-   #:engine-payload-memory-store-invalid-tipsets
-   #:engine-payload-memory-store-prepared-payloads
-   #:engine-payload-memory-store-blob-sidecars
-   #:engine-payload-memory-store-txpool
-   #:engine-payload-memory-store-log-filters
-   #:engine-payload-memory-store-next-log-filter-id
-   #:engine-payload-memory-store-head-checkpoint
-   #:engine-payload-memory-store-safe-checkpoint
-   #:engine-payload-memory-store-finalized-checkpoint))
+   #:engine-payload-memory-store-txpool))
 
 (defpackage #:ethereum-lisp.chain-store
   (:use #:cl
@@ -123,10 +107,8 @@
         #:ethereum-lisp.engine-payloads
         #:ethereum-lisp.txpool.index
         #:ethereum-lisp.chain-store.model
-        #:ethereum-lisp.chain-store.state
-        #:ethereum-lisp.node-state)
+        #:ethereum-lisp.chain-store.state)
   (:export
-   #:chain-store-require-memory-store
    #:engine-payload-store-copy-table
    #:engine-payload-store-copy-checkpoint
    #:engine-payload-store-copy-filter
@@ -145,9 +127,7 @@
    #:engine-payload-store-copy-transaction
    #:engine-payload-store-copy-transaction-location
    #:engine-payload-store-copy-transaction-location-table
-   #:engine-payload-store-snapshot
-   #:engine-payload-store-restore
-   #:chain-store-atomic-commit
+   #:copy-memory-chain-store
    #:engine-payload-store-notify-block-filters
    #:engine-log-filter-record-change
    #:engine-payload-store-notify-log-filters

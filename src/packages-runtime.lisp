@@ -253,6 +253,7 @@
         #:ethereum-lisp.accounts
         #:ethereum-lisp.blocks
         #:ethereum-lisp.chain-store
+        #:ethereum-lisp.node-store
         #:ethereum-lisp.state
         #:ethereum-lisp.execution)
   (:export

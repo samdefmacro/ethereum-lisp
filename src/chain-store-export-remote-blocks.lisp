@@ -15,13 +15,14 @@
 
 (defun chain-store-populate-remote-block-export-batch
     (store database batch)
+  (setf store (chain-store-require-memory-store store))
   (let ((current-block-keys (make-hash-table :test 'equal)))
     (maphash
      (lambda (block-key block)
        (when (chain-store-remote-block-exportable-p store block-key block)
          (setf (gethash block-key current-block-keys) t)
          (chain-store-export-remote-block-to-kv batch block-key block)))
-     (engine-payload-memory-store-remote-blocks store))
+     (memory-chain-store-remote-blocks store))
     (dolist (entry (kv-chain-record-entries database :remote-block))
       (unless (gethash (bytes-to-hex (car entry)) current-block-keys)
         (kv-batch-delete-chain-record

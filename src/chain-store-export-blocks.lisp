@@ -23,11 +23,12 @@
 
 (defun chain-store-populate-block-record-export-batch (store database batch)
   (declare (ignore database))
+  (setf store (chain-store-require-memory-store store))
   (maphash
    (lambda (key block)
      (declare (ignore key))
      (chain-store-export-block-record-to-kv batch block))
-   (engine-payload-memory-store-blocks store)))
+   (memory-chain-store-blocks store)))
 
 (defun chain-store-export-block-records-to-kv (store database)
   (chain-store-apply-export-batch

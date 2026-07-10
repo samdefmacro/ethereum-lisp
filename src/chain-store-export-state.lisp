@@ -38,15 +38,16 @@
 
 (defun chain-store-populate-state-record-export-batch
     (store database batch)
+  (setf store (chain-store-require-memory-store store))
   (dolist (entry (kv-chain-record-entries database :state))
     (unless (gethash (bytes-to-hex (car entry))
-                     (engine-payload-memory-store-state-blocks store))
+                     (memory-chain-store-state-blocks store))
       (kv-batch-delete-chain-record batch :state (car entry))))
   (maphash
    (lambda (block-key state-available-p)
      (when state-available-p
        (chain-store-export-state-record-to-kv store batch block-key)))
-   (engine-payload-memory-store-state-blocks store)))
+   (memory-chain-store-state-blocks store)))
 
 (defun chain-store-export-state-records-to-kv (store database)
   (chain-store-apply-export-batch

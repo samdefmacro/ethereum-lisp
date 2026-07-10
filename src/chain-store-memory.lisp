@@ -4,7 +4,7 @@
 
 (defun chain-store-put-block (store block &key (state-available-p nil))
   (engine-payload-store-put-block
-   (chain-store-require-memory-store store)
+   store
    block
    :state-available-p state-available-p))
 
@@ -51,18 +51,19 @@
 (defun chain-store-update-forkchoice-checkpoints (store state)
   (engine-payload-store-update-forkchoice-checkpoints
    (chain-store-require-memory-store store)
-   state))
+   state)
+  store)
 
 (defun chain-store-head-checkpoint (store)
-  (engine-payload-memory-store-head-checkpoint
+  (memory-chain-store-head-checkpoint
    (chain-store-require-memory-store store)))
 
 (defun chain-store-safe-checkpoint (store)
-  (engine-payload-memory-store-safe-checkpoint
+  (memory-chain-store-safe-checkpoint
    (chain-store-require-memory-store store)))
 
 (defun chain-store-finalized-checkpoint (store)
-  (engine-payload-memory-store-finalized-checkpoint
+  (memory-chain-store-finalized-checkpoint
    (chain-store-require-memory-store store)))
 
 (defun chain-store-checkpoint-block (store checkpoint)

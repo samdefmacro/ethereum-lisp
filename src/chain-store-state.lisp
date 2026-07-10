@@ -43,3 +43,17 @@
   head-checkpoint
   safe-checkpoint
   finalized-checkpoint)
+
+(defgeneric chain-store-component (store)
+  (:documentation
+   "Return STORE's mutable chain component, or NIL when none exists."))
+
+(defmethod chain-store-component ((store t))
+  nil)
+
+(defmethod chain-store-component ((store memory-chain-store))
+  store)
+
+(defun chain-store-require-memory-store (store)
+  (or (chain-store-component store)
+      (block-validation-fail "Chain store component is not available")))

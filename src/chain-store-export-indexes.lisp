@@ -2,14 +2,13 @@
 
 (defun chain-store-apply-export-batch
     (store database record-label populate-batch)
-  (let ((store (chain-store-require-memory-store store)))
-    (unless (typep database 'key-value-database)
-      (block-validation-fail
-       "Chain ~A export target must be a key-value database"
-       record-label))
-    (let ((batch (make-kv-write-batch)))
-      (funcall populate-batch store database batch)
-      (kv-apply-batch database batch))))
+  (unless (typep database 'key-value-database)
+    (block-validation-fail
+     "Chain ~A export target must be a key-value database"
+     record-label))
+  (let ((batch (make-kv-write-batch)))
+    (funcall populate-batch store database batch)
+    (kv-apply-batch database batch)))
 
 (defun chain-store-export-checkpoint-to-kv (batch checkpoint)
   (let ((label (and checkpoint
@@ -20,10 +19,11 @@
       (kv-batch-put-chain-checkpoint batch label (hash32-bytes hash)))))
 
 (defun chain-store-checkpoint-labels-with-hashes (store)
+  (setf store (chain-store-require-memory-store store))
   (loop for checkpoint in
-          (list (engine-payload-memory-store-head-checkpoint store)
-                (engine-payload-memory-store-safe-checkpoint store)
-                (engine-payload-memory-store-finalized-checkpoint store))
+          (list (memory-chain-store-head-checkpoint store)
+                (memory-chain-store-safe-checkpoint store)
+                (memory-chain-store-finalized-checkpoint store))
         for label = (and checkpoint
                          (chain-store-checkpoint-label checkpoint))
         for hash = (and checkpoint
@@ -32,9 +32,10 @@
           collect label))
 
 (defun chain-store-populate-index-export-batch (store database batch)
+  (setf store (chain-store-require-memory-store store))
   (dolist (entry (kv-chain-canonical-hashes database))
     (unless (gethash (car entry)
-                     (engine-payload-memory-store-canonical-hashes store))
+                     (memory-chain-store-canonical-hashes store))
       (kv-batch-delete-chain-canonical-hash batch (car entry))))
   (let ((checkpoint-labels
           (chain-store-checkpoint-labels-with-hashes store)))
@@ -47,16 +48,16 @@
       batch
       number
       (hash32-bytes (hash32-from-hex key))))
-   (engine-payload-memory-store-canonical-hashes store))
+   (memory-chain-store-canonical-hashes store))
   (chain-store-export-checkpoint-to-kv
    batch
-   (engine-payload-memory-store-head-checkpoint store))
+   (memory-chain-store-head-checkpoint store))
   (chain-store-export-checkpoint-to-kv
    batch
-   (engine-payload-memory-store-safe-checkpoint store))
+   (memory-chain-store-safe-checkpoint store))
   (chain-store-export-checkpoint-to-kv
    batch
-   (engine-payload-memory-store-finalized-checkpoint store)))
+   (memory-chain-store-finalized-checkpoint store)))
 
 (defun chain-store-export-indexes-to-kv (store database)
   (chain-store-apply-export-batch

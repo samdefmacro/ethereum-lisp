@@ -9122,6 +9122,9 @@ splits can land after the Phase A smoke path closes.
 
 ## Recently Completed
 
+- [x] Replace node-state field forwarding with chain-store and txpool
+  component protocols; move atomic snapshot/rollback ownership to the
+  cross-domain `node-store` lifecycle service.
 - [x] Split the flat node-state record into a `memory-chain-store` component
   and a txpool index component while retaining a single lifecycle composition
   root.

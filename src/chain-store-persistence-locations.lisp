@@ -21,6 +21,7 @@
 
 (defun chain-store-import-transaction-location-from-kv
     (store transaction-identifier location-record)
+  (setf store (chain-store-require-memory-store store))
   (let ((transaction-hash (make-hash32 transaction-identifier)))
     (multiple-value-bind (block-hash index log-index-start)
         (transaction-location-record-values location-record)
@@ -49,7 +50,7 @@
             (block-validation-fail
              "KV transaction location log index is inconsistent"))
           (setf (gethash (hash32-to-hex transaction-hash)
-                         (engine-payload-memory-store-transaction-locations
+                         (memory-chain-store-transaction-locations
                           store))
                 (make-engine-transaction-location
                  :block block

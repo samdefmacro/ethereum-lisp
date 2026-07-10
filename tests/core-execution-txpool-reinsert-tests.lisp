@@ -56,16 +56,18 @@
                'engine-transaction-location))
     (is (typep (gethash
                 transaction-key
-                (ethereum-lisp.node-state:engine-payload-memory-store-transaction-locations
-                 store))
+                (ethereum-lisp.chain-store.state:memory-chain-store-transaction-locations
+                 (ethereum-lisp.chain-store.state:chain-store-component
+                  store)))
                'engine-transaction-location))
     (chain-store-set-canonical-head store (block-hash new-canonical-child))
     (is (null (chain-store-transaction-location store transaction-hash)))
     (is (null
          (gethash
           transaction-key
-          (ethereum-lisp.node-state:engine-payload-memory-store-transaction-locations
-           store))))))
+          (ethereum-lisp.chain-store.state:memory-chain-store-transaction-locations
+           (ethereum-lisp.chain-store.state:chain-store-component
+            store)))))))
 
 (deftest chain-store-reorg-preserves-shared-transaction-location
   (let* ((store (make-engine-payload-memory-store))

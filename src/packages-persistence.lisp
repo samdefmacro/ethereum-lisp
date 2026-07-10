@@ -18,6 +18,7 @@
         #:ethereum-lisp.engine-payloads
         #:ethereum-lisp.txpool.index
         #:ethereum-lisp.chain-store.model
+        #:ethereum-lisp.chain-store.state
         #:ethereum-lisp.node-state
         #:ethereum-lisp.chain-store
         #:ethereum-lisp.txpool)

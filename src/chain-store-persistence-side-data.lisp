@@ -2,6 +2,7 @@
 
 (defun chain-store-import-invalid-tipset-from-kv
     (store tipset-identifier record)
+  (setf store (chain-store-require-memory-store store))
   (handler-case
       (let ((tipset-hash (make-hash32 tipset-identifier))
             (invalid-block (block-from-rlp record)))
@@ -13,7 +14,7 @@
            "KV invalid-tipset record duplicates a known block"))
         (setf (gethash
                (engine-payload-store-key tipset-hash)
-               (engine-payload-memory-store-invalid-tipsets store))
+               (memory-chain-store-invalid-tipsets store))
               invalid-block))
     (rlp-error (condition)
       (block-validation-fail
@@ -26,6 +27,7 @@
 
 (defun chain-store-import-remote-block-from-kv
     (store block-identifier record)
+  (setf store (chain-store-require-memory-store store))
   (handler-case
       (let* ((block-hash (make-hash32 block-identifier))
              (block (block-from-rlp record)))
@@ -36,7 +38,7 @@
                     (engine-payload-store-invalid-block store block-hash))
           (setf (gethash
                  (engine-payload-store-key block-hash)
-                 (engine-payload-memory-store-remote-blocks store))
+                 (memory-chain-store-remote-blocks store))
                 block)))
     (rlp-error (condition)
       (block-validation-fail

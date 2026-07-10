@@ -2,28 +2,30 @@
 
 (defun engine-payload-store-remote-block
     (store hash)
+  (setf store (chain-store-require-memory-store store))
   (engine-payload-store-copy-block
    (gethash (engine-payload-store-key hash)
-            (engine-payload-memory-store-remote-blocks store))))
+            (memory-chain-store-remote-blocks store))))
 
 (defun engine-payload-store-put-remote-block
     (store block)
-  (unless (typep store 'engine-payload-memory-store)
-    (block-validation-fail "Engine payload store must be a memory store"))
+  (setf store (chain-store-require-memory-store store))
   (unless (typep block 'ethereum-block)
     (block-validation-fail "Engine remote block cache value must be a block"))
   (setf (gethash (engine-payload-store-key (block-hash block))
-                 (engine-payload-memory-store-remote-blocks store))
+                 (memory-chain-store-remote-blocks store))
         (engine-payload-store-copy-block block))
   block)
 
 (defun engine-payload-store-remove-remote-block
     (store hash)
+  (setf store (chain-store-require-memory-store store))
   (remhash (engine-payload-store-key hash)
-           (engine-payload-memory-store-remote-blocks store)))
+           (memory-chain-store-remote-blocks store)))
 
 (defun engine-payload-store-prune-prepared-payloads-for-block
     (store block-key)
+  (setf store (chain-store-require-memory-store store))
   (let ((stale-payload-id-keys nil))
     (maphash
      (lambda (payload-id-key prepared-payload)
@@ -32,15 +34,14 @@
                        (block-hash
                         (engine-prepared-payload-block prepared-payload))))
          (push payload-id-key stale-payload-id-keys)))
-     (engine-payload-memory-store-prepared-payloads store))
+     (memory-chain-store-prepared-payloads store))
     (dolist (payload-id-key stale-payload-id-keys)
       (remhash payload-id-key
-               (engine-payload-memory-store-prepared-payloads store)))))
+               (memory-chain-store-prepared-payloads store)))))
 
 (defun engine-payload-store-mark-invalid
     (store invalid-block &key head-hash)
-  (unless (typep store 'engine-payload-memory-store)
-    (block-validation-fail "Engine payload store must be a memory store"))
+  (setf store (chain-store-require-memory-store store))
   (unless (typep invalid-block 'ethereum-block)
     (block-validation-fail "Engine payload invalid marker must be a block"))
   (let* ((invalid-hash (block-hash invalid-block))
@@ -52,15 +53,16 @@
     (when head-hash
       (engine-payload-store-remove-remote-block store head-hash)
       (engine-payload-store-prune-prepared-payloads-for-block store key))
-    (setf (gethash key (engine-payload-memory-store-invalid-tipsets store))
+    (setf (gethash key (memory-chain-store-invalid-tipsets store))
           (engine-payload-store-copy-block invalid-block))
     invalid-block))
 
 (defun engine-payload-store-invalid-block
     (store hash)
+  (setf store (chain-store-require-memory-store store))
   (engine-payload-store-copy-block
    (gethash (engine-payload-store-key hash)
-            (engine-payload-memory-store-invalid-tipsets store))))
+            (memory-chain-store-invalid-tipsets store))))
 
 (defun engine-payload-id-key (payload-id)
   (let ((bytes (ensure-byte-vector payload-id)))
@@ -73,22 +75,22 @@
 
 (defun engine-payload-store-put-prepared-payload
     (store prepared-payload)
-  (unless (typep store 'engine-payload-memory-store)
-    (block-validation-fail "Engine payload store must be a memory store"))
+  (setf store (chain-store-require-memory-store store))
   (validate-engine-prepared-payload prepared-payload)
   (let ((stored-payload
           (engine-payload-store-copy-prepared-payload prepared-payload)))
     (setf (gethash
            (engine-payload-id-key
             (engine-prepared-payload-payload-id stored-payload))
-           (engine-payload-memory-store-prepared-payloads store))
+           (memory-chain-store-prepared-payloads store))
           stored-payload))
   prepared-payload)
 
 (defun engine-payload-store-prepared-payload (store payload-id)
+  (setf store (chain-store-require-memory-store store))
   (engine-payload-store-copy-prepared-payload
    (gethash (engine-payload-id-key payload-id)
-            (engine-payload-memory-store-prepared-payloads store))))
+            (memory-chain-store-prepared-payloads store))))
 
 (defun chain-store-put-prepared-payload (store prepared-payload)
   (engine-payload-store-put-prepared-payload
@@ -102,8 +104,7 @@
 
 (defun engine-payload-store-put-blob-sidecar
     (store sidecar)
-  (unless (typep store 'engine-payload-memory-store)
-    (block-validation-fail "Engine payload store must be a memory store"))
+  (setf store (chain-store-require-memory-store store))
   (unless (typep sidecar 'blob-sidecar)
     (block-validation-fail
      "Engine blob sidecar store value must be a blob sidecar"))
@@ -133,7 +134,7 @@
                                          +cell-proofs-per-blob+)))
           do (setf (gethash
                     (engine-payload-store-key versioned-hash)
-                    (engine-payload-memory-store-blob-sidecars store))
+                    (memory-chain-store-blob-sidecars store))
                    (make-engine-blob-and-proofs
                     :blob (maybe-copy-bytes blob)
                     :commitment
@@ -146,9 +147,10 @@
 
 (defun engine-payload-store-blob-and-proofs-v1
     (store versioned-hash)
+  (setf store (chain-store-require-memory-store store))
   (engine-payload-store-copy-blob-and-proofs
    (gethash (engine-payload-store-key versioned-hash)
-            (engine-payload-memory-store-blob-sidecars store))))
+            (memory-chain-store-blob-sidecars store))))
 
 (defun engine-payload-store-blob-and-proofs-v2
     (store versioned-hash)

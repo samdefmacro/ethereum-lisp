@@ -661,7 +661,6 @@
    #:chain-store-block-receipts
    #:chain-store-state-available-p
    #:chain-store-prune-state-before
-   #:chain-store-atomic-commit
    #:chain-store-put-account-balance
    #:chain-store-account-balance
    #:chain-store-put-account-nonce
@@ -683,6 +682,8 @@
    #:engine-payload-store-put-blob-sidecar
    #:engine-payload-store-blob-and-proofs-v1
    #:engine-payload-store-blob-and-proofs-v2)
+  (#:ethereum-lisp.node-store
+   #:chain-store-atomic-commit)
   (#:ethereum-lisp.engine
    #:engine-payload-store-invalid-ancestor-status
    #:engine-forkchoice-memory-status

@@ -2,10 +2,11 @@
 
 (defun engine-payload-store-put-transaction-location
     (store block index transaction receipt log-index-start &key force)
+  (setf store (chain-store-require-memory-store store))
   (let* ((transaction-key
            (engine-payload-store-key (transaction-hash transaction)))
          (locations
-           (engine-payload-memory-store-transaction-locations store))
+           (memory-chain-store-transaction-locations store))
          (existing-location (gethash transaction-key locations))
          (existing-canonical-p
            (and existing-location
@@ -26,6 +27,7 @@
 
 (defun engine-payload-store-index-block-transactions
     (store block &key force)
+  (setf store (chain-store-require-memory-store store))
   (loop with receipts = (block-receipts block)
         with log-index-start = 0
         for transaction in (block-transactions block)
@@ -45,8 +47,9 @@
                      (length (receipt-logs receipt)))))))
 
 (defun engine-payload-store-remove-block-transaction-locations (store block)
+  (setf store (chain-store-require-memory-store store))
   (let ((locations
-          (engine-payload-memory-store-transaction-locations store)))
+          (memory-chain-store-transaction-locations store)))
     (dolist (transaction (block-transactions block))
       (let* ((transaction-key
                (engine-payload-store-key (transaction-hash transaction)))
@@ -59,16 +62,20 @@
   block)
 
 (defun engine-payload-store-remove-included-block-transactions (store block)
-  (dolist (transaction (block-transactions block))
-    (engine-pending-txpool-remove-included-transaction
-     (engine-payload-memory-store-txpool store)
-     transaction))
+  (let ((txpool (txpool-component store)))
+    (unless txpool
+      (block-validation-fail "Txpool component is not available"))
+    (dolist (transaction (block-transactions block))
+      (engine-pending-txpool-remove-included-transaction
+       txpool
+       transaction)))
   block)
 
 (defun engine-payload-store-transaction-location (store hash)
+  (setf store (chain-store-require-memory-store store))
   (let ((location
           (gethash (engine-payload-store-key hash)
-                   (engine-payload-memory-store-transaction-locations
+                   (memory-chain-store-transaction-locations
                     store))))
     (when (and location
                (engine-payload-store-canonical-block-p

@@ -32,7 +32,7 @@
         (core (find-package '#:ethereum-lisp.core)))
     (is (not (member core (package-use-list txpool))))
     (is (member index (package-use-list txpool)))
-    (is (member node-state (package-use-list txpool)))
+    (is (not (member node-state (package-use-list txpool))))
     (is (not (member model (package-use-list txpool))))
     (is (member chain-store (package-use-list txpool)))
     (dolist (name '("ENGINE-PAYLOAD-STORE-PUT-PENDING-TRANSACTION"

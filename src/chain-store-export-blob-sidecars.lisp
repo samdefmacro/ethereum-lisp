@@ -19,13 +19,14 @@
 
 (defun chain-store-populate-blob-sidecar-export-batch
     (store database batch)
+  (setf store (chain-store-require-memory-store store))
   (let ((current-versioned-hash-keys (make-hash-table :test 'equal)))
     (maphash
      (lambda (versioned-hash-key blob-and-proofs)
        (setf (gethash versioned-hash-key current-versioned-hash-keys) t)
        (chain-store-export-blob-sidecar-to-kv
         batch versioned-hash-key blob-and-proofs))
-     (engine-payload-memory-store-blob-sidecars store))
+     (memory-chain-store-blob-sidecars store))
     (dolist (entry (kv-chain-record-entries database :blob-sidecar))
       (unless (gethash (bytes-to-hex (car entry))
                        current-versioned-hash-keys)

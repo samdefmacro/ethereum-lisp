@@ -8,8 +8,8 @@
        set-code-transaction))
 
 (defun validate-store-transaction (store transaction subpool)
-  (unless (typep store 'engine-payload-memory-store)
-    (block-validation-fail "Engine payload store must be a memory store"))
+  (unless (txpool-component store)
+    (block-validation-fail "Txpool component is not available"))
   (unless (typep transaction 'txpool-transaction)
     (block-validation-fail "~:(~A~) transaction must be a transaction"
                            subpool))

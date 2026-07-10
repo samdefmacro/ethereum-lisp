@@ -53,6 +53,14 @@
       (declare (ignore symbol))
       (is (not (eq :external status))))
     (let ((state (make-engine-payload-memory-store)))
+      (is (eq
+           (ethereum-lisp.chain-store.state:chain-store-component state)
+           (ethereum-lisp.node-state:engine-payload-memory-store-chain-store
+            state)))
+      (is (eq
+           (ethereum-lisp.txpool.index:txpool-component state)
+           (ethereum-lisp.node-state:engine-payload-memory-store-txpool
+            state)))
       (is (typep
            (ethereum-lisp.node-state:engine-payload-memory-store-chain-store
             state)
@@ -70,11 +78,10 @@
         (core (find-package '#:ethereum-lisp.core)))
     (is (not (member core (package-use-list store))))
     (is (member model (package-use-list store)))
-    (is (member node-state (package-use-list store)))
+    (is (not (member node-state (package-use-list store))))
     (is (member txpool-index (package-use-list store)))
     (is (not (member json (package-use-list store))))
     (dolist (name '("ENGINE-PAYLOAD-STORE-PUT-BLOCK"
-                    "CHAIN-STORE-ATOMIC-COMMIT"
                     "CHAIN-STORE-PUT-ACCOUNT-BALANCE"))
       (multiple-value-bind (store-symbol store-status)
           (find-symbol name store)
@@ -89,6 +96,27 @@
           (find-symbol name store)
         (is (null symbol))
         (is (null status))))))
+
+(deftest node-store-package-boundary
+  (let ((node-store (find-package '#:ethereum-lisp.node-store))
+        (node-state (find-package '#:ethereum-lisp.node-state))
+        (chain-store (find-package '#:ethereum-lisp.chain-store))
+        (txpool-index (find-package '#:ethereum-lisp.txpool.index))
+        (core (find-package '#:ethereum-lisp.core)))
+    (is (member node-state (package-use-list node-store)))
+    (is (member chain-store (package-use-list node-store)))
+    (is (member txpool-index (package-use-list node-store)))
+    (multiple-value-bind (owner-symbol owner-status)
+        (find-symbol "CHAIN-STORE-ATOMIC-COMMIT" node-store)
+      (multiple-value-bind (core-symbol core-status)
+          (find-symbol "CHAIN-STORE-ATOMIC-COMMIT" core)
+        (is (eq :external owner-status))
+        (is (eq :external core-status))
+        (is (eq owner-symbol core-symbol))))
+    (multiple-value-bind (symbol status)
+        (find-symbol "CHAIN-STORE-ATOMIC-COMMIT" chain-store)
+      (declare (ignore symbol))
+      (is (not (eq :external status))))))
 
 (deftest chain-store-interface-wraps-memory-payload-store
   (let* ((store (make-engine-payload-memory-store))

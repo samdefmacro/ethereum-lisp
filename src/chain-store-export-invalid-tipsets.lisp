@@ -21,6 +21,7 @@
 
 (defun chain-store-populate-invalid-tipset-export-batch
     (store database batch)
+  (setf store (chain-store-require-memory-store store))
   (let ((current-tipset-keys (make-hash-table :test 'equal)))
     (maphash
      (lambda (tipset-key invalid-block)
@@ -29,7 +30,7 @@
          (setf (gethash tipset-key current-tipset-keys) t)
          (chain-store-export-invalid-tipset-to-kv
           batch tipset-key invalid-block)))
-     (engine-payload-memory-store-invalid-tipsets store))
+     (memory-chain-store-invalid-tipsets store))
     (dolist (entry (kv-chain-record-entries database :invalid-tipset))
       (unless (gethash (bytes-to-hex (car entry)) current-tipset-keys)
         (kv-batch-delete-chain-record

@@ -10,6 +10,7 @@
    #:engine-pending-txpool
    #:engine-pending-txpool-p
    #:make-engine-pending-txpool
+   #:txpool-component
    #:engine-pending-txpool-transactions
    #:engine-pending-txpool-transactions-by-sender
    #:engine-pending-txpool-queued-transactions

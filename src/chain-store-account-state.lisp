@@ -12,8 +12,7 @@
 
 (defun engine-payload-store-put-account-balance
     (store block-hash address balance)
-  (unless (typep store 'engine-payload-memory-store)
-    (block-validation-fail "Engine payload store must be a memory store"))
+  (setf store (chain-store-require-memory-store store))
   (unless (address-p address)
     (block-validation-fail "Engine account balance address must be an address"))
   (unless (uint256-p balance)
@@ -23,22 +22,22 @@
       (block-validation-fail
        "Engine account balance block must be known by the memory store"))
     (setf (gethash (engine-payload-store-account-key block-hash address)
-                   (engine-payload-memory-store-account-balances store))
+                   (memory-chain-store-account-balances store))
           balance
           (gethash (engine-payload-store-key block-hash)
-                   (engine-payload-memory-store-state-blocks store))
+                   (memory-chain-store-state-blocks store))
           t)
     balance))
 
 (defun engine-payload-store-account-balance (store block-hash address)
+  (setf store (chain-store-require-memory-store store))
   (gethash (engine-payload-store-account-key block-hash address)
-           (engine-payload-memory-store-account-balances store)
+           (memory-chain-store-account-balances store)
            0))
 
 (defun engine-payload-store-put-account-nonce
     (store block-hash address nonce)
-  (unless (typep store 'engine-payload-memory-store)
-    (block-validation-fail "Engine payload store must be a memory store"))
+  (setf store (chain-store-require-memory-store store))
   (unless (address-p address)
     (block-validation-fail "Engine account nonce address must be an address"))
   (unless (uint64-value-p nonce)
@@ -48,22 +47,22 @@
       (block-validation-fail
        "Engine account nonce block must be known by the memory store"))
     (setf (gethash (engine-payload-store-account-key block-hash address)
-                   (engine-payload-memory-store-account-nonces store))
+                   (memory-chain-store-account-nonces store))
           nonce
           (gethash (engine-payload-store-key block-hash)
-                   (engine-payload-memory-store-state-blocks store))
+                   (memory-chain-store-state-blocks store))
           t)
     nonce))
 
 (defun engine-payload-store-account-nonce (store block-hash address)
+  (setf store (chain-store-require-memory-store store))
   (gethash (engine-payload-store-account-key block-hash address)
-           (engine-payload-memory-store-account-nonces store)
+           (memory-chain-store-account-nonces store)
            0))
 
 (defun engine-payload-store-put-account-code
     (store block-hash address code)
-  (unless (typep store 'engine-payload-memory-store)
-    (block-validation-fail "Engine payload store must be a memory store"))
+  (setf store (chain-store-require-memory-store store))
   (unless (address-p address)
     (block-validation-fail "Engine account code address must be an address"))
   (let ((block (engine-payload-store-known-block store block-hash))
@@ -72,25 +71,25 @@
       (block-validation-fail
        "Engine account code block must be known by the memory store"))
     (setf (gethash (engine-payload-store-account-key block-hash address)
-                   (engine-payload-memory-store-account-codes store))
+                   (memory-chain-store-account-codes store))
           (copy-seq code)
           (gethash (engine-payload-store-key block-hash)
-                   (engine-payload-memory-store-state-blocks store))
+                   (memory-chain-store-state-blocks store))
           t)
     code))
 
 (defun engine-payload-store-account-code (store block-hash address)
+  (setf store (chain-store-require-memory-store store))
   (let ((code
           (gethash (engine-payload-store-account-key block-hash address)
-                   (engine-payload-memory-store-account-codes store))))
+                   (memory-chain-store-account-codes store))))
     (if code
         (copy-seq code)
         (make-byte-vector 0))))
 
 (defun engine-payload-store-put-account-storage
     (store block-hash address slot value)
-  (unless (typep store 'engine-payload-memory-store)
-    (block-validation-fail "Engine payload store must be a memory store"))
+  (setf store (chain-store-require-memory-store store))
   (unless (address-p address)
     (block-validation-fail "Engine account storage address must be an address"))
   (unless (hash32-p slot)
@@ -103,16 +102,17 @@
        "Engine account storage block must be known by the memory store"))
     (setf (gethash
            (engine-payload-store-account-storage-key block-hash address slot)
-           (engine-payload-memory-store-account-storage store))
+           (memory-chain-store-account-storage store))
           value
           (gethash (engine-payload-store-key block-hash)
-                   (engine-payload-memory-store-state-blocks store))
+                   (memory-chain-store-state-blocks store))
           t)
     value))
 
 (defun engine-payload-store-account-storage (store block-hash address slot)
+  (setf store (chain-store-require-memory-store store))
   (gethash (engine-payload-store-account-storage-key block-hash address slot)
-           (engine-payload-memory-store-account-storage store)
+           (memory-chain-store-account-storage store)
            0))
 
 (defun chain-store-put-account-balance

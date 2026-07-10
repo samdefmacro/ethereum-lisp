@@ -19,6 +19,7 @@
         #:ethereum-lisp.txpool.index
         #:ethereum-lisp.chain-store.model
         #:ethereum-lisp.chain-store
+        #:ethereum-lisp.node-store
         #:ethereum-lisp.txpool
         #:ethereum-lisp.canonical-chain
         #:ethereum-lisp.engine
@@ -69,6 +70,7 @@
         #:ethereum-lisp.engine-payloads
         #:ethereum-lisp.txpool.index
         #:ethereum-lisp.chain-store.model
+        #:ethereum-lisp.chain-store.state
         #:ethereum-lisp.chain-store
         #:ethereum-lisp.txpool
         #:ethereum-lisp.state

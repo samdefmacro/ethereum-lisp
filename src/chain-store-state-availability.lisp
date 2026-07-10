@@ -2,9 +2,10 @@
 
 (defun engine-payload-store-state-available-p
     (store hash)
+  (setf store (chain-store-require-memory-store store))
   (not (null
         (gethash (engine-payload-store-key hash)
-                 (engine-payload-memory-store-state-blocks store)))))
+                 (memory-chain-store-state-blocks store)))))
 
 (defun chain-store-state-available-p (store hash)
   (engine-payload-store-state-available-p
@@ -28,19 +29,20 @@
     (length keys)))
 
 (defun engine-payload-store-prune-state-snapshot (store block-key)
+  (setf store (chain-store-require-memory-store store))
   (let ((prefix (format nil "~A:" block-key)))
-    (remhash block-key (engine-payload-memory-store-state-blocks store))
+    (remhash block-key (memory-chain-store-state-blocks store))
     (+ (engine-payload-store-remove-prefixed-keys
-        (engine-payload-memory-store-account-balances store)
+        (memory-chain-store-account-balances store)
         prefix)
        (engine-payload-store-remove-prefixed-keys
-        (engine-payload-memory-store-account-nonces store)
+        (memory-chain-store-account-nonces store)
         prefix)
        (engine-payload-store-remove-prefixed-keys
-        (engine-payload-memory-store-account-codes store)
+        (memory-chain-store-account-codes store)
         prefix)
        (engine-payload-store-remove-prefixed-keys
-        (engine-payload-memory-store-account-storage store)
+        (memory-chain-store-account-storage store)
         prefix))))
 
 (defun chain-store-prune-state-before (store block-number)
@@ -51,28 +53,28 @@
     (let ((block-keys '())
           (head-block-key
             (let ((checkpoint
-                    (engine-payload-memory-store-head-checkpoint store)))
+                    (memory-chain-store-head-checkpoint store)))
               (let ((hash (and checkpoint
                                (chain-store-checkpoint-block-hash
                                 checkpoint))))
                 (if hash
                     (engine-payload-store-key hash)
                     (gethash
-                     (engine-payload-memory-store-head-number store)
-                     (engine-payload-memory-store-canonical-hashes
+                     (memory-chain-store-head-number store)
+                     (memory-chain-store-canonical-hashes
                       store)))))))
       (maphash
        (lambda (block-key state-available-p)
          (when state-available-p
            (let ((block (gethash block-key
-                                  (engine-payload-memory-store-blocks store))))
+                                  (memory-chain-store-blocks store))))
              (when (and block
                         (or (null head-block-key)
                             (not (string= block-key head-block-key)))
                         (< (block-header-number (block-header block))
                            block-number))
                (push block-key block-keys)))))
-       (engine-payload-memory-store-state-blocks store))
+       (memory-chain-store-state-blocks store))
       (dolist (block-key block-keys)
         (engine-payload-store-prune-state-snapshot store block-key))
       (length block-keys))))

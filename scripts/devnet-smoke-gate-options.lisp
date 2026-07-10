@@ -596,17 +596,19 @@ references/ checkouts.~%")
     (chain-store-put-block store genesis-block :state-available-p t)
     (commit-state-db-to-chain-store store (block-hash genesis-block) state)
     (setf (gethash (hash32-to-hex (block-hash block-v6))
-                   (ethereum-lisp.node-state:engine-payload-memory-store-blocks
-                    store))
+                   (ethereum-lisp.chain-store.state:memory-chain-store-blocks
+                    (ethereum-lisp.chain-store.state:chain-store-component
+                     store)))
           block-v6)
     (commit-state-db-to-chain-store store (block-hash block-v6) state)
     (setf (gethash (hash32-to-hex (block-hash block-v6))
-                   (ethereum-lisp.node-state:engine-payload-memory-store-state-blocks
-                    store))
+                   (ethereum-lisp.chain-store.state:memory-chain-store-state-blocks
+                    (ethereum-lisp.chain-store.state:chain-store-component
+                     store)))
           t)
     (remhash (hash32-to-hex (block-hash block-v6))
-             (ethereum-lisp.node-state:engine-payload-memory-store-blocks
-              store))
+             (ethereum-lisp.chain-store.state:memory-chain-store-blocks
+              (ethereum-lisp.chain-store.state:chain-store-component store)))
     (engine-payload-store-put-blob-sidecar store sidecar)
     (chain-store-put-prepared-payload
      store

@@ -30,3 +30,12 @@
   blob-transactions
   blob-transactions-by-sender
   transaction-admitted-at)
+
+(defgeneric txpool-component (store)
+  (:documentation "Return STORE's txpool component, or NIL when none exists."))
+
+(defmethod txpool-component ((store t))
+  nil)
+
+(defmethod txpool-component ((txpool engine-pending-txpool))
+  txpool)

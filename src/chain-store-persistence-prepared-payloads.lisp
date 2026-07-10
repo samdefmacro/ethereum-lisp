@@ -66,6 +66,7 @@
 
 (defun chain-store-import-prepared-payload-from-kv
     (store payload-id-identifier record)
+  (setf store (chain-store-require-memory-store store))
   (let ((prepared-payload
           (chain-store-prepared-payload-from-rlp
            payload-id-identifier record)))
@@ -80,7 +81,7 @@
         (setf (gethash
                (engine-payload-id-key
                 (engine-prepared-payload-payload-id prepared-payload))
-               (engine-payload-memory-store-prepared-payloads store))
+               (memory-chain-store-prepared-payloads store))
               prepared-payload))))))
 
 (defun chain-store-import-prepared-payloads-from-kv (store database)

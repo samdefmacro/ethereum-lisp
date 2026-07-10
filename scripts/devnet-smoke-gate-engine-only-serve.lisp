@@ -77,7 +77,8 @@
                         :genesis-path
                         (namestring genesis-path)
                         :port 0
-                        :public-port (devnet-cli-unused-loopback-port)
+                        :public-port
+                        (or (devnet-cli-unused-loopback-port) 0)
                         :jwt-secret-path (namestring jwt-path)
                         :engine-rpc-prefix +devnet-smoke-gate-engine-rpc-prefix+
                         :engine-cors-origins

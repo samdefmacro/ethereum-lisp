@@ -1,3 +1,15 @@
+(defpackage #:ethereum-lisp.node-store
+  (:use #:cl
+        #:ethereum-lisp.validation
+        #:ethereum-lisp.txpool.index
+        #:ethereum-lisp.chain-store.state
+        #:ethereum-lisp.node-state
+        #:ethereum-lisp.chain-store)
+  (:export
+   #:engine-payload-store-snapshot
+   #:engine-payload-store-restore
+   #:chain-store-atomic-commit))
+
 (defpackage #:ethereum-lisp.txpool
   (:use #:cl
         #:ethereum-lisp.bytes
@@ -9,7 +21,6 @@
         #:ethereum-lisp.blocks
         #:ethereum-lisp.consensus
         #:ethereum-lisp.txpool.index
-        #:ethereum-lisp.node-state
         #:ethereum-lisp.chain-store)
   (:export
    #:engine-payload-store-txpool
@@ -57,8 +68,9 @@
         #:ethereum-lisp.validation
         #:ethereum-lisp.chain-config
         #:ethereum-lisp.blocks
+        #:ethereum-lisp.txpool.index
         #:ethereum-lisp.chain-store.model
-        #:ethereum-lisp.node-state
+        #:ethereum-lisp.chain-store.state
         #:ethereum-lisp.chain-store
         #:ethereum-lisp.txpool)
   (:export

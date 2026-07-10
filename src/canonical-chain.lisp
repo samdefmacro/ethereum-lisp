@@ -14,7 +14,7 @@
           for current-hash = (block-hash current)
           for canonical-key =
             (gethash number
-                     (engine-payload-memory-store-canonical-hashes store))
+                     (memory-chain-store-canonical-hashes store))
           do (when (and canonical-key
                         (string= canonical-key
                                  (engine-payload-store-key current-hash)))
@@ -43,18 +43,20 @@
                   (not (hash32= (block-hash old-block) (block-hash block))))
           collect old-block))
 
-(defun canonical-chain-install-path (store path)
+(defun canonical-chain-install-path (chain-store txpool path)
   (dolist (block path)
     (let* ((number (canonical-chain-block-number block))
            (key (engine-payload-store-key (block-hash block))))
       (setf (gethash number
-                     (engine-payload-memory-store-canonical-hashes store))
+                     (memory-chain-store-canonical-hashes chain-store))
             key
             (gethash number
-                     (engine-payload-memory-store-number-blocks store))
+                     (memory-chain-store-number-blocks chain-store))
             block)
-      (engine-payload-store-index-block-transactions store block :force t)
-      (engine-payload-store-remove-included-block-transactions store block))))
+      (engine-payload-store-index-block-transactions
+       chain-store block :force t)
+      (engine-payload-store-remove-included-block-transactions
+       txpool block))))
 
 (defun canonical-chain-prune-descendants (store new-head-number)
   (let ((stale-numbers nil)
@@ -67,17 +69,17 @@
            (when block
              (push block displaced-blocks)))
          (push number stale-numbers)))
-     (engine-payload-memory-store-canonical-hashes store))
+     (memory-chain-store-canonical-hashes store))
     (dolist (number stale-numbers)
       (remhash number
-               (engine-payload-memory-store-canonical-hashes store)))
+               (memory-chain-store-canonical-hashes store)))
     displaced-blocks))
 
 (defun canonical-chain-set-head-metadata (store head-block)
   (let ((hash (block-hash head-block)))
-    (setf (engine-payload-memory-store-head-number store)
+    (setf (memory-chain-store-head-number store)
           (canonical-chain-block-number head-block)
-          (engine-payload-memory-store-head-checkpoint store)
+          (memory-chain-store-head-checkpoint store)
           (make-chain-store-checkpoint :label :head :block-hash hash))))
 
 (defun canonical-chain-reinsert-displaced-transactions
@@ -118,40 +120,46 @@
 
 (defun canonical-chain-set-head
     (store hash &key expected-chain-id chain-config)
-  (let* ((head-block (engine-payload-store-known-block store hash))
+  (let* ((chain-store (chain-store-require-memory-store store))
+         (txpool (or (txpool-component store)
+                     (block-validation-fail
+                      "Canonical chain requires a txpool component")))
+         (head-block (engine-payload-store-known-block chain-store hash))
          (previous-head-hash
            (engine-payload-store-canonical-hash
-            store
-            (engine-payload-memory-store-head-number store))))
+            chain-store
+            (memory-chain-store-head-number chain-store))))
     (unless head-block
       (block-validation-fail "Canonical head block must be known"))
     (let* ((head-changed-p
              (or (null previous-head-hash)
                  (not (hash32= previous-head-hash hash))))
-           (path (canonical-chain-path store head-block))
+           (path (canonical-chain-path chain-store head-block))
            (displaced-blocks
-             (canonical-chain-replaced-blocks store path)))
-      (canonical-chain-install-path store path)
+             (canonical-chain-replaced-blocks chain-store path)))
+      (canonical-chain-install-path chain-store txpool path)
       (setf displaced-blocks
             (nconc displaced-blocks
                    (canonical-chain-prune-descendants
-                    store
+                    chain-store
                     (canonical-chain-block-number head-block))))
-      (canonical-chain-set-head-metadata store head-block)
+      (canonical-chain-set-head-metadata chain-store head-block)
       (canonical-chain-reinsert-displaced-transactions
        store displaced-blocks expected-chain-id chain-config)
       (when head-changed-p
-        (canonical-chain-notify-log-filters store displaced-blocks path))
+        (canonical-chain-notify-log-filters
+         chain-store displaced-blocks path))
       (canonical-chain-reconcile-txpool
        store expected-chain-id chain-config)
       (when head-changed-p
-        (engine-payload-store-notify-block-filters store head-block))
+        (engine-payload-store-notify-block-filters
+         chain-store head-block))
       head-block)))
 
 (defun chain-store-set-canonical-head
     (store hash &key expected-chain-id chain-config)
   (canonical-chain-set-head
-   (chain-store-require-memory-store store)
+   store
    hash
    :expected-chain-id expected-chain-id
    :chain-config chain-config))

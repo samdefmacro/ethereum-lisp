@@ -18,6 +18,7 @@
 
 (defun chain-store-populate-transaction-location-export-batch
     (store database batch)
+  (setf store (chain-store-require-memory-store store))
   (let ((canonical-transaction-keys (make-hash-table :test 'equal)))
     (maphash
      (lambda (transaction-key location)
@@ -29,7 +30,7 @@
           batch
           transaction-key
           location)))
-     (engine-payload-memory-store-transaction-locations store))
+     (memory-chain-store-transaction-locations store))
     (dolist (entry (kv-chain-record-entries database :transaction-location))
       (unless (gethash (bytes-to-hex (car entry)) canonical-transaction-keys)
         (kv-batch-delete-chain-record

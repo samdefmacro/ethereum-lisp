@@ -39,6 +39,7 @@
 
 (defun chain-store-populate-prepared-payload-export-batch
     (store database batch)
+  (setf store (chain-store-require-memory-store store))
   (let ((current-payload-id-keys (make-hash-table :test 'equal)))
     (maphash
      (lambda (payload-id-key prepared-payload)
@@ -47,7 +48,7 @@
          (setf (gethash payload-id-key current-payload-id-keys) t)
          (chain-store-export-prepared-payload-to-kv
           batch payload-id-key prepared-payload)))
-     (engine-payload-memory-store-prepared-payloads store))
+     (memory-chain-store-prepared-payloads store))
     (dolist (entry (kv-chain-record-entries database :prepared-payload))
       (unless (gethash (bytes-to-hex (car entry))
                        current-payload-id-keys)

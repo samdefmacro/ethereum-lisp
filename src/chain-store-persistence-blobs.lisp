@@ -50,6 +50,7 @@
 
 (defun chain-store-import-blob-sidecar-from-kv
     (store versioned-hash-identifier record)
+  (setf store (chain-store-require-memory-store store))
   (let ((versioned-hash (make-hash32 versioned-hash-identifier))
         (blob-and-proofs
           (chain-store-blob-sidecar-record-from-rlp record)))
@@ -60,7 +61,7 @@
        "KV blob-sidecar record key does not match encoded commitment"))
     (setf (gethash
            (engine-payload-store-key versioned-hash)
-           (engine-payload-memory-store-blob-sidecars store))
+           (memory-chain-store-blob-sidecars store))
           blob-and-proofs)))
 
 (defun chain-store-import-blob-sidecars-from-kv (store database)

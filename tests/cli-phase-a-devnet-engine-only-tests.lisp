@@ -38,6 +38,8 @@
            (when (and (not (= 0 status))
                       (search "Operation not permitted" stderr))
              (skip-test "Local socket bind is not permitted in this sandbox"))
+           (unless (= 0 status)
+             (error "Devnet engine-only smoke gate failed:~%~A" stderr))
            (is (= 0 status))
            (is (string= "" stderr))
            (when (= 0 status)
@@ -166,4 +168,3 @@
         (delete-file pid-path))
       (when (probe-file database-path)
         (delete-file database-path)))))
-

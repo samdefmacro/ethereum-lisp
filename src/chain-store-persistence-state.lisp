@@ -69,13 +69,14 @@
 
 (defun chain-store-import-state-record-from-kv
     (store block-identifier state-record)
+  (setf store (chain-store-require-memory-store store))
   (let ((block-hash (make-hash32 block-identifier)))
     (unless (chain-store-known-block store block-hash)
       (block-validation-fail "KV state record references an unknown block"))
     (handler-case
         (progn
           (setf (gethash (engine-payload-store-key block-hash)
-                         (engine-payload-memory-store-state-blocks store))
+                         (memory-chain-store-state-blocks store))
                 t)
           (dolist (account (rlp-list-field (rlp-decode-one state-record)
                                            "State snapshot"))

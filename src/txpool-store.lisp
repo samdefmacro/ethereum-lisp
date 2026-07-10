@@ -1,8 +1,8 @@
 (in-package #:ethereum-lisp.txpool)
 
 (defun engine-payload-store-txpool (store)
-  (engine-payload-memory-store-txpool
-   (chain-store-require-memory-store store)))
+  (or (txpool-component store)
+      (block-validation-fail "Txpool component is not available")))
 
 (defun engine-payload-store-pending-transaction-table (store)
   (engine-pending-txpool-transactions

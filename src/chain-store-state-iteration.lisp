@@ -23,18 +23,19 @@
 
 (defun engine-payload-store-account-storage-entries
     (memory-store block-hash address)
+  (setf memory-store (chain-store-require-memory-store memory-store))
   (let ((account-prefix
           (format nil "~A:"
                   (engine-payload-store-account-key block-hash address)))
         (entries '()))
     (dolist (key (engine-payload-store-sorted-hash-keys
-                  (engine-payload-memory-store-account-storage memory-store)))
+                  (memory-chain-store-account-storage memory-store)))
       (when (engine-payload-store-string-prefix-p account-prefix key)
         (push (cons (hash32-from-hex
                      (subseq key (length account-prefix)))
                     (gethash
                      key
-                     (engine-payload-memory-store-account-storage memory-store)))
+                     (memory-chain-store-account-storage memory-store)))
               entries)))
     (nreverse entries)))
 
@@ -49,25 +50,25 @@
            (declare (ignore value))
            (engine-payload-store-remember-account-key
             accounts block-prefix key))
-         (engine-payload-memory-store-account-balances memory-store))
+         (memory-chain-store-account-balances memory-store))
         (maphash
          (lambda (key value)
            (declare (ignore value))
            (engine-payload-store-remember-account-key
             accounts block-prefix key))
-         (engine-payload-memory-store-account-nonces memory-store))
+         (memory-chain-store-account-nonces memory-store))
         (maphash
          (lambda (key value)
            (declare (ignore value))
            (engine-payload-store-remember-account-key
             accounts block-prefix key))
-         (engine-payload-memory-store-account-codes memory-store))
+         (memory-chain-store-account-codes memory-store))
         (maphash
          (lambda (key value)
            (declare (ignore value))
            (engine-payload-store-remember-account-key
             accounts block-prefix key :storage-key-p t))
-         (engine-payload-memory-store-account-storage memory-store))
+         (memory-chain-store-account-storage memory-store))
         (dolist (address-hex (engine-payload-store-sorted-hash-keys accounts))
            (let* ((address (address-from-hex address-hex))
                   (account-key
@@ -76,11 +77,11 @@
               function
               address
               (gethash account-key
-                       (engine-payload-memory-store-account-balances
+                       (memory-chain-store-account-balances
                         memory-store)
                        0)
               (gethash account-key
-                       (engine-payload-memory-store-account-nonces
+                       (memory-chain-store-account-nonces
                         memory-store)
                        0)
               (engine-payload-store-account-code
