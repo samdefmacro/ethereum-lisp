@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.engine-api)
 
 (defparameter +engine-rpc-shanghai-capabilities+
   '("engine_exchangeTransitionConfigurationV1"

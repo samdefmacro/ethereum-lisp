@@ -12,7 +12,7 @@
 
 (defun eth-rpc-address-param (value method label)
   (handler-case
-      (engine-rpc-address value label)
+      (json-rpc-address value label)
     (block-validation-error ()
       (block-validation-fail "~A ~A must be an address" method label))))
 
@@ -20,7 +20,7 @@
   (unless (= 1 (length params))
     (block-validation-fail "~A params must contain exactly one ~A"
                            method label))
-  (engine-rpc-hash32 (first params) label))
+  (json-rpc-hash32 (first params) label))
 
 (defun eth-rpc-block-object-require-canonical-p (object method)
   (if (json-object-field-present-p object "requireCanonical")

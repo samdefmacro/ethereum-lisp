@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.engine-api)
 
 (defun engine-rpc-execution-function (name)
   (let ((symbol (find-symbol name "ETHEREUM-LISP.EXECUTION")))
@@ -67,7 +67,7 @@
     (block-validation-fail "~A params must include forkchoice state" method))
   (let ((state
           (engine-rpc-forkchoice-state-from-object
-           (engine-rpc-required-param
+           (json-rpc-required-param
             params 0 "forkchoiceState" method)))
         (payload-attributes
           (when (< 1 (length params))

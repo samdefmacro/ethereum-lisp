@@ -1,14 +1,14 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.engine-api)
 
 ;;;; Engine API payload input decoding from JSON-RPC objects.
 
 (defun engine-rpc-withdrawal-from-object (object)
   (make-withdrawal
-   :index (engine-rpc-required-quantity-field object "index")
+   :index (json-rpc-required-quantity-field object "index")
    :validator-index
-   (engine-rpc-required-quantity-field object "validatorIndex")
-   :address (engine-rpc-required-address-field object "address")
-   :amount (engine-rpc-required-quantity-field object "amount")))
+   (json-rpc-required-quantity-field object "validatorIndex")
+   :address (json-rpc-required-address-field object "address")
+   :amount (json-rpc-required-quantity-field object "amount")))
 
 (defun engine-rpc-withdrawals-field (object)
   (when (json-object-field-present-p object "withdrawals")
@@ -24,29 +24,29 @@
   (let ((withdrawals-present-p
           (json-object-field-present-p object "withdrawals")))
     (make-executable-data
-     :parent-hash (engine-rpc-required-hash32-field object "parentHash")
-     :fee-recipient (engine-rpc-required-address-field object "feeRecipient")
-     :state-root (engine-rpc-required-hash32-field object "stateRoot")
-     :receipts-root (engine-rpc-required-hash32-field object "receiptsRoot")
-     :logs-bloom (engine-rpc-required-bytes-field object "logsBloom")
-     :random (engine-rpc-required-hash32-field object "prevRandao")
-     :number (engine-rpc-required-quantity-field object "blockNumber")
-     :gas-limit (engine-rpc-required-quantity-field object "gasLimit")
-     :gas-used (engine-rpc-required-quantity-field object "gasUsed")
-     :timestamp (engine-rpc-required-quantity-field object "timestamp")
-     :extra-data (engine-rpc-required-bytes-field object "extraData")
+     :parent-hash (json-rpc-required-hash32-field object "parentHash")
+     :fee-recipient (json-rpc-required-address-field object "feeRecipient")
+     :state-root (json-rpc-required-hash32-field object "stateRoot")
+     :receipts-root (json-rpc-required-hash32-field object "receiptsRoot")
+     :logs-bloom (json-rpc-required-bytes-field object "logsBloom")
+     :random (json-rpc-required-hash32-field object "prevRandao")
+     :number (json-rpc-required-quantity-field object "blockNumber")
+     :gas-limit (json-rpc-required-quantity-field object "gasLimit")
+     :gas-used (json-rpc-required-quantity-field object "gasUsed")
+     :timestamp (json-rpc-required-quantity-field object "timestamp")
+     :extra-data (json-rpc-required-bytes-field object "extraData")
      :base-fee-per-gas
-     (engine-rpc-required-quantity-field object "baseFeePerGas")
-     :block-hash (engine-rpc-required-hash32-field object "blockHash")
+     (json-rpc-required-quantity-field object "baseFeePerGas")
+     :block-hash (json-rpc-required-hash32-field object "blockHash")
      :transactions
-     (engine-rpc-byte-list
-      (engine-rpc-required-field object "transactions")
+     (json-rpc-byte-list
+      (json-rpc-required-field object "transactions")
       "transactions")
      :withdrawals (engine-rpc-withdrawals-field object)
      :withdrawals-present-p withdrawals-present-p
-     :blob-gas-used (engine-rpc-optional-quantity-field object "blobGasUsed")
+     :blob-gas-used (json-rpc-optional-quantity-field object "blobGasUsed")
      :excess-blob-gas
-     (engine-rpc-optional-quantity-field object "excessBlobGas")
-     :slot-number (engine-rpc-optional-quantity-field object "slotNumber")
+     (json-rpc-optional-quantity-field object "excessBlobGas")
+     :slot-number (json-rpc-optional-quantity-field object "slotNumber")
      :block-access-list
-     (engine-rpc-optional-bytes-field object "blockAccessList"))))
+     (json-rpc-optional-bytes-field object "blockAccessList"))))

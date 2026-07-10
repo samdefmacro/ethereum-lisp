@@ -41,13 +41,13 @@
      "eth_getUncleByBlockNumberAndIndex params must contain block id and uncle index"))
   (if (eth-rpc-pending-block-tag-p (first params))
       (progn
-        (engine-rpc-quantity-param
+        (json-rpc-quantity-param
          params 1 "uncle index" "eth_getUncleByBlockNumberAndIndex")
         nil)
       (let* ((number (eth-rpc-block-number-param
                       (list (first params)) store
                       "eth_getUncleByBlockNumberAndIndex"))
-             (index (engine-rpc-quantity-param
+             (index (json-rpc-quantity-param
                      params 1 "uncle index"
                      "eth_getUncleByBlockNumberAndIndex"))
              (block (chain-store-block-by-number store number)))
@@ -62,7 +62,7 @@
                 (list (first params))
                 "eth_getUncleByBlockHashAndIndex"
                 "block hash"))
-         (index (engine-rpc-quantity-param
+         (index (json-rpc-quantity-param
                  params 1 "uncle index"
                  "eth_getUncleByBlockHashAndIndex"))
          (block (chain-store-known-block store hash)))

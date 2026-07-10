@@ -1,5 +1,34 @@
 (in-package #:ethereum-lisp.test)
 
+(deftest engine-api-package-boundary
+  (let ((api (find-package '#:ethereum-lisp.engine-api))
+        (json-rpc (find-package '#:ethereum-lisp.json-rpc))
+        (engine (find-package '#:ethereum-lisp.engine))
+        (canonical (find-package '#:ethereum-lisp.canonical-chain))
+        (core (find-package '#:ethereum-lisp.core)))
+    (is (not (member core (package-use-list api))))
+    (is (member json-rpc (package-use-list api)))
+    (is (member engine (package-use-list api)))
+    (is (member canonical (package-use-list api)))
+    (dolist (name '("ENGINE-RPC-CAPABILITIES"
+                    "ENGINE-RPC-EXECUTABLE-DATA-OBJECT"
+                    "ENGINE-RPC-HANDLE-GET-PAYLOAD-V1"))
+      (multiple-value-bind (api-symbol api-status)
+          (find-symbol name api)
+        (multiple-value-bind (core-symbol core-status)
+            (find-symbol name core)
+          (is (eq :external api-status))
+          (is (eq :external core-status))
+          (is (eq api-symbol core-symbol)))))
+    (multiple-value-bind (symbol status)
+        (find-symbol "JSON-RPC-REQUIRED-FIELD" api)
+      (is symbol)
+      (is (eq :inherited status)))
+    (multiple-value-bind (symbol status)
+        (find-symbol "ENGINE-RPC-HANDLE-REQUEST" api)
+      (is (null symbol))
+      (is (null status)))))
+
 (deftest engine-rpc-exchange-capabilities-advertises-supported-methods
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))
@@ -334,4 +363,3 @@
                (make-chain-config))))
            (error (field response "error")))
       (is (= -32602 (field error "code"))))))
-

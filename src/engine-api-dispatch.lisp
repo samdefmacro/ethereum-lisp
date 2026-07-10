@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.engine-api)
 
 (defun engine-rpc-handle-engine-method
     (id method params store config &key import-function)

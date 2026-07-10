@@ -28,7 +28,7 @@
                   (unless (json-rpc-request-valid-p request)
                     (return-from engine-rpc-handle-request
                       (json-rpc-invalid-request-response)))
-                  (let* ((method (engine-rpc-required-field request "method"))
+                  (let* ((method (json-rpc-required-field request "method"))
                          (params
                            (if (json-object-field-present-p request
                                                                "params")

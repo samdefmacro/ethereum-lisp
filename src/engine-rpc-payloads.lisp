@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.engine-api)
 
 (defun engine-rpc-payload-id-from-value (value)
   (unless (stringp value)
@@ -18,7 +18,7 @@
     (block-validation-fail "~A params must include payload id" method))
   (let* ((payload-id
            (engine-rpc-payload-id-from-value
-            (engine-rpc-required-param
+            (json-rpc-required-param
              params 0 "payloadId" method)))
          (prepared-payload
            (chain-store-prepared-payload store payload-id)))

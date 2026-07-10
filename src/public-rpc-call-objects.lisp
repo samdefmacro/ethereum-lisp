@@ -18,16 +18,16 @@
   (let* ((data-present-p (json-object-field-present-p object "data"))
          (input-present-p (json-object-field-present-p object "input"))
          (data (when data-present-p
-                 (engine-rpc-bytes (json-object-field object "data")
+                 (json-rpc-bytes (json-object-field object "data")
                                    (format nil "~A data" method))))
          (input (when input-present-p
-                  (engine-rpc-bytes (json-object-field object "input")
+                  (json-rpc-bytes (json-object-field object "input")
                                     (format nil "~A input" method)))))
     (or input data (make-byte-vector 0))))
 
 (defun eth-rpc-call-object-access-list-storage-key (value method)
   (handler-case
-      (engine-rpc-hash32 value "accessList storage key")
+      (json-rpc-hash32 value "accessList storage key")
     (block-validation-error ()
       (block-validation-fail
        "~A accessList storage key must be a 32-byte hash"

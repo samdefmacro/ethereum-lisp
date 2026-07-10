@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.engine-api)
 
 (defun engine-rpc-new-payload-version (method)
   (cond
@@ -9,33 +9,31 @@
     ((string= method "engine_newPayloadV5") 5)
     (t nil)))
 
-(defun engine-rpc-required-param
-    (params index label &optional (method "engine_newPayload"))
-  (unless (< index (length params))
-    (block-validation-fail "~A param ~A is missing" method label))
-  (nth index params))
-
 (defun engine-rpc-handle-new-payload
     (version params store config &key import-function)
   (unless (and (listp params) params)
     (block-validation-fail "engine_newPayload params must include payload"))
   (let* ((payload
            (engine-rpc-executable-data-from-object
-            (engine-rpc-required-param params 0 "payload")))
+            (json-rpc-required-param
+             params 0 "payload" "engine_newPayload")))
          (versioned-hashes
            (when (>= version 3)
-             (engine-rpc-hash32-list
-              (engine-rpc-required-param params 1 "versionedHashes")
+             (json-rpc-hash32-list
+              (json-rpc-required-param
+               params 1 "versionedHashes" "engine_newPayload")
               "versionedHashes")))
          (parent-beacon-root
            (when (>= version 3)
-             (engine-rpc-optional-hash32-value
-              (engine-rpc-required-param params 2 "parentBeaconBlockRoot")
+             (json-rpc-optional-hash32-value
+              (json-rpc-required-param
+               params 2 "parentBeaconBlockRoot" "engine_newPayload")
               "parentBeaconBlockRoot")))
          (requests
            (when (>= version 4)
-             (engine-rpc-byte-list
-              (engine-rpc-required-param params 3 "executionRequests")
+             (json-rpc-byte-list
+              (json-rpc-required-param
+               params 3 "executionRequests" "engine_newPayload")
               "executionRequests"))))
     (multiple-value-bind (status block)
         (cond
@@ -79,7 +77,7 @@
         (block-validation-fail
          "engine_getClientVersionV1 params must contain a client version object"))
       (dolist (field '("code" "name" "version" "commit"))
-        (let ((value (engine-rpc-required-field caller field)))
+        (let ((value (json-rpc-required-field caller field)))
           (unless (stringp value)
             (block-validation-fail
              "engine_getClientVersionV1 client version fields must be strings"))))))
@@ -93,11 +91,11 @@
     (block-validation-fail
      "engine_exchangeTransitionConfigurationV1 config must be chain-config"))
   (let ((terminal-total-difficulty
-          (engine-rpc-required-quantity-field object
+          (json-rpc-required-quantity-field object
                                               "terminalTotalDifficulty"))
         (terminal-block-hash
-          (engine-rpc-required-hash32-field object "terminalBlockHash")))
-    (engine-rpc-required-quantity-field object "terminalBlockNumber")
+          (json-rpc-required-hash32-field object "terminalBlockHash")))
+    (json-rpc-required-quantity-field object "terminalBlockNumber")
     (unless (= terminal-total-difficulty
                (or (chain-config-terminal-total-difficulty config) 0))
       (block-validation-fail

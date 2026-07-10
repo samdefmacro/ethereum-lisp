@@ -5,7 +5,7 @@
 
 (defun eth-rpc-fee-history-block-count (params method)
   (let ((count (parse-json-quantity
-                (engine-rpc-required-param params 0 "block count" method)
+                (json-rpc-required-param params 0 "block count" method)
                 "fee history block count"
                 :required-p t)))
     (when (< count 1)
@@ -14,7 +14,7 @@
     (min count +eth-rpc-max-fee-history-block-count+)))
 
 (defun eth-rpc-fee-history-newest-block-number (params store method)
-  (let ((value (engine-rpc-required-param params 1 "newest block" method)))
+  (let ((value (json-rpc-required-param params 1 "newest block" method)))
     (cond
       ((eth-rpc-head-block-tag-p value)
        (chain-store-block-tag-number store value))
@@ -27,7 +27,7 @@
         method)))))
 
 (defun eth-rpc-fee-history-reward-percentiles (params method)
-  (let ((percentiles (engine-rpc-required-param
+  (let ((percentiles (json-rpc-required-param
                       params 2 "reward percentiles" method)))
     (unless (json-array-p percentiles)
       (block-validation-fail

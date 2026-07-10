@@ -5,15 +5,15 @@
     (block-validation-fail "web3_clientVersion params must be empty"))
   (let ((version (engine-rpc-client-version)))
     (format nil "~A/~A/~A/~A"
-            (engine-rpc-required-field version "name")
-            (engine-rpc-required-field version "version")
-            (engine-rpc-required-field version "code")
-            (engine-rpc-required-field version "commit"))))
+            (json-rpc-required-field version "name")
+            (json-rpc-required-field version "version")
+            (json-rpc-required-field version "code")
+            (json-rpc-required-field version "commit"))))
 
 (defun engine-rpc-handle-web3-sha3 (params)
   (unless (= 1 (length params))
     (block-validation-fail "web3_sha3 params must contain exactly one data value"))
-  (bytes-to-hex (keccak-256 (engine-rpc-bytes (first params) "web3_sha3 data"))))
+  (bytes-to-hex (keccak-256 (json-rpc-bytes (first params) "web3_sha3 data"))))
 
 (defun engine-rpc-handle-rpc-modules (params allowed-method-p)
   (when params

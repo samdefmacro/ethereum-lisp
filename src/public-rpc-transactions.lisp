@@ -4,7 +4,7 @@
   (unless (= 2 (length params))
     (block-validation-fail
      "~A params must contain block id and transaction index" method))
-  (engine-rpc-quantity-param params 1 "transaction index" method))
+  (json-rpc-quantity-param params 1 "transaction index" method))
 
 (defun eth-rpc-raw-transaction (transaction &key expected-chain-id)
   (when (and transaction

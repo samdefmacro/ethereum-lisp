@@ -8,7 +8,8 @@
     (is (member json (package-use-list protocol)))
     (dolist (name '("JSON-RPC-RESPONSE"
                     "JSON-RPC-INVALID-REQUEST-RESPONSE"
-                    "JSON-RPC-REQUEST-VALID-P"))
+                    "JSON-RPC-REQUEST-VALID-P"
+                    "JSON-RPC-REQUIRED-FIELD"))
       (multiple-value-bind (protocol-symbol protocol-status)
           (find-symbol name protocol)
         (multiple-value-bind (core-symbol core-status)

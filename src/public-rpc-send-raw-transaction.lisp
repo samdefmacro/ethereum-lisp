@@ -15,7 +15,7 @@
     (block-validation-fail
      "eth_sendRawTransaction params must contain exactly one transaction"))
   (let* ((raw-bytes
-            (engine-rpc-bytes
+            (json-rpc-bytes
              (first params)
              "eth_sendRawTransaction transaction"))
          (transaction (transaction-from-encoding raw-bytes))

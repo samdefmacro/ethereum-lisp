@@ -90,9 +90,10 @@ The current source ownership map is:
 - `ethereum-lisp.json` / `json-read.lisp` / `json-write.lisp` /
   `json-object-fields.lisp`: JSON parsing, encoding, shape predicates, object
   access, and quantity decoding without genesis or RPC ownership.
-- `ethereum-lisp.json-rpc` / `json-rpc-protocol.lisp`: transport-independent
-  JSON-RPC 2.0 envelope validation and success/error response construction.
-  It contains no Engine, public method, chain, or HTTP policy.
+- `ethereum-lisp.json-rpc` / `json-rpc-protocol.lisp` /
+  `json-rpc-codecs.lisp`: transport-independent JSON-RPC 2.0 envelope
+  validation, response construction, and common field/parameter coercion. It
+  contains no Engine, public method, chain, or HTTP policy.
 - `engine-api-methods.lisp`: Engine and public namespace method filters,
   including direct KZG capability checks through the KZG package contract.
 - `ethereum-lisp.genesis` / `genesis-*.lisp`: genesis account values,
@@ -153,6 +154,10 @@ The current source ownership map is:
   forkchoice state transitions over the payload, consensus, and chain-store
   contracts. It owns cache/import status decisions but has no JSON-RPC or HTTP
   dependency.
+- `ethereum-lisp.engine-api` / Engine RPC codecs, handlers,
+  `engine-api-methods.lisp`, and `engine-api-dispatch.lisp`: the Engine JSON-RPC
+  wire adapter over `json-rpc` and the Engine service. It contains no Public
+  RPC routing or HTTP transport.
 - `ethereum-lisp.chain-store.model` / `chain-store-types.lisp`: in-memory
   store, checkpoint, transaction-location, filter, and blob lookup records.
   The model owns no storage behavior and depends only on protocol types and
@@ -276,14 +281,12 @@ The current source ownership map is:
 - `block-validation-receipts.lisp`: receipt/log validation and execution
   commitment root checks.
 - `block-validation.lisp`: block validation compatibility loader.
-- `engine-rpc-field-codecs.lisp`: Engine API field coercion.
 - `engine-rpc-payload-input-codecs.lisp`: Engine payload JSON object decoding.
 - `engine-rpc-payload-codecs.lisp`: Engine payload/status object rendering.
 - `engine-rpc-forkchoice-codecs.lisp`: forkchoice state and payload attribute
   validation.
 - `engine-rpc-capabilities.lisp`: Engine capability lists, client version, and
   transition configuration rendering.
-- `engine-rpc-codecs.lisp`: compatibility package entry for Engine RPC codecs.
 - `engine-rpc-new-payload.lisp`: `engine_newPayload*`, capability exchange,
   client version, and transition configuration handlers.
 - `engine-rpc-errors.lisp`: Engine API error condition and protocol error
@@ -294,7 +297,7 @@ The current source ownership map is:
   query handlers.
 - `engine-rpc-forkchoice.lisp`: `engine_forkchoiceUpdated*` checkpoint
   updates, prepared payload construction, and payload-id caching.
-- `engine-rpc.lisp`: final Engine API method dispatch.
+- `engine-api-dispatch.lisp`: final Engine API method dispatch.
 - `public-rpc-params.lisp`: shared public JSON-RPC address, hash, block tag,
   and block id parameter coercion.
 - `public-rpc-call-defaults.lisp`: default gas-limit selection for public

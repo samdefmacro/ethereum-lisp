@@ -31,7 +31,7 @@
   (unless (= 1 (length params))
     (block-validation-fail "~A params must contain exactly one filter id"
                            method))
-  (engine-rpc-quantity-param params 0 "filter id" method))
+  (json-rpc-quantity-param params 0 "filter id" method))
 
 (defun engine-rpc-handle-eth-get-filter-logs (params store)
   (let* ((method "eth_getFilterLogs")

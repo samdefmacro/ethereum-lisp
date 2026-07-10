@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.engine-api)
 
 (defconstant +engine-rpc-max-payload-bodies-request+ 1024)
 (defconstant +engine-rpc-max-get-blobs-request+ 128)
@@ -7,8 +7,8 @@
   (unless (and (listp params) params)
     (block-validation-fail
      "~A params must include blob versioned hashes" method))
-  (engine-rpc-hash32-list
-   (engine-rpc-required-param
+  (json-rpc-hash32-list
+   (json-rpc-required-param
     params 0 "blobVersionedHashes" method)
    "blobVersionedHashes"))
 
@@ -65,8 +65,8 @@
     (block-validation-fail
      "~A params must include block hashes" method))
   (let ((hashes
-          (engine-rpc-hash32-list
-           (engine-rpc-required-param
+          (json-rpc-hash32-list
+           (json-rpc-required-param
             params 0 "blockHashes" method)
            "blockHashes")))
     (when (> (length hashes) +engine-rpc-max-payload-bodies-request+)
@@ -89,20 +89,14 @@
    params store "engine_getPayloadBodiesByHashV2"
    #'engine-rpc-payload-body-v2-object))
 
-(defun engine-rpc-quantity-param (params index label method)
-  (parse-json-quantity
-   (engine-rpc-required-param params index label method)
-   label
-   :required-p t))
-
 (defun engine-rpc-handle-get-payload-bodies-by-range
     (params store method body-object-function)
   (unless (and (listp params) params)
     (block-validation-fail
      "~A params must include start and count" method))
-  (let ((start (engine-rpc-quantity-param
+  (let ((start (json-rpc-quantity-param
                 params 0 "start" method))
-        (count (engine-rpc-quantity-param
+        (count (json-rpc-quantity-param
                 params 1 "count" method)))
     (unless (and (plusp start) (plusp count))
       (block-validation-fail "start and count must be positive numbers"))
