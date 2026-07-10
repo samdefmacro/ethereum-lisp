@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.chain-store)
 
 (defun engine-payload-store-notify-block-filters (store block)
   (unless (typep store 'engine-payload-memory-store)

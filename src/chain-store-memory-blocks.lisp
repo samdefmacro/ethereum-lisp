@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.chain-store)
 
 ;;;; In-memory block storage and forkchoice checkpoint updates.
 
@@ -8,7 +8,7 @@
     (block-validation-fail "Engine payload store must be a memory store"))
   (unless (typep block 'ethereum-block)
     (block-validation-fail "Engine payload store block must be a block"))
-  (let ((txpool (engine-payload-store-txpool store)))
+  (let ((txpool (engine-payload-memory-store-txpool store)))
     (unless (engine-pending-txpool-empty-p txpool)
       (dolist (transaction (block-transactions block))
         (engine-pending-txpool-sender transaction))))

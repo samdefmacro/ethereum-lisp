@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.chain-store)
 
 (defun engine-payload-store-canonical-parent-p (store block)
   (let* ((header (block-header block))

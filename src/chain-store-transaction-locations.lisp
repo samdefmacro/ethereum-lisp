@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.chain-store)
 
 (defun engine-payload-store-put-transaction-location
     (store block index transaction receipt log-index-start &key force)
@@ -60,7 +60,9 @@
 
 (defun engine-payload-store-remove-included-block-transactions (store block)
   (dolist (transaction (block-transactions block))
-    (engine-payload-store-remove-included-transaction store transaction))
+    (engine-pending-txpool-remove-included-transaction
+     (engine-payload-memory-store-txpool store)
+     transaction))
   block)
 
 (defun engine-payload-store-transaction-location (store hash)

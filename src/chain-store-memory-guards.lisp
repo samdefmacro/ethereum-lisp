@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.chain-store)
 
 (defun chain-store-require-memory-store (store)
   (unless (typep store 'engine-payload-memory-store)

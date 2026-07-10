@@ -148,6 +148,10 @@ The current source ownership map is:
   store, checkpoint, transaction-location, filter, and blob lookup records.
   The model owns no storage behavior and depends only on protocol types and
   the txpool index model.
+- `ethereum-lisp.chain-store` / chain-store memory, copy, cache, filter,
+  state, canonical-index, and transaction-location modules: pure in-memory
+  store behavior over the model. Canonical-head/reorg and txpool persistence
+  remain application adapters until their txpool coordination is extracted.
 - `chain-store-memory-guards.lisp`: shared memory-store type checks for
   in-memory-only chain-store operations.
 - `chain-store-copy-values.lisp`: defensive copying for shared store values,

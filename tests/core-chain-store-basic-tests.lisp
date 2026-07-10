@@ -22,6 +22,31 @@
         (is (null symbol))
         (is (null status))))))
 
+(deftest chain-store-service-package-boundary
+  (let ((store (find-package '#:ethereum-lisp.chain-store))
+        (model (find-package '#:ethereum-lisp.chain-store.model))
+        (txpool-index (find-package '#:ethereum-lisp.txpool.index))
+        (core (find-package '#:ethereum-lisp.core)))
+    (is (not (member core (package-use-list store))))
+    (is (member model (package-use-list store)))
+    (is (member txpool-index (package-use-list store)))
+    (dolist (name '("ENGINE-PAYLOAD-STORE-PUT-BLOCK"
+                    "CHAIN-STORE-ATOMIC-COMMIT"
+                    "CHAIN-STORE-PUT-ACCOUNT-BALANCE"))
+      (multiple-value-bind (store-symbol store-status)
+          (find-symbol name store)
+        (multiple-value-bind (core-symbol core-status)
+            (find-symbol name core)
+          (is (eq :external store-status))
+          (is (eq :external core-status))
+          (is (eq store-symbol core-symbol)))))
+    (dolist (name '("CHAIN-STORE-SET-CANONICAL-HEAD"
+                    "ENGINE-PAYLOAD-STORE-PROMOTE-QUEUED-TRANSACTIONS"))
+      (multiple-value-bind (symbol status)
+          (find-symbol name store)
+        (is (null symbol))
+        (is (null status))))))
+
 (deftest chain-store-interface-wraps-memory-payload-store
   (let* ((store (make-engine-payload-memory-store))
          (payload-id #(3 2 3 4 5 6 7 8))

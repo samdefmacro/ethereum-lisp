@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.chain-store)
 
 (defun engine-payload-store-remember-account-key
     (accounts block-prefix key &key storage-key-p)
