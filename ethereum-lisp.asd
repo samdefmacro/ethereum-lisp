@@ -100,6 +100,7 @@
      (:file "engine-payload-validation")
      (:file "engine-payload-build")
      (:file "chain-store-types")
+     (:file "node-state")
      (:file "chain-store-copy-values")
      (:file "chain-store-copy-blocks")
      (:file "txpool-index-copy")

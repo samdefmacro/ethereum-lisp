@@ -47,8 +47,7 @@
                                 (block-header-number
                                  (block-header block)))))
       (dolist (transaction (block-transactions block))
-        (let ((key (engine-payload-store-key
-                    (transaction-hash transaction))))
+        (let ((key (hash32-to-hex (transaction-hash transaction))))
           (unless (gethash key seen-transactions)
             (setf (gethash key seen-transactions) t)
             (when (engine-payload-store-reinsert-displaced-transaction

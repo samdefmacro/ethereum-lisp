@@ -117,6 +117,7 @@
         #:ethereum-lisp.json
         #:ethereum-lisp.chain-config
         #:ethereum-lisp.chain-store.model
+        #:ethereum-lisp.node-state
         #:ethereum-lisp.engine-api
         #:ethereum-lisp.rpc)
   (:export

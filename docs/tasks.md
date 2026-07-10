@@ -9122,6 +9122,8 @@ splits can land after the Phase A smoke path closes.
 
 ## Recently Completed
 
+- [x] Move the mutable in-memory node aggregate into `ethereum-lisp.node-state`
+  so `chain-store.model` no longer owns or depends on txpool index state.
 - [x] Consolidate tiny constants, hashes, commitments, and guard fragments into
   their actual type, codec, validation, or atomic-store owners instead of
   preserving same-prefix files without independent contracts.

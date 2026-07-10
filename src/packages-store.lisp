@@ -1,37 +1,13 @@
 (defpackage #:ethereum-lisp.chain-store.model
   (:use #:cl
         #:ethereum-lisp.types
-        #:ethereum-lisp.validation
-        #:ethereum-lisp.txpool.index)
+        #:ethereum-lisp.validation)
   (:export
    #:chain-store-checkpoint
    #:chain-store-checkpoint-p
    #:make-chain-store-checkpoint
    #:chain-store-checkpoint-label
    #:chain-store-checkpoint-block-hash
-   #:engine-payload-memory-store
-   #:engine-payload-memory-store-p
-   #:make-engine-payload-memory-store
-   #:engine-payload-memory-store-blocks
-   #:engine-payload-memory-store-number-blocks
-   #:engine-payload-memory-store-canonical-hashes
-   #:engine-payload-memory-store-transaction-locations
-   #:engine-payload-memory-store-account-balances
-   #:engine-payload-memory-store-account-nonces
-   #:engine-payload-memory-store-account-codes
-   #:engine-payload-memory-store-account-storage
-   #:engine-payload-memory-store-head-number
-   #:engine-payload-memory-store-state-blocks
-   #:engine-payload-memory-store-remote-blocks
-   #:engine-payload-memory-store-invalid-tipsets
-   #:engine-payload-memory-store-prepared-payloads
-   #:engine-payload-memory-store-blob-sidecars
-   #:engine-payload-memory-store-txpool
-   #:engine-payload-memory-store-log-filters
-   #:engine-payload-memory-store-next-log-filter-id
-   #:engine-payload-memory-store-head-checkpoint
-   #:engine-payload-memory-store-safe-checkpoint
-   #:engine-payload-memory-store-finalized-checkpoint
    #:engine-transaction-location
    #:engine-transaction-location-p
    #:make-engine-transaction-location
@@ -73,6 +49,35 @@
    #:engine-block-filter-record-hash
    #:engine-payload-store-key))
 
+(defpackage #:ethereum-lisp.node-state
+  (:use #:cl
+        #:ethereum-lisp.chain-store.model
+        #:ethereum-lisp.txpool.index)
+  (:export
+   #:engine-payload-memory-store
+   #:engine-payload-memory-store-p
+   #:make-engine-payload-memory-store
+   #:engine-payload-memory-store-blocks
+   #:engine-payload-memory-store-number-blocks
+   #:engine-payload-memory-store-canonical-hashes
+   #:engine-payload-memory-store-transaction-locations
+   #:engine-payload-memory-store-account-balances
+   #:engine-payload-memory-store-account-nonces
+   #:engine-payload-memory-store-account-codes
+   #:engine-payload-memory-store-account-storage
+   #:engine-payload-memory-store-head-number
+   #:engine-payload-memory-store-state-blocks
+   #:engine-payload-memory-store-remote-blocks
+   #:engine-payload-memory-store-invalid-tipsets
+   #:engine-payload-memory-store-prepared-payloads
+   #:engine-payload-memory-store-blob-sidecars
+   #:engine-payload-memory-store-txpool
+   #:engine-payload-memory-store-log-filters
+   #:engine-payload-memory-store-next-log-filter-id
+   #:engine-payload-memory-store-head-checkpoint
+   #:engine-payload-memory-store-safe-checkpoint
+   #:engine-payload-memory-store-finalized-checkpoint))
+
 (defpackage #:ethereum-lisp.chain-store
   (:use #:cl
         #:ethereum-lisp.bytes
@@ -89,7 +94,8 @@
         #:ethereum-lisp.kzg
         #:ethereum-lisp.engine-payloads
         #:ethereum-lisp.txpool.index
-        #:ethereum-lisp.chain-store.model)
+        #:ethereum-lisp.chain-store.model
+        #:ethereum-lisp.node-state)
   (:export
    #:chain-store-require-memory-store
    #:engine-payload-store-copy-table

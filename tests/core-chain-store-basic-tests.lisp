@@ -5,9 +5,8 @@
         (txpool-index (find-package '#:ethereum-lisp.txpool.index))
         (core (find-package '#:ethereum-lisp.core)))
     (is (not (member core (package-use-list model))))
-    (is (member txpool-index (package-use-list model)))
-    (dolist (name '("ENGINE-PAYLOAD-MEMORY-STORE"
-                    "CHAIN-STORE-CHECKPOINT"
+    (is (not (member txpool-index (package-use-list model))))
+    (dolist (name '("CHAIN-STORE-CHECKPOINT"
                     "ENGINE-TRANSACTION-LOCATION"))
       (multiple-value-bind (model-symbol model-status)
           (find-symbol name model)
@@ -22,14 +21,35 @@
         (is (null symbol))
         (is (null status))))))
 
+(deftest node-state-package-boundary
+  (let ((node-state (find-package '#:ethereum-lisp.node-state))
+        (model (find-package '#:ethereum-lisp.chain-store.model))
+        (txpool-index (find-package '#:ethereum-lisp.txpool.index))
+        (core (find-package '#:ethereum-lisp.core)))
+    (is (member model (package-use-list node-state)))
+    (is (member txpool-index (package-use-list node-state)))
+    (multiple-value-bind (node-symbol node-status)
+        (find-symbol "ENGINE-PAYLOAD-MEMORY-STORE" node-state)
+      (multiple-value-bind (core-symbol core-status)
+          (find-symbol "ENGINE-PAYLOAD-MEMORY-STORE" core)
+        (is (eq :external node-status))
+        (is (eq :external core-status))
+        (is (eq node-symbol core-symbol))))
+    (multiple-value-bind (symbol status)
+        (find-symbol "ENGINE-PAYLOAD-MEMORY-STORE" model)
+      (declare (ignore symbol))
+      (is (not (eq :external status))))))
+
 (deftest chain-store-service-package-boundary
   (let ((store (find-package '#:ethereum-lisp.chain-store))
         (model (find-package '#:ethereum-lisp.chain-store.model))
+        (node-state (find-package '#:ethereum-lisp.node-state))
         (txpool-index (find-package '#:ethereum-lisp.txpool.index))
         (json (find-package '#:ethereum-lisp.json))
         (core (find-package '#:ethereum-lisp.core)))
     (is (not (member core (package-use-list store))))
     (is (member model (package-use-list store)))
+    (is (member node-state (package-use-list store)))
     (is (member txpool-index (package-use-list store)))
     (is (not (member json (package-use-list store))))
     (dolist (name '("ENGINE-PAYLOAD-STORE-PUT-BLOCK"

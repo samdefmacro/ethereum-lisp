@@ -98,6 +98,7 @@
 (load-ethereum-lisp-test-file "src/engine-payload-validation.lisp")
 (load-ethereum-lisp-test-file "src/engine-payload-build.lisp")
 (load-ethereum-lisp-test-file "src/chain-store-types.lisp")
+(load-ethereum-lisp-test-file "src/node-state.lisp")
 (load-ethereum-lisp-test-file "src/chain-store-copy-values.lisp")
 (load-ethereum-lisp-test-file "src/chain-store-copy-blocks.lisp")
 (load-ethereum-lisp-test-file "src/txpool-index-copy.lisp")

@@ -624,14 +624,15 @@
    #:make-chain-store-checkpoint
    #:chain-store-checkpoint-label
    #:chain-store-checkpoint-block-hash
-   #:engine-payload-memory-store
-   #:make-engine-payload-memory-store
    #:engine-transaction-location
    #:engine-transaction-location-block
    #:engine-transaction-location-index
    #:engine-transaction-location-transaction
    #:engine-transaction-location-receipt
    #:engine-transaction-location-log-index-start)
+  (#:ethereum-lisp.node-state
+   #:engine-payload-memory-store
+   #:make-engine-payload-memory-store)
   (#:ethereum-lisp.chain-store
    #:engine-payload-store-put-block
    #:engine-payload-store-known-block

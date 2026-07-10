@@ -9,7 +9,7 @@
         #:ethereum-lisp.blocks
         #:ethereum-lisp.consensus
         #:ethereum-lisp.txpool.index
-        #:ethereum-lisp.chain-store.model
+        #:ethereum-lisp.node-state
         #:ethereum-lisp.chain-store)
   (:export
    #:engine-payload-store-txpool
@@ -58,6 +58,7 @@
         #:ethereum-lisp.chain-config
         #:ethereum-lisp.blocks
         #:ethereum-lisp.chain-store.model
+        #:ethereum-lisp.node-state
         #:ethereum-lisp.chain-store
         #:ethereum-lisp.txpool)
   (:export
@@ -73,6 +74,7 @@
         #:ethereum-lisp.consensus
         #:ethereum-lisp.engine-payloads
         #:ethereum-lisp.chain-store.model
+        #:ethereum-lisp.node-state
         #:ethereum-lisp.chain-store)
   (:export
    #:engine-payload-store-invalid-ancestor-status

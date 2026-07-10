@@ -172,13 +172,15 @@ The current source ownership map is:
   configuration does not duplicate RPC policy state.
 - `ethereum-lisp.core` / `packages-core.lisp`: compatibility re-export facade.
   No implementation is defined in this package.
-- `ethereum-lisp.chain-store.model` / `chain-store-types.lisp`: in-memory
-  store, checkpoint, transaction-location, filter, and blob lookup records.
-  The model owns no storage behavior and depends only on protocol types and
-  the txpool index model.
+- `ethereum-lisp.chain-store.model` / `chain-store-types.lisp`: checkpoint,
+  transaction-location, filter, and blob lookup records. The model owns no
+  storage behavior and has no txpool dependency.
+- `ethereum-lisp.node-state` / `node-state.lisp`: the explicit in-memory node
+  aggregate that composes chain data, txpool index state, caches, and filters.
+  Cross-domain mutable ownership belongs here rather than in a domain model.
 - `ethereum-lisp.chain-store` / chain-store memory, copy, cache, filter,
-  state, canonical-index, and transaction-location modules: pure in-memory
-  store behavior and public queries over the model. Canonical-head remains an
+  state, canonical-index, and transaction-location modules: in-memory chain
+  behavior and public queries over node state. Canonical-head remains an
   application service because it coordinates multiple domains.
 - `ethereum-lisp.txpool` / txpool store, admission, views, accounting,
   promotion, cleanup, and reorg modules: transaction-pool policy over the
@@ -531,6 +533,8 @@ The current source ownership map is:
 - Consensus data types may use primitives, RLP, crypto, trie, and chain rules.
 - State may use account types and trie commitments, but not genesis parsing.
 - Genesis-state assembly may bridge genesis input and mutable state.
+- Node state may compose chain-store records and txpool index state; neither
+  domain model may own the other domain's state.
 - EVM may use state and consensus types, but not RPC or CLI.
 - Execution may use EVM, state, and consensus types, but not chain store.
 - Execution services may bridge pure execution, state, and chain-store APIs.

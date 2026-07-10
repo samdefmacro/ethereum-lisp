@@ -26,10 +26,14 @@
 (deftest txpool-service-package-boundary
   (let ((txpool (find-package '#:ethereum-lisp.txpool))
         (index (find-package '#:ethereum-lisp.txpool.index))
+        (node-state (find-package '#:ethereum-lisp.node-state))
+        (model (find-package '#:ethereum-lisp.chain-store.model))
         (chain-store (find-package '#:ethereum-lisp.chain-store))
         (core (find-package '#:ethereum-lisp.core)))
     (is (not (member core (package-use-list txpool))))
     (is (member index (package-use-list txpool)))
+    (is (member node-state (package-use-list txpool)))
+    (is (not (member model (package-use-list txpool))))
     (is (member chain-store (package-use-list txpool)))
     (dolist (name '("ENGINE-PAYLOAD-STORE-PUT-PENDING-TRANSACTION"
                     "ENGINE-PAYLOAD-STORE-POOLED-TRANSACTIONS"
@@ -82,7 +86,7 @@
                                :gas-used 0)
             :transactions (list transaction))))
     (is (typep
-         (ethereum-lisp.chain-store.model:engine-payload-memory-store-txpool store)
+         (ethereum-lisp.node-state:engine-payload-memory-store-txpool store)
          'ethereum-lisp.txpool.index:engine-pending-txpool))
     (is (= 0
            (ethereum-lisp.txpool:engine-payload-store-queued-transaction-count
