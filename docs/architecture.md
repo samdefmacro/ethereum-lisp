@@ -24,11 +24,14 @@ through a broad package dependency.
 
 ## Current Package Boundary
 
-The project still has a large `ethereum-lisp.core` package. Refactors should
-first split files while keeping this package stable, then tighten exports and
-only split packages when the load order and public API are clear.
+The project still has a legacy `ethereum-lisp.core` package. File size and
+name prefixes are not module boundaries: a refactor must first identify an
+owner, its public contract, and the allowed dependency direction. Split code
+only when the resulting units have cohesive behavior and communicate through
+an explicit API or state object. Keep compatibility facades thin, and move
+implementation symbols into narrower packages as their contracts stabilize.
 
-The first mechanical split is:
+The current source ownership map is:
 
 - `packages-foundation.lisp`: base package definitions for bytes, hex,
   database, telemetry, RLP, types, crypto, and trie.
@@ -428,7 +431,15 @@ The first mechanical split is:
   rollback, code-deposit, and result mapping helpers.
 - `evm-interpreter-call.lisp`: shared CALL/CALLCODE/DELEGATECALL/STATICCALL
   child execution, precompile dispatch, rollback, and result mapping helpers.
-- `evm.lisp`: bytecode interpreter loop and opcode execution.
+- `evm-interpreter-machine.lisp`: explicit mutable call-frame state and the
+  stack, gas, memory, halt, and result operations that preserve its invariants.
+- `evm/opcodes/`: opcode semantics grouped by protocol responsibility:
+  arithmetic, environment, state/memory, stack/log, and system operations.
+  Handlers receive one machine object and do not own the fetch loop.
+- `evm/interpreter.lisp`: one-step fetch, base-gas charging, step limits, and
+  opcode-family dispatch.
+- `evm.lisp`: stable public execution entry point; it owns frame lifetime but
+  contains no opcode semantics.
 - `execution-constants.lisp`: execution gas, nonce, code-size, refund, and
   proof-of-work reward constants.
 - `execution-state.lisp`: account mutation helpers, code resolution, contract

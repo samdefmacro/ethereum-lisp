@@ -277,6 +277,19 @@
      (:file "evm-interpreter-create")
      (:file "evm-interpreter-call")
      (:file "evm-interpreter-machine")
+     (:module "evm-interpreter"
+      :pathname "evm/"
+      :serial t
+      :components
+      ((:module "opcodes"
+        :serial t
+        :components
+        ((:file "arithmetic")
+         (:file "environment")
+         (:file "state-memory")
+         (:file "stack-log")
+         (:file "system")))
+       (:file "interpreter")))
      (:file "evm")
      (:file "execution-constants")
      (:file "execution-state")

@@ -100,23 +100,10 @@ hiding them in one large lexical scope."
    :refund-counter (evm-machine-refund-counter machine)))
 
 (defmacro with-evm-machine-state ((machine) &body body)
-  "Expose machine slots to opcode code while handlers are migrated incrementally."
+  "Bind the mutable frame fields used by an opcode handler."
   `(with-slots (code context gas-limit max-steps pc steps gas-used stack memory
                 return-data return-data-buffer frame-snapshot
                 original-storage-values cleared-storage-slots logs
                 refund-counter status halted-p)
        ,machine
-     (flet ((binary (function)
-              (evm-machine-apply-binary ,machine function))
-            (comparison (predicate)
-              (evm-machine-apply-comparison ,machine predicate))
-            (charge-extra-gas (amount)
-              (evm-machine-charge-gas ,machine amount))
-            (charge-call-value-gas (required charged)
-              (evm-machine-charge-call-value-gas
-               ,machine required charged))
-            (charge-memory-gas (offset size)
-              (evm-machine-charge-memory-gas ,machine offset size))
-            (charge-copy-gas (offset size)
-              (evm-machine-charge-copy-gas ,machine offset size)))
-       ,@body)))
+     ,@body))
