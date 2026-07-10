@@ -133,12 +133,9 @@ The current source ownership map is:
   typed and encoded access-list bodies; this adapter owns the dependency on a
   block object instead of placing it in the access-list package.
 - `genesis-block.lisp`: fork-aware genesis header and block construction.
-- `kzg-verifier-hooks.lisp`: optional KZG point/blob proof verifier hook
-  variables and availability checks.
-- `kzg-command-verifier.lisp`: command-backed KZG verifier adapter.
-- `kzg-validation.lisp`: KZG field, point/blob proof, and blob sidecar
-  validation.
-- `kzg.lisp`: compatibility package entry for KZG modules.
+- `ethereum-lisp.kzg` / `kzg-*.lisp`: KZG constants, verifier ports,
+  command-backed adapter, field/blob proof verification, and sidecar
+  validation. CLI configures the verifier port without owning KZG behavior.
 - `engine-payload-types.lisp`: Engine payload structs, forkchoice payload
   attributes, status constants, and prepared payload validation.
 - `engine-payload-codecs.lisp`: defensive payload copying and block-to-payload

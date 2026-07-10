@@ -15,7 +15,8 @@
         #:ethereum-lisp.blocks
         #:ethereum-lisp.json
         #:ethereum-lisp.genesis
-        #:ethereum-lisp.consensus)
+        #:ethereum-lisp.consensus
+        #:ethereum-lisp.kzg)
   (:import-from #:ethereum-lisp.database
    #:key-value-database
    #:make-kv-write-batch

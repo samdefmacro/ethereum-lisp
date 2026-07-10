@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.kzg)
 
 (defvar *kzg-point-proof-verifier* nil
   "Optional verifier for EIP-4844 point proofs.

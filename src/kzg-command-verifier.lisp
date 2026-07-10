@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.kzg)
 
 (defparameter *kzg-verifier-command-timeout-seconds* 5
   "Maximum wall-clock seconds to wait for an external KZG verifier command.")

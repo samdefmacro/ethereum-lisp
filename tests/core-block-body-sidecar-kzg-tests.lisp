@@ -1,5 +1,29 @@
 (in-package #:ethereum-lisp.test)
 
+(deftest kzg-package-boundary
+  (let ((kzg (find-package '#:ethereum-lisp.kzg))
+        (transactions (find-package '#:ethereum-lisp.transactions))
+        (consensus (find-package '#:ethereum-lisp.consensus))
+        (core (find-package '#:ethereum-lisp.core)))
+    (is (not (member core (package-use-list kzg))))
+    (is (member transactions (package-use-list kzg)))
+    (is (member consensus (package-use-list kzg)))
+    (dolist (name '("VERIFY-KZG-BLOB-PROOF"
+                    "CONFIGURE-KZG-PROOF-COMMAND-VERIFIERS"
+                    "VALIDATE-BLOB-SIDECAR-FIELDS"))
+      (multiple-value-bind (kzg-symbol kzg-status)
+          (find-symbol name kzg)
+        (multiple-value-bind (core-symbol core-status)
+            (find-symbol name core)
+          (is (eq :external kzg-status))
+          (is (eq :external core-status))
+          (is (eq kzg-symbol core-symbol)))))
+    (dolist (name '("EXECUTABLE-DATA" "CHAIN-STORE-CHECKPOINT"))
+      (multiple-value-bind (symbol status)
+          (find-symbol name kzg)
+        (is (null symbol))
+        (is (null status))))))
+
 (deftest blob-sidecar-field-validation
   (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
          (blob (make-byte-vector +blob-byte-size+))
@@ -297,4 +321,3 @@
                 :require-proof-verification t)))
         (setf *kzg-point-proof-verifier* old-point-verifier
               *kzg-blob-proof-verifier* old-blob-verifier)))))
-

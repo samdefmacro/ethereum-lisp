@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.kzg)
 
 (defun validate-kzg-field-element (bytes label)
   (let ((bytes (ensure-byte-vector bytes)))
