@@ -37,7 +37,6 @@
   (etypecase transaction
     (legacy-transaction
      (values (legacy-transaction-nonce transaction)
-             (legacy-transaction-gas-price transaction)
              (legacy-transaction-gas-limit transaction)
              (legacy-transaction-to transaction)
              (legacy-transaction-value transaction)
@@ -47,7 +46,6 @@
              (legacy-transaction-s transaction)))
     (access-list-transaction
      (values (access-list-transaction-nonce transaction)
-             (access-list-transaction-gas-price transaction)
              (access-list-transaction-gas-limit transaction)
              (access-list-transaction-to transaction)
              (access-list-transaction-value transaction)
@@ -57,7 +55,6 @@
              (access-list-transaction-s transaction)))
     (dynamic-fee-transaction
      (values (dynamic-fee-transaction-nonce transaction)
-             (dynamic-fee-transaction-max-fee-per-gas transaction)
              (dynamic-fee-transaction-gas-limit transaction)
              (dynamic-fee-transaction-to transaction)
              (dynamic-fee-transaction-value transaction)
@@ -67,7 +64,6 @@
              (dynamic-fee-transaction-s transaction)))
     (blob-transaction
      (values (blob-transaction-nonce transaction)
-             (blob-transaction-max-fee-per-gas transaction)
              (blob-transaction-gas-limit transaction)
              (blob-transaction-to transaction)
              (blob-transaction-value transaction)
@@ -77,7 +73,6 @@
              (blob-transaction-s transaction)))
     (set-code-transaction
      (values (set-code-transaction-nonce transaction)
-             (set-code-transaction-max-fee-per-gas transaction)
              (set-code-transaction-gas-limit transaction)
              (set-code-transaction-to transaction)
              (set-code-transaction-value transaction)

@@ -33,6 +33,20 @@
     (is (not (member (find-package '#:ethereum-lisp.state)
                      (package-use-list public))))))
 
+(deftest runtime-domain-packages-do-not-depend-on-core
+  (let ((core (find-package '#:ethereum-lisp.core))
+        (state (find-package '#:ethereum-lisp.state))
+        (evm-internal (find-package '#:ethereum-lisp.evm.internal))
+        (execution (find-package '#:ethereum-lisp.execution))
+        (accounts (find-package '#:ethereum-lisp.accounts))
+        (chain-store (find-package '#:ethereum-lisp.chain-store)))
+    (dolist (package (list state evm-internal execution))
+      (is (not (member core (package-use-list package)))))
+    (is (member accounts (package-use-list state)))
+    (is (member state (package-use-list evm-internal)))
+    (is (member state (package-use-list execution)))
+    (is (member chain-store (package-use-list execution)))))
+
 (deftest evm-context-carries-chain-rules
   (let* ((rules (make-chain-rules :chain-id 1 :london-p t :prague-p t))
          (context (make-evm-context :chain-id 1 :chain-rules rules)))

@@ -10,7 +10,7 @@
                           +genesis-gas-limit+))
          (requested
            (eth-rpc-call-object-quantity-field
-            object "gas" method :default block-limit)))
+            object "gas" :default block-limit)))
     (min requested block-limit)))
 
 (defun eth-rpc-estimate-gas-success-p

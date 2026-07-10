@@ -6,7 +6,12 @@
         #:ethereum-lisp.rlp
         #:ethereum-lisp.crypto
         #:ethereum-lisp.trie
-        #:ethereum-lisp.core)
+        #:ethereum-lisp.validation
+        #:ethereum-lisp.json
+        #:ethereum-lisp.genesis
+        #:ethereum-lisp.accounts
+        #:ethereum-lisp.transactions
+        #:ethereum-lisp.receipts)
   (:export
    #:state-db
    #:make-state-db
@@ -97,7 +102,12 @@
         #:ethereum-lisp.rlp
         #:ethereum-lisp.types
         #:ethereum-lisp.crypto
-        #:ethereum-lisp.core
+        #:ethereum-lisp.chain-config
+        #:ethereum-lisp.accounts
+        #:ethereum-lisp.transactions
+        #:ethereum-lisp.receipts
+        #:ethereum-lisp.consensus
+        #:ethereum-lisp.kzg
         #:ethereum-lisp.state)
   (:export
    #:evm-error
@@ -244,7 +254,16 @@
         #:ethereum-lisp.rlp
         #:ethereum-lisp.types
         #:ethereum-lisp.crypto
-        #:ethereum-lisp.core
+        #:ethereum-lisp.validation
+        #:ethereum-lisp.chain-config
+        #:ethereum-lisp.accounts
+        #:ethereum-lisp.transactions
+        #:ethereum-lisp.receipts
+        #:ethereum-lisp.execution-requests
+        #:ethereum-lisp.block-access-lists
+        #:ethereum-lisp.blocks
+        #:ethereum-lisp.consensus
+        #:ethereum-lisp.chain-store
         #:ethereum-lisp.state
         #:ethereum-lisp.evm)
   (:export
@@ -262,36 +281,3 @@
    #:execute-and-commit-block
    #:execute-and-commit-signed-block
    #:execute-signed-block))
-
-(defpackage #:ethereum-lisp.cli
-  (:use #:cl
-        #:ethereum-lisp.hex
-        #:ethereum-lisp.types
-        #:ethereum-lisp.telemetry
-        #:ethereum-lisp.core
-        #:ethereum-lisp.state
-        #:ethereum-lisp.execution)
-  (:export
-   #:devnet-node
-   #:make-devnet-node
-   #:devnet-node-genesis-path
-   #:devnet-node-store
-   #:devnet-node-config
-   #:devnet-node-genesis-block
-   #:devnet-node-service
-   #:devnet-node-public-service
-   #:devnet-node-telemetry-sink
-   #:devnet-node-jwt-secret-path
-   #:devnet-node-log-path
-   #:devnet-node-database-path
-   #:devnet-node-pid-file-path
-   #:devnet-node-prune-state-before
-   #:devnet-shutdown-controller
-   #:make-devnet-shutdown-controller
-   #:devnet-shutdown-controller-requested-p
-   #:devnet-shutdown-requested-p
-   #:devnet-shutdown-request
-   #:devnet-node-summary
-   #:start-devnet-node-listeners
-   #:start-devnet-node
-   #:main))

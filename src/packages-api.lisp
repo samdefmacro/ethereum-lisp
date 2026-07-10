@@ -21,7 +21,8 @@
         #:ethereum-lisp.chain-store
         #:ethereum-lisp.txpool
         #:ethereum-lisp.canonical-chain
-        #:ethereum-lisp.engine)
+        #:ethereum-lisp.engine
+        #:ethereum-lisp.execution)
   (:export
    #:+engine-rpc-capabilities+
    #:engine-rpc-capabilities

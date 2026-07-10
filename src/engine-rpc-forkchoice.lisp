@@ -1,11 +1,5 @@
 (in-package #:ethereum-lisp.engine-api)
 
-(defun engine-rpc-execution-function (name)
-  (let ((symbol (find-symbol name "ETHEREUM-LISP.EXECUTION")))
-    (and symbol
-         (fboundp symbol)
-         (symbol-function symbol))))
-
 (defun engine-rpc-prepared-payload-body-arguments
     (payload-attributes config block-number timestamp)
   (let ((arguments nil))
@@ -30,36 +24,29 @@
   (let ((block (engine-build-empty-payload parent-block payload-attributes)))
     (if (null transactions)
         block
-        (let ((state-reader
-                (engine-rpc-execution-function "CHAIN-STORE-STATE-DB"))
-              (executor
-                (engine-rpc-execution-function "EXECUTE-SIGNED-BLOCK")))
-          (unless (and state-reader executor)
+        (let* ((header (block-header block))
+               (block-number (block-header-number header))
+               (timestamp (block-header-timestamp header))
+               (state (chain-store-state-db store (block-hash parent-block))))
+          (unless state
             (block-validation-fail
-             "Prepared payload transaction execution is unavailable"))
-          (let* ((header (block-header block))
-                 (block-number (block-header-number header))
-                 (timestamp (block-header-timestamp header))
-                 (state (funcall state-reader store (block-hash parent-block))))
-            (unless state
-              (block-validation-fail
-               "Prepared payload parent state is unavailable"))
-            (setf (block-header-transactions-root header)
-                  (transaction-list-root transactions)
-                  (block-header-state-root header) nil
-                  (block-header-receipts-root header) nil
-                  (block-header-logs-bloom header) nil)
-            (apply
-             executor
-             state
-             transactions
-             (append
-              (list
-               :expected-chain-id (chain-config-chain-id config)
-               :header header
-               :chain-config config)
-              (engine-rpc-prepared-payload-body-arguments
-               payload-attributes config block-number timestamp))))))))
+             "Prepared payload parent state is unavailable"))
+          (setf (block-header-transactions-root header)
+                (transaction-list-root transactions)
+                (block-header-state-root header) nil
+                (block-header-receipts-root header) nil
+                (block-header-logs-bloom header) nil)
+          (apply
+           #'execute-signed-block
+           state
+           transactions
+           (append
+            (list
+             :expected-chain-id (chain-config-chain-id config)
+             :header header
+             :chain-config config)
+            (engine-rpc-prepared-payload-body-arguments
+             payload-attributes config block-number timestamp)))))))
 
 (defun engine-rpc-handle-forkchoice-updated
     (params store config method payload-version payload-attributes-parser)

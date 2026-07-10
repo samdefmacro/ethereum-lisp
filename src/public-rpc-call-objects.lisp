@@ -6,7 +6,7 @@
   (when (json-object-field-present-p object name)
     (eth-rpc-address-param (json-object-field object name) method name)))
 
-(defun eth-rpc-call-object-quantity-field (object name method &key default)
+(defun eth-rpc-call-object-quantity-field (object name &key default)
   (if (json-object-field-present-p object name)
       (parse-json-quantity
        (json-object-field object name)
@@ -95,14 +95,14 @@
     (if (or max-fee-present-p max-priority-present-p)
         (let ((max-fee
                 (eth-rpc-call-object-quantity-field
-                 object "maxFeePerGas" method :default 0))
+                 object "maxFeePerGas" :default 0))
               (max-priority
                 (eth-rpc-call-object-quantity-field
-                 object "maxPriorityFeePerGas" method :default 0)))
+                 object "maxPriorityFeePerGas" :default 0)))
           (values :dynamic max-fee max-priority))
         (values :legacy
                 (eth-rpc-call-object-quantity-field
-                 object "gasPrice" method :default 0)
+                 object "gasPrice" :default 0)
                 0))))
 
 (defun eth-rpc-call-object-chain-id (object method config)
@@ -110,7 +110,7 @@
     (when (json-object-field-present-p object "chainId")
       (let ((supplied
               (eth-rpc-call-object-quantity-field
-               object "chainId" method :default chain-id)))
+               object "chainId" :default chain-id)))
         (unless (= supplied chain-id)
           (block-validation-fail
            "~A chainId does not match configured chain id"
@@ -128,15 +128,15 @@
          (gas-limit
            (or gas-limit-override
                (eth-rpc-call-object-quantity-field
-                object "gas" method
+                object "gas"
                 :default (eth-rpc-call-object-default-gas-limit
                           header method))))
          (value
            (eth-rpc-call-object-quantity-field
-            object "value" method :default 0))
+            object "value" :default 0))
          (nonce
            (eth-rpc-call-object-quantity-field
-            object "nonce" method :default 0))
+            object "nonce" :default 0))
          (data (eth-rpc-call-object-data object method))
          (chain-id (eth-rpc-call-object-chain-id object method config)))
     (multiple-value-bind (access-list access-list-present-p)

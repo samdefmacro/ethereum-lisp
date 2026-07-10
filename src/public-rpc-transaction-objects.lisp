@@ -20,7 +20,7 @@
     (transaction block index &key expected-chain-id)
   (let ((header (when block
                   (block-header block))))
-    (multiple-value-bind (nonce gas-price gas-limit to value data v r s)
+    (multiple-value-bind (nonce gas-limit to value data v r s)
         (eth-rpc-transaction-core-fields transaction)
       (append
        (list

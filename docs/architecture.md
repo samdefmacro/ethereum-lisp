@@ -49,7 +49,10 @@ The current source ownership map is:
   receipt consensus-validation package definition.
 - `packages-core.lisp`: compatibility aggregate for the remaining core
   protocol surface; it re-exports narrower domain APIs while callers migrate.
-- `packages-runtime.lisp`: state, EVM, execution, and CLI package definitions.
+- `packages-runtime.lisp`: state, EVM, and execution package definitions with
+  explicit lower-layer dependencies and no core aggregate dependency.
+- `packages-cli.lisp`: the CLI composition package, loaded after the core
+  compatibility facade and runtime domains.
 - `packages-facade.lisp`: top-level `ethereum-lisp` facade imports and
   exports.
 - `packages.lisp`: package compatibility loader.
