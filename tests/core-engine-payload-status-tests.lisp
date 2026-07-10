@@ -1,5 +1,25 @@
 (in-package #:ethereum-lisp.test)
 
+(deftest engine-service-package-boundary
+  (let ((engine (find-package '#:ethereum-lisp.engine))
+        (payloads (find-package '#:ethereum-lisp.engine-payloads))
+        (chain-store (find-package '#:ethereum-lisp.chain-store))
+        (json-rpc (find-package '#:ethereum-lisp.json-rpc))
+        (core (find-package '#:ethereum-lisp.core)))
+    (is (not (member core (package-use-list engine))))
+    (is (member payloads (package-use-list engine)))
+    (is (member chain-store (package-use-list engine)))
+    (is (not (member json-rpc (package-use-list engine))))
+    (dolist (name '("ENGINE-NEW-PAYLOAD-MEMORY-STATUS"
+                    "ENGINE-FORKCHOICE-MEMORY-STATUS"))
+      (multiple-value-bind (engine-symbol engine-status)
+          (find-symbol name engine)
+        (multiple-value-bind (core-symbol core-status)
+            (find-symbol name core)
+          (is (eq :external engine-status))
+          (is (eq :external core-status))
+          (is (eq engine-symbol core-symbol)))))))
+
 (deftest engine-new-payload-params-status-wraps-validation
   (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
          (recipient (address-from-hex
@@ -209,6 +229,14 @@
       (is (string= +payload-status-invalid+ (payload-status-status status)))
       (is (not block)))
     (multiple-value-bind (status block)
+        (engine-new-payload-memory-status
+         (make-engine-payload-memory-store)
+         3 cancun-payload cancun-config)
+      (is (string= +payload-status-invalid+ (payload-status-status status)))
+      (is (string= "versionedHashes required after Cancun"
+                   (payload-status-validation-error status)))
+      (is (not block)))
+    (multiple-value-bind (status block)
         (engine-new-payload-version-status
          3 cancun-payload cancun-config
          :parent-beacon-root parent-beacon-root
@@ -262,4 +290,3 @@
       (is (string= "blockAccessList required after Amsterdam"
                    (payload-status-validation-error status)))
       (is (not block)))))
-

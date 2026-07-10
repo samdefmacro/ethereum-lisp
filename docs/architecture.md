@@ -149,6 +149,10 @@ The current source ownership map is:
   values and statuses, defensive codecs, block mapping, fork-version checks,
   payload-id derivation, and empty payload construction. Stores and RPC depend
   on this contract; the package has no store, RPC, or HTTP dependency.
+- `ethereum-lisp.engine` / `engine-payload-status.lisp`: Engine newPayload and
+  forkchoice state transitions over the payload, consensus, and chain-store
+  contracts. It owns cache/import status decisions but has no JSON-RPC or HTTP
+  dependency.
 - `ethereum-lisp.chain-store.model` / `chain-store-types.lisp`: in-memory
   store, checkpoint, transaction-location, filter, and blob lookup records.
   The model owns no storage behavior and depends only on protocol types and
@@ -272,8 +276,6 @@ The current source ownership map is:
 - `block-validation-receipts.lisp`: receipt/log validation and execution
   commitment root checks.
 - `block-validation.lisp`: block validation compatibility loader.
-- `engine-payload-status.lisp`: Engine forkchoice/newPayload status for the
-  in-memory chain store.
 - `engine-rpc-field-codecs.lisp`: Engine API field coercion.
 - `engine-rpc-payload-input-codecs.lisp`: Engine payload JSON object decoding.
 - `engine-rpc-payload-codecs.lisp`: Engine payload/status object rendering.

@@ -1,4 +1,21 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.engine)
+
+(defun engine-new-payload-version-status-for-request
+    (version payload config
+     parent-beacon-root parent-beacon-root-supplied-p
+     versioned-hashes versioned-hashes-supplied-p
+     requests requests-supplied-p)
+  (apply #'engine-new-payload-version-status
+         version
+         payload
+         config
+         (append
+          (when parent-beacon-root-supplied-p
+            (list :parent-beacon-root parent-beacon-root))
+          (when versioned-hashes-supplied-p
+            (list :versioned-hashes versioned-hashes))
+          (when requests-supplied-p
+            (list :requests requests)))))
 
 (defun engine-payload-store-invalid-ancestor-status
     (store check-hash head-hash)
@@ -77,16 +94,11 @@
                "newPayload store must be engine-payload-memory-store")
               nil)))
   (multiple-value-bind (status block)
-      (if requests-supplied-p
-          (engine-new-payload-version-status
-           version payload config
-           :parent-beacon-root parent-beacon-root
-           :versioned-hashes versioned-hashes
-           :requests requests)
-          (engine-new-payload-version-status
-           version payload config
-           :parent-beacon-root parent-beacon-root
-           :versioned-hashes versioned-hashes))
+      (engine-new-payload-version-status-for-request
+       version payload config
+       parent-beacon-root parent-beacon-root-supplied-p
+       versioned-hashes versioned-hashes-supplied-p
+       requests requests-supplied-p)
     (unless (string= +payload-status-valid+
                      (payload-status-status status))
       (return-from engine-new-payload-memory-status

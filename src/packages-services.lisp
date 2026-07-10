@@ -62,3 +62,21 @@
         #:ethereum-lisp.txpool)
   (:export
    #:chain-store-set-canonical-head))
+
+(defpackage #:ethereum-lisp.engine
+  (:use #:cl
+        #:ethereum-lisp.types
+        #:ethereum-lisp.validation
+        #:ethereum-lisp.chain-config
+        #:ethereum-lisp.transactions
+        #:ethereum-lisp.blocks
+        #:ethereum-lisp.consensus
+        #:ethereum-lisp.engine-payloads
+        #:ethereum-lisp.chain-store.model
+        #:ethereum-lisp.chain-store)
+  (:export
+   #:engine-payload-store-invalid-ancestor-status
+   #:engine-forkchoice-checkpoint-error-message
+   #:engine-forkchoice-checkpoint-order-error-message
+   #:engine-forkchoice-memory-status
+   #:engine-new-payload-memory-status))
