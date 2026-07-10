@@ -9122,6 +9122,8 @@ splits can land after the Phase A smoke path closes.
 
 ## Recently Completed
 
+- [x] Delete empty one-form compatibility source files and remove their ASDF,
+  manual-loader, and architecture-documentation entries.
 - [x] Make `ethereum-lisp` the canonical owner-grouped public API manifest,
   generate `ethereum-lisp.core` as an exact compatibility facade, and replace
   test and CLI dependencies on the broad legacy package with true owners.

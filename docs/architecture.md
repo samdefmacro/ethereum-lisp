@@ -58,10 +58,8 @@ The current source ownership map is:
 - `packages-cli.lisp`: the CLI composition package. It consumes the canonical
   public API and explicitly imports the small txpool and persistence ports
   needed for node assembly; it does not depend on `ethereum-lisp.core`.
-- `packages.lisp`: package compatibility loader.
 - `database-*.lisp`: key-value database protocol, chain-record key encoding,
   memory/file backends, write batches, and chain-record access helpers.
-- `database.lisp`: compatibility package entry for database modules.
 - `crypto-constants.lisp`: hash, KZG, secp256k1, SHA-256, Keccak, and
   RIPEMD-160 constants and round tables.
 - `crypto-words.lisp`: 32-bit/64-bit rotation and endian load/store helpers.
@@ -73,14 +71,12 @@ The current source ownership map is:
 - `crypto-secp256k1.lisp`: secp256k1 point arithmetic, key/address
   derivation, and public key recovery.
 - `crypto-empty-hashes.lisp`: canonical empty code and empty trie hashes.
-- `crypto.lisp`: compatibility package entry for crypto modules.
 - `trie-encoding.lisp`: hex-prefix nibble encoding primitives.
 - `trie-types.lisp`: Merkle Patricia Trie node and in-memory store types.
 - `trie-store.lisp`: mutable trie entry put/get/delete and ordered scans.
 - `trie-nodes.lisp`: canonical node construction, node RLP references, and
   root hash derivation.
 - `trie-proofs.lisp`: proof construction and proof verification.
-- `trie.lisp`: compatibility package entry for trie modules.
 - `ethereum-lisp.validation` / `validation.lisp`: shared block validation
   condition plus protocol value and fixed-byte validation helpers. Core
   re-exports the public condition for compatibility.
@@ -88,7 +84,6 @@ The current source ownership map is:
   protocol package for chain configuration types, fork activation predicates,
   blob schedule selection, and effective chain-rule construction. Core
   re-exports this API for compatibility.
-- `chain-config.lisp`: compatibility package entry for chain config modules.
 - `ethereum-lisp.transactions` / `transactions-*.lisp`: the transaction
   domain owns envelopes, codecs, signatures, common accessors, fee rules, and
   fork support policy. It depends on chain rules and protocol primitives, not
@@ -211,7 +206,6 @@ The current source ownership map is:
   that keep copied blocks, receipts, and transactions aligned.
 - `chain-store-snapshots.lisp`: memory-store snapshot/restore and atomic commit
   helpers.
-- `chain-store-copy.lisp`: chain-store copy compatibility loader.
 - `chain-store-filters.lisp`: in-memory block, log, and pending transaction
   filter registration and notifications.
 - `chain-store-cache.lisp`: in-memory remote block, invalid payload,
@@ -226,7 +220,6 @@ The current source ownership map is:
   storage read/write helpers.
 - `chain-store-state-iteration.lisp`: retained account and storage iteration
   helpers for export and state projection.
-- `chain-store-state.lisp`: chain-store state compatibility loader.
 - `chain-store-canonical-indexes.lisp`: canonical hash, block number, parent,
   block-membership, and ancestor checks.
 - `chain-store-transaction-locations.lisp`: canonical transaction location
@@ -299,7 +292,6 @@ The current source ownership map is:
 - `block-validation-roots.lisp`: body root and body commitment checks.
 - `block-validation-receipts.lisp`: receipt/log validation and execution
   commitment root checks.
-- `block-validation.lisp`: block validation compatibility loader.
 - `engine-rpc-payload-input-codecs.lisp`: Engine payload JSON object decoding.
 - `engine-rpc-payload-codecs.lisp`: Engine payload/status object rendering.
 - `engine-rpc-forkchoice-codecs.lisp`: forkchoice state and payload attribute
@@ -396,7 +388,6 @@ The current source ownership map is:
   and genesis block/header construction.
 - `state-transactions.lisp`: withdrawal balance updates, intrinsic gas, and
   standalone legacy transaction execution fallback.
-- `state.lisp`: state package compatibility loader.
 - `evm-types.lisp`: EVM errors, result/context records, precompile address
   activation, gas constants, and fixed precompile tables.
 - `ethereum-lisp.evm` is a public facade that only re-exports the supported
@@ -421,7 +412,6 @@ The current source ownership map is:
   EIP-2929 access gas charging.
 - `evm-runtime-selfdestructs.lisp`: selfdestruct address snapshots, marking,
   and finalization.
-- `evm-runtime-access.lisp`: EVM access helper compatibility loader.
 - `evm-runtime-snapshots.lisp`: frame/execution snapshot capture,
   access-list snapshot refresh, and restore helpers for rollback.
 - `evm-runtime-state.lisp`: account mutation, value transfer, delegated code
@@ -432,7 +422,6 @@ The current source ownership map is:
   accounting helpers.
 - `evm-runtime-block.lisp`: nonce increment, account-code hash, blockhash, and
   blobhash word helpers.
-- `evm-runtime.lisp`: EVM runtime compatibility loader.
 - `evm-precompiles-utils.lisp`: shared precompile byte, endian, and fixed-size
   integer helpers.
 - `evm-precompiles-modexp.lisp`: EIP-198 modular exponentiation gas and
@@ -450,7 +439,6 @@ The current source ownership map is:
   calculation.
 - `evm-precompiles-dispatch.lisp`: ecrecover, precompile gas precheck, and
   final precompile dispatch.
-- `evm-precompiles.lisp`: EVM precompile compatibility loader.
 - `evm-interpreter-results.lisp`: child execution result rollback, gas,
   return-data, and log merge helpers for the bytecode interpreter.
 - `evm-interpreter-create.lisp`: shared CREATE/CREATE2 child execution,
@@ -496,8 +484,6 @@ The current source ownership map is:
   signed/legacy wrappers.
 - `execution-message-lists.lisp`: transaction-list execution and execution
   result construction.
-- `execution-message.lisp`: compatibility package entry for execution message
-  modules.
 - `execution-block-body-validation.lisp`: block body commitment checks,
   access-list body normalization, and execution root validation.
 - `execution-block-validation.lisp`: fork body-shape checks and block header
@@ -508,7 +494,6 @@ The current source ownership map is:
   and retained-state reconstruction.
 - `execution-block-commit.lisp`: atomic chain-store block commit and Engine
   payload commit entry points.
-- `execution.lisp`: compatibility package entry for block execution modules.
 - `cli-types.lisp`: devnet CLI records, defaults, embedded dev genesis, and
   shutdown signal helpers.
 - `cli-files.lisp`: CLI file, datadir, JWT secret, and KV database path
@@ -524,7 +509,6 @@ The current source ownership map is:
 - `cli-devnet-background.lisp`: devnet periodic background worker threads.
 - `cli-devnet-service.lisp`: devnet listener serving and
   startup orchestration.
-- `cli-devnet.lisp`: devnet compatibility loader.
 - `cli-option-definitions.lisp`: geth-compatible option arity metadata.
 - `cli-args.lisp`: command-line token normalization, boolean token handling,
   and command-token lookup.
