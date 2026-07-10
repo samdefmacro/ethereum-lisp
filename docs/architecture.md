@@ -37,6 +37,8 @@ The current source ownership map is:
   database, telemetry, RLP, types, crypto, and trie.
 - `packages-protocol.lisp`: independent chain-configuration and transaction
   domain package definitions.
+- `packages-models.lisp`: account and receipt protocol-model package
+  definitions, ordered by their explicit domain dependencies.
 - `packages-core.lisp`: compatibility aggregate for the remaining core
   protocol surface; it re-exports narrower domain APIs while callers migrate.
 - `packages-runtime.lisp`: state, EVM, execution, and CLI package definitions.
@@ -89,7 +91,8 @@ The current source ownership map is:
   state-root parsing.
 - `genesis.lisp`: compatibility package entry for genesis modules.
 - `core-constants.lisp`: protocol constants shared across core modules.
-- `accounts.lisp`: state account encoding and hashing.
+- `ethereum-lisp.accounts` / `accounts.lisp`: state-account values, encoding,
+  and hashing, independent from the core compatibility aggregate.
 - `transactions-legacy.lisp`: legacy transaction envelope, RLP, signing hash,
   EIP-155 chain-id handling, and sender recovery.
 - `transactions-access-list.lisp`: EIP-2930 access lists and access-list
@@ -106,7 +109,9 @@ The current source ownership map is:
   dispatch, blob gas counting, and access-list sizing.
 - `transactions.lisp`: transaction fork validation, gas-price calculation,
   unified encoding/decoding, and sender dispatch.
-- `receipts.lisp`: withdrawals, logs, blooms, receipts, trie-list roots.
+- `ethereum-lisp.receipts` / `receipts.lisp`: withdrawals, logs, blooms,
+  receipts, and trie-list roots. The package depends explicitly on the
+  transaction contract used for typed receipt and transaction roots.
 - `txpool-types.lisp`: txpool index structure required by the store type.
 - `blocks-*.lisp` and `block-header-rlp.lisp`: block header/body structures,
   block hashing, construction, and block RLP encode/decode helpers.

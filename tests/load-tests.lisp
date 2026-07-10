@@ -8,6 +8,7 @@
 
 (load-ethereum-lisp-test-file "src/packages-foundation.lisp")
 (load-ethereum-lisp-test-file "src/packages-protocol.lisp")
+(load-ethereum-lisp-test-file "src/packages-models.lisp")
 (load-ethereum-lisp-test-file "src/packages-core.lisp")
 (load-ethereum-lisp-test-file "src/packages-runtime.lisp")
 (load-ethereum-lisp-test-file "src/packages-facade.lisp")

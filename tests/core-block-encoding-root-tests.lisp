@@ -1,5 +1,35 @@
 (in-package #:ethereum-lisp.test)
 
+(deftest protocol-model-package-boundaries
+  (let ((accounts (find-package '#:ethereum-lisp.accounts))
+        (receipts (find-package '#:ethereum-lisp.receipts))
+        (transactions (find-package '#:ethereum-lisp.transactions))
+        (core (find-package '#:ethereum-lisp.core)))
+    (is (not (member core (package-use-list accounts))))
+    (is (not (member core (package-use-list receipts))))
+    (is (member transactions (package-use-list receipts)))
+    (dolist (entry `((,accounts "STATE-ACCOUNT")
+                     (,accounts "STATE-ACCOUNT-RLP")
+                     (,receipts "RECEIPT")
+                     (,receipts "TRANSACTION-RECEIPT-LIST-ROOT")))
+      (destructuring-bind (owner name) entry
+        (multiple-value-bind (owned-symbol owned-status)
+            (find-symbol name owner)
+          (multiple-value-bind (core-symbol core-status)
+              (find-symbol name core)
+            (is (eq :external owned-status))
+            (is (eq :external core-status))
+            (is (eq owned-symbol core-symbol))))))
+    (dolist (entry `((,accounts "RECEIPT")
+                     (,accounts "BLOCK-HEADER")
+                     (,receipts "STATE-ACCOUNT")
+                     (,receipts "BLOCK-HEADER")))
+      (destructuring-bind (package name) entry
+        (multiple-value-bind (symbol status)
+            (find-symbol name package)
+          (is (null symbol))
+          (is (null status)))))))
+
 (deftest bloom-add-and-lookup-log-values
   (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
          (topic (hash32-from-hex

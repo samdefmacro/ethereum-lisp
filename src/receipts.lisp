@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.receipts)
 
 ;;; Withdrawals, logs, bloom filters, receipts, and trie-list roots.
 

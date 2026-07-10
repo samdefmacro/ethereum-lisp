@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.accounts)
 
 ;;; Account payload encoding used by state, genesis, and trie commitments.
 

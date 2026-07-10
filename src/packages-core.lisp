@@ -7,7 +7,9 @@
         #:ethereum-lisp.crypto
         #:ethereum-lisp.trie
         #:ethereum-lisp.chain-config
-        #:ethereum-lisp.transactions)
+        #:ethereum-lisp.transactions
+        #:ethereum-lisp.accounts
+        #:ethereum-lisp.receipts)
   (:import-from #:ethereum-lisp.database
    #:key-value-database
    #:make-kv-write-batch
