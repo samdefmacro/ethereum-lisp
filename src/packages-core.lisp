@@ -22,6 +22,7 @@
         #:ethereum-lisp.chain-store.model
         #:ethereum-lisp.chain-store
         #:ethereum-lisp.txpool
+        #:ethereum-lisp.canonical-chain
         #:ethereum-lisp.chain-store.persistence)
   (:import-from #:ethereum-lisp.database
    #:key-value-database

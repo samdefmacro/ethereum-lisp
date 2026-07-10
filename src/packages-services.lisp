@@ -50,3 +50,15 @@
    #:engine-payload-store-remove-new-head-invalid-txpool-transactions
    #:engine-payload-store-revalidate-pending-transactions
    #:engine-payload-store-reinsert-displaced-block-transactions))
+
+(defpackage #:ethereum-lisp.canonical-chain
+  (:use #:cl
+        #:ethereum-lisp.types
+        #:ethereum-lisp.validation
+        #:ethereum-lisp.chain-config
+        #:ethereum-lisp.blocks
+        #:ethereum-lisp.chain-store.model
+        #:ethereum-lisp.chain-store
+        #:ethereum-lisp.txpool)
+  (:export
+   #:chain-store-set-canonical-head))

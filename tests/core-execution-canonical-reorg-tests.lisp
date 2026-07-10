@@ -1,5 +1,28 @@
 (in-package #:ethereum-lisp.test)
 
+(deftest canonical-chain-package-boundary
+  (let ((canonical (find-package '#:ethereum-lisp.canonical-chain))
+        (chain-store (find-package '#:ethereum-lisp.chain-store))
+        (txpool (find-package '#:ethereum-lisp.txpool))
+        (persistence
+          (find-package '#:ethereum-lisp.chain-store.persistence))
+        (core (find-package '#:ethereum-lisp.core)))
+    (is (not (member core (package-use-list canonical))))
+    (is (member chain-store (package-use-list canonical)))
+    (is (member txpool (package-use-list canonical)))
+    (is (not (member persistence (package-use-list canonical))))
+    (multiple-value-bind (canonical-symbol canonical-status)
+        (find-symbol "CHAIN-STORE-SET-CANONICAL-HEAD" canonical)
+      (multiple-value-bind (core-symbol core-status)
+          (find-symbol "CHAIN-STORE-SET-CANONICAL-HEAD" core)
+        (is (eq :external canonical-status))
+        (is (eq :external core-status))
+        (is (eq canonical-symbol core-symbol))))
+    (multiple-value-bind (symbol status)
+        (find-symbol "CANONICAL-CHAIN-SET-HEAD" canonical)
+      (is symbol)
+      (is (eq :internal status)))))
+
 (deftest chain-store-set-canonical-head-rewrites-number-indexes
   (let* ((store (make-engine-payload-memory-store))
          (genesis
@@ -315,4 +338,3 @@
                  (ethereum-lisp.core::engine-payload-store-pending-transaction
                   store
                   transaction-hash))))))
-

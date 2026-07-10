@@ -157,6 +157,10 @@ The current source ownership map is:
   index model and chain-store query contract. It depends on chain-store in one
   direction and owns all subpool lifecycle decisions; canonical-head only
   orchestrates the resulting service operations.
+- `ethereum-lisp.canonical-chain` / `canonical-chain.lisp`: canonical path
+  discovery, index replacement, displaced transaction recovery, txpool
+  reconciliation, and filter notification. This is an application service
+  over chain-store and txpool, with each phase expressed as a separate step.
 - `ethereum-lisp.chain-store.persistence` / chain-store export and persistence
   modules: the database adapter for atomic KV export and staged, validated
   import. It depends on database, chain-store, and txpool contracts; none of
@@ -198,10 +202,6 @@ The current source ownership map is:
   chain state.
 - `txpool-reorg.lisp`: displaced transaction reinsertion after
   canonical reorgs.
-- `chain-store-canonical-head.lisp`: canonical head updates, reorg cleanup,
-  txpool refresh, and filter notifications.
-- `chain-store-canonical.lisp`: compatibility package entry for canonical
-  chain-store modules.
 - `txpool-store.lisp`: the chain-store adapter for txpool access,
   conflict/replacement checks, and low-level subpool indexing.
 - `txpool-store-admission.lisp`: validated insertion into pending, queued,
