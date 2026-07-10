@@ -197,7 +197,7 @@
              (declare (ignore fixture-inputs-written-p))
              (setf configured-public-endpoint
                    (format nil "http://127.0.0.1:~D"
-                           (ethereum-lisp.core::engine-rpc-http-service-port
+                           (ethereum-lisp.rpc-http:engine-rpc-http-service-port
                             (ethereum-lisp.cli:devnet-node-public-service
                              node))))
              (when pid-file
@@ -1030,4 +1030,3 @@
     report)
   #-sbcl
   (error "Devnet engine-only serve smoke requires SBCL sockets"))
-

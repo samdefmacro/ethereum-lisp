@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.rpc-http)
 
 (defconstant +engine-rpc-jwt-expiry-seconds+ 60)
 

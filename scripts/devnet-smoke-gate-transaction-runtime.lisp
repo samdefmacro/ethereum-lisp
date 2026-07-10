@@ -18,7 +18,7 @@
           (loop for entry in (kv-chain-record-entries database :txpool)
                 collect
                 (multiple-value-bind (subpool transaction)
-                    (ethereum-lisp.core::chain-store-txpool-transaction-record-values
+                    (ethereum-lisp.chain-store.persistence::chain-store-txpool-transaction-record-values
                      (cdr entry))
                   (list :hash (hash32-to-hex (transaction-hash transaction))
                         :subpool subpool
@@ -344,4 +344,3 @@
             (transaction-value transaction)
             (transaction-gas-limit transaction)
             (transaction-max-fee-per-gas transaction))))
-

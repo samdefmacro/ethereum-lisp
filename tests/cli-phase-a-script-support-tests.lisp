@@ -189,23 +189,26 @@
 
 #+sbcl
 (defun devnet-cli-unused-loopback-port ()
-  (let ((socket
-          (make-instance 'sb-bsd-sockets:inet-socket
-                         :type :stream
-                         :protocol :tcp)))
-    (unwind-protect
-         (progn
-           (setf (sb-bsd-sockets:sockopt-reuse-address socket) t)
-           (sb-bsd-sockets:socket-bind
-            socket
-            (sb-bsd-sockets:make-inet-address "127.0.0.1")
-            0)
-           (multiple-value-bind (address port)
-               (sb-bsd-sockets:socket-name socket)
-             (declare (ignore address))
-             port))
-      (ignore-errors
-        (sb-bsd-sockets:socket-close socket)))))
+  (handler-case
+      (let ((socket
+              (make-instance 'sb-bsd-sockets:inet-socket
+                             :type :stream
+                             :protocol :tcp)))
+        (unwind-protect
+             (progn
+               (setf (sb-bsd-sockets:sockopt-reuse-address socket) t)
+               (sb-bsd-sockets:socket-bind
+                socket
+                (sb-bsd-sockets:make-inet-address "127.0.0.1")
+                0)
+               (multiple-value-bind (address port)
+                   (sb-bsd-sockets:socket-name socket)
+                 (declare (ignore address))
+                 port))
+          (ignore-errors
+            (sb-bsd-sockets:socket-close socket))))
+    (sb-bsd-sockets:operation-not-permitted-error ()
+      (skip-test "Local socket bind is not permitted in this sandbox"))))
 
 #+sbcl
 (defun devnet-cli-http-endpoint-connectable-p (endpoint)
@@ -489,4 +492,3 @@
       (when (probe-file ready-directory)
         (ignore-errors
           (uiop:delete-directory-tree ready-directory :validate t))))))
-

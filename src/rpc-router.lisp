@@ -64,6 +64,28 @@
    :txpool-lifetime-seconds txpool-lifetime-seconds
    :txpool-now txpool-now))
 
+(defun rpc-context-with-txpool-now (context txpool-now)
+  (unless (typep context 'rpc-context)
+    (block-validation-fail "JSON-RPC context must be an rpc-context"))
+  (let ((copy (copy-rpc-context context)))
+    (setf (rpc-context-txpool-now copy) txpool-now)
+    copy))
+
+(defun rpc-context-rebind
+    (context &key (store nil store-p)
+                  (config nil config-p)
+                  (network-id nil network-id-p))
+  (unless (typep context 'rpc-context)
+    (block-validation-fail "JSON-RPC context must be an rpc-context"))
+  (let ((copy (copy-rpc-context context)))
+    (when store-p
+      (setf (rpc-context-store copy) store))
+    (when config-p
+      (setf (rpc-context-config copy) config))
+    (when network-id-p
+      (setf (rpc-context-network-id copy) network-id))
+    copy))
+
 (defun rpc-method-not-found-response (id)
   (json-rpc-response
    id

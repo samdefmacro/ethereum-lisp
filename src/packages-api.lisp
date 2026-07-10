@@ -87,6 +87,14 @@
   (:export
    #:rpc-context
    #:make-rpc-context
+   #:rpc-context-store
+   #:rpc-context-config
+   #:rpc-context-import-function
+   #:rpc-context-network-id
+   #:rpc-context-coinbase
+   #:rpc-context-allowed-method-p
+   #:rpc-context-rebind
+   #:rpc-context-with-txpool-now
    #:rpc-handle-request
    #:rpc-handle-request-value
    #:rpc-handle-request-string
@@ -95,3 +103,59 @@
    #:engine-rpc-handle-request-value
    #:engine-rpc-handle-request-string
    #:engine-rpc-handle-request-json))
+
+(defpackage #:ethereum-lisp.rpc-http
+  (:use #:cl
+        #:ethereum-lisp.bytes
+        #:ethereum-lisp.strings
+        #:ethereum-lisp.types
+        #:ethereum-lisp.crypto
+        #:ethereum-lisp.validation
+        #:ethereum-lisp.json
+        #:ethereum-lisp.chain-config
+        #:ethereum-lisp.chain-store.model
+        #:ethereum-lisp.engine-api
+        #:ethereum-lisp.rpc)
+  (:export
+   #:+engine-rpc-http-accepted-content-types+
+   #:engine-rpc-http-accepted-content-type-p
+   #:+engine-rpc-default-http-host+
+   #:+engine-rpc-default-http-port+
+   #:+engine-rpc-jwt-expiry-seconds+
+   #:engine-rpc-http-service
+   #:make-engine-rpc-http-service
+   #:engine-rpc-http-service-host
+   #:engine-rpc-http-service-port
+   #:engine-rpc-http-service-store
+   #:engine-rpc-http-service-config
+   #:engine-rpc-http-service-jwt-secret
+   #:engine-rpc-http-service-now-provider
+   #:engine-rpc-http-service-import-function
+   #:engine-rpc-http-service-telemetry-sink
+   #:engine-rpc-http-service-allowed-method-p
+   #:engine-rpc-http-service-network-id
+   #:engine-rpc-http-service-coinbase
+   #:engine-rpc-http-service-rpc-context
+   #:engine-rpc-http-service-rpc-prefix
+   #:engine-rpc-http-service-endpoint
+   #:engine-rpc-http-connection
+   #:make-engine-rpc-http-connection
+   #:engine-rpc-http-connection-input-stream
+   #:engine-rpc-http-connection-output-stream
+   #:engine-rpc-http-connection-close-function
+   #:engine-rpc-http-connection-close
+   #:engine-rpc-http-listener
+   #:make-engine-rpc-http-listener
+   #:make-engine-rpc-http-socket-listener
+   #:engine-rpc-http-listener-endpoint
+   #:engine-rpc-http-listener-accept-function
+   #:engine-rpc-http-listener-close-function
+   #:engine-rpc-http-listener-accept
+   #:engine-rpc-http-listener-close
+   #:engine-rpc-make-jwt-token
+   #:rpc-http-handle-request
+   #:rpc-http-handle-stream
+   #:engine-rpc-handle-http-request-string
+   #:engine-rpc-handle-http-stream
+   #:engine-rpc-http-service-handle-stream
+   #:engine-rpc-http-service-serve-listener))

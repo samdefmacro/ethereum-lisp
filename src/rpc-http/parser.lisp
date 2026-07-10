@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.rpc-http)
 
 (defparameter +engine-rpc-http-accepted-content-types+
   '("application/json" "application/json-rpc" "application/jsonrequest"))
@@ -136,3 +136,26 @@
        (block-validation-fail "HTTP content length is duplicated"))
       (t
        (engine-rpc-http-parse-content-length (first content-lengths))))))
+
+(defun engine-rpc-read-http-request-string (input-stream)
+  (let ((lines '()))
+    (loop for line = (read-line input-stream nil nil)
+          while line
+          do (push line lines)
+             (when (string= "" (engine-rpc-http-trim line))
+               (return)))
+    (unless (and lines (string= "" (engine-rpc-http-trim (first lines))))
+      (block-validation-fail "HTTP request is missing header boundary"))
+    (let* ((lines (nreverse lines))
+           (headers (engine-rpc-http-headers (rest lines)))
+           (content-length (engine-rpc-http-content-length headers))
+           (body (make-string content-length))
+           (read-count (read-sequence body input-stream)))
+      (unless (= read-count content-length)
+        (block-validation-fail
+         "HTTP request body is shorter than content length"))
+      (with-output-to-string (request)
+        (dolist (line lines)
+          (write-string (engine-rpc-http-trim line) request)
+          (format request "~C~C" #\Return #\Newline))
+        (write-string body request)))))

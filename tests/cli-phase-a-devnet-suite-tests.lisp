@@ -16,6 +16,9 @@
          :output :string
          :error-output :string
          :ignore-error-status t)
+      (when (and (not (= 0 status))
+                 (search "Operation not permitted" stderr))
+        (skip-test "Local socket bind is not permitted in this sandbox"))
       (is (= 0 status))
       (is (string= "" stderr))
       (when (= 0 status)
@@ -435,6 +438,9 @@
          :output :string
          :error-output :string
          :ignore-error-status t)
+      (when (and (not (= 0 status))
+                 (search "Operation not permitted" stderr))
+        (skip-test "Local socket bind is not permitted in this sandbox"))
       (is (= 0 status))
       (is (string= "" stderr))
       (when (= 0 status)
@@ -644,4 +650,3 @@
       (is (search root-string stderr))
       (is (search "Pinned Phase A smoke gate root from" stderr))
       (is (not (search "do not match pinned selectors" stderr))))))
-

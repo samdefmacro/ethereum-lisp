@@ -1,5 +1,47 @@
 (in-package #:ethereum-lisp.test)
 
+(deftest rpc-http-package-boundary
+  (let ((http (find-package '#:ethereum-lisp.rpc-http))
+        (rpc (find-package '#:ethereum-lisp.rpc))
+        (execution (find-package '#:ethereum-lisp.execution))
+        (core (find-package '#:ethereum-lisp.core)))
+    (is (not (member core (package-use-list http))))
+    (is (member rpc (package-use-list http)))
+    (is (not (member execution (package-use-list http))))
+    (dolist (name '("RPC-HTTP-HANDLE-REQUEST"
+                    "RPC-HTTP-HANDLE-STREAM"
+                    "MAKE-ENGINE-RPC-HTTP-SERVICE"
+                    "ENGINE-RPC-HTTP-SERVICE-RPC-CONTEXT"))
+      (multiple-value-bind (symbol status)
+          (find-symbol name http)
+        (is symbol)
+        (is (eq :external status))))
+    (dolist (name '("MAKE-ENGINE-RPC-HTTP-SERVICE"
+                    "ENGINE-RPC-HANDLE-HTTP-REQUEST-STRING"
+                    "ENGINE-RPC-HANDLE-HTTP-STREAM"))
+      (multiple-value-bind (http-symbol http-status)
+          (find-symbol name http)
+        (multiple-value-bind (core-symbol core-status)
+            (find-symbol name core)
+          (is (eq :external http-status))
+          (is (eq :external core-status))
+          (is (eq http-symbol core-symbol)))))
+    (multiple-value-bind (symbol status)
+        (find-symbol "ENGINE-RPC-HANDLE-PUBLIC-METHOD" http)
+      (is (null symbol))
+      (is (null status)))))
+
+(deftest rpc-http-service-owns-rpc-context
+  (let* ((service (make-engine-rpc-http-service))
+         (context
+           (ethereum-lisp.rpc-http:engine-rpc-http-service-rpc-context
+            service)))
+    (is (typep context 'ethereum-lisp.rpc:rpc-context))
+    (is (eq (engine-rpc-http-service-store service)
+            (ethereum-lisp.rpc:rpc-context-store context)))
+    (is (eq (engine-rpc-http-service-config service)
+            (ethereum-lisp.rpc:rpc-context-config context)))))
+
 (deftest engine-rpc-http-post-dispatches-json-rpc
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))
@@ -647,10 +689,8 @@ Content-Type: application/json
                    (engine-rpc-http-service-endpoint service)))
       (is (null (engine-rpc-http-service-telemetry-sink default-service)))
       (is (eq sink (engine-rpc-http-service-telemetry-sink service)))
-      (is (functionp
+      (is (null
            (engine-rpc-http-service-import-function default-service)))
-      (is (eq #'execute-and-commit-engine-payload
-              (engine-rpc-http-service-import-function default-service)))
       (is (string= "/" (engine-rpc-http-service-rpc-prefix default-service)))
       (is (string= "/engine" (engine-rpc-http-service-rpc-prefix service)))
       (is (string= (address-to-hex (zero-address))
@@ -920,4 +960,3 @@ Content-Type: application/json
                (close stream))
              (sb-thread:join-thread server-thread))
         (ignore-errors (engine-rpc-http-listener-close listener))))))
-

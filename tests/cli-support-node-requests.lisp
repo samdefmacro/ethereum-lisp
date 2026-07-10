@@ -9,28 +9,21 @@
            (if default-network-id-p
                (chain-config-chain-id config)
                old-network-id)))
-    (setf (ethereum-lisp.cli:devnet-node-store node) store
-        (ethereum-lisp.cli:devnet-node-config node) config
-        (ethereum-lisp.cli::devnet-node-network-id node)
-        effective-network-id
-        (engine-rpc-http-service-store
-         (ethereum-lisp.cli:devnet-node-service node))
-        store
-        (engine-rpc-http-service-config
-         (ethereum-lisp.cli:devnet-node-service node))
-        config
-        (ethereum-lisp.core::engine-rpc-http-service-network-id
-         (ethereum-lisp.cli:devnet-node-service node))
-        effective-network-id
-        (engine-rpc-http-service-store
-         (ethereum-lisp.cli:devnet-node-public-service node))
-        store
-        (engine-rpc-http-service-config
-         (ethereum-lisp.cli:devnet-node-public-service node))
-        config
-        (ethereum-lisp.core::engine-rpc-http-service-network-id
-         (ethereum-lisp.cli:devnet-node-public-service node))
-        effective-network-id))
+    (flet ((rebind-service (service)
+             (setf (ethereum-lisp.rpc-http:engine-rpc-http-service-rpc-context
+                    service)
+                   (ethereum-lisp.rpc:rpc-context-rebind
+                    (ethereum-lisp.rpc-http:engine-rpc-http-service-rpc-context
+                     service)
+                    :store store
+                    :config config
+                    :network-id effective-network-id))))
+      (setf (ethereum-lisp.cli:devnet-node-store node) store
+            (ethereum-lisp.cli:devnet-node-config node) config
+            (ethereum-lisp.cli::devnet-node-network-id node)
+            effective-network-id)
+      (rebind-service (ethereum-lisp.cli:devnet-node-service node))
+      (rebind-service (ethereum-lisp.cli:devnet-node-public-service node))))
   node)
 
 (defun devnet-cli-engine-forkchoice-v2-request
@@ -115,4 +108,3 @@
           :output-stream (make-string-output-stream)
           :close-function (lambda () nil))))
      :close-function (lambda () nil))))
-

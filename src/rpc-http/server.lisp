@@ -1,4 +1,41 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.rpc-http)
+
+(defun engine-rpc-http-service-handle-stream
+    (service input-stream output-stream)
+  (unless (typep service 'engine-rpc-http-service)
+    (block-validation-fail
+     "Engine RPC HTTP service must be engine-rpc-http-service"))
+  (let ((sink (engine-rpc-http-service-telemetry-sink service))
+        (fields `(("endpoint" . ,(engine-rpc-http-service-endpoint service))
+                  ("host" . ,(engine-rpc-http-service-host service))
+                  ("port" . ,(engine-rpc-http-service-port service)))))
+    (ethereum-lisp.telemetry:telemetry-log
+     :debug
+     "engine.rpc.http.stream.start"
+     :sink sink
+     :fields fields)
+    (unwind-protect
+         (rpc-http-handle-stream
+          input-stream
+          output-stream
+          (engine-rpc-http-service-rpc-context service)
+          :jwt-secret (engine-rpc-http-service-jwt-secret service)
+          :now (funcall (engine-rpc-http-service-now-provider service))
+          :rpc-prefix (engine-rpc-http-service-rpc-prefix service)
+          :cors-origins (engine-rpc-http-service-cors-origins service)
+          :allowed-hosts (engine-rpc-http-service-allowed-hosts service)
+          :telemetry-sink sink
+          :telemetry-fields fields)
+      (ethereum-lisp.telemetry:telemetry-metric
+       "engine.rpc.http.streams"
+       1
+       :sink sink
+       :fields fields)
+      (ethereum-lisp.telemetry:telemetry-log
+       :debug
+       "engine.rpc.http.stream.finish"
+       :sink sink
+       :fields fields))))
 
 (defun engine-rpc-http-service-serve-listener
     (service listener &key max-connections stop-p)
@@ -10,7 +47,8 @@
      "Engine RPC HTTP listener must be engine-rpc-http-listener"))
   (unless (or (null max-connections)
               (and (integerp max-connections) (<= 0 max-connections)))
-    (block-validation-fail "Engine RPC HTTP max connections must be non-negative"))
+    (block-validation-fail
+     "Engine RPC HTTP max connections must be non-negative"))
   (let ((served 0)
         (stop-p (or stop-p (lambda () nil)))
         (sink (engine-rpc-http-service-telemetry-sink service))
@@ -18,7 +56,8 @@
                   ("host" . ,(engine-rpc-http-service-host service))
                   ("port" . ,(engine-rpc-http-service-port service)))))
     (unless (functionp stop-p)
-      (block-validation-fail "Engine RPC HTTP stop predicate must be a function"))
+      (block-validation-fail
+       "Engine RPC HTTP stop predicate must be a function"))
     (ethereum-lisp.telemetry:telemetry-log
      :info
      "engine.rpc.http.listener.start"
@@ -28,8 +67,7 @@
          (loop until (or (and max-connections (>= served max-connections))
                          (funcall stop-p))
                for connection = (handler-case
-                                    (engine-rpc-http-listener-accept
-                                     listener)
+                                    (engine-rpc-http-listener-accept listener)
                                   (error (condition)
                                     (if (funcall stop-p)
                                         nil

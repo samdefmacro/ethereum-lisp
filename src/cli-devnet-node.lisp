@@ -85,6 +85,7 @@
             :config config
             :network-id effective-network-id
             :coinbase coinbase
+            :import-function #'execute-and-commit-engine-payload
             :jwt-secret jwt-secret
             :rpc-prefix engine-rpc-prefix
             :allowed-method-p #'engine-rpc-engine-method-p
@@ -99,6 +100,7 @@
             :config config
             :network-id effective-network-id
             :coinbase coinbase
+            :import-function #'execute-and-commit-engine-payload
             :now-provider #'get-universal-time
             :rpc-prefix public-rpc-prefix
             :allowed-method-p public-allowed-method-p

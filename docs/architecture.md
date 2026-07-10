@@ -164,6 +164,16 @@ The current source ownership map is:
   and `public-api-dispatch.lisp`: the public JSON-RPC adapter over state,
   execution, chain-store, txpool, and shared Engine payload rendering. Only
   the aggregate public method handler is exported; HTTP remains outside.
+- `ethereum-lisp.rpc` / `rpc-router.lisp` and `rpc-json.lisp`: request context,
+  Engine/Public method composition, batch handling, and JSON codecs. It has no
+  transport dependency; legacy `engine-rpc-handle-*` functions are thin
+  adapters over the context API.
+- `ethereum-lisp.rpc-http` / `rpc-http/`: JWT authentication, HTTP parsing and
+  policy, telemetry, request/stream handling, service configuration, listener
+  adapters, and the serve loop. A service owns one `rpc-context`, so transport
+  configuration does not duplicate RPC policy state.
+- `ethereum-lisp.core` / `packages-core.lisp`: compatibility re-export facade.
+  No implementation is defined in this package.
 - `ethereum-lisp.chain-store.model` / `chain-store-types.lisp`: in-memory
   store, checkpoint, transaction-location, filter, and blob lookup records.
   The model owns no storage behavior and depends only on protocol types and
@@ -358,25 +368,17 @@ The current source ownership map is:
 - `public-rpc-dispatch-*.lisp`: public JSON-RPC dispatch context plus
   metadata, state, block, transaction, filter, and txpool method routing.
 - `public-api-dispatch.lisp`: final public JSON-RPC method dispatch.
-- `engine-rpc-http-auth.lisp`: Engine API JWT token creation, validation, and
-  signing helpers.
-- `engine-rpc-http-parsing.lisp`: HTTP request-line, target, header,
-  content-type, content-length, boundary, and body parsing helpers.
-- `engine-rpc-http-telemetry.lisp`: HTTP request/response telemetry
-  extraction for JSON-RPC methods, error codes, and payload statuses.
-- `engine-rpc-http-request-read.lisp`: stream-to-request-string reader.
-- `engine-rpc-http-response.lisp`: HTTP response and error response
-  formatting helpers.
-- `engine-rpc-http-policy.lisp`: CORS response headers and host allowlist
-  checks.
-- `ethereum-lisp.rpc` / `rpc-router.lisp` and `rpc-json.lisp`: JSON-RPC
-  request context, Engine/Public method composition, batch handling, and JSON
-  codecs. The package has no HTTP transport dependency.
-- `engine-rpc-http-request.lisp` and `engine-rpc-http.lisp`: HTTP request
-  validation, JSON-RPC body handling, stream response writing, and request
-  telemetry.
-- `engine-rpc-http-service-*.lisp`: Engine HTTP service configuration, listener
-  abstractions, socket listener construction, stream delegation, and serve loop.
+- `rpc-http/auth.lisp`: Engine API JWT token creation and validation.
+- `rpc-http/parser.lisp`: HTTP parsing and bounded stream request reading.
+- `rpc-http/telemetry.lisp`: request/response telemetry extraction.
+- `rpc-http/policy.lisp`: CORS/host policy and response rendering.
+- `rpc-http/handler.lisp`: context-based request and single-stream handling,
+  plus legacy store/config adapters.
+- `rpc-http/service.lisp`: HTTP service model, validation, and RPC context
+  construction.
+- `rpc-http/listener.lisp`: connection/listener contracts and the SBCL socket
+  adapter.
+- `rpc-http/server.lisp`: configured stream delegation and listener serve loop.
 - `state-types.lisp`: state constants, mutable state records, proof records,
   range records, and state key coercion helpers.
 - `state-db.lisp`: mutable account/code/storage access, copy/restore helpers,

@@ -61,7 +61,7 @@
          (remote-block-hash (and remote-block (block-hash remote-block)))
          (restored-remote-block
            (and remote-block-hash
-                (ethereum-lisp.core::engine-payload-store-remote-block
+                (ethereum-lisp.chain-store:engine-payload-store-remote-block
                  restored-store remote-block-hash)))
          (remote-block-rpc-summary
            (and remote-payload
@@ -74,7 +74,7 @@
          (invalid-block-hash (and invalid-block (block-hash invalid-block)))
          (restored-invalid-block
            (and invalid-block-hash
-                (ethereum-lisp.core::engine-payload-store-invalid-block
+                (ethereum-lisp.chain-store:engine-payload-store-invalid-block
                  restored-store invalid-block-hash)))
          (invalid-tipset-rpc-summary
            (and invalid-block
@@ -694,4 +694,3 @@
                   (and side-reorg-rpc-summary
                        (getf side-reorg-rpc-summary
                              :public-connections))))))
-

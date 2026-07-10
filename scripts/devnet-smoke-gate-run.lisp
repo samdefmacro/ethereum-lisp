@@ -239,11 +239,11 @@
                      child-block
                      (getf (first balance-targets) :address)))
                   (expected-prepared-payload-id
-                    (ethereum-lisp.core::engine-payload-id-to-hex
-                     (ethereum-lisp.core::engine-payload-id
+                    (ethereum-lisp.chain-store:engine-payload-id-to-hex
+                     (ethereum-lisp.engine-payloads:engine-payload-id
                       2
                       (block-hash child-block)
-                      (ethereum-lisp.core::engine-rpc-validate-payload-attributes-v2
+                      (ethereum-lisp.engine-api::engine-rpc-validate-payload-attributes-v2
                        prepare-payload-attributes))))
                   (txpool-payload-attributes
                     (let ((attributes (copy-tree prepare-payload-attributes)))
@@ -2708,7 +2708,7 @@
                                               "latestValidHash"))
                   "orphan engine_newPayloadV2 should not report latestValidHash")
                  (devnet-smoke-gate-require
-                  (ethereum-lisp.core::engine-payload-store-remote-block
+                  (ethereum-lisp.chain-store:engine-payload-store-remote-block
                    store (block-hash remote-block))
                   "orphan engine_newPayloadV2 did not populate remote-block cache")
                  (devnet-smoke-gate-require
@@ -2727,7 +2727,7 @@
                                                  "validationError"))
                   "invalid engine_newPayloadV2 validation error mismatch")
                  (devnet-smoke-gate-require
-                  (ethereum-lisp.core::engine-payload-store-invalid-block
+                  (ethereum-lisp.chain-store:engine-payload-store-invalid-block
                    store (block-hash invalid-block))
                   "invalid engine_newPayloadV2 did not populate invalid-tipset cache")
                  (devnet-smoke-gate-require
@@ -2809,7 +2809,7 @@
                   "rpc_modules web3 module mismatch")
                  (devnet-smoke-gate-require
                   (string= (quantity-to-hex
-                            ethereum-lisp.core::+eth-protocol-version+)
+                            ethereum-lisp.engine-payloads:+eth-protocol-version+)
                            (fixture-object-field
                             public-protocol-version-rpc
                             "result"))
@@ -4703,4 +4703,3 @@
         (delete-file journal-path))))
   #-sbcl
   (error "Devnet smoke gate requires SBCL threads"))
-
