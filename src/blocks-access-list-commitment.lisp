@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.blocks)
 
 (defun validated-block-access-list-commitment
     (block &key max-code-size max-items)

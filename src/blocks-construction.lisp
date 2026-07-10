@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.blocks)
 
 (defun make-block (&key (header (make-block-header))
                         (transactions '())
@@ -55,6 +55,31 @@
                  :block-access-list block-access-list
                  :block-access-list-present-p block-access-list-supplied-p
                  :encoded-block-access-list encoded-block-access-list)))
+
+(defun make-block-from-parts
+    (&key (header (make-block-header))
+          (transactions '())
+          (receipts '())
+          (ommers '())
+          withdrawals
+          withdrawals-present-p
+          requests
+          requests-present-p
+          block-access-list
+          block-access-list-present-p
+          encoded-block-access-list)
+  "Assemble a block without deriving or validating header commitments."
+  (%make-block :header header
+               :transactions transactions
+               :receipts receipts
+               :ommers ommers
+               :withdrawals withdrawals
+               :withdrawals-present-p withdrawals-present-p
+               :requests requests
+               :requests-present-p requests-present-p
+               :block-access-list block-access-list
+               :block-access-list-present-p block-access-list-present-p
+               :encoded-block-access-list encoded-block-access-list))
 
 (defun block-hash (block)
   (block-header-hash (block-header block)))

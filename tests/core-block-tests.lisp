@@ -1,5 +1,39 @@
 (in-package #:ethereum-lisp.test)
 
+(deftest block-package-boundary
+  (let ((blocks (find-package '#:ethereum-lisp.blocks))
+        (transactions (find-package '#:ethereum-lisp.transactions))
+        (receipts (find-package '#:ethereum-lisp.receipts))
+        (requests (find-package '#:ethereum-lisp.execution-requests))
+        (access-lists (find-package '#:ethereum-lisp.block-access-lists))
+        (core (find-package '#:ethereum-lisp.core)))
+    (is (not (member core (package-use-list blocks))))
+    (dolist (dependency (list transactions receipts requests access-lists))
+      (is (member dependency (package-use-list blocks))))
+    (dolist (name '("BLOCK-HEADER" "MAKE-BLOCK" "BLOCK-FROM-RLP"))
+      (multiple-value-bind (block-symbol block-status)
+          (find-symbol name blocks)
+        (multiple-value-bind (core-symbol core-status)
+            (find-symbol name core)
+          (is (eq :external block-status))
+          (is (eq :external core-status))
+          (is (eq block-symbol core-symbol)))))
+    (dolist (name '("EXECUTABLE-DATA" "CHAIN-STORE-CHECKPOINT"))
+      (multiple-value-bind (symbol status)
+          (find-symbol name blocks)
+        (is (null symbol))
+        (is (null status))))))
+
+(deftest block-from-parts-preserves-header-commitments
+  (let* ((transactions-root (zero-hash32))
+         (header (make-block-header :transactions-root transactions-root))
+         (block (ethereum-lisp.blocks:make-block-from-parts
+                 :header header
+                 :transactions (list (make-legacy-transaction)))))
+    (is (eq header (block-header block)))
+    (is (eq transactions-root
+            (block-header-transactions-root (block-header block))))))
+
 (deftest transaction-type-validation-uses-chain-config
   (let* ((config (make-chain-config :berlin-block 5
                                     :london-block 10
@@ -858,4 +892,3 @@
       (validate-block-access-list-fields (list second first)))
     (signals block-validation-error
       (validate-block-access-list-fields (list first first)))))
-

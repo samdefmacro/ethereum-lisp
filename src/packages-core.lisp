@@ -11,7 +11,8 @@
         #:ethereum-lisp.accounts
         #:ethereum-lisp.receipts
         #:ethereum-lisp.execution-requests
-        #:ethereum-lisp.block-access-lists)
+        #:ethereum-lisp.block-access-lists
+        #:ethereum-lisp.blocks)
   (:import-from #:ethereum-lisp.database
    #:key-value-database
    #:make-kv-write-batch
@@ -33,6 +34,10 @@
    #:optional-bytes
    #:rlp-uint-field
    #:rlp-bytes-field
+   #:rlp-list-field
+   #:rlp-sized-bytes-field
+   #:rlp-hash32-field
+   #:rlp-address-field
    #:validate-byte-sequence-field
    #:byte-vector-lexicographic<
    #:uint32-value-p

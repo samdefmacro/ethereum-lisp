@@ -57,26 +57,23 @@
 (defun engine-payload-store-copy-block (block)
   (cond
     ((typep block 'ethereum-block)
-     (let ((copy (copy-ethereum-block block)))
-       (setf (block-header copy)
-             (engine-payload-store-copy-block-header (block-header block))
-             (block-transactions copy)
-             (mapcar (lambda (transaction)
-                       (transaction-from-encoding
-                        (transaction-encoding transaction)))
-                     (block-transactions block))
-             (block-receipts copy)
-             (mapcar #'engine-payload-store-copy-receipt
-                     (block-receipts block))
-             (block-ommers copy) (copy-list (block-ommers block))
-             (block-withdrawals copy)
-             (maybe-copy-withdrawals (block-withdrawals block))
-             (block-requests copy) (maybe-copy-requests (block-requests block))
-             (block-block-access-list copy)
-             (copy-tree (block-block-access-list block))
-             (block-encoded-block-access-list copy)
-             (maybe-copy-bytes (block-encoded-block-access-list block)))
-       copy))
+     (make-block-from-parts
+      :header (engine-payload-store-copy-block-header (block-header block))
+      :transactions
+      (mapcar (lambda (transaction)
+                (transaction-from-encoding (transaction-encoding transaction)))
+              (block-transactions block))
+      :receipts (mapcar #'engine-payload-store-copy-receipt
+                        (block-receipts block))
+      :ommers (copy-list (block-ommers block))
+      :withdrawals (maybe-copy-withdrawals (block-withdrawals block))
+      :withdrawals-present-p (block-withdrawals-present-p block)
+      :requests (maybe-copy-requests (block-requests block))
+      :requests-present-p (block-requests-present-p block)
+      :block-access-list (copy-tree (block-block-access-list block))
+      :block-access-list-present-p (block-block-access-list-present-p block)
+      :encoded-block-access-list
+      (maybe-copy-bytes (block-encoded-block-access-list block))))
     (t block)))
 
 (defun engine-payload-store-copy-block-table (table)

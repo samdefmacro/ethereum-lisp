@@ -88,6 +88,10 @@
    #:optional-bytes
    #:rlp-uint-field
    #:rlp-bytes-field
+   #:rlp-list-field
+   #:rlp-sized-bytes-field
+   #:rlp-hash32-field
+   #:rlp-address-field
    #:validate-byte-sequence-field
    #:byte-vector-lexicographic<
    #:uint32-value-p

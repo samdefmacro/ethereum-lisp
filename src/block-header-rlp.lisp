@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.blocks)
 
 (defun hash-or-zero (hash)
   (hash32-bytes (or hash (zero-hash32))))

@@ -59,3 +59,65 @@
    #:block-access-list-item-count
    #:validate-block-access-account-fields
    #:validate-block-access-list-fields))
+
+(defpackage #:ethereum-lisp.blocks
+  (:use #:cl
+        #:ethereum-lisp.bytes
+        #:ethereum-lisp.types
+        #:ethereum-lisp.rlp
+        #:ethereum-lisp.crypto
+        #:ethereum-lisp.validation
+        #:ethereum-lisp.transactions
+        #:ethereum-lisp.receipts
+        #:ethereum-lisp.execution-requests
+        #:ethereum-lisp.block-access-lists)
+  (:export
+   #:+empty-ommers-hash+
+   #:block-header
+   #:block-header-p
+   #:make-block-header
+   #:block-header-parent-hash
+   #:block-header-ommers-hash
+   #:block-header-beneficiary
+   #:block-header-state-root
+   #:block-header-transactions-root
+   #:block-header-receipts-root
+   #:block-header-logs-bloom
+   #:block-header-difficulty
+   #:block-header-number
+   #:block-header-gas-limit
+   #:block-header-gas-used
+   #:block-header-timestamp
+   #:block-header-extra-data
+   #:block-header-mix-hash
+   #:block-header-nonce
+   #:block-header-base-fee-per-gas
+   #:block-header-withdrawals-root
+   #:block-header-blob-gas-used
+   #:block-header-excess-blob-gas
+   #:block-header-parent-beacon-root
+   #:block-header-requests-hash
+   #:block-header-block-access-list-hash
+   #:block-header-slot-number
+   #:block-header-rlp
+   #:block-header-hash
+   #:ethereum-block
+   #:ethereum-block-p
+   #:make-block
+   #:make-block-from-parts
+   #:block-transactions
+   #:block-receipts
+   #:block-ommers
+   #:block-withdrawals
+   #:block-withdrawals-present-p
+   #:block-requests
+   #:block-requests-present-p
+   #:block-block-access-list
+   #:block-block-access-list-present-p
+   #:block-encoded-block-access-list
+   #:block-hash
+   #:block-rlp
+   #:block-from-rlp
+   #:ommers-hash
+   #:receipts-logs-bloom
+   #:validated-block-access-list-commitment))

@@ -84,6 +84,7 @@
            "src/block-access-list-commitments.lisp"
            "src/block-access-list.lisp"
            "src/txpool-types.lisp"
+           "src/blocks-constants.lisp"
            "src/blocks-types.lisp"
            "src/block-header-rlp.lisp"
            "src/blocks-construction.lisp"

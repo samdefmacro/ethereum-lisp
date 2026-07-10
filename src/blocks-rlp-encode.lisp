@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.blocks)
 
 (defun block-transaction-rlp-object (transaction)
   (let ((encoded (transaction-encoding transaction)))

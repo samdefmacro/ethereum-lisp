@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.blocks)
 
 (defstruct (block-header (:constructor make-block-header
                             (&key parent-hash

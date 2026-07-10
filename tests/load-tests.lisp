@@ -74,6 +74,7 @@
 (load-ethereum-lisp-test-file "src/block-access-list-commitments.lisp")
 (load-ethereum-lisp-test-file "src/block-access-list.lisp")
 (load-ethereum-lisp-test-file "src/txpool-types.lisp")
+(load-ethereum-lisp-test-file "src/blocks-constants.lisp")
 (load-ethereum-lisp-test-file "src/blocks-types.lisp")
 (load-ethereum-lisp-test-file "src/block-header-rlp.lisp")
 (load-ethereum-lisp-test-file "src/blocks-construction.lisp")

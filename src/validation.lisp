@@ -38,6 +38,25 @@
     (block-validation-fail "~A must be RLP bytes" label))
   (copy-seq value))
 
+(defun rlp-list-field (value label)
+  (unless (ethereum-lisp.rlp:rlp-list-p value)
+    (block-validation-fail "~A must be an RLP list" label))
+  (ethereum-lisp.rlp:rlp-list-items value))
+
+(defun rlp-sized-bytes-field (value size label)
+  (let ((bytes (rlp-bytes-field value label)))
+    (unless (= (length bytes) size)
+      (block-validation-fail "~A must be exactly ~D bytes" label size))
+    bytes))
+
+(defun rlp-hash32-field (value label)
+  (ethereum-lisp.types:make-hash32
+   (rlp-sized-bytes-field value 32 label)))
+
+(defun rlp-address-field (value label)
+  (ethereum-lisp.types:make-address
+   (rlp-sized-bytes-field value 20 label)))
+
 (defun validate-byte-sequence-field (value label &key size)
   (let ((bytes (handler-case
                    (ensure-byte-vector value)

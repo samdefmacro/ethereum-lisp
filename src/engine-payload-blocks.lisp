@@ -100,17 +100,17 @@
                                        "Executable data excess blob gas")
       (validate-optional-uint256-field (block-header-slot-number header)
                                        "Executable data slot number")
-      (%make-block :header header
-                   :transactions transactions
-                   :ommers '()
-                   :withdrawals withdrawals
-                   :withdrawals-present-p withdrawals-present-p
-                   :requests requests
-                   :requests-present-p requests-supplied-p
-                   :block-access-list block-access-list
-                   :block-access-list-present-p
-                   (not (null encoded-block-access-list))
-                   :encoded-block-access-list encoded-block-access-list))))
+      (make-block-from-parts
+       :header header
+       :transactions transactions
+       :ommers '()
+       :withdrawals withdrawals
+       :withdrawals-present-p withdrawals-present-p
+       :requests requests
+       :requests-present-p requests-supplied-p
+       :block-access-list block-access-list
+       :block-access-list-present-p (not (null encoded-block-access-list))
+       :encoded-block-access-list encoded-block-access-list))))
 
 (defun executable-data-to-block
     (payload &key parent-beacon-root (versioned-hashes nil)

@@ -1,21 +1,4 @@
-(in-package #:ethereum-lisp.core)
-
-(defun rlp-list-field (value label)
-  (unless (rlp-list-p value)
-    (block-validation-fail "~A must be an RLP list" label))
-  (rlp-list-items value))
-
-(defun rlp-sized-bytes-field (value size label)
-  (let ((bytes (rlp-bytes-field value label)))
-    (unless (= (length bytes) size)
-      (block-validation-fail "~A must be exactly ~D bytes" label size))
-    bytes))
-
-(defun rlp-hash32-field (value label)
-  (make-hash32 (rlp-sized-bytes-field value 32 label)))
-
-(defun rlp-address-field (value label)
-  (make-address (rlp-sized-bytes-field value 20 label)))
+(in-package #:ethereum-lisp.blocks)
 
 (defun block-header-from-rlp-object (value)
   (let ((fields (rlp-list-field value "Block header")))
@@ -113,7 +96,7 @@
     (let ((withdrawals-present-p (> (length items) 3))
           (requests-present-p (> (length items) 4))
           (block-access-list-present-p (> (length items) 5)))
-      (%make-block
+      (make-block-from-parts
        :header (block-header-from-rlp-object (first items))
        :transactions (block-transactions-from-rlp-object (second items))
        :ommers (block-ommers-from-rlp-object (third items))

@@ -76,6 +76,7 @@
      (:file "block-access-list-commitments")
      (:file "block-access-list")
      (:file "txpool-types")
+     (:file "blocks-constants")
      (:file "blocks-types")
      (:file "block-header-rlp")
      (:file "blocks-construction")

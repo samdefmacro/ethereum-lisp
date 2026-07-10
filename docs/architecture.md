@@ -39,8 +39,8 @@ The current source ownership map is:
   domain package definitions.
 - `packages-models.lisp`: account and receipt protocol-model package
   definitions, ordered by their explicit domain dependencies.
-- `packages-blocks.lisp`: execution-request and block-access-list package
-  definitions used by block assembly and validation.
+- `packages-blocks.lisp`: execution-request, block-access-list, and block
+  package definitions with their dependency order made explicit.
 - `packages-core.lisp`: compatibility aggregate for the remaining core
   protocol surface; it re-exports narrower domain APIs while callers migrate.
 - `packages-runtime.lisp`: state, EVM, execution, and CLI package definitions.
@@ -115,9 +115,10 @@ The current source ownership map is:
   receipts, and trie-list roots. The package depends explicitly on the
   transaction contract used for typed receipt and transaction roots.
 - `txpool-types.lisp`: txpool index structure required by the store type.
-- `blocks-*.lisp` and `block-header-rlp.lisp`: block header/body structures,
-  block hashing, construction, and block RLP encode/decode helpers.
-- `blocks.lisp`: compatibility package entry for block modules.
+- `ethereum-lisp.blocks` / `blocks-*.lisp` / `block-header-rlp.lisp`: block
+  header/body values, canonical codecs, commitment derivation, construction,
+  and hashing. It depends on transaction, receipt, execution-request, and
+  block-access-list contracts, never on the core compatibility aggregate.
 - `consensus-validation.lisp`: shared consensus validation primitives,
   hash equality, sized-byte checks, and fee-market calculations.
 - `consensus-field-validation.lisp`: shared scalar, byte, hash, address, and

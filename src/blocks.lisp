@@ -1,1 +1,1 @@
-(in-package #:ethereum-lisp.core)
+(in-package #:ethereum-lisp.blocks)
