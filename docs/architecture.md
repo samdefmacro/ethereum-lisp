@@ -175,9 +175,13 @@ The current source ownership map is:
 - `ethereum-lisp.chain-store.model` / `chain-store-types.lisp`: checkpoint,
   transaction-location, filter, and blob lookup records. The model owns no
   storage behavior and has no txpool dependency.
+- `ethereum-lisp.chain-store.state` / `chain-store-state.lisp`: mutable
+  in-memory chain data, state projections, caches, filters, and checkpoints.
+  It depends on chain-store records but has no txpool dependency.
 - `ethereum-lisp.node-state` / `node-state.lisp`: the explicit in-memory node
-  aggregate that composes chain data, txpool index state, caches, and filters.
-  Cross-domain mutable ownership belongs here rather than in a domain model.
+  aggregate that composes one chain-store state component with one txpool
+  index component. Cross-domain lifecycle ownership belongs here rather than
+  in either domain model.
 - `ethereum-lisp.chain-store` / chain-store memory, copy, cache, filter,
   state, canonical-index, and transaction-location modules: in-memory chain
   behavior and public queries over node state. Canonical-head remains an
@@ -533,8 +537,8 @@ The current source ownership map is:
 - Consensus data types may use primitives, RLP, crypto, trie, and chain rules.
 - State may use account types and trie commitments, but not genesis parsing.
 - Genesis-state assembly may bridge genesis input and mutable state.
-- Node state may compose chain-store records and txpool index state; neither
-  domain model may own the other domain's state.
+- Node state may compose chain-store state and txpool index state; neither
+  domain may own the other domain's mutable state.
 - EVM may use state and consensus types, but not RPC or CLI.
 - Execution may use EVM, state, and consensus types, but not chain store.
 - Execution services may bridge pure execution, state, and chain-store APIs.

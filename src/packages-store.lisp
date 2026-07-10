@@ -49,14 +49,42 @@
    #:engine-block-filter-record-hash
    #:engine-payload-store-key))
 
+(defpackage #:ethereum-lisp.chain-store.state
+  (:use #:cl
+        #:ethereum-lisp.chain-store.model)
+  (:export
+   #:memory-chain-store
+   #:memory-chain-store-p
+   #:make-memory-chain-store
+   #:memory-chain-store-blocks
+   #:memory-chain-store-number-blocks
+   #:memory-chain-store-canonical-hashes
+   #:memory-chain-store-transaction-locations
+   #:memory-chain-store-account-balances
+   #:memory-chain-store-account-nonces
+   #:memory-chain-store-account-codes
+   #:memory-chain-store-account-storage
+   #:memory-chain-store-head-number
+   #:memory-chain-store-state-blocks
+   #:memory-chain-store-remote-blocks
+   #:memory-chain-store-invalid-tipsets
+   #:memory-chain-store-prepared-payloads
+   #:memory-chain-store-blob-sidecars
+   #:memory-chain-store-log-filters
+   #:memory-chain-store-next-log-filter-id
+   #:memory-chain-store-head-checkpoint
+   #:memory-chain-store-safe-checkpoint
+   #:memory-chain-store-finalized-checkpoint))
+
 (defpackage #:ethereum-lisp.node-state
   (:use #:cl
-        #:ethereum-lisp.chain-store.model
+        #:ethereum-lisp.chain-store.state
         #:ethereum-lisp.txpool.index)
   (:export
    #:engine-payload-memory-store
    #:engine-payload-memory-store-p
    #:make-engine-payload-memory-store
+   #:engine-payload-memory-store-chain-store
    #:engine-payload-memory-store-blocks
    #:engine-payload-memory-store-number-blocks
    #:engine-payload-memory-store-canonical-hashes
@@ -95,6 +123,7 @@
         #:ethereum-lisp.engine-payloads
         #:ethereum-lisp.txpool.index
         #:ethereum-lisp.chain-store.model
+        #:ethereum-lisp.chain-store.state
         #:ethereum-lisp.node-state)
   (:export
    #:chain-store-require-memory-store

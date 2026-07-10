@@ -2,46 +2,64 @@
 
 (defstruct (engine-payload-memory-store
             (:constructor make-engine-payload-memory-store
-                (&key (blocks (make-hash-table :test 'equal))
-                      (number-blocks (make-hash-table :test 'eql))
-                      (canonical-hashes (make-hash-table :test 'eql))
-                      (transaction-locations (make-hash-table :test 'equal))
-                      (account-balances (make-hash-table :test 'equal))
-                      (account-nonces (make-hash-table :test 'equal))
-                      (account-codes (make-hash-table :test 'equal))
-                      (account-storage (make-hash-table :test 'equal))
-                      (head-number 0)
-                      (state-blocks (make-hash-table :test 'equal))
-                      (remote-blocks (make-hash-table :test 'equal))
-                      (invalid-tipsets (make-hash-table :test 'equal))
-                      (prepared-payloads (make-hash-table :test 'equal))
-                      (blob-sidecars (make-hash-table :test 'equal))
-                      (txpool (make-engine-pending-txpool))
-                      (log-filters (make-hash-table :test 'eql))
-                      (next-log-filter-id 1)
-                      (head-checkpoint
-                       (make-chain-store-checkpoint :label :head))
-                      (safe-checkpoint
-                       (make-chain-store-checkpoint :label :safe))
-                      (finalized-checkpoint
-                       (make-chain-store-checkpoint :label :finalized)))))
-  blocks
-  number-blocks
-  canonical-hashes
-  transaction-locations
-  account-balances
-  account-nonces
-  account-codes
-  account-storage
-  (head-number 0 :type (integer 0 *))
-  state-blocks
-  remote-blocks
-  invalid-tipsets
-  prepared-payloads
-  blob-sidecars
-  txpool
-  log-filters
-  (next-log-filter-id 1 :type (integer 1 *))
-  head-checkpoint
-  safe-checkpoint
-  finalized-checkpoint)
+                (&key (chain-store (make-memory-chain-store))
+                      (txpool (make-engine-pending-txpool)))))
+  (chain-store (make-memory-chain-store) :type memory-chain-store)
+  (txpool (make-engine-pending-txpool) :type engine-pending-txpool))
+
+(defmacro define-node-chain-store-accessor (node-accessor chain-accessor)
+  `(progn
+     (defun ,node-accessor (state)
+       (,chain-accessor (engine-payload-memory-store-chain-store state)))
+     (defun (setf ,node-accessor) (value state)
+       (setf (,chain-accessor
+              (engine-payload-memory-store-chain-store state))
+             value))))
+
+(define-node-chain-store-accessor
+  engine-payload-memory-store-blocks memory-chain-store-blocks)
+(define-node-chain-store-accessor
+  engine-payload-memory-store-number-blocks memory-chain-store-number-blocks)
+(define-node-chain-store-accessor
+  engine-payload-memory-store-canonical-hashes
+  memory-chain-store-canonical-hashes)
+(define-node-chain-store-accessor
+  engine-payload-memory-store-transaction-locations
+  memory-chain-store-transaction-locations)
+(define-node-chain-store-accessor
+  engine-payload-memory-store-account-balances
+  memory-chain-store-account-balances)
+(define-node-chain-store-accessor
+  engine-payload-memory-store-account-nonces memory-chain-store-account-nonces)
+(define-node-chain-store-accessor
+  engine-payload-memory-store-account-codes memory-chain-store-account-codes)
+(define-node-chain-store-accessor
+  engine-payload-memory-store-account-storage
+  memory-chain-store-account-storage)
+(define-node-chain-store-accessor
+  engine-payload-memory-store-head-number memory-chain-store-head-number)
+(define-node-chain-store-accessor
+  engine-payload-memory-store-state-blocks memory-chain-store-state-blocks)
+(define-node-chain-store-accessor
+  engine-payload-memory-store-remote-blocks memory-chain-store-remote-blocks)
+(define-node-chain-store-accessor
+  engine-payload-memory-store-invalid-tipsets memory-chain-store-invalid-tipsets)
+(define-node-chain-store-accessor
+  engine-payload-memory-store-prepared-payloads
+  memory-chain-store-prepared-payloads)
+(define-node-chain-store-accessor
+  engine-payload-memory-store-blob-sidecars memory-chain-store-blob-sidecars)
+(define-node-chain-store-accessor
+  engine-payload-memory-store-log-filters memory-chain-store-log-filters)
+(define-node-chain-store-accessor
+  engine-payload-memory-store-next-log-filter-id
+  memory-chain-store-next-log-filter-id)
+(define-node-chain-store-accessor
+  engine-payload-memory-store-head-checkpoint
+  memory-chain-store-head-checkpoint)
+(define-node-chain-store-accessor
+  engine-payload-memory-store-safe-checkpoint
+  memory-chain-store-safe-checkpoint)
+(define-node-chain-store-accessor
+  engine-payload-memory-store-finalized-checkpoint
+  memory-chain-store-finalized-checkpoint)

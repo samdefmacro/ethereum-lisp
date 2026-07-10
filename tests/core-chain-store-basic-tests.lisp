@@ -21,13 +21,26 @@
         (is (null symbol))
         (is (null status))))))
 
+(deftest chain-store-state-package-boundary
+  (let ((state (find-package '#:ethereum-lisp.chain-store.state))
+        (model (find-package '#:ethereum-lisp.chain-store.model))
+        (txpool-index (find-package '#:ethereum-lisp.txpool.index)))
+    (is (member model (package-use-list state)))
+    (is (not (member txpool-index (package-use-list state))))
+    (multiple-value-bind (symbol status)
+        (find-symbol "MEMORY-CHAIN-STORE" state)
+      (is (eq :external status))
+      (is (eq state (symbol-package symbol))))))
+
 (deftest node-state-package-boundary
   (let ((node-state (find-package '#:ethereum-lisp.node-state))
+        (chain-state (find-package '#:ethereum-lisp.chain-store.state))
         (model (find-package '#:ethereum-lisp.chain-store.model))
         (txpool-index (find-package '#:ethereum-lisp.txpool.index))
         (core (find-package '#:ethereum-lisp.core)))
-    (is (member model (package-use-list node-state)))
+    (is (member chain-state (package-use-list node-state)))
     (is (member txpool-index (package-use-list node-state)))
+    (is (not (member model (package-use-list node-state))))
     (multiple-value-bind (node-symbol node-status)
         (find-symbol "ENGINE-PAYLOAD-MEMORY-STORE" node-state)
       (multiple-value-bind (core-symbol core-status)
@@ -38,7 +51,15 @@
     (multiple-value-bind (symbol status)
         (find-symbol "ENGINE-PAYLOAD-MEMORY-STORE" model)
       (declare (ignore symbol))
-      (is (not (eq :external status))))))
+      (is (not (eq :external status))))
+    (let ((state (make-engine-payload-memory-store)))
+      (is (typep
+           (ethereum-lisp.node-state:engine-payload-memory-store-chain-store
+            state)
+           'ethereum-lisp.chain-store.state:memory-chain-store))
+      (is (typep
+           (ethereum-lisp.node-state:engine-payload-memory-store-txpool state)
+           'ethereum-lisp.txpool.index:engine-pending-txpool)))))
 
 (deftest chain-store-service-package-boundary
   (let ((store (find-package '#:ethereum-lisp.chain-store))

@@ -9122,6 +9122,9 @@ splits can land after the Phase A smoke path closes.
 
 ## Recently Completed
 
+- [x] Split the flat node-state record into a `memory-chain-store` component
+  and a txpool index component while retaining a single lifecycle composition
+  root.
 - [x] Move the mutable in-memory node aggregate into `ethereum-lisp.node-state`
   so `chain-store.model` no longer owns or depends on txpool index state.
 - [x] Consolidate tiny constants, hashes, commitments, and guard fragments into
