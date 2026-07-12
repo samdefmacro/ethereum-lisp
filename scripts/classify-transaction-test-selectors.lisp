@@ -1,10 +1,13 @@
 (defparameter *ethereum-lisp-transaction-classifier-script-root*
   (merge-pathnames "../" (or *load-truename* *default-pathname-defaults*)))
 
+(defvar *transaction-classifier-script-run-main-p* t)
+
 (require :asdf)
 
-(load (merge-pathnames "scripts/fixture-root-application.lisp"
-                       *ethereum-lisp-transaction-classifier-script-root*))
+(unless (find-package '#:ethereum-lisp.fixture-root-application)
+  (load (merge-pathnames "scripts/fixture-root-application.lisp"
+                         *ethereum-lisp-transaction-classifier-script-root*)))
 
 (defconstant +transaction-classifier-script-json-flag+ "--json")
 (defconstant +transaction-classifier-script-help-flag+ "--help")
@@ -88,8 +91,9 @@ fixture-harness-error.~%")
           +transaction-classifier-script-eest-root-env+))
 
 #+sbcl
-(when (transaction-classifier-script-help-p
-       (transaction-classifier-script-arguments))
+(when (and *transaction-classifier-script-run-main-p*
+           (transaction-classifier-script-help-p
+            (transaction-classifier-script-arguments)))
   (transaction-classifier-script-print-help)
   (sb-ext:exit :code 0))
 
@@ -191,11 +195,12 @@ fixture-harness-error.~%")
     (funcall (symbol-function symbol) object)))
 
 (defun transaction-classifier-script-reject-missing-configured-root
-    (root-argument)
+    (root-argument &key (environment-lookup #'uiop:getenv))
   (ethereum-lisp.fixture-root-application:validate-configured-root
    root-argument
    :environment-name +transaction-classifier-script-eest-root-env+
-   :root-option +transaction-classifier-script-root-option+))
+   :root-option +transaction-classifier-script-root-option+
+   :environment-lookup environment-lookup))
 
 (defun transaction-classifier-script-reject-empty-selected-root (root label)
   (ethereum-lisp.fixture-root-application:validate-non-empty-root
@@ -507,21 +512,35 @@ fixture-harness-error.~%")
                    "results"))
     (transaction-classifier-script-print-result result)))
 
-(defun transaction-classifier-script-main ()
-  (load (merge-pathnames "tests/load-tests.lisp"
-                         *ethereum-lisp-transaction-classifier-script-root*))
-  (let* ((args (transaction-classifier-script-arguments))
+(defun transaction-classifier-script-main
+    (&key
+       (args (transaction-classifier-script-arguments))
+       (environment-lookup #'uiop:getenv)
+       (output *standard-output*)
+       (error-output *error-output*)
+       (load-tests-p t))
+  (let ((*standard-output* output)
+        (*error-output* error-output))
+    (when (transaction-classifier-script-help-p args)
+      (transaction-classifier-script-print-help)
+      (return-from transaction-classifier-script-main :help))
+    (when load-tests-p
+      (load (merge-pathnames "tests/load-tests.lisp"
+                             *ethereum-lisp-transaction-classifier-script-root*)))
+    (let* ((args (transaction-classifier-script-normalize-option-args args))
          (options (transaction-classifier-script-options args))
          (root-argument (getf options :root))
+         (configured-root
+           (transaction-classifier-script-reject-missing-configured-root
+            root-argument
+            :environment-lookup environment-lookup))
          (transaction-root
-           (if root-argument
+           (if configured-root
                (transaction-classifier-script-call
                 "execution-spec-tests-transaction-test-root"
-                root-argument)
+                configured-root)
                (transaction-classifier-script-call
                 "execution-spec-tests-transaction-test-root"))))
-    (transaction-classifier-script-reject-missing-configured-root
-     root-argument)
     (unless transaction-root
       (error "No EEST transaction_tests fixture root found. Pass --root or set ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT."))
     (transaction-classifier-script-reject-empty-selected-root
@@ -537,6 +556,8 @@ fixture-harness-error.~%")
       (if (transaction-classifier-script-json-p args)
           (format t "~&~A~%"
                   (transaction-classifier-script-json-encode report))
-          (transaction-classifier-script-print-text-report report)))))
+          (transaction-classifier-script-print-text-report report))
+      report))))
 
-(transaction-classifier-script-main)
+(when *transaction-classifier-script-run-main-p*
+  (transaction-classifier-script-main))

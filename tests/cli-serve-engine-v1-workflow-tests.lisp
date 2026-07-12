@@ -113,7 +113,7 @@
                            (cons "method" "web3_clientVersion")
                            (cons "params" #())))))
              (setf process
-                   (uiop:launch-program
+                   (test-launch-program
                     (list "sbcl"
                           "--script"
                           script

@@ -82,11 +82,17 @@
           (incf *devnet-cli-temp-counter*)
           (gensym)))
 
+(defun devnet-cli-temp-root ()
+  (let ((worker-root (uiop:getenv "ETHEREUM_LISP_TEST_WORKER_ROOT")))
+    (if (and worker-root (plusp (length worker-root)))
+        (uiop:ensure-directory-pathname worker-root)
+        (uiop:temporary-directory))))
+
 (defun devnet-cli-temp-path (name type)
   (merge-pathnames
    (make-pathname :name (format nil "~A-~A" name (devnet-cli-temp-token))
                   :type type)
-   #P"/private/tmp/"))
+   (devnet-cli-temp-root)))
 
 (defun devnet-cli-write-temp-file (path contents)
   (with-open-file (stream path
@@ -155,4 +161,3 @@
     (loop for form = (read stream nil :eof)
           until (eq form :eof)
           collect form)))
-

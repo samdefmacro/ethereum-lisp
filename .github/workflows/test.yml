@@ -1,0 +1,28 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  layers:
+    strategy:
+      fail-fast: false
+      matrix:
+        layer: [unit, integration, e2e]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install runtimes
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sbcl golang-go
+          sudo mkdir -p /private/tmp
+          sudo chmod 1777 /private/tmp
+      - name: Run layer
+        run: |
+          if [ "${{ matrix.layer }}" = e2e ]; then
+            make test-e2e E2E_JOBS=4
+          else
+            make "test-${{ matrix.layer }}"
+          fi

@@ -25,7 +25,7 @@
                                    :if-does-not-exist :create)
              (write-string +devnet-cli-jwt-secret+ stream))
            (setf process
-                 (uiop:launch-program
+                 (test-launch-program
                   (list "sbcl"
                         "--script"
                         script

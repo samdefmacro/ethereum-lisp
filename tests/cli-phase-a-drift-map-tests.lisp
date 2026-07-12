@@ -32,25 +32,19 @@
     (is (search "out-of-scope-fork-feature" stdout))))
 
 (deftest phase-a-drift-map-script-json-summarizes-suites
+  (:layer :integration :module :fixture-cli :launches-processes nil)
   #-sbcl
   (skip-test "Phase A drift map script requires SBCL")
   #+sbcl
   (multiple-value-bind (stdout stderr status)
-      (uiop:run-program
-       (list "sbcl"
-             "--script"
-             "scripts/phase-a-drift-map.lisp"
-             "--"
-             "--root"
+      (run-drift-map-application
+       (list "--root"
              "tests/fixtures/execution-spec-tests-root/"
              "--limit"
              "1"
              "--failures-only"
              "--summary-only"
-             "--json")
-       :output :string
-       :error-output :string
-       :ignore-error-status t)
+             "--json"))
     (is (= 0 status))
     (is (string= "" stderr))
     (when (= 0 status)
@@ -102,25 +96,19 @@
                                           "outOfScopeCount"))))))))
 
 (deftest phase-a-drift-map-script-json-filters-suite
+  (:layer :integration :module :fixture-cli :launches-processes nil)
   #-sbcl
   (skip-test "Phase A drift map script requires SBCL")
   #+sbcl
   (multiple-value-bind (stdout stderr status)
-      (uiop:run-program
-       (list "sbcl"
-             "--script"
-             "scripts/phase-a-drift-map.lisp"
-             "--"
-             "--root"
+      (run-drift-map-application
+       (list "--root"
              "tests/fixtures/execution-spec-tests-root/"
              "--suite"
              "transaction"
              "--limit"
              "1"
-             "--json")
-       :output :string
-       :error-output :string
-       :ignore-error-status t)
+             "--json"))
     (is (= 0 status))
     (is (string= "" stderr))
     (when (= 0 status)
@@ -139,16 +127,14 @@
         (is (= 1 (fixture-object-field suite "classifiedCount")))))))
 
 (deftest phase-a-drift-map-script-accepts-assigned-options
+  (:layer :integration :module :fixture-cli :launches-processes nil)
   #-sbcl
   (skip-test "Phase A drift map script requires SBCL")
   #+sbcl
   (let ((root "tests/fixtures/execution-spec-tests-root/"))
     (multiple-value-bind (stdout stderr status)
-        (uiop:run-program
-         (list "sbcl"
-               "--script"
-               "scripts/phase-a-drift-map.lisp"
-               "--"
+        (run-drift-map-application
+         (list
                (format nil "--root=~A" root)
                "--limit=1"
                "--state-prefix=london/phase-a-state-sample.json/phase_a_london_access_list"
@@ -156,10 +142,7 @@
                "--blockchain-prefix=shanghai/phase-a-empty-engine"
                "--failures-only=true"
                "--summary-only=true"
-               "--json=1")
-         :output :string
-         :error-output :string
-         :ignore-error-status t)
+               "--json=1"))
       (is (= 0 status))
       (is (string= "" stderr))
       (when (= 0 status)
@@ -195,38 +178,24 @@
           (is (= 3 (fixture-object-field overall "classifiedCount"))))))))
 
 (deftest phase-a-drift-map-script-rejects-malformed-boolean-assignment
+  (:layer :integration :module :fixture-cli :launches-processes nil)
   #-sbcl
   (skip-test "Phase A drift map script requires SBCL")
   #+sbcl
   (multiple-value-bind (stdout stderr status)
-      (uiop:run-program
-       (list "sbcl"
-             "--script"
-             "scripts/phase-a-drift-map.lisp"
-             "--"
-             "--json=maybe")
-       :output :string
-       :error-output :string
-       :ignore-error-status t)
+      (run-drift-map-application (list "--json=maybe"))
     (is (not (= 0 status)))
     (is (string= "" stdout))
     (is (search "--json boolean value must be true or false" stderr))))
 
 (deftest phase-a-drift-map-script-rejects-unknown-suite
+  (:layer :integration :module :fixture-cli :launches-processes nil)
   #-sbcl
   (skip-test "Phase A drift map script requires SBCL")
   #+sbcl
   (multiple-value-bind (stdout stderr status)
-      (uiop:run-program
-       (list "sbcl"
-             "--script"
-             "scripts/phase-a-drift-map.lisp"
-             "--"
-             "--suite=receipts"
-             "--json")
-       :output :string
-       :error-output :string
-       :ignore-error-status t)
+      (run-drift-map-application
+       (list "--suite=receipts" "--json"))
     (is (not (= 0 status)))
     (is (string= "" stdout))
     (is (search "--suite requires state, transaction, or blockchain" stderr))))

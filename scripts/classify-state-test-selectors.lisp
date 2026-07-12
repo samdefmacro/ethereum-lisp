@@ -1,10 +1,13 @@
 (defparameter *ethereum-lisp-state-classifier-script-root*
   (merge-pathnames "../" (or *load-truename* *default-pathname-defaults*)))
 
+(defvar *state-classifier-script-run-main-p* t)
+
 (require :asdf)
 
-(load (merge-pathnames "scripts/fixture-root-application.lisp"
-                       *ethereum-lisp-state-classifier-script-root*))
+(unless (find-package '#:ethereum-lisp.fixture-root-application)
+  (load (merge-pathnames "scripts/fixture-root-application.lisp"
+                         *ethereum-lisp-state-classifier-script-root*)))
 
 (defconstant +state-classifier-script-json-flag+ "--json")
 (defconstant +state-classifier-script-help-flag+ "--help")
@@ -87,8 +90,9 @@ fixture-harness-error.~%")
           +state-classifier-script-eest-root-env+))
 
 #+sbcl
-(when (state-classifier-script-help-p
-       (state-classifier-script-arguments))
+(when (and *state-classifier-script-run-main-p*
+           (state-classifier-script-help-p
+            (state-classifier-script-arguments)))
   (state-classifier-script-print-help)
   (sb-ext:exit :code 0))
 
@@ -190,11 +194,12 @@ fixture-harness-error.~%")
     (funcall (symbol-function symbol) object)))
 
 (defun state-classifier-script-reject-missing-configured-root
-    (root-argument)
+    (root-argument &key (environment-lookup #'uiop:getenv))
   (ethereum-lisp.fixture-root-application:validate-configured-root
    root-argument
    :environment-name +state-classifier-script-eest-root-env+
-   :root-option +state-classifier-script-root-option+))
+   :root-option +state-classifier-script-root-option+
+   :environment-lookup environment-lookup))
 
 (defun state-classifier-script-reject-empty-selected-root (root label)
   (ethereum-lisp.fixture-root-application:validate-non-empty-root
@@ -453,20 +458,35 @@ fixture-harness-error.~%")
   (dolist (result (state-classifier-script-report-field report "results"))
     (state-classifier-script-print-result result)))
 
-(defun state-classifier-script-main ()
-  (load (merge-pathnames "tests/load-tests.lisp"
-                         *ethereum-lisp-state-classifier-script-root*))
-  (let* ((args (state-classifier-script-arguments))
+(defun state-classifier-script-main
+    (&key
+       (args (state-classifier-script-arguments))
+       (environment-lookup #'uiop:getenv)
+       (output *standard-output*)
+       (error-output *error-output*)
+       (load-tests-p t))
+  (let ((*standard-output* output)
+        (*error-output* error-output))
+    (when (state-classifier-script-help-p args)
+      (state-classifier-script-print-help)
+      (return-from state-classifier-script-main :help))
+    (when load-tests-p
+      (load (merge-pathnames "tests/load-tests.lisp"
+                             *ethereum-lisp-state-classifier-script-root*)))
+    (let* ((args (state-classifier-script-normalize-option-args args))
          (options (state-classifier-script-options args))
          (root-argument (getf options :root))
+         (configured-root
+           (state-classifier-script-reject-missing-configured-root
+            root-argument
+            :environment-lookup environment-lookup))
          (state-root
-           (if root-argument
+           (if configured-root
                (state-classifier-script-call
                 "execution-spec-tests-state-test-root"
-                root-argument)
+                configured-root)
                (state-classifier-script-call
                 "execution-spec-tests-state-test-root"))))
-    (state-classifier-script-reject-missing-configured-root root-argument)
     (unless state-root
       (error "No EEST state_tests fixture root found. Pass --root or set ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT."))
     (state-classifier-script-reject-empty-selected-root
@@ -482,6 +502,8 @@ fixture-harness-error.~%")
       (if (state-classifier-script-json-p args)
           (format t "~&~A~%"
                   (state-classifier-script-json-encode report))
-          (state-classifier-script-print-text-report report)))))
+          (state-classifier-script-print-text-report report))
+      report))))
 
-(state-classifier-script-main)
+(when *state-classifier-script-run-main-p*
+  (state-classifier-script-main))

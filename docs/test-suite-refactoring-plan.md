@@ -1,7 +1,6 @@
 # Test Suite Refactoring Plan
 
-Status: active; phases 0-2 have an initial implementation, while phases 3-5
-remain open except for the stable layer commands delivered with phase 1.
+Status: complete; phases 0-5 were implemented and validated on 2026-07-12.
 
 ## Purpose
 
@@ -278,3 +277,90 @@ are the two devnet smoke workflows at approximately 145s each, followed by the
 pinned-fixture workflow at approximately 73s. These measurements leave Phase
 3 isolation and Phase 4 bounded process parallelism as required work rather
 than treating the initial layering as the end of the refactor.
+
+### 2026-07-12 phase 2 classifier and drift-map result
+
+- State, transaction, and blockchain classifier entry points now accept
+  explicit argv, environment lookup, output stream, and test-system loading
+  controls. Loading them as application services no longer executes their
+  process entry points.
+- The aggregate drift-map invokes all three classifier services in the current
+  Lisp image and consumes their report objects directly. It no longer launches
+  a child SBCL process per suite or round-trips classifier reports through
+  JSON.
+- Seven classifier matrix tests and five drift-map matrix/error tests now run
+  in-process in the integration layer. Their focused measured execution time is
+  2.106s total. Separate subprocess help/boot contracts remain for every public
+  classifier and drift-map script.
+- Test `uiop:run-program` call sites fell from 60 immediately before this slice
+  to 48. The full e2e layer fell from 76 tests / 583.764s to 62 tests /
+  502.868s because the twelve application-level contracts moved to integration
+  and no longer pay repeated Lisp cold starts. This is an 80.896s (13.9%) e2e
+  execution-time reduction.
+- Fresh validation passed with `unit` 683 passed / 3 optional skips in 55.864s,
+  `integration` 194 passed / 2 optional skips in 68.931s, and `e2e` 62 passed
+  in 502.868s. The composed result remains 939 passed / 5 skipped / 0 failed in
+  627.663s, 76.003s lower than the prior composed measurement.
+- At this checkpoint, Phase 2 remained open for fixture-report, selector-list, and smoke-gate
+  application services plus their remaining option matrices. The current
+  slowest e2e tests remain the two approximately 144s Phase A devnet workflows
+  and the approximately 72s pinned-fixture workflow, preserving the case for
+  Phase 3 isolation and Phase 4 bounded process parallelism afterward.
+
+### 2026-07-12 phase 2 completion
+
+- Fixture report, selector-list, classifier, drift-map, and smoke-gate entry
+  points now expose application functions with explicit argv, environment,
+  stdout, stderr, and test-system-loading dependencies. Public script files
+  remain guarded adapters, and direct CLI smoke runs preserved their contracts.
+- The three selector entry points share `scripts/selector-application.lisp`;
+  the drift-map composes classifier report objects without child Lisp images.
+- The report, selector, classifier, drift-map, and smoke-gate option/error
+  matrices run in-process in the integration layer. Focused validation passed
+  18 classifier/drift tests, 3 fixture-report tests, 1 selector matrix, and 2
+  smoke-gate option/error tests. Standalone help and boot contracts remain in
+  e2e for every public script family.
+
+### 2026-07-12 phase 3 completion
+
+- Test-launched processes are registered with the framework and reaped from an
+  unconditional per-test cleanup scope on pass, skip, failure, and timeout.
+  Nineteen direct test launch sites now use the owning wrapper.
+- File and child-exit polling use one bounded condition primitive with elapsed
+  wait and diagnostic support. Its deterministic probe test contains no
+  wall-clock delay, and a real integration test proves a live child is reaped.
+- E2e workers receive unique temporary roots through
+  `ETHEREUM_LISP_TEST_WORKER_ROOT`; CLI artifact and restored-report helpers
+  resolve beneath that root. Existing listener tests continue to request
+  ephemeral ports rather than sharing fixed endpoints.
+
+### 2026-07-12 phase 4 completion
+
+- `tests/run-tests.lisp --layer e2e --jobs N` launches a bounded set of worker
+  Lisp processes. Tests are assigned by a deterministic greedy duration
+  balance, retain registration order inside each shard, and are reported in
+  worker-number order after buffered execution.
+- Each worker owns its temporary root, stdout, stderr, and child processes.
+  Parent cleanup terminates and reaps surviving workers and removes every root
+  even when a worker fails.
+- The serial and four-worker runs both passed the same 56 e2e tests. Serial
+  measured execution was 484.528s; the four-worker wall time was 162.71s, a
+  66.4% wall-clock reduction with no result loss or interference.
+
+### 2026-07-12 phase 5 completion and final acceptance
+
+- Stable `make test-unit`, `make test-integration`, `make test-e2e`, and
+  `make test-all` commands are documented. `test-all` runs the three isolated
+  layers concurrently and emits their buffered results in deterministic layer
+  order.
+- The GitHub Actions matrix runs unit, integration (including real vendored-Go
+  KZG verification), and bounded e2e process coverage explicitly.
+- A full `make test-all E2E_JOBS=4` passed 941 tests, skipped 5 optional-fixture
+  tests, and failed 0 in 177.41s wall time: unit 684/3 skipped, integration
+  201/2 skipped, and e2e 56/0 skipped.
+- A concurrent `make -j2 test-unit test-integration` repeated the unit and
+  integration results in 80.26s wall time. The final standalone unit
+  validation passed 684 tests with 3 optional skips in 57.84s wall time. The
+  current-machine targets of at most 60s,
+  90s, and 180s are therefore all met while persistence, KZG, HTTP, CLI,
+  devnet, restart, fixture, and process-boundary coverage remain present.

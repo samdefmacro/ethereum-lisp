@@ -2,7 +2,7 @@
 
 (deftest phase-a-smoke-gate-script-can-include-devnet-suite
   (:layer :e2e :module :devnet-smoke :launches-processes t
-   :requires-local-sockets t)
+   :requires-local-sockets t :estimated-seconds 150d0)
   #-sbcl
   (skip-test "Phase A smoke gate devnet mode requires SBCL")
   #+sbcl
@@ -421,7 +421,7 @@
 
 (deftest phase-a-smoke-gate-devnet-mode-is-cwd-independent
   (:layer :e2e :module :devnet-smoke :launches-processes t
-   :requires-local-sockets t)
+   :requires-local-sockets t :estimated-seconds 150d0)
   #-sbcl
   (skip-test "Phase A smoke gate cwd-independent devnet mode requires SBCL")
   #+sbcl
@@ -521,6 +521,7 @@
            devnet-engine-only))))))
 
 (deftest phase-a-smoke-gate-text-output-includes-aggregate-counts
+  (:estimated-seconds 10d0)
   #-sbcl
   (skip-test "Phase A smoke gate text output test requires SBCL")
   #+sbcl
@@ -549,6 +550,7 @@
     (is (search "fixtureExecutedCount=38" stdout))))
 
 (deftest phase-a-smoke-gate-drift-map-fails-on-materializable-gaps
+  (:estimated-seconds 17d0)
   #-sbcl
   (skip-test "Phase A smoke gate drift map failure requires SBCL")
   #+sbcl

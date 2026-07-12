@@ -20,7 +20,7 @@
     (unwind-protect
          (progn
            (setf process
-                 (uiop:launch-program
+                 (test-launch-program
                   (append
                    (list "sbcl"
                          "--script"

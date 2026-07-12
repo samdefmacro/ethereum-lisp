@@ -67,7 +67,7 @@
                          '(#\Space #\Tab #\Newline #\Return)
                          (devnet-cli-file-string datadir-jwt-path))))
            (setf process
-                 (uiop:launch-program
+                 (test-launch-program
                   (list "sbcl"
                         "--script"
                         script

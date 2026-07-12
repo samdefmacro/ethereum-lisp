@@ -1,6 +1,9 @@
 (defparameter *ethereum-lisp-drift-map-script-root*
   (merge-pathnames "../" (or *load-truename* *default-pathname-defaults*)))
 
+(defvar *drift-map-script-run-main-p* t)
+(defvar *drift-map-classifier-services-loaded-p* nil)
+
 (require :asdf)
 
 (defconstant +drift-map-json-flag+ "--json")
@@ -102,7 +105,8 @@ implementation drift.~%")
           +drift-map-eest-root-env+))
 
 #+sbcl
-(when (drift-map-help-p (drift-map-arguments))
+(when (and *drift-map-script-run-main-p*
+           (drift-map-help-p (drift-map-arguments)))
   (drift-map-print-help)
   (sb-ext:exit :code 0))
 
@@ -245,9 +249,6 @@ implementation drift.~%")
 (defun drift-map-json-encode (object)
   (apply #'drift-map-call "json-encode" (list object)))
 
-(defun drift-map-parse-json (string)
-  (apply #'drift-map-call "parse-json" (list string)))
-
 (defun drift-map-field (object name)
   (cdr (assoc name object :test #'string=)))
 
@@ -272,49 +273,63 @@ implementation drift.~%")
             (cons "outOfScopeForkFeatureCount" (cdr field))
             field)))
 
-(defun drift-map-script-path (relative-path)
-  (namestring (merge-pathnames relative-path
-                               *ethereum-lisp-drift-map-script-root*)))
-
-(defun drift-map-classifier-command
-    (script root limit prefix failures-only-p)
-  (let ((command
-          (list "sbcl"
-                "--script"
-                (drift-map-script-path script)
-                "--"
-                "--json")))
+(defun drift-map-classifier-args (root limit prefix failures-only-p)
+  (let ((args (list "--json")))
     (when root
-      (setf command
-            (append command
-                    (list "--root" root))))
+      (setf args (append args (list "--root" root))))
     (when limit
-      (setf command
-            (append command
+      (setf args
+            (append args
                     (list "--limit" (write-to-string limit :base 10)))))
     (unless (drift-map-blank-string-p prefix)
-      (setf command
-            (append command
-                    (list "--prefix" prefix))))
+      (setf args (append args (list "--prefix" prefix))))
     (when failures-only-p
-      (setf command
-            (append command
-                    (list "--failures-only"))))
-    command))
+      (setf args (append args (list "--failures-only"))))
+    args))
+
+(defun drift-map-load-classifier-services ()
+  (unless *drift-map-classifier-services-loaded-p*
+    (let ((*classifier-script-run-main-p* nil)
+          (*transaction-classifier-script-run-main-p* nil)
+          (*state-classifier-script-run-main-p* nil))
+      (declare (special *classifier-script-run-main-p*
+                        *transaction-classifier-script-run-main-p*
+                        *state-classifier-script-run-main-p*))
+      (dolist (script '("scripts/classify-state-test-selectors.lisp"
+                        "scripts/classify-transaction-test-selectors.lisp"
+                        "scripts/classify-blockchain-replay-selectors.lisp"))
+        (load (merge-pathnames script
+                               *ethereum-lisp-drift-map-script-root*))))
+    (setf *drift-map-classifier-services-loaded-p* t)))
 
 (defun drift-map-run-classifier
-    (suite script root limit prefix failures-only-p)
-  (multiple-value-bind (stdout stderr status)
-      (uiop:run-program
-       (drift-map-classifier-command script root limit prefix failures-only-p)
-       :output :string
-       :error-output :string
-       :ignore-error-status t)
-    (unless (= 0 status)
-      (error "~A classifier failed with status ~D: ~A" suite status stderr))
-    (when (plusp (length stderr))
-      (error "~A classifier wrote unexpected stderr: ~A" suite stderr))
-    (drift-map-parse-json stdout)))
+    (suite script root limit prefix failures-only-p environment-lookup)
+  (declare (ignore script))
+  (drift-map-load-classifier-services)
+  (let ((args (drift-map-classifier-args
+               root limit prefix failures-only-p))
+        (output (make-broadcast-stream)))
+    (cond
+      ((string= suite "state")
+       (state-classifier-script-main
+        :args args
+        :environment-lookup environment-lookup
+        :output output
+        :load-tests-p nil))
+      ((string= suite "transaction")
+       (transaction-classifier-script-main
+        :args args
+        :environment-lookup environment-lookup
+        :output output
+        :load-tests-p nil))
+      ((string= suite "blockchain")
+       (classifier-script-main
+        :args args
+        :environment-lookup environment-lookup
+        :output output
+        :load-tests-p nil))
+      (t
+       (error "Unsupported classifier suite ~A" suite)))))
 
 (defun drift-map-suite-report (suite report summary-only-p)
   (let ((passing-count
@@ -385,7 +400,7 @@ implementation drift.~%")
 (defun drift-map-report
     (root suite state-limit transaction-limit blockchain-limit
      state-prefix transaction-prefix blockchain-prefix failures-only-p
-     summary-only-p)
+     summary-only-p &key (environment-lookup #'uiop:getenv))
   (let ((suites
           (loop for (suite-name script limit prefix)
                   in `(("state"
@@ -410,13 +425,15 @@ implementation drift.~%")
                     root
                     limit
                     prefix
-                    failures-only-p)
+                    failures-only-p
+                    environment-lookup)
                    summary-only-p))))
     (list
      (cons "mode" "phase-a-drift-map")
      (cons "root" (or root
                       (let ((configured
-                              (uiop:getenv +drift-map-eest-root-env+)))
+                              (funcall environment-lookup
+                                       +drift-map-eest-root-env+)))
                         (if (drift-map-blank-string-p configured)
                             :false
                             configured))))
@@ -456,14 +473,26 @@ implementation drift.~%")
     (dolist (suite (drift-map-field report "suites"))
       (drift-map-print-suite suite))))
 
-(defun drift-map-main ()
-  (let* ((args (drift-map-arguments))
+(defun drift-map-main
+    (&key
+       (args (drift-map-arguments))
+       (environment-lookup #'uiop:getenv)
+       (output *standard-output*)
+       (error-output *error-output*)
+       (load-tests-p t))
+  (let ((*standard-output* output)
+        (*error-output* error-output))
+    (when (drift-map-help-p args)
+      (drift-map-print-help)
+      (return-from drift-map-main :help))
+    (let* ((args (drift-map-normalize-option-args args))
          (options (drift-map-options args))
          (root (getf options :root))
          (limit (getf options :limit))
          (prefix (getf options :prefix)))
-    (load (merge-pathnames "tests/load-tests.lisp"
-                           *ethereum-lisp-drift-map-script-root*))
+    (when load-tests-p
+      (load (merge-pathnames "tests/load-tests.lisp"
+                             *ethereum-lisp-drift-map-script-root*)))
     (let ((report
             (drift-map-report
              root
@@ -475,9 +504,12 @@ implementation drift.~%")
              (or (getf options :transaction-prefix) prefix)
              (or (getf options :blockchain-prefix) prefix)
              (drift-map-failures-only-p args)
-             (drift-map-summary-only-p args))))
+             (drift-map-summary-only-p args)
+             :environment-lookup environment-lookup)))
       (if (drift-map-json-p args)
           (format t "~&~A~%" (drift-map-json-encode report))
-          (drift-map-print-text-report report)))))
+          (drift-map-print-text-report report))
+      report))))
 
-(drift-map-main)
+(when *drift-map-script-run-main-p*
+  (drift-map-main))

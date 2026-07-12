@@ -1,7 +1,13 @@
 (defparameter *ethereum-lisp-classifier-script-root*
   (merge-pathnames "../" (or *load-truename* *default-pathname-defaults*)))
 
+(defvar *classifier-script-run-main-p* t)
+
 (require :asdf)
+
+(unless (find-package '#:ethereum-lisp.fixture-root-application)
+  (load (merge-pathnames "scripts/fixture-root-application.lisp"
+                         *ethereum-lisp-classifier-script-root*)))
 
 (defconstant +classifier-script-json-flag+ "--json")
 (defconstant +classifier-script-help-flag+ "--help")
@@ -84,7 +90,8 @@ fixture-harness-error.~%")
           +classifier-script-eest-root-env+))
 
 #+sbcl
-(when (classifier-script-help-p (classifier-script-arguments))
+(when (and *classifier-script-run-main-p*
+           (classifier-script-help-p (classifier-script-arguments)))
   (classifier-script-print-help)
   (sb-ext:exit :code 0))
 
@@ -179,18 +186,13 @@ fixture-harness-error.~%")
       (error "JSON encoder is unavailable"))
     (funcall (symbol-function symbol) object)))
 
-(defun classifier-script-reject-missing-configured-root (root-argument)
-  (if root-argument
-      (unless (probe-file root-argument)
-        (error "Configured EEST fixture root from ~A does not exist: ~A"
-               +classifier-script-root-option+
-               root-argument))
-      (let ((root (uiop:getenv +classifier-script-eest-root-env+)))
-        (when (and (not (classifier-script-blank-string-p root))
-                   (not (probe-file root)))
-          (error "Configured EEST fixture root from ~A does not exist: ~A"
-                 +classifier-script-eest-root-env+
-                 root)))))
+(defun classifier-script-reject-missing-configured-root
+    (root-argument &key (environment-lookup #'uiop:getenv))
+  (ethereum-lisp.fixture-root-application:validate-configured-root
+   root-argument
+   :environment-name +classifier-script-eest-root-env+
+   :root-option +classifier-script-root-option+
+   :environment-lookup environment-lookup))
 
 (defun classifier-script-reject-empty-selected-root (root label)
   (when (and root
@@ -399,19 +401,34 @@ fixture-harness-error.~%")
      (cons "families" (classifier-script-family-summaries results))
      (cons "results" (or reported-results (make-array 0))))))
 
-(defun classifier-script-main ()
-  (load (merge-pathnames "tests/load-tests.lisp"
-                         *ethereum-lisp-classifier-script-root*))
-  (let* ((args (classifier-script-arguments))
+(defun classifier-script-main
+    (&key
+       (args (classifier-script-arguments))
+       (environment-lookup #'uiop:getenv)
+       (output *standard-output*)
+       (error-output *error-output*)
+       (load-tests-p t))
+  (let ((*standard-output* output)
+        (*error-output* error-output))
+    (when (classifier-script-help-p args)
+      (classifier-script-print-help)
+      (return-from classifier-script-main :help))
+    (when load-tests-p
+      (load (merge-pathnames "tests/load-tests.lisp"
+                             *ethereum-lisp-classifier-script-root*)))
+    (let* ((args (classifier-script-normalize-option-args args))
          (options (classifier-script-options args))
          (root-argument (getf options :root))
+         (configured-root
+           (classifier-script-reject-missing-configured-root
+            root-argument
+            :environment-lookup environment-lookup))
          (blockchain-root
-           (if root-argument
+           (if configured-root
                (classifier-script-call "execution-spec-tests-blockchain-test-root"
-                                       root-argument)
+                                       configured-root)
                (classifier-script-call
                 "execution-spec-tests-blockchain-test-root"))))
-    (classifier-script-reject-missing-configured-root root-argument)
     (unless blockchain-root
       (error "No EEST blockchain fixture root found. Pass --root or set ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT."))
     (classifier-script-reject-empty-selected-root blockchain-root "blockchain")
@@ -448,6 +465,8 @@ fixture-harness-error.~%")
                                 :test #'string=))
                     (cdr (assoc "outOfScopeForkFeatureCount"
                                 report
-                                :test #'string=))))))))
+                                :test #'string=)))))
+      report))))
 
-(classifier-script-main)
+(when *classifier-script-run-main-p*
+  (classifier-script-main))

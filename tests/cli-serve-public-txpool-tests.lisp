@@ -216,7 +216,7 @@
                            (cons "method" "txpool_inspect")
                            (cons "params" #())))))
              (setf process
-                   (uiop:launch-program
+                   (test-launch-program
                     (list "sbcl"
                           "--script"
                           script

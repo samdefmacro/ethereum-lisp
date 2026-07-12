@@ -1,6 +1,7 @@
 (in-package #:ethereum-lisp.test)
 
 (deftest devnet-smoke-gate-script-runs-concurrently
+  (:estimated-seconds 16d0)
   #-sbcl
   (skip-test "Devnet smoke gate script requires SBCL")
   #+sbcl
@@ -23,4 +24,3 @@
             (phase-a-smoke-gate-assert-execution-spec-tests-source report)
             (is (= 3 (length (fixture-object-field report
                                                    "referenceClients"))))))))))
-

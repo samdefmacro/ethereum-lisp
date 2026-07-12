@@ -18,7 +18,8 @@
            root)))
 
 (defun smoke-gate-pinned-default-root ()
-  (let ((root (uiop:getenv +smoke-gate-eest-root-env+)))
+  (let ((root (funcall *smoke-gate-environment-lookup*
+                       +smoke-gate-eest-root-env+)))
     (when (or (null root)
               (zerop (length
                       (string-trim '(#\Space #\Tab #\Newline #\Return)
@@ -73,7 +74,8 @@
   (merge-pathnames relative-path (smoke-gate-root-directory)))
 
 (defun smoke-gate-reference-client-path (relative-path env-var)
-  (let ((override (and env-var (uiop:getenv env-var))))
+  (let ((override (and env-var
+                       (funcall *smoke-gate-environment-lookup* env-var))))
     (if (and override (plusp (length override)))
         (uiop:ensure-directory-pathname
          (merge-pathnames override (smoke-gate-root-directory)))
@@ -171,4 +173,3 @@
       source-case)
      :source-case source-case))
   (length cases))
-

@@ -1,5 +1,29 @@
 (in-package #:ethereum-lisp.test)
 
+(deftest test-wait-condition-supports-deterministic-probes
+  (let ((probes 0))
+    (is (eq :ready
+            (wait-for-test-condition
+             "deterministic probe"
+             1d0
+             (lambda ()
+               (when (= 3 (incf probes)) :ready))
+             :interval-seconds 0d0)))
+    (is (= 3 probes))))
+
+(deftest test-process-scope-reaps-launched-children
+  (:layer :integration :module :test-runner :launches-processes t)
+  (let ((process nil))
+    (call-with-test-process-scope
+     (lambda ()
+       (setf process
+             (test-launch-program
+              (list "/bin/sh" "-c" "sleep 30")
+              :output :stream
+              :error-output :stream))))
+    (is process)
+    (is (not (uiop:process-alive-p process)))))
+
 (defun test-runner-fixture-pass ()
   t)
 

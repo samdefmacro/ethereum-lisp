@@ -1,6 +1,8 @@
 (defparameter *ethereum-lisp-phase-a-smoke-gate-loader-root*
   (merge-pathnames "../" (or *load-truename* *default-pathname-defaults*)))
 
+(defvar *smoke-gate-run-main-p* t)
+
 (defun load-phase-a-smoke-gate-file (relative-path)
   (load (merge-pathnames
          relative-path

@@ -27,25 +27,20 @@
     (is (search "implementation-bug-candidate" stdout))))
 
 (deftest blockchain-replay-classifier-script-json-summarizes-families
+  (:layer :integration :module :fixture-cli :launches-processes nil)
   #-sbcl
   (skip-test "Blockchain replay classifier script requires SBCL")
   #+sbcl
   (multiple-value-bind (stdout stderr status)
-      (uiop:run-program
-       (list "sbcl"
-             "--script"
-             "scripts/classify-blockchain-replay-selectors.lisp"
-             "--"
-             "--root"
+      (run-classifier-application
+       :blockchain
+       (list "--root"
              "tests/fixtures/execution-spec-tests-root/"
              "--prefix"
              "shanghai/phase-a"
              "--limit"
              "2"
-             "--json")
-       :output :string
-       :error-output :string
-       :ignore-error-status t)
+             "--json"))
     (is (= 0 status))
     (is (string= "" stderr))
     (when (= 0 status)
@@ -74,26 +69,21 @@
           (is (fixture-object-field result "family")))))))
 
 (deftest blockchain-replay-classifier-script-json-filters-passing-results
+  (:layer :integration :module :fixture-cli :launches-processes nil)
   #-sbcl
   (skip-test "Blockchain replay classifier script requires SBCL")
   #+sbcl
   (multiple-value-bind (stdout stderr status)
-      (uiop:run-program
-       (list "sbcl"
-             "--script"
-             "scripts/classify-blockchain-replay-selectors.lisp"
-             "--"
-             "--root"
+      (run-classifier-application
+       :blockchain
+       (list "--root"
              "tests/fixtures/execution-spec-tests-root/"
              "--prefix"
              "shanghai/phase-a"
              "--limit"
              "2"
              "--failures-only"
-             "--json")
-       :output :string
-       :error-output :string
-       :ignore-error-status t)
+             "--json"))
     (is (= 0 status))
     (is (string= "" stderr))
     (when (= 0 status)
@@ -134,26 +124,21 @@
     (is (search "implementation-bug-candidate" stdout))))
 
 (deftest transaction-test-classifier-script-json-summarizes-families
+  (:layer :integration :module :fixture-cli :launches-processes nil)
   #-sbcl
   (skip-test "Transaction test classifier script requires SBCL")
   #+sbcl
   (multiple-value-bind (stdout stderr status)
-      (uiop:run-program
-       (list "sbcl"
-             "--script"
-             "scripts/classify-transaction-test-selectors.lisp"
-             "--"
-             "--root"
+      (run-classifier-application
+       :transaction
+       (list "--root"
              "tests/fixtures/execution-spec-tests-root/"
              "--prefix"
              "phase-a-sample.json"
              "--limit"
              "2"
              "--include-pinned"
-             "--json")
-       :output :string
-       :error-output :string
-       :ignore-error-status t)
+             "--json"))
     (is (= 0 status))
     (is (string= "" stderr))
     (when (= 0 status)
@@ -182,25 +167,20 @@
           (is (fixture-object-field result "family")))))))
 
 (deftest transaction-test-classifier-script-json-classifies-prague-out-of-scope
+  (:layer :integration :module :fixture-cli :launches-processes nil)
   #-sbcl
   (skip-test "Transaction test classifier script requires SBCL")
   #+sbcl
   (multiple-value-bind (stdout stderr status)
-      (uiop:run-program
-       (list "sbcl"
-             "--script"
-             "scripts/classify-transaction-test-selectors.lisp"
-             "--"
-             "--root"
+      (run-classifier-application
+       :transaction
+       (list "--root"
              "tests/fixtures/execution-spec-tests-root/"
              "--prefix"
              "prague/eip7702_set_code_tx/test_empty_authorization_list.json"
              "--limit"
              "1"
-             "--json")
-       :output :string
-       :error-output :string
-       :ignore-error-status t)
+             "--json"))
     (is (= 0 status))
     (is (string= "" stderr))
     (when (= 0 status)
@@ -252,25 +232,20 @@
     (is (search "implementation-bug-candidate" stdout))))
 
 (deftest state-test-classifier-script-json-summarizes-families
+  (:layer :integration :module :fixture-cli :launches-processes nil)
   #-sbcl
   (skip-test "State test classifier script requires SBCL")
   #+sbcl
   (multiple-value-bind (stdout stderr status)
-      (uiop:run-program
-       (list "sbcl"
-             "--script"
-             "scripts/classify-state-test-selectors.lisp"
-             "--"
-             "--root"
+      (run-classifier-application
+       :state
+       (list "--root"
              "tests/fixtures/execution-spec-tests-root/"
              "--prefix"
              "london/phase-a"
              "--limit"
              "2"
-             "--json")
-       :output :string
-       :error-output :string
-       :ignore-error-status t)
+             "--json"))
     (is (= 0 status))
     (is (string= "" stderr))
     (when (= 0 status)
@@ -299,26 +274,21 @@
           (is (fixture-object-field result "family")))))))
 
 (deftest state-test-classifier-script-json-filters-passing-results
+  (:layer :integration :module :fixture-cli :launches-processes nil)
   #-sbcl
   (skip-test "State test classifier script requires SBCL")
   #+sbcl
   (multiple-value-bind (stdout stderr status)
-      (uiop:run-program
-       (list "sbcl"
-             "--script"
-             "scripts/classify-state-test-selectors.lisp"
-             "--"
-             "--root"
+      (run-classifier-application
+       :state
+       (list "--root"
              "tests/fixtures/execution-spec-tests-root/"
              "--prefix"
              "london/phase-a"
              "--limit"
              "2"
              "--failures-only"
-             "--json")
-       :output :string
-       :error-output :string
-       :ignore-error-status t)
+             "--json"))
     (is (= 0 status))
     (is (string= "" stderr))
     (when (= 0 status)
@@ -333,17 +303,14 @@
         (is (plusp (length families)))))))
 
 (deftest classifier-scripts-accept-assigned-options
+  (:layer :integration :module :fixture-cli :launches-processes nil)
   #-sbcl
   (skip-test "Fixture classifier scripts require SBCL")
   #+sbcl
-  (labels ((run-classifier (script prefix &key include-pinned)
+  (labels ((run-classifier (suite prefix &key include-pinned)
              (let ((args
                      (append
-                      (list "sbcl"
-                            "--script"
-                            script
-                            "--"
-                            "--root=tests/fixtures/execution-spec-tests-root/"
+                      (list "--root=tests/fixtures/execution-spec-tests-root/"
                             (format nil "--prefix=~A" prefix)
                             "--limit=1"
                             "--json=true"
@@ -351,11 +318,7 @@
                       (when include-pinned
                         (list "--include-pinned=true")))))
                (multiple-value-bind (stdout stderr status)
-                   (uiop:run-program
-                    args
-                    :output :string
-                    :error-output :string
-                    :ignore-error-status t)
+                   (run-classifier-application suite args)
                  (is (= 0 status))
                  (is (string= "" stderr))
                  (when (= 0 status)
@@ -369,15 +332,14 @@
                                   (fixture-object-field report "prefix")))
                      report))))))
     (run-classifier
-     "scripts/classify-blockchain-replay-selectors.lisp"
+     :blockchain
      "shanghai/phase-a")
     (let ((transaction-report
             (run-classifier
-             "scripts/classify-transaction-test-selectors.lisp"
+             :transaction
              "phase-a-sample.json"
              :include-pinned t)))
       (is (eq t (fixture-object-field transaction-report "includePinned"))))
     (run-classifier
-     "scripts/classify-state-test-selectors.lisp"
+     :state
      "london/phase-a")))
-

@@ -3,6 +3,8 @@
 
 (require :asdf)
 
+(defvar *smoke-gate-environment-lookup* #'uiop:getenv)
+
 (defconstant +smoke-gate-pinned-v5.4.0-flag+ "--pinned-v5.4.0")
 (defconstant +smoke-gate-devnet-flag+ "--devnet")
 (defconstant +smoke-gate-drift-map-flag+ "--drift-map")
@@ -138,4 +140,3 @@
   (format t "Reference client roots: ETHEREUM_LISP_GETH_ROOT, ~
 ETHEREUM_LISP_NETHERMIND_ROOT, ETHEREUM_LISP_RETH_ROOT override ~
 references/ checkouts.~%"))
-

@@ -1,6 +1,7 @@
 (in-package #:ethereum-lisp.test)
 
 (deftest devnet-smoke-gate-script-runs-all-pinned-fixtures
+  (:estimated-seconds 80d0)
   #-sbcl
   (skip-test "Devnet smoke gate script requires SBCL")
   #+sbcl
@@ -433,4 +434,3 @@
         (delete-file pid-path))
       (when (probe-file database-path)
         (delete-file database-path)))))
-

@@ -128,7 +128,7 @@
             "#!/bin/sh\necho true\n")
            (devnet-cli-make-executable kzg-command)
            (setf process
-                 (uiop:launch-program
+                 (test-launch-program
                   (list "sbcl"
                         "--script"
                         script

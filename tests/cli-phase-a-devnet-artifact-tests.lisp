@@ -1,6 +1,7 @@
 (in-package #:ethereum-lisp.test)
 
 (deftest devnet-smoke-gate-script-writes-ready-and-log-files
+  (:estimated-seconds 17d0)
   #-sbcl
   (skip-test "Devnet smoke gate script requires SBCL")
   #+sbcl

@@ -105,7 +105,7 @@
            (is (probe-file datadir-database-path))
            (is (probe-file datadir-jwt-path))
            (setf process
-                 (uiop:launch-program
+                 (test-launch-program
                   (list "sbcl"
                         "--script"
                         script

@@ -2,7 +2,7 @@
 
 (deftest devnet-smoke-gate-script-engine-only-serve-mode
   (:layer :e2e :module :devnet-smoke :launches-processes t
-   :requires-local-sockets t)
+   :requires-local-sockets t :estimated-seconds 8d0)
   #-sbcl
   (skip-test "Devnet smoke gate script requires SBCL")
   #+sbcl

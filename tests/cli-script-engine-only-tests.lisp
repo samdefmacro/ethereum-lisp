@@ -108,7 +108,7 @@
            (is (probe-file datadir-jwt-path))
            (setf public-port (devnet-cli-unused-loopback-port))
            (setf process
-                 (uiop:launch-program
+                 (test-launch-program
                   (list "sbcl"
                         "--script"
                         script
@@ -500,7 +500,7 @@
            (is (probe-file datadir-jwt-path))
            (setf public-port (devnet-cli-unused-loopback-port))
            (setf process
-                 (uiop:launch-program
+                 (test-launch-program
                   (list "sbcl"
                         "--script"
                         script

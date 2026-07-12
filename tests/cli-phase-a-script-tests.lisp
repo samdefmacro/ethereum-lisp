@@ -9,7 +9,8 @@
          *ethereum-lisp-cli-phase-a-script-tests-root*)))
 
 (dolist (relative-path
-         '("tests/cli-phase-a-script-support-tests.lisp"
+         '("tests/cli-phase-a-application-support.lisp"
+           "tests/cli-phase-a-script-support-tests.lisp"
            "tests/cli-phase-a-devnet-smoke-tests.lisp"
            "tests/cli-phase-a-report-tests.lisp"
            "tests/cli-phase-a-devnet-suite-tests.lisp"

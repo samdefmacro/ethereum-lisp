@@ -1,21 +1,15 @@
 (in-package #:ethereum-lisp.test)
 
 (deftest phase-a-fixture-report-includes-reference-client-pins
+  (:layer :integration :module :fixture-cli :launches-processes nil)
   #-sbcl
   (skip-test "Phase A fixture report script requires SBCL")
   #+sbcl
   (multiple-value-bind (stdout stderr status)
-      (uiop:run-program
-       (list "sbcl"
-             "--script"
-             "scripts/phase-a-fixture-report.lisp"
-             "--"
-             "--json"
+      (run-fixture-report-application
+       (list "--json"
              "--root"
-             "tests/fixtures/execution-spec-tests-root/")
-       :output :string
-       :error-output :string
-       :ignore-error-status t)
+             "tests/fixtures/execution-spec-tests-root/"))
     (is (= 0 status))
     (is (string= "" stderr))
     (when (= 0 status)
@@ -32,6 +26,7 @@
          reference-clients "reth")))))
 
 (deftest phase-a-report-scripts-honor-reference-client-root-env
+  (:estimated-seconds 17d0)
   #-sbcl
   (skip-test "Phase A report scripts require SBCL")
   #+sbcl
@@ -149,6 +144,7 @@
     (is (search "ETHEREUM_LISP_RETH_ROOT" stdout))))
 
 (deftest phase-a-smoke-gate-script-accepts-geth-style-option-values
+  (:layer :integration :module :fixture-cli :launches-processes nil)
   #-sbcl
   (skip-test "Phase A smoke gate script requires SBCL")
   #+sbcl
@@ -156,22 +152,14 @@
                 "ethereum-lisp-phase-a-smoke-equals-root"))
          (root-string (namestring root)))
     (multiple-value-bind (stdout stderr status)
-        (uiop:run-program
-         (list "env"
-               "-u"
-               "ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT"
-               "sbcl"
-               "--script"
-               "scripts/phase-a-smoke-gate.lisp"
-               "--"
+        (run-smoke-gate-application
+         (list
                "--json=true"
                "--devnet=false"
                "--drift-map=false"
                "--pinned-v5.4.0=false"
                (format nil "--root=~A" root-string))
-         :output :string
-         :error-output :string
-         :ignore-error-status t)
+         :environment-lookup (lambda (name) (declare (ignore name)) nil))
       (is (not (= 0 status)))
       (is (string= "" stdout))
       (is (search root-string stderr))
@@ -180,41 +168,25 @@
       (is (not (search "Unsupported smoke gate option" stderr))))))
 
 (deftest phase-a-smoke-gate-script-rejects-malformed-boolean-assignment
+  (:layer :integration :module :fixture-cli :launches-processes nil)
   #-sbcl
   (skip-test "Phase A smoke gate script requires SBCL")
   #+sbcl
   (multiple-value-bind (stdout stderr status)
-      (uiop:run-program
-       (list "sbcl"
-             "--script"
-             "scripts/phase-a-smoke-gate.lisp"
-             "--"
-             "--devnet=maybe")
-       :output :string
-       :error-output :string
-       :ignore-error-status t)
+      (run-smoke-gate-application (list "--devnet=maybe"))
     (is (not (= 0 status)))
     (is (string= "" stdout))
     (is (search "--devnet boolean value must be true or false" stderr))))
 
 (deftest phase-a-fixture-report-pinned-mode-requires-root
+  (:layer :integration :module :fixture-cli :launches-processes nil)
   #-sbcl
   (skip-test "Phase A fixture report pinned mode requires SBCL")
   #+sbcl
   (multiple-value-bind (stdout stderr status)
-      (uiop:run-program
-       (list "env"
-             "-u"
-             "ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT"
-             "sbcl"
-             "--script"
-             "scripts/phase-a-fixture-report.lisp"
-             "--"
-             "--pinned-v5.4.0"
-             "--json")
-       :output :string
-       :error-output :string
-       :ignore-error-status t)
+      (run-fixture-report-application
+       (list "--pinned-v5.4.0" "--json")
+       :environment-lookup (lambda (name) (declare (ignore name)) nil))
     (is (not (= 0 status)))
     (is (string= "" stdout))
     (is (search "Pinned Phase A fixture report requires an EEST fixture root"
@@ -224,6 +196,7 @@
     (is (not (search "do not match pinned selectors" stderr)))))
 
 (deftest phase-a-fixture-report-pinned-mode-rejects-missing-env-root
+  (:layer :integration :module :fixture-cli :launches-processes nil)
   #-sbcl
   (skip-test "Phase A fixture report pinned mode requires SBCL")
   #+sbcl
@@ -234,19 +207,13 @@
             #P"/private/tmp/"))
          (root-string (namestring root)))
     (multiple-value-bind (stdout stderr status)
-        (uiop:run-program
-         (list "env"
-               (format nil "ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT=~A"
-                       root-string)
-               "sbcl"
-               "--script"
-               "scripts/phase-a-fixture-report.lisp"
-               "--"
-               "--pinned-v5.4.0"
-               "--json")
-         :output :string
-         :error-output :string
-         :ignore-error-status t)
+        (run-fixture-report-application
+         (list "--pinned-v5.4.0" "--json")
+         :environment-lookup
+         (lambda (name)
+           (if (string= name "ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT")
+               root-string
+               nil)))
       (is (not (= 0 status)))
       (is (string= "" stdout))
       (is (search root-string stderr))
@@ -254,22 +221,17 @@
       (is (not (search "do not match pinned selectors" stderr))))))
 
 (deftest phase-a-selector-scripts-accept-root-option
+  (:layer :integration :module :fixture-cli :launches-processes nil)
   #-sbcl
   (skip-test "Phase A selector scripts require SBCL")
   #+sbcl
-  (labels ((run-selector-script (script)
+  (labels ((run-selector-script (kind)
              (multiple-value-bind (stdout stderr status)
-                 (uiop:run-program
-                  (list "sbcl"
-                        "--script"
-                        script
-                        "--"
-                        "--json"
+                 (run-selector-application
+                  kind
+                  (list "--json"
                         "--root"
-                        "tests/fixtures/execution-spec-tests-root/")
-                  :output :string
-                  :error-output :string
-                  :ignore-error-status t)
+                        "tests/fixtures/execution-spec-tests-root/"))
                (is (= 0 status))
                (is (string= "" stderr))
                (when (= 0 status)
@@ -277,9 +239,9 @@
                    (is (search "tests/fixtures/execution-spec-tests-root/"
                                (fixture-object-field report "root")))
                    (is (plusp (fixture-object-field report "count"))))))))
-    (run-selector-script "scripts/list-state-test-selectors.lisp")
-    (run-selector-script "scripts/list-transaction-test-selectors.lisp")
-    (run-selector-script "scripts/list-blockchain-replay-selectors.lisp")))
+    (run-selector-script :state)
+    (run-selector-script :transaction)
+    (run-selector-script :blockchain)))
 
 (deftest phase-a-fixture-sync-scripts-reject-missing-env-root
   (:layer :unit :module :fixture-cli :launches-processes nil)

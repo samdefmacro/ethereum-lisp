@@ -3,6 +3,9 @@
 
 (require :asdf)
 
+(defvar *fixture-report-run-main-p* t)
+(defvar *fixture-report-environment-lookup* #'uiop:getenv)
+
 (load (merge-pathnames "scripts/fixture-root-application.lisp"
                        *ethereum-lisp-fixture-report-root*))
 
@@ -43,11 +46,14 @@
 (defun fixture-report-blank-string-p (value)
   (ethereum-lisp.fixture-root-application:blank-string-p value))
 
-(defun fixture-report-reject-missing-configured-root (root-argument)
+(defun fixture-report-reject-missing-configured-root
+    (root-argument &key
+       (environment-lookup *fixture-report-environment-lookup*))
   (ethereum-lisp.fixture-root-application:validate-configured-root
    root-argument
    :environment-name +fixture-report-eest-root-env+
-   :root-option +fixture-report-root-option+))
+   :root-option +fixture-report-root-option+
+   :environment-lookup environment-lookup))
 
 (defun fixture-report-set-argument-root (root value)
   (when root
@@ -97,7 +103,8 @@ ETHEREUM_LISP_NETHERMIND_ROOT, ETHEREUM_LISP_RETH_ROOT override ~
 references/ checkouts.~%"))
 
 (defun fixture-report-pinned-default-root ()
-  (let ((root (uiop:getenv +fixture-report-eest-root-env+)))
+  (let ((root (funcall *fixture-report-environment-lookup*
+                       +fixture-report-eest-root-env+)))
     (when (fixture-report-blank-string-p root)
       (error "Pinned Phase A fixture report requires an EEST fixture root via ~A or ~A"
              +fixture-report-root-option+
@@ -142,7 +149,8 @@ references/ checkouts.~%"))
                  :defaults *ethereum-lisp-fixture-report-root*))
 
 (defun fixture-report-reference-path (relative-path &optional env-var)
-  (let ((override (and env-var (uiop:getenv env-var))))
+  (let ((override (and env-var
+                       (funcall *fixture-report-environment-lookup* env-var))))
     (if (and override (plusp (length override)))
         (uiop:ensure-directory-pathname
          (merge-pathnames override (fixture-report-root-directory)))
@@ -359,8 +367,17 @@ references/ checkouts.~%"))
     (format t "blockchainSelectors=~A~%"
             (fixture-report-field blockchain "selectorString"))))
 
-(defun fixture-report-main ()
-  (let* ((args (fixture-report-arguments))
+(defun fixture-report-main
+    (&key
+       (args (fixture-report-arguments))
+       (environment-lookup #'uiop:getenv)
+       (output *standard-output*)
+       (error-output *error-output*)
+       (load-tests-p t))
+  (let ((*fixture-report-environment-lookup* environment-lookup)
+        (*standard-output* output)
+        (*error-output* error-output))
+    (let* ((args args)
          (pinned-p (fixture-report-pinned-v5.4.0-p args))
          (json-p (fixture-report-json-p args))
          (help-p (fixture-report-help-p args)))
@@ -371,10 +388,12 @@ references/ checkouts.~%"))
                  (fixture-report-suite-root-argument
                   root-argument
                   pinned-p)))
-          (fixture-report-reject-missing-configured-root selected-root)
-          (load (merge-pathnames "tests/load-tests.lisp"
-                                 *ethereum-lisp-fixture-report-root*))
-          (fixture-report-run selected-root pinned-p json-p)))))
+          (fixture-report-reject-missing-configured-root
+           selected-root :environment-lookup environment-lookup)
+          (when load-tests-p
+            (load (merge-pathnames "tests/load-tests.lisp"
+                                   *ethereum-lisp-fixture-report-root*)))
+          (fixture-report-run selected-root pinned-p json-p))))))
 
 (defun fixture-report-run (selected-root pinned-p json-p)
   (let* ((suite-root (or selected-root "environment"))
@@ -498,6 +517,8 @@ references/ checkouts.~%"))
                blockchain-summary)))
         (if json-p
             (format t "~&~A~%" (fixture-report-json-encode report))
-            (fixture-report-print-text report))))))
+            (fixture-report-print-text report))
+        report))))
 
-(fixture-report-main)
+(when *fixture-report-run-main-p*
+  (fixture-report-main))

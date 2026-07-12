@@ -90,6 +90,24 @@ sbcl --script tests/run-tests.lisp --layer unit --timing --slow 1
 totals and the ten slowest selected tests; `--slow SECONDS` limits that report
 to tests at or above the threshold.
 
+Stable developer and CI commands are also available:
+
+```sh
+make test-unit
+make test-integration
+make test-e2e                 # four bounded workers by default
+make test-e2e E2E_JOBS=2
+make test-all                 # runs the three layers concurrently
+```
+
+`unit` requires only SBCL and should complete in about one minute.
+`integration` also exercises file persistence, local sockets, and the vendored
+Go KZG verifier, so it requires Go and permission to bind loopback sockets.
+`e2e` launches standalone SBCL processes, uses isolated temporary roots per
+worker, and requires the same loopback/process permissions. Optional external
+EEST fixture tests remain controlled by
+`ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT` and skip cleanly when it is absent.
+
 ## Reference layout
 
 See `docs/reference-map.md` for the source modules used as the main comparison

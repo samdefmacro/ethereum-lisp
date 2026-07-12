@@ -1,7 +1,7 @@
 (in-package #:ethereum-lisp.test)
 
 (defun devnet-smoke-gate-launch-json-process ()
-  (uiop:launch-program
+  (test-launch-program
    (list "sbcl"
          "--script"
          "scripts/devnet-smoke-gate.lisp"

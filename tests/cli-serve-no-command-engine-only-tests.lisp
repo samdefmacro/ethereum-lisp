@@ -62,7 +62,7 @@
            (devnet-cli-write-temp-file jwt-path +devnet-cli-jwt-secret+)
            (setf public-port (devnet-cli-unused-loopback-port))
            (setf process
-                 (uiop:launch-program
+                 (test-launch-program
                   (list "sbcl"
                         "--script"
                         script

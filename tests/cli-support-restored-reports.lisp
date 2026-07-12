@@ -4,7 +4,7 @@
   (let ((path
           (merge-pathnames
            (format nil "~A-~A/" name (devnet-cli-temp-token))
-           #P"/private/tmp/")))
+           (devnet-cli-temp-root))))
     (ensure-directories-exist path)
     path))
 
@@ -229,4 +229,3 @@
                 report "databaseRpcTxpoolQueuedContentFromHash")))
   (is (= 15
          (fixture-object-field report "databaseRpcTxpoolPublicConnections"))))
-

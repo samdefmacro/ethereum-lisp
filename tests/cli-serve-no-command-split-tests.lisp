@@ -65,7 +65,7 @@
            (devnet-cli-write-temp-file config-path
                                        "# runner config placeholder\n")
            (setf process
-                 (uiop:launch-program
+                 (test-launch-program
                   (list "sbcl"
                         "--script"
                         script

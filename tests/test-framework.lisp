@@ -12,6 +12,7 @@
    #:test-metadata-module
    #:test-metadata-launches-processes-p
    #:test-metadata-requires-local-sockets-p
+   #:test-metadata-estimated-seconds
    #:test-result
    #:test-result-name
    #:test-result-layer
@@ -25,6 +26,9 @@
    #:*test-default-requires-local-sockets-p*
    #:test-run-failed
    #:test-run-failed-failures
+   #:test-launch-program
+   #:call-with-test-process-scope
+   #:wait-for-test-condition
    #:+execution-spec-tests-fixture-root-env+
    #:*fixture-root-environment-reader*
    #:test-skipped
@@ -64,7 +68,8 @@
   (layer :unit :type keyword)
   module
   (launches-processes-p nil :type boolean)
-  (requires-local-sockets-p nil :type boolean))
+  (requires-local-sockets-p nil :type boolean)
+  (estimated-seconds 1d0 :type double-float))
 
 (defstruct test-result
   name
@@ -75,6 +80,7 @@
 
 (defvar *test-metadata* (make-hash-table :test #'eq))
 (defvar *last-test-results* '())
+(defvar *test-owned-processes* nil)
 
 (defun normalize-test-layer (layer &key allow-all)
   (let ((normalized
@@ -93,7 +99,8 @@
 (defun register-test
     (name &key layer module
                (launches-processes nil launches-processes-supplied-p)
-               (requires-local-sockets nil requires-local-sockets-supplied-p))
+               (requires-local-sockets nil requires-local-sockets-supplied-p)
+               (estimated-seconds 1d0))
   (pushnew name *tests*)
   (setf (gethash name *test-metadata*)
         (make-test-metadata
@@ -106,7 +113,8 @@
          :requires-local-sockets-p
          (if requires-local-sockets-supplied-p
              requires-local-sockets
-             *test-default-requires-local-sockets-p*)))
+             *test-default-requires-local-sockets-p*)
+         :estimated-seconds (coerce estimated-seconds 'double-float)))
   name)
 
 (defun metadata-for-test (test)
@@ -494,7 +502,8 @@
                   for key = (first tail)
                   do (unless (member key
                                      '(:layer :module :launches-processes
-                                       :requires-local-sockets))
+                                       :requires-local-sockets
+                                       :estimated-seconds))
                        (error "Unsupported deftest metadata key ~S" key)))
             (values candidate (rest body)))
           (values nil body)))))
@@ -581,6 +590,65 @@
   (/ (get-internal-real-time)
      (coerce internal-time-units-per-second 'double-float)))
 
+(defun balanced-test-shards (tests shard-count)
+  "Partition TESTS deterministically using declared duration estimates."
+  (let ((buckets (make-array shard-count :initial-element nil))
+        (totals (make-array shard-count :initial-element 0d0))
+        (positions (make-hash-table :test #'eq)))
+    (loop for test in tests for position from 0
+          do (setf (gethash test positions) position))
+    (dolist (test
+             (stable-sort
+              (copy-list tests) #'>
+              :key (lambda (name)
+                     (test-metadata-estimated-seconds
+                      (metadata-for-test name)))))
+      (let ((target 0))
+        (dotimes (index shard-count)
+          (when (< (aref totals index) (aref totals target))
+            (setf target index)))
+        (push test (aref buckets target))
+        (incf (aref totals target)
+              (test-metadata-estimated-seconds (metadata-for-test test)))))
+    (dotimes (index shard-count buckets)
+      (setf (aref buckets index)
+            (sort (aref buckets index) #'< :key
+                  (lambda (test) (gethash test positions)))))))
+
+(defun test-launch-program (command &rest keys)
+  "Launch COMMAND and register the child for unconditional per-test cleanup."
+  (let ((process (apply #'uiop:launch-program command keys)))
+    (when (boundp '*test-owned-processes*)
+      (push process *test-owned-processes*))
+    process))
+
+(defun reap-test-process (process)
+  (when (ignore-errors (uiop:process-alive-p process))
+    (ignore-errors (uiop:terminate-process process)))
+  (ignore-errors (uiop:wait-process process)))
+
+(defun call-with-test-process-scope (thunk)
+  "Run THUNK and reap every child launched through TEST-LAUNCH-PROGRAM."
+  (let ((*test-owned-processes* '()))
+    (unwind-protect
+         (funcall thunk)
+      (dolist (process *test-owned-processes*)
+        (reap-test-process process)))))
+
+(defun wait-for-test-condition
+    (label timeout-seconds predicate
+     &key (interval-seconds 0.05d0) diagnostics)
+  "Wait for PREDICATE and report LABEL, elapsed time, and diagnostics on timeout."
+  (let ((started (monotonic-seconds)))
+    (loop
+      (let ((value (funcall predicate)))
+        (when value (return value)))
+      (let ((elapsed (- (monotonic-seconds) started)))
+        (when (>= elapsed timeout-seconds)
+          (error "Timed out after ~,3Fs waiting for ~A~@[; ~A~]"
+                 elapsed label (and diagnostics (funcall diagnostics)))))
+      (sleep interval-seconds))))
+
 (defun report-test-timings (results stream slowest slow-threshold)
   (let* ((total (reduce #'+ results
                         :key #'test-result-elapsed-seconds
@@ -619,13 +687,18 @@
 
 (defun run-tests
     (&key match exclude layer (stream *standard-output*) timing
-          (slowest 10) slow-threshold)
-  (let ((tests (selected-tests :match match :exclude exclude :layer layer))
+          (slowest 10) slow-threshold shard-index shard-count)
+  (let* ((selected
+           (selected-tests :match match :exclude exclude :layer layer))
+         (tests
+           (if shard-count
+               (aref (balanced-test-shards selected shard-count) shard-index)
+               selected))
         (passed 0)
         (skipped 0)
         (failures '())
         (results '()))
-    (unless tests
+    (unless (or tests shard-count)
       (error "No tests matched the requested filters"))
     (dolist (test tests)
       (let* ((metadata (metadata-for-test test))
@@ -634,7 +707,7 @@
              (observed-condition nil))
         (handler-case
             (progn
-              (funcall test)
+              (call-with-test-process-scope test)
               (incf passed)
               (format stream "~&ok ~A" test))
           (test-skipped (condition)

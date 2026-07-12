@@ -121,7 +121,7 @@
              (devnet-cli-engine-fixture-parent-genesis-object case)))
            (devnet-cli-write-temp-file jwt-path +devnet-cli-jwt-secret+)
            (setf process
-                 (uiop:launch-program
+                 (test-launch-program
                   (list "sbcl"
                         "--script"
                         script
