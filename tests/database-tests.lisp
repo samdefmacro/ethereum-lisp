@@ -71,6 +71,7 @@
         (is (bytes= #(3) key))))))
 
 (deftest file-key-value-database-persists-chain-records
+  (:layer :integration :module :database)
   (let* ((path
            (merge-pathnames
             (make-pathname
@@ -126,6 +127,7 @@
         (delete-file path)))))
 
 (deftest file-key-value-database-replaces-through-temp-file
+  (:layer :integration :module :database)
   (let* ((name (format nil "ethereum-lisp-kv-replace-~A" (gensym)))
          (path
            (merge-pathnames
@@ -244,6 +246,7 @@
       (kv-put-chain-checkpoint database :unsafe block-hash-a))))
 
 (deftest file-key-value-database-persists-chain-record-namespace
+  (:layer :integration :module :database)
   (let* ((path
            (merge-pathnames
             (make-pathname
@@ -270,6 +273,7 @@
         (delete-file path)))))
 
 (deftest file-key-value-database-persists-typed-chain-indexes
+  (:layer :integration :module :database)
   (let* ((path
            (merge-pathnames
             (make-pathname
@@ -350,6 +354,7 @@
       (is (bytes= block-hash (cdar entries))))))
 
 (deftest file-key-value-database-persists-chain-record-batches
+  (:layer :integration :module :database)
   (let* ((path
            (merge-pathnames
             (make-pathname

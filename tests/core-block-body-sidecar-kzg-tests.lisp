@@ -119,6 +119,7 @@
          :transaction transaction)))))
 
 (deftest kzg-command-verifier-adapter
+  (:layer :integration :module :kzg :launches-processes t)
   (let* ((suffix (format nil "~A-~A" (get-universal-time) (random 1000000)))
          (script-path
            (merge-pathnames
@@ -206,6 +207,7 @@
           (delete-file log-path))))))
 
 (deftest kzg-go-ethereum-command-verifier-replays-canonical-vectors
+  (:layer :integration :module :kzg :launches-processes t)
   (let ((script (repo-kzg-verifier-command)))
     (let* ((valid-blob
              (let ((blob (make-byte-vector +blob-byte-size+))
@@ -275,6 +277,7 @@
               *kzg-blob-proof-verifier* old-blob-verifier)))))
 
 (deftest blob-sidecar-field-validation-replays-real-kzg-vector
+  (:layer :integration :module :kzg :launches-processes t)
   (let ((script (repo-kzg-verifier-command)))
     (let* ((blob
              (let ((blob (make-byte-vector +blob-byte-size+))

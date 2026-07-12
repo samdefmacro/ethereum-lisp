@@ -653,6 +653,7 @@
         (is (null called))))))
 
 (deftest evm-call-kzg-point-evaluation-replays-real-kzg-vector
+  (:layer :integration :module :kzg :launches-processes t)
   (let ((script (repo-kzg-verifier-command)))
     (labels ((point-input (commitment z y proof)
                (let* ((versioned-hash

@@ -3,6 +3,9 @@
 
 (require :asdf)
 
+(load (merge-pathnames "scripts/fixture-root-application.lisp"
+                       *ethereum-lisp-transaction-classifier-script-root*))
+
 (defconstant +transaction-classifier-script-json-flag+ "--json")
 (defconstant +transaction-classifier-script-help-flag+ "--help")
 (defconstant +transaction-classifier-script-root-option+ "--root")
@@ -105,9 +108,7 @@ fixture-harness-error.~%")
        (char= #\- (char value 0))))
 
 (defun transaction-classifier-script-blank-string-p (value)
-  (or (null value)
-      (zerop (length
-              (string-trim '(#\Space #\Tab #\Newline #\Return) value)))))
+  (ethereum-lisp.fixture-root-application:blank-string-p value))
 
 (defun transaction-classifier-script-set-single-value (current option value)
   (when current
@@ -191,26 +192,19 @@ fixture-harness-error.~%")
 
 (defun transaction-classifier-script-reject-missing-configured-root
     (root-argument)
-  (if root-argument
-      (unless (probe-file root-argument)
-        (error "Configured EEST fixture root from ~A does not exist: ~A"
-               +transaction-classifier-script-root-option+
-               root-argument))
-      (let ((root (uiop:getenv +transaction-classifier-script-eest-root-env+)))
-        (when (and (not (transaction-classifier-script-blank-string-p root))
-                   (not (probe-file root)))
-          (error "Configured EEST fixture root from ~A does not exist: ~A"
-                 +transaction-classifier-script-eest-root-env+
-                 root)))))
+  (ethereum-lisp.fixture-root-application:validate-configured-root
+   root-argument
+   :environment-name +transaction-classifier-script-eest-root-env+
+   :root-option +transaction-classifier-script-root-option+))
 
 (defun transaction-classifier-script-reject-empty-selected-root (root label)
-  (when (and root
-             (not (transaction-classifier-script-call
-                   "execution-spec-tests-json-paths"
-                   root)))
-    (error "Configured EEST ~A fixture root contains no JSON files: ~A"
-           label
-           root)))
+  (ethereum-lisp.fixture-root-application:validate-non-empty-root
+   root
+   label
+   (lambda (path)
+     (transaction-classifier-script-call
+      "execution-spec-tests-json-paths"
+      path))))
 
 (defun transaction-classifier-script-prefix-p (prefix value)
   (or (transaction-classifier-script-blank-string-p prefix)

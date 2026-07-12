@@ -23,17 +23,19 @@
 (defparameter *ethereum-lisp-core-tests-root*
   *repository-root*)
 
-(defun load-core-test-file (relative-path)
-  (load (merge-pathnames relative-path *ethereum-lisp-core-tests-root*)))
+(defun load-core-test-file (relative-path &optional (layer :unit) module)
+  (let ((*test-default-layer* layer)
+        (*test-default-module* module))
+    (load (merge-pathnames relative-path *ethereum-lisp-core-tests-root*))))
 
-(dolist (relative-path
-         '("tests/core-transaction-tests.lisp"
-           "tests/core-genesis-tests.lisp"
-           "tests/core-block-tests.lisp"
-           "tests/core-engine-payload-tests.lisp"
-           "tests/core-chain-store-tests.lisp"
-           "tests/core-txpool-tests.lisp"
-           "tests/core-execution-tests.lisp"
-           "tests/core-engine-rpc-tests.lisp"
-           "tests/core-public-rpc-tests.lisp"))
-  (load-core-test-file relative-path))
+(dolist (entry
+         '(("tests/core-transaction-tests.lisp" :unit :transaction)
+           ("tests/core-genesis-tests.lisp" :unit :genesis)
+           ("tests/core-block-tests.lisp" :unit :block)
+           ("tests/core-engine-payload-tests.lisp" :unit :engine)
+           ("tests/core-chain-store-tests.lisp" :integration :persistence)
+           ("tests/core-txpool-tests.lisp" :unit :txpool)
+           ("tests/core-execution-tests.lisp" :unit :execution)
+           ("tests/core-engine-rpc-tests.lisp" :unit :engine-rpc)
+           ("tests/core-public-rpc-tests.lisp" :unit :public-rpc)))
+  (apply #'load-core-test-file entry))

@@ -3,6 +3,9 @@
 
 (require :asdf)
 
+(load (merge-pathnames "scripts/fixture-root-application.lisp"
+                       *ethereum-lisp-selector-script-root*))
+
 (defconstant +selector-script-json-flag+ "--json")
 (defconstant +selector-script-root-option+ "--root")
 (defconstant +selector-script-eest-root-env+
@@ -25,22 +28,13 @@
        (char= #\- (char value 0))))
 
 (defun selector-script-blank-string-p (value)
-  (or (null value)
-      (zerop (length
-              (string-trim '(#\Space #\Tab #\Newline #\Return) value)))))
+  (ethereum-lisp.fixture-root-application:blank-string-p value))
 
 (defun selector-script-reject-missing-configured-root (root-argument)
-  (if root-argument
-      (unless (probe-file root-argument)
-        (error "Configured EEST fixture root from ~A does not exist: ~A"
-               +selector-script-root-option+
-               root-argument))
-      (let ((root (uiop:getenv +selector-script-eest-root-env+)))
-        (when (and (not (selector-script-blank-string-p root))
-                   (not (probe-file root)))
-          (error "Configured EEST fixture root from ~A does not exist: ~A"
-                 +selector-script-eest-root-env+
-                 root)))))
+  (ethereum-lisp.fixture-root-application:validate-configured-root
+   root-argument
+   :environment-name +selector-script-eest-root-env+
+   :root-option +selector-script-root-option+))
 
 (defun selector-script-set-argument-root (root value)
   (when root
@@ -89,12 +83,10 @@
     (symbol-value symbol)))
 
 (defun selector-script-reject-empty-selected-root (root label)
-  (when (and root
-             (not (selector-script-call "execution-spec-tests-json-paths"
-                                        root)))
-    (error "Configured EEST ~A fixture root contains no JSON files: ~A"
-           label
-           root)))
+  (ethereum-lisp.fixture-root-application:validate-non-empty-root
+   root label
+   (lambda (path)
+     (selector-script-call "execution-spec-tests-json-paths" path))))
 
 (defun selector-script-main ()
   (load (merge-pathnames "tests/load-tests.lisp"

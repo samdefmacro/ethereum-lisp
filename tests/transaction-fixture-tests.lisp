@@ -4,8 +4,10 @@
   *repository-root*)
 
 (defun load-transaction-fixture-test-file (relative-path)
-  (load (merge-pathnames relative-path
-                         *ethereum-lisp-transaction-fixture-tests-root*)))
+  (let ((*test-default-layer* :integration)
+        (*test-default-module* :transaction-fixtures))
+    (load (merge-pathnames relative-path
+                           *ethereum-lisp-transaction-fixture-tests-root*))))
 
 (dolist (relative-path
          '("tests/transaction-fixture-shape.lisp"

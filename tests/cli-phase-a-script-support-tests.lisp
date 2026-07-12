@@ -239,6 +239,8 @@
         (close stream)))))
 
 (deftest engine-rpc-http-socket-listener-advertises-loopback-for-wildcard-host
+  (:layer :integration :module :rpc-http :launches-processes nil
+   :requires-local-sockets t)
   #-sbcl
   (skip-test "Devnet wildcard socket endpoint test requires SBCL sockets")
   #+sbcl
@@ -262,6 +264,8 @@
         (skip-test "Local socket bind is not permitted in this sandbox")))))
 
 (deftest devnet-node-start-closes-engine-socket-on-public-bind-error
+  (:layer :integration :module :devnet :launches-processes nil
+   :requires-local-sockets t)
   #-sbcl
   (skip-test "Devnet socket bind cleanup requires SBCL sockets")
   #+sbcl
@@ -301,6 +305,8 @@
         (skip-test "Local socket bind is not permitted in this sandbox")))))
 
 (deftest ethereum-lisp-script-public-bind-error-reports-error-only
+  (:layer :e2e :module :cli :launches-processes t
+   :requires-local-sockets t)
   #-sbcl
   (skip-test "Ethereum Lisp process script requires SBCL sockets")
   #+sbcl
@@ -405,6 +411,8 @@
         (skip-test "Local socket bind is not permitted in this sandbox")))))
 
 (deftest ethereum-lisp-script-ready-file-error-reports-error-only
+  (:layer :e2e :module :cli :launches-processes t
+   :requires-local-sockets t)
   #-sbcl
   (skip-test "Ethereum Lisp process script requires SBCL sockets")
   #+sbcl

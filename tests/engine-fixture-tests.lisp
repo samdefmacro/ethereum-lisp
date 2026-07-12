@@ -4,9 +4,11 @@
   *repository-root*)
 
 (defun load-engine-fixture-test-file (relative-path)
-  (load (merge-pathnames
-         relative-path
-         *ethereum-lisp-engine-fixture-tests-root*)))
+  (let ((*test-default-layer* :integration)
+        (*test-default-module* :engine-fixtures))
+    (load (merge-pathnames
+           relative-path
+           *ethereum-lisp-engine-fixture-tests-root*))))
 
 (dolist (relative-path
          '("tests/engine-fixture-schema.lisp"

@@ -329,6 +329,7 @@
     :serial t
     :components
     ((:file "test-framework")
+     (:file "test-framework-tests")
      (:file "bytes-tests")
      (:file "hex-tests")
      (:file "database-tests")

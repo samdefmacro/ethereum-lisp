@@ -1,6 +1,7 @@
 # Test Suite Refactoring Plan
 
-Status: planned; execution intentionally deferred.
+Status: active; phases 0-2 have an initial implementation, while phases 3-5
+remain open except for the stable layer commands delivered with phase 1.
 
 ## Purpose
 
@@ -207,5 +208,73 @@ dozens of redundant Lisp image startups.
 
 ## Execution Record
 
-Add dated baseline and phase results here when this plan is activated. Do not
-mark a phase complete from estimates or partial test runs.
+### 2026-07-12 clean baseline
+
+- Clean worktree, cold `sbcl --script tests/run-tests.lisp` run.
+- Result: 906 passed, 33 skipped, 0 failed.
+- Wall/user/system time: 918.00s / 704.37s / 23.50s.
+- The sandbox prevented local socket binding, so the 33 existing socket and
+  optional-fixture skips are recorded limitations rather than coverage claims.
+- This legacy runner did not separate ASDF load time from execution time or
+  retain per-test timings. Phase 1 adds those measurements for subsequent
+  runs; the absence of that split is part of the baseline finding.
+
+### 2026-07-12 phase 1 initial result
+
+- `deftest` remains source-compatible and now registers layer, module,
+  child-process, and local-socket metadata for every test.
+- The runner selects repeatable `--layer` values, retains monotonic timings for
+  pass/skip/failure results, and reports layer totals plus deterministic slowest
+  tests.
+- Architectural loader boundaries assign fixture adapters, persistence, CLI
+  integration, executable scripts, and serve lifecycle tests to their owning
+  layers. Real KZG command paths are explicitly integration tests.
+- The first measured unit run was 726 passed / 6 skipped in 90.399s. Its timing
+  report exposed fixture loading and replay as the dominant misplaced work;
+  those owning modules were then moved to integration without changing tests.
+- Phase 1 is not marked complete until the final all-layer validation below is
+  green.
+
+### 2026-07-12 phase 2 fixture-root result
+
+- Added a shared fixture-root application service with injected environment,
+  filesystem probe, JSON discovery, stdout, and stderr dependencies.
+- Fixture report, state/transaction classifiers, and the three selector entry
+  points delegate missing-root and empty-root validation to that service.
+- The two former subprocess matrices now execute in-process in under 0.001s of
+  measured test time, versus 36.7s and 25.5s in the diagnostic baseline (more
+  than 99% lower). A separate subprocess contract remains for the smoke-gate
+  entry point, and the existing script-family boot tests remain in e2e.
+- Phase 2 is not marked complete: this round covers the plan's first
+  fixture-root target, while report construction, classification, drift-map,
+  and remaining option matrices still need extraction.
+
+### 2026-07-12 composed validation after the initial refactor
+
+The three disjoint layer selections cover every registered test and were run
+from fresh SBCL processes with socket and process permissions enabled:
+
+- `unit`: 683 passed, 3 optional-fixture skips, 54.290s execution / 58.05s
+  wall time;
+- `integration`: 180 passed, 2 optional-fixture skips, 65.612s execution /
+  69.08s wall time;
+- `e2e`: 76 passed, 0 skipped, 583.764s execution / 587.35s wall time.
+
+The composed result is 939 passed, 5 skipped, 0 failed, with 703.666s of
+measured execution and 714.48s of summed wall time. The five additional tests
+relative to the baseline cover runner behavior and the retained smoke-gate
+subprocess contract. All socket tests that were unavailable in the baseline
+ran successfully in this validation.
+
+The wall/execution deltas show approximately 3.5-3.8s of system-load overhead
+per fresh SBCL layer process. After the full runs, two already-green in-process
+socket tests were metadata-corrected from e2e to integration and re-run there;
+the current partition is therefore 683/182/74 passing tests across
+unit/integration/e2e, with the same 939-test composed result.
+
+The `unit` target is met. The `unit + integration` target is not yet met
+(119.902s measured), and the `all` target is not yet met. The slowest e2e cases
+are the two devnet smoke workflows at approximately 145s each, followed by the
+pinned-fixture workflow at approximately 73s. These measurements leave Phase
+3 isolation and Phase 4 bounded process parallelism as required work rather
+than treating the initial layering as the end of the refactor.

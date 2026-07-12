@@ -1,6 +1,8 @@
 (in-package #:ethereum-lisp.test)
 
 (deftest phase-a-smoke-gate-script-can-include-devnet-suite
+  (:layer :e2e :module :devnet-smoke :launches-processes t
+   :requires-local-sockets t)
   #-sbcl
   (skip-test "Phase A smoke gate devnet mode requires SBCL")
   #+sbcl
@@ -418,6 +420,8 @@
           (devnet-cli-assert-side-reorg-persistence case)))))))
 
 (deftest phase-a-smoke-gate-devnet-mode-is-cwd-independent
+  (:layer :e2e :module :devnet-smoke :launches-processes t
+   :requires-local-sockets t)
   #-sbcl
   (skip-test "Phase A smoke gate cwd-independent devnet mode requires SBCL")
   #+sbcl

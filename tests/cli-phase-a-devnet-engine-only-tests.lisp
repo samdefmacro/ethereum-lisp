@@ -1,6 +1,8 @@
 (in-package #:ethereum-lisp.test)
 
 (deftest devnet-smoke-gate-script-engine-only-serve-mode
+  (:layer :e2e :module :devnet-smoke :launches-processes t
+   :requires-local-sockets t)
   #-sbcl
   (skip-test "Devnet smoke gate script requires SBCL")
   #+sbcl

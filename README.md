@@ -63,13 +63,32 @@ and fixture-checked like a real execution client.
 sbcl --script tests/run-tests.lisp
 ```
 
+The default command runs the process-free `unit` layer. The remaining stable
+layer commands are:
+
+```sh
+sbcl --script tests/run-tests.lisp --layer integration
+sbcl --script tests/run-tests.lisp --layer e2e
+sbcl --script tests/run-tests.lisp --layer all
+```
+
+`integration` includes persistence, fixture adapters, and external KZG
+verification. `e2e` launches standalone SBCL processes and may bind local
+sockets. Run every layer before publishing an architectural change.
+
 Focused runs and discovery are available without editing the suite:
 
 ```sh
 sbcl --script tests/run-tests.lisp --list
+sbcl --script tests/run-tests.lisp --layer integration --list --verbose
 sbcl --script tests/run-tests.lisp --match TRANSACTION
 sbcl --script tests/run-tests.lisp --exclude SMOKE --exclude OPTIONAL
+sbcl --script tests/run-tests.lisp --layer unit --timing --slow 1
 ```
+
+`--layer` may be repeated to compose layers. `--timing` reports execution
+totals and the ten slowest selected tests; `--slow SECONDS` limits that report
+to tests at or above the threshold.
 
 ## Reference layout
 

@@ -3,6 +3,9 @@
 
 (require :asdf)
 
+(load (merge-pathnames "scripts/fixture-root-application.lisp"
+                       *ethereum-lisp-fixture-report-root*))
+
 (defconstant +fixture-report-pinned-v5.4.0-flag+ "--pinned-v5.4.0")
 (defconstant +fixture-report-json-flag+ "--json")
 (defconstant +fixture-report-root-option+ "--root")
@@ -38,22 +41,13 @@
        (char= #\- (char value 0))))
 
 (defun fixture-report-blank-string-p (value)
-  (or (null value)
-      (zerop (length
-              (string-trim '(#\Space #\Tab #\Newline #\Return) value)))))
+  (ethereum-lisp.fixture-root-application:blank-string-p value))
 
 (defun fixture-report-reject-missing-configured-root (root-argument)
-  (if root-argument
-      (unless (probe-file root-argument)
-        (error "Configured EEST fixture root from ~A does not exist: ~A"
-               +fixture-report-root-option+
-               root-argument))
-      (let ((root (uiop:getenv +fixture-report-eest-root-env+)))
-        (when (and (not (fixture-report-blank-string-p root))
-                   (not (probe-file root)))
-          (error "Configured EEST fixture root from ~A does not exist: ~A"
-                 +fixture-report-eest-root-env+
-                 root)))))
+  (ethereum-lisp.fixture-root-application:validate-configured-root
+   root-argument
+   :environment-name +fixture-report-eest-root-env+
+   :root-option +fixture-report-root-option+))
 
 (defun fixture-report-set-argument-root (root value)
   (when root
@@ -133,12 +127,11 @@ references/ checkouts.~%"))
     (symbol-value symbol)))
 
 (defun fixture-report-reject-empty-selected-root (root label)
-  (when (and root
-             (not (fixture-report-call "execution-spec-tests-json-paths"
-                                       root)))
-    (error "Configured EEST ~A fixture root contains no JSON files: ~A"
-           label
-           root)))
+  (ethereum-lisp.fixture-root-application:validate-non-empty-root
+   root
+   label
+   (lambda (path)
+     (fixture-report-call "execution-spec-tests-json-paths" path))))
 
 (defun fixture-report-field (object name)
   (cdr (assoc name object :test #'string=)))

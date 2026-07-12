@@ -19,6 +19,7 @@
       (is (getf summary :state-available-p)))))
 
 (deftest devnet-cli-main-kzg-verifier-command-scopes-hooks
+  (:layer :integration :module :kzg :launches-processes t)
   (let ((output (make-string-output-stream))
         (errors (make-string-output-stream))
         (missing-output (make-string-output-stream))
@@ -104,6 +105,8 @@
         (delete-file non-executable-kzg-command)))))
 
 (deftest ethereum-lisp-script-engine-only-kzg-verifier-advertises-blob-capabilities
+  (:layer :e2e :module :cli :launches-processes t
+   :requires-local-sockets t)
   #-sbcl
   (skip-test "Ethereum Lisp process script requires SBCL")
   #+sbcl
@@ -926,4 +929,3 @@
                      restored-store (block-hash child) funded)))))
       (when (probe-file database-path)
         (delete-file database-path)))))
-

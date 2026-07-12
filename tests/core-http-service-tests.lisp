@@ -882,6 +882,7 @@ Content-Type: application/json
 
 #+sbcl
 (deftest engine-rpc-http-service-serves-local-socket
+  (:layer :integration :module :rpc-http :requires-local-sockets t)
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))
            (http-body (response)

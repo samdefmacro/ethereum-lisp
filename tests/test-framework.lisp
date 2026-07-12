@@ -7,6 +7,22 @@
    #:list-tests
    #:run-tests
    #:run-all-tests
+   #:test-metadata
+   #:test-metadata-layer
+   #:test-metadata-module
+   #:test-metadata-launches-processes-p
+   #:test-metadata-requires-local-sockets-p
+   #:test-result
+   #:test-result-name
+   #:test-result-layer
+   #:test-result-status
+   #:test-result-elapsed-seconds
+   #:test-result-condition
+   #:*last-test-results*
+   #:*test-default-layer*
+   #:*test-default-module*
+   #:*test-default-launches-processes-p*
+   #:*test-default-requires-local-sockets-p*
    #:test-run-failed
    #:test-run-failed-failures
    #:+execution-spec-tests-fixture-root-env+
@@ -37,8 +53,71 @@
 
 (defvar *tests* '())
 
+(defparameter +test-layers+ '(:unit :integration :e2e))
+
+(defvar *test-default-layer* :unit)
+(defvar *test-default-module* nil)
+(defvar *test-default-launches-processes-p* nil)
+(defvar *test-default-requires-local-sockets-p* nil)
+
+(defstruct test-metadata
+  (layer :unit :type keyword)
+  module
+  (launches-processes-p nil :type boolean)
+  (requires-local-sockets-p nil :type boolean))
+
+(defstruct test-result
+  name
+  (layer :unit :type keyword)
+  (status :passed :type keyword)
+  (elapsed-seconds 0d0 :type double-float)
+  condition)
+
+(defvar *test-metadata* (make-hash-table :test #'eq))
+(defvar *last-test-results* '())
+
+(defun normalize-test-layer (layer &key allow-all)
+  (let ((normalized
+          (etypecase layer
+            (keyword layer)
+            (symbol (intern (symbol-name layer) :keyword))
+            (string (intern (string-upcase layer) :keyword)))))
+    (unless (or (member normalized +test-layers+)
+                (and allow-all (eq normalized :all)))
+      (error "Test layer must be one of ~{~(~A~)~^, ~}~@[ or all~], got ~A"
+             +test-layers+
+             allow-all
+             layer))
+    normalized))
+
+(defun register-test
+    (name &key layer module
+               (launches-processes nil launches-processes-supplied-p)
+               (requires-local-sockets nil requires-local-sockets-supplied-p))
+  (pushnew name *tests*)
+  (setf (gethash name *test-metadata*)
+        (make-test-metadata
+         :layer (normalize-test-layer (or layer *test-default-layer*))
+         :module (or module *test-default-module*)
+         :launches-processes-p
+         (if launches-processes-supplied-p
+             launches-processes
+             *test-default-launches-processes-p*)
+         :requires-local-sockets-p
+         (if requires-local-sockets-supplied-p
+             requires-local-sockets
+             *test-default-requires-local-sockets-p*)))
+  name)
+
+(defun metadata-for-test (test)
+  (or (gethash test *test-metadata*)
+      (error "Test ~A has no metadata" test)))
+
 (defparameter *repository-root*
   (asdf:system-source-directory '#:ethereum-lisp))
+
+(load (merge-pathnames "scripts/fixture-root-application.lisp"
+                       *repository-root*))
 
 (defun repository-relative-pathname (relative)
   (merge-pathnames relative *repository-root*))
@@ -403,10 +482,29 @@
                 +execution-spec-tests-fixture-root-env+)))
      ,@body))
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defun split-deftest-options (body)
+    (let ((candidate (first body)))
+      (if (and (consp candidate)
+               (keywordp (first candidate)))
+          (progn
+            (unless (evenp (length candidate))
+              (error "deftest metadata must be a property list: ~S" candidate))
+            (loop for tail on candidate by #'cddr
+                  for key = (first tail)
+                  do (unless (member key
+                                     '(:layer :module :launches-processes
+                                       :requires-local-sockets))
+                       (error "Unsupported deftest metadata key ~S" key)))
+            (values candidate (rest body)))
+          (values nil body)))))
+
 (defmacro deftest (name &body body)
-  `(progn
-     (pushnew ',name *tests*)
-     (defun ,name () ,@body)))
+  (multiple-value-bind (options forms)
+      (split-deftest-options body)
+    `(progn
+       (register-test ',name ,@options)
+       (defun ,name () ,@forms))))
 
 (defmacro is (form)
   `(unless ,form
@@ -429,9 +527,24 @@
 (defun test-name-matches-filter-p (test filter)
   (search filter (symbol-name test) :test #'char-equal))
 
-(defun selected-tests (&key match exclude)
+(defun test-layer-filter-list (layers)
+  (cond
+    ((null layers) nil)
+    ((or (stringp layers) (symbolp layers))
+     (let ((layer (normalize-test-layer layers :allow-all t)))
+       (unless (eq layer :all) (list layer))))
+    ((listp layers)
+     (let ((normalized
+             (mapcar (lambda (layer)
+                       (normalize-test-layer layer :allow-all t))
+                     layers)))
+       (if (member :all normalized) nil normalized)))
+    (t (error "Test layers must be a layer or a list of layers"))))
+
+(defun selected-tests (&key match exclude layer)
   (let ((match-filters (test-filter-list match))
-        (exclude-filters (test-filter-list exclude)))
+        (exclude-filters (test-filter-list exclude))
+        (layers (test-layer-filter-list layer)))
     (remove-if-not
      (lambda (test)
        (and (or (null match-filters)
@@ -440,45 +553,122 @@
                       match-filters))
             (not (some (lambda (filter)
                          (test-name-matches-filter-p test filter))
-                       exclude-filters))))
+                       exclude-filters))
+            (or (null layers)
+                (member (test-metadata-layer (metadata-for-test test))
+                        layers))))
      (reverse *tests*))))
 
-(defun list-tests (&key match exclude (stream *standard-output*))
-  (let ((tests (selected-tests :match match :exclude exclude)))
+(defun list-tests
+    (&key match exclude layer verbose (stream *standard-output*))
+  (let ((tests (selected-tests :match match :exclude exclude :layer layer)))
     (dolist (test tests)
-      (format stream "~A~%" test))
+      (let ((metadata (metadata-for-test test)))
+        (if verbose
+            (progn
+              (format stream "~A [~(~A~)" test (test-metadata-layer metadata))
+              (when (test-metadata-module metadata)
+                (format stream " module=~A" (test-metadata-module metadata)))
+              (when (test-metadata-launches-processes-p metadata)
+                (format stream " process"))
+              (when (test-metadata-requires-local-sockets-p metadata)
+                (format stream " socket"))
+              (format stream "]~%"))
+            (format stream "~A~%" test))))
     tests))
 
-(defun run-tests (&key match exclude (stream *standard-output*))
-  (let ((tests (selected-tests :match match :exclude exclude))
+(defun monotonic-seconds ()
+  (/ (get-internal-real-time)
+     (coerce internal-time-units-per-second 'double-float)))
+
+(defun report-test-timings (results stream slowest slow-threshold)
+  (let* ((total (reduce #'+ results
+                        :key #'test-result-elapsed-seconds
+                        :initial-value 0d0))
+         (slow-results
+           (stable-sort
+            (remove-if (lambda (result)
+                         (and slow-threshold
+                              (< (test-result-elapsed-seconds result)
+                                 slow-threshold)))
+                       (copy-list results))
+            #'>
+            :key #'test-result-elapsed-seconds)))
+    (format stream "Execution time: ~,3Fs" total)
+    (dolist (layer +test-layers+)
+      (let* ((layer-results
+               (remove layer results :test-not #'eq :key #'test-result-layer))
+             (elapsed
+               (reduce #'+ layer-results
+                       :key #'test-result-elapsed-seconds
+                       :initial-value 0d0)))
+        (when layer-results
+          (format stream ", ~(~A~)=~,3Fs" layer elapsed))))
+    (format stream ".~%")
+    (when slow-results
+      (let ((shown (if slowest
+                       (subseq slow-results 0 (min slowest (length slow-results)))
+                       slow-results)))
+        (format stream "Slowest tests~@[ (>= ~,3Fs)~]:~%" slow-threshold)
+        (dolist (result shown)
+          (format stream "  ~,3Fs ~(~A~) ~A [~(~A~)]~%"
+                  (test-result-elapsed-seconds result)
+                  (test-result-status result)
+                  (test-result-name result)
+                  (test-result-layer result)))))))
+
+(defun run-tests
+    (&key match exclude layer (stream *standard-output*) timing
+          (slowest 10) slow-threshold)
+  (let ((tests (selected-tests :match match :exclude exclude :layer layer))
         (passed 0)
         (skipped 0)
-        (failures '()))
+        (failures '())
+        (results '()))
     (unless tests
       (error "No tests matched the requested filters"))
     (dolist (test tests)
-      (handler-case
-          (progn
-            (funcall test)
-            (incf passed)
-            (format stream "~&ok ~A" test))
-        (test-skipped (condition)
-          (incf skipped)
-          (format stream "~&skip ~A - ~A"
-                  test
-                  (test-skipped-reason condition)))
-        (error (condition)
-          (push (cons test condition) failures)
-          (format stream "~&not ok ~A - ~A" test condition))))
+      (let* ((metadata (metadata-for-test test))
+             (started (monotonic-seconds))
+             (status :passed)
+             (observed-condition nil))
+        (handler-case
+            (progn
+              (funcall test)
+              (incf passed)
+              (format stream "~&ok ~A" test))
+          (test-skipped (condition)
+            (setf status :skipped
+                  observed-condition condition)
+            (incf skipped)
+            (format stream "~&skip ~A - ~A"
+                    test
+                    (test-skipped-reason condition)))
+          (error (condition)
+            (setf status :failed
+                  observed-condition condition)
+            (push (cons test condition) failures)
+            (format stream "~&not ok ~A - ~A" test condition)))
+        (push (make-test-result
+               :name test
+               :layer (test-metadata-layer metadata)
+               :status status
+               :elapsed-seconds (- (monotonic-seconds) started)
+               :condition observed-condition)
+              results)))
+    (setf results (nreverse results)
+          *last-test-results* results)
     (format stream "~&~D test~:P passed" passed)
     (when (plusp skipped)
       (format stream ", ~D skipped" skipped))
     (when failures
       (format stream ", ~D failed" (length failures)))
     (format stream ".~%")
+    (when (or timing slow-threshold)
+      (report-test-timings results stream slowest slow-threshold))
     (when failures
       (error 'test-run-failed :failures (nreverse failures)))
-    (values t passed skipped)))
+    (values t passed skipped results)))
 
 (defun run-all-tests ()
-  (run-tests))
+  (run-tests :layer :all))

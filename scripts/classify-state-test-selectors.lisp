@@ -3,6 +3,9 @@
 
 (require :asdf)
 
+(load (merge-pathnames "scripts/fixture-root-application.lisp"
+                       *ethereum-lisp-state-classifier-script-root*))
+
 (defconstant +state-classifier-script-json-flag+ "--json")
 (defconstant +state-classifier-script-help-flag+ "--help")
 (defconstant +state-classifier-script-root-option+ "--root")
@@ -104,9 +107,7 @@ fixture-harness-error.~%")
        (char= #\- (char value 0))))
 
 (defun state-classifier-script-blank-string-p (value)
-  (or (null value)
-      (zerop (length
-              (string-trim '(#\Space #\Tab #\Newline #\Return) value)))))
+  (ethereum-lisp.fixture-root-application:blank-string-p value))
 
 (defun state-classifier-script-set-single-value (current option value)
   (when current
@@ -190,26 +191,17 @@ fixture-harness-error.~%")
 
 (defun state-classifier-script-reject-missing-configured-root
     (root-argument)
-  (if root-argument
-      (unless (probe-file root-argument)
-        (error "Configured EEST fixture root from ~A does not exist: ~A"
-               +state-classifier-script-root-option+
-               root-argument))
-      (let ((root (uiop:getenv +state-classifier-script-eest-root-env+)))
-        (when (and (not (state-classifier-script-blank-string-p root))
-                   (not (probe-file root)))
-          (error "Configured EEST fixture root from ~A does not exist: ~A"
-                 +state-classifier-script-eest-root-env+
-                 root)))))
+  (ethereum-lisp.fixture-root-application:validate-configured-root
+   root-argument
+   :environment-name +state-classifier-script-eest-root-env+
+   :root-option +state-classifier-script-root-option+))
 
 (defun state-classifier-script-reject-empty-selected-root (root label)
-  (when (and root
-             (not (state-classifier-script-call
-                   "execution-spec-tests-json-paths"
-                   root)))
-    (error "Configured EEST ~A fixture root contains no JSON files: ~A"
-           label
-           root)))
+  (ethereum-lisp.fixture-root-application:validate-non-empty-root
+   root
+   label
+   (lambda (path)
+     (state-classifier-script-call "execution-spec-tests-json-paths" path))))
 
 (defun state-classifier-script-prefix-p (prefix value)
   (or (state-classifier-script-blank-string-p prefix)

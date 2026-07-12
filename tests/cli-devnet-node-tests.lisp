@@ -256,6 +256,7 @@
               "code"))))))
 
 (deftest devnet-node-start-serves-engine-and-public-listeners
+  (:layer :integration :module :devnet :requires-local-sockets t)
   (let* ((node (ethereum-lisp.cli:make-devnet-node
                 :genesis-path +devnet-cli-genesis-fixture+
                 :port 8551
@@ -294,6 +295,7 @@
     (is (= 2 (getf summary :total-connections)))))
 
 (deftest devnet-node-start-serves-engine-only-when-public-listener-is-disabled
+  (:layer :integration :module :devnet :requires-local-sockets t)
   (let* ((node (ethereum-lisp.cli:make-devnet-node
                 :genesis-path +devnet-cli-genesis-fixture+
                 :port 8551
@@ -309,6 +311,7 @@
     (is (= 1 (getf summary :total-connections)))))
 
 (deftest devnet-node-split-listeners-serve-authenticated-engine-and-public-rpc
+  (:layer :integration :module :devnet :requires-local-sockets t)
   (let ((jwt-path (devnet-cli-temp-path "ethereum-lisp-devnet-jwt" "hex")))
     (unwind-protect
          (progn
@@ -398,6 +401,7 @@
         (delete-file jwt-path)))))
 
 (deftest devnet-node-split-listeners-import-payload-and-serve-public-state
+  (:layer :integration :module :devnet :requires-local-sockets t)
   (let ((jwt-path (devnet-cli-temp-path "ethereum-lisp-devnet-jwt" "hex")))
     (unwind-protect
          (progn
@@ -602,6 +606,7 @@
         (delete-file jwt-path)))))
 
 (deftest devnet-node-start-closes-engine-listener-on-public-error
+  (:layer :integration :module :devnet :requires-local-sockets t)
   (let* ((node (ethereum-lisp.cli:make-devnet-node
                 :genesis-path +devnet-cli-genesis-fixture+
                 :port 8551
@@ -630,6 +635,7 @@
     (is engine-closed-p)))
 
 (deftest devnet-node-start-closes-public-listener-on-engine-error
+  (:layer :integration :module :devnet :requires-local-sockets t)
   (let* ((node (ethereum-lisp.cli:make-devnet-node
                 :genesis-path +devnet-cli-genesis-fixture+
                 :port 8551
@@ -660,6 +666,7 @@
     (is public-closed-p)))
 
 (deftest devnet-shutdown-controller-stops-split-listeners
+  (:layer :integration :module :devnet :requires-local-sockets t)
   #-sbcl
   (skip-test "Devnet split listener shutdown requires SBCL threads")
   #+sbcl
@@ -720,6 +727,7 @@
       (is (= 0 (getf summary :total-connections))))))
 
 (deftest devnet-listener-ready-callback-reports-bound-endpoints
+  (:layer :integration :module :devnet :requires-local-sockets t)
   #-sbcl
   (skip-test "Devnet split listener serving requires SBCL threads")
   #+sbcl
@@ -830,6 +838,7 @@
         (delete-file ready-path)))))
 
 (deftest devnet-listener-ready-callback-error-closes-listeners
+  (:layer :integration :module :devnet :requires-local-sockets t)
   #-sbcl
   (skip-test "Devnet split listener serving requires SBCL threads")
   #+sbcl

@@ -282,9 +282,7 @@
     (run-selector-script "scripts/list-blockchain-replay-selectors.lisp")))
 
 (deftest phase-a-fixture-sync-scripts-reject-missing-env-root
-  #-sbcl
-  (skip-test "Phase A fixture sync scripts require SBCL")
-  #+sbcl
+  (:layer :unit :module :fixture-cli :launches-processes nil)
   (let* ((env-root
            (merge-pathnames
             (format nil "ethereum-lisp-missing-fixture-sync-env-root-~A/"
@@ -297,65 +295,80 @@
                     (devnet-cli-temp-token))
             #P"/private/tmp/"))
          (explicit-root-string (namestring explicit-root)))
-    (labels ((run-script-with-missing-env-root (script)
-               (multiple-value-bind (stdout stderr status)
-                   (uiop:run-program
-                    (list "env"
-                          (format nil
-                                  "ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT=~A"
-                                  env-root-string)
-                          "sbcl"
-                          "--script"
-                          script
-                          "--"
-                          "--json")
-                    :output :string
-                    :error-output :string
-                    :ignore-error-status t)
-                 (is (not (= 0 status)))
-                 (is (string= "" stdout))
-                 (is (search env-root-string stderr))
-                 (is (search "Configured EEST fixture root from" stderr))
-                 (is (search "ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT"
-                             stderr))))
-             (run-script-with-missing-explicit-root (script)
-               (multiple-value-bind (stdout stderr status)
-                   (uiop:run-program
-                    (list "env"
-                          "-u"
-                          "ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT"
-                          "sbcl"
-                          "--script"
-                          script
-                          "--"
-                          "--json"
-                          "--root"
-                          explicit-root-string)
-                    :output :string
-                    :error-output :string
-                    :ignore-error-status t)
-                 (is (not (= 0 status)))
-                 (is (string= "" stdout))
-                 (is (search explicit-root-string stderr))
-                 (is (search "Configured EEST fixture root from" stderr))
-                 (is (search "--root" stderr)))))
-      (dolist (script
-               '("scripts/phase-a-fixture-report.lisp"
-                 "scripts/classify-state-test-selectors.lisp"
-                 "scripts/classify-transaction-test-selectors.lisp"
-                 "scripts/list-state-test-selectors.lisp"
-                 "scripts/list-transaction-test-selectors.lisp"
-                 "scripts/list-blockchain-replay-selectors.lisp"))
-        (run-script-with-missing-env-root script)
-        (run-script-with-missing-explicit-root script)))))
+    (labels ((run-validation (root-argument environment-value)
+               (let ((stdout (make-string-output-stream))
+                     (stderr (make-string-output-stream)))
+                 (let ((status
+                         (ethereum-lisp.fixture-root-application:call-with-validation-result
+                          (lambda (output error-output)
+                            (declare (ignore output error-output))
+                            (ethereum-lisp.fixture-root-application:validate-configured-root
+                             root-argument
+                             :environment-lookup
+                             (lambda (name)
+                               (declare (ignore name))
+                               environment-value)
+                             :probe (lambda (path)
+                                      (declare (ignore path))
+                                      nil)))
+                          :output stdout
+                          :error-output stderr)))
+                   (values (get-output-stream-string stdout)
+                           (get-output-stream-string stderr)
+                           status)))))
+      (multiple-value-bind (stdout stderr status)
+          (run-validation nil env-root-string)
+        (is (= 1 status))
+        (is (string= "" stdout))
+        (is (search env-root-string stderr))
+        (is (search "Configured EEST fixture root from" stderr))
+        (is (search "ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT" stderr)))
+      (multiple-value-bind (stdout stderr status)
+          (run-validation explicit-root-string nil)
+        (is (= 1 status))
+        (is (string= "" stdout))
+        (is (search explicit-root-string stderr))
+        (is (search "Configured EEST fixture root from" stderr))
+        (is (search "--root" stderr))))))
 
 (deftest phase-a-fixture-sync-scripts-reject-empty-suite-root
-  #-sbcl
-  (skip-test "Phase A fixture sync scripts require SBCL")
-  #+sbcl
+  (:layer :unit :module :fixture-cli :launches-processes nil)
   (let* ((root
            (merge-pathnames
             (format nil "ethereum-lisp-empty-fixture-sync-root-~A/"
+                    (devnet-cli-temp-token))
+            #P"/private/tmp/"))
+         (root-string (namestring root)))
+    (dolist (label '("state_tests" "transaction_tests" "blockchain"))
+      (let ((stdout (make-string-output-stream))
+            (stderr (make-string-output-stream)))
+        (let ((status
+                (ethereum-lisp.fixture-root-application:call-with-validation-result
+                 (lambda (output error-output)
+                   (declare (ignore output error-output))
+                   (ethereum-lisp.fixture-root-application:validate-non-empty-root
+                    root-string
+                    label
+                    (lambda (path)
+                      (declare (ignore path))
+                      nil)))
+                 :output stdout
+                 :error-output stderr)))
+          (is (= 1 status))
+          (is (string= "" (get-output-stream-string stdout)))
+          (let ((error-text (get-output-stream-string stderr)))
+            (is (search root-string error-text))
+            (is (search "contains no JSON files" error-text))
+            (is (search "Configured EEST" error-text))))))))
+
+(deftest phase-a-smoke-gate-rejects-empty-suite-root-contract
+  (:layer :e2e :module :fixture-cli :launches-processes t)
+  #-sbcl
+  (skip-test "Phase A smoke gate script requires SBCL")
+  #+sbcl
+  (let* ((root
+           (merge-pathnames
+            (format nil "ethereum-lisp-empty-smoke-root-~A/"
                     (devnet-cli-temp-token))
             #P"/private/tmp/"))
          (root-string (namestring root)))
@@ -363,34 +376,23 @@
                       "transaction_tests/"
                       "blockchain_tests_engine/"))
       (ensure-directories-exist (merge-pathnames subdir root)))
-    (labels ((run-script-with-empty-root (script)
-               (multiple-value-bind (stdout stderr status)
-                   (uiop:run-program
-                    (list "env"
-                          "-u"
-                          "ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT"
-                          "sbcl"
-                          "--script"
-                          script
-                          "--"
-                          "--json"
-                          "--root"
-                          root-string)
-                    :output :string
-                    :error-output :string
-                    :ignore-error-status t)
-                 (is (not (= 0 status)))
-                 (is (string= "" stdout))
-                 (is (search root-string stderr))
-                 (is (search "contains no JSON files" stderr))
-                 (is (search "Configured EEST" stderr)))))
-      (dolist (script
-               '("scripts/phase-a-fixture-report.lisp"
-                 "scripts/phase-a-smoke-gate.lisp"
-                 "scripts/classify-state-test-selectors.lisp"
-                 "scripts/classify-transaction-test-selectors.lisp"
-                 "scripts/list-state-test-selectors.lisp"
-                 "scripts/list-transaction-test-selectors.lisp"
-                 "scripts/list-blockchain-replay-selectors.lisp"))
-        (run-script-with-empty-root script)))))
-
+    (multiple-value-bind (stdout stderr status)
+        (uiop:run-program
+         (list "env"
+               "-u"
+               "ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT"
+               "sbcl"
+               "--script"
+               "scripts/phase-a-smoke-gate.lisp"
+               "--"
+               "--json"
+               "--root"
+               root-string)
+         :output :string
+         :error-output :string
+         :ignore-error-status t)
+      (is (not (= 0 status)))
+      (is (string= "" stdout))
+      (is (search root-string stderr))
+      (is (search "contains no JSON files" stderr))
+      (is (search "Configured EEST" stderr)))))
