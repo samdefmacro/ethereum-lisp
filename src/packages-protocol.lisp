@@ -20,6 +20,8 @@
    #:+bpo2-blob-base-fee-update-fraction+
    #:+bpo3-blob-base-fee-update-fraction+
    #:+bpo4-blob-base-fee-update-fraction+
+   #:+max-contract-code-size+
+   #:+amsterdam-max-contract-code-size+
    #:blob-schedule-entry
    #:make-blob-schedule-entry
    #:blob-schedule-entry-timestamp
@@ -119,7 +121,11 @@
    #:chain-rules-blob-schedule-max-gas
    #:chain-rules-blob-schedule-update-fraction
    #:chain-rules-expanded-blob-schedule-p
-   #:chain-rules-blob-schedule))
+   #:chain-rules-blob-schedule
+   #:chain-rules-initcode-metering-p
+   #:chain-rules-code-prefix-restricted-p
+   #:chain-rules-contract-code-size-limit
+   #:chain-rules-contract-initcode-size-limit))
 
 (defpackage #:ethereum-lisp.transactions
   (:use #:cl

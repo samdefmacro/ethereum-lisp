@@ -58,7 +58,9 @@
             params 0 "forkchoiceState" method)))
         (payload-attributes
           (when (< 1 (length params))
-            (second params))))
+            (let ((value (second params)))
+              (unless (json-null-p value)
+                value)))))
     (let ((status (engine-forkchoice-memory-status store state))
           (payload-id nil))
       (when (string= +payload-status-valid+

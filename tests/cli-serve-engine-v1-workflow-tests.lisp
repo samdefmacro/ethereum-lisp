@@ -87,7 +87,7 @@
                      (list (cons "jsonrpc" "2.0")
                            (cons "id" 704)
                            (cons "method" "eth_blockNumber")
-                           (cons "params" '()))))
+                           (cons "params" #()))))
                   (latest-block-body
                     (json-encode
                      (list (cons "jsonrpc" "2.0")
@@ -99,19 +99,19 @@
                      (list (cons "jsonrpc" "2.0")
                            (cons "id" 706)
                            (cons "method" "eth_chainId")
-                           (cons "params" '()))))
+                           (cons "params" #()))))
                   (net-version-body
                     (json-encode
                      (list (cons "jsonrpc" "2.0")
                            (cons "id" 707)
                            (cons "method" "net_version")
-                           (cons "params" '()))))
+                           (cons "params" #()))))
                   (client-version-body
                     (json-encode
                      (list (cons "jsonrpc" "2.0")
                            (cons "id" 708)
                            (cons "method" "web3_clientVersion")
-                           (cons "params" '())))))
+                           (cons "params" #())))))
              (setf process
                    (uiop:launch-program
                     (list "sbcl"

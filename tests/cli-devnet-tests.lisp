@@ -1,7 +1,7 @@
 (in-package #:ethereum-lisp.test)
 
 (defparameter *ethereum-lisp-cli-devnet-tests-root*
-  (merge-pathnames "../" (or *load-truename* *default-pathname-defaults*)))
+  *repository-root*)
 
 (defun load-cli-devnet-test-file (relative-path)
   (load (merge-pathnames relative-path

@@ -2,7 +2,7 @@
 
 (defun json-rpc-required-field (object name)
   (unless (json-object-field-present-p object name)
-    (block-validation-fail "JSON-RPC field ~A is missing" name))
+    (invalid-parameters-fail "JSON-RPC field ~A is missing" name))
   (json-object-field object name))
 
 (defun json-rpc-optional-quantity-field (object name)
@@ -14,27 +14,27 @@
 
 (defun json-rpc-hash32 (value label)
   (unless (stringp value)
-    (block-validation-fail "~A must be a hex hash" label))
+    (invalid-parameters-fail "~A must be a hex hash" label))
   (handler-case
       (hash32-from-hex value)
     (error ()
-      (block-validation-fail "~A must be a hash32" label))))
+      (invalid-parameters-fail "~A must be a hash32" label))))
 
 (defun json-rpc-address (value label)
   (unless (stringp value)
-    (block-validation-fail "~A must be a hex address" label))
+    (invalid-parameters-fail "~A must be a hex address" label))
   (handler-case
       (address-from-hex value)
     (error ()
-      (block-validation-fail "~A must be an address" label))))
+      (invalid-parameters-fail "~A must be an address" label))))
 
 (defun json-rpc-bytes (value label)
   (unless (stringp value)
-    (block-validation-fail "~A must be a hex byte string" label))
+    (invalid-parameters-fail "~A must be a hex byte string" label))
   (handler-case
       (hex-to-bytes value)
     (error ()
-      (block-validation-fail "~A must be a hex byte string" label))))
+      (invalid-parameters-fail "~A must be a hex byte string" label))))
 
 (defun json-rpc-required-hash32-field (object name)
   (json-rpc-hash32 (json-rpc-required-field object name) name))
@@ -55,14 +55,14 @@
 
 (defun json-rpc-byte-list (values label)
   (unless (json-array-p values)
-    (block-validation-fail "~A must be a list" label))
+    (invalid-parameters-fail "~A must be a list" label))
   (loop for value in (json-array-values values)
         for index from 0
         collect (json-rpc-bytes value (format nil "~A ~D" label index))))
 
 (defun json-rpc-hash32-list (values label)
   (unless (json-array-p values)
-    (block-validation-fail "~A must be a list" label))
+    (invalid-parameters-fail "~A must be a list" label))
   (loop for value in (json-array-values values)
         for index from 0
         collect (json-rpc-hash32 value (format nil "~A ~D" label index))))
@@ -70,7 +70,7 @@
 (defun json-rpc-required-param
     (params index label &optional (method "JSON-RPC method"))
   (unless (< index (length params))
-    (block-validation-fail "~A param ~A is missing" method label))
+    (invalid-parameters-fail "~A param ~A is missing" method label))
   (nth index params))
 
 (defun json-rpc-quantity-param (params index label method)

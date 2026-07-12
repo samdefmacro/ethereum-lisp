@@ -25,9 +25,72 @@
              (string= name "ETHEREUM-LISP."
                       :end1 (length "ETHEREUM-LISP."))))))
 
+(defun ethereum-lisp-source-paths ()
+  (let* ((source-root (merge-pathnames #P"src/" *repository-root*))
+         (pattern
+           (make-pathname
+            :directory (append (pathname-directory source-root)
+                               (list :wild-inferiors))
+            :name :wild
+            :type "lisp"
+            :defaults source-root)))
+    (sort (directory pattern) #'string< :key #'namestring)))
+
+(defun ethereum-lisp-form-package-dependencies (form owner)
+  (let ((dependencies '()))
+    (labels ((walk (value)
+               (cond
+                 ((symbolp value)
+                  (let ((home (symbol-package value)))
+                    (when (and home
+                               (not (eq home owner))
+                               (ethereum-lisp-project-package-p home))
+                      (pushnew home dependencies))))
+                 ((consp value)
+                  (walk (car value))
+                  (walk (cdr value)))
+                 ((vectorp value)
+                  (map nil #'walk value)))))
+      (walk form))
+    dependencies))
+
+(defun ethereum-lisp-source-dependency-table ()
+  (let ((dependencies (make-hash-table :test 'eq)))
+    (dolist (path (ethereum-lisp-source-paths))
+      (with-open-file (stream path :direction :input)
+        (let ((*package* (find-package '#:cl-user))
+              (owner nil))
+          (loop for form = (read stream nil stream)
+                until (eq form stream)
+                do (if (and (consp form)
+                            (symbolp (car form))
+                            (string= "IN-PACKAGE" (symbol-name (car form))))
+                       (let ((package (find-package (second form))))
+                         (unless package
+                           (error "Unknown package ~S in ~A" (second form) path))
+                         (setf owner package
+                               *package* package))
+                       (when (and owner
+                                  (ethereum-lisp-project-package-p owner))
+                         (dolist (dependency
+                                  (ethereum-lisp-form-package-dependencies
+                                   form owner))
+                           (pushnew dependency
+                                    (gethash owner dependencies)))))))))
+    dependencies))
+
+(defvar *ethereum-lisp-source-dependency-table* nil)
+
 (defun ethereum-lisp-project-dependencies (package)
-  (remove-if-not #'ethereum-lisp-project-package-p
-                 (package-use-list package)))
+  (unless *ethereum-lisp-source-dependency-table*
+    (setf *ethereum-lisp-source-dependency-table*
+          (ethereum-lisp-source-dependency-table)))
+  (remove-duplicates
+   (append
+    (remove-if-not #'ethereum-lisp-project-package-p
+                   (package-use-list package))
+    (gethash package *ethereum-lisp-source-dependency-table*))
+   :test #'eq))
 
 (defun ethereum-lisp-package-dependency-cycle-p (package &optional path)
   (if (member package path)
@@ -68,6 +131,16 @@
   (dolist (package (list-all-packages))
     (when (ethereum-lisp-project-package-p package)
       (is (not (ethereum-lisp-package-dependency-cycle-p package))))))
+
+(deftest project-package-dependency-graph-includes-source-references
+  (let ((validation (find-package '#:ethereum-lisp.validation))
+        (types (find-package '#:ethereum-lisp.types))
+        (rlp (find-package '#:ethereum-lisp.rlp))
+        (cli (find-package '#:ethereum-lisp.cli))
+        (persistence (find-package '#:ethereum-lisp.node-store.persistence)))
+    (is (member types (ethereum-lisp-project-dependencies validation)))
+    (is (member rlp (ethereum-lisp-project-dependencies validation)))
+    (is (member persistence (ethereum-lisp-project-dependencies cli)))))
 
 (deftest domain-packages-own-their-external-symbols
   (let ((facades (mapcar #'find-package

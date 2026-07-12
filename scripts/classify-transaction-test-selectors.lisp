@@ -455,7 +455,7 @@ fixture-harness-error.~%")
      (cons "failuresOnly" (if failures-only-p t :false))
      (cons "families"
            (transaction-classifier-script-family-summaries results))
-     (cons "results" reported-results))))
+     (cons "results" (or reported-results (make-array 0))))))
 
 (defun transaction-classifier-script-report-field (report name)
   (cdr (assoc name report :test #'string=)))

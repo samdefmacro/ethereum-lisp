@@ -59,7 +59,7 @@
             (list (cons "jsonrpc" "2.0")
                   (cons "id" 733)
                   (cons "method" "eth_blockNumber")
-                  (cons "params" '()))))
+                  (cons "params" #()))))
          (balance-body
            (json-encode (engine-fixture-balance-request 734 recipient)))
          (public-syncing-body

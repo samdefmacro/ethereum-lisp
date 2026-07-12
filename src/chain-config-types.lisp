@@ -19,6 +19,8 @@
 (defconstant +bpo2-blob-base-fee-update-fraction+ 11684671)
 (defconstant +bpo3-blob-base-fee-update-fraction+ 20609697)
 (defconstant +bpo4-blob-base-fee-update-fraction+ 13739630)
+(defconstant +max-contract-code-size+ 24576)
+(defconstant +amsterdam-max-contract-code-size+ 32768)
 
 (defstruct (blob-schedule-entry
             (:constructor make-blob-schedule-entry

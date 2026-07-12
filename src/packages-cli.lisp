@@ -6,12 +6,18 @@
                 #:engine-payload-store-pending-mining-transactions
                 #:engine-payload-store-pooled-transactions
                 #:engine-select-mining-transactions)
-  (:import-from #:ethereum-lisp.chain-store.persistence
-                #:chain-store-export-txpool-records-to-kv
-                #:chain-store-import-txpool-records-from-kv
-                #:chain-store-restore-txpool-consistency)
+  (:import-from #:ethereum-lisp.node-store.persistence
+                #:node-store-export-txpool-records-to-kv
+                #:node-store-import-txpool-records-from-kv
+                #:node-store-restore-txpool-consistency)
   (:export
    #:devnet-node
+   #:devnet-endpoint-config
+   #:make-devnet-endpoint-config
+   #:devnet-txpool-policy
+   #:make-devnet-txpool-policy
+   #:devnet-kzg-config
+   #:make-devnet-kzg-config
    #:make-devnet-node
    #:devnet-node-genesis-path
    #:devnet-node-store

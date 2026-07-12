@@ -62,7 +62,7 @@
                        from-number
                        to-number))
                     pending-changes))
-                 (change-block-keys (make-hash-table :test 'equal))
+                 (change-block-keys (make-hash-table :test 'equalp))
                  (cursor (engine-log-filter-last-block-number log-filter))
                  (change-from (if cursor
                                   (max from-number (1+ cursor))
@@ -112,7 +112,7 @@
 (defun engine-block-filter-changes (block-filter store)
   (let* ((cursor (engine-block-filter-last-block-number block-filter))
          (latest (chain-store-head-number store))
-         (seen (make-hash-table :test 'equal))
+         (seen (make-hash-table :test 'equalp))
          (hashes nil))
     (dolist (hash (engine-block-filter-hashes block-filter))
       (let ((hash-hex (hash32-to-hex hash)))

@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.chain-store.persistence)
+(in-package #:ethereum-lisp.node-store.persistence)
 
 (defun chain-store-blob-sidecar-record-rlp (blob-and-proofs)
   (rlp-encode
@@ -20,7 +20,7 @@
 (defun chain-store-populate-blob-sidecar-export-batch
     (store database batch)
   (setf store (chain-store-require-memory-store store))
-  (let ((current-versioned-hash-keys (make-hash-table :test 'equal)))
+  (let ((current-versioned-hash-keys (make-hash-table :test 'equalp)))
     (maphash
      (lambda (versioned-hash-key blob-and-proofs)
        (setf (gethash versioned-hash-key current-versioned-hash-keys) t)

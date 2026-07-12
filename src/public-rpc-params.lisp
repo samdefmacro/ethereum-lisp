@@ -67,9 +67,7 @@
                (require-canonical-p
                  (eth-rpc-block-object-require-canonical-p object method)))
           (when (and block require-canonical-p
-                     (not (engine-payload-store-canonical-block-p
-                           (chain-store-require-memory-store store)
-                           block)))
+                     (not (chain-store-canonical-block-p store block)))
             (block-validation-fail
              "~A block hash is not canonical"
              method))

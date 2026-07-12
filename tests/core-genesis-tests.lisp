@@ -539,6 +539,32 @@
     (is (not (ethereum-lisp.json:json-empty-array-p "")))
     (is (not (ethereum-lisp.json:json-array-p "")))))
 
+(deftest json-distinguishes-false-null-and-empty-containers
+  (let ((false-value (parse-json "false" :preserve-types t))
+        (null-value (parse-json "null" :preserve-types t))
+        (empty-array (parse-json "[]" :preserve-types t))
+        (empty-object (parse-json "{}" :preserve-types t)))
+    (is (ethereum-lisp.json:json-false-p false-value))
+    (is (ethereum-lisp.json:json-null-p null-value))
+    (is (ethereum-lisp.json:json-empty-array-p empty-array))
+    (is (ethereum-lisp.json:json-empty-object-p empty-object))
+    (is (not (eq false-value null-value)))
+    (is (not (ethereum-lisp.json:json-object-p empty-array)))
+    (is (not (ethereum-lisp.json:json-array-p empty-object)))
+    (is (string= "false" (json-encode false-value)))
+    (is (string= "null" (json-encode null-value)))
+    (is (string= "[]" (json-encode empty-array)))
+    (is (string= "{}" (json-encode empty-object)))))
+
+(deftest json-decodes-unicode-surrogate-pairs
+  (let ((value (parse-json "\"\\uD83D\\uDE00\"")))
+    (is (= 1 (length value)))
+    (is (= #x1f600 (char-code (char value 0)))))
+  (signals ethereum-lisp.validation:data-decoding-error
+    (parse-json "\"\\uD83D\""))
+  (signals ethereum-lisp.validation:data-decoding-error
+    (parse-json "\"\\uDE00\"")))
+
 (deftest genesis-alloc-from-json-parses-account-fields
   (let* ((json (concatenate
                 'string

@@ -637,7 +637,7 @@
             journal
             :txpool
             (hash32-bytes (transaction-hash transaction))
-            (ethereum-lisp.chain-store.persistence::chain-store-txpool-transaction-record-rlp
+            (ethereum-lisp.node-store.persistence::chain-store-txpool-transaction-record-rlp
              :pending
              transaction))
            (signals block-validation-error

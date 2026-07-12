@@ -117,13 +117,13 @@
                      (list (cons "jsonrpc" "2.0")
                            (cons "id" 707)
                            (cons "method" "eth_pendingTransactions")
-                           (cons "params" '()))))
+                           (cons "params" #()))))
                   (new-pending-filter-body
                     (json-encode
                      (list (cons "jsonrpc" "2.0")
                            (cons "id" 717)
                            (cons "method" "eth_newPendingTransactionFilter")
-                           (cons "params" '()))))
+                           (cons "params" #()))))
                   (pending-block-count-body
                     (json-encode
                      (list (cons "jsonrpc" "2.0")
@@ -162,7 +162,7 @@
                      (list (cons "jsonrpc" "2.0")
                            (cons "id" 722)
                            (cons "method" "eth_feeHistory")
-                           (cons "params" (list "0x1" "latest" '())))))
+                           (cons "params" (list "0x1" "latest" #())))))
                   (pending-sender-nonce-body
                     (json-encode
                      (list (cons "jsonrpc" "2.0")
@@ -196,13 +196,13 @@
                      (list (cons "jsonrpc" "2.0")
                            (cons "id" 708)
                            (cons "method" "txpool_status")
-                           (cons "params" '()))))
+                           (cons "params" #()))))
                   (txpool-content-body
                     (json-encode
                      (list (cons "jsonrpc" "2.0")
                            (cons "id" 716)
                            (cons "method" "txpool_content")
-                           (cons "params" '()))))
+                           (cons "params" #()))))
                   (txpool-content-from-body
                     (json-encode
                      (list (cons "jsonrpc" "2.0")
@@ -214,7 +214,7 @@
                      (list (cons "jsonrpc" "2.0")
                            (cons "id" 710)
                            (cons "method" "txpool_inspect")
-                           (cons "params" '())))))
+                           (cons "params" #())))))
              (setf process
                    (uiop:launch-program
                     (list "sbcl"

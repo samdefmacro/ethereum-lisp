@@ -34,19 +34,19 @@
            (ethereum-lisp.chain-store:engine-payload-store-put-blob-sidecar
             source sidecar)
            (let ((database (make-file-key-value-database path)))
-             (chain-store-export-to-kv source database))
+             (node-store-export-to-kv source database))
            (let ((database (make-file-key-value-database path)))
              (multiple-value-bind (record present-p)
                  (kv-get-chain-record
                   database :blob-sidecar versioned-hash-id)
                (is present-p)
                (is (bytes= record
-                           (ethereum-lisp.chain-store.persistence::chain-store-blob-sidecar-record-rlp
+                           (ethereum-lisp.node-store.persistence::chain-store-blob-sidecar-record-rlp
                             (ethereum-lisp.chain-store:engine-payload-store-blob-and-proofs-v1
                              source versioned-hash))))))
            (let ((database (make-file-key-value-database path)))
              (is (eq restored
-                     (chain-store-import-from-kv restored database))))
+                     (node-store-import-from-kv restored database))))
            (let ((restored-blob
                    (ethereum-lisp.chain-store:engine-payload-store-blob-and-proofs-v2
                     restored
@@ -71,7 +71,7 @@
                            (ethereum-lisp.chain-store.model:engine-blob-and-proofs-cell-proofs
                             restored-blob))))))
            (let ((database (make-file-key-value-database path)))
-             (chain-store-export-to-kv
+             (node-store-export-to-kv
               (make-engine-payload-memory-store)
               database))
            (let ((database (make-file-key-value-database path)))
@@ -141,7 +141,7 @@
                (ethereum-lisp.chain-store.model:engine-blob-and-proofs-cell-proofs lookup))
               0))))))
 
-(deftest chain-store-import-from-kv-rejects-corrupt-blob-sidecar-record
+(deftest node-store-import-from-kv-rejects-corrupt-blob-sidecar-record
   (let* ((path
            (merge-pathnames
             (make-pathname
@@ -186,7 +186,7 @@
            (ethereum-lisp.chain-store:engine-payload-store-put-blob-sidecar
             source source-sidecar)
            (let ((database (make-file-key-value-database path)))
-             (chain-store-export-to-kv source database)
+             (node-store-export-to-kv source database)
              (kv-put-chain-record
               database
               :blob-sidecar
@@ -197,7 +197,7 @@
                 source-proof
                 (make-rlp-list)))))
            (signals block-validation-error
-             (chain-store-import-from-kv
+             (node-store-import-from-kv
               target
               (make-file-key-value-database path)))
            (is (ethereum-lisp.chain-store:engine-payload-store-blob-and-proofs-v1
@@ -210,7 +210,7 @@
       (when (probe-file path)
         (delete-file path)))))
 
-(deftest chain-store-import-from-kv-rejects-blob-sidecar-key-mismatch
+(deftest node-store-import-from-kv-rejects-blob-sidecar-key-mismatch
   (let* ((database (make-memory-key-value-database))
          (target (make-engine-payload-memory-store))
          (target-blob (make-byte-vector +blob-byte-size+))
@@ -250,11 +250,11 @@
        database
        :blob-sidecar
        (hash32-bytes target-versioned-hash)
-       (ethereum-lisp.chain-store.persistence::chain-store-blob-sidecar-record-rlp
+       (ethereum-lisp.node-store.persistence::chain-store-blob-sidecar-record-rlp
         (ethereum-lisp.chain-store:engine-payload-store-blob-and-proofs-v1
          source-cache source-versioned-hash))))
     (signals block-validation-error
-      (chain-store-import-from-kv target database))
+      (node-store-import-from-kv target database))
     (let ((target-cache
             (ethereum-lisp.chain-store:engine-payload-store-blob-and-proofs-v1
              target target-versioned-hash)))

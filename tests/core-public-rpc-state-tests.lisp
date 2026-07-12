@@ -33,7 +33,7 @@
       (is (null status)))))
 
 (defparameter *ethereum-lisp-core-public-rpc-state-tests-root*
-  (merge-pathnames "../" (or *load-truename* *default-pathname-defaults*)))
+  *repository-root*)
 
 (defun load-core-public-rpc-state-test-file (relative-path)
   (load (merge-pathnames

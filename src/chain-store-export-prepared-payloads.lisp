@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.chain-store.persistence)
+(in-package #:ethereum-lisp.node-store.persistence)
 
 (defun chain-store-byte-list-rlp-object (values)
   (apply #'make-rlp-list (mapcar #'maybe-copy-bytes values)))
@@ -40,7 +40,7 @@
 (defun chain-store-populate-prepared-payload-export-batch
     (store database batch)
   (setf store (chain-store-require-memory-store store))
-  (let ((current-payload-id-keys (make-hash-table :test 'equal)))
+  (let ((current-payload-id-keys (make-hash-table :test 'equalp)))
     (maphash
      (lambda (payload-id-key prepared-payload)
        (when (chain-store-prepared-payload-exportable-p

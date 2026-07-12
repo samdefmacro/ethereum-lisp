@@ -6,6 +6,11 @@
   (:export
    #:parse-json
    #:json-encode
+   #:json-null
+   #:json-null-p
+   #:+json-null+
+   #:json-false-p
+   #:+json-false+
    #:json-object-p
    #:json-empty-array-p
    #:json-array-p

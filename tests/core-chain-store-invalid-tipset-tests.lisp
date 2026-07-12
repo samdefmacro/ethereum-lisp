@@ -55,7 +55,7 @@
             source invalid-child
             :head-hash (block-hash propagated-head))
            (let ((database (make-file-key-value-database path)))
-             (chain-store-export-to-kv source database))
+             (node-store-export-to-kv source database))
            (let ((database (make-file-key-value-database path)))
              (multiple-value-bind (record present-p)
                  (kv-get-chain-record database :invalid-tipset invalid-id)
@@ -68,7 +68,7 @@
                (is (not present-p))))
            (let ((database (make-file-key-value-database path)))
              (is (eq restored
-                     (chain-store-import-from-kv restored database))))
+                     (node-store-import-from-kv restored database))))
            (let ((direct
                    (ethereum-lisp.chain-store:engine-payload-store-invalid-block
                     restored
@@ -101,7 +101,7 @@
                (is (bytes= (block-rlp invalid-child)
                            (block-rlp propagated)))))
            (let ((database (make-file-key-value-database path)))
-             (chain-store-export-to-kv
+             (node-store-export-to-kv
               (make-engine-payload-memory-store)
               database))
            (let ((database (make-file-key-value-database path)))
@@ -113,7 +113,7 @@
       (when (probe-file path)
         (delete-file path)))))
 
-(deftest chain-store-export-to-kv-prunes-known-invalid-tipset-record
+(deftest node-store-export-to-kv-prunes-known-invalid-tipset-record
   (let* ((path
            (merge-pathnames
             (make-pathname
@@ -146,7 +146,7 @@
               :invalid-tipset
               block-id
               (block-rlp block))
-             (chain-store-export-to-kv store database))
+             (node-store-export-to-kv store database))
            (let ((database (make-file-key-value-database path)))
              (multiple-value-bind (record present-p)
                  (kv-get-chain-record
@@ -160,7 +160,7 @@
       (when (probe-file path)
         (delete-file path)))))
 
-(deftest chain-store-import-from-kv-rejects-known-invalid-tipset-record
+(deftest node-store-import-from-kv-rejects-known-invalid-tipset-record
   (let* ((path
            (merge-pathnames
             (make-pathname
@@ -200,14 +200,14 @@
            (chain-store-put-block source known-block)
            (chain-store-put-block target target-block)
            (let ((database (make-file-key-value-database path)))
-             (chain-store-export-to-kv source database)
+             (node-store-export-to-kv source database)
              (kv-put-chain-record
               database
               :invalid-tipset
               known-id
               (block-rlp known-block)))
            (signals block-validation-error
-             (chain-store-import-from-kv
+             (node-store-import-from-kv
               target
               (make-file-key-value-database path)))
            (is (chain-store-known-block target (block-hash target-block)))
@@ -219,7 +219,7 @@
       (when (probe-file path)
         (delete-file path)))))
 
-(deftest chain-store-import-from-kv-rejects-invalid-tipset-key-mismatch
+(deftest node-store-import-from-kv-rejects-invalid-tipset-key-mismatch
   (let* ((path
            (merge-pathnames
             (make-pathname
@@ -271,14 +271,14 @@
            (ethereum-lisp.chain-store:engine-payload-store-mark-invalid
             source invalid-block)
            (let ((database (make-file-key-value-database path)))
-             (chain-store-export-to-kv source database)
+             (node-store-export-to-kv source database)
              (kv-put-chain-record
               database
               :invalid-tipset
               (hash32-bytes (block-hash invalid-block))
               (block-rlp replacement)))
            (signals block-validation-error
-             (chain-store-import-from-kv
+             (node-store-import-from-kv
               target
               (make-file-key-value-database path)))
            (is (ethereum-lisp.chain-store:engine-payload-store-invalid-block
@@ -295,7 +295,7 @@
       (when (probe-file path)
         (delete-file path)))))
 
-(deftest chain-store-import-from-kv-rejects-corrupt-invalid-tipset-record
+(deftest node-store-import-from-kv-rejects-corrupt-invalid-tipset-record
   (let* ((path
            (merge-pathnames
             (make-pathname
@@ -336,14 +336,14 @@
            (ethereum-lisp.chain-store:engine-payload-store-mark-invalid
             source invalid-block)
            (let ((database (make-file-key-value-database path)))
-             (chain-store-export-to-kv source database)
+             (node-store-export-to-kv source database)
              (kv-put-chain-record
               database
               :invalid-tipset
               (hash32-bytes (block-hash invalid-block))
               #(1 2 3)))
            (signals block-validation-error
-             (chain-store-import-from-kv
+             (node-store-import-from-kv
               target
               (make-file-key-value-database path)))
            (is (ethereum-lisp.chain-store:engine-payload-store-invalid-block

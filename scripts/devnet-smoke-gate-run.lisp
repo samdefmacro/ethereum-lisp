@@ -360,7 +360,7 @@
                              (cons "method" "engine_exchangeCapabilities")
                              (cons "params"
                                    (list
-                                    (list
+                                    (vector
                                      "engine_newPayloadV1"
                                      "engine_forkchoiceUpdatedV1"
                                      "engine_getPayloadV1"
@@ -407,7 +407,7 @@
                        (list (cons "jsonrpc" "2.0")
                              (cons "id" 71)
                              (cons "method" "eth_chainId")
-                             (cons "params" '())))
+                             (cons "params" #())))
                       engine-public-namespace-output)
                      (cons
                       (json-encode
@@ -428,7 +428,7 @@
                         (cons "method" "engine_getPayloadBodiesByHashV1")
                         (cons "params"
                               (list
-                               (list
+                               (vector
                                 (hash32-to-hex (block-hash child-block)))))))
                       payload-bodies-by-hash-output)
                      (cons
@@ -531,7 +531,7 @@
                          (list (cons "jsonrpc" "2.0")
                                (cons "id" 31)
                                (cons "method" "eth_blockNumber")
-                               (cons "params" '())))
+                               (cons "params" #())))
                         block-number-output)
                        (cons
                         (json-encode
@@ -542,98 +542,98 @@
                          (list (cons "jsonrpc" "2.0")
                                (cons "id" 33)
                                (cons "method" "eth_blockNumber")
-                               (cons "params" '())))
+                               (cons "params" #())))
                         prepared-public-output)
                        (cons
                        (json-encode
                         (list (cons "jsonrpc" "2.0")
                                (cons "id" 34)
                                (cons "method" "eth_blockNumber")
-                               (cons "params" '())))
+                               (cons "params" #())))
                         remote-public-output)
                        (cons
                         (json-encode
                          (list (cons "jsonrpc" "2.0")
                                (cons "id" 35)
                                (cons "method" "eth_blockNumber")
-                               (cons "params" '())))
+                               (cons "params" #())))
                         invalid-public-output)
                        (cons
                         (json-encode
                          (list (cons "jsonrpc" "2.0")
                                (cons "id" 46)
                                (cons "method" "web3_clientVersion")
-                               (cons "params" '())))
+                               (cons "params" #())))
                         public-client-version-output)
                        (cons
                         (json-encode
                          (list (cons "jsonrpc" "2.0")
                                (cons "id" 47)
                                (cons "method" "net_version")
-                               (cons "params" '())))
+                               (cons "params" #())))
                         public-net-version-output)
                        (cons
                         (json-encode
                          (list (cons "jsonrpc" "2.0")
                                (cons "id" 48)
                                (cons "method" "net_listening")
-                               (cons "params" '())))
+                               (cons "params" #())))
                         public-net-listening-output)
                        (cons
                         (json-encode
                          (list (cons "jsonrpc" "2.0")
                                (cons "id" 49)
                                (cons "method" "eth_syncing")
-                               (cons "params" '())))
+                               (cons "params" #())))
                         public-syncing-output)
                        (cons
                         (json-encode
                          (list (cons "jsonrpc" "2.0")
                                (cons "id" 53)
                                (cons "method" "net_peerCount")
-                               (cons "params" '())))
+                               (cons "params" #())))
                         public-net-peer-count-output)
                        (cons
                         (json-encode
                          (list (cons "jsonrpc" "2.0")
                                (cons "id" 54)
                                (cons "method" "eth_accounts")
-                               (cons "params" '())))
+                               (cons "params" #())))
                         public-accounts-output)
                        (cons
                         (json-encode
                          (list (cons "jsonrpc" "2.0")
                                (cons "id" 55)
                                (cons "method" "eth_coinbase")
-                               (cons "params" '())))
+                               (cons "params" #())))
                         public-coinbase-output)
                        (cons
                         (json-encode
                          (list (cons "jsonrpc" "2.0")
                                (cons "id" 56)
                                (cons "method" "eth_mining")
-                               (cons "params" '())))
+                               (cons "params" #())))
                         public-mining-output)
                        (cons
                         (json-encode
                          (list (cons "jsonrpc" "2.0")
                                (cons "id" 57)
                                (cons "method" "eth_hashrate")
-                               (cons "params" '())))
+                               (cons "params" #())))
                         public-hashrate-output)
                        (cons
                         (json-encode
                          (list (cons "jsonrpc" "2.0")
                                (cons "id" 58)
                                (cons "method" "rpc_modules")
-                               (cons "params" '())))
+                               (cons "params" #())))
                         public-rpc-modules-output)
                        (cons
                         (json-encode
                          (list (cons "jsonrpc" "2.0")
                                (cons "id" 59)
                                (cons "method" "eth_protocolVersion")
-                               (cons "params" '())))
+                               (cons "params" #())))
                         public-protocol-version-output)
                        (cons
                         (json-encode
@@ -647,35 +647,35 @@
                          (list (cons "jsonrpc" "2.0")
                                (cons "id" 61)
                                (cons "method" "eth_gasPrice")
-                               (cons "params" '())))
+                               (cons "params" #())))
                         public-gas-price-output)
                        (cons
                         (json-encode
                          (list (cons "jsonrpc" "2.0")
                                (cons "id" 62)
                                (cons "method" "eth_maxPriorityFeePerGas")
-                               (cons "params" '())))
+                               (cons "params" #())))
                         public-priority-fee-output)
                        (cons
                         (json-encode
                          (list (cons "jsonrpc" "2.0")
                                (cons "id" 63)
                                (cons "method" "eth_baseFee")
-                               (cons "params" '())))
+                               (cons "params" #())))
                         public-base-fee-output)
                        (cons
                         (json-encode
                          (list (cons "jsonrpc" "2.0")
                                (cons "id" 64)
                                (cons "method" "eth_blobBaseFee")
-                               (cons "params" '())))
+                               (cons "params" #())))
                         public-blob-base-fee-output)
                        (cons
                         (json-encode
                          (list (cons "jsonrpc" "2.0")
                                (cons "id" 65)
                                (cons "method" "eth_feeHistory")
-                               (cons "params" (list "0x1" "latest" '()))))
+                               (cons "params" (list "0x1" "latest" #()))))
                         public-fee-history-output)
                        (cons
                         (json-encode
@@ -683,22 +683,22 @@
                           (list (cons "jsonrpc" "2.0")
                                 (cons "id" 50)
                                 (cons "method" "eth_chainId")
-                                (cons "params" '()))
+                                (cons "params" #()))
                           (list (cons "jsonrpc" "2.0")
                                 (cons "id" 51)
                                 (cons "method" "net_version")
-                                (cons "params" '()))
+                                (cons "params" #()))
                           (list (cons "jsonrpc" "2.0")
                                 (cons "id" 52)
                                 (cons "method" "web3_clientVersion")
-                                (cons "params" '()))))
+                                (cons "params" #()))))
                         public-batch-output)
                        (cons
                         (json-encode
                          (list (cons "jsonrpc" "2.0")
                                (cons "id" 45)
                                (cons "method" "engine_exchangeCapabilities")
-                               (cons "params" (list '()))))
+                               (cons "params" (list #()))))
                         public-engine-namespace-output)
                        (cons "{" public-malformed-json-output)
                        (cons
@@ -707,7 +707,7 @@
                                (cons "id" 66)
                                (cons "method"
                                      "eth_newPendingTransactionFilter")
-                               (cons "params" '())))
+                               (cons "params" #())))
                         new-pending-filter-output)
                        (cons
                         (json-encode
@@ -738,7 +738,7 @@
                          (list (cons "jsonrpc" "2.0")
                                (cons "id" 77)
                                (cons "method" "eth_blockNumber")
-                               (cons "params" '())))
+                               (cons "params" #())))
                         txpool-rejournal-output)
                        (cons
                        (json-encode
@@ -832,7 +832,7 @@
                          (list (cons "jsonrpc" "2.0")
                                (cons "id" 42)
                                (cons "method" "txpool_status")
-                               (cons "params" '())))
+                               (cons "params" #())))
                         txpool-status-output)
                        (cons
                         (json-encode
@@ -847,7 +847,7 @@
                          (list (cons "jsonrpc" "2.0")
                                (cons "id" 44)
                                (cons "method" "txpool_inspect")
-                               (cons "params" '())))
+                               (cons "params" #())))
                         txpool-inspect-output))))
                   (engine-served-count 0)
                   (unauthenticated-engine-served-p nil)
@@ -905,7 +905,8 @@
                                  (cons "id" 20)
                                  (cons "method"
                                        "engine_getClientVersionV1")
-                                 (cons "params" (list '()))))))
+                                 (cons "params"
+                                       (list ethereum-lisp.json:+json-empty-object+))))))
                              :output-stream unauthenticated-engine-output
                              :close-function
                              (lambda ()
@@ -922,7 +923,8 @@
                                  (cons "id" 26)
                                  (cons "method"
                                        "engine_getClientVersionV1")
-                                 (cons "params" (list '()))))
+                                 (cons "params"
+                                       (list ethereum-lisp.json:+json-empty-object+))))
                                :token invalid-token))
                              :output-stream invalid-auth-engine-output
                              :close-function
@@ -940,7 +942,8 @@
                                  (cons "id" 45)
                                  (cons "method"
                                        "engine_getClientVersionV1")
-                                 (cons "params" (list '()))))
+                                 (cons "params"
+                                       (list ethereum-lisp.json:+json-empty-object+))))
                                token invalid-token))
                              :output-stream duplicate-auth-engine-output
                              :close-function
@@ -958,7 +961,8 @@
                                  (cons "id" 72)
                                  (cons "method"
                                        "engine_getClientVersionV1")
-                                 (cons "params" (list '()))))
+                                 (cons "params"
+                                       (list ethereum-lisp.json:+json-empty-object+))))
                                :token token
                                :target "/unexpected"))
                              :output-stream engine-root-wrong-path-output
@@ -1028,7 +1032,8 @@
                                       (fixture-object-field
                                        (fixture-object-field
                                         (devnet-smoke-gate-rpc-body
-                                         get-txpool-payload-response-cache)
+                                         get-txpool-payload-response-cache
+                                         :preserve-empty-arrays t)
                                         "result")
                                        "executionPayload")
                                       post-public-txpool-block-hash
@@ -1089,7 +1094,8 @@
                                       (fixture-object-field
                                        (fixture-object-field
                                         (devnet-smoke-gate-rpc-body
-                                         get-replacement-txpool-payload-response-cache)
+                                         get-replacement-txpool-payload-response-cache
+                                         :preserve-empty-arrays t)
                                         "result")
                                        "executionPayload")
                                       replacement-txpool-block-hash
@@ -1153,7 +1159,7 @@
                                  (cons "jsonrpc" "2.0")
                                  (cons "id" 73)
                                  (cons "method" "eth_chainId")
-                                 (cons "params" '())))
+                                 (cons "params" #())))
                                :target "/unexpected"))
                              :output-stream public-root-wrong-path-output
                              :close-function

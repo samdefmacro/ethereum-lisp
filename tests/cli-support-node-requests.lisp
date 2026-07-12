@@ -43,7 +43,7 @@
           (cons "prevRandao" (hash32-to-hex (zero-hash32)))
           (cons "suggestedFeeRecipient"
                 (address-to-hex suggested-fee-recipient))
-          (cons "withdrawals" '()))))
+          (cons "withdrawals" #()))))
 
 (defun devnet-cli-payload-attributes-v1
     (parent-block suggested-fee-recipient)

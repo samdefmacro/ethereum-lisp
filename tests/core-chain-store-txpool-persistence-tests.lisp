@@ -57,7 +57,7 @@
            (ethereum-lisp.txpool:engine-payload-store-put-blob-transaction
             source blob)
            (let ((database (make-file-key-value-database path)))
-             (chain-store-export-to-kv source database))
+             (node-store-export-to-kv source database))
            (let ((database (make-file-key-value-database path)))
              (multiple-value-bind (record present-p)
                  (kv-get-chain-record database :txpool pending-id)
@@ -68,7 +68,7 @@
                              (second fields))))))
            (let ((database (make-file-key-value-database path)))
              (is (eq restored
-                     (chain-store-import-from-kv restored database))))
+                     (node-store-import-from-kv restored database))))
            (is (= 1
                   (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
                    restored)))
@@ -111,7 +111,7 @@
                      restored
                      pending-sender))))
            (let ((database (make-file-key-value-database path)))
-             (chain-store-export-to-kv
+             (node-store-export-to-kv
               (make-engine-payload-memory-store)
               database))
            (let ((database (make-file-key-value-database path)))
@@ -122,7 +122,7 @@
       (when (probe-file path)
         (delete-file path)))))
 
-(deftest chain-store-import-from-kv-revalidates-restored-txpool
+(deftest node-store-import-from-kv-revalidates-restored-txpool
   (let* ((path
            (merge-pathnames
             (make-pathname
@@ -194,38 +194,38 @@
            (chain-store-put-account-balance
             source (block-hash head-block) sender 10000000)
            (let ((database (make-file-key-value-database path)))
-             (chain-store-export-to-kv source database)
+             (node-store-export-to-kv source database)
              (kv-put-chain-record
               database
               :txpool
               (hash32-bytes (transaction-hash stale-pending))
-              (ethereum-lisp.chain-store.persistence::chain-store-txpool-transaction-record-rlp
+              (ethereum-lisp.node-store.persistence::chain-store-txpool-transaction-record-rlp
                :pending
                stale-pending))
              (kv-put-chain-record
               database
               :txpool
               (hash32-bytes (transaction-hash basefee-ready))
-              (ethereum-lisp.chain-store.persistence::chain-store-txpool-transaction-record-rlp
+              (ethereum-lisp.node-store.persistence::chain-store-txpool-transaction-record-rlp
                :basefee
                basefee-ready))
              (kv-put-chain-record
               database
               :txpool
               (hash32-bytes (transaction-hash queued-ready))
-              (ethereum-lisp.chain-store.persistence::chain-store-txpool-transaction-record-rlp
+              (ethereum-lisp.node-store.persistence::chain-store-txpool-transaction-record-rlp
                :queued
                queued-ready))
              (kv-put-chain-record
               database
               :txpool
               (hash32-bytes (transaction-hash queued-over-gas))
-              (ethereum-lisp.chain-store.persistence::chain-store-txpool-transaction-record-rlp
+              (ethereum-lisp.node-store.persistence::chain-store-txpool-transaction-record-rlp
                :queued
                queued-over-gas)))
            (let ((database (make-file-key-value-database path)))
              (is (eq restored
-                     (chain-store-import-from-kv restored database))))
+                     (node-store-import-from-kv restored database))))
            (is (= 2
                   (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
                    restored)))
@@ -263,7 +263,7 @@
       (when (probe-file path)
         (delete-file path)))))
 
-(deftest chain-store-import-from-kv-prunes-overbudget-parked-txpool
+(deftest node-store-import-from-kv-prunes-overbudget-parked-txpool
   (let* ((path
            (merge-pathnames
             (make-pathname
@@ -317,24 +317,24 @@
            (chain-store-put-account-balance
             source (block-hash head-block) sender 100000)
            (let ((database (make-file-key-value-database path)))
-             (chain-store-export-to-kv source database)
+             (node-store-export-to-kv source database)
              (kv-put-chain-record
               database
               :txpool
               (hash32-bytes (transaction-hash basefee-parked))
-              (ethereum-lisp.chain-store.persistence::chain-store-txpool-transaction-record-rlp
+              (ethereum-lisp.node-store.persistence::chain-store-txpool-transaction-record-rlp
                :basefee
                basefee-parked))
              (kv-put-chain-record
               database
               :txpool
               (hash32-bytes (transaction-hash queued-overbudget))
-              (ethereum-lisp.chain-store.persistence::chain-store-txpool-transaction-record-rlp
+              (ethereum-lisp.node-store.persistence::chain-store-txpool-transaction-record-rlp
                :queued
                queued-overbudget)))
            (let ((database (make-file-key-value-database path)))
              (is (eq restored
-                     (chain-store-import-from-kv restored database))))
+                     (node-store-import-from-kv restored database))))
            (is (= 0
                   (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
                    restored)))
@@ -356,7 +356,7 @@
       (when (probe-file path)
         (delete-file path)))))
 
-(deftest chain-store-import-from-kv-prunes-sender-code-invalid-txpool
+(deftest node-store-import-from-kv-prunes-sender-code-invalid-txpool
   (let* ((path
            (merge-pathnames
             (make-pathname
@@ -426,31 +426,31 @@
            (chain-store-put-account-code
             source (block-hash head-block) sender sender-code)
            (let ((database (make-file-key-value-database path)))
-             (chain-store-export-to-kv source database)
+             (node-store-export-to-kv source database)
              (kv-put-chain-record
               database
               :txpool
               (hash32-bytes (transaction-hash pending-transaction))
-              (ethereum-lisp.chain-store.persistence::chain-store-txpool-transaction-record-rlp
+              (ethereum-lisp.node-store.persistence::chain-store-txpool-transaction-record-rlp
                :pending
                pending-transaction))
              (kv-put-chain-record
               database
               :txpool
               (hash32-bytes (transaction-hash queued-transaction))
-              (ethereum-lisp.chain-store.persistence::chain-store-txpool-transaction-record-rlp
+              (ethereum-lisp.node-store.persistence::chain-store-txpool-transaction-record-rlp
                :queued
                queued-transaction))
              (kv-put-chain-record
               database
               :txpool
               (hash32-bytes (transaction-hash basefee-transaction))
-              (ethereum-lisp.chain-store.persistence::chain-store-txpool-transaction-record-rlp
+              (ethereum-lisp.node-store.persistence::chain-store-txpool-transaction-record-rlp
                :basefee
                basefee-transaction)))
            (let ((database (make-file-key-value-database path)))
              (is (eq restored
-                     (chain-store-import-from-kv restored database))))
+                     (node-store-import-from-kv restored database))))
            (is (= 0
                   (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
                    restored)))
@@ -470,7 +470,7 @@
       (when (probe-file path)
         (delete-file path)))))
 
-(deftest chain-store-import-from-kv-rejects-wrong-chain-txpool-record
+(deftest node-store-import-from-kv-rejects-wrong-chain-txpool-record
   (let* ((path
            (merge-pathnames
             (make-pathname
@@ -512,11 +512,11 @@
               database
               :txpool
               (hash32-bytes (transaction-hash wrong-chain-transaction))
-              (ethereum-lisp.chain-store.persistence::chain-store-txpool-transaction-record-rlp
+              (ethereum-lisp.node-store.persistence::chain-store-txpool-transaction-record-rlp
                :pending
                wrong-chain-transaction)))
            (signals block-validation-error
-             (chain-store-import-from-kv
+             (node-store-import-from-kv
               target
               (make-file-key-value-database path)
               :expected-chain-id 1))
@@ -530,7 +530,7 @@
       (when (probe-file path)
         (delete-file path)))))
 
-(deftest chain-store-import-from-kv-enforces-txpool-fork-rules
+(deftest node-store-import-from-kv-enforces-txpool-fork-rules
   (let* ((path
            (merge-pathnames
             (make-pathname
@@ -559,17 +559,17 @@
               database
               :txpool
               (hash32-bytes (transaction-hash transaction))
-              (ethereum-lisp.chain-store.persistence::chain-store-txpool-transaction-record-rlp
+              (ethereum-lisp.node-store.persistence::chain-store-txpool-transaction-record-rlp
                :blob
                transaction)))
            (signals block-validation-error
-             (chain-store-import-from-kv
+             (node-store-import-from-kv
               (make-engine-payload-memory-store)
               (make-file-key-value-database path)
               :expected-chain-id 1337
               :chain-config pre-cancun-config))
            (let ((restored (make-engine-payload-memory-store)))
-             (chain-store-import-from-kv
+             (node-store-import-from-kv
               restored
               (make-file-key-value-database path)
               :expected-chain-id 1337
@@ -585,7 +585,7 @@
       (when (probe-file path)
         (delete-file path)))))
 
-(deftest chain-store-import-from-kv-enforces-txpool-blob-fee-cap
+(deftest node-store-import-from-kv-enforces-txpool-blob-fee-cap
   (let* ((path
            (merge-pathnames
             (make-pathname
@@ -618,16 +618,16 @@
            (is (transaction-sender transaction :expected-chain-id 1337))
            (chain-store-put-block source head-block :state-available-p t)
            (let ((database (make-file-key-value-database path)))
-             (chain-store-export-to-kv source database)
+             (node-store-export-to-kv source database)
              (kv-put-chain-record
               database
               :txpool
               (hash32-bytes (transaction-hash transaction))
-              (ethereum-lisp.chain-store.persistence::chain-store-txpool-transaction-record-rlp
+              (ethereum-lisp.node-store.persistence::chain-store-txpool-transaction-record-rlp
                :blob
                transaction)))
            (signals block-validation-error
-             (chain-store-import-from-kv
+             (node-store-import-from-kv
               (make-engine-payload-memory-store)
               (make-file-key-value-database path)
               :expected-chain-id 1337
@@ -635,7 +635,7 @@
       (when (probe-file path)
         (delete-file path)))))
 
-(deftest chain-store-import-from-kv-enforces-txpool-static-fields
+(deftest node-store-import-from-kv-enforces-txpool-static-fields
   (let* ((path
            (merge-pathnames
             (make-pathname
@@ -664,11 +664,11 @@
               database
               :txpool
               (hash32-bytes (transaction-hash malformed))
-              (ethereum-lisp.chain-store.persistence::chain-store-txpool-transaction-record-rlp
+              (ethereum-lisp.node-store.persistence::chain-store-txpool-transaction-record-rlp
                :blob
                malformed)))
            (signals block-validation-error
-             (chain-store-import-from-kv
+             (node-store-import-from-kv
               (make-engine-payload-memory-store)
               (make-file-key-value-database path)
               :expected-chain-id 1337
@@ -676,7 +676,7 @@
       (when (probe-file path)
         (delete-file path)))))
 
-(deftest chain-store-import-from-kv-enforces-set-code-authorization-signatures
+(deftest node-store-import-from-kv-enforces-set-code-authorization-signatures
   (labels ((first-authorization (transaction)
              (first (set-code-transaction-authorization-list transaction))))
     (let* ((path
@@ -706,11 +706,11 @@
                 database
                 :txpool
                 (hash32-bytes (transaction-hash malformed))
-                (ethereum-lisp.chain-store.persistence::chain-store-txpool-transaction-record-rlp
+                (ethereum-lisp.node-store.persistence::chain-store-txpool-transaction-record-rlp
                  :pending
                  malformed)))
              (signals block-validation-error
-               (chain-store-import-from-kv
+               (node-store-import-from-kv
                 (make-engine-payload-memory-store)
                 (make-file-key-value-database path)
                 :expected-chain-id 1337
@@ -718,7 +718,7 @@
         (when (probe-file path)
           (delete-file path))))))
 
-(deftest chain-store-import-from-kv-rejects-corrupt-txpool-record
+(deftest node-store-import-from-kv-rejects-corrupt-txpool-record
   (let* ((path
            (merge-pathnames
             (make-pathname
@@ -764,16 +764,16 @@
            (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
             source transaction)
            (let ((database (make-file-key-value-database path)))
-             (chain-store-export-to-kv source database)
+             (node-store-export-to-kv source database)
              (kv-put-chain-record
               database
               :txpool
               (hash32-bytes (transaction-hash transaction))
-              (ethereum-lisp.chain-store.persistence::chain-store-txpool-transaction-record-rlp
+              (ethereum-lisp.node-store.persistence::chain-store-txpool-transaction-record-rlp
                :pending
                replacement)))
            (signals block-validation-error
-             (chain-store-import-from-kv
+             (node-store-import-from-kv
               target
               (make-file-key-value-database path)))
            (is (= 1
@@ -786,7 +786,7 @@
       (when (probe-file path)
         (delete-file path)))))
 
-(deftest chain-store-import-from-kv-rejects-txpool-subpool-type-mismatch
+(deftest node-store-import-from-kv-rejects-txpool-subpool-type-mismatch
   (labels ((with-database-record (subpool transaction thunk)
              (let ((path
                      (merge-pathnames
@@ -803,7 +803,7 @@
                          database
                          :txpool
                          (hash32-bytes (transaction-hash transaction))
-                         (ethereum-lisp.chain-store.persistence::chain-store-txpool-transaction-record-rlp
+                         (ethereum-lisp.node-store.persistence::chain-store-txpool-transaction-record-rlp
                           subpool
                           transaction)))
                       (funcall thunk path))
@@ -833,7 +833,7 @@
        (lambda (path)
          (let ((target (make-engine-payload-memory-store)))
            (signals block-validation-error
-             (chain-store-import-from-kv
+             (node-store-import-from-kv
               target
               (make-file-key-value-database path)))
            (is (= 0
@@ -845,7 +845,7 @@
        (lambda (path)
          (let ((target (make-engine-payload-memory-store)))
            (signals block-validation-error
-             (chain-store-import-from-kv
+             (node-store-import-from-kv
               target
               (make-file-key-value-database path)
               :expected-chain-id 1337
@@ -854,7 +854,7 @@
                   (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
                    target)))))))))
 
-(deftest chain-store-import-from-kv-rejects-conflicting-txpool-records
+(deftest node-store-import-from-kv-rejects-conflicting-txpool-records
   (let* ((path
            (merge-pathnames
             (make-pathname
@@ -909,18 +909,18 @@
               database
               :txpool
               (hash32-bytes (transaction-hash pending))
-              (ethereum-lisp.chain-store.persistence::chain-store-txpool-transaction-record-rlp
+              (ethereum-lisp.node-store.persistence::chain-store-txpool-transaction-record-rlp
                :pending
                pending))
              (kv-put-chain-record
               database
               :txpool
               (hash32-bytes (transaction-hash queued-conflict))
-              (ethereum-lisp.chain-store.persistence::chain-store-txpool-transaction-record-rlp
+              (ethereum-lisp.node-store.persistence::chain-store-txpool-transaction-record-rlp
                :queued
                queued-conflict)))
            (signals block-validation-error
-             (chain-store-import-from-kv
+             (node-store-import-from-kv
               target
               (make-file-key-value-database path)))
            (is (= 1

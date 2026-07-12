@@ -1,7 +1,7 @@
 (in-package #:ethereum-lisp.test)
 
 (defparameter *ethereum-lisp-trie-tests-root*
-  (merge-pathnames "../" (or *load-truename* *default-pathname-defaults*)))
+  *repository-root*)
 
 (defun load-trie-test-file (relative-path)
   (load (merge-pathnames relative-path *ethereum-lisp-trie-tests-root*)))

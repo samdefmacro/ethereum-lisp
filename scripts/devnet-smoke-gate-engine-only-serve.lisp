@@ -110,7 +110,7 @@
                       (cons "method" "engine_exchangeCapabilities")
                       (cons "params"
                             (list
-                             (list
+                             (vector
                               "engine_newPayloadV1"
                               "engine_forkchoiceUpdatedV1"
                               "engine_getPayloadV1"
@@ -126,7 +126,7 @@
                       (cons
                        "params"
                        (list
-                        (list
+                        (vector
                          "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))))))
                   (hidden-blobs-v2-body
                     (json-encode
@@ -137,7 +137,7 @@
                       (cons
                        "params"
                        (list
-                        (list
+                        (vector
                          "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))))))
                   (hidden-payload-bodies-v2-body
                     (json-encode
@@ -155,7 +155,7 @@
                       (cons
                        "params"
                        (list
-                        (list
+                        (vector
                          "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))))))
                   (transition-configuration-body
                     (json-encode

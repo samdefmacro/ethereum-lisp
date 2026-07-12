@@ -1,7 +1,7 @@
 (in-package #:ethereum-lisp.test)
 
 (defparameter *ethereum-lisp-core-public-rpc-block-tests-root*
-  (merge-pathnames "../" (or *load-truename* *default-pathname-defaults*)))
+  *repository-root*)
 
 (defun load-core-public-rpc-block-test-file (relative-path)
   (load (merge-pathnames

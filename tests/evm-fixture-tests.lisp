@@ -116,10 +116,10 @@
   value)
 
 (defun validate-evm-state-fixture-storage-shape (storage label)
-  (unless (listp storage)
+  (unless (fixture-json-object-p storage)
     (error "~A storage must be a JSON object" label))
   (let ((seen-slots (make-hash-table :test 'equal)))
-    (dolist (entry storage)
+    (dolist (entry (ethereum-lisp.json:json-object-entries storage label))
       (unless (consp entry)
         (error "~A storage entries must be JSON object fields" label))
       (let* ((slot (car entry))
@@ -151,10 +151,10 @@
    label))
 
 (defun validate-evm-state-fixture-accounts-shape (accounts label)
-  (unless (listp accounts)
+  (unless (fixture-json-object-p accounts)
     (error "~A must be a JSON object" label))
   (let ((seen-addresses (make-hash-table :test 'equal)))
-    (dolist (entry accounts)
+    (dolist (entry (ethereum-lisp.json:json-object-entries accounts label))
       (unless (consp entry)
         (error "~A entries must be JSON object fields" label))
       (let* ((address (car entry))
@@ -217,10 +217,10 @@
           (error "EVM state fixture legacy transaction must not include accessList")))))
 
 (defun validate-evm-state-fixture-access-list-shape (access-list)
-  (unless (listp access-list)
+  (unless (ethereum-lisp.json:json-array-p access-list)
     (error "EVM state fixture accessList must be a JSON array"))
   (let ((seen-addresses (make-hash-table :test 'equal)))
-    (dolist (entry access-list)
+    (dolist (entry (ethereum-lisp.json:json-array-values access-list))
       (validate-fixture-object-fields
        entry
        +evm-state-fixture-access-list-entry-fields+
@@ -237,9 +237,9 @@
         (setf (gethash address-id seen-addresses) t))
       (let ((keys (fixture-required-field entry "storageKeys"))
             (seen-keys (make-hash-table :test 'equal)))
-        (unless (listp keys)
+        (unless (ethereum-lisp.json:json-array-p keys)
           (error "EVM state fixture access list storageKeys must be a JSON array"))
-        (dolist (key keys)
+        (dolist (key (ethereum-lisp.json:json-array-values keys))
           (let ((key-id
                   (hash32-to-hex
                    (evm-state-fixture-hash
@@ -382,7 +382,10 @@
       :nonce (evm-state-fixture-quantity account "nonce")
       :balance (evm-state-fixture-quantity account "balance")))
     (state-db-set-code state address (hex-to-bytes (fixture-object-field account "code")))
-    (dolist (entry (fixture-object-field account "storage"))
+    (dolist (entry
+             (ethereum-lisp.json:json-object-entries
+              (fixture-object-field account "storage")
+              "EVM state fixture account storage"))
       (state-db-set-storage
        state
        address
@@ -413,7 +416,10 @@
                 (fixture-required-field account "balance")
                 "EEST state test account balance")))
     (state-db-set-code state address (hex-to-bytes (fixture-object-field account "code")))
-    (dolist (entry (fixture-object-field account "storage"))
+    (dolist (entry
+             (ethereum-lisp.json:json-object-entries
+              (fixture-object-field account "storage")
+              "EEST state test account storage"))
       (state-db-set-storage
        state
        address
@@ -537,7 +543,8 @@
                   (unless (= 1 (length access-lists))
                     (error "EEST state transaction accessList index is required when multiple accessLists are present"))
                   (first access-lists)))))
-      (mapcar #'eest-state-test-access-list-entry entries))))
+      (mapcar #'eest-state-test-access-list-entry
+              (ethereum-lisp.json:json-array-values entries)))))
 
 (defun eest-state-test-dynamic-fee-transaction-p (transaction)
   (or (fixture-field-present-p transaction "maxFeePerGas")

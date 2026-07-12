@@ -128,7 +128,7 @@
               (list (cons "jsonrpc" "2.0")
                     (cons "id" 41)
                     (cons "method" "eth_blockNumber")
-                    (cons "params" '())))
+                    (cons "params" #())))
              block-number-output)
             (cons
              (json-encode
@@ -601,7 +601,7 @@
                 (list (cons "jsonrpc" "2.0")
                       (cons "id" 220)
                       (cons "method" "eth_newBlockFilter")
-                      (cons "params" '())))
+                      (cons "params" #())))
                block-filter-create-output)
               (cons
                (json-encode

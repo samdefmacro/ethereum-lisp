@@ -40,7 +40,7 @@
                    304 "txpool_status" '())
                   txpool-output)
             (cons (devnet-smoke-gate-json-rpc-request
-                   305 "engine_exchangeCapabilities" (list '()))
+                   305 "engine_exchangeCapabilities" (list #()))
                   engine-output))))
     (let ((summary
             (ethereum-lisp.cli:start-devnet-node-listeners
@@ -1021,4 +1021,3 @@
         (delete-file jwt-path))))
   #-sbcl
   (error "RPC prefix smoke verification requires SBCL threads"))
-

@@ -1,7 +1,7 @@
 (in-package #:ethereum-lisp.test)
 
 (defparameter *ethereum-lisp-core-public-rpc-txpool-promotion-tests-root*
-  (merge-pathnames "../" (or *load-truename* *default-pathname-defaults*)))
+  *repository-root*)
 
 (defun load-core-public-rpc-txpool-promotion-test-file (relative-path)
   (load (merge-pathnames

@@ -35,10 +35,12 @@
         (is (eq :false (field envelope "shouldOverrideBuilder")))
         (is (string= "0x0" (field payload "blobGasUsed")))
         (is (string= "0x0" (field payload "excessBlobGas")))
-        (is (listp (field bundle "commitments")))
-        (is (listp (field bundle "proofs")))
-        (is (listp (field bundle "blobs")))
-        (is (= 0 (length (field bundle "commitments")))))
+        (is (ethereum-lisp.json:json-empty-array-p
+             (field bundle "commitments")))
+        (is (ethereum-lisp.json:json-empty-array-p
+             (field bundle "proofs")))
+        (is (ethereum-lisp.json:json-empty-array-p
+             (field bundle "blobs"))))
       (let* ((response-json
                (engine-rpc-handle-request-json
                 "{\"jsonrpc\":\"2.0\",\"id\":38,\"method\":\"engine_getPayloadV3\",\"params\":[\"0x0300000000000001\"]}"
@@ -311,4 +313,3 @@
         (is (string= (bytes-to-hex (first proofs))
                      (first (field first-blob "proofs"))))
         (is (null (second result)))))))
-

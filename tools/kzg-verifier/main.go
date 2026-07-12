@@ -3,8 +3,8 @@ package main
 import (
 	"crypto/sha256"
 	_ "embed"
-	"encoding/json"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"

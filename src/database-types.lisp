@@ -3,7 +3,7 @@
 (defclass key-value-database () ())
 
 (defclass memory-key-value-database (key-value-database)
-  ((entries :initform (make-hash-table :test 'equal)
+  ((entries :initform (make-hash-table :test 'equalp)
             :accessor memory-key-value-database-entries)))
 
 (defclass file-key-value-database (memory-key-value-database)

@@ -44,7 +44,7 @@
              (list (cons "jsonrpc" "2.0")
                    (cons "id" id)
                    (cons "method" "eth_blockNumber")
-                   (cons "params" '())))
+                   (cons "params" #())))
            (transaction-count-request (id address)
              (list (cons "jsonrpc" "2.0")
                    (cons "id" id)

@@ -5,11 +5,14 @@
     (block-validation-fail
      "~A params must contain block id and full transaction flag" method))
   (let ((full-transactions-p (second params)))
-    (unless (or (null full-transactions-p)
-                (eq full-transactions-p t))
-      (block-validation-fail
-       "~A full transaction flag must be a boolean" method))
-    full-transactions-p))
+    (cond
+      ((eq full-transactions-p t) t)
+      ((or (null full-transactions-p)
+           (json-false-p full-transactions-p))
+       nil)
+      (t
+       (block-validation-fail
+        "~A full transaction flag must be a boolean" method)))))
 
 (defun eth-rpc-block-transactions-object
     (block full-transactions-p &key expected-chain-id)

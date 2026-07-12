@@ -365,12 +365,12 @@
        (fixture-object-field
         report
         "preparedPayloadBodiesByRangeV2InvalidRequestErrorMessage")))
-  (is (= -32602
+  (is (= -32600
          (fixture-object-field
           report
           "preparedPayloadBodiesByRangeV2NullParamsErrorCode")))
   (is (string=
-       "engine_getPayloadBodiesByRangeV2 params must include start and count"
+       "Invalid Request"
        (fixture-object-field
         report
         "preparedPayloadBodiesByRangeV2NullParamsErrorMessage")))
@@ -410,12 +410,12 @@
        (fixture-object-field
         report
         "preparedPayloadBodiesByRangeV2UnexpectedKeyObjectParamsErrorMessage")))
-  (is (= -32602
+  (is (= -32600
          (fixture-object-field
           report
           "preparedPayloadBodiesByRangeV2EmptyObjectParamsErrorCode")))
   (is (string=
-       "engine_getPayloadBodiesByRangeV2 params must include start and count"
+       "Invalid Request"
        (fixture-object-field
         report
         "preparedPayloadBodiesByRangeV2EmptyObjectParamsErrorMessage")))
@@ -492,4 +492,3 @@
   (is (= 26 (fixture-object-field report "engineConnections")))
   (is (= 0 (fixture-object-field report "publicConnections")))
   (is (= 26 (fixture-object-field report "totalConnections"))))
-

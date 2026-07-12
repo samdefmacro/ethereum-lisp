@@ -8,7 +8,7 @@
 
 (defun json-object-field (object name)
   (cond
-    ((null object) nil)
+    ((or (null object) (json-empty-object-p object)) nil)
     ((and (listp object) (every #'consp object))
      (cdr (find name object
                 :key #'car
@@ -22,7 +22,7 @@
 
 (defun json-object-field-present-p (object name)
   (cond
-    ((null object) nil)
+    ((or (null object) (json-empty-object-p object)) nil)
     ((and (listp object) (every #'consp object))
      (not (null (find name object
                       :key #'car
@@ -48,7 +48,7 @@
 
 (defun parse-json-quantity (value label &key required-p)
   (cond
-    ((null value)
+    ((or (null value) (json-null-p value))
      (when required-p
        (block-validation-fail "~A is missing" label))
      nil)
@@ -74,6 +74,8 @@
                        :required-p required-p))
 
 (defun json-object-entries (object label)
+  (when (json-empty-object-p object)
+    (return-from json-object-entries '()))
   (unless (and (listp object) (every #'consp object))
     (block-validation-fail "~A must be an object" label))
   object)

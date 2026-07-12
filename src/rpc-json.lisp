@@ -3,8 +3,8 @@
 (defun rpc-handle-request-string (request-json context)
   (let ((request
           (handler-case
-              (parse-json request-json :preserve-empty-arrays t)
-            (block-validation-error ()
+              (parse-json request-json :preserve-types t)
+            (data-decoding-error ()
               (return-from rpc-handle-request-string
                 (json-rpc-parse-error-response))))))
     (rpc-handle-request-value request context)))

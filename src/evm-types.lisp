@@ -118,9 +118,11 @@
 (defconstant +keccak256-word-gas+ 6)
 (defconstant +exp-byte-gas+ 10)
 (defconstant +exp-byte-gas-eip160+ 50)
-(defconstant +max-contract-code-size+ 24576)
+(defconstant +max-contract-code-size+
+  ethereum-lisp.chain-config:+max-contract-code-size+)
 (defconstant +max-initcode-size+ 49152)
-(defconstant +amsterdam-max-contract-code-size+ 32768)
+(defconstant +amsterdam-max-contract-code-size+
+  ethereum-lisp.chain-config:+amsterdam-max-contract-code-size+)
 (defconstant +amsterdam-max-initcode-size+
   (* 2 +amsterdam-max-contract-code-size+))
 (defconstant +call-stipend+ 2300)

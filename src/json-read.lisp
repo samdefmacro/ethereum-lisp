@@ -14,18 +14,18 @@
   (handler-case
       (multiple-value-bind (value end) (read-from-string text)
         (unless (and (= end (length text)) (realp value))
-          (block-validation-fail "Invalid JSON number"))
+          (data-decoding-fail "Invalid JSON number"))
         value)
     (error ()
-      (block-validation-fail "Invalid JSON number"))))
+      (data-decoding-fail "Invalid JSON number"))))
 
-(defun parse-json (string &key preserve-empty-arrays)
+(defun parse-json (string &key preserve-empty-arrays preserve-types)
   (check-type string string)
   (let ((position 0)
         (length (length string)))
     (labels
         ((fail (control &rest args)
-           (apply #'block-validation-fail
+           (apply #'data-decoding-fail
                   (concatenate 'string "Invalid JSON at byte ~D: " control)
                   position args))
          (peek ()
@@ -41,6 +41,36 @@
            (unless (and (peek) (char= (peek) char))
              (fail "expected ~S" char))
            (incf position))
+         (parse-unicode-code-unit ()
+           (let ((code 0))
+             (dotimes (index 4)
+               (declare (ignore index))
+               (let ((digit (and (peek)
+                                 (json-hex-value (consume)))))
+                 (unless digit
+                   (fail "invalid unicode escape"))
+                 (setf code (+ (* code 16) digit))))
+             code))
+         (parse-unicode-character ()
+           (let ((code (parse-unicode-code-unit)))
+             (cond
+               ((<= #xd800 code #xdbff)
+                (unless (and (peek) (char= (consume) #\\)
+                             (peek) (char= (consume) #\u))
+                  (fail "high surrogate must be followed by a low surrogate"))
+                (let ((low (parse-unicode-code-unit)))
+                  (unless (<= #xdc00 low #xdfff)
+                    (fail "invalid low surrogate"))
+                  (or (code-char
+                       (+ #x10000
+                          (ash (- code #xd800) 10)
+                          (- low #xdc00)))
+                      (fail "invalid unicode code point"))))
+               ((<= #xdc00 code #xdfff)
+                (fail "unexpected low surrogate"))
+               (t
+                (or (code-char code)
+                    (fail "invalid unicode code point"))))))
          (parse-literal (literal value)
            (let ((end (+ position (length literal))))
              (unless (and (<= end length)
@@ -72,16 +102,7 @@
                          (#\n #\Newline)
                          (#\r #\Return)
                          (#\t #\Tab)
-                         (#\u
-                          (let ((code 0))
-                            (dotimes (i 4)
-                              (let ((digit (and (peek)
-                                                (json-hex-value (consume)))))
-                                (unless digit
-                                  (fail "invalid unicode escape"))
-                                (setf code (+ (* code 16) digit))))
-                            (or (code-char code)
-                                (fail "invalid unicode code point"))))
+                         (#\u (parse-unicode-character))
                          (otherwise
                           (fail "invalid string escape ~S" escape)))
                        chars)))
@@ -120,7 +141,7 @@
              (when (and (peek) (char= (peek) #\]))
                (incf position)
                (return-from parse-array
-                 (if preserve-empty-arrays
+                 (if (or preserve-types preserve-empty-arrays)
                      (make-array 0)
                      '())))
              (loop
@@ -140,7 +161,8 @@
            (let ((entries '()))
              (when (and (peek) (char= (peek) #\}))
                (incf position)
-               (return-from parse-object '()))
+               (return-from parse-object
+                 (if preserve-types +json-empty-object+ '())))
              (loop
                (unless (and (peek) (char= (peek) #\"))
                  (fail "expected object key"))
@@ -165,8 +187,10 @@
              (#\[ (parse-array))
              (#\" (parse-string))
              (#\t (parse-literal "true" t))
-             (#\f (parse-literal "false" nil))
-             (#\n (parse-literal "null" nil))
+             (#\f (parse-literal "false"
+                                 (if preserve-types +json-false+ nil)))
+             (#\n (parse-literal "null"
+                                 (if preserve-types +json-null+ nil)))
              ((#\- #\0 #\1 #\2 #\3 #\4 #\5 #\6 #\7 #\8 #\9)
               (parse-number))
              (otherwise (fail "unexpected character")))))
@@ -177,12 +201,13 @@
         value))))
 
 (defun json-object-p (value)
-  (and (consp value)
-       (every (lambda (entry)
-                (and (consp entry)
-                     (or (stringp (car entry))
-                         (symbolp (car entry)))))
-              value)))
+  (or (json-empty-object-p value)
+      (and (consp value)
+           (every (lambda (entry)
+                    (and (consp entry)
+                         (or (stringp (car entry))
+                             (symbolp (car entry)))))
+                  value))))
 
 (defun json-empty-array-p (value)
   (and (vectorp value)

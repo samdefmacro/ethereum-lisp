@@ -1,8 +1,8 @@
 (in-package #:ethereum-lisp.test)
 
-(deftest chain-store-persistence-package-boundary
+(deftest node-store-persistence-package-boundary
   (let ((persistence
-          (find-package '#:ethereum-lisp.chain-store.persistence))
+          (find-package '#:ethereum-lisp.node-store.persistence))
         (database (find-package '#:ethereum-lisp.database))
         (chain-store (find-package '#:ethereum-lisp.chain-store))
         (txpool (find-package '#:ethereum-lisp.txpool))
@@ -11,8 +11,8 @@
     (is (member database (package-use-list persistence)))
     (is (member chain-store (package-use-list persistence)))
     (is (member txpool (package-use-list persistence)))
-    (dolist (name '("CHAIN-STORE-EXPORT-TO-KV"
-                    "CHAIN-STORE-IMPORT-FROM-KV"))
+    (dolist (name '("NODE-STORE-EXPORT-TO-KV"
+                    "NODE-STORE-IMPORT-FROM-KV"))
       (multiple-value-bind (persistence-symbol persistence-status)
           (find-symbol name persistence)
         (multiple-value-bind (core-symbol core-status)
@@ -21,13 +21,18 @@
           (is (eq :external core-status))
           (is (eq persistence-symbol core-symbol)))))
     (multiple-value-bind (persistence-symbol persistence-status)
-        (find-symbol "CHAIN-STORE-EXPORT-TXPOOL-RECORDS-TO-KV" persistence)
+        (find-symbol "NODE-STORE-EXPORT-TXPOOL-RECORDS-TO-KV" persistence)
       (multiple-value-bind (core-symbol core-status)
-          (find-symbol "CHAIN-STORE-EXPORT-TXPOOL-RECORDS-TO-KV" core)
+          (find-symbol "NODE-STORE-EXPORT-TXPOOL-RECORDS-TO-KV" core)
         (is persistence-symbol)
         (is (eq :external persistence-status))
         (is (null core-symbol))
         (is (null core-status))))
+    (dolist (name '("CHAIN-STORE-EXPORT-TO-KV"
+                    "CHAIN-STORE-IMPORT-FROM-KV"))
+      (multiple-value-bind (symbol status) (find-symbol name persistence)
+        (is (null symbol))
+        (is (null status))))
     (multiple-value-bind (symbol status)
         (find-symbol "CHAIN-STORE-SET-CANONICAL-HEAD" persistence)
       (is (null symbol))
@@ -657,7 +662,7 @@
     (is (= 0 (chain-store-account-balance store (block-hash side) address)))
     (is (= 44 (chain-store-account-balance store (block-hash head) address)))))
 
-(deftest chain-store-export-to-kv-syncs-readable-chain-records
+(deftest node-store-export-to-kv-syncs-readable-chain-records
   (let* ((path
            (merge-pathnames
             (make-pathname
@@ -725,7 +730,7 @@
            (chain-store-put-account-storage
             store (block-hash branch-a-2) recipient slot 22)
            (let ((database (make-file-key-value-database path)))
-             (is (eq database (chain-store-export-to-kv store database))))
+             (is (eq database (node-store-export-to-kv store database))))
            (let ((database (make-file-key-value-database path)))
              (multiple-value-bind (value present-p)
                  (kv-get-chain-canonical-hash database 2)
@@ -759,7 +764,7 @@
            (chain-store-set-canonical-head store (block-hash branch-b-1))
            (chain-store-put-block store branch-a-2)
            (let ((database (make-file-key-value-database path)))
-             (chain-store-export-to-kv store database))
+             (node-store-export-to-kv store database))
            (let ((database (make-file-key-value-database path)))
              (multiple-value-bind (value present-p)
                  (kv-get-chain-canonical-hash database 1)
@@ -785,7 +790,7 @@
       (when (probe-file path)
         (delete-file path)))))
 
-(deftest chain-store-export-to-kv-failure-does-not-partially-apply
+(deftest node-store-export-to-kv-failure-does-not-partially-apply
   (let* ((path
            (merge-pathnames
             (make-pathname
@@ -819,7 +824,7 @@
          (progn
            (chain-store-put-block store block :state-available-p t)
            (signals block-validation-error
-             (chain-store-export-to-kv
+             (node-store-export-to-kv
               store
               (make-file-key-value-database path)))
            (let ((database (make-file-key-value-database path)))
@@ -843,7 +848,7 @@
       (when (probe-file path)
         (delete-file path)))))
 
-(deftest chain-store-import-from-kv-restores-readable-chain-data
+(deftest node-store-import-from-kv-restores-readable-chain-data
   (let* ((path
            (merge-pathnames
             (make-pathname
@@ -947,10 +952,10 @@
              :safe-block-hash (block-hash branch-a-1)
              :finalized-block-hash (block-hash genesis)))
            (let ((database (make-file-key-value-database path)))
-             (chain-store-export-to-kv store database))
+             (node-store-export-to-kv store database))
            (let ((database (make-file-key-value-database path)))
              (is (eq restored
-                     (chain-store-import-from-kv restored database))))
+                     (node-store-import-from-kv restored database))))
            (is (= 2 (chain-store-head-number restored)))
            (is (bytes= (hash32-bytes (block-hash branch-a-2))
                        (hash32-bytes

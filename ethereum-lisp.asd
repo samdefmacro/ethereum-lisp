@@ -3,6 +3,7 @@
   :author "ethereum-lisp contributors"
   :license "MIT"
   :version "0.1.0"
+  :in-order-to ((asdf:test-op (asdf:test-op #:ethereum-lisp/test)))
   :serial t
   :components
   ((:module "src"
@@ -58,6 +59,7 @@
      (:file "chain-config-blob-schedule")
      (:file "chain-config-rules")
      (:file "genesis-types")
+     (:file "json-values")
      (:file "json-object-fields")
      (:file "genesis-fields")
      (:file "genesis-alloc")
@@ -235,6 +237,7 @@
      (:file "execution-block-validation")
      (:file "execution-block-execution")
      (:file "execution-service")
+     (:file "txpool-admission-service")
      (:file "engine-payload-status")
      (:file "json-rpc-protocol")
      (:file "json-rpc-codecs")
@@ -263,7 +266,6 @@
      (:file "public-rpc-transaction-objects")
      (:file "public-rpc-transactions")
      (:file "public-rpc-txpool-views")
-     (:file "public-rpc-txpool-admission")
      (:file "public-rpc-txpool-locals")
      (:file "public-rpc-send-raw-transaction")
      (:file "public-rpc-txpool-handlers")
@@ -339,6 +341,10 @@
      (:file "fixture-tests")
      (:file "fixture-runner-tests")
      (:file "transaction-fixture-tests")
+     (:file "receipt-fixture-tests")
+     (:file "state-fixture-tests")
+     (:file "evm-fixture-tests")
+     (:file "engine-fixture-tests")
      (:file "core-tests")
      (:file "state-tests")
      (:file "evm-tests")

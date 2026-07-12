@@ -54,9 +54,10 @@
                      (first (field first-body "transactions"))))
         (is (= 1 (length (field first-body "withdrawals"))))
         (is (not (second bodies)))
-        (is (not (field third-body "transactions")))
-        (is (listp (field third-body "withdrawals")))
-        (is (= 0 (length (field third-body "withdrawals")))))
+        (is (ethereum-lisp.json:json-empty-array-p
+             (field third-body "transactions")))
+        (is (ethereum-lisp.json:json-empty-array-p
+             (field third-body "withdrawals"))))
       (let* ((too-many-hashes
                (loop repeat 1025 collect (hash32-to-hex (block-hash block))))
              (response
@@ -164,11 +165,15 @@
         (is (= 4 (length bodies)))
         (is (string= (bytes-to-hex (transaction-encoding transaction))
                      (first (field first-body "transactions"))))
-        (is (not (field first-body "withdrawals")))
-        (is (not (field second-body "transactions")))
-        (is (listp (field second-body "withdrawals")))
+        (is (ethereum-lisp.json:json-empty-array-p
+             (field first-body "withdrawals")))
+        (is (ethereum-lisp.json:json-empty-array-p
+             (field second-body "transactions")))
+        (is (ethereum-lisp.json:json-empty-array-p
+             (field second-body "withdrawals")))
         (is (not (third bodies)))
-        (is (not (field fourth-body "transactions"))))
+        (is (ethereum-lisp.json:json-empty-array-p
+             (field fourth-body "transactions"))))
       (let* ((response
                (engine-rpc-handle-request
                 (list (cons "jsonrpc" "2.0")
@@ -243,4 +248,3 @@
         (is (= -38004 (field error "code")))
         (is (string= "The number of requested bodies must not exceed 1024"
                      (field error "message")))))))
-

@@ -1,4 +1,4 @@
-(defpackage #:ethereum-lisp.chain-store.persistence
+(defpackage #:ethereum-lisp.node-store.persistence
   (:use #:cl
         #:ethereum-lisp.bytes
         #:ethereum-lisp.hex
@@ -27,8 +27,8 @@
    #:chain-store-export-block-records-to-kv
    #:chain-store-export-transaction-locations-to-kv
    #:chain-store-export-state-records-to-kv
-   #:chain-store-export-txpool-records-to-kv
-   #:chain-store-export-to-kv
-   #:chain-store-import-txpool-records-from-kv
-   #:chain-store-restore-txpool-consistency
-   #:chain-store-import-from-kv))
+   #:node-store-export-txpool-records-to-kv
+   #:node-store-export-to-kv
+   #:node-store-import-txpool-records-from-kv
+   #:node-store-restore-txpool-consistency
+   #:node-store-import-from-kv))

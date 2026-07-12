@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.chain-store.persistence)
+(in-package #:ethereum-lisp.node-store.persistence)
 
 (defun state-storage-entry-from-rlp-object (value)
   (let ((fields (rlp-list-field value "State storage snapshot entry")))

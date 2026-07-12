@@ -56,7 +56,7 @@
                    (list (cons "jsonrpc" "2.0")
                          (cons "id" 803)
                          (cons "method" "eth_blockNumber")
-                         (cons "params" '()))))
+                         (cons "params" #()))))
                 (balance-body
                   (json-encode (engine-fixture-balance-request
                                 804 recipient)))

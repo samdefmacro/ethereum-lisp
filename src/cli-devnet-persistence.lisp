@@ -12,7 +12,7 @@
                 (ethereum-lisp.database:make-file-key-value-database
                  existing-database-path)))
           (when (devnet-cli-kv-chain-records-present-p database)
-            (chain-store-import-from-kv
+            (node-store-import-from-kv
              store
              database
              :expected-chain-id (chain-config-chain-id config)
@@ -31,12 +31,12 @@
                  existing-journal-path)))
           (when (devnet-cli-kv-txpool-records-present-p journal)
             (unless (devnet-cli-store-txpool-records-present-p store)
-              (chain-store-import-txpool-records-from-kv
+              (node-store-import-txpool-records-from-kv
                store
                journal
                :expected-chain-id (chain-config-chain-id config)
                :chain-config config)
-              (chain-store-restore-txpool-consistency
+              (node-store-restore-txpool-consistency
                store
                :expected-chain-id (chain-config-chain-id config)
                :chain-config config))))))))

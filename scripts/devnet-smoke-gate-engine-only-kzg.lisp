@@ -49,7 +49,7 @@
               (list (cons "jsonrpc" "2.0")
                     (cons "id" id)
                     (cons "method" method)
-                    (cons "params" (list block-hashes)))))
+                    (cons "params" (list (coerce block-hashes 'vector))))))
            (get-payload-bodies-by-range-request (id method start count)
              (json-encode
               (list (cons "jsonrpc" "2.0")
@@ -61,7 +61,7 @@
               (list (cons "jsonrpc" "2.0")
                     (cons "id" id)
                     (cons "method" method)
-                    (cons "params" (list versioned-hashes)))))
+                    (cons "params" (list (coerce versioned-hashes 'vector))))))
            (hex-prefix (hex bytes)
              (subseq hex 0 (min (length hex) (+ 2 (* bytes 2))))))
     (let* ((script
@@ -978,9 +978,9 @@
                       get-payload-bodies-range-v2-zero-start-response))
               "KZG opt-in zero-start engine_getPayloadBodiesByRangeV2 HTTP status mismatch")
              (devnet-smoke-gate-require
-              get-payload-bodies-range-v2-zero-start-error
-              "KZG opt-in zero-start engine_getPayloadBodiesByRangeV2 unexpectedly returned success: ~S"
-              get-payload-bodies-range-v2-zero-start-rpc)
+             get-payload-bodies-range-v2-zero-start-error
+             "KZG opt-in zero-start engine_getPayloadBodiesByRangeV2 unexpectedly returned success: ~S"
+             get-payload-bodies-range-v2-zero-start-rpc)
              (devnet-smoke-gate-require
               (= -32602
                  (fixture-object-field
@@ -1142,18 +1142,18 @@
                       get-payload-bodies-range-v2-null-params-response))
               "KZG opt-in null-params engine_getPayloadBodiesByRangeV2 HTTP status mismatch")
              (devnet-smoke-gate-require
-              get-payload-bodies-range-v2-null-params-error
-              "KZG opt-in null-params engine_getPayloadBodiesByRangeV2 unexpectedly returned success: ~S"
-              get-payload-bodies-range-v2-null-params-rpc)
+             get-payload-bodies-range-v2-null-params-error
+             "KZG opt-in null-params engine_getPayloadBodiesByRangeV2 unexpectedly returned success: ~S"
+             get-payload-bodies-range-v2-null-params-rpc)
              (devnet-smoke-gate-require
-              (= -32602
+              (= -32600
                  (fixture-object-field
                   get-payload-bodies-range-v2-null-params-error
                   "code"))
               "KZG opt-in null-params engine_getPayloadBodiesByRangeV2 error code mismatch: ~S"
               get-payload-bodies-range-v2-null-params-error)
              (devnet-smoke-gate-require
-              (string= "engine_getPayloadBodiesByRangeV2 params must include start and count"
+              (string= "Invalid Request"
                        (fixture-object-field
                         get-payload-bodies-range-v2-null-params-error
                         "message"))
@@ -1170,9 +1170,9 @@
                       get-payload-bodies-range-v2-object-params-response))
               "KZG opt-in object-params engine_getPayloadBodiesByRangeV2 HTTP status mismatch")
              (devnet-smoke-gate-require
-              get-payload-bodies-range-v2-object-params-error
-              "KZG opt-in object-params engine_getPayloadBodiesByRangeV2 unexpectedly returned success: ~S"
-              get-payload-bodies-range-v2-object-params-rpc)
+             get-payload-bodies-range-v2-object-params-error
+             "KZG opt-in object-params engine_getPayloadBodiesByRangeV2 unexpectedly returned success: ~S"
+             get-payload-bodies-range-v2-object-params-rpc)
              (devnet-smoke-gate-require
               (= -32602
                  (fixture-object-field
@@ -1198,9 +1198,9 @@
                       get-payload-bodies-range-v2-missing-start-object-params-response))
               "KZG opt-in missing-start-object-params engine_getPayloadBodiesByRangeV2 HTTP status mismatch")
              (devnet-smoke-gate-require
-              get-payload-bodies-range-v2-missing-start-object-params-error
-              "KZG opt-in missing-start-object-params engine_getPayloadBodiesByRangeV2 unexpectedly returned success: ~S"
-              get-payload-bodies-range-v2-missing-start-object-params-rpc)
+             get-payload-bodies-range-v2-missing-start-object-params-error
+             "KZG opt-in missing-start-object-params engine_getPayloadBodiesByRangeV2 unexpectedly returned success: ~S"
+             get-payload-bodies-range-v2-missing-start-object-params-rpc)
              (devnet-smoke-gate-require
               (= -32602
                  (fixture-object-field
@@ -1226,9 +1226,9 @@
                       get-payload-bodies-range-v2-missing-count-object-params-response))
               "KZG opt-in missing-count-object-params engine_getPayloadBodiesByRangeV2 HTTP status mismatch")
              (devnet-smoke-gate-require
-              get-payload-bodies-range-v2-missing-count-object-params-error
-              "KZG opt-in missing-count-object-params engine_getPayloadBodiesByRangeV2 unexpectedly returned success: ~S"
-              get-payload-bodies-range-v2-missing-count-object-params-rpc)
+             get-payload-bodies-range-v2-missing-count-object-params-error
+             "KZG opt-in missing-count-object-params engine_getPayloadBodiesByRangeV2 unexpectedly returned success: ~S"
+             get-payload-bodies-range-v2-missing-count-object-params-rpc)
              (devnet-smoke-gate-require
               (= -32602
                  (fixture-object-field
@@ -1254,9 +1254,9 @@
                       get-payload-bodies-range-v2-unexpected-key-object-params-response))
               "KZG opt-in unexpected-key-object-params engine_getPayloadBodiesByRangeV2 HTTP status mismatch")
              (devnet-smoke-gate-require
-              get-payload-bodies-range-v2-unexpected-key-object-params-error
-              "KZG opt-in unexpected-key-object-params engine_getPayloadBodiesByRangeV2 unexpectedly returned success: ~S"
-              get-payload-bodies-range-v2-unexpected-key-object-params-rpc)
+             get-payload-bodies-range-v2-unexpected-key-object-params-error
+             "KZG opt-in unexpected-key-object-params engine_getPayloadBodiesByRangeV2 unexpectedly returned success: ~S"
+             get-payload-bodies-range-v2-unexpected-key-object-params-rpc)
              (devnet-smoke-gate-require
               (= -32602
                  (fixture-object-field
@@ -1282,18 +1282,18 @@
                       get-payload-bodies-range-v2-empty-object-params-response))
               "KZG opt-in empty-object-params engine_getPayloadBodiesByRangeV2 HTTP status mismatch")
              (devnet-smoke-gate-require
-              get-payload-bodies-range-v2-empty-object-params-error
-              "KZG opt-in empty-object-params engine_getPayloadBodiesByRangeV2 unexpectedly returned success: ~S"
-              get-payload-bodies-range-v2-empty-object-params-rpc)
+             get-payload-bodies-range-v2-empty-object-params-error
+             "KZG opt-in empty-object-params engine_getPayloadBodiesByRangeV2 unexpectedly returned success: ~S"
+             get-payload-bodies-range-v2-empty-object-params-rpc)
              (devnet-smoke-gate-require
-              (= -32602
+              (= -32600
                  (fixture-object-field
                   get-payload-bodies-range-v2-empty-object-params-error
                   "code"))
               "KZG opt-in empty-object-params engine_getPayloadBodiesByRangeV2 error code mismatch: ~S"
               get-payload-bodies-range-v2-empty-object-params-error)
              (devnet-smoke-gate-require
-              (string= "engine_getPayloadBodiesByRangeV2 params must include start and count"
+              (string= "Invalid Request"
                        (fixture-object-field
                         get-payload-bodies-range-v2-empty-object-params-error
                         "message"))
@@ -1875,4 +1875,3 @@
       report))
   #-sbcl
   (error "Devnet engine-only KZG opt-in smoke requires SBCL sockets"))
-

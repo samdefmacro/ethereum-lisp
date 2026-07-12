@@ -88,9 +88,16 @@
                          (error (condition)
                            (setf public-error condition)
                            (devnet-shutdown-request shutdown-controller)))
-                       (when public-count
-                         (devnet-shutdown-request shutdown-controller))
-                       (sb-thread:join-thread engine-thread)
+                       ;; Give an in-flight Engine request a chance to complete
+                       ;; after the public listener reaches its test limit.
+                       ;; If the Engine listener still has fewer connections,
+                       ;; shut both listeners down instead of waiting forever.
+                       (when (eq :timeout
+                                 (sb-thread:join-thread
+                                  engine-thread :timeout 1 :default :timeout))
+                         (devnet-shutdown-request shutdown-controller)
+                         (sb-thread:join-thread engine-thread))
+                       (devnet-shutdown-request shutdown-controller)
                        (cond
                          (public-error (error public-error))
                          (engine-error (error engine-error))

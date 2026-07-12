@@ -129,7 +129,7 @@
                         (list (cons "jsonrpc" "2.0")
                               (cons "id" 203)
                               (cons "method" "eth_blockNumber")
-                              (cons "params" '())))
+                              (cons "params" #())))
                        side-block-number-output)
                       (cons
                        (json-encode
@@ -160,7 +160,7 @@
                         (list (cons "jsonrpc" "2.0")
                               (cons "id" 207)
                               (cons "method" "eth_pendingTransactions")
-                              (cons "params" '())))
+                              (cons "params" #())))
                        side-pending-transactions-output)
                       (cons
                        (json-encode
@@ -573,7 +573,7 @@
                           (list (cons "jsonrpc" "2.0")
                                 (cons "id" 214)
                                 (cons "method" "eth_pendingTransactions")
-                                (cons "params" '())))
+                                (cons "params" #())))
                          fresh-pending-transactions-output)
                         (cons
                          (json-encode
@@ -587,7 +587,7 @@
                           (list (cons "jsonrpc" "2.0")
                                 (cons "id" 216)
                                 (cons "method" "eth_blockNumber")
-                                (cons "params" '())))
+                                (cons "params" #())))
                          fresh-block-number-output)
                         (cons
                          (json-encode

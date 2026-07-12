@@ -4,7 +4,11 @@
    #:deftest
    #:is
    #:signals
+   #:list-tests
+   #:run-tests
    #:run-all-tests
+   #:test-run-failed
+   #:test-run-failed-failures
    #:+execution-spec-tests-fixture-root-env+
    #:*fixture-root-environment-reader*
    #:test-skipped
@@ -34,13 +38,7 @@
 (defvar *tests* '())
 
 (defparameter *repository-root*
-  (let ((source (or *load-truename* *compile-file-truename*)))
-    (if source
-        (uiop:ensure-directory-pathname
-         (merge-pathnames
-          #P"../"
-          (uiop:pathname-directory-pathname source)))
-        (uiop:ensure-directory-pathname (uiop:getcwd)))))
+  (asdf:system-source-directory '#:ethereum-lisp))
 
 (defun repository-relative-pathname (relative)
   (merge-pathnames relative *repository-root*))
@@ -53,12 +51,12 @@
       (error "Missing repo KZG verifier command at ~A"
              *repo-kzg-verifier-command*)))
 
-(defconstant +execution-spec-tests-fixture-root-env+
+(defparameter +execution-spec-tests-fixture-root-env+
   "ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT")
 
-(defconstant +phase-a-eest-release+ "v5.4.0")
-(defconstant +phase-a-eest-tag-target+ "88e9fb8")
-(defconstant +phase-a-eest-archive+ "fixtures_stable.tar.gz")
+(defparameter +phase-a-eest-release+ "v5.4.0")
+(defparameter +phase-a-eest-tag-target+ "88e9fb8")
+(defparameter +phase-a-eest-archive+ "fixtures_stable.tar.gz")
 
 (defparameter +phase-a-eest-source-fields+
   '("release" "tagTarget" "archive" "status"))
@@ -98,6 +96,13 @@
   (:report (lambda (condition stream)
              (format stream "~A" (test-skipped-reason condition)))))
 
+(define-condition test-run-failed (error)
+  ((failures :initarg :failures :reader test-run-failed-failures))
+  (:report
+   (lambda (condition stream)
+     (format stream "~D test~:P failed"
+             (length (test-run-failed-failures condition))))))
+
 (defun skip-test (reason)
   (signal 'test-skipped :reason reason))
 
@@ -109,10 +114,14 @@
              value)))
 
 (defun fixture-object-field (object name)
-  (cdr (assoc name object :test #'string=)))
+  (ethereum-lisp.json:json-object-field object name))
 
 (defun fixture-field-present-p (object name)
-  (not (null (assoc name object :test #'string=))))
+  (ethereum-lisp.json:json-object-field-present-p object name))
+
+(defun fixture-json-object-p (value)
+  (or (null value)
+      (ethereum-lisp.json:json-object-p value)))
 
 (defun fixture-required-field (object name)
   (unless (fixture-field-present-p object name)
@@ -120,10 +129,10 @@
   (fixture-object-field object name))
 
 (defun validate-fixture-object-fields (object allowed-fields label)
-  (unless (listp object)
+  (unless (fixture-json-object-p object)
     (error "~A must be a JSON object" label))
   (let ((seen-fields (make-hash-table :test 'equal)))
-    (dolist (field object)
+    (dolist (field (ethereum-lisp.json:json-object-entries object label))
       (let ((name (car field)))
         (unless (stringp name)
           (error "~A field name must be a string" label))
@@ -410,20 +419,66 @@
          (error "Expected condition ~S was not signaled" ',condition-type))
      (,condition-type () t)))
 
-(defun run-all-tests ()
-  (let ((passed 0)
-        (skipped 0))
-    (dolist (test (reverse *tests*))
+(defun test-filter-list (filters)
+  (cond
+    ((null filters) nil)
+    ((stringp filters) (list filters))
+    ((and (listp filters) (every #'stringp filters)) filters)
+    (t (error "Test filters must be a string or a list of strings"))))
+
+(defun test-name-matches-filter-p (test filter)
+  (search filter (symbol-name test) :test #'char-equal))
+
+(defun selected-tests (&key match exclude)
+  (let ((match-filters (test-filter-list match))
+        (exclude-filters (test-filter-list exclude)))
+    (remove-if-not
+     (lambda (test)
+       (and (or (null match-filters)
+                (some (lambda (filter)
+                        (test-name-matches-filter-p test filter))
+                      match-filters))
+            (not (some (lambda (filter)
+                         (test-name-matches-filter-p test filter))
+                       exclude-filters))))
+     (reverse *tests*))))
+
+(defun list-tests (&key match exclude (stream *standard-output*))
+  (let ((tests (selected-tests :match match :exclude exclude)))
+    (dolist (test tests)
+      (format stream "~A~%" test))
+    tests))
+
+(defun run-tests (&key match exclude (stream *standard-output*))
+  (let ((tests (selected-tests :match match :exclude exclude))
+        (passed 0)
+        (skipped 0)
+        (failures '()))
+    (unless tests
+      (error "No tests matched the requested filters"))
+    (dolist (test tests)
       (handler-case
           (progn
             (funcall test)
             (incf passed)
-            (format t "~&ok ~A" test))
+            (format stream "~&ok ~A" test))
         (test-skipped (condition)
           (incf skipped)
-          (format t "~&skip ~A - ~A" test (test-skipped-reason condition)))))
-    (format t "~&~D tests passed" passed)
+          (format stream "~&skip ~A - ~A"
+                  test
+                  (test-skipped-reason condition)))
+        (error (condition)
+          (push (cons test condition) failures)
+          (format stream "~&not ok ~A - ~A" test condition))))
+    (format stream "~&~D test~:P passed" passed)
     (when (plusp skipped)
-      (format t ", ~D skipped" skipped))
-    (format t ".~%")
-    t))
+      (format stream ", ~D skipped" skipped))
+    (when failures
+      (format stream ", ~D failed" (length failures)))
+    (format stream ".~%")
+    (when failures
+      (error 'test-run-failed :failures (nreverse failures)))
+    (values t passed skipped)))
+
+(defun run-all-tests ()
+  (run-tests))

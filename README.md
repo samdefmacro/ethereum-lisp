@@ -46,8 +46,12 @@ Implemented so far:
 - signed transaction and block execution paths with receipt/root/logs-bloom
   derivation and rollback coverage
 - geth/Nethermind-shaped Engine payload projection, in-memory payload storage,
-  forkchoice checkpoints, public JSON-RPC read methods, polling filters, a local
-  pending transaction placeholder, and a stream-based HTTP adapter
+  forkchoice checkpoints, public JSON-RPC read methods, polling filters, a
+  policy-driven local transaction pool, and a stream-based HTTP adapter
+- explicit JSON null/false/empty-container values at RPC boundaries, defensive
+  byte ownership for hashes and addresses, and typed node configuration
+- extensible chain-store and transaction protocols, application-level txpool
+  admission, and capability-gated Engine method registration
 
 The main gap is no longer "can the project parse Ethereum-shaped objects"; it
 is whether those objects can be imported, executed, stored, reorged, queried,
@@ -57,6 +61,14 @@ and fixture-checked like a real execution client.
 
 ```sh
 sbcl --script tests/run-tests.lisp
+```
+
+Focused runs and discovery are available without editing the suite:
+
+```sh
+sbcl --script tests/run-tests.lisp --list
+sbcl --script tests/run-tests.lisp --match TRANSACTION
+sbcl --script tests/run-tests.lisp --exclude SMOKE --exclude OPTIONAL
 ```
 
 ## Reference layout

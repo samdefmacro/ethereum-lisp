@@ -221,7 +221,7 @@
           (cons "prevRandao" (hash32-to-hex (zero-hash32)))
           (cons "suggestedFeeRecipient"
                 (address-to-hex suggested-fee-recipient))
-          (cons "withdrawals" '()))))
+          (cons "withdrawals" #()))))
 
 (defun devnet-smoke-gate-forkchoice-v2-payload-attributes-request
     (id head payload-attributes
@@ -487,4 +487,3 @@
                     (cdr (assoc "stateAvailable" fields :test #'string=)))
            "Log file state availability mismatch"))))
     records))
-

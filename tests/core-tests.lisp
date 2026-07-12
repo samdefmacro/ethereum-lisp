@@ -21,7 +21,7 @@
         (is (not (eq core (symbol-package core-symbol))))))))
 
 (defparameter *ethereum-lisp-core-tests-root*
-  (merge-pathnames "../" (or *load-truename* *default-pathname-defaults*)))
+  *repository-root*)
 
 (defun load-core-test-file (relative-path)
   (load (merge-pathnames relative-path *ethereum-lisp-core-tests-root*)))

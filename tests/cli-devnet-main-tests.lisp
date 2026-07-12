@@ -321,7 +321,7 @@
              (chain-store-put-account-balance
               seed-store (block-hash child) funded 42)
              (chain-store-set-canonical-head seed-store (block-hash child))
-             (chain-store-export-to-kv
+             (node-store-export-to-kv
               seed-store
               (make-file-key-value-database database-path)))
            (is (= 0
@@ -821,7 +821,7 @@
               seed-store (block-hash mismatched-genesis) state)
              (chain-store-set-canonical-head seed-store
                                              (block-hash mismatched-genesis))
-             (chain-store-export-to-kv
+             (node-store-export-to-kv
               seed-store
               (make-file-key-value-database database-path)))
            (is (= 1
@@ -877,7 +877,7 @@
            (chain-store-put-account-balance
             seed-store (block-hash child) funded 42)
            (chain-store-set-canonical-head seed-store (block-hash child))
-           (chain-store-export-to-kv
+           (node-store-export-to-kv
             seed-store
             (make-file-key-value-database database-path))
            (let ((database (make-file-key-value-database database-path)))

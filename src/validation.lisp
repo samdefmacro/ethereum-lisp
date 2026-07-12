@@ -1,13 +1,44 @@
 (in-package #:ethereum-lisp.validation)
 
-(define-condition block-validation-error (error)
-  ((message :initarg :message :reader block-validation-error-message))
+(define-condition ethereum-lisp-error (error)
+  ((message :initarg :message :reader ethereum-lisp-error-message))
   (:report (lambda (condition stream)
-             (format stream "~A" (block-validation-error-message condition)))))
+             (format stream "~A" (ethereum-lisp-error-message condition)))))
+
+(define-condition data-decoding-error (ethereum-lisp-error) ())
+(define-condition invalid-parameters-error (ethereum-lisp-error) ())
+(define-condition consensus-validation-error (ethereum-lisp-error) ())
+(define-condition configuration-error (ethereum-lisp-error) ())
+(define-condition storage-error (ethereum-lisp-error) ())
+(define-condition state-unavailable-error (ethereum-lisp-error) ())
+(define-condition block-validation-error (ethereum-lisp-error) ())
+
+(defun block-validation-error-message (condition)
+  (ethereum-lisp-error-message condition))
+
+(defun fail-with-condition (condition-type control arguments)
+  (error condition-type :message (apply #'format nil control arguments)))
+
+(defun data-decoding-fail (control &rest arguments)
+  (fail-with-condition 'data-decoding-error control arguments))
+
+(defun invalid-parameters-fail (control &rest arguments)
+  (fail-with-condition 'invalid-parameters-error control arguments))
+
+(defun consensus-validation-fail (control &rest arguments)
+  (fail-with-condition 'consensus-validation-error control arguments))
+
+(defun configuration-fail (control &rest arguments)
+  (fail-with-condition 'configuration-error control arguments))
+
+(defun storage-fail (control &rest arguments)
+  (fail-with-condition 'storage-error control arguments))
+
+(defun state-unavailable-fail (control &rest arguments)
+  (fail-with-condition 'state-unavailable-error control arguments))
 
 (defun block-validation-fail (control &rest arguments)
-  (error 'block-validation-error
-         :message (apply #'format nil control arguments)))
+  (fail-with-condition 'block-validation-error control arguments))
 
 (defun ensure-uint256 (value label)
   (unless (ethereum-lisp.types:uint256-p value)

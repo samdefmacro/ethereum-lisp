@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.chain-store.persistence)
+(in-package #:ethereum-lisp.node-store.persistence)
 
 (defun chain-store-export-remote-block-to-kv (batch block-key block)
   (kv-batch-put-chain-record
@@ -16,7 +16,7 @@
 (defun chain-store-populate-remote-block-export-batch
     (store database batch)
   (setf store (chain-store-require-memory-store store))
-  (let ((current-block-keys (make-hash-table :test 'equal)))
+  (let ((current-block-keys (make-hash-table :test 'equalp)))
     (maphash
      (lambda (block-key block)
        (when (chain-store-remote-block-exportable-p store block-key block)

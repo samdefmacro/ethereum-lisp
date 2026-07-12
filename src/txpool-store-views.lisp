@@ -30,7 +30,7 @@
   senders)
 
 (defun engine-payload-store-pooled-senders (store)
-  (let ((senders (make-hash-table :test 'equal)))
+  (let ((senders (make-hash-table :test 'equalp)))
     (dolist (sender-index
              (list (engine-payload-store-pending-sender-index store)
                    (engine-payload-store-queued-sender-index store)

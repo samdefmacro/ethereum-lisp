@@ -515,7 +515,7 @@ references/ checkouts.~%")
            :port port
            :public-port public-port
            :jwt-secret-path jwt-secret-path)))
-    (chain-store-import-from-kv
+    (node-store-import-from-kv
      (ethereum-lisp.cli:devnet-node-store node)
      (make-file-key-value-database path)
      :expected-chain-id (chain-config-chain-id config))
@@ -625,7 +625,7 @@ references/ checkouts.~%")
       :block block-v6
       :blobs-bundle sidecar))
     (let ((database (make-file-key-value-database database-path)))
-      (chain-store-export-to-kv store database)
+      (node-store-export-to-kv store database)
       (kv-put-chain-record
        database
        :block
@@ -860,7 +860,7 @@ references/ checkouts.~%")
    (list (cons "jsonrpc" "2.0")
          (cons "id" id)
          (cons "method" method)
-         (cons "params" params))))
+         (cons "params" (if (null params) #() params)))))
 
 (defun devnet-smoke-gate-error-code (rpc)
   (fixture-object-field

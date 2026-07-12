@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.chain-store.persistence)
+(in-package #:ethereum-lisp.node-store.persistence)
 
 (defun transaction-location-record-values (record)
   (let ((fields (rlp-list-field (rlp-decode-one record)

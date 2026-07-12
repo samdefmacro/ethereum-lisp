@@ -44,7 +44,8 @@
     (validate-kzg-field-element y "KZG point y")
     (unless (= +kzg-proof-size+ (length proof))
       (error "KZG proof must be exactly ~D bytes" +kzg-proof-size+))
-    (unless (funcall *kzg-point-proof-verifier* commitment z y proof)
+    (unless (funcall (current-kzg-point-proof-function)
+                     commitment z y proof)
       (error "KZG point proof verification failed")))
   t)
 
@@ -59,7 +60,8 @@
       (error "KZG commitment must be exactly ~D bytes" +kzg-commitment-size+))
     (unless (= +kzg-proof-size+ (length proof))
       (error "KZG proof must be exactly ~D bytes" +kzg-proof-size+))
-    (unless (funcall *kzg-blob-proof-verifier* blob commitment proof)
+    (unless (funcall (current-kzg-blob-proof-function)
+                     blob commitment proof)
       (error "KZG blob proof verification failed")))
   t)
 

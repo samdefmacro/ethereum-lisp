@@ -64,7 +64,8 @@
     (is (block-withdrawals-present-p empty-shanghai-block))
     (is (executable-data-withdrawals-present-p payload))
     (is (assoc "withdrawals" payload-object :test #'string=))
-    (is (null (cdr (assoc "withdrawals" payload-object :test #'string=))))
+    (is (ethereum-lisp.json:json-empty-array-p
+         (cdr (assoc "withdrawals" payload-object :test #'string=))))
     (is (executable-data-withdrawals-present-p decoded-payload))
     (is (block-withdrawals-present-p decoded-block))
     (is (null (block-withdrawals decoded-block)))
@@ -107,4 +108,3 @@
                             :ommers (list ommer))))
     (signals block-validation-error
       (validate-block-body-roots block))))
-

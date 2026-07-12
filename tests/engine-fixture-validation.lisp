@@ -142,10 +142,10 @@
              label condition))))
 
 (defun validate-engine-fixture-storage-object (storage label)
-  (unless (listp storage)
+  (unless (fixture-json-object-p storage)
     (error "~A storage must be a JSON object" label))
   (let ((seen-slots (make-hash-table :test 'equal)))
-    (dolist (entry storage)
+    (dolist (entry (ethereum-lisp.json:json-object-entries storage label))
       (unless (consp entry)
         (error "~A storage entries must be JSON object fields" label))
       (let ((slot (car entry))
@@ -402,9 +402,10 @@
 
 (defun assert-eest-blockchain-post-state-storage
     (state address expected-storage label)
-  (unless (listp expected-storage)
+  (unless (fixture-json-object-p expected-storage)
     (error "~A storage must be a JSON object" label))
-  (dolist (entry expected-storage)
+  (dolist (entry (ethereum-lisp.json:json-object-entries
+                  expected-storage label))
     (unless (consp entry)
       (error "~A storage entries must be JSON object fields" label))
     (let* ((slot
@@ -418,7 +419,7 @@
 
 (defun assert-eest-blockchain-post-state-account
     (state address expected-account label)
-  (unless (listp expected-account)
+  (unless (fixture-json-object-p expected-account)
     (error "~A account must be a JSON object" label))
   (let ((account (state-db-get-account state address)))
     (is account)
@@ -441,10 +442,11 @@
   (let* ((fixture (fixture-required-field source-case "fixture"))
          (post-state (fixture-object-field fixture "postState")))
     (when post-state
-      (unless (listp post-state)
+      (unless (fixture-json-object-p post-state)
         (error "EEST blockchain case ~A postState must be a JSON object"
                (fixture-required-field source-case "name")))
-      (dolist (entry post-state)
+      (dolist (entry (ethereum-lisp.json:json-object-entries
+                      post-state "EEST blockchain postState"))
         (unless (consp entry)
           (error "EEST blockchain case ~A postState entries must be JSON object fields"
                  (fixture-required-field source-case "name")))
@@ -804,4 +806,3 @@
     (unless case
       (error "Engine newPayloadV2 fixture case not found: ~A" name))
     case))
-

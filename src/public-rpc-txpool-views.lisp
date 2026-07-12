@@ -30,7 +30,7 @@
 (defun txpool-rpc-indexed-nonce-transactions-from-sender-indexes
     (address value-function &rest sender-indexes)
   (let ((sender-key (address-to-hex address))
-        (merged-transactions (make-hash-table :test 'equal)))
+        (merged-transactions (make-hash-table :test 'equalp)))
     (dolist (sender-index sender-indexes)
       (let ((sender-transactions (gethash sender-key sender-index)))
         (when sender-transactions
@@ -60,14 +60,14 @@
 
 (defun txpool-rpc-indexed-sender-transactions-from-indexes
     (value-function &rest sender-indexes)
-  (let ((merged-senders (make-hash-table :test 'equal)))
+  (let ((merged-senders (make-hash-table :test 'equalp)))
     (dolist (sender-index sender-indexes)
       (maphash
        (lambda (sender sender-transactions)
          (let ((merged-transactions
                  (or (gethash sender merged-senders)
                      (setf (gethash sender merged-senders)
-                           (make-hash-table :test 'equal)))))
+                           (make-hash-table :test 'equalp)))))
            (maphash
             (lambda (nonce transaction)
               (setf (gethash nonce merged-transactions) transaction))

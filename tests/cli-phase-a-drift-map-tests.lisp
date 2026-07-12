@@ -230,4 +230,3 @@
     (is (not (= 0 status)))
     (is (string= "" stdout))
     (is (search "--suite requires state, transaction, or blockchain" stderr))))
-

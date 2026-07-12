@@ -5,7 +5,7 @@
         (chain-store (find-package '#:ethereum-lisp.chain-store))
         (txpool (find-package '#:ethereum-lisp.txpool))
         (persistence
-          (find-package '#:ethereum-lisp.chain-store.persistence))
+          (find-package '#:ethereum-lisp.node-store.persistence))
         (core (find-package '#:ethereum-lisp.core)))
     (is (not (member core (package-use-list canonical))))
     (is (member chain-store (package-use-list canonical)))

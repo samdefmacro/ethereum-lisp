@@ -104,7 +104,7 @@
            :global-slot-limit global-slot-limit
            :local-transaction-predicate local-transaction-predicate))
         (queued-promoted nil)
-        (seen-senders (make-hash-table :test 'equal)))
+        (seen-senders (make-hash-table :test 'equalp)))
     (dolist (transaction basefee-promoted)
       (let ((sender (transaction-sender
                      transaction

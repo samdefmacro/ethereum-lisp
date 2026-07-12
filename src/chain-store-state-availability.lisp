@@ -7,7 +7,9 @@
         (gethash (engine-payload-store-key hash)
                  (memory-chain-store-state-blocks store)))))
 
-(defun chain-store-state-available-p (store hash)
+(defgeneric chain-store-state-available-p (store hash))
+
+(defmethod chain-store-state-available-p ((store t) hash)
   (engine-payload-store-state-available-p
    (chain-store-require-memory-store store)
    hash))

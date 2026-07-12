@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.chain-store.persistence)
+(in-package #:ethereum-lisp.node-store.persistence)
 
 (defun chain-store-import-invalid-tipset-from-kv
     (store tipset-identifier record)

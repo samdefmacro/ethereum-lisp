@@ -115,7 +115,7 @@
               (list (cons "jsonrpc" "2.0")
                     (cons "id" 189)
                     (cons "method" "eth_feeHistory")
-                    (cons "params" (list "0x1" "latest" '()))))
+                    (cons "params" (list "0x1" "latest" #()))))
              pending-fee-history-output)
             (cons
              (json-encode
@@ -145,21 +145,21 @@
               (list (cons "jsonrpc" "2.0")
                     (cons "id" 177)
                     (cons "method" "eth_pendingTransactions")
-                    (cons "params" '())))
+                    (cons "params" #())))
              pending-output)
             (cons
              (json-encode
               (list (cons "jsonrpc" "2.0")
                     (cons "id" 178)
                     (cons "method" "txpool_status")
-                    (cons "params" '())))
+                    (cons "params" #())))
              status-output)
             (cons
              (json-encode
               (list (cons "jsonrpc" "2.0")
                     (cons "id" 179)
                     (cons "method" "txpool_content")
-                    (cons "params" '())))
+                    (cons "params" #())))
              content-output)
             (cons
              (json-encode
@@ -173,7 +173,7 @@
               (list (cons "jsonrpc" "2.0")
                     (cons "id" 183)
                     (cons "method" "txpool_inspect")
-                    (cons "params" '())))
+                    (cons "params" #())))
              inspect-output)))
          (summary
            (ethereum-lisp.cli:start-devnet-node-listeners

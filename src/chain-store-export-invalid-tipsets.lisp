@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.chain-store.persistence)
+(in-package #:ethereum-lisp.node-store.persistence)
 
 (defun chain-store-export-invalid-tipset-to-kv
     (batch tipset-key invalid-block)
@@ -22,7 +22,7 @@
 (defun chain-store-populate-invalid-tipset-export-batch
     (store database batch)
   (setf store (chain-store-require-memory-store store))
-  (let ((current-tipset-keys (make-hash-table :test 'equal)))
+  (let ((current-tipset-keys (make-hash-table :test 'equalp)))
     (maphash
      (lambda (tipset-key invalid-block)
        (when (chain-store-invalid-tipset-exportable-p

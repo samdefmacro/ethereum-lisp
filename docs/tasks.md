@@ -7462,12 +7462,12 @@ splits can land after the Phase A smoke path closes.
     account balance, nonce, code, and storage entries for local RPC reads, and
     stale state records are deleted when a block is no longer marked
     state-available.
-  - Result: added a combined `chain-store-export-to-kv` entry point that
+  - Result: added a combined `node-store-export-to-kv` entry point that
     synchronizes canonical indexes/checkpoints, known block/header/receipt
     records, canonical transaction locations, and state-available snapshots in
     one write batch. If any export record cannot be encoded, the batch is not
     applied, preventing half-persisted chain indexes in the development store.
-  - Result: added `chain-store-import-from-kv` to restore the readable
+  - Result: added `node-store-import-from-kv` to restore the readable
     chain-store view from KV into a fresh memory store. The importer rebuilds
     known blocks, canonical number indexes, head/safe/finalized checkpoints,
     canonical transaction lookup entries, and state-available account
@@ -7477,7 +7477,7 @@ splits can land after the Phase A smoke path closes.
     import validates block existence, transaction/receipt counts, typed receipt
     prefixes, receipt bloom, per-receipt round-trip encoding, and the restored
     receipt root against the block header before exposing receipt RPC reads.
-  - Result: `chain-store-import-from-kv` now imports into a staging memory store
+  - Result: `node-store-import-from-kv` now imports into a staging memory store
     and publishes the restored readable tables only after every block, index,
     checkpoint, receipt, state, and transaction-location record validates. A
     malformed KV record no longer clears or partially overwrites an existing

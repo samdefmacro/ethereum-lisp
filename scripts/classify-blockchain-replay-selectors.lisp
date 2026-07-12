@@ -397,7 +397,7 @@ fixture-harness-error.~%")
      (cons "includePinned" (if include-pinned-p t :false))
      (cons "failuresOnly" (if failures-only-p t :false))
      (cons "families" (classifier-script-family-summaries results))
-     (cons "results" reported-results))))
+     (cons "results" (or reported-results (make-array 0))))))
 
 (defun classifier-script-main ()
   (load (merge-pathnames "tests/load-tests.lisp"

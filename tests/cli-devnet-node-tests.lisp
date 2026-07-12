@@ -493,7 +493,7 @@
                        (list (cons "jsonrpc" "2.0")
                              (cons "id" 31)
                              (cons "method" "eth_blockNumber")
-                             (cons "params" '())))
+                             (cons "params" #())))
                       block-number-output)
                      (cons
                       (json-encode
@@ -881,4 +881,3 @@
              (is (= 32 (length (engine-rpc-http-service-jwt-secret service))))))
       (when (probe-file path)
         (delete-file path)))))
-

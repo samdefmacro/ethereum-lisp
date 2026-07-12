@@ -37,18 +37,18 @@
            (progn
              (chain-store-put-prepared-payload source prepared-payload)
              (let ((database (make-file-key-value-database path)))
-               (chain-store-export-to-kv source database))
+               (node-store-export-to-kv source database))
              (let ((database (make-file-key-value-database path)))
                (multiple-value-bind (record present-p)
                    (kv-get-chain-record
                     database :prepared-payload payload-id-bytes)
                  (is present-p)
                  (is (bytes= record
-                             (ethereum-lisp.chain-store.persistence::chain-store-prepared-payload-record-rlp
+                             (ethereum-lisp.node-store.persistence::chain-store-prepared-payload-record-rlp
                               prepared-payload)))))
              (let ((database (make-file-key-value-database path)))
                (is (eq restored
-                       (chain-store-import-from-kv restored database))))
+                       (node-store-import-from-kv restored database))))
              (let ((restored-payload
                      (chain-store-prepared-payload restored payload-id)))
                (is restored-payload)
@@ -75,7 +75,7 @@
                (is (string= "0x0611" (second (field bundle "proofs"))))
                (is (string= "0x03dd" (first (field bundle "blobs")))))
              (let ((database (make-file-key-value-database path)))
-               (chain-store-export-to-kv
+               (node-store-export-to-kv
                 (make-engine-payload-memory-store)
                 database))
              (let ((database (make-file-key-value-database path)))
@@ -152,7 +152,7 @@
     (is (not (chain-store-prepared-payload store invalid-payload-id)))
     (is (not (chain-store-prepared-payload store descendant-payload-id)))))
 
-(deftest chain-store-export-to-kv-prunes-known-prepared-payload-record
+(deftest node-store-export-to-kv-prunes-known-prepared-payload-record
   (let* ((path
            (merge-pathnames
             (make-pathname
@@ -186,9 +186,9 @@
               database
               :prepared-payload
               payload-id-bytes
-              (ethereum-lisp.chain-store.persistence::chain-store-prepared-payload-record-rlp
+              (ethereum-lisp.node-store.persistence::chain-store-prepared-payload-record-rlp
                prepared-payload))
-             (chain-store-export-to-kv store database))
+             (node-store-export-to-kv store database))
            (let ((database (make-file-key-value-database path)))
              (multiple-value-bind (record present-p)
                  (kv-get-chain-record
@@ -202,7 +202,7 @@
       (when (probe-file path)
         (delete-file path)))))
 
-(deftest chain-store-import-from-kv-retains-matching-known-prepared-payload-record
+(deftest node-store-import-from-kv-retains-matching-known-prepared-payload-record
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))
     (let* ((path
@@ -279,11 +279,11 @@
                 database
                 :prepared-payload
                 (ensure-byte-vector payload-id)
-                (ethereum-lisp.chain-store.persistence::chain-store-prepared-payload-record-rlp
+                (ethereum-lisp.node-store.persistence::chain-store-prepared-payload-record-rlp
                  prepared-payload)))
              (let ((database (make-file-key-value-database path)))
                (is (eq target
-                       (chain-store-import-from-kv target database))))
+                       (node-store-import-from-kv target database))))
              (is (chain-store-known-block target (block-hash known-block)))
              (is (chain-store-prepared-payload target payload-id))
              (is (not
@@ -323,17 +323,17 @@
                             (first (field bundle "commitments"))))
                (is (= 41 (field body-response "id")))
                (is body)
-               (is (listp (field body "transactions")))
-               (is (null (field body "transactions")))
-               (is (listp (field body "withdrawals")))
-               (is (null (field body "withdrawals")))
+               (is (ethereum-lisp.json:json-empty-array-p
+                    (field body "transactions")))
+               (is (ethereum-lisp.json:json-empty-array-p
+                    (field body "withdrawals")))
                (is (string= (bytes-to-hex
                              (block-encoded-block-access-list known-block))
                             (field body "blockAccessList")))))
         (when (probe-file path)
           (delete-file path))))))
 
-(deftest chain-store-import-from-kv-drops-mismatched-known-prepared-payload-record
+(deftest node-store-import-from-kv-drops-mismatched-known-prepared-payload-record
   (let* ((path
            (merge-pathnames
             (make-pathname
@@ -396,11 +396,11 @@
               database
               :prepared-payload
               (ensure-byte-vector payload-id)
-              (ethereum-lisp.chain-store.persistence::chain-store-prepared-payload-record-rlp
+              (ethereum-lisp.node-store.persistence::chain-store-prepared-payload-record-rlp
                prepared-payload)))
            (let ((database (make-file-key-value-database path)))
              (is (eq target
-                     (chain-store-import-from-kv target database))))
+                     (node-store-import-from-kv target database))))
            (is (chain-store-known-block target (block-hash known-block)))
            (is (not (chain-store-prepared-payload target payload-id)))
            (is (not
@@ -408,7 +408,7 @@
       (when (probe-file path)
         (delete-file path)))))
 
-(deftest chain-store-import-from-kv-drops-invalid-prepared-payload-record
+(deftest node-store-import-from-kv-drops-invalid-prepared-payload-record
   (let* ((path
            (merge-pathnames
             (make-pathname
@@ -437,16 +437,16 @@
            (ethereum-lisp.chain-store:engine-payload-store-mark-invalid
             source invalid-block)
            (let ((database (make-file-key-value-database path)))
-             (chain-store-export-to-kv source database)
+             (node-store-export-to-kv source database)
              (kv-put-chain-record
               database
               :prepared-payload
               (ensure-byte-vector payload-id)
-              (ethereum-lisp.chain-store.persistence::chain-store-prepared-payload-record-rlp
+              (ethereum-lisp.node-store.persistence::chain-store-prepared-payload-record-rlp
                prepared-payload)))
            (let ((database (make-file-key-value-database path)))
              (is (eq target
-                     (chain-store-import-from-kv target database))))
+                     (node-store-import-from-kv target database))))
            (is (ethereum-lisp.chain-store:engine-payload-store-invalid-block
                 target
                 (block-hash invalid-block)))
@@ -599,7 +599,7 @@
       (is (bytes= #(#x07 #x08)
                   (first (blob-sidecar-proofs stored-bundle)))))))
 
-(deftest chain-store-import-from-kv-rejects-corrupt-prepared-payload-record
+(deftest node-store-import-from-kv-rejects-corrupt-prepared-payload-record
   (let* ((path
            (merge-pathnames
             (make-pathname
@@ -648,15 +648,15 @@
            (chain-store-put-prepared-payload target target-payload)
            (chain-store-put-prepared-payload source source-payload)
            (let ((database (make-file-key-value-database path)))
-             (chain-store-export-to-kv source database)
+             (node-store-export-to-kv source database)
              (kv-put-chain-record
               database
               :prepared-payload
               (ensure-byte-vector source-payload-id)
-              (ethereum-lisp.chain-store.persistence::chain-store-prepared-payload-record-rlp
+              (ethereum-lisp.node-store.persistence::chain-store-prepared-payload-record-rlp
                replacement-payload)))
            (signals block-validation-error
-             (chain-store-import-from-kv
+             (node-store-import-from-kv
               target
               (make-file-key-value-database path)))
            (is (chain-store-prepared-payload target target-payload-id))
@@ -665,7 +665,7 @@
       (when (probe-file path)
         (delete-file path)))))
 
-(deftest chain-store-import-from-kv-rejects-prepared-payload-version-id-mismatch
+(deftest node-store-import-from-kv-rejects-prepared-payload-version-id-mismatch
   (let* ((database (make-memory-key-value-database))
          (target (make-engine-payload-memory-store))
          (target-payload-id #(5 0 0 0 0 0 0 3))
@@ -693,11 +693,10 @@
      database
      :prepared-payload
      (ensure-byte-vector mismatched-payload-id)
-     (ethereum-lisp.chain-store.persistence::chain-store-prepared-payload-record-rlp
+     (ethereum-lisp.node-store.persistence::chain-store-prepared-payload-record-rlp
       mismatched-payload))
     (signals block-validation-error
-      (chain-store-import-from-kv target database))
+      (node-store-import-from-kv target database))
     (is (chain-store-prepared-payload target target-payload-id))
     (is (not
          (chain-store-prepared-payload target mismatched-payload-id)))))
-

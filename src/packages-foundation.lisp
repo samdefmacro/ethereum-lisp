@@ -86,6 +86,20 @@
 (defpackage #:ethereum-lisp.validation
   (:use #:cl #:ethereum-lisp.bytes)
   (:export
+   #:ethereum-lisp-error
+   #:ethereum-lisp-error-message
+   #:data-decoding-error
+   #:invalid-parameters-error
+   #:consensus-validation-error
+   #:configuration-error
+   #:storage-error
+   #:state-unavailable-error
+   #:data-decoding-fail
+   #:invalid-parameters-fail
+   #:consensus-validation-fail
+   #:configuration-fail
+   #:storage-fail
+   #:state-unavailable-fail
    #:block-validation-error
    #:block-validation-error-message
    #:block-validation-fail

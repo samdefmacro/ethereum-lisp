@@ -2,24 +2,19 @@
 
 (defun eth-rpc-local-transaction-p
     (sender txpool-local-addresses txpool-no-local-exemptions-p)
-  (and (not txpool-no-local-exemptions-p)
-       (some (lambda (local-address)
-               (string= (address-to-hex sender)
-                        (address-to-hex local-address)))
-             txpool-local-addresses)))
+  (txpool-local-transaction-p
+   sender
+   (make-txpool-admission-policy
+    :local-addresses txpool-local-addresses
+    :no-local-exemptions-p txpool-no-local-exemptions-p)))
 
 (defun eth-rpc-local-transaction-predicate
     (config txpool-local-addresses txpool-no-local-exemptions-p)
-  (lambda (transaction)
-    (let ((sender
-            (transaction-sender
-             transaction
-             :expected-chain-id (chain-config-chain-id config))))
-      (and sender
-           (eth-rpc-local-transaction-p
-            sender
-            txpool-local-addresses
-            txpool-no-local-exemptions-p)))))
+  (txpool-local-transaction-predicate
+   config
+   (make-txpool-admission-policy
+    :local-addresses txpool-local-addresses
+    :no-local-exemptions-p txpool-no-local-exemptions-p)))
 
 (defun eth-rpc-remove-expired-txpool-transactions
     (store config txpool-lifetime-seconds txpool-now

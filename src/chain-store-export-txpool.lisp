@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.chain-store.persistence)
+(in-package #:ethereum-lisp.node-store.persistence)
 
 (defparameter +chain-store-txpool-subpool-labels+
   '((:pending . "pending")
@@ -39,7 +39,7 @@
 
 (defun chain-store-populate-txpool-record-export-batch
     (store database batch)
-  (let ((current-transaction-keys (make-hash-table :test 'equal)))
+  (let ((current-transaction-keys (make-hash-table :test 'equalp)))
     (flet ((export-subpool (subpool transactions)
              (dolist (transaction transactions)
                (let ((key (hash32-to-hex (transaction-hash transaction))))
@@ -58,7 +58,7 @@
       (unless (gethash (bytes-to-hex (car entry)) current-transaction-keys)
         (kv-batch-delete-chain-record batch :txpool (car entry))))))
 
-(defun chain-store-export-txpool-records-to-kv (store database)
+(defun node-store-export-txpool-records-to-kv (store database)
   (chain-store-apply-export-batch
    store database "txpool"
    #'chain-store-populate-txpool-record-export-batch))

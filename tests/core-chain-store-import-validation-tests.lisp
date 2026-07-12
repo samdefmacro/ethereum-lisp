@@ -1,6 +1,6 @@
 (in-package #:ethereum-lisp.test)
 
-(deftest chain-store-import-from-kv-rejects-state-root-mismatch
+(deftest node-store-import-from-kv-rejects-state-root-mismatch
   (let* ((path
            (merge-pathnames
             (make-pathname
@@ -46,7 +46,7 @@
            (chain-store-put-account-balance
             target (block-hash target-block) recipient 55)
            (let ((database (make-file-key-value-database path)))
-             (chain-store-export-to-kv source database)
+             (node-store-export-to-kv source database)
              (kv-put-chain-record
               database
               :state
@@ -61,7 +61,7 @@
                  (make-rlp-list
                   (make-rlp-list (hash32-bytes slot) 22)))))))
            (signals block-validation-error
-             (chain-store-import-from-kv
+             (node-store-import-from-kv
               target
               (make-file-key-value-database path)))
            (is (= 9 (chain-store-head-number target)))
@@ -76,7 +76,7 @@
       (when (probe-file path)
         (delete-file path)))))
 
-(deftest chain-store-import-from-kv-rejects-header-record-mismatch
+(deftest node-store-import-from-kv-rejects-header-record-mismatch
   (let* ((path
            (merge-pathnames
             (make-pathname
@@ -115,14 +115,14 @@
              :finalized-block-hash (zero-hash32)))
            (chain-store-put-block target target-block :state-available-p t)
            (let ((database (make-file-key-value-database path)))
-             (chain-store-export-to-kv source database)
+             (node-store-export-to-kv source database)
              (kv-put-chain-record
               database
               :header
               (hash32-bytes (block-hash source-block))
               (block-header-rlp replacement-header)))
            (signals block-validation-error
-             (chain-store-import-from-kv
+             (node-store-import-from-kv
               target
               (make-file-key-value-database path)))
            (is (= 9 (chain-store-head-number target)))
@@ -132,7 +132,7 @@
       (when (probe-file path)
         (delete-file path)))))
 
-(deftest chain-store-import-from-kv-rejects-orphan-header-record
+(deftest node-store-import-from-kv-rejects-orphan-header-record
   (let* ((path
            (merge-pathnames
             (make-pathname
@@ -171,14 +171,14 @@
              :finalized-block-hash (zero-hash32)))
            (chain-store-put-block target target-block :state-available-p t)
            (let ((database (make-file-key-value-database path)))
-             (chain-store-export-to-kv source database)
+             (node-store-export-to-kv source database)
              (kv-put-chain-record
               database
               :header
               (hash32-bytes (block-header-hash orphan-header))
               (block-header-rlp orphan-header)))
            (signals block-validation-error
-             (chain-store-import-from-kv
+             (node-store-import-from-kv
               target
               (make-file-key-value-database path)))
            (is (= 9 (chain-store-head-number target)))
@@ -188,7 +188,7 @@
       (when (probe-file path)
         (delete-file path)))))
 
-(deftest chain-store-import-from-kv-rejects-invalid-checkpoints
+(deftest node-store-import-from-kv-rejects-invalid-checkpoints
   (let* ((path
            (merge-pathnames
             (make-pathname
@@ -249,11 +249,11 @@
              :finalized-block-hash (block-hash genesis)))
            (chain-store-put-block target target-block :state-available-p t)
            (let ((database (make-file-key-value-database path)))
-             (chain-store-export-to-kv source database)
+             (node-store-export-to-kv source database)
              (kv-put-chain-checkpoint
               database :safe (hash32-bytes (block-hash side))))
            (signals block-validation-error
-             (chain-store-import-from-kv
+             (node-store-import-from-kv
               target
               (make-file-key-value-database path)))
            (is (= 9 (chain-store-head-number target)))
@@ -264,7 +264,7 @@
       (when (probe-file path)
         (delete-file path)))))
 
-(deftest chain-store-import-from-kv-rejects-disconnected-canonical-indexes
+(deftest node-store-import-from-kv-rejects-disconnected-canonical-indexes
   (let* ((path
            (merge-pathnames
             (make-pathname
@@ -325,11 +325,11 @@
              :finalized-block-hash (block-hash genesis)))
            (chain-store-put-block target target-block :state-available-p t)
            (let ((database (make-file-key-value-database path)))
-             (chain-store-export-to-kv source database)
+             (node-store-export-to-kv source database)
              (kv-put-chain-canonical-hash
               database 1 (hash32-bytes (block-hash side))))
            (signals block-validation-error
-             (chain-store-import-from-kv
+             (node-store-import-from-kv
               target
               (make-file-key-value-database path)))
            (is (= 9 (chain-store-head-number target)))
@@ -340,7 +340,7 @@
       (when (probe-file path)
         (delete-file path)))))
 
-(deftest chain-store-import-from-kv-rejects-head-checkpoint-canonical-mismatch
+(deftest node-store-import-from-kv-rejects-head-checkpoint-canonical-mismatch
   (let* ((path
            (merge-pathnames
             (make-pathname
@@ -401,13 +401,13 @@
              :finalized-block-hash (block-hash genesis)))
            (chain-store-put-block target target-block :state-available-p t)
            (let ((database (make-file-key-value-database path)))
-             (chain-store-export-to-kv source database)
+             (node-store-export-to-kv source database)
              (kv-put-chain-checkpoint
               database :head (hash32-bytes (block-hash side)))
              (kv-delete-chain-checkpoint database :safe)
              (kv-delete-chain-checkpoint database :finalized))
            (signals block-validation-error
-             (chain-store-import-from-kv
+             (node-store-import-from-kv
               target
               (make-file-key-value-database path)))
            (is (= 9 (chain-store-head-number target)))
@@ -418,7 +418,7 @@
       (when (probe-file path)
         (delete-file path)))))
 
-(deftest chain-store-import-from-kv-rejects-indexed-txpool-record
+(deftest node-store-import-from-kv-rejects-indexed-txpool-record
   (let* ((path
            (merge-pathnames
             (make-pathname
@@ -482,16 +482,16 @@
            (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
             target target-transaction)
            (let ((database (make-file-key-value-database path)))
-             (chain-store-export-to-kv source database)
+             (node-store-export-to-kv source database)
              (kv-put-chain-record
               database
               :txpool
               (hash32-bytes transaction-hash)
-              (ethereum-lisp.chain-store.persistence::chain-store-txpool-transaction-record-rlp
+              (ethereum-lisp.node-store.persistence::chain-store-txpool-transaction-record-rlp
                :pending
                transaction)))
            (signals block-validation-error
-             (chain-store-import-from-kv
+             (node-store-import-from-kv
               target
               (make-file-key-value-database path)))
            (is (= 1
@@ -511,7 +511,7 @@
       (when (probe-file path)
         (delete-file path)))))
 
-(deftest chain-store-import-from-kv-rejects-noncanonical-transaction-location
+(deftest node-store-import-from-kv-rejects-noncanonical-transaction-location
   (let* ((path
            (merge-pathnames
             (make-pathname
@@ -582,7 +582,7 @@
              :finalized-block-hash (block-hash genesis)))
            (chain-store-put-block target target-block :state-available-p t)
            (let ((database (make-file-key-value-database path)))
-             (chain-store-export-to-kv source database)
+             (node-store-export-to-kv source database)
              (kv-put-chain-record
               database
               :transaction-location
@@ -593,7 +593,7 @@
                 0
                 0))))
            (signals block-validation-error
-             (chain-store-import-from-kv
+             (node-store-import-from-kv
               target
               (make-file-key-value-database path)))
            (is (= 9 (chain-store-head-number target)))
@@ -603,7 +603,7 @@
       (when (probe-file path)
         (delete-file path)))))
 
-(deftest chain-store-import-from-kv-rejects-location-without-receipt
+(deftest node-store-import-from-kv-rejects-location-without-receipt
   (let* ((path
            (merge-pathnames
             (make-pathname
@@ -662,11 +662,11 @@
              :finalized-block-hash (block-hash genesis)))
            (chain-store-put-block target target-block :state-available-p t)
            (let ((database (make-file-key-value-database path)))
-             (chain-store-export-to-kv source database)
+             (node-store-export-to-kv source database)
              (kv-delete-chain-record
               database :receipt (hash32-bytes (block-hash head))))
            (signals block-validation-error
-             (chain-store-import-from-kv
+             (node-store-import-from-kv
               target
               (make-file-key-value-database path)))
            (is (= 9 (chain-store-head-number target)))
@@ -676,7 +676,7 @@
       (when (probe-file path)
         (delete-file path)))))
 
-(deftest chain-store-import-from-kv-failure-keeps-existing-readable-data
+(deftest node-store-import-from-kv-failure-keeps-existing-readable-data
   (let* ((path
            (merge-pathnames
             (make-pathname
@@ -727,10 +727,10 @@
            (chain-store-put-account-balance target target-hash recipient 55)
            (chain-store-put-account-storage target target-hash recipient slot 66)
            (let ((database (make-file-key-value-database path)))
-             (chain-store-export-to-kv source database)
+             (node-store-export-to-kv source database)
              (kv-put-chain-record database :receipt source-id #(1 2 3)))
            (signals block-validation-error
-             (chain-store-import-from-kv
+             (node-store-import-from-kv
               target
               (make-file-key-value-database path)))
            (is (= 9 (chain-store-head-number target)))

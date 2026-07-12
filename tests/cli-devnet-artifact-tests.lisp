@@ -303,4 +303,3 @@
         (delete-file log-path))
       (when (probe-file config-path)
         (delete-file config-path)))))
-

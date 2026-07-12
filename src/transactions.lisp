@@ -31,27 +31,25 @@
        (block-validation-fail "Unsupported transaction type"))))
   t)
 
-(defun transaction-max-priority-fee-per-gas (transaction)
-  (etypecase transaction
-    (legacy-transaction (legacy-transaction-gas-price transaction))
-    (access-list-transaction (access-list-transaction-gas-price transaction))
-    (dynamic-fee-transaction
-     (dynamic-fee-transaction-max-priority-fee-per-gas transaction))
-    (blob-transaction
-     (blob-transaction-max-priority-fee-per-gas transaction))
-    (set-code-transaction
-     (set-code-transaction-max-priority-fee-per-gas transaction))))
+(define-transaction-reader transaction-max-priority-fee-per-gas
+  (legacy-transaction (legacy-transaction-gas-price transaction))
+  (access-list-transaction (access-list-transaction-gas-price transaction))
+  (dynamic-fee-transaction
+   (dynamic-fee-transaction-max-priority-fee-per-gas transaction))
+  (blob-transaction
+   (blob-transaction-max-priority-fee-per-gas transaction))
+  (set-code-transaction
+   (set-code-transaction-max-priority-fee-per-gas transaction)))
 
-(defun transaction-max-fee-per-gas (transaction)
-  (etypecase transaction
-    (legacy-transaction (legacy-transaction-gas-price transaction))
-    (access-list-transaction (access-list-transaction-gas-price transaction))
-    (dynamic-fee-transaction
-     (dynamic-fee-transaction-max-fee-per-gas transaction))
-    (blob-transaction
-     (blob-transaction-max-fee-per-gas transaction))
-    (set-code-transaction
-     (set-code-transaction-max-fee-per-gas transaction))))
+(define-transaction-reader transaction-max-fee-per-gas
+  (legacy-transaction (legacy-transaction-gas-price transaction))
+  (access-list-transaction (access-list-transaction-gas-price transaction))
+  (dynamic-fee-transaction
+   (dynamic-fee-transaction-max-fee-per-gas transaction))
+  (blob-transaction
+   (blob-transaction-max-fee-per-gas transaction))
+  (set-code-transaction
+   (set-code-transaction-max-fee-per-gas transaction)))
 
 (defun validate-1559-transaction-fees (transaction base-fee)
   (let ((max-priority-fee (transaction-max-priority-fee-per-gas transaction))
@@ -88,13 +86,12 @@
                                                  :base-fee base-fee)
                 base-fee))))
 
-(defun transaction-encoding (transaction)
-  (etypecase transaction
-    (legacy-transaction (legacy-transaction-rlp transaction))
-    (access-list-transaction (access-list-transaction-encoding transaction))
-    (dynamic-fee-transaction (dynamic-fee-transaction-encoding transaction))
-    (blob-transaction (blob-transaction-encoding transaction))
-    (set-code-transaction (set-code-transaction-encoding transaction))))
+(define-transaction-reader transaction-encoding
+  (legacy-transaction (legacy-transaction-rlp transaction))
+  (access-list-transaction (access-list-transaction-encoding transaction))
+  (dynamic-fee-transaction (dynamic-fee-transaction-encoding transaction))
+  (blob-transaction (blob-transaction-encoding transaction))
+  (set-code-transaction (set-code-transaction-encoding transaction)))
 
 (defun transaction-from-encoding (bytes)
   (let ((bytes (ensure-byte-vector bytes)))
@@ -161,20 +158,19 @@
    (set-code-transaction-signing-hash transaction)
    :expected-chain-id expected-chain-id))
 
-(defun transaction-sender (transaction &key expected-chain-id)
-  (etypecase transaction
-    (legacy-transaction
-     (legacy-transaction-sender transaction
-                                :expected-chain-id expected-chain-id))
-    (access-list-transaction
-     (access-list-transaction-sender transaction
-                                     :expected-chain-id expected-chain-id))
-    (dynamic-fee-transaction
-     (dynamic-fee-transaction-sender transaction
-                                     :expected-chain-id expected-chain-id))
-    (blob-transaction
-     (blob-transaction-sender transaction
-                              :expected-chain-id expected-chain-id))
-    (set-code-transaction
-     (set-code-transaction-sender transaction
-                                  :expected-chain-id expected-chain-id))))
+(defgeneric transaction-sender (transaction &key expected-chain-id))
+
+(defmacro define-transaction-sender-method (type function)
+  `(defmethod transaction-sender ((transaction ,type) &key expected-chain-id)
+     (,function transaction :expected-chain-id expected-chain-id)))
+
+(define-transaction-sender-method
+  legacy-transaction legacy-transaction-sender)
+(define-transaction-sender-method
+  access-list-transaction access-list-transaction-sender)
+(define-transaction-sender-method
+  dynamic-fee-transaction dynamic-fee-transaction-sender)
+(define-transaction-sender-method
+  blob-transaction blob-transaction-sender)
+(define-transaction-sender-method
+  set-code-transaction set-code-transaction-sender)

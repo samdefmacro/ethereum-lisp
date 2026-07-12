@@ -29,14 +29,14 @@
     (block-validation-fail "~A params must contain exactly one filter"
                            method))
   (let ((filter (first params)))
-    (unless (or (null filter) (json-object-p filter))
+    (unless (or (null filter) (json-null-p filter) (json-object-p filter))
       (block-validation-fail "~A filter must be an object" method))
-    filter))
+    (unless (json-null-p filter) filter)))
 
 (defun eth-rpc-log-filter-addresses (filter method)
   (let ((value (json-object-field filter "address")))
     (cond
-      ((null value) nil)
+      ((or (null value) (json-null-p value)) nil)
       ((stringp value)
        (list (eth-rpc-address-param value method "address")))
       ((json-empty-array-p value)
@@ -54,7 +54,7 @@
 
 (defun eth-rpc-log-filter-topic (value method)
   (cond
-      ((null value) nil)
+      ((or (null value) (json-null-p value)) nil)
       ((stringp value)
        (list (eth-rpc-hash-param (list value) method "topic")))
       ((json-empty-array-p value)
@@ -73,7 +73,7 @@
 (defun eth-rpc-log-filter-topics (filter method)
   (let ((topics (json-object-field filter "topics")))
     (cond
-      ((null topics) nil)
+      ((or (null topics) (json-null-p topics)) nil)
       ((json-array-p topics)
        (mapcar (lambda (topic)
                  (eth-rpc-log-filter-topic topic method))

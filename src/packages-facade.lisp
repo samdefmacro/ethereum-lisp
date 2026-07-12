@@ -220,6 +220,8 @@
    #:+bpo2-blob-base-fee-update-fraction+
    #:+bpo3-blob-base-fee-update-fraction+
    #:+bpo4-blob-base-fee-update-fraction+
+   #:+max-contract-code-size+
+   #:+amsterdam-max-contract-code-size+
    #:blob-schedule-entry
    #:make-blob-schedule-entry
    #:blob-schedule-entry-timestamp
@@ -319,12 +321,17 @@
    #:chain-rules-blob-schedule-max-gas
    #:chain-rules-blob-schedule-update-fraction
    #:chain-rules-expanded-blob-schedule-p
-   #:chain-rules-blob-schedule)
+   #:chain-rules-blob-schedule
+   #:chain-rules-initcode-metering-p
+   #:chain-rules-code-prefix-restricted-p
+   #:chain-rules-contract-code-size-limit
+   #:chain-rules-contract-initcode-size-limit)
   (#:ethereum-lisp.kzg
    #:+blob-byte-size+
    #:+kzg-proof-size+
    #:*kzg-point-proof-verifier*
    #:*kzg-blob-proof-verifier*
+   #:*kzg-verifier*
    #:*kzg-verifier-command-timeout-seconds*
    #:kzg-point-proof-verification-available-p
    #:kzg-blob-proof-verification-available-p
@@ -333,6 +340,7 @@
    #:verify-kzg-blob-proof
    #:make-kzg-point-proof-command-verifier
    #:make-kzg-blob-proof-command-verifier
+   #:make-kzg-command-verifier
    #:configure-kzg-proof-command-verifiers
    #:+cell-proofs-per-blob+
    #:validate-blob-sidecar-fields)
@@ -653,6 +661,7 @@
    #:chain-store-known-block
    #:chain-store-block-by-number
    #:chain-store-canonical-hash
+   #:chain-store-canonical-block-p
    #:chain-store-head-number
    #:chain-store-block-tag-number
    #:chain-store-latest-block
@@ -690,13 +699,13 @@
    #:engine-new-payload-memory-status)
   (#:ethereum-lisp.canonical-chain
    #:chain-store-set-canonical-head)
-  (#:ethereum-lisp.chain-store.persistence
+  (#:ethereum-lisp.node-store.persistence
    #:chain-store-export-indexes-to-kv
    #:chain-store-export-block-records-to-kv
    #:chain-store-export-transaction-locations-to-kv
    #:chain-store-export-state-records-to-kv
-   #:chain-store-export-to-kv
-   #:chain-store-import-from-kv)
+   #:node-store-export-to-kv
+   #:node-store-import-from-kv)
   (#:ethereum-lisp.engine-api
    #:+engine-rpc-capabilities+
    #:engine-rpc-capabilities

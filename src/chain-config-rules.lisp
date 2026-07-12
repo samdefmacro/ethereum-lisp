@@ -1,5 +1,19 @@
 (in-package #:ethereum-lisp.chain-config)
 
+(defun chain-rules-initcode-metering-p (rules)
+  (or (null rules) (chain-rules-shanghai-p rules)))
+
+(defun chain-rules-code-prefix-restricted-p (rules)
+  (or (null rules) (chain-rules-london-p rules)))
+
+(defun chain-rules-contract-code-size-limit (rules)
+  (if (and rules (chain-rules-amsterdam-p rules))
+      +amsterdam-max-contract-code-size+
+      +max-contract-code-size+))
+
+(defun chain-rules-contract-initcode-size-limit (rules)
+  (* 2 (chain-rules-contract-code-size-limit rules)))
+
 (defun chain-config-rules (config block-number timestamp)
   (multiple-value-bind (target-blob-gas max-blob-gas update-fraction)
       (chain-config-blob-schedule config block-number timestamp)

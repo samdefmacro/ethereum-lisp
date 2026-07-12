@@ -11,7 +11,7 @@
        (eth-rpc-header-object header)
        (list
         (cons "size" (quantity-to-hex (length (eth-rpc-block-rlp block))))
-        (cons "uncles" '()))))))
+        (cons "uncles" #()))))))
 
 (defun eth-rpc-ommer-by-index (block index)
   (when (and block (< index (length (block-ommers block))))

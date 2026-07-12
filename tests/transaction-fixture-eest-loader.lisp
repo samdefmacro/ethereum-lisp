@@ -459,7 +459,7 @@
                transaction)
               (handler-case
                   (progn
-                    (ethereum-lisp.public-api::eth-rpc-validate-set-code-authorization-signatures
+                    (ethereum-lisp.consensus:validate-set-code-authorization-signatures
                      transaction)
                     "accepted")
                 (error () "signature")))

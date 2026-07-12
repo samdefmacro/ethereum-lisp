@@ -15,7 +15,7 @@
          (sender-transactions
            (or (gethash sender sender-index)
                (setf (gethash sender sender-index)
-                     (make-hash-table :test 'equal)))))
+                     (make-hash-table :test 'equalp)))))
     (setf (gethash nonce sender-transactions) transaction)))
 
 (defun engine-pending-txpool-unindex-transaction

@@ -20,7 +20,7 @@
             (list (cons "jsonrpc" "2.0")
                   (cons "id" 171)
                   (cons "method" "eth_blockNumber")
-                  (cons "params" '()))))
+                  (cons "params" #()))))
          (summary
            (ethereum-lisp.cli:start-devnet-node-listeners
             node

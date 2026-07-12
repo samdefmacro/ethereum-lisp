@@ -29,7 +29,7 @@
            (ethereum-lisp.chain-store:engine-payload-store-put-remote-block
             source remote)
            (let ((database (make-file-key-value-database path)))
-             (chain-store-export-to-kv source database))
+             (node-store-export-to-kv source database))
            (let ((database (make-file-key-value-database path)))
              (multiple-value-bind (record present-p)
                  (kv-get-chain-record database :remote-block remote-id)
@@ -37,7 +37,7 @@
                (is (bytes= (block-rlp remote) record))))
            (let ((database (make-file-key-value-database path)))
              (is (eq restored
-                     (chain-store-import-from-kv restored database))))
+                     (node-store-import-from-kv restored database))))
            (let ((restored-remote
                    (ethereum-lisp.chain-store:engine-payload-store-remote-block
                     restored
@@ -46,7 +46,7 @@
              (is (bytes= (block-rlp remote)
                          (block-rlp restored-remote))))
            (let ((database (make-file-key-value-database path)))
-             (chain-store-export-to-kv
+             (node-store-export-to-kv
               (make-engine-payload-memory-store)
               database))
            (let ((database (make-file-key-value-database path)))
@@ -120,7 +120,7 @@
       (is (= 0 (block-header-gas-used (block-header cached-remote))))
       (is (= 0 (block-header-gas-used (block-header cached-invalid)))))))
 
-(deftest chain-store-import-from-kv-rejects-corrupt-remote-block-record
+(deftest node-store-import-from-kv-rejects-corrupt-remote-block-record
   (let* ((path
            (merge-pathnames
             (make-pathname
@@ -172,14 +172,14 @@
            (ethereum-lisp.chain-store:engine-payload-store-put-remote-block
             source remote)
            (let ((database (make-file-key-value-database path)))
-             (chain-store-export-to-kv source database)
+             (node-store-export-to-kv source database)
              (kv-put-chain-record
               database
               :remote-block
               (hash32-bytes (block-hash remote))
               (block-rlp replacement)))
            (signals block-validation-error
-             (chain-store-import-from-kv
+             (node-store-import-from-kv
               target
               (make-file-key-value-database path)))
            (is (ethereum-lisp.chain-store:engine-payload-store-remote-block
@@ -192,7 +192,7 @@
       (when (probe-file path)
         (delete-file path)))))
 
-(deftest chain-store-import-from-kv-drops-known-remote-block-record
+(deftest node-store-import-from-kv-drops-known-remote-block-record
   (let* ((path
            (merge-pathnames
             (make-pathname
@@ -231,7 +231,7 @@
             target target-remote)
            (chain-store-put-block source known-block :state-available-p t)
            (let ((database (make-file-key-value-database path)))
-             (chain-store-export-to-kv source database)
+             (node-store-export-to-kv source database)
              (kv-put-chain-record
              database
              :remote-block
@@ -239,7 +239,7 @@
              (block-rlp known-block)))
            (let ((database (make-file-key-value-database path)))
              (is (eq target
-                     (chain-store-import-from-kv target database))))
+                     (node-store-import-from-kv target database))))
            (is (not
                 (ethereum-lisp.chain-store:engine-payload-store-remote-block
                  target
@@ -252,7 +252,7 @@
       (when (probe-file path)
         (delete-file path)))))
 
-(deftest chain-store-import-from-kv-drops-invalid-remote-block-record
+(deftest node-store-import-from-kv-drops-invalid-remote-block-record
   (let* ((path
            (merge-pathnames
             (make-pathname
@@ -292,7 +292,7 @@
            (ethereum-lisp.chain-store:engine-payload-store-mark-invalid
             source invalid-block)
            (let ((database (make-file-key-value-database path)))
-             (chain-store-export-to-kv source database)
+             (node-store-export-to-kv source database)
              (kv-put-chain-record
              database
              :remote-block
@@ -300,7 +300,7 @@
              (block-rlp invalid-block)))
            (let ((database (make-file-key-value-database path)))
              (is (eq target
-                     (chain-store-import-from-kv target database))))
+                     (node-store-import-from-kv target database))))
            (is (not
                 (ethereum-lisp.chain-store:engine-payload-store-remote-block
                  target

@@ -349,7 +349,7 @@ implementation drift.~%")
                    (drift-map-field report "families")))
      (cons "results"
            (if summary-only-p
-               nil
+               (make-array 0)
                (mapcar #'drift-map-canonical-result
                        (drift-map-field report "results")))))))
 

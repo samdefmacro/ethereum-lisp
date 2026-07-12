@@ -133,14 +133,14 @@
 (defun rpc-handle-request (request context)
   (unless (typep context 'rpc-context)
     (block-validation-fail "JSON-RPC context must be an rpc-context"))
-  (let ((id (and (listp request)
+  (let ((id (and (json-object-p request)
                  (json-object-field request "id")))
         (notification-p (json-rpc-notification-p request)))
     (handler-case
         (let ((response
                 (cond
-                  ((not (listp request))
-                   (block-validation-fail
+                  ((not (json-object-p request))
+                   (invalid-parameters-fail
                     "JSON-RPC request must be an object"))
                   ((not (json-rpc-request-valid-p request))
                    (json-rpc-invalid-request-response))
@@ -170,7 +170,15 @@
            :error
            (json-rpc-error-object
             -32602
-            (block-validation-error-message condition))))))))
+            (block-validation-error-message condition)))))
+      (invalid-parameters-error (condition)
+        (unless notification-p
+          (json-rpc-response
+           id
+           :error
+           (json-rpc-error-object
+            -32602
+            (ethereum-lisp-error-message condition))))))))
 
 (defun rpc-handle-request-value (request context)
   (cond

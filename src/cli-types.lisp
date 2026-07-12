@@ -1,26 +1,77 @@
 (in-package #:ethereum-lisp.cli)
 
+(defstruct (devnet-endpoint-config
+            (:constructor %make-devnet-endpoint-config
+                (&key host port rpc-prefix cors-origins allowed-hosts
+                      allowed-method-p)))
+  host
+  port
+  rpc-prefix
+  cors-origins
+  allowed-hosts
+  allowed-method-p)
+
+(defun make-devnet-endpoint-config
+    (&key host port rpc-prefix cors-origins allowed-hosts allowed-method-p)
+  (%make-devnet-endpoint-config
+   :host host
+   :port port
+   :rpc-prefix rpc-prefix
+   :cors-origins (and cors-origins (copy-list cors-origins))
+   :allowed-hosts (and allowed-hosts (copy-list allowed-hosts))
+   :allowed-method-p allowed-method-p))
+
+(defstruct (devnet-txpool-policy
+            (:constructor %make-devnet-txpool-policy
+                (&key allow-unprotected-transactions-p price-limit
+                      price-bump-percent account-slot-limit global-slot-limit
+                      account-queue-limit global-queue-limit local-addresses
+                      no-local-exemptions-p lifetime-seconds)))
+  allow-unprotected-transactions-p
+  price-limit
+  price-bump-percent
+  account-slot-limit
+  global-slot-limit
+  account-queue-limit
+  global-queue-limit
+  local-addresses
+  no-local-exemptions-p
+  lifetime-seconds)
+
+(defun make-devnet-txpool-policy
+    (&key allow-unprotected-transactions-p price-limit price-bump-percent
+          account-slot-limit global-slot-limit account-queue-limit
+          global-queue-limit local-addresses no-local-exemptions-p
+          lifetime-seconds)
+  (%make-devnet-txpool-policy
+   :allow-unprotected-transactions-p allow-unprotected-transactions-p
+   :price-limit price-limit
+   :price-bump-percent price-bump-percent
+   :account-slot-limit account-slot-limit
+   :global-slot-limit global-slot-limit
+   :account-queue-limit account-queue-limit
+   :global-queue-limit global-queue-limit
+   :local-addresses (and local-addresses (copy-list local-addresses))
+   :no-local-exemptions-p no-local-exemptions-p
+   :lifetime-seconds lifetime-seconds))
+
+(defstruct (devnet-kzg-config
+            (:constructor make-devnet-kzg-config
+                (&key command timeout-seconds)))
+  command
+  timeout-seconds)
+
 (defstruct (devnet-node
             (:constructor %make-devnet-node
                 (&key genesis-path store config genesis-block service
                       public-service telemetry-sink jwt-secret-path log-path
                       database-path pid-file-path network-id
-                      public-api-modules engine-cors-origins
-                      public-cors-origins
-                      engine-vhosts public-vhosts dev-mode-p coinbase
-                      allow-unprotected-transactions-p
-                      txpool-price-limit txpool-price-bump-percent
-                      txpool-account-slot-limit
-                      txpool-global-slot-limit
-                      txpool-account-queue-limit
-                      txpool-global-queue-limit
-                      txpool-local-addresses txpool-no-local-exemptions-p
-                      txpool-lifetime-seconds
+                      public-api-modules engine-endpoint-config
+                      public-endpoint-config txpool-policy kzg-config
+                      dev-mode-p coinbase
                       txpool-journal-path
                       txpool-rejournal-seconds
-                      dev-period-seconds
-                      kzg-verifier-command
-                      kzg-verifier-timeout-seconds)))
+                      dev-period-seconds)))
   genesis-path
   store
   config
@@ -34,27 +85,69 @@
   pid-file-path
   network-id
   public-api-modules
-  engine-cors-origins
-  public-cors-origins
-  engine-vhosts
-  public-vhosts
+  engine-endpoint-config
+  public-endpoint-config
+  txpool-policy
+  kzg-config
   dev-mode-p
   coinbase
-  allow-unprotected-transactions-p
-  txpool-price-limit
-  txpool-price-bump-percent
-  txpool-account-slot-limit
-  txpool-global-slot-limit
-  txpool-account-queue-limit
-  txpool-global-queue-limit
-  txpool-local-addresses
-  txpool-no-local-exemptions-p
-  txpool-lifetime-seconds
   txpool-journal-path
   txpool-rejournal-seconds
-  dev-period-seconds
-  kzg-verifier-command
-  kzg-verifier-timeout-seconds)
+  dev-period-seconds)
+
+(defun devnet-node-engine-cors-origins (node)
+  (devnet-endpoint-config-cors-origins
+   (devnet-node-engine-endpoint-config node)))
+
+(defun devnet-node-public-cors-origins (node)
+  (devnet-endpoint-config-cors-origins
+   (devnet-node-public-endpoint-config node)))
+
+(defun devnet-node-engine-vhosts (node)
+  (devnet-endpoint-config-allowed-hosts
+   (devnet-node-engine-endpoint-config node)))
+
+(defun devnet-node-public-vhosts (node)
+  (devnet-endpoint-config-allowed-hosts
+   (devnet-node-public-endpoint-config node)))
+
+(defun devnet-node-allow-unprotected-transactions-p (node)
+  (devnet-txpool-policy-allow-unprotected-transactions-p
+   (devnet-node-txpool-policy node)))
+
+(defun devnet-node-txpool-price-limit (node)
+  (devnet-txpool-policy-price-limit (devnet-node-txpool-policy node)))
+
+(defun devnet-node-txpool-price-bump-percent (node)
+  (devnet-txpool-policy-price-bump-percent (devnet-node-txpool-policy node)))
+
+(defun devnet-node-txpool-account-slot-limit (node)
+  (devnet-txpool-policy-account-slot-limit (devnet-node-txpool-policy node)))
+
+(defun devnet-node-txpool-global-slot-limit (node)
+  (devnet-txpool-policy-global-slot-limit (devnet-node-txpool-policy node)))
+
+(defun devnet-node-txpool-account-queue-limit (node)
+  (devnet-txpool-policy-account-queue-limit (devnet-node-txpool-policy node)))
+
+(defun devnet-node-txpool-global-queue-limit (node)
+  (devnet-txpool-policy-global-queue-limit (devnet-node-txpool-policy node)))
+
+(defun devnet-node-txpool-local-addresses (node)
+  (devnet-txpool-policy-local-addresses (devnet-node-txpool-policy node)))
+
+(defun devnet-node-txpool-no-local-exemptions-p (node)
+  (devnet-txpool-policy-no-local-exemptions-p
+   (devnet-node-txpool-policy node)))
+
+(defun devnet-node-txpool-lifetime-seconds (node)
+  (devnet-txpool-policy-lifetime-seconds (devnet-node-txpool-policy node)))
+
+(defun devnet-node-kzg-verifier-command (node)
+  (devnet-kzg-config-command (devnet-node-kzg-config node)))
+
+(defun devnet-node-kzg-verifier-timeout-seconds (node)
+  (devnet-kzg-config-timeout-seconds (devnet-node-kzg-config node)))
 
 (defstruct devnet-shutdown-controller
   requested-p

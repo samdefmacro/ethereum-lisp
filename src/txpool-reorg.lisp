@@ -39,7 +39,7 @@
 
 (defun engine-payload-store-reinsert-displaced-block-transactions
     (store blocks &key expected-chain-id chain-config)
-  (let ((seen-transactions (make-hash-table :test 'equal))
+  (let ((seen-transactions (make-hash-table :test 'equalp))
         (reinserted-transactions nil))
     (dolist (block (sort (copy-list blocks)
                          #'<

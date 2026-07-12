@@ -22,3 +22,21 @@
 (deftest sized-types-reject-invalid-length
   (signals error (make-address #(1 2 3)))
   (signals error (make-hash32 #(1 2 3))))
+
+(deftest address-owns-and-protects-its-bytes
+  (let* ((source (make-byte-vector 20))
+         (address (make-address source)))
+    (setf (aref source 19) #xaa)
+    (is (= 0 (aref (address-bytes address) 19)))
+    (let ((view (address-bytes address)))
+      (setf (aref view 19) #xbb)
+      (is (= 0 (aref (address-bytes address) 19))))))
+
+(deftest hash32-owns-and-protects-its-bytes
+  (let* ((source (make-byte-vector 32))
+         (hash (make-hash32 source)))
+    (setf (aref source 31) #xaa)
+    (is (= 0 (aref (hash32-bytes hash) 31)))
+    (let ((view (hash32-bytes hash)))
+      (setf (aref view 31) #xbb)
+      (is (= 0 (aref (hash32-bytes hash) 31))))))

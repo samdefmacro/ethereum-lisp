@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.chain-store.persistence)
+(in-package #:ethereum-lisp.node-store.persistence)
 
 (defun chain-store-txpool-transaction-record-values (record)
   (handler-case
@@ -111,7 +111,7 @@
       (chain-store-import-txpool-transaction-to-subpool
        txpool subpool transaction))))
 
-(defun chain-store-import-txpool-records-from-kv
+(defun node-store-import-txpool-records-from-kv
     (store database &key expected-chain-id chain-config)
   (dolist (entry (kv-chain-record-entries database :txpool))
     (chain-store-import-txpool-transaction-from-kv
@@ -121,7 +121,7 @@
      :expected-chain-id expected-chain-id
      :chain-config chain-config)))
 
-(defun chain-store-restore-txpool-consistency
+(defun node-store-restore-txpool-consistency
     (store &key expected-chain-id chain-config)
   (let ((head (chain-store-latest-block store)))
     (when head

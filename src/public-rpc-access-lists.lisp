@@ -12,11 +12,11 @@
       (eth-rpc-precompile-access-key-p key)))
 
 (defun eth-rpc-access-list-groups (accessed-addresses accessed-storage)
-  (let ((groups (make-hash-table :test 'equal)))
+  (let ((groups (make-hash-table :test 'equalp)))
     (labels ((ensure-group (address-hex)
                (or (gethash address-hex groups)
                    (setf (gethash address-hex groups)
-                         (make-hash-table :test 'equal)))))
+                         (make-hash-table :test 'equalp)))))
       (maphash
        (lambda (key value)
          (declare (ignore value))

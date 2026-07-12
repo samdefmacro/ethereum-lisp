@@ -162,3 +162,9 @@ without changing consensus behavior when no verifier is configured."
         *kzg-blob-proof-verifier*
         (make-kzg-blob-proof-command-verifier command))
   t)
+
+(defun make-kzg-command-verifier (command)
+  "Create a verifier object backed by COMMAND without mutating global hooks."
+  (make-kzg-verifier
+   :point-proof-function (make-kzg-point-proof-command-verifier command)
+   :blob-proof-function (make-kzg-blob-proof-command-verifier command)))

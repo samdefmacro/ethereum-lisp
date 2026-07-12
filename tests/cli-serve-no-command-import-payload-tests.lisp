@@ -73,7 +73,7 @@
             (list (cons "jsonrpc" "2.0")
                   (cons "id" 823)
                   (cons "method" "eth_blockNumber")
-                  (cons "params" '()))))
+                  (cons "params" #()))))
          (balance-body
            (json-encode (engine-fixture-balance-request 824 recipient)))
          (net-version-body
@@ -81,19 +81,19 @@
             (list (cons "jsonrpc" "2.0")
                   (cons "id" 826)
                   (cons "method" "net_version")
-                  (cons "params" '()))))
+                  (cons "params" #()))))
          (client-version-body
            (json-encode
             (list (cons "jsonrpc" "2.0")
                   (cons "id" 827)
                   (cons "method" "web3_clientVersion")
-                  (cons "params" '()))))
+                  (cons "params" #()))))
          (rpc-modules-body
            (json-encode
             (list (cons "jsonrpc" "2.0")
                   (cons "id" 828)
                   (cons "method" "rpc_modules")
-                  (cons "params" '()))))
+                  (cons "params" #()))))
          (genesis-path
            (devnet-cli-temp-path
             "ethereum-lisp-script-no-command-split-import-genesis" "json"))

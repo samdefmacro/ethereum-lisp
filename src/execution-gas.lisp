@@ -21,9 +21,6 @@
 (defun call-transaction-context-base-fee (gas-price base-fee)
   (if (zerop gas-price) 0 base-fee))
 
-(defun eip3860-initcode-rules-active-p (rules)
-  (or (null rules) (chain-rules-shanghai-p rules)))
-
 (defun transaction-intrinsic-gas (transaction &key (eip3860-p t))
   (let ((gas (if (transaction-to transaction)
                  +transaction-gas+
@@ -46,7 +43,7 @@
 (defun execution-transaction-intrinsic-gas (tx rules)
   (transaction-intrinsic-gas
    tx
-   :eip3860-p (eip3860-initcode-rules-active-p rules)))
+   :eip3860-p (chain-rules-initcode-metering-p rules)))
 
 (defun transaction-evm-gas-used (tx result &optional rules)
   (+ (execution-transaction-intrinsic-gas tx rules)
@@ -55,28 +52,17 @@
 (defun contract-code-deposit-gas (code)
   (* +create-data-gas+ (length (ensure-byte-vector code))))
 
-(defun eip3541-code-prefix-restricted-p (rules)
-  (or (null rules) (chain-rules-london-p rules)))
-
-(defun contract-code-size-limit (rules)
-  (if (and rules (chain-rules-amsterdam-p rules))
-      +amsterdam-max-contract-code-size+
-      +max-contract-code-size+))
-
-(defun contract-initcode-size-limit (rules)
-  (* 2 (contract-code-size-limit rules)))
-
 (defun invalid-contract-runtime-code-p (code &optional rules)
   (let ((code (ensure-byte-vector code)))
-    (or (> (length code) (contract-code-size-limit rules))
-        (and (eip3541-code-prefix-restricted-p rules)
+    (or (> (length code) (chain-rules-contract-code-size-limit rules))
+        (and (chain-rules-code-prefix-restricted-p rules)
              (plusp (length code))
              (= (aref code 0) #xef)))))
 
 (defun validate-contract-initcode-size (tx &optional rules)
-  (when (and (eip3860-initcode-rules-active-p rules)
+  (when (and (chain-rules-initcode-metering-p rules)
              (> (length (ensure-byte-vector (transaction-data tx)))
-                (contract-initcode-size-limit rules)))
+                (chain-rules-contract-initcode-size-limit rules)))
     (error 'transaction-validation-error
            :message "Contract initcode exceeds maximum size"))
   t)

@@ -189,10 +189,10 @@
     (validate-eest-blockchain-address-string
      address
      (format nil "~A pre account address" label))
-    (unless (listp account)
+    (unless (fixture-json-object-p account)
       (error "~A pre account ~A must be a JSON object" label address))
     (let ((storage (or (fixture-object-field account "storage") '())))
-      (unless (listp storage)
+      (unless (fixture-json-object-p storage)
         (error "~A pre account ~A storage must be a JSON object"
                label address))
       (list
@@ -217,7 +217,9 @@
                                  address))
                         (quantity-to-hex
                          (hex-to-quantity (cdr storage-entry)))))
-                     storage))))))
+                     (ethereum-lisp.json:json-object-entries
+                      storage
+                      (format nil "~A pre account ~A storage" label address))))))))
 
 (defun eest-blockchain-normalized-storage-slot (value label)
   (unless (stringp value)
@@ -477,4 +479,3 @@
     (unless case
       (error "Fixture case not found: ~A" name))
     (report-handwritten-fixture-case fixture case path)))
-

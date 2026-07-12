@@ -4,23 +4,23 @@
 
 (defstruct (engine-pending-txpool
             (:constructor make-engine-pending-txpool
-                (&key (transactions (make-hash-table :test 'equal))
+                (&key (transactions (make-hash-table :test 'equalp))
                       (transactions-by-sender
-                       (make-hash-table :test 'equal))
+                       (make-hash-table :test 'equalp))
                       (queued-transactions
-                       (make-hash-table :test 'equal))
+                       (make-hash-table :test 'equalp))
                       (queued-transactions-by-sender
-                       (make-hash-table :test 'equal))
+                       (make-hash-table :test 'equalp))
                       (basefee-transactions
-                       (make-hash-table :test 'equal))
+                       (make-hash-table :test 'equalp))
                       (basefee-transactions-by-sender
-                       (make-hash-table :test 'equal))
+                       (make-hash-table :test 'equalp))
                       (blob-transactions
-                       (make-hash-table :test 'equal))
+                       (make-hash-table :test 'equalp))
                       (blob-transactions-by-sender
-                       (make-hash-table :test 'equal))
+                       (make-hash-table :test 'equalp))
                       (transaction-admitted-at
-                       (make-hash-table :test 'equal)))))
+                       (make-hash-table :test 'equalp)))))
   transactions
   transactions-by-sender
   queued-transactions

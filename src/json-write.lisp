@@ -1,10 +1,5 @@
 (in-package #:ethereum-lisp.json)
 
-(defstruct (json-empty-object
-            (:constructor make-json-empty-object ())))
-
-(defparameter +json-empty-object+ (make-json-empty-object))
-
 (defun write-json-string (string stream)
   (write-char #\" stream)
   (loop for char across string
@@ -36,9 +31,9 @@
 
 (defun write-json-value (value stream)
   (cond
-    ((null value) (write-string "null" stream))
+    ((or (null value) (json-null-p value)) (write-string "null" stream))
     ((eq value t) (write-string "true" stream))
-    ((eq value :false) (write-string "false" stream))
+    ((json-false-p value) (write-string "false" stream))
     ((json-empty-object-p value) (write-string "{}" stream))
     ((stringp value) (write-json-string value stream))
     ((integerp value) (write-string (write-to-string value :base 10) stream))

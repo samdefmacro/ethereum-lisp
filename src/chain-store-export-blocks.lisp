@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.chain-store.persistence)
+(in-package #:ethereum-lisp.node-store.persistence)
 
 (defun block-receipts-record-rlp (block)
   (let ((transactions (block-transactions block))

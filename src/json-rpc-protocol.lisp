@@ -39,6 +39,7 @@
   (or (not (json-object-field-present-p request "id"))
       (let ((id (json-object-field request "id")))
         (or (null id)
+            (json-null-p id)
             (stringp id)
             (numberp id)))))
 

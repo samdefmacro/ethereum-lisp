@@ -113,7 +113,8 @@
                        (field payload "prevRandao")))
           (is (string= (address-to-hex (zero-address))
                        (field payload "feeRecipient")))
-          (is (not (field payload "transactions"))))
+          (is (ethereum-lisp.json:json-empty-array-p
+               (field payload "transactions"))))
         (let* ((get-payload-v2-response
                  (engine-rpc-handle-request
                   (list (cons "jsonrpc" "2.0")
@@ -129,7 +130,8 @@
           (is (string= (hash32-to-hex known-hash)
                        (field payload "parentHash")))
           (is (= 1 (hex-to-quantity (field payload "blockNumber"))))
-          (is (not (field payload "transactions"))))
+          (is (ethereum-lisp.json:json-empty-array-p
+               (field payload "transactions"))))
         (let* ((checkpoint-response
                  (engine-rpc-handle-request
                   (forkchoice-request
@@ -643,8 +645,9 @@
                (empty-payload-id
                  (field (field empty-prepare-response "result") "payloadId")))
           (is (stringp empty-payload-id))
-          (is (not (get-payload-transactions
-                    202 empty-payload-id store config)))
+          (is (ethereum-lisp.json:json-empty-array-p
+               (get-payload-transactions
+                202 empty-payload-id store config)))
           (is (string= (hash32-to-hex (transaction-hash transaction))
                        (field (send-raw
                                203 raw-transaction store config)
@@ -665,8 +668,9 @@
             (is (= 1 (length txpool-payload-transactions)))
             (is (string= raw-transaction
                          (first txpool-payload-transactions)))
-            (is (not (get-payload-transactions
-                      206 empty-payload-id store config)))))))))
+            (is (ethereum-lisp.json:json-empty-array-p
+                 (get-payload-transactions
+                  206 empty-payload-id store config)))))))))
 
 (deftest engine-rpc-forkchoice-updated-v1-refreshes-txpool-replacement-payload-id
   (labels ((field (object name)
@@ -1111,9 +1115,12 @@
           (is (string= "0x0" (field payload "blobGasUsed")))
           (is (string= "0x0" (field payload "excessBlobGas")))
           (is (= 1 (length withdrawals)))
-          (is (listp (field bundle "commitments")))
-          (is (listp (field bundle "proofs")))
-          (is (listp (field bundle "blobs"))))))))
+          (is (ethereum-lisp.json:json-empty-array-p
+               (field bundle "commitments")))
+          (is (ethereum-lisp.json:json-empty-array-p
+               (field bundle "proofs")))
+          (is (ethereum-lisp.json:json-empty-array-p
+               (field bundle "blobs"))))))))
 
 (deftest engine-rpc-forkchoice-updated-v4-prepares-amsterdam-payload
   (labels ((field (object name)
@@ -1194,7 +1201,9 @@
           (is (string= "0x0" (field payload "blobGasUsed")))
           (is (string= "0x0" (field payload "excessBlobGas")))
           (is (= 1 (length withdrawals)))
-          (is (listp (field bundle "commitments")))
-          (is (listp (field bundle "proofs")))
-          (is (listp (field bundle "blobs"))))))))
-
+          (is (ethereum-lisp.json:json-empty-array-p
+               (field bundle "commitments")))
+          (is (ethereum-lisp.json:json-empty-array-p
+               (field bundle "proofs")))
+          (is (ethereum-lisp.json:json-empty-array-p
+               (field bundle "blobs"))))))))

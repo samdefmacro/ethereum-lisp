@@ -2,6 +2,11 @@
 
 ;;;; Engine API payload, blob, body, and status response rendering.
 
+(defun engine-rpc-json-array (function values)
+  (if (zerop (length values))
+      #()
+      (map 'list function values)))
+
 (defun engine-rpc-withdrawal-object (withdrawal)
   (list (cons "index" (quantity-to-hex (withdrawal-index withdrawal)))
         (cons "validatorIndex"
@@ -41,12 +46,14 @@
     (cons "blockHash"
           (hash32-to-hex (executable-data-block-hash payload)))
     (cons "transactions"
-          (mapcar #'bytes-to-hex (executable-data-transactions payload))))
+          (engine-rpc-json-array
+           #'bytes-to-hex (executable-data-transactions payload))))
    (when (or (executable-data-withdrawals-present-p payload)
              (executable-data-withdrawals payload))
      (list (cons "withdrawals"
-                 (mapcar #'engine-rpc-withdrawal-object
-                         (or (executable-data-withdrawals payload) '())))))
+                 (engine-rpc-json-array
+                  #'engine-rpc-withdrawal-object
+                  (or (executable-data-withdrawals payload) '())))))
    (when (executable-data-blob-gas-used payload)
      (list
       (cons "blobGasUsed"
@@ -70,14 +77,14 @@
        "Engine RPC blobs bundle must be a blob sidecar"))
     (list
      (cons "commitments"
-           (mapcar #'bytes-to-hex
-                   (blob-sidecar-commitments sidecar)))
+           (engine-rpc-json-array
+            #'bytes-to-hex (blob-sidecar-commitments sidecar)))
      (cons "proofs"
-           (mapcar #'bytes-to-hex
-                   (blob-sidecar-proofs sidecar)))
+           (engine-rpc-json-array
+            #'bytes-to-hex (blob-sidecar-proofs sidecar)))
      (cons "blobs"
-           (mapcar #'bytes-to-hex
-                   (blob-sidecar-blobs sidecar))))))
+           (engine-rpc-json-array
+            #'bytes-to-hex (blob-sidecar-blobs sidecar))))))
 
 (defun engine-rpc-blob-and-proof-v1-object (blob-and-proofs)
   (unless (typep blob-and-proofs 'engine-blob-and-proofs)
@@ -105,7 +112,7 @@
            (bytes-to-hex
             (engine-blob-and-proofs-blob blob-and-proofs)))
      (cons "proofs"
-           (mapcar #'bytes-to-hex cell-proofs)))))
+           (engine-rpc-json-array #'bytes-to-hex cell-proofs)))))
 
 (defun engine-rpc-execution-payload-envelope-object
     (envelope &key include-blobs-bundle-p include-override-p)
@@ -122,8 +129,9 @@
    (when (execution-payload-envelope-requests envelope)
      (list
       (cons "executionRequests"
-            (mapcar #'bytes-to-hex
-                    (execution-payload-envelope-requests envelope)))))
+            (engine-rpc-json-array
+             #'bytes-to-hex
+             (execution-payload-envelope-requests envelope)))))
    (when include-blobs-bundle-p
      (list
       (cons "blobsBundle"
@@ -143,14 +151,16 @@
   (append
    (list
     (cons "transactions"
-          (mapcar (lambda (transaction)
-                    (bytes-to-hex (transaction-encoding transaction)))
-                  (block-transactions block))))
+          (engine-rpc-json-array
+           (lambda (transaction)
+             (bytes-to-hex (transaction-encoding transaction)))
+           (block-transactions block))))
    (when (block-withdrawals-present-p block)
      (list
       (cons "withdrawals"
-            (mapcar #'engine-rpc-withdrawal-object
-                    (block-withdrawals block)))))))
+            (engine-rpc-json-array
+             #'engine-rpc-withdrawal-object
+             (block-withdrawals block)))))))
 
 (defun engine-rpc-payload-body-v2-object (block)
   (append

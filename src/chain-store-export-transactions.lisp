@@ -1,4 +1,4 @@
-(in-package #:ethereum-lisp.chain-store.persistence)
+(in-package #:ethereum-lisp.node-store.persistence)
 
 (defun transaction-location-record-rlp (location)
   (rlp-encode
@@ -19,7 +19,7 @@
 (defun chain-store-populate-transaction-location-export-batch
     (store database batch)
   (setf store (chain-store-require-memory-store store))
-  (let ((canonical-transaction-keys (make-hash-table :test 'equal)))
+  (let ((canonical-transaction-keys (make-hash-table :test 'equalp)))
     (maphash
      (lambda (transaction-key location)
        (when (engine-payload-store-canonical-block-p

@@ -11,7 +11,7 @@
     (error "Devnet node must be devnet-node"))
   (let ((journal-path (devnet-node-txpool-journal-path node)))
     (when journal-path
-      (chain-store-export-txpool-records-to-kv
+      (node-store-export-txpool-records-to-kv
        (devnet-node-store node)
        (devnet-cli-make-output-kv-database journal-path))
       t)))
@@ -187,7 +187,7 @@
   (devnet-node-prune-state-before node state-prune-before)
   (let ((database-path (devnet-node-database-path node)))
     (when database-path
-      (chain-store-export-to-kv
+      (node-store-export-to-kv
        (devnet-node-store node)
        (devnet-cli-make-output-kv-database database-path))))
   (devnet-node-rejournal node))

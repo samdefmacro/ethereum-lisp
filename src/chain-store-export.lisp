@@ -1,9 +1,9 @@
-(in-package #:ethereum-lisp.chain-store.persistence)
+(in-package #:ethereum-lisp.node-store.persistence)
 
-(defun chain-store-export-to-kv (store database)
+(defun node-store-export-to-kv (store database)
   (let ((chain-store (chain-store-require-memory-store store)))
     (unless (typep database 'key-value-database)
-      (block-validation-fail "Chain export target must be a key-value database"))
+      (block-validation-fail "Node export target must be a key-value database"))
     (let ((batch (make-kv-write-batch)))
       (chain-store-populate-index-export-batch chain-store database batch)
       (chain-store-populate-block-record-export-batch

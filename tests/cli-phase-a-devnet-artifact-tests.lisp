@@ -47,6 +47,8 @@
               :output :string
               :error-output :string
               :ignore-error-status t)
+           (unless (= 0 status)
+             (error "Devnet artifact smoke gate failed:~%~A" stderr))
            (is (= 0 status))
            (is (string= "" stderr))
            (is (search "\"txpoolPendingFilterEmptyChanges\":[]" stdout))
@@ -564,4 +566,3 @@
         (delete-file pid-path))
       (when (probe-file database-path)
         (delete-file database-path)))))
-

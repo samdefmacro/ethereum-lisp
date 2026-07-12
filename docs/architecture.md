@@ -58,6 +58,9 @@ The current source ownership map is:
 - `packages-cli.lisp`: the CLI composition package. It consumes the canonical
   public API and explicitly imports the small txpool and persistence ports
   needed for node assembly; it does not depend on `ethereum-lisp.core`.
+- `cli-types.lisp`: typed Engine/Public endpoint, txpool-policy, and KZG
+  configuration values composed by `devnet-node`; compatibility readers keep
+  older callers stable without duplicating scalar configuration slots.
 - `database-*.lisp`: key-value database protocol, chain-record key encoding,
   memory/file backends, write batches, and chain-record access helpers.
 - `crypto-constants.lisp`: hash, KZG, secp256k1, SHA-256, Keccak, and
@@ -77,26 +80,33 @@ The current source ownership map is:
 - `trie-nodes.lisp`: canonical node construction, node RLP references, and
   root hash derivation.
 - `trie-proofs.lisp`: proof construction and proof verification.
-- `ethereum-lisp.validation` / `validation.lisp`: shared block validation
-  condition plus protocol value and fixed-byte validation helpers. Core
-  re-exports the public condition for compatibility.
+- `ethereum-lisp.validation` / `validation.lisp`: the shared error taxonomy for
+  decoding, parameters, consensus, configuration, storage, and unavailable
+  state, plus protocol value and fixed-byte validation helpers. The legacy
+  block-validation condition remains available for compatibility.
 - `ethereum-lisp.chain-config` / `chain-config-*.lisp`: an independent
   protocol package for chain configuration types, fork activation predicates,
   blob schedule selection, and effective chain-rule construction. Core
   re-exports this API for compatibility.
 - `ethereum-lisp.transactions` / `transactions-*.lisp`: the transaction
-  domain owns envelopes, codecs, signatures, common accessors, fee rules, and
-  fork support policy. It depends on chain rules and protocol primitives, not
-  on `ethereum-lisp.core`; core re-exports its public API for compatibility.
-- `ethereum-lisp.json` / `json-read.lisp` / `json-write.lisp` /
-  `json-object-fields.lisp`: JSON parsing, encoding, shape predicates, object
-  access, and quantity decoding without genesis or RPC ownership.
+  domain owns envelopes, codecs, signatures, generic cross-envelope readers,
+  fee rules, and fork support policy. New envelope types extend the reader and
+  sender protocols with methods instead of changing central type switches. It
+  depends on chain rules and protocol primitives, not on
+  `ethereum-lisp.core`; core re-exports its public API for compatibility.
+- `ethereum-lisp.json` / `json-values.lisp` / `json-read.lisp` /
+  `json-write.lisp` / `json-object-fields.lisp`: explicit null, false, and
+  empty-object values; JSON parsing and encoding; shape predicates; object
+  access; and quantity decoding without genesis or RPC ownership. RPC parsing
+  preserves JSON type distinctions while legacy fixture readers can request
+  their compatibility representation.
 - `ethereum-lisp.json-rpc` / `json-rpc-protocol.lisp` /
   `json-rpc-codecs.lisp`: transport-independent JSON-RPC 2.0 envelope
   validation, response construction, and common field/parameter coercion. It
   contains no Engine, public method, chain, or HTTP policy.
-- `engine-api-methods.lisp`: Engine and public namespace method filters,
-  including direct KZG capability checks through the KZG package contract.
+- `engine-api-methods.lisp`: the authoritative Engine method registry and
+  public namespace filters. Method availability and advertised capabilities
+  derive from the same KZG-aware metadata.
 - `ethereum-lisp.genesis` / `genesis-*.lisp`: genesis account values,
   genesis-specific field and alloc parsing, chain-config conversion, file I/O,
   and fork-aware genesis block construction. It consumes JSON, chain config,
@@ -145,7 +155,8 @@ The current source ownership map is:
 - `genesis-block.lisp`: fork-aware genesis header and block construction.
 - `ethereum-lisp.kzg` / `kzg-*.lisp`: KZG constants, verifier ports,
   command-backed adapter, field/blob proof verification, and sidecar
-  validation. CLI configures the verifier port without owning KZG behavior.
+  validation. CLI dynamically injects a verifier object without mutating
+  process-global verifier functions.
 - `ethereum-lisp.engine-payloads` / `engine-payload-*.lisp`: Engine payload
   values and statuses, defensive codecs, block mapping, fork-version checks,
   payload-id derivation, and empty payload construction. Stores and RPC depend
@@ -162,6 +173,10 @@ The current source ownership map is:
   and `public-api-dispatch.lisp`: the public JSON-RPC adapter over state,
   execution, chain-store, txpool, and shared Engine payload rendering. Only
   the aggregate public method handler is exported; HTTP remains outside.
+- `ethereum-lisp.txpool.application` / `txpool-admission-service.lisp`: typed
+  admission policy, transaction preflight, subpool routing, and promotion.
+  `eth_sendRawTransaction` decodes and delegates to this service rather than
+  coordinating domain state in the wire handler.
 - `ethereum-lisp.rpc` / `rpc-router.lisp` and `rpc-json.lisp`: request context,
   Engine/Public method composition, batch handling, and JSON codecs. It has no
   transport dependency; legacy `engine-rpc-handle-*` functions are thin
@@ -188,7 +203,9 @@ The current source ownership map is:
   lifecycle boundary that may coordinate both mutable domains.
 - `ethereum-lisp.chain-store` / chain-store memory, copy, cache, filter,
   state, canonical-index, and transaction-location modules: in-memory chain
-  behavior over the chain component protocol. It does not depend on the node
+  behavior behind generic public chain operations with a memory-component
+  fallback. Alternative stores can specialize the public protocol without
+  exposing the in-memory representation. It does not depend on the node
   aggregate or txpool; canonical-head remains an application service because
   it coordinates multiple domains.
 - `ethereum-lisp.txpool` / txpool store, admission, views, accounting,
@@ -201,10 +218,11 @@ The current source ownership map is:
   discovery, index replacement, displaced transaction recovery, txpool
   reconciliation, and filter notification. This is an application service
   over chain-store and txpool, with each phase expressed as a separate step.
-- `ethereum-lisp.chain-store.persistence` / chain-store export and persistence
-  modules: the database adapter for atomic KV export and staged, validated
-  import. It depends on database, chain-store, and txpool contracts; none of
-  those domains depend on persistence.
+- `ethereum-lisp.node-store.persistence`: the node-level database adapter for
+  atomic KV snapshots and staged, validated restore. It owns orchestration
+  across chain and txpool components; record codecs remain grouped by the
+  domain data they persist. Database, chain-store, and txpool never depend on
+  this adapter.
 - `chain-store-copy-values.lisp`: defensive copying for shared store values,
   filters, checkpoints, and blob proof records.
 - `chain-store-copy-blocks.lisp`: defensive copying for block headers, logs,
@@ -214,7 +232,7 @@ The current source ownership map is:
   chain-store copying helpers.
 - `chain-store-copy-locations.lisp`: transaction-location deep-copy helpers
   that keep copied blocks, receipts, and transactions aligned.
-- `chain-store-snapshots.lisp`: shared in-memory-store guard plus memory-store
+- `node-store-snapshots.lisp`: shared in-memory-store guard plus memory-store
   snapshot/restore and atomic commit helpers.
 - `chain-store-filters.lisp`: in-memory block, log, and pending transaction
   filter registration and notifications using explicit filter metadata rather
@@ -348,8 +366,9 @@ The current source ownership map is:
   handlers.
 - `public-rpc-txpool-views.lisp`: txpool JSON table and transaction view
   helpers.
-- `public-rpc-txpool-admission.lisp`: `eth_sendRawTransaction` validation and
-  txpool admission rules.
+- `txpool-admission-service.lisp`: application-level
+  `eth_sendRawTransaction` validation, admission policy, subpool routing, and
+  promotion rules.
 - `public-rpc-txpool-locals.lisp`: local transaction exemption predicates and
   expiry cleanup.
 - `public-rpc-send-raw-transaction.lisp`: `eth_sendRawTransaction` handler.

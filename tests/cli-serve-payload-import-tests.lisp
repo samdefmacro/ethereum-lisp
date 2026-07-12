@@ -102,7 +102,7 @@
                          (cons "method" "engine_getPayloadBodiesByHashV1")
                          (cons "params"
                                (list
-                                (list
+                                (vector
                                  (hash32-to-hex
                                   (block-hash child-block))))))))
                 (payload-bodies-by-range-body
@@ -127,13 +127,13 @@
                    (list (cons "jsonrpc" "2.0")
                          (cons "id" 603)
                          (cons "method" "eth_blockNumber")
-                         (cons "params" '()))))
+                         (cons "params" #()))))
                 (post-status-block-number-body
                   (json-encode
                    (list (cons "jsonrpc" "2.0")
                          (cons "id" 615)
                          (cons "method" "eth_blockNumber")
-                         (cons "params" '()))))
+                         (cons "params" #()))))
                 (balance-body
                   (json-encode (engine-fixture-balance-request
                                 604 recipient)))
@@ -409,7 +409,7 @@
                    (list (cons "jsonrpc" "2.0")
                          (cons "id" 643)
                          (cons "method" "eth_newBlockFilter")
-                         (cons "params" '()))))
+                         (cons "params" #()))))
                 (post-reorg-block-by-number-body
                   (json-encode
                    (list (cons "jsonrpc" "2.0")
@@ -2040,4 +2040,3 @@
         (delete-file log-path))
       (when (probe-file pid-path)
         (delete-file pid-path)))))
-
