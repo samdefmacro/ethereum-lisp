@@ -85,6 +85,13 @@ func decodeClaim(input string) (goethkzg.Scalar, error) {
 
 func decodeBlob(input string) (goethkzg.Blob, error) {
 	var blob goethkzg.Blob
+	if strings.HasPrefix(input, "@") {
+		contents, err := os.ReadFile(strings.TrimPrefix(input, "@"))
+		if err != nil {
+			return blob, err
+		}
+		input = strings.TrimSpace(string(contents))
+	}
 	decoded, err := decodeFixedHex(input, len(blob))
 	if err != nil {
 		return blob, err
