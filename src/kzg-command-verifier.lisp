@@ -90,12 +90,21 @@
              (sleep 0.01))
     (uiop:wait-process process)))
 
-(defun run-kzg-verifier-command (command mode byte-arguments)
-  (let ((argv (append command
-                      (list mode)
-                      (mapcar (lambda (bytes)
-                                (bytes-to-hex bytes))
-                              byte-arguments))))
+(defun call-with-kzg-blob-file-argument (blob thunk)
+  "Call THUNK with an @PATH argument containing the hex-encoded BLOB.
+
+Linux limits each argv entry to 128 KiB, while an encoded EIP-4844 blob is
+slightly over 256 KiB. A response-file-style argument avoids platform argv
+limits while retaining the external verifier process boundary."
+  (uiop:with-temporary-file
+      (:stream stream :pathname pathname
+       :prefix "ethereum-lisp-kzg-blob-" :suffix ".hex"
+       :direction :output :external-format :utf-8)
+    (write-string (bytes-to-hex blob) stream)
+    (finish-output stream)
+    (funcall thunk (format nil "@~A" (namestring pathname)))))
+
+(defun run-kzg-verifier-argv (argv)
     (let ((process nil))
       (unwind-protect
            (progn
@@ -118,7 +127,20 @@
                     (= 0 status)
                     (kzg-verifier-command-accepted-output-p stdout))))
         (when (and process (uiop:process-alive-p process))
-          (ignore-errors (uiop:terminate-process process)))))))
+          (ignore-errors (uiop:terminate-process process))))))
+
+(defun run-kzg-verifier-command (command mode byte-arguments)
+  (labels ((run-with-arguments (arguments)
+             (run-kzg-verifier-argv
+              (append command (list mode) arguments))))
+    (if (string= mode "blob")
+        (call-with-kzg-blob-file-argument
+         (first byte-arguments)
+         (lambda (blob-file-argument)
+           (run-with-arguments
+            (cons blob-file-argument
+                  (mapcar #'bytes-to-hex (rest byte-arguments))))))
+        (run-with-arguments (mapcar #'bytes-to-hex byte-arguments)))))
 
 (defun make-kzg-point-proof-command-verifier (command)
   "Return a point-proof verifier backed by COMMAND.
@@ -142,10 +164,11 @@ is valid."
 COMMAND is a string executable name/path or a list of executable plus fixed
 arguments. The command is invoked as:
 
-  COMMAND blob BLOB_HEX COMMITMENT_HEX PROOF_HEX
+  COMMAND blob @BLOB_HEX_FILE COMMITMENT_HEX PROOF_HEX
 
 It must exit 0 and print one of true, ok, valid, or 1 to stdout when the proof
-is valid."
+is valid. BLOB_HEX_FILE contains the hex-encoded blob and is deleted after the
+command exits."
   (let ((command (validate-kzg-verifier-command command)))
     (lambda (blob commitment proof)
       (run-kzg-verifier-command command

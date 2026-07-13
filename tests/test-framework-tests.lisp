@@ -24,6 +24,20 @@
     (is process)
     (is (not (uiop:process-alive-p process)))))
 
+(deftest test-process-reaping-is-bounded-for-term-resistant-children
+  (:layer :integration :module :test-runner :launches-processes t)
+  (let ((process
+          (uiop:launch-program
+           (list "/bin/sh" "-c" "trap '' TERM; while :; do sleep 1; done")
+           :output :stream
+           :error-output :stream))
+        (started (monotonic-seconds)))
+    (let ((*test-process-termination-grace-seconds* 0.1d0)
+          (*test-process-termination-urgent-seconds* 1d0))
+      (reap-test-process process))
+    (is (< (- (monotonic-seconds) started) 2d0))
+    (is (not (uiop:process-alive-p process)))))
+
 (defun test-runner-fixture-pass ()
   t)
 

@@ -15,6 +15,7 @@
              --slow SECONDS                    Report tests at or above a duration.~%~
              --slowest COUNT                   Limit the slowest-test report (default 10).~%~
              --jobs COUNT                      Run e2e tests in bounded worker processes.~%~
+             --worker-timeout SECONDS          Maximum time per e2e worker (default 900).~%~
              --list                            List selected tests without running them.~%~
              --verbose                         Include metadata when listing tests.~%~
            The default layer is unit. Matching is case-insensitive.~%"))
@@ -47,6 +48,7 @@
         (slow-threshold nil)
         (slowest 10)
         (jobs 1)
+        (worker-timeout 900d0)
         (shard-count nil)
         (shard-index nil))
     (when (and arguments (string= "--" (first arguments)))
@@ -91,6 +93,14 @@
                         arguments rest)
                   (unless (plusp jobs)
                     (error "--jobs requires a positive integer"))))
+               ((string= option "--worker-timeout")
+                (multiple-value-bind (value rest)
+                    (test-runner-option-value option arguments)
+                  (setf worker-timeout
+                        (test-runner-non-negative-real option value)
+                        arguments rest)
+                  (unless (plusp worker-timeout)
+                    (error "--worker-timeout requires a positive number"))))
                ((string= option "--shard-count")
                 (multiple-value-bind (value rest)
                     (test-runner-option-value option arguments)
@@ -120,6 +130,7 @@
             slow-threshold
             slowest
             jobs
+            worker-timeout
             shard-count
             shard-index)))
 
@@ -154,8 +165,25 @@
       (uiop:read-file-string path)
       ""))
 
+(defun test-runner-monotonic-seconds ()
+  (/ (get-internal-real-time)
+     (coerce internal-time-units-per-second 'double-float)))
+
+(defun report-test-runner-worker (worker jobs &key timed-out-p)
+  (destructuring-bind (index root stdout stderr process started) worker
+    (declare (ignore root process started))
+    (format t "~&worker ~D/~D~:[~; timed out~]~%~A"
+            (1+ index) jobs timed-out-p
+            (test-runner-file-string stdout))
+    (let ((error-text (test-runner-file-string stderr)))
+      (when (plusp (length error-text))
+        (format *error-output* "~&worker ~D stderr:~%~A"
+                (1+ index) error-text)))
+    (finish-output)
+    (finish-output *error-output*)))
+
 (defun run-parallel-e2e
-    (jobs matches excludes layers timing-p slow-threshold slowest)
+    (jobs worker-timeout matches excludes layers timing-p slow-threshold slowest)
   (unless (and (= 1 (length layers))
                (string-equal "e2e" (first layers)))
     (error "--jobs greater than 1 is supported only with --layer e2e"))
@@ -174,34 +202,46 @@
                         index jobs matches excludes layers timing-p
                         slow-threshold slowest root)
                        :output stdout
-                       :error-output stderr))
+                       :error-output stderr)
+                      (test-runner-monotonic-seconds))
                 workers)))
-           (let ((failed nil))
-             (dolist (worker (sort workers #'< :key #'first))
-               (destructuring-bind (index root stdout stderr process) worker
-                 (declare (ignore root))
-                 (let ((status (uiop:wait-process process)))
-                   (format t "~&worker ~D/~D~%~A" (1+ index) jobs
-                           (test-runner-file-string stdout))
-                   (let ((error-text (test-runner-file-string stderr)))
-                     (when (plusp (length error-text))
-                       (format *error-output* "~&worker ~D stderr:~%~A"
-                               (1+ index) error-text)))
-                   (unless (zerop status) (setf failed t)))))
+           (let ((failed nil)
+                 (pending (sort (copy-list workers) #'< :key #'first)))
+             (loop while pending
+                   do (dolist (worker (copy-list pending))
+                        (destructuring-bind
+                            (index root stdout stderr process started) worker
+                          (declare (ignore index root stdout stderr))
+                          (cond
+                            ((not (uiop:process-alive-p process))
+                             (let ((status (uiop:wait-process process)))
+                               (report-test-runner-worker worker jobs)
+                               (unless (and (numberp status) (zerop status))
+                                 (setf failed t))
+                               (setf pending (remove worker pending :test #'eq))))
+                            ((>= (- (test-runner-monotonic-seconds) started)
+                                 worker-timeout)
+                             (format *error-output*
+                                     "~&worker ~D/~D exceeded ~,1Fs; terminating~%"
+                                     (1+ index) jobs worker-timeout)
+                             (ethereum-lisp.test::reap-test-process process)
+                             (report-test-runner-worker
+                              worker jobs :timed-out-p t)
+                             (setf failed t
+                                   pending (remove worker pending :test #'eq)))))
+                      (when pending (sleep 0.1d0))))
              (when failed (error "One or more e2e workers failed"))))
       (dolist (worker workers)
-        (destructuring-bind (index root stdout stderr process) worker
-          (declare (ignore index stdout stderr))
-          (when (ignore-errors (uiop:process-alive-p process))
-            (ignore-errors (uiop:terminate-process process)))
-          (ignore-errors (uiop:wait-process process))
+        (destructuring-bind (index root stdout stderr process started) worker
+          (declare (ignore index stdout stderr started))
+          (ethereum-lisp.test::reap-test-process process)
           (when (probe-file root)
             (uiop:delete-directory-tree root :validate t :if-does-not-exist :ignore)))))))
 
 (handler-case
     (multiple-value-bind
         (matches excludes layers list-only-p verbose-p timing-p
-         slow-threshold slowest jobs shard-count shard-index)
+         slow-threshold slowest jobs worker-timeout shard-count shard-index)
         (parse-test-runner-options (uiop:command-line-arguments))
       (cond
         (list-only-p
@@ -210,7 +250,8 @@
            :match matches :exclude excludes :layer layers :verbose verbose-p))
         ((> jobs 1)
          (run-parallel-e2e
-          jobs matches excludes layers timing-p slow-threshold slowest))
+          jobs worker-timeout matches excludes layers timing-p
+          slow-threshold slowest))
         (t
           (uiop:symbol-call
            '#:ethereum-lisp.test '#:run-tests

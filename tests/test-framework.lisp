@@ -82,6 +82,9 @@
 (defvar *last-test-results* '())
 (defvar *test-owned-processes* nil)
 
+(defparameter *test-process-termination-grace-seconds* 2d0)
+(defparameter *test-process-termination-urgent-seconds* 2d0)
+
 (defun normalize-test-layer (layer &key allow-all)
   (let ((normalized
           (etypecase layer
@@ -622,10 +625,32 @@
       (push process *test-owned-processes*))
     process))
 
+(defun wait-test-process-with-timeout (process timeout-seconds)
+  "Return the process status and true, or NIL and NIL when TIMEOUT-SECONDS elapses."
+  (let ((deadline (+ (monotonic-seconds) timeout-seconds)))
+    (loop
+      (unless (ignore-errors (uiop:process-alive-p process))
+        (return (values (ignore-errors (uiop:wait-process process)) t)))
+      (when (>= (monotonic-seconds) deadline)
+        (return (values nil nil)))
+      (sleep 0.05d0))))
+
 (defun reap-test-process (process)
+  "Bounded TERM-then-KILL cleanup for a child launched by a test."
   (when (ignore-errors (uiop:process-alive-p process))
     (ignore-errors (uiop:terminate-process process)))
-  (ignore-errors (uiop:wait-process process)))
+  (multiple-value-bind (status exited-p)
+      (wait-test-process-with-timeout
+       process *test-process-termination-grace-seconds*)
+    (if exited-p
+        status
+        (progn
+          (ignore-errors (uiop:terminate-process process :urgent t))
+          (multiple-value-bind (urgent-status urgent-exited-p)
+              (wait-test-process-with-timeout
+               process *test-process-termination-urgent-seconds*)
+            (declare (ignore urgent-exited-p))
+            urgent-status)))))
 
 (defun call-with-test-process-scope (thunk)
   "Run THUNK and reap every child launched through TEST-LAUNCH-PROGRAM."
@@ -728,7 +753,9 @@
                :status status
                :elapsed-seconds (- (monotonic-seconds) started)
                :condition observed-condition)
-              results)))
+              results)
+      (finish-output stream)
+      (finish-output *error-output*)))
     (setf results (nreverse results)
           *last-test-results* results)
     (format stream "~&~D test~:P passed" passed)

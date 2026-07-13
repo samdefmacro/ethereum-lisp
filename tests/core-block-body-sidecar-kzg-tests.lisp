@@ -157,7 +157,7 @@
                (format stream "shift 2~%")
                (format stream "case \"$1\" in~%")
                (format stream "  point) printf 'point %s %s %s %s\\n' \"${#2}\" \"${#3}\" \"${#4}\" \"${#5}\" > \"$log\" ;;~%")
-               (format stream "  blob) printf 'blob %s %s %s\\n' \"${#2}\" \"${#3}\" \"${#4}\" > \"$log\" ;;~%")
+               (format stream "  blob) blob_file=${2#@}; printf 'blob %s %s %s\\n' \"$(wc -c < \"$blob_file\" | tr -d ' ')\" \"${#3}\" \"${#4}\" > \"$log\" ;;~%")
                (format stream "  *) printf 'unknown\\n' > \"$log\" ;;~%")
                (format stream "esac~%")
                (format stream "if [ \"$verdict\" = accept ]; then echo true; else echo false; fi~%"))
