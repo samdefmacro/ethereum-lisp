@@ -88,17 +88,12 @@
   (mapcar #'withdrawal-from-rlp-object
           (rlp-list-field value "Block withdrawals")))
 
-(defun block-requests-from-rlp-object (value)
-  (mapcar #'rlp-encode (rlp-list-field value "Block requests")))
-
 (defun block-from-rlp (bytes)
   (let* ((decoded (rlp-decode-one bytes))
          (items (rlp-list-field decoded "Block")))
-    (unless (member (length items) '(3 4 5 6))
-      (block-validation-fail "Block RLP must contain 3 to 6 fields"))
-    (let ((withdrawals-present-p (> (length items) 3))
-          (requests-present-p (> (length items) 4))
-          (block-access-list-present-p (> (length items) 5)))
+    (unless (member (length items) '(3 4))
+      (block-validation-fail "Block RLP must contain 3 or 4 fields"))
+    (let ((withdrawals-present-p (= (length items) 4)))
       (make-block-from-parts
        :header (block-header-from-rlp-object (first items))
        :transactions (block-transactions-from-rlp-object (second items))
@@ -106,12 +101,5 @@
        :withdrawals (when withdrawals-present-p
                       (block-withdrawals-from-rlp-object (fourth items)))
        :withdrawals-present-p withdrawals-present-p
-       :requests (when requests-present-p
-                   (block-requests-from-rlp-object (nth 4 items)))
-       :requests-present-p requests-present-p
-       :block-access-list (when block-access-list-present-p
-                            (block-access-list-from-rlp
-                             (rlp-encode (nth 5 items))))
-       :block-access-list-present-p block-access-list-present-p
-       :encoded-block-access-list (when block-access-list-present-p
-                                    (rlp-encode (nth 5 items)))))))
+       :requests-present-p nil
+       :block-access-list-present-p nil))))

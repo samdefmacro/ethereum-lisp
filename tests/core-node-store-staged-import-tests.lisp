@@ -4,7 +4,34 @@
   '(:block :header :receipt :canonical-hash :checkpoint :state
     :transaction-location :txpool :invalid-tipset :remote-block :blob-sidecar
     :prepared-payload :metadata :staged-header :staged-block :staged-state
-    :staged-receipt :staged-transaction-index :stage-progress))
+    :staged-receipt :staged-transaction-index :stage-progress
+    :block-access-list))
+
+(deftest staged-block-record-reattaches-block-access-list-side-data
+  (let* ((database (make-memory-key-value-database))
+         (block (chain-store-bal-persistence-test-block 11 6 :bal-p t))
+         (progress
+           (ethereum-lisp.node-store.persistence::node-store-stage-progress-for-block
+            block))
+         (state
+           (ethereum-lisp.node-store.persistence::%make-node-store-staged-import-state
+            :revision 0 :mode :ready :anchor progress :target progress
+            :progresses '()))
+         (identifier (hash32-bytes (block-hash block)))
+         (batch (make-kv-write-batch)))
+    (kv-batch-put-chain-record
+     batch :staged-header identifier (block-header-rlp (block-header block)))
+    (ethereum-lisp.node-store.persistence::node-store-put-immutable-block-body-record
+     database batch :staged-block block "Staged BAL test block")
+    (kv-apply-batch database batch)
+    (multiple-value-bind (record present-p)
+        (kv-get-chain-record database :staged-block identifier)
+      (is present-p)
+      (is (= 4 (chain-store-bal-persistence-record-field-count record))))
+    (let ((restored
+            (ethereum-lisp.node-store.persistence::node-store-staged-import-block
+             database state progress)))
+      (chain-store-bal-persistence-assert-restored block restored))))
 
 (defun staged-import-test-database-snapshot (database)
   (loop for kind in +staged-import-test-record-kinds+
@@ -161,6 +188,119 @@
         (is (staged-import-test-state-stage-at-block-p
              new-state stage block))
         (setf state new-state)))))
+
+(deftest staged-execution-migrates-legacy-inline-block-access-list
+  (let* ((database (make-memory-key-value-database))
+         (config
+           (let ((config
+                   (staged-import-test-chain-config :cancun-time 0)))
+             (setf (chain-config-prague-time config) 0
+                   (chain-config-osaka-time config) 0
+                   (chain-config-amsterdam-time config) 0)
+             config))
+         (anchor-state
+           (install-empty-prague-request-contracts (make-state-db)))
+         (anchor
+           (make-block
+            :header
+            (make-block-header
+             :number 0
+             :parent-hash (zero-hash32)
+             :state-root (state-db-root anchor-state)
+             :mix-hash (zero-hash32)
+             :timestamp 0
+             :gas-limit 30000000
+             :base-fee-per-gas 1
+             :blob-gas-used 0
+             :excess-blob-gas 0
+             :parent-beacon-root (zero-hash32)
+             :slot-number 0)
+            :withdrawals '()
+            :requests '()
+            :block-access-list '()))
+         (child-state (state-db-copy anchor-state))
+         (child
+           (execute-signed-block
+            child-state '()
+            :expected-chain-id 1
+            :header
+            (make-block-header
+             :number 1
+             :parent-hash (block-hash anchor)
+             :mix-hash (zero-hash32)
+             :timestamp 1
+             :gas-limit 30000000
+             :base-fee-per-gas 1
+             :blob-gas-used 0
+             :excess-blob-gas 0
+             :parent-beacon-root (zero-hash32)
+             :requests-hash (execution-requests-hash '())
+             :block-access-list-hash (block-access-list-hash '())
+             :slot-number 1)
+            :chain-config config
+            :withdrawals '()
+            :requests '()
+            :block-access-list '()))
+         (source (make-engine-payload-memory-store))
+         (anchor-store (make-engine-payload-memory-store))
+         (identifier (hash32-bytes (block-hash child))))
+    (chain-store-put-block anchor-store anchor :state-available-p t)
+    (commit-state-db-to-chain-store
+     anchor-store (block-hash anchor) anchor-state)
+    (chain-store-update-forkchoice-checkpoints
+     anchor-store
+     (make-forkchoice-state
+      :head-block-hash (block-hash anchor)
+      :safe-block-hash (block-hash anchor)
+      :finalized-block-hash (block-hash anchor)))
+    (node-store-export-to-kv
+     anchor-store database
+     :persistence-metadata
+     (ethereum-lisp.node-store.persistence:make-node-store-persistence-metadata
+      :role :database
+      :generation 0
+      :base-chain-generation 0
+      :chain-id 1
+      :genesis-hash (block-hash anchor)
+      :authority-id (zero-hash32)))
+    (chain-store-put-block source anchor :state-available-p t)
+    (commit-state-db-to-chain-store source (block-hash anchor) anchor-state)
+    (chain-store-put-block source child :state-available-p t)
+    (commit-state-db-to-chain-store source (block-hash child) child-state)
+    (node-store-begin-staged-import database anchor :chain-config config)
+    (staged-import-test-forward-stages
+     source config database child '(:headers :bodies))
+    (let* ((canonical-fields
+             (rlp-list-items (rlp-decode-one (block-rlp child))))
+           (legacy-record
+             (rlp-encode
+              (apply #'make-rlp-list
+                     (append
+                      canonical-fields
+                      (list
+                       (make-rlp-list)
+                       (rlp-decode-one
+                        (block-encoded-block-access-list child))))))))
+      (is (= 6 (chain-store-bal-persistence-record-field-count
+                legacy-record)))
+      (kv-put-chain-record database :staged-block identifier legacy-record)
+      (kv-delete-chain-record database :block-access-list identifier))
+    (is (not (staged-import-test-record-present-p
+              database :block-access-list identifier)))
+    (multiple-value-bind (state status)
+        (node-store-forward-staged-import-block
+         nil database nil :stage :execution :chain-config config)
+      (is (eq :advanced status))
+      (is (staged-import-test-state-stage-at-block-p
+           state :execution child)))
+    (multiple-value-bind (record present-p)
+        (kv-get-chain-record database :staged-block identifier)
+      (is present-p)
+      (is (= 4 (chain-store-bal-persistence-record-field-count record))))
+    (multiple-value-bind (side-data present-p)
+        (kv-get-chain-record database :block-access-list identifier)
+      (is present-p)
+      (is (bytes= (block-encoded-block-access-list child) side-data)))))
 
 (defun staged-import-test-record-present-p (database kind identifier)
   (nth-value 1 (kv-get-chain-record database kind identifier)))

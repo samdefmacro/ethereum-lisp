@@ -37,9 +37,9 @@
   (let ((header-without-requests
           (make-block-header :requests-hash
                              (execution-requests-hash (list #(#x01 #xaa))))))
-    (signals block-validation-error
-      (validate-block-body-roots
-       (make-block :header header-without-requests))))
+    ;; Requests are derived execution side data, not a canonical body field.
+    (is (validate-block-body-roots
+         (make-block :header header-without-requests))))
   (let ((pre-prague-block (make-block :requests (list #(#x01 #xaa)))))
     (setf (block-header-requests-hash (block-header pre-prague-block)) nil)
     (signals block-validation-error
@@ -96,9 +96,9 @@
   (let ((header-without-body
           (make-block-header :block-access-list-hash
                              (block-access-list-hash '()))))
-    (signals block-validation-error
-      (validate-block-body-roots
-       (make-block :header header-without-body))))
+    ;; BAL bytes are persisted and transported separately from block RLP.
+    (is (validate-block-body-roots
+         (make-block :header header-without-body))))
   (let ((pre-amsterdam-block (make-block :block-access-list '())))
     (setf (block-header-block-access-list-hash
            (block-header pre-amsterdam-block)) nil)

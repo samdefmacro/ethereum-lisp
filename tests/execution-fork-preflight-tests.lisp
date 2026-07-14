@@ -823,6 +823,36 @@
                             :withdrawals '()
                             :requests '()))))
 
+(deftest prague-canonical-block-derives-requests-without-side-data
+  (let* ((state (make-state-db))
+         (config (make-chain-config :london-block 0
+                                    :shanghai-time 0
+                                    :cancun-time 0
+                                    :prague-time 0))
+         (header (make-block-header
+                  :parent-hash (zero-hash32)
+                  :number 1
+                  :timestamp 1
+                  :gas-limit 100000
+                  :base-fee-per-gas 0
+                  :blob-gas-used 0
+                  :excess-blob-gas 0
+                  :parent-beacon-root (zero-hash32)
+                  :requests-hash (execution-requests-hash '()))))
+    (install-empty-prague-request-contracts state)
+    (multiple-value-bind (block receipts)
+        (execute-legacy-block state (zero-address) '()
+                              :header header
+                              :chain-config config
+                              :withdrawals '())
+      (is (= 0 (length receipts)))
+      (is (block-requests-present-p block))
+      (is (= 0 (length (block-requests block))))
+      (is (string=
+           (hash32-to-hex (execution-requests-hash '()))
+           (hash32-to-hex
+            (block-header-requests-hash (block-header block))))))))
+
 (deftest reverted-parent-beacon-root-system-call-does-not-reject-block
   (let* ((state (make-state-db))
          (beacon-roots-address

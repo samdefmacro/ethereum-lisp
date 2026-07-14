@@ -262,3 +262,48 @@
     (is (= 0 (length (block-transactions block))))
     (is (= 0 (length (block-ommers block))))
     (is (bytes= encoded (block-rlp block)))))
+
+(deftest canonical-block-rlp-excludes-execution-sidecars
+  (let* ((legacy-block (make-block))
+         (legacy-rlp (block-rlp legacy-block))
+         (header (make-block-header
+                  :base-fee-per-gas 1
+                  :blob-gas-used 0
+                  :excess-blob-gas 0
+                  :parent-beacon-root (zero-hash32)
+                  :slot-number 0))
+         (block (make-block :header header
+                            :withdrawals '()
+                            :requests (list #(#x00 #xbb))
+                            :block-access-list '()))
+         (canonical-rlp (block-rlp block))
+         (canonical-object (rlp-decode-one canonical-rlp))
+         (canonical-fields (rlp-list-items canonical-object))
+         (public-rlp
+           (ethereum-lisp.public-api::eth-rpc-block-rlp block)))
+    (is (= 3 (length (rlp-list-items (rlp-decode-one legacy-rlp)))))
+    (is (= 3
+           (length
+            (rlp-list-items
+             (rlp-decode-one
+              (ethereum-lisp.public-api::eth-rpc-block-rlp legacy-block))))))
+    (is (not (block-withdrawals-present-p
+              (block-from-rlp legacy-rlp))))
+    (is (= 4 (length canonical-fields)))
+    (is (= 4 (length (rlp-list-items (rlp-decode-one public-rlp)))))
+    (is (bytes= canonical-rlp public-rlp))
+    (let ((decoded (block-from-rlp canonical-rlp)))
+      (is (block-withdrawals-present-p decoded))
+      (is (not (block-requests-present-p decoded)))
+      (is (not (block-block-access-list-present-p decoded))))
+    (signals block-validation-error
+      (block-from-rlp
+       (rlp-encode
+        (apply #'make-rlp-list
+               (append canonical-fields (list (make-rlp-list)))))))
+    (signals block-validation-error
+      (block-from-rlp
+       (rlp-encode
+        (apply #'make-rlp-list
+               (append canonical-fields
+                       (list (make-rlp-list) (make-rlp-list)))))))))

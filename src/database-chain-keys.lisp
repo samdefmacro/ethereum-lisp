@@ -19,7 +19,8 @@
     (:staged-state . #x10)
     (:staged-receipt . #x11)
     (:staged-transaction-index . #x12)
-    (:stage-progress . #x13)))
+    (:stage-progress . #x13)
+    (:block-access-list . #x14)))
 
 (defparameter +kv-chain-checkpoint-labels+
   '((:head . "head")

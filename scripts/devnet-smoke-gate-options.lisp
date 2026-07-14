@@ -630,7 +630,12 @@ references/ checkouts.~%")
        database
        :block
        (hash32-bytes (block-hash block-v6))
-       (block-rlp block-v6)))
+       (block-rlp block-v6))
+      (kv-put-chain-record
+       database
+       :block-access-list
+       (hash32-bytes (block-hash block-v6))
+       (block-encoded-block-access-list block-v6)))
     (let* ((blob-hex (bytes-to-hex blob))
            (block-access-list-hex
              (bytes-to-hex (block-encoded-block-access-list block-v6)))

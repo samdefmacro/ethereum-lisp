@@ -496,18 +496,15 @@
       ((block-withdrawals-present-p block)
        (block-validation-fail
         "Staged block has withdrawals without a header commitment")))
-    (cond
-      ((block-header-requests-hash header)
-       (unless (and (block-requests-present-p block)
-                    (hash32=
-                     (ethereum-lisp.execution-requests:execution-requests-hash
-                      (block-requests block))
-                     (block-header-requests-hash header)))
-         (block-validation-fail
-          "Staged block requests do not match its header")))
-      ((block-requests-present-p block)
-       (block-validation-fail
-        "Staged block has requests without a header commitment")))
+    (when (block-requests-present-p block)
+      (unless (and
+               (block-header-requests-hash header)
+               (hash32=
+                (ethereum-lisp.execution-requests:execution-requests-hash
+                 (block-requests block))
+                (block-header-requests-hash header)))
+        (block-validation-fail
+         "Staged block requests do not match its header")))
     (cond
       ((block-header-block-access-list-hash header)
        (unless (and (block-block-access-list-present-p block)
@@ -556,7 +553,11 @@
             database :staged-block identifier
             (if anchor-p "Staged import pinned anchor block"
                 "Staged block")))
-         (block (block-from-rlp record)))
+         (block
+           (chain-store-block-from-persisted-record
+            database identifier record
+            (if anchor-p "Staged import pinned anchor block"
+                "Staged block"))))
     (unless (and (= (block-header-number (block-header block))
                     (node-store-stage-progress-number progress))
                  (hash32= (block-hash block)
@@ -744,7 +745,10 @@
          (state-record
            (node-store-require-staged-record
             database :state identifier "Public staged import anchor state"))
-         (block (block-from-rlp block-record)))
+         (block
+           (chain-store-block-from-persisted-record
+            database identifier block-record
+            "Public staged import anchor block")))
     (node-store-validate-staged-import-anchor-index
      database anchor :require-finalized-p t)
     (unless (and (= (block-header-number (block-header block))
@@ -760,12 +764,13 @@
     (node-store-validate-staged-state-record block state-record)
     (unless (and (hash32= (block-hash supplied-block)
                           (block-hash block))
-                 (bytes= (block-rlp supplied-block) block-record)
+                 (chain-store-persisted-block= supplied-block block)
                  (bytes= (block-receipts-record-rlp supplied-block)
                          receipt-record))
       (block-validation-fail
        "Supplied staged import anchor does not match persisted finalized state"))
-    (values block-record header-record receipt-record state-record)))
+    (values (chain-store-block-record-rlp block)
+            header-record receipt-record state-record)))
 
 (defun node-store-validate-staged-import-anchor (database state)
   (let* ((anchor (node-store-staged-import-state-anchor state))
@@ -1079,8 +1084,9 @@ cross-handle file-database serialization."
              database anchor anchor-block)
           (let ((batch (make-kv-write-batch))
                 (identifier (hash32-bytes (block-hash anchor-block))))
-            (node-store-put-immutable-record
-             database batch :staged-block identifier block-record
+            (declare (ignore block-record))
+            (node-store-put-immutable-block-body-record
+             database batch :staged-block anchor-block
              "Pinned staged import anchor block")
             (node-store-put-immutable-record
              database batch :staged-header identifier header-record
@@ -1117,7 +1123,7 @@ cross-handle file-database serialization."
   (chain-store-require-memory-store source)
   (let ((source-block (chain-store-known-block source (block-hash block))))
     (unless (and source-block
-                 (bytes= (block-rlp source-block) (block-rlp block)))
+                 (chain-store-persisted-block= source-block block))
       (block-validation-fail
        "Staged import source does not contain the supplied block"))
     source-block))
@@ -1133,14 +1139,16 @@ cross-handle file-database serialization."
 (defun node-store-staged-import-put-body
     (database batch block)
   (node-store-validate-staged-block-body block)
-  (let ((identifier (hash32-bytes (block-hash block))))
-    (node-store-put-immutable-record
-     database batch :staged-block identifier
-     (block-rlp block)
-     "Staged block")))
+  (node-store-put-immutable-block-body-record
+   database batch :staged-block block "Staged block"))
 
 (defun node-store-staged-import-put-execution
     (database batch state block chain-config)
+  ;; A resumed pre-migration staged record may still carry the BAL inline.
+  ;; Canonicalize it into the staged body plus hash-addressed side data in the
+  ;; same batch that publishes the execution result.
+  (node-store-put-immutable-block-body-record
+   database batch :staged-block block "Staged execution block")
   (let ((execution-store (make-engine-payload-memory-store)))
     (node-store-hydrate-staged-import
      execution-store database
@@ -1150,12 +1158,20 @@ cross-handle file-database serialization."
     (multiple-value-bind (executed-block receipts)
         (ethereum-lisp.execution-service:execute-and-commit-engine-payload
          execution-store
-         (block-from-rlp (block-rlp block))
+         (chain-store-block-with-access-list-side-data
+          database
+          (hash32-bytes (block-hash block))
+          (block-from-rlp (block-rlp block))
+          "Staged execution block"
+          :legacy-encoded-block-access-list
+          (block-encoded-block-access-list block)
+          :legacy-block-access-list-present-p
+          (block-block-access-list-present-p block))
          chain-config)
       (declare (ignore receipts))
       (unless (and (hash32= (block-hash executed-block)
                             (block-hash block))
-                   (bytes= (block-rlp executed-block) (block-rlp block)))
+                   (chain-store-persisted-block= executed-block block))
         (block-validation-fail
          "Staged execution result does not match the supplied block"))
       (unless (node-store-stage-progress=
@@ -1192,7 +1208,7 @@ cross-handle file-database serialization."
             database :staged-receipt
             (hash32-bytes (block-hash block))
             "Staged receipt")))
-    (unless (bytes= (block-rlp persisted-block) (block-rlp block))
+    (unless (chain-store-persisted-block= persisted-block block)
       (block-validation-fail
        "Staged receipt block differs from the staged body"))
     (node-store-validate-staged-receipt-record persisted-block record)))
@@ -1223,8 +1239,8 @@ cross-handle file-database serialization."
                (node-store-staged-import-block database state target)))
         (when block
           (unless (and (typep block 'ethereum-block)
-                       (bytes= (block-rlp block)
-                               (block-rlp persisted-block)))
+                       (chain-store-persisted-block=
+                        block persisted-block))
             (block-validation-fail
              "Staged import input differs from the durable block")))
         (when source
@@ -1397,8 +1413,8 @@ When STAGE is NIL, the persisted control state selects the next legal stage."
          "Staged import cannot unwind above incomplete stage progress")))
     (let ((persisted-block
             (node-store-staged-import-block database state ancestor)))
-      (unless (bytes= (block-rlp persisted-block)
-                      (block-rlp ancestor-block))
+      (unless (chain-store-persisted-block=
+               persisted-block ancestor-block)
         (block-validation-fail
          "Staged import unwind block does not match persisted data")))
     (when (node-store-stage-progress= ancestor target)

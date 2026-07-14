@@ -79,7 +79,9 @@
   (setf store (chain-store-require-memory-store store))
   (dolist (entry (kv-chain-record-entries database :block))
     (let* ((identifier (car entry))
-           (block (block-from-rlp (cdr entry)))
+           (block
+             (chain-store-block-from-persisted-record
+              database identifier (cdr entry) "KV block record"))
            (actual (hash32-bytes (block-hash block))))
       (unless (bytes= identifier actual)
         (block-validation-fail

@@ -1,11 +1,13 @@
 (in-package #:ethereum-lisp.node-store.persistence)
 
 (defun chain-store-import-invalid-tipset-from-kv
-    (store tipset-identifier record)
+    (store database tipset-identifier record)
   (setf store (chain-store-require-memory-store store))
   (handler-case
       (let ((tipset-hash (make-hash32 tipset-identifier))
-            (invalid-block (block-from-rlp record)))
+            (invalid-block
+              (chain-store-block-from-persisted-record
+               database tipset-identifier record "KV invalid-tipset record")))
         (unless (hash32= tipset-hash (block-hash invalid-block))
           (block-validation-fail
            "KV invalid-tipset record key does not match encoded block hash"))
@@ -23,14 +25,16 @@
 (defun chain-store-import-invalid-tipsets-from-kv (store database)
   (dolist (entry (kv-chain-record-entries database :invalid-tipset))
     (chain-store-import-invalid-tipset-from-kv
-     store (car entry) (cdr entry))))
+     store database (car entry) (cdr entry))))
 
 (defun chain-store-import-remote-block-from-kv
-    (store block-identifier record)
+    (store database block-identifier record)
   (setf store (chain-store-require-memory-store store))
   (handler-case
       (let* ((block-hash (make-hash32 block-identifier))
-             (block (block-from-rlp record)))
+             (block
+               (chain-store-block-from-persisted-record
+                database block-identifier record "KV remote-block record")))
         (unless (hash32= block-hash (block-hash block))
           (block-validation-fail
            "KV remote-block record key does not match encoded block hash"))
@@ -47,4 +51,4 @@
 (defun chain-store-import-remote-blocks-from-kv (store database)
   (dolist (entry (kv-chain-record-entries database :remote-block))
     (chain-store-import-remote-block-from-kv
-     store (car entry) (cdr entry))))
+     store database (car entry) (cdr entry))))
