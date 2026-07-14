@@ -990,7 +990,8 @@
                    (cons "method" "engine_forkchoiceUpdatedV2")
                    (cons "params" (list state payload-attributes)))))
     (let* ((store (make-engine-payload-memory-store))
-           (config (make-chain-config))
+           (config (make-chain-config :london-block 0
+                                      :shanghai-time 0))
            (known-block (make-block))
            (known-hash (block-hash known-block)))
       (engine-payload-store-put-block
@@ -1065,7 +1066,9 @@
                    (cons "method" "engine_forkchoiceUpdatedV3")
                    (cons "params" (list state payload-attributes)))))
     (let* ((store (make-engine-payload-memory-store))
-           (config (make-chain-config))
+           (config (make-chain-config :london-block 0
+                                      :shanghai-time 0
+                                      :cancun-time 0))
            (known-block (make-block))
            (known-hash (block-hash known-block))
            (parent-beacon-root
@@ -1153,7 +1156,11 @@
                    (cons "method" "engine_forkchoiceUpdatedV4")
                    (cons "params" (list state payload-attributes)))))
     (let* ((store (make-engine-payload-memory-store))
-           (config (make-chain-config))
+           (config (make-chain-config :london-block 0
+                                      :shanghai-time 0
+                                      :cancun-time 0
+                                      :prague-time 0
+                                      :amsterdam-time 0))
            (known-block (make-block))
            (known-hash (block-hash known-block))
            (parent-beacon-root

@@ -692,7 +692,7 @@ Content-Type: application/json
                    (engine-rpc-http-service-endpoint service)))
       (is (null (engine-rpc-http-service-telemetry-sink default-service)))
       (is (eq sink (engine-rpc-http-service-telemetry-sink service)))
-      (is (null
+      (is (functionp
            (engine-rpc-http-service-import-function default-service)))
       (is (string= "/" (engine-rpc-http-service-rpc-prefix default-service)))
       (is (string= "/engine" (engine-rpc-http-service-rpc-prefix service)))

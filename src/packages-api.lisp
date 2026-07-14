@@ -150,6 +150,7 @@
         #:ethereum-lisp.chain-store.model
         #:ethereum-lisp.node-state
         #:ethereum-lisp.engine-api
+        #:ethereum-lisp.execution-service
         #:ethereum-lisp.rpc)
   (:export
    #:+engine-rpc-http-accepted-content-types+
