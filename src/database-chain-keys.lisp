@@ -13,7 +13,13 @@
     (:remote-block . #x0a)
     (:blob-sidecar . #x0b)
     (:prepared-payload . #x0c)
-    (:metadata . #x0d)))
+    (:metadata . #x0d)
+    (:staged-header . #x0e)
+    (:staged-block . #x0f)
+    (:staged-state . #x10)
+    (:staged-receipt . #x11)
+    (:staged-transaction-index . #x12)
+    (:stage-progress . #x13)))
 
 (defparameter +kv-chain-checkpoint-labels+
   '((:head . "head")

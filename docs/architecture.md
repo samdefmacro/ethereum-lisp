@@ -231,6 +231,13 @@ The current source ownership map is:
   authority ID, publication generation, and base chain generation. Metadata is
   populated into the same KV batch as the chain delta or complete txpool
   snapshot it describes.
+- `node-store-staged-import.lisp`: private, versioned staged-import control and
+  materialization. It binds authority, chain, genesis, and the complete chain
+  configuration; pins a finalized anchor; advances header, body, execution,
+  receipt-verification, and transaction-index stages atomically; persists
+  reverse-order unwind intent; and hydrates only a fresh startup store. It does
+  not publish canonical indexes or checkpoints and is currently an offline,
+  block-serial, single-writer boundary.
 - `chain-store-copy-values.lisp`: defensive copying for shared store values,
   filters, checkpoints, and blob proof records.
 - `chain-store-copy-blocks.lisp`: defensive copying for block headers, logs,
@@ -318,6 +325,11 @@ The current source ownership map is:
   decoding and cache restoration.
 - `chain-store-persistence.lisp`: top-level chain-store KV import
   orchestration.
+- `database-batch.lisp` / `database-memory.lisp`: write-batch application is
+  atomic from the active handle's perspective. Memory applies to a shadow table
+  and swaps on success; the file backend restores its in-memory table when
+  durable replacement fails. This is logical batch atomicity, not an fsync or
+  multi-handle serialization guarantee.
 - `block-validation-fees.lisp`: base-fee, gas-limit, blob-gas, and blob base
   fee validation.
 - `block-validation-forks.lisp`: fork-specific header field presence and Merge

@@ -57,6 +57,9 @@
      (when (> (length fields) 22)
        (rlp-uint-field (nth 22 fields) "Header slot number")))))
 
+(defun block-header-from-rlp (bytes)
+  (block-header-from-rlp-object (rlp-decode-one bytes)))
+
 (defun withdrawal-from-rlp-object (value)
   (let ((fields (rlp-list-field value "Withdrawal")))
     (unless (= (length fields) 4)

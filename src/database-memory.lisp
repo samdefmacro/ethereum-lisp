@@ -12,6 +12,17 @@
   (remhash (kv-key-string key)
            (memory-key-value-database-entries database)))
 
+(defun kv-copy-memory-database-entries (database)
+  (let ((copy (make-hash-table :test 'equalp)))
+    (maphash
+     (lambda (key entry)
+       (setf (gethash key copy)
+             (make-kv-memory-entry
+              :key (kv-copy-bytes (kv-memory-entry-key entry))
+              :value (kv-copy-bytes (kv-memory-entry-value entry)))))
+     (memory-key-value-database-entries database))
+    copy))
+
 (defun kv-database-sorted-entries (database)
   (sort
    (loop for entry being the hash-values of

@@ -8,7 +8,7 @@ backlog or implementation history; completed detail is available from Git.
 ## Baseline
 
 - Branch baseline at the start of this phase:
-  `codex/goal-led-live-persistence` at `a68a931`.
+  `codex/goal-led-live-persistence` at `d41acac`.
 - `make docker-test-all` passed on 2026-07-14 with 987 tests passed,
   5 optional-fixture tests skipped, and 0 failed: unit 710/3 skipped,
   integration 218/2 skipped, and e2e 59/0 skipped.
@@ -139,6 +139,21 @@ selection, execution-aware gas repacking, or blob-sidecar construction.
   no-persistence modes retain their existing behavior. Malformed, future-base,
   cross-chain, cross-genesis, wrong-role, or foreign-authority metadata fails
   closed.
+- A versioned private staged-import control record binds the database
+  authority, chain ID, genesis hash, and a deterministic commitment to every
+  chain-config field. Five block-serial stages advance in strict dependency
+  order: headers, bodies, execution, receipt verification, and transaction
+  indexing. Each stage output and its progress marker share one KV batch.
+- The finalized public anchor is pinned into private staged records before
+  progress starts. Header/body input is validated against the committed chain
+  config; execution reconstructs the durable parent, runs the normal execution
+  service, and accepts only the supplied block commitments. After a body is
+  durable, execution and later stages resume without an external source.
+- Staged unwind persists its intent and moves one marker at a time in reverse
+  dependency order while retaining hash-addressed side data. Hydration accepts
+  only execution-complete horizons and a fresh startup store, uses the normal
+  atomic importer, and never publishes the staged candidate as canonical or
+  mutates the source database.
 - Unit, integration, and process tests collectively cover candidate exporter
   conflicts and idempotence, delta scope without database iteration,
   checkpoint-only updates, extension/short/same-height reorgs, DB-ahead
@@ -158,26 +173,29 @@ selection, execution-aware gas repacking, or blob-sidecar construction.
 3. The file backend uses temp-file replacement but does not fsync the file and
    containing directory, so the verified SIGKILL/process-crash contract is not
    a power-loss durability claim.
-4. Header/body/execution/receipt/index stages do not yet have persisted progress
-   markers and unwind functions.
+4. The first staged importer is an offline, deterministic, block-serial,
+   single-writer boundary. It is not wired to the live node guard, does not
+   discover a common ancestor automatically, and does not provide multi-handle
+   compare-and-swap serialization or a scalable range pipeline.
 5. There is no implemented discovery, RLPx, `eth`, or `snap` peer path.
 6. External Hive interoperability has not been demonstrated.
 
 ## Active Objective
 
-The active Phase C objective is the first staged-import slice:
+The active Phase C objective is the first content-addressed state slice:
 
-> Introduce persisted progress and deterministic unwind contracts for local
-> header, body, execution, receipt, and transaction-index stages, so a restart
-> can resume or unwind materialization before peer transport is added.
+> Persist immutable trie nodes, contract code, and explicit block state-root
+> references so restart and staged execution can resolve state by commitment
+> without treating a whole-account snapshot as the durable source of truth.
 
-The slice must define stage identities, persisted forward progress, legal
-dependencies, restart selection, and reverse-order unwind to a common ancestor.
-It must reuse the existing KV batch and validation boundaries, operate first on
-local deterministic block inputs, and leave canonical publication under the
-existing forkchoice service. It must not introduce networking, claim a full
-sync implementation, add trie-node storage, or claim power-loss durability.
+The slice must define versioned record identities, immutable conflict checks,
+root reachability, missing-node failure behavior, and compatibility with the
+current development snapshot importer. It must preserve atomic block/state
+publication and avoid a new storage dependency. It does not include pruning,
+garbage collection, networking, a live staged coordinator, performance claims,
+or power-loss durability.
 
-Acceptance requires deterministic forward, restart, partial-stage failure,
-same-height reorg, unwind, and malformed-progress coverage, independent diff
-review, and the gates selected by `docs/validation.md`.
+Acceptance requires root-addressed restart reconstruction, shared-node
+deduplication, immutable conflict rejection, missing/corrupt node failure,
+batch rollback, independent diff review, and the gates selected by
+`docs/validation.md`.

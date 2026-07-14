@@ -146,6 +146,7 @@
    #:block-header-block-access-list-hash
    #:block-header-slot-number
    #:block-header-rlp
+   #:block-header-from-rlp
    #:block-header-hash
    #:ethereum-block
    #:make-block
@@ -700,6 +701,31 @@
   (#:ethereum-lisp.canonical-chain
    #:chain-store-set-canonical-head)
   (#:ethereum-lisp.node-store.persistence
+   #:node-store-stage-progress
+   #:node-store-stage-progress-p
+   #:node-store-stage-progress-number
+   #:node-store-stage-progress-block-hash
+   #:node-store-staged-import-state
+   #:node-store-staged-import-state-p
+   #:node-store-staged-import-state-revision
+   #:node-store-staged-import-state-mode
+   #:node-store-staged-import-state-authority-id
+   #:node-store-staged-import-state-chain-id
+   #:node-store-staged-import-state-genesis-hash
+   #:node-store-staged-import-state-chain-config-fingerprint
+   #:node-store-staged-import-state-anchor
+   #:node-store-staged-import-state-target
+   #:node-store-staged-import-state-unwind-target
+   #:node-store-staged-import-stages
+   #:node-store-staged-import-stage-progress
+   #:node-store-read-staged-import-state
+   #:node-store-begin-staged-import
+   #:node-store-validate-staged-import
+   #:node-store-staged-import-next-action
+   #:node-store-forward-staged-import-block
+   #:node-store-begin-staged-unwind
+   #:node-store-unwind-staged-import-step
+   #:node-store-hydrate-staged-import
    #:chain-store-export-indexes-to-kv
    #:chain-store-export-block-records-to-kv
    #:chain-store-export-transaction-locations-to-kv

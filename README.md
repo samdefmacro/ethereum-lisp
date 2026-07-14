@@ -20,8 +20,8 @@ The pinned Shanghai import profile and repository-local Engine/RPC devnet
 profile are closed. Current work is moving the client from snapshot-oriented
 development persistence toward incremental durability and staged sync:
 
-- add persisted staged-import progress and unwind behavior
 - replace whole-state snapshots with durable content-addressed trie/state data
+- connect the local staged-import boundary to a guarded runtime coordinator
 - implement networking only after durable import and unwind contracts are
   established
 
@@ -70,11 +70,21 @@ Implemented so far:
   canonical transactions are always suppressed; database and journal paths
   must resolve to distinct artifacts, and versioned snapshot/delta targets
   cannot be changed without publishing metadata in the same batch
+- a local durable staged-import boundary with versioned, chain-config-bound
+  control state; strict header/body/execution/receipt/transaction-index
+  dependencies; real execution from a persisted parent; restart continuation;
+  reverse-order unwind; and fresh-store hydration without publishing canonical
+  state. Stage outputs and progress commit atomically, while canonical indexes,
+  checkpoints, public transaction locations, and txpool ownership remain with
+  forkchoice
 
-The next durability gap is persisted staged-import progress and deterministic
-unwind. The development file backend still rewrites its complete S-expression
-image for a logical record batch. Durable trie nodes, devp2p, and external Hive
-validation remain future work.
+The next durability gap is replacing per-block whole-account state snapshots
+with durable content-addressed trie/state records and explicit retention roots.
+The staged importer is currently a deterministic, block-serial, offline
+single-writer boundary rather than a live sync coordinator. The development
+file backend still rewrites its complete S-expression image for a logical
+record batch. Power-loss durability, devp2p, and external Hive validation
+remain future work.
 
 ## Run tests
 

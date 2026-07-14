@@ -106,6 +106,7 @@
    #:block-header-block-access-list-hash
    #:block-header-slot-number
    #:block-header-rlp
+   #:block-header-from-rlp
    #:block-header-hash
    #:ethereum-block
    #:ethereum-block-p
