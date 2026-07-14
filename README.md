@@ -2,8 +2,8 @@
 
 A Common Lisp implementation of the Ethereum execution layer.
 
-This repository is intentionally being built in small, testable layers while
-cross-checking behavior against:
+This repository is built as a usable execution client, cross-checking protocol
+behavior against reference implementations where compatibility matters:
 
 - `references/go-ethereum` (`geth`)
 - `references/nethermind` (`Nethermind`)
@@ -14,21 +14,7 @@ they are ignored by git. `references/reth` is optional until that clone is
 available locally. Reth/revm is the Rust-side comparison point for architecture,
 provider boundaries, EVM behavior, txpool, RPC, and Engine API work.
 
-## Current scope
-
-The pinned Shanghai import profile and repository-local Engine/RPC devnet
-profile are closed. Current work is moving the client from snapshot-oriented
-development persistence toward incremental durability and staged sync:
-
-- replace whole-state snapshots with durable content-addressed trie/state data
-- connect the local staged-import boundary to a guarded runtime coordinator
-- implement networking only after durable import and unwind contracts are
-  established
-
-The project currently ships an SBCL script entry point for running the core
-suite.
-
-Implemented so far:
+## Implemented capabilities
 
 - RLP, Keccak-256, and basic Ethereum domain types
 - fixture-backed Merkle Patricia Trie roots, proofs, range iteration, and state
@@ -78,14 +64,6 @@ Implemented so far:
   checkpoints, public transaction locations, and txpool ownership remain with
   forkchoice
 
-The next durability gap is replacing per-block whole-account state snapshots
-with durable content-addressed trie/state records and explicit retention roots.
-The staged importer is currently a deterministic, block-serial, offline
-single-writer boundary rather than a live sync coordinator. The development
-file backend still rewrites its complete S-expression image for a logical
-record batch. Power-loss durability, devp2p, and external Hive validation
-remain future work.
-
 ## Run tests
 
 Local SBCL builds and tests run inside Docker so compiler caches, temporary
@@ -99,7 +77,7 @@ make docker-test-unit
 make docker-test-integration
 make docker-test-e2e                 # two bounded workers by default
 make docker-test-e2e DOCKER_E2E_JOBS=4
-make docker-test-all                 # required before publishing a phase
+make docker-test-all                 # full validation when needed
 make docker-test-unit DOCKER_TEST_ARGS="--match TRANSACTION"
 make docker-sbcl DOCKER_SBCL_ARGS="--script scripts/phase-a-smoke-gate.lisp -- --json"
 ```
@@ -120,7 +98,9 @@ sbcl --script tests/run-tests.lisp --layer all
 
 `integration` includes persistence, fixture adapters, and external KZG
 verification. `e2e` launches standalone SBCL processes and may bind local
-sockets. Run every layer before publishing an architectural change.
+sockets. During development, prefer the smallest layer directly related to the
+change; use every layer for release/CI work or a genuinely broad high-risk
+change.
 
 Focused runs and discovery remain Docker-isolated:
 
@@ -158,7 +138,6 @@ When set to a host directory, the Docker wrapper mounts it read-only at
 
 ## Reference layout
 
-See `PROJECT.md` for the project contract, `docs/status.md` for the current
-verified snapshot and active objective, `docs/architecture.md` for package and
-dependency boundaries, `docs/validation.md` for acceptance commands, and
-`docs/reference-map.md` for reference-client comparison points.
+See `PROJECT.md` for the project contract, `docs/architecture.md` for package
+and dependency boundaries, `docs/validation.md` for optional verification
+commands, and `docs/reference-map.md` for reference-client comparison points.

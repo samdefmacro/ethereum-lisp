@@ -1,6 +1,7 @@
 # Reference Map
 
-This map records the modules to compare while implementing each layer.
+This map records useful modules for work that needs reference-client source
+comparison.
 
 ## go-ethereum
 
@@ -32,19 +33,8 @@ This map records the modules to compare while implementing each layer.
 
 ## Reth / Rust
 
-Reth is the Rust-side architecture reference. The local clone is expected at
-`references/reth` when available; until then these paths are the target map for
-the clone to provide.
-
-Availability rule:
-
-- `references/reth` is optional and may be absent in local workspaces.
-- Tasks that need Rust-side source comparison should check whether
-  `references/reth` exists before inspecting it.
-- When the clone is absent, reference-comparison tasks should skip the Rust
-  source read cleanly and report that only geth/Nethermind were available.
-- When the clone is present, task reports should name the Reth commit or version
-  inspected alongside any paths used.
+Reth is an optional Rust-side architecture reference. Its local clone may be
+absent; the paths below are useful when it is available.
 
 - Common primitives: `references/reth/crates/primitives`
 - Chain specification and fork rules: `references/reth/crates/chainspec`
@@ -65,18 +55,8 @@ Availability rule:
 - Transaction pool: `references/reth/crates/transaction-pool`
 - Networking and sync architecture: `references/reth/crates/net`
 
-## Comparison rule
+## Using the map
 
-For each implemented feature:
-
-1. Identify the geth source path and tests.
-2. Identify the Nethermind source path and tests.
-3. Identify the Reth/Rust source path or crate boundary when the feature has a
-   clear Rust architecture analogue and the local reference is available.
-4. Record the exact reference commit, release tag, or version inspected for
-   each reference client that supports a parity claim. If a local clone is
-   absent, explicitly report the downgrade as "fixture-only",
-   "single-client comparison", or "geth/Nethermind-only comparison".
-5. Write Lisp behavior tests with Ethereum fixture examples where possible.
-6. Prefer consensus behavior over local API shape when the clients organize
-   code differently.
+Consult reference clients when protocol behavior is ambiguous, consensus
+compatibility is at risk, or the work makes an explicit parity claim. Ordinary
+feature development does not require a multi-client comparison report.

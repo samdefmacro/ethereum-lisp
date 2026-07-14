@@ -602,14 +602,3 @@ The current source ownership map is:
 - HTTP transport may call RPC dispatch, but RPC dispatch should not depend on
   sockets or listener state.
 - CLI and devnet lifecycle are top-level orchestration only.
-
-## Refactor Order
-
-Prefer behavior-preserving slices:
-
-1. Identify the owner, public contract, invariants, and allowed dependencies.
-2. Define or tighten the package boundary and its tests.
-3. Move or consolidate the cohesive implementation behind that boundary.
-4. Update load order and run the full test suite.
-
-Avoid mixing file moves, semantic fixes, and API changes in one slice.
