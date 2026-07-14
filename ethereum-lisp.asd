@@ -238,6 +238,7 @@
      (:file "execution-block-validation")
      (:file "execution-block-execution")
      (:file "execution-service")
+     (:file "node-store-staged-import")
      (:file "txpool-admission-service")
      (:file "engine-payload-status")
      (:file "json-rpc-protocol")

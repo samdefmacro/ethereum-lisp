@@ -43,9 +43,12 @@ Git history.
   snapshot-only publication with record-scoped durable chain/state commits.
   Engine candidates, consensus-selected forkchoice transitions, and local
   dev-period seals now commit before publication, and the chain database and
-  txpool journal now share an explicit generation/authority contract. The next
-  boundary is persisted staged-import progress and unwind behavior before real
-  peer-to-peer synchronization.
+  txpool journal now share an explicit generation/authority contract. A first
+  local staged-import boundary now persists chain-config-bound progress,
+  executes from durable parent state, resumes after restart, and unwinds in
+  reverse dependency order without publishing canonical state. The next
+  boundary is content-addressed durable trie/state storage with explicit
+  retention roots before a live sync coordinator or peer transport is added.
 
 ## Priority Order
 

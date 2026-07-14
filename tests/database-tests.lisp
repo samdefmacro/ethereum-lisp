@@ -43,6 +43,20 @@
       (is present-p)
       (is (bytes= #(3) value)))))
 
+(deftest memory-key-value-database-failed-batch-restores-snapshot
+  (let ((database (make-memory-key-value-database))
+        (batch (make-kv-write-batch)))
+    (kv-put database #(1) #(10))
+    (setf (ethereum-lisp.database::kv-write-batch-operations batch)
+          (list (list :invalid)
+                (list :put #(1) #(11))))
+    (signals error
+      (kv-apply-batch database batch))
+    (multiple-value-bind (value present-p)
+        (kv-get database #(1))
+      (is present-p)
+      (is (bytes= #(10) value)))))
+
 (deftest memory-key-value-database-iterates-sorted-ranges
   (let ((database (make-memory-key-value-database)))
     (kv-put database #(3) #(30))
@@ -69,6 +83,28 @@
         (declare (ignore value))
         (is present-p)
         (is (bytes= #(3) key))))))
+
+(deftest file-key-value-database-failed-batch-restores-memory-snapshot
+  (:layer :integration :module :database)
+  (let ((database
+          (make-instance
+           'file-key-value-database
+           :path #P"/dev/null/ethereum-lisp-kv.sexp"))
+        (batch (make-kv-write-batch)))
+    (ethereum-lisp.database::kv-put-memory-entry
+     database #(1) #(10))
+    (kv-batch-put batch #(1) #(11))
+    (kv-batch-put batch #(2) #(20))
+    (signals error
+      (kv-apply-batch database batch))
+    (multiple-value-bind (value present-p)
+        (kv-get database #(1))
+      (is present-p)
+      (is (bytes= #(10) value)))
+    (multiple-value-bind (value present-p)
+        (kv-get database #(2))
+      (declare (ignore value))
+      (is (not present-p)))))
 
 (deftest file-key-value-database-persists-chain-records
   (:layer :integration :module :database)

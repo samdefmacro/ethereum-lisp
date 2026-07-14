@@ -10,6 +10,7 @@
 (dolist (relative-path
          '("tests/core-chain-store-basic-tests.lisp"
            "tests/core-chain-store-kv-export-tests.lisp"
+           "tests/core-node-store-staged-import-tests.lisp"
            "tests/core-chain-store-txpool-persistence-tests.lisp"
            "tests/core-chain-store-invalid-tipset-tests.lisp"
            "tests/core-chain-store-remote-block-tests.lisp"
