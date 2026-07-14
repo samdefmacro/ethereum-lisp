@@ -19,8 +19,8 @@
     (database batch block record-label)
   (let ((identifier (hash32-bytes (block-hash block)))
         (changed-p nil))
-    (when (node-store-put-immutable-record
-           database batch :block identifier (block-rlp block) record-label)
+    (when (node-store-put-immutable-block-body-record
+           database batch :block block record-label)
       (setf changed-p t))
     (when (node-store-put-immutable-record
            database batch :header identifier
@@ -112,7 +112,9 @@
           (unless block-present-p
             (block-validation-fail
              "Persisted head checkpoint has no block record"))
-          (let ((block (block-from-rlp record)))
+          (let ((block
+                  (chain-store-block-from-persisted-record
+                   database identifier record "Persisted head checkpoint")))
             (unless (hash32= (block-hash block) head-hash)
               (block-validation-fail
                "Persisted head checkpoint block hash does not match"))
@@ -126,7 +128,9 @@
       (unless present-p
         (block-validation-fail
          "Persisted canonical height ~D has no block record" number))
-      (let ((block (block-from-rlp record)))
+      (let ((block
+              (chain-store-block-from-persisted-record
+               database identifier record "Persisted canonical block")))
         (unless (and (hash32= (block-hash block) expected-hash)
                      (= (block-header-number (block-header block)) number))
           (block-validation-fail
@@ -256,7 +260,7 @@ same-head forkchoice call without reintroducing a full-store scan."
       (unless stored-candidate
         (block-validation-fail
          "Payload candidate export requires a known block"))
-      (unless (bytes= (block-rlp stored-candidate) (block-rlp candidate))
+      (unless (chain-store-persisted-block= stored-candidate candidate)
         (block-validation-fail
          "Payload candidate does not match the known block"))
       (unless (chain-store-state-available-p chain-store candidate-hash)
@@ -354,7 +358,7 @@ same-head forkchoice call without reintroducing a full-store scan."
                  (known-block (chain-store-known-block chain-store hash))
                  (identifier (hash32-bytes hash)))
             (unless (and known-block
-                         (bytes= (block-rlp known-block) (block-rlp block))
+                         (chain-store-persisted-block= known-block block)
                          (chain-store-canonical-block-p chain-store block))
               (block-validation-fail
                "Forkchoice transition installed block is not canonical"))
@@ -396,6 +400,43 @@ same-head forkchoice call without reintroducing a full-store scan."
          store transaction-hashes)
         database))))
 
+(defun node-store-block-access-list-live-identifiers (store database)
+  "Return the block identifiers that may reference shared BAL side data.
+
+The full export batch makes the in-memory known, remote, and invalid block
+tables authoritative.  Persisted block records are append-only, while staged
+block records have an independent lifecycle, so their existing identifiers
+also remain live."
+  (let ((live-identifiers (make-hash-table :test 'equalp)))
+    (labels ((mark-identifier (identifier)
+               (setf (gethash (bytes-to-hex identifier) live-identifiers) t))
+             (mark-memory-blocks (blocks)
+               (maphash
+                (lambda (key block)
+                  (declare (ignore key))
+                  (mark-identifier (hash32-bytes (block-hash block))))
+                blocks))
+             (mark-persisted-records (kind)
+               (dolist (entry (kv-chain-record-entries database kind))
+                 (mark-identifier (car entry)))))
+      (mark-memory-blocks (memory-chain-store-blocks store))
+      (mark-memory-blocks (memory-chain-store-remote-blocks store))
+      (mark-memory-blocks (memory-chain-store-invalid-tipsets store))
+      (mark-persisted-records :block)
+      (mark-persisted-records :staged-block))
+    live-identifiers))
+
+(defun node-store-populate-block-access-list-sweep-batch
+    (store database batch)
+  "Delete BAL side records unreferenced by the full export's final bodies."
+  (let ((live-identifiers
+          (node-store-block-access-list-live-identifiers store database)))
+    (dolist (entry (kv-chain-record-entries database :block-access-list))
+      (unless (gethash (bytes-to-hex (car entry)) live-identifiers)
+        (kv-batch-delete-chain-record
+         batch :block-access-list (car entry)))))
+  batch)
+
 (defun node-store-export-to-kv
     (store database &key persistence-metadata)
   (let ((chain-store (chain-store-require-memory-store store)))
@@ -419,6 +460,8 @@ same-head forkchoice call without reintroducing a full-store scan."
       (chain-store-populate-blob-sidecar-export-batch
        chain-store database batch)
       (chain-store-populate-prepared-payload-export-batch
+       chain-store database batch)
+      (node-store-populate-block-access-list-sweep-batch
        chain-store database batch)
       (node-store-populate-persistence-metadata-batch
        batch persistence-metadata)

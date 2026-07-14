@@ -31,16 +31,4 @@
                     (list (eth-rpc-encoded-rlp-list
                            (mapcar #'withdrawal-rlp
                                    (block-withdrawals block)))))))
-    (when (block-requests-present-p block)
-      (setf items
-            (append items
-                    (list (eth-rpc-encoded-rlp-list
-                           (mapcar #'rlp-encode
-                                   (block-requests block)))))))
-    (when (block-block-access-list-present-p block)
-      (setf items
-            (append items
-                    (list (or (block-encoded-block-access-list block)
-                              (block-access-list-rlp
-                               (block-block-access-list block)))))))
     (eth-rpc-encoded-rlp-list items)))

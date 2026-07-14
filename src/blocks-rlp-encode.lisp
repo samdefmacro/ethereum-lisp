@@ -18,15 +18,6 @@
   (apply #'make-rlp-list
          (mapcar #'withdrawal-rlp-object withdrawals)))
 
-(defun block-requests-rlp-object (requests)
-  (apply #'make-rlp-list
-         (mapcar #'rlp-decode-one requests)))
-
-(defun block-access-list-rlp-object-for-block (block)
-  (rlp-decode-one
-   (or (block-encoded-block-access-list block)
-       (block-access-list-rlp (block-block-access-list block)))))
-
 (defun block-rlp (block)
   (let ((fields
           (list (block-header-rlp-object (block-header block))
@@ -38,13 +29,4 @@
             (append fields
                     (list (block-withdrawals-rlp-object
                            (block-withdrawals block))))))
-    (when (block-requests-present-p block)
-      (setf fields
-            (append fields
-                    (list (block-requests-rlp-object
-                           (block-requests block))))))
-    (when (block-block-access-list-present-p block)
-      (setf fields
-            (append fields
-                    (list (block-access-list-rlp-object-for-block block)))))
     (rlp-encode (apply #'make-rlp-list fields))))

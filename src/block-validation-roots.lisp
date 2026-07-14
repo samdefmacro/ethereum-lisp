@@ -67,31 +67,26 @@
          (block-validation-fail "Withdrawals root hash mismatch")))
       ((block-withdrawals-present-p block)
        (block-validation-fail "Withdrawals present before withdrawals root")))
-    (cond
-      ((block-header-requests-hash header)
-       (unless (block-requests-present-p block)
-         (block-validation-fail "Missing execution requests in block body"))
-       (unless (hash32= (execution-requests-hash (block-requests block))
-                        (block-header-requests-hash header))
-         (block-validation-fail "Execution requests hash mismatch")))
-      ((block-requests-present-p block)
-       (block-validation-fail "Execution requests present before requests hash")))
-    (cond
-      ((block-header-block-access-list-hash header)
-       (unless (block-block-access-list-present-p block)
-         (block-validation-fail "Missing block access list in block body"))
-       (unless (hash32= (validated-block-access-list-commitment
+    ;; Requests and block access lists are side data committed by the header,
+    ;; not canonical block-body fields.  Validate them when available without
+    ;; making generic body decoding depend on their presence.
+    (when (block-requests-present-p block)
+      (unless (and (block-header-requests-hash header)
+                   (hash32= (execution-requests-hash (block-requests block))
+                            (block-header-requests-hash header)))
+        (block-validation-fail "Execution requests hash mismatch")))
+    (when (block-block-access-list-present-p block)
+      (unless (and
+               (block-header-block-access-list-hash header)
+               (hash32= (validated-block-access-list-commitment
                          block
                          :max-code-size block-access-list-max-code-size
                          :max-items
                          (when (plusp (block-header-gas-limit header))
                            (floor (block-header-gas-limit header)
                                   +block-access-list-item-gas-cost+)))
-                        (block-header-block-access-list-hash header))
-         (block-validation-fail "Block access list hash mismatch")))
-      ((block-block-access-list-present-p block)
-       (block-validation-fail
-        "Block access list present before block access list hash")))
+                        (block-header-block-access-list-hash header)))
+        (block-validation-fail "Block access list hash mismatch")))
     (cond
       ((block-header-blob-gas-used header)
        (unless (= blob-gas-used (block-header-blob-gas-used header))

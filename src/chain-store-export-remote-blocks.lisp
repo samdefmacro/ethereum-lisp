@@ -5,7 +5,8 @@
    batch
    :remote-block
    (hex-to-bytes block-key)
-   (block-rlp block)))
+   (chain-store-block-record-rlp block))
+  (chain-store-populate-block-access-list-side-data-batch batch block))
 
 (defun chain-store-remote-block-exportable-p (store block-key block)
   (let ((block-hash (block-hash block)))

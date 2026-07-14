@@ -1,5 +1,187 @@
 (in-package #:ethereum-lisp.test)
 
+(defun chain-store-bal-persistence-test-block (number marker &key bal-p)
+  (apply
+   #'make-block
+   (append
+    (list
+     :header
+     (make-block-header
+      :number number
+      :parent-hash (zero-hash32)
+      :state-root +empty-trie-hash+
+      :mix-hash (zero-hash32)
+      :timestamp number
+      :extra-data (vector marker)
+      :gas-limit 30000000
+      :base-fee-per-gas 1
+      :blob-gas-used 0
+      :excess-blob-gas 0
+      :parent-beacon-root (zero-hash32))
+     :withdrawals '()
+     :requests '())
+    (when bal-p (list :block-access-list '())))))
+
+(defun chain-store-bal-persistence-record-field-count (record)
+  (length (rlp-list-items (rlp-decode-one record))))
+
+(defun chain-store-bal-persistence-assert-restored (expected actual)
+  (is actual)
+  (is (bytes= (hash32-bytes (block-hash expected))
+              (hash32-bytes (block-hash actual))))
+  (is (not (block-requests-present-p actual)))
+  (is (block-block-access-list-present-p actual))
+  (is (bytes= (block-encoded-block-access-list expected)
+              (block-encoded-block-access-list actual))))
+
+(deftest chain-store-block-access-lists-use-hash-addressed-side-data
+  (let* ((database (make-memory-key-value-database))
+         (source (make-engine-payload-memory-store))
+         (restored (make-engine-payload-memory-store))
+         (accepted (chain-store-bal-persistence-test-block 0 1 :bal-p t))
+         (remote (chain-store-bal-persistence-test-block 7 2 :bal-p t))
+         (invalid (chain-store-bal-persistence-test-block 8 3 :bal-p t)))
+    (chain-store-put-block source accepted :state-available-p t)
+    (ethereum-lisp.chain-store:engine-payload-store-put-remote-block
+     source remote)
+    (ethereum-lisp.chain-store:engine-payload-store-mark-invalid
+     source invalid)
+    (chain-store-export-block-records-to-kv source database)
+    (ethereum-lisp.node-store.persistence::chain-store-export-remote-blocks-to-kv
+     source database)
+    (ethereum-lisp.node-store.persistence::chain-store-export-invalid-tipsets-to-kv
+     source database)
+    (dolist (entry (list (cons :block accepted)
+                         (cons :remote-block remote)
+                         (cons :invalid-tipset invalid)))
+      (let ((identifier (hash32-bytes (block-hash (cdr entry)))))
+        (multiple-value-bind (record present-p)
+            (kv-get-chain-record database (car entry) identifier)
+          (is present-p)
+          (is (= 4 (chain-store-bal-persistence-record-field-count record))))
+        (multiple-value-bind (side-data present-p)
+            (kv-get-chain-record database :block-access-list identifier)
+          (is present-p)
+          (is (bytes= (block-encoded-block-access-list (cdr entry))
+                      side-data)))))
+    (ethereum-lisp.node-store.persistence::chain-store-import-block-records-from-kv
+     restored database)
+    (ethereum-lisp.node-store.persistence::chain-store-import-invalid-tipsets-from-kv
+     restored database)
+    (ethereum-lisp.node-store.persistence::chain-store-import-remote-blocks-from-kv
+     restored database)
+    (chain-store-bal-persistence-assert-restored
+     accepted (chain-store-known-block restored (block-hash accepted)))
+    (chain-store-bal-persistence-assert-restored
+     remote
+     (ethereum-lisp.chain-store:engine-payload-store-remote-block
+      restored (block-hash remote)))
+    (chain-store-bal-persistence-assert-restored
+     invalid
+     (ethereum-lisp.chain-store:engine-payload-store-invalid-block
+      restored (block-hash invalid)))))
+
+(deftest chain-store-import-migrates-legacy-request-and-bal-block-records
+  (let* ((database (make-memory-key-value-database))
+         (restored (make-engine-payload-memory-store))
+         (prague (chain-store-bal-persistence-test-block 9 4))
+         (amsterdam (chain-store-bal-persistence-test-block 10 5 :bal-p t))
+         (empty-requests (make-rlp-list)))
+    (labels ((legacy-record (block &optional encoded-bal)
+               (let ((fields
+                       (rlp-list-items (rlp-decode-one (block-rlp block)))))
+                 (rlp-encode
+                  (apply #'make-rlp-list
+                         (append fields
+                                 (list empty-requests)
+                                 (when encoded-bal
+                                   (list (rlp-decode-one encoded-bal)))))))))
+      (let ((legacy-prague (legacy-record prague))
+            (legacy-amsterdam
+              (legacy-record
+               amsterdam (block-encoded-block-access-list amsterdam))))
+        (is (= 5 (chain-store-bal-persistence-record-field-count
+                  legacy-prague)))
+        (is (= 6 (chain-store-bal-persistence-record-field-count
+                  legacy-amsterdam)))
+        (kv-put-chain-record database :block
+                             (hash32-bytes (block-hash prague))
+                             legacy-prague)
+        (kv-put-chain-record database :block
+                             (hash32-bytes (block-hash amsterdam))
+                             legacy-amsterdam)))
+    (ethereum-lisp.node-store.persistence::chain-store-import-block-records-from-kv
+     restored database)
+    (let ((restored-prague
+            (chain-store-known-block restored (block-hash prague)))
+          (restored-amsterdam
+            (chain-store-known-block restored (block-hash amsterdam))))
+      (is restored-prague)
+      (is (not (block-requests-present-p restored-prague)))
+      (chain-store-bal-persistence-assert-restored
+       amsterdam restored-amsterdam))
+    (chain-store-export-block-records-to-kv restored database)
+    (dolist (block (list prague amsterdam))
+      (multiple-value-bind (record present-p)
+          (kv-get-chain-record database :block
+                               (hash32-bytes (block-hash block)))
+        (is present-p)
+        (is (= 4 (chain-store-bal-persistence-record-field-count record)))))
+    (is (nth-value
+         1
+         (kv-get-chain-record database :block-access-list
+                              (hash32-bytes (block-hash amsterdam)))))))
+
+(deftest node-store-full-export-sweeps-only-unreferenced-bal-side-data
+  (let* ((database (make-memory-key-value-database))
+         (store (make-engine-payload-memory-store))
+         (known (chain-store-bal-persistence-test-block 0 20 :bal-p t))
+         (remote (chain-store-bal-persistence-test-block 1 21 :bal-p t))
+         (invalid (chain-store-bal-persistence-test-block 2 22 :bal-p t))
+         (persisted (chain-store-bal-persistence-test-block 3 23 :bal-p t))
+         (staged (chain-store-bal-persistence-test-block 4 24 :bal-p t))
+         (orphan (chain-store-bal-persistence-test-block 5 25 :bal-p t))
+         (staged-id (hash32-bytes (block-hash staged)))
+         (orphan-id (hash32-bytes (block-hash orphan))))
+    (chain-store-put-block store known :state-available-p t)
+    (ethereum-lisp.chain-store:engine-payload-store-put-remote-block
+     store remote)
+    (ethereum-lisp.chain-store:engine-payload-store-mark-invalid
+     store invalid)
+    ;; Seed every side record before export.  The known/remote/invalid bodies
+    ;; are put in this same batch, while the stale remote reference below is
+    ;; deleted in it.
+    (dolist (block (list known remote invalid persisted staged orphan))
+      (kv-put-chain-record
+       database :block-access-list
+       (hash32-bytes (block-hash block))
+       (block-encoded-block-access-list block)))
+    (kv-put-chain-record
+     database :block (hash32-bytes (block-hash persisted))
+     (block-rlp persisted))
+    (kv-put-chain-record database :staged-block staged-id (block-rlp staged))
+    (kv-put-chain-record database :remote-block staged-id (block-rlp staged))
+
+    (node-store-export-to-kv store database)
+
+    (is (not (nth-value
+              1 (kv-get-chain-record database :remote-block staged-id))))
+    (is (nth-value
+         1 (kv-get-chain-record database :staged-block staged-id)))
+    (dolist (block (list known remote invalid persisted staged))
+      (multiple-value-bind (side-data present-p)
+          (kv-get-chain-record
+           database :block-access-list
+           (hash32-bytes (block-hash block)))
+        (is present-p)
+        (is (bytes= (block-encoded-block-access-list block) side-data))))
+    (is (not (nth-value
+              1
+              (kv-get-chain-record
+               database :block-access-list orphan-id))))
+    (is (= 5 (length
+              (kv-chain-record-entries database :block-access-list))))))
+
 (deftest node-store-persistence-package-boundary
   (let ((persistence
           (find-package '#:ethereum-lisp.node-store.persistence))

@@ -10,15 +10,33 @@
      (chain-store-byte-list-rlp-object (blob-sidecar-commitments bundle))
      (chain-store-byte-list-rlp-object (blob-sidecar-proofs bundle)))))
 
+(defun chain-store-prepared-payload-requests-rlp-object (block)
+  (if (block-requests-present-p block)
+      (make-rlp-list
+       (chain-store-byte-list-rlp-object (block-requests block)))
+      (make-rlp-list)))
+
+(defun chain-store-prepared-payload-block-access-list-rlp-object (block)
+  (if (block-block-access-list-present-p block)
+      (make-rlp-list
+       (maybe-copy-bytes
+        (or (block-encoded-block-access-list block)
+            (ethereum-lisp.block-access-lists:block-access-list-rlp
+             (block-block-access-list block)))))
+      (make-rlp-list)))
+
 (defun chain-store-prepared-payload-record-rlp (prepared-payload)
-  (rlp-encode
-   (make-rlp-list
-    (maybe-copy-bytes
-     (engine-prepared-payload-payload-id prepared-payload))
-    (engine-prepared-payload-version prepared-payload)
-    (block-rlp (engine-prepared-payload-block prepared-payload))
-    (chain-store-blob-sidecar-bundle-rlp-object
-     (engine-prepared-payload-blobs-bundle prepared-payload)))))
+  (let ((block (engine-prepared-payload-block prepared-payload)))
+    (rlp-encode
+     (make-rlp-list
+      (maybe-copy-bytes
+       (engine-prepared-payload-payload-id prepared-payload))
+      (engine-prepared-payload-version prepared-payload)
+      (block-rlp block)
+      (chain-store-blob-sidecar-bundle-rlp-object
+       (engine-prepared-payload-blobs-bundle prepared-payload))
+      (chain-store-prepared-payload-requests-rlp-object block)
+      (chain-store-prepared-payload-block-access-list-rlp-object block)))))
 
 (defun chain-store-export-prepared-payload-to-kv
     (batch payload-id-key prepared-payload)

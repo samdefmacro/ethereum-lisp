@@ -74,18 +74,18 @@
     (when (and withdrawals-supplied-p
                (not (block-header-withdrawals-root header)))
       (validate-withdrawal-list-fields withdrawals))
-    (when (block-header-requests-hash header)
-      (unless requests-supplied-p
-        (error 'block-validation-error
-               :message "Missing execution requests in block body"))
+    ;; Execution requests are Engine side data derived from execution, not a
+    ;; canonical block-body field.  When supplied by newPayload, validate the
+    ;; early commitment; canonical block imports may omit them and are checked
+    ;; against the derived requests after execution.
+    (when requests-supplied-p
       (validate-execution-request-list-fields requests)
-      (unless (execution-hash32= (block-header-requests-hash header)
-                                 (execution-requests-hash requests))
+      (unless (and (block-header-requests-hash header)
+                   (execution-hash32=
+                    (block-header-requests-hash header)
+                    (execution-requests-hash requests)))
         (error 'block-validation-error
                :message "Execution requests hash mismatch")))
-    (when (and requests-supplied-p
-               (not (block-header-requests-hash header)))
-      (validate-execution-request-list-fields requests))
     (when (block-header-block-access-list-hash header)
       (unless block-access-list-supplied-p
         (error 'block-validation-error

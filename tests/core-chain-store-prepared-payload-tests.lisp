@@ -87,6 +87,142 @@
         (when (probe-file path)
           (delete-file path))))))
 
+(deftest chain-store-prepared-payload-record-restores-private-side-data
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((payload-id #(6 0 0 0 0 0 0 1))
+           (requests (list #(#x01 #xaa)))
+           (account
+             (make-block-access-account
+              :address
+              (address-from-hex
+               "0x0000000000000000000000000000000000000001")))
+           (block
+             (make-block
+              :header
+              (make-block-header :number 9
+                                 :timestamp 14
+                                 :base-fee-per-gas 100
+                                 :withdrawals-root
+                                 (withdrawal-list-root '())
+                                 :blob-gas-used 0
+                                 :excess-blob-gas 0
+                                 :parent-beacon-root (zero-hash32)
+                                 :slot-number 42)
+              :withdrawals '()
+              :requests requests
+              :block-access-list (list account)))
+           (prepared-payload
+             (make-engine-prepared-payload
+              :payload-id payload-id
+              :version 6
+              :block block))
+           (record
+             (ethereum-lisp.node-store.persistence::chain-store-prepared-payload-record-rlp
+              prepared-payload))
+           (record-fields (rlp-list-items (rlp-decode-one record)))
+           (canonical-block (block-from-rlp (third record-fields))))
+      (is (= 6 (length record-fields)))
+      (is (not (block-requests-present-p canonical-block)))
+      (is (not (block-block-access-list-present-p canonical-block)))
+      (let* ((restored-payload
+               (ethereum-lisp.node-store.persistence::chain-store-prepared-payload-from-rlp
+                payload-id record))
+             (restored-block
+               (ethereum-lisp.engine-payloads:engine-prepared-payload-block
+                restored-payload))
+             (store (make-engine-payload-memory-store)))
+        (is (block-requests-present-p restored-block))
+        (is (= 1 (length (block-requests restored-block))))
+        (is (bytes= #(#x01 #xaa) (first (block-requests restored-block))))
+        (is (block-block-access-list-present-p restored-block))
+        (is (bytes= (block-encoded-block-access-list block)
+                    (block-encoded-block-access-list restored-block)))
+        (chain-store-put-prepared-payload store restored-payload)
+        (let* ((response
+                 (engine-rpc-handle-request
+                  (list (cons "jsonrpc" "2.0")
+                        (cons "id" 40)
+                        (cons "method" "engine_getPayloadV6")
+                        (cons "params" (list (bytes-to-hex payload-id))))
+                  store
+                  (make-chain-config)))
+               (envelope (field response "result"))
+               (payload (field envelope "executionPayload")))
+          (is (string= "0x01aa"
+                       (first (field envelope "executionRequests"))))
+          (is (string= (bytes-to-hex
+                        (block-encoded-block-access-list block))
+                       (field payload "blockAccessList"))))))))
+
+(deftest chain-store-prepared-payload-record-imports-legacy-four-fields
+  (let* ((payload-id #(6 0 0 0 0 0 0 1))
+         ;; Legacy block records stored each execution request as its RLP item.
+         (requests (list #(#x82 #x01 #xaa)))
+         (account
+           (make-block-access-account
+            :address
+            (address-from-hex
+             "0x0000000000000000000000000000000000000001")))
+         (block
+           (make-block
+            :header
+            (make-block-header :number 9
+                               :timestamp 14
+                               :base-fee-per-gas 100
+                               :withdrawals-root
+                               (withdrawal-list-root '())
+                               :blob-gas-used 0
+                               :excess-blob-gas 0
+                               :parent-beacon-root (zero-hash32)
+                               :slot-number 42)
+            :withdrawals '()
+            :requests requests
+            :block-access-list (list account)))
+         (prepared-payload
+           (make-engine-prepared-payload
+            :payload-id payload-id
+            :version 6
+            :block block))
+         (new-record
+           (ethereum-lisp.node-store.persistence::chain-store-prepared-payload-record-rlp
+            prepared-payload))
+         (new-fields (rlp-list-items (rlp-decode-one new-record)))
+         (canonical-block-fields
+           (rlp-list-items (rlp-decode-one (third new-fields))))
+         (legacy-block-record
+           (rlp-encode
+            (apply #'make-rlp-list
+                   (append
+                    canonical-block-fields
+                    (list
+                     (apply #'make-rlp-list
+                            (mapcar #'rlp-decode-one requests))
+                     (rlp-decode-one
+                      (block-encoded-block-access-list block)))))))
+         (legacy-fields (subseq new-fields 0 4))
+         (legacy-record
+           (progn
+             (setf (third legacy-fields) legacy-block-record)
+             (rlp-encode (apply #'make-rlp-list legacy-fields))))
+         (restored
+           (ethereum-lisp.node-store.persistence::chain-store-prepared-payload-from-rlp
+            payload-id legacy-record))
+         (restored-block
+           (ethereum-lisp.engine-payloads:engine-prepared-payload-block
+            restored)))
+    (is (= 6 (length new-fields)))
+    (is (= 6 (length (rlp-list-items
+                      (rlp-decode-one legacy-block-record)))))
+    (is (= 6
+           (ethereum-lisp.engine-payloads:engine-prepared-payload-version
+            restored)))
+    (is (block-requests-present-p restored-block))
+    (is (bytes= (first requests) (first (block-requests restored-block))))
+    (is (block-block-access-list-present-p restored-block))
+    (is (bytes= (block-encoded-block-access-list block)
+                (block-encoded-block-access-list restored-block)))))
+
 (deftest chain-store-put-block-prunes-prepared-payload-cache
   (let* ((store (make-engine-payload-memory-store))
          (payload-id #(2 0 0 0 0 0 0 1))
@@ -275,6 +411,11 @@
                 :block
                 (hash32-bytes (block-hash known-block))
                 (block-rlp known-block))
+               (kv-put-chain-record
+                database
+                :block-access-list
+                (hash32-bytes (block-hash known-block))
+                (block-encoded-block-access-list known-block))
                (kv-put-chain-record
                 database
                 :prepared-payload

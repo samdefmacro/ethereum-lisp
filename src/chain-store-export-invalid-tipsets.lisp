@@ -6,7 +6,9 @@
    batch
    :invalid-tipset
    (hex-to-bytes tipset-key)
-   (block-rlp invalid-block)))
+   (chain-store-block-record-rlp invalid-block))
+  (chain-store-populate-block-access-list-side-data-batch
+   batch invalid-block))
 
 (defun chain-store-invalid-tipset-direct-key-p
     (tipset-key invalid-block)
