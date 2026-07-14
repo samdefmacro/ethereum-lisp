@@ -1,10 +1,37 @@
 (in-package #:ethereum-lisp.execution)
 
+(defun execution-block-hashes-for-header (header block-hashes)
+  (unless (hash-table-p block-hashes)
+    (error 'block-validation-error
+           :message "Block hash history must be a hash table"))
+  (let ((number (block-header-number header))
+        (parent-hash (block-header-parent-hash header)))
+    (loop for ancestor-number from (max 0 (- number 256)) below (1- number)
+          do (multiple-value-bind (hash present-p)
+                 (gethash ancestor-number block-hashes)
+               (unless (and present-p hash)
+                 (setf (gethash ancestor-number block-hashes)
+                       :unavailable))))
+    (when (plusp number)
+      (if parent-hash
+          (multiple-value-bind (known-parent present-p)
+              (gethash (1- number) block-hashes)
+            (when (and present-p
+                       (not (eq known-parent :unavailable))
+                       (not (hash32= known-parent parent-hash)))
+              (error 'block-validation-error
+                     :message
+                     "Block hash history conflicts with header parent"))
+            (setf (gethash (1- number) block-hashes) parent-hash))
+          (setf (gethash (1- number) block-hashes) :unavailable))))
+  block-hashes)
+
 (defun execute-block-with-message-applier
     (state transactions apply-transactions
      &key (header (make-block-header))
           chain-rules
           chain-config
+          (block-hashes (make-hash-table))
           (apply-block-rewards-p nil)
           (ommers '())
           (withdrawals nil)
@@ -32,6 +59,8 @@
                                     (block-header-timestamp header)))
            (block-blob-base-fee
              (execution-block-blob-base-fee header chain-rules chain-config))
+           (block-hashes
+             (execution-block-hashes-for-header header block-hashes))
            (block-access-list-max-code-size
              (execution-block-access-list-max-code-size
               chain-rules
@@ -64,7 +93,8 @@
           (progn
             (process-parent-beacon-block-root
              state header effective-chain-rules
-             :blob-base-fee block-blob-base-fee)
+             :blob-base-fee block-blob-base-fee
+             :block-hashes block-hashes)
             (multiple-value-bind (receipts gas-used)
                 (funcall
                  apply-transactions
@@ -81,6 +111,7 @@
                  :difficulty (block-header-difficulty header)
                  :random-p (block-header-post-merge-p header)
                  :context-gas-limit (block-header-gas-limit header)
+                 :block-hashes block-hashes
                  :block-gas-limit
                  (when (plusp (block-header-gas-limit header))
                    (block-header-gas-limit header)))
@@ -126,6 +157,7 @@
                              &key (header (make-block-header))
                                   chain-rules
                                   chain-config
+                                  (block-hashes (make-hash-table))
                                   (apply-block-rewards-p nil)
                                   (ommers '())
                                   (withdrawals nil withdrawals-supplied-p)
@@ -142,6 +174,7 @@
    :header header
    :chain-rules chain-rules
    :chain-config chain-config
+   :block-hashes block-hashes
    :apply-block-rewards-p apply-block-rewards-p
    :ommers ommers
    :withdrawals withdrawals
@@ -158,6 +191,7 @@
                                   (header (make-block-header))
                                   chain-rules
                                   chain-config
+                                  (block-hashes (make-hash-table))
                                   (apply-block-rewards-p nil)
                                   (ommers '())
                                   (withdrawals nil withdrawals-supplied-p)
@@ -176,6 +210,7 @@
    :header header
    :chain-rules chain-rules
    :chain-config chain-config
+   :block-hashes block-hashes
    :apply-block-rewards-p apply-block-rewards-p
    :ommers ommers
    :withdrawals withdrawals

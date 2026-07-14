@@ -181,6 +181,11 @@
                              :status +payload-status-valid+
                              :latest-valid-hash (block-hash imported-block))
                             imported-block)))
+              (state-unavailable-error ()
+                (engine-payload-store-put-remote-block store block)
+                (values
+                 (make-payload-status :status +payload-status-syncing+)
+                 block))
               (error (condition)
                 (engine-payload-store-mark-invalid store block)
                 (values

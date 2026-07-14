@@ -92,6 +92,57 @@
             store
             (block-hash child-block)))))))
 
+(deftest engine-new-payload-memory-status-maps-unavailable-import-to-syncing
+  (let* ((address
+           (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (config (make-chain-config :chain-id 1 :london-block 0))
+         (parent-block
+           (make-block
+            :header (make-block-header
+                     :parent-hash (zero-hash32)
+                     :beneficiary address
+                     :state-root +empty-trie-hash+
+                     :mix-hash (zero-hash32)
+                     :number 0
+                     :gas-limit 50000
+                     :gas-used 25000
+                     :timestamp 98
+                     :base-fee-per-gas 100)))
+         (child-block
+           (make-block
+            :header (make-block-header
+                     :parent-hash (block-hash parent-block)
+                     :beneficiary address
+                     :state-root +empty-trie-hash+
+                     :mix-hash (zero-hash32)
+                     :number 1
+                     :gas-limit 50000
+                     :timestamp 99
+                     :base-fee-per-gas 100)))
+         (payload
+           (execution-payload-envelope-execution-payload
+            (block-to-executable-data child-block)))
+         (store (make-engine-payload-memory-store)))
+    (engine-payload-store-put-block
+     store parent-block :state-available-p t)
+    (multiple-value-bind (status block)
+        (engine-new-payload-memory-status
+         store 1 payload config
+         :import-function
+         (lambda (store block config)
+           (declare (ignore store block config))
+           (ethereum-lisp.validation:state-unavailable-fail
+            "BLOCK hash history is unavailable")))
+      (is (string= +payload-status-syncing+
+                   (payload-status-status status)))
+      (is (typep block 'ethereum-block))
+      (is (null (payload-status-latest-valid-hash status)))
+      (is (null (payload-status-validation-error status)))
+      (is (engine-payload-store-remote-block
+           store (block-hash child-block)))
+      (is (null (engine-payload-store-invalid-block
+                 store (block-hash child-block)))))))
+
 (deftest engine-new-payload-memory-status-maps-execution-failure-invalid
   (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
          (config (make-chain-config :chain-id 1 :london-block 0))
@@ -231,4 +282,3 @@
        (bad-child-block parent-block beneficiary
                         :gas-used 1)
        "Gas used mismatch"))))
-

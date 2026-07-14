@@ -237,3 +237,64 @@
             (state-db-get-account state sender))))
     (is (null (state-db-get-account state recipient)))))
 
+(deftest execute-and-commit-signed-block-blockhash-follows-parent-branch
+  (let* ((store (make-engine-payload-memory-store))
+         (state (make-state-db))
+         (private-key 1)
+         (sender (fixture-private-key-address private-key))
+         (contract
+           (address-from-hex "0x00000000000000000000000000000000000000b0"))
+         (slot (zero-hash32))
+         (genesis
+           (make-block
+            :header (make-block-header :number 0
+                                       :parent-hash (zero-hash32)
+                                       :extra-data #(0))))
+         (canonical-ancestor
+           (make-block
+            :header (make-block-header :number 1
+                                       :parent-hash (block-hash genesis)
+                                       :extra-data #(1))))
+         (side-ancestor
+           (make-block
+            :header (make-block-header :number 1
+                                       :parent-hash (block-hash genesis)
+                                       :extra-data #(2))))
+         (side-parent
+           (make-block
+            :header (make-block-header :number 2
+                                       :parent-hash (block-hash side-ancestor)
+                                       :extra-data #(3))))
+         (transaction
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction :nonce 0
+                                     :gas-price 1
+                                     :gas-limit 100000
+                                     :to contract)
+            private-key
+            1))
+         (header
+           (make-block-header :number 3
+                              :parent-hash (block-hash side-parent)
+                              :gas-limit 150000)))
+    (dolist (block (list genesis canonical-ancestor
+                         side-ancestor side-parent))
+      (chain-store-put-block store block))
+    (is (bytes= (hash32-bytes (block-hash canonical-ancestor))
+                (hash32-bytes (chain-store-canonical-hash store 1))))
+    (is (not (bytes= (hash32-bytes (block-hash canonical-ancestor))
+                     (hash32-bytes (block-hash side-ancestor)))))
+    (state-db-set-account state sender
+                          (make-state-account :balance 1000000))
+    (state-db-set-account state contract (make-state-account))
+    ;; BLOCKHASH(1); SSTORE(0, result). The target block's direct parent is 2,
+    ;; so resolving block 1 requires walking that parent's side-chain ancestry.
+    (state-db-set-code state contract #(#x60 #x01 #x40 #x60 #x00 #x55 #x00))
+    (execute-and-commit-signed-block
+     store state (list transaction)
+     :expected-chain-id 1
+     :header header)
+    (is (= (bytes-to-integer (hash32-bytes (block-hash side-ancestor)))
+           (state-db-get-storage state contract slot)))
+    (is (/= (bytes-to-integer (hash32-bytes (block-hash canonical-ancestor)))
+            (state-db-get-storage state contract slot)))))

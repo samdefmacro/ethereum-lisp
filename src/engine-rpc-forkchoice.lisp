@@ -50,7 +50,9 @@
             (list
              :expected-chain-id (chain-config-chain-id config)
              :header header
-             :chain-config config)
+             :chain-config config
+             :block-hashes
+             (chain-store-block-hashes-for-header store header))
             (engine-rpc-prepared-payload-body-arguments
              payload-attributes config block-number timestamp)))))))
 

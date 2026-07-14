@@ -43,7 +43,8 @@
           (prev-randao (zero-hash32))
           (difficulty 0)
           (random-p t)
-          (context-gas-limit 0))
+          (context-gas-limit 0)
+          (block-hashes (make-hash-table :test 'eql)))
   (let* ((call-state (state-db-copy state))
          (contract (execution-create-address
                     sender
@@ -84,7 +85,8 @@
                      :prev-randao prev-randao
                      :difficulty difficulty
                      :random-p random-p
-                     :context-gas-limit context-gas-limit))
+                     :context-gas-limit context-gas-limit
+                     :block-hashes block-hashes))
               (let* ((result
                        (execute-bytecode
                         (transaction-data tx)
@@ -133,7 +135,8 @@
           (prev-randao (zero-hash32))
           (difficulty 0)
           (random-p t)
-          (context-gas-limit 0))
+          (context-gas-limit 0)
+          (block-hashes (make-hash-table :test 'eql)))
   "Execute a call-style transaction against a copied state DB.
 
 Returns status, return data, gas used, accessed-address table, and
@@ -157,7 +160,8 @@ mutated."
          :prev-randao prev-randao
          :difficulty difficulty
          :random-p random-p
-         :context-gas-limit context-gas-limit)))
+         :context-gas-limit context-gas-limit
+         :block-hashes block-hashes)))
     (let* ((call-state (state-db-copy state))
            (gas-limit (transaction-gas-limit tx))
            (gas-price (call-transaction-effective-gas-price
@@ -193,7 +197,8 @@ mutated."
                        :prev-randao prev-randao
                        :difficulty difficulty
                        :random-p random-p
-                       :context-gas-limit context-gas-limit)))
+                       :context-gas-limit context-gas-limit
+                       :block-hashes block-hashes)))
                 (let ((result
                         (execute-bytecode
                          code

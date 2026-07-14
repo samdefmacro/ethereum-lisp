@@ -972,6 +972,7 @@
    #:execute-atomic-block-commit
    #:commit-state-db-to-chain-store
    #:chain-store-state-db
+   #:chain-store-block-hashes-for-header
    #:execute-and-commit-engine-payload
    #:execute-and-commit-block
    #:execute-and-commit-signed-block)

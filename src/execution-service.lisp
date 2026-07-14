@@ -1,5 +1,52 @@
 (in-package #:ethereum-lisp.execution-service)
 
+(defconstant +blockhash-history-limit+ 256)
+
+(defun chain-store-block-hashes-for-header (store header)
+  "Build HEADER's BLOCKHASH window by following its own parent branch.
+
+Hashes derivable from child headers remain usable when an older ancestor record
+is not retained. Entries beyond the first missing ancestor are marked unavailable
+so execution only fails if EVM code actually queries unavailable history."
+  (let* ((block-hashes (make-hash-table :test 'eql))
+         (number (block-header-number header))
+         (history-count (min +blockhash-history-limit+ number)))
+    (when (plusp number)
+      (labels ((mark-unavailable-from (offset)
+                 (loop for missing-offset from offset below history-count
+                       for missing-number = (- number 1 missing-offset)
+                       do (setf (gethash missing-number block-hashes)
+                                :unavailable))))
+        (let ((expected-hash (block-header-parent-hash header)))
+          (if (null expected-hash)
+              (mark-unavailable-from 0)
+              (dotimes (offset history-count)
+                (unless expected-hash
+                  (mark-unavailable-from offset)
+                  (return))
+                (let ((expected-number (- number 1 offset)))
+                  (setf (gethash expected-number block-hashes) expected-hash)
+                  (when (< (1+ offset) history-count)
+                    (let ((ancestor
+                            (chain-store-known-block store expected-hash)))
+                      (unless ancestor
+                        (mark-unavailable-from (1+ offset))
+                        (return))
+                      (let ((ancestor-header (block-header ancestor)))
+                        (unless (= expected-number
+                                   (block-header-number ancestor-header))
+                          (error 'block-validation-error
+                                 :message
+                                 "BLOCKHASH ancestor number is inconsistent"))
+                        (unless (hash32= expected-hash (block-hash ancestor))
+                          (error 'block-validation-error
+                                 :message
+                                 "BLOCKHASH ancestor hash is inconsistent"))
+                        (setf expected-hash
+                              (block-header-parent-hash
+                               ancestor-header)))))))))))
+    block-hashes))
+
 (defun commit-state-db-to-chain-store (store block-hash state)
   (state-db-for-each-account
    state
@@ -64,6 +111,7 @@
           (header (make-block-header))
           chain-rules
           chain-config
+          block-hashes
           (apply-block-rewards-p nil)
           (ommers '())
           (withdrawals nil withdrawals-supplied-p)
@@ -85,6 +133,9 @@
              :header header
              :chain-rules chain-rules
              :chain-config chain-config
+             :block-hashes
+             (or block-hashes
+                 (chain-store-block-hashes-for-header store header))
              :apply-block-rewards-p apply-block-rewards-p
              :ommers ommers)
        (when withdrawals-supplied-p

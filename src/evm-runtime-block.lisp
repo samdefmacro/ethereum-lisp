@@ -21,8 +21,14 @@
   (let* ((current (evm-context-block-number context))
          (lower (if (< current 257) 0 (- current 256))))
     (if (and (>= number lower) (< number current))
-        (let ((hash (gethash number (evm-context-block-hashes context))))
-          (if hash (hash32-to-word hash) 0))
+        (multiple-value-bind (hash present-p)
+            (gethash number (evm-context-block-hashes context))
+          (cond
+            ((eq hash :unavailable)
+             (ethereum-lisp.validation:state-unavailable-fail
+              "BLOCK hash history is unavailable"))
+            (present-p (hash32-to-word hash))
+            (t 0)))
         0)))
 
 (defun blobhash-word (context index)
