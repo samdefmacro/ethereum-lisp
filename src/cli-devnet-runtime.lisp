@@ -65,11 +65,27 @@
     (engine-payload-store-pending-mining-transactions
      store expected-chain-id)))
 
+(defun devnet-node-persist-canonical-transition (node transition)
+  (let ((persistence-function
+          (devnet-node-canonical-transition-persistence-function node)))
+    (when persistence-function
+      ;; The adapter owns error classification: only an explicit STORAGE-ERROR
+      ;; is retryable by the background worker.  Validation, corruption, and
+      ;; callback invariant failures must escape unchanged and trigger the
+      ;; worker's outer fail-stop path.
+      (funcall persistence-function
+               (devnet-node-store node)
+               transition))))
+
 (defun devnet-node-seal-pending-block-without-guard (node &key timestamp)
   (unless (typep node 'devnet-node)
     (error "Devnet node must be devnet-node"))
   (let* ((store (devnet-node-store node))
          (config (devnet-node-config node))
+         ;; CHAIN-STORE-LATEST-BLOCK resolves the effective head number through
+         ;; the canonical-hash index.  Unlike the optional forkchoice head
+         ;; checkpoint, it is also available on a fresh genesis-only node, and
+         ;; it never reads the same-height side-candidate cache.
          (parent (chain-store-latest-block store))
          (pending-transactions
            (devnet-node-pending-mining-transactions node)))
@@ -125,32 +141,48 @@
           (when amsterdam-p
             (setf fork-body-arguments
                   (append fork-body-arguments (list :block-access-list '()))))
-          (multiple-value-bind (block receipts)
-              (apply
-               #'execute-and-commit-signed-block
-               store
-               state
-               transactions
-               (append
-                (list
-                 :expected-chain-id expected-chain-id
-                 :header (apply
-                          #'make-block-header
-                          (append
-                           (list
-                            :parent-hash parent-hash
-                            :beneficiary (devnet-node-coinbase node)
-                            :number block-number
-                            :gas-limit gas-limit
-                            :timestamp timestamp
-                            :base-fee-per-gas base-fee-per-gas
-                            :mix-hash (zero-hash32))
-                           cancun-header-arguments))
-                 :chain-config config
-                 :state-available-p t)
-                fork-body-arguments))
-            (declare (ignore receipts))
-            block))))))
+          ;; Keep execution, canonical publication, and the durable database
+          ;; callback inside one rollback boundary.  The shared node-store
+          ;; guard prevents RPC readers from observing the noncanonical
+          ;; candidate or the tentative canonical head while this runs.
+          (chain-store-atomic-commit
+           store
+           (lambda ()
+             (multiple-value-bind (block receipts)
+                 (apply
+                  #'execute-and-commit-signed-block
+                  store
+                  state
+                  transactions
+                  (append
+                   (list
+                    :expected-chain-id expected-chain-id
+                    :header (apply
+                             #'make-block-header
+                             (append
+                              (list
+                               :parent-hash parent-hash
+                               :beneficiary (devnet-node-coinbase node)
+                               :number block-number
+                               :gas-limit gas-limit
+                               :timestamp timestamp
+                               :base-fee-per-gas base-fee-per-gas
+                               :mix-hash (zero-hash32))
+                              cancun-header-arguments))
+                    :chain-config config
+                    :state-available-p t
+                    :canonicalize-p nil)
+                   fork-body-arguments))
+               (declare (ignore receipts))
+               (multiple-value-bind (head transition)
+                   (chain-store-set-canonical-head
+                    store
+                    (block-hash block)
+                    :expected-chain-id expected-chain-id
+                    :chain-config config)
+                 (declare (ignore head))
+                 (devnet-node-persist-canonical-transition node transition))
+               block))))))))
 
 (defun devnet-node-seal-pending-block (node &key timestamp)
   (unless (typep node 'devnet-node)
@@ -192,10 +224,14 @@
            (interval-seconds
              (devnet-dev-period-state-interval-seconds state)))
       (when (>= (- now last-run-time) interval-seconds)
-        (setf (devnet-dev-period-state-last-run-time state) now)
-        (devnet-node-seal-pending-block
-         (devnet-dev-period-state-node state)
-         :timestamp now)))))
+        (let ((sealed-block
+                (devnet-node-seal-pending-block
+                 (devnet-dev-period-state-node state)
+                 :timestamp now)))
+          ;; A failed durable commit must remain immediately retryable.  Empty
+          ;; successful ticks still advance the interval as before.
+          (setf (devnet-dev-period-state-last-run-time state) now)
+          sealed-block)))))
 
 (defun devnet-node-export-database (node &key state-prune-before)
   (unless (typep node 'devnet-node)

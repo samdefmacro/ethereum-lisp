@@ -1,5 +1,25 @@
 (in-package #:ethereum-lisp.test)
 
+#+sbcl
+(defun devnet-cli-wait-for-non-null-json-rpc-result
+    (endpoint body timeout-seconds
+     &key (label "non-null JSON-RPC result")
+          (interval-seconds 0.25d0))
+  (let ((last-body nil))
+    (wait-for-test-condition
+     label
+     timeout-seconds
+     (lambda ()
+       (let ((response
+               (devnet-cli-http-endpoint-request
+                endpoint
+                (devnet-cli-json-rpc-http-request body))))
+         (is (= 200 (devnet-cli-http-status response)))
+         (setf last-body (devnet-cli-http-body response))
+         (fixture-object-field (parse-json last-body) "result")))
+     :interval-seconds interval-seconds
+     :diagnostics (lambda () last-body))))
+
 (deftest ethereum-lisp-script-live-persistence-survives-abrupt-restart
   (:estimated-seconds 40)
   #-sbcl
@@ -581,6 +601,339 @@
         (devnet-cli-wait-process-exit process 10))
       (dolist (path (list jwt-path
                           genesis-path
+                          database-path
+                          first-ready-path
+                          first-log-path
+                          second-ready-path
+                          second-log-path))
+        (when (probe-file path)
+          (delete-file path))))))
+
+(deftest ethereum-lisp-script-dev-period-seal-survives-sigkill-after-public-visibility
+  (:estimated-seconds 80)
+  #-sbcl
+  (skip-test "Ethereum Lisp process script requires SBCL")
+  #+sbcl
+  (let ((script (namestring (truename "scripts/ethereum-lisp.lisp")))
+        (genesis-path
+          (devnet-cli-temp-path
+           "ethereum-lisp-dev-period-persistence-genesis" "json"))
+        (database-path
+          (devnet-cli-temp-path
+           "ethereum-lisp-dev-period-persistence-chain" "sexp"))
+        (first-ready-path
+          (devnet-cli-temp-path
+           "ethereum-lisp-dev-period-persistence-first-ready" "json"))
+        (first-log-path
+          (devnet-cli-temp-path
+           "ethereum-lisp-dev-period-persistence-first" "log"))
+        (second-ready-path
+          (devnet-cli-temp-path
+           "ethereum-lisp-dev-period-persistence-second-ready" "json"))
+        (second-log-path
+          (devnet-cli-temp-path
+           "ethereum-lisp-dev-period-persistence-second" "log"))
+        (process nil))
+    (unwind-protect
+         (let* ((genesis-json (devnet-cli-funded-txpool-genesis-json))
+                (config (chain-config-from-genesis-json-string genesis-json))
+                (genesis-block
+                  (genesis-block-from-state-genesis-json-string
+                   genesis-json :config config))
+                (genesis-number
+                  (block-header-number (block-header genesis-block)))
+                (transaction
+                  (devnet-cli-txpool-transaction
+                   config 0 +devnet-cli-txpool-pending-gas-price+))
+                (transaction-hash-hex
+                  (hash32-to-hex (transaction-hash transaction)))
+                (send-body
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" 101)
+                         (cons "method" "eth_sendRawTransaction")
+                         (cons "params"
+                               (list
+                                (devnet-cli-transaction-raw transaction))))))
+                (receipt-body
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" 102)
+                         (cons "method" "eth_getTransactionReceipt")
+                         (cons "params" (list transaction-hash-hex)))))
+                (block-number-body
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" 103)
+                         (cons "method" "eth_blockNumber")
+                         (cons "params" #()))))
+                (latest-balance-body
+                  (json-encode
+                   (engine-fixture-balance-request
+                    104
+                    (address-from-hex +devnet-cli-txpool-recipient+))))
+                (txpool-status-body
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" 105)
+                         (cons "method" "txpool_status")
+                         (cons "params" #()))))
+                (sealed-block-hash-hex nil)
+                (sealed-block-number-hex nil))
+           (devnet-cli-write-temp-file genesis-path genesis-json)
+           ;; The first process mines locally.  Receipt visibility is the
+           ;; publication barrier; it is killed immediately afterwards so no
+           ;; lifecycle export can repair a missing synchronous seal commit.
+           (setf process
+                 (test-launch-program
+                  (list "sbcl"
+                        "--script"
+                        script
+                        "--"
+                        "devnet"
+                        "--genesis"
+                        (namestring genesis-path)
+                        "--database"
+                        (namestring database-path)
+                        "--engine-port"
+                        "0"
+                        "--public-port"
+                        "0"
+                        "--dev.period"
+                        "1"
+                        "--ready-file"
+                        (namestring first-ready-path)
+                        "--log-file"
+                        (namestring first-log-path)
+                        "--max-connections"
+                        "200"
+                        "--json")
+                  :directory #P"/private/tmp/"
+                  :output :stream
+                  :error-output :stream))
+           (unless (devnet-cli-wait-for-file first-ready-path 30)
+             (when (uiop:process-alive-p process)
+               (uiop:terminate-process process)
+               (devnet-cli-wait-process-exit process 5))
+             (let ((stdout
+                     (devnet-cli-read-stream-string
+                      (uiop:process-info-output process)))
+                   (stderr
+                     (devnet-cli-read-stream-string
+                      (uiop:process-info-error-output process))))
+               (when (search "Operation not permitted" stderr)
+                 (skip-test
+                  "Local socket bind is not permitted in this sandbox"))
+               (is (probe-file first-ready-path))
+               (is (string= "" stdout))
+               (is (string= "" stderr))))
+           (when (probe-file first-ready-path)
+             (let* ((ready-summary
+                      (parse-json
+                       (devnet-cli-file-string first-ready-path)))
+                    (rpc-endpoint
+                      (fixture-object-field ready-summary "rpcEndpoint"))
+                    (send-response nil)
+                    (receipt nil))
+               (is (= genesis-number
+                      (fixture-object-field ready-summary "headNumber")))
+               (handler-case
+                   (progn
+                     (setf send-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request send-body)))
+                     (setf receipt
+                           (devnet-cli-wait-for-non-null-json-rpc-result
+                            rpc-endpoint
+                            receipt-body
+                            20
+                            :label "dev-period transaction receipt")))
+                 (sb-bsd-sockets:operation-not-permitted-error ()
+                   (skip-test
+                    "Local socket connect is not permitted in this sandbox")))
+               (is (= 200 (devnet-cli-http-status send-response)))
+               (is (string=
+                    transaction-hash-hex
+                    (fixture-object-field
+                     (parse-json (devnet-cli-http-body send-response))
+                     "result")))
+               (is (string= transaction-hash-hex
+                            (fixture-object-field receipt
+                                                  "transactionHash")))
+               (setf sealed-block-hash-hex
+                     (fixture-object-field receipt "blockHash")
+                     sealed-block-number-hex
+                     (fixture-object-field receipt "blockNumber"))
+               (is (stringp sealed-block-hash-hex))
+               (is (string=
+                    (quantity-to-hex (1+ genesis-number))
+                    sealed-block-number-hex))
+               (is (probe-file database-path))
+               (uiop:terminate-process process :urgent t)
+               (let ((status (devnet-cli-wait-process-exit process 10)))
+                 (is (not (eq status :timeout))))
+               (let ((stderr
+                       (devnet-cli-read-stream-string
+                        (uiop:process-info-error-output process))))
+                 (is (not (search
+                           "Devnet shutdown requested; closing RPC listeners."
+                           stderr))))
+               (is (not (search
+                         "devnet.shutdown"
+                         (if (probe-file first-log-path)
+                             (devnet-cli-file-string first-log-path)
+                             "")))))
+             ;; Restart without dev-period mining.  Every public view must be
+             ;; reconstructed solely from the live seal commit.
+             (setf process
+                   (test-launch-program
+                    (list "sbcl"
+                          "--script"
+                          script
+                          "--"
+                          "devnet"
+                          "--genesis"
+                          (namestring genesis-path)
+                          "--database"
+                          (namestring database-path)
+                          "--engine-port"
+                          "0"
+                          "--public-port"
+                          "0"
+                          "--ready-file"
+                          (namestring second-ready-path)
+                          "--log-file"
+                          (namestring second-log-path)
+                          "--max-connections"
+                          "100"
+                          "--json")
+                    :directory #P"/private/tmp/"
+                    :output :stream
+                    :error-output :stream))
+             (unless (devnet-cli-wait-for-file second-ready-path 30)
+               (when (uiop:process-alive-p process)
+                 (uiop:terminate-process process)
+                 (devnet-cli-wait-process-exit process 5))
+               (let ((stdout
+                       (devnet-cli-read-stream-string
+                        (uiop:process-info-output process)))
+                     (stderr
+                       (devnet-cli-read-stream-string
+                        (uiop:process-info-error-output process))))
+                 (when (search "Operation not permitted" stderr)
+                   (skip-test
+                    "Local socket bind is not permitted in this sandbox"))
+                 (is (probe-file second-ready-path))
+                 (is (string= "" stdout))
+                 (is (string= "" stderr))))
+             (when (probe-file second-ready-path)
+               (let* ((ready-summary
+                        (parse-json
+                         (devnet-cli-file-string second-ready-path)))
+                      (rpc-endpoint
+                        (fixture-object-field ready-summary "rpcEndpoint"))
+                      (block-by-hash-body
+                        (json-encode
+                         (engine-fixture-block-by-hash-request
+                          106
+                          (hash32-from-hex sealed-block-hash-hex)
+                          :false)))
+                      (block-number-response nil)
+                      (block-by-hash-response nil)
+                      (receipt-response nil)
+                      (balance-response nil)
+                      (txpool-response nil))
+                 (is (= (hex-to-quantity sealed-block-number-hex)
+                        (fixture-object-field ready-summary "headNumber")))
+                 (is (string= sealed-block-hash-hex
+                              (fixture-object-field ready-summary "headHash")))
+                 (is (fixture-object-field ready-summary "stateAvailable"))
+                 (handler-case
+                     (progn
+                       (setf block-number-response
+                             (devnet-cli-http-endpoint-request
+                              rpc-endpoint
+                              (devnet-cli-json-rpc-http-request
+                               block-number-body)))
+                       (setf block-by-hash-response
+                             (devnet-cli-http-endpoint-request
+                              rpc-endpoint
+                              (devnet-cli-json-rpc-http-request
+                               block-by-hash-body)))
+                       (setf receipt-response
+                             (devnet-cli-http-endpoint-request
+                              rpc-endpoint
+                              (devnet-cli-json-rpc-http-request
+                               receipt-body)))
+                       (setf balance-response
+                             (devnet-cli-http-endpoint-request
+                              rpc-endpoint
+                              (devnet-cli-json-rpc-http-request
+                               latest-balance-body)))
+                       (setf txpool-response
+                             (devnet-cli-http-endpoint-request
+                              rpc-endpoint
+                              (devnet-cli-json-rpc-http-request
+                               txpool-status-body))))
+                   (sb-bsd-sockets:operation-not-permitted-error ()
+                     (skip-test
+                      "Local socket connect is not permitted in this sandbox")))
+                 (dolist (response
+                          (list block-number-response
+                                block-by-hash-response
+                                receipt-response
+                                balance-response
+                                txpool-response))
+                   (is (= 200 (devnet-cli-http-status response))))
+                 (let* ((block-number-rpc
+                          (parse-json
+                           (devnet-cli-http-body block-number-response)))
+                        (block-rpc
+                          (parse-json
+                           (devnet-cli-http-body block-by-hash-response)))
+                        (block
+                          (fixture-object-field block-rpc "result"))
+                        (transactions
+                          (fixture-object-field block "transactions"))
+                        (receipt-rpc
+                          (parse-json
+                           (devnet-cli-http-body receipt-response)))
+                        (receipt
+                          (fixture-object-field receipt-rpc "result"))
+                        (balance-rpc
+                          (parse-json
+                           (devnet-cli-http-body balance-response)))
+                        (txpool-rpc
+                          (parse-json
+                           (devnet-cli-http-body txpool-response)))
+                        (txpool
+                          (fixture-object-field txpool-rpc "result")))
+                   (is (string=
+                        sealed-block-number-hex
+                        (fixture-object-field block-number-rpc "result")))
+                   (is (string= sealed-block-hash-hex
+                                (fixture-object-field block "hash")))
+                   (is (= 1 (length transactions)))
+                   (is (string= transaction-hash-hex
+                                (elt transactions 0)))
+                   (is (string= transaction-hash-hex
+                                (fixture-object-field receipt
+                                                      "transactionHash")))
+                   (is (string= sealed-block-hash-hex
+                                (fixture-object-field receipt "blockHash")))
+                   (is (string= sealed-block-number-hex
+                                (fixture-object-field receipt "blockNumber")))
+                   (is (string= "0x1"
+                                (fixture-object-field balance-rpc "result")))
+                   (is (string= "0x0"
+                                (fixture-object-field txpool "pending")))
+                   (is (string= "0x0"
+                                (fixture-object-field txpool "queued"))))))))
+      (when (and process (uiop:process-alive-p process))
+        (uiop:terminate-process process :urgent t)
+        (devnet-cli-wait-process-exit process 10))
+      (dolist (path (list genesis-path
                           database-path
                           first-ready-path
                           first-log-path

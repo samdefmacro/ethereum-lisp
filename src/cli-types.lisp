@@ -69,6 +69,7 @@
                       public-api-modules engine-endpoint-config
                       public-endpoint-config txpool-policy kzg-config
                       dev-mode-p coinbase store-guard-function
+                      canonical-transition-persistence-function
                       txpool-journal-path
                       txpool-rejournal-seconds
                       dev-period-seconds)))
@@ -92,6 +93,7 @@
   dev-mode-p
   coinbase
   store-guard-function
+  canonical-transition-persistence-function
   txpool-journal-path
   txpool-rejournal-seconds
   dev-period-seconds)

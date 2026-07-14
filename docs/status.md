@@ -8,10 +8,10 @@ backlog or implementation history; completed detail is available from Git.
 ## Baseline
 
 - Branch baseline at the start of this phase:
-  `codex/goal-led-live-persistence` at `ea05eef`.
-- `make docker-test-all` passed on 2026-07-14 with 979 tests passed,
+  `codex/goal-led-live-persistence` at `ae2602d`.
+- `make docker-test-all` passed on 2026-07-14 with 984 tests passed,
   5 optional-fixture tests skipped, and 0 failed: unit 710/3 skipped,
-  integration 211/2 skipped, and e2e 58/0 skipped.
+  integration 215/2 skipped, and e2e 59/0 skipped.
 - The skipped tests require an external EEST fixture root and are not counted
   as external fixture validation.
 
@@ -102,9 +102,21 @@ selection, execution-aware gas repacking, or blob-sidecar construction.
   chain-database commit. The set survives atomic snapshots, covers startup
   normalization and journal-derived mutations, joins the next forkchoice
   batch, and is acknowledged only after a successful atomic KV apply.
+- Dev-period execution first stages a noncanonical block and post-state, then
+  explicitly selects it as canonical to produce the same transition descriptor
+  used by forkchoice persistence. Execution, head/checkpoint publication,
+  receipt/state/location indexes, txpool reconciliation, and the synchronous
+  record-scoped database callback share one rollback boundary under the
+  node-store guard. A failed KV batch restores the prior public view, leaves the
+  tick immediately retryable, emits a warning, and is retried by the live
+  worker on a later tick when the adapter classifies it as a transient
+  file-write error. Validation, corruption, and callback invariant errors
+  fail-stop instead; no-database dev mode preserves in-memory sealing without a
+  storage callback. Local sealing always extends the consensus-selected head,
+  never an unselected `newPayload` side candidate.
 - Engine RPC, public RPC, dev-period sealing, pruning, rejournaling, and
   lifecycle export share one node-store guard, so another thread cannot observe
-  or mutate the tentative forkchoice view while its durable batch is pending.
+  or mutate a tentative canonical view while its durable batch is pending.
 - Restart tolerates an independently persisted txpool journal that lags the
   authoritative canonical database, while the generic KV importer remains
   strict about duplicate indexed transactions.
@@ -113,46 +125,44 @@ selection, execution-aware gas repacking, or blob-sidecar construction.
   checkpoint-only updates, extension/short/same-height reorgs, DB-ahead
   reconciliation, startup txpool normalization, persistence failure rollback
   and retry, concurrent public reads, stale-journal recovery, and SIGKILL
-  recovery both before and after forkchoice without a shutdown export.
+  recovery before forkchoice, after forkchoice, and immediately after a local
+  dev-period receipt becomes public without a shutdown export.
 
 ## Principal Gaps
 
-1. Dev-period blocks become canonical in memory before a durable commit. A
-   later same-head forkchoice now flushes them safely, but a crash before that
-   call or lifecycle export still loses the locally published block.
-2. The chain database and independently refreshed txpool journal have no shared
+1. The chain database and independently refreshed txpool journal have no shared
    generation marker. The current empty/nonempty selection rule can skip a
    newer journal overlay or reintroduce a stale noncanonical transaction.
-3. Lifecycle export remains a full readable-store snapshot even though live
-   `newPayload` and forkchoice commits are record-scoped.
-4. Trie/state data is restored from whole account snapshots rather than durable
+2. Lifecycle export remains a full readable-store snapshot even though live
+   `newPayload`, forkchoice, and dev-period commits are record-scoped.
+3. Trie/state data is restored from whole account snapshots rather than durable
    content-addressed trie/state nodes with an explicit retention policy.
-5. The file backend uses temp-file replacement but does not fsync the file and
+4. The file backend uses temp-file replacement but does not fsync the file and
    containing directory, so the verified SIGKILL/process-crash contract is not
    a power-loss durability claim.
-6. Header/body/execution/receipt/index stages do not yet have persisted progress
+5. Header/body/execution/receipt/index stages do not yet have persisted progress
    markers and unwind functions.
-7. There is no implemented discovery, RLPx, `eth`, or `snap` peer path.
-8. External Hive interoperability has not been demonstrated.
+6. There is no implemented discovery, RLPx, `eth`, or `snap` peer path.
+7. External Hive interoperability has not been demonstrated.
 
 ## Active Objective
 
-The active Phase C objective is the next publication-boundary durability slice:
+The active Phase C objective is the next recovery-authority slice:
 
-> Make each successful dev-period seal durable before the new canonical block
-> can be observed: block/header/receipt/state, canonical/checkpoint indexes,
-> transaction locations, and coupled txpool changes must commit as one logical
-> delta under the node-store guard.
+> Give the synchronously committed chain database and the independently
+> refreshed transaction-pool journal an explicit generation and authority
+> contract, so restart deterministically accepts a compatible newer overlay,
+> ignores stale data, and never reintroduces a canonical transaction.
 
-The slice must place execution, canonical publication, and the durable callback
-inside one rollback boundary; a database error must leave the prior block,
-state, transaction locations, and txpool publicly visible and permit a clean
-retry. It should reuse the record-scoped exporter, avoid a later-forkchoice or
-lifecycle dependency, and preserve no-database dev mode. It must not claim
-physical incremental I/O from the S-expression backend, solve journal
-generation authority, introduce networking or a new database dependency, add
-trie-node storage, claim power-loss durability, or add historical pruning.
+The slice must define persisted generation metadata, update ordering, startup
+selection, and failure semantics without pretending the two files share one
+atomic write. The canonical chain database remains authoritative for included
+transactions; a journal overlay is eligible only under the explicit generation
+rule. It must preserve database-only, journal-only, and no-persistence modes,
+and must not introduce networking or a new database dependency, add trie-node
+storage, claim power-loss durability, or add historical pruning.
 
-Acceptance requires successful restart before lifecycle export, injected-write
-failure rollback and retry, public-read isolation under the shared guard, an
-independent diff review, and the gates selected by `docs/validation.md`.
+Acceptance requires deterministic tests for fresh/equal/newer/stale generation
+combinations, crashes on both sides of chain and journal updates, malformed or
+incompatible metadata, canonical-transaction suppression, independent diff
+review, and the gates selected by `docs/validation.md`.

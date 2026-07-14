@@ -2,21 +2,43 @@
 
 ;;;; Devnet persisted chain and txpool import helpers.
 
+(defun devnet-cli-call-with-retryable-file-write (label thunk)
+  "Call THUNK and classify only file-write failures as retryable storage errors."
+  (handler-case
+      (funcall thunk)
+    (storage-error (condition)
+      (error condition))
+    (file-error (condition)
+      (storage-fail "~A file write failed: ~A" label condition))
+    (stream-error (condition)
+      (storage-fail "~A stream write failed: ~A" label condition))))
+
 (defun devnet-cli-new-payload-persistence-function (database-path)
   (when database-path
     (lambda (store candidate)
-      (node-store-export-payload-candidate-to-kv
-       store
-       candidate
-       (devnet-cli-make-output-kv-database database-path)))))
+      ;; Construct/load first so malformed persisted data remains a permanent
+      ;; startup/runtime invariant failure rather than a retry loop.
+      (let ((database
+              (devnet-cli-make-output-kv-database database-path)))
+        (devnet-cli-call-with-retryable-file-write
+         "New payload persistence"
+         (lambda ()
+           (node-store-export-payload-candidate-to-kv
+            store candidate database)))))))
 
 (defun devnet-cli-forkchoice-persistence-function (database-path)
   (when database-path
     (lambda (store transition)
-      (node-store-export-forkchoice-to-kv
-       store
-       transition
-       (devnet-cli-make-output-kv-database database-path)))))
+      ;; Export validation and database-corruption conditions pass through and
+      ;; fail-stop.  Only an actual write/open/rename stream failure becomes a
+      ;; STORAGE-ERROR eligible for dev-period retry.
+      (let ((database
+              (devnet-cli-make-output-kv-database database-path)))
+        (devnet-cli-call-with-retryable-file-write
+         "Forkchoice persistence"
+         (lambda ()
+           (node-store-export-forkchoice-to-kv
+            store transition database)))))))
 
 (defun devnet-cli-import-chain-database
     (store database-path config genesis-block)

@@ -204,6 +204,8 @@
      :dev-mode-p dev-mode-p
      :coinbase coinbase
      :store-guard-function store-guard-function
+     :canonical-transition-persistence-function
+     forkchoice-persistence-function
      :txpool-journal-path txpool-journal-path
      :txpool-rejournal-seconds txpool-rejournal-seconds
      :dev-period-seconds dev-period-seconds)))

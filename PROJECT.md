@@ -40,10 +40,11 @@ Git history.
   development database, and survive bounded reorg/restart scenarios. This does
   not claim validation by the external Ethereum Hive test harness.
 - **Durability and synchronization:** active. The immediate goal is to replace
-  snapshot-only publication with record-scoped durable chain/state commits,
-  make every locally published canonical transition durable, define database
-  and journal authority, then add persisted sync progress and unwind behavior
-  before real peer-to-peer synchronization.
+  snapshot-only publication with record-scoped durable chain/state commits.
+  Engine candidates, consensus-selected forkchoice transitions, and local
+  dev-period seals now commit before publication; the next boundary is an
+  explicit database/journal authority contract, followed by persisted sync
+  progress and unwind behavior before real peer-to-peer synchronization.
 
 ## Priority Order
 

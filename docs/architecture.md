@@ -527,19 +527,24 @@ The current source ownership map is:
 - `ethereum-lisp.execution-service` / `execution-service.lisp`: state-db and
   chain-store projection, atomic block commit, and Engine payload import. The
   execution domain itself contains no storage adapter dependency.
-- `cli-types.lisp`: devnet CLI records, defaults, embedded dev genesis, and
-  shutdown signal helpers.
+- `cli-types.lisp`: devnet CLI records, defaults, embedded dev genesis,
+  canonical-transition persistence port, and shutdown signal helpers.
 - `cli-files.lisp`: CLI file, datadir, JWT secret, and KV database path
   helpers.
 - `cli-devnet-persistence.lisp`: devnet persisted chain and txpool import
   helpers.
 - `cli-devnet-node.lisp`: devnet node construction, genesis import, service
   construction, and Merge option overrides.
-- `cli-devnet-runtime.lisp`: devnet state pruning, txpool journaling,
-  dev-period block sealing, and database export.
+- `cli-devnet-runtime.lisp`: devnet state pruning, txpool journaling, database
+  export, and guarded dev-period sealing that stages execution noncanonically,
+  publishes an explicit canonical transition, and commits its record-scoped
+  delta before releasing public visibility.
 - `cli-devnet-summary.lisp`: devnet status summaries and JSON summary
   objects.
-- `cli-devnet-background.lisp`: devnet periodic background worker threads.
+- `cli-devnet-background.lisp`: devnet periodic background worker threads;
+  explicitly classified dev-period file-write failures are warned and retried
+  on a later tick, while execution, validation, corruption, and callback
+  invariant failures retain fail-stop shutdown semantics.
 - `cli-devnet-service.lisp`: devnet listener serving and
   startup orchestration.
 - `cli-option-definitions.lisp`: geth-compatible option arity metadata.
