@@ -13,7 +13,8 @@
           (prev-randao (zero-hash32))
           (difficulty 0)
           (random-p t)
-          (context-gas-limit 0))
+          (context-gas-limit 0)
+          (block-hashes (make-hash-table)))
   (let ((effective-chain-rules
           (execution-chain-rules chain-rules chain-config block-number timestamp)))
     (make-evm-context
@@ -36,6 +37,7 @@
      :base-fee base-fee
      :blob-hashes (transaction-blob-versioned-hashes tx)
      :blob-base-fee blob-base-fee
+     :block-hashes block-hashes
      :accessed-storage (transaction-accessed-storage-table tx)
      :accessed-addresses
      (transaction-accessed-addresses-table tx

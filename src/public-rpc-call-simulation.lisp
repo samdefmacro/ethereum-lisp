@@ -27,7 +27,10 @@
                           (zero-hash32))
          :difficulty (block-header-difficulty (block-header block))
          :random-p t
-         :context-gas-limit (block-header-gas-limit (block-header block)))
+         :context-gas-limit (block-header-gas-limit (block-header block))
+         :block-hashes
+         (ethereum-lisp.execution-service:chain-store-block-hashes-for-header
+          store (block-header block)))
       (ethereum-lisp.execution:transaction-validation-error ()
         (block-validation-fail
          "~A transaction is invalid" method)))))

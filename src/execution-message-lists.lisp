@@ -14,7 +14,8 @@
           (prev-randao (zero-hash32))
           (difficulty 0)
           (random-p t)
-          (context-gas-limit 0))
+          (context-gas-limit 0)
+          (block-hashes (make-hash-table)))
   (let ((effective-chain-rules
           (execution-chain-rules chain-rules chain-config block-number timestamp))
         (receipts '())
@@ -40,7 +41,8 @@
                                     :prev-randao prev-randao
                                     :difficulty difficulty
                                     :random-p random-p
-                                    :context-gas-limit context-gas-limit)))
+                                    :context-gas-limit context-gas-limit
+                                    :block-hashes block-hashes)))
         (incf cumulative-gas (receipt-cumulative-gas-used receipt))
         (push (make-receipt :status (receipt-status receipt)
                             :cumulative-gas-used cumulative-gas
@@ -62,7 +64,8 @@
           (prev-randao (zero-hash32))
           (difficulty 0)
           (random-p t)
-          (context-gas-limit 0))
+          (context-gas-limit 0)
+          (block-hashes (make-hash-table)))
   (let ((effective-chain-rules
           (execution-chain-rules chain-rules chain-config block-number timestamp))
         (receipts '())
@@ -94,7 +97,8 @@
                         :prev-randao prev-randao
                         :difficulty difficulty
                         :random-p random-p
-                        :context-gas-limit context-gas-limit)))
+                        :context-gas-limit context-gas-limit
+                        :block-hashes block-hashes)))
           (incf cumulative-gas (receipt-cumulative-gas-used receipt))
           (push (make-receipt :status (receipt-status receipt)
                               :cumulative-gas-used cumulative-gas

@@ -13,7 +13,8 @@
           (prev-randao (zero-hash32))
           (difficulty 0)
           (random-p t)
-          (context-gas-limit 0))
+          (context-gas-limit 0)
+          (block-hashes (make-hash-table)))
   "Apply a transaction message and execute recipient code when present."
   (let ((effective-chain-rules
           (execution-chain-rules chain-rules chain-config block-number timestamp)))
@@ -61,7 +62,8 @@
                             :prev-randao prev-randao
                             :difficulty difficulty
                             :random-p random-p
-                            :context-gas-limit context-gas-limit))
+                            :context-gas-limit context-gas-limit
+                            :block-hashes block-hashes))
                          (result (execute-bytecode code
                                                    :context context
                                                            :gas-limit (- gas-limit
@@ -113,7 +115,8 @@
                                :prev-randao prev-randao
                                :difficulty difficulty
                                :random-p random-p
-                                               :context-gas-limit context-gas-limit))))
+                               :context-gas-limit context-gas-limit
+                               :block-hashes block-hashes))))
 
 (defun apply-signed-message
     (state tx
@@ -128,7 +131,8 @@
           (prev-randao (zero-hash32))
           (difficulty 0)
           (random-p t)
-          (context-gas-limit 0))
+          (context-gas-limit 0)
+          (block-hashes (make-hash-table)))
   "Recover the transaction sender from its signature and apply the message."
   (let ((sender (signed-transaction-sender-or-error tx expected-chain-id))
         (chain-id (transaction-context-chain-id tx expected-chain-id)))
@@ -144,7 +148,8 @@
                    :prev-randao prev-randao
                    :difficulty difficulty
                    :random-p random-p
-                   :context-gas-limit context-gas-limit)))
+                   :context-gas-limit context-gas-limit
+                   :block-hashes block-hashes)))
 
 (defun apply-legacy-message (state sender tx)
   "Apply a legacy transaction and execute recipient code when present."

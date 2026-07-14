@@ -12,7 +12,8 @@
                                      (prev-randao (zero-hash32))
                                      (difficulty 0)
                                      (random-p t)
-                                     (context-gas-limit 0))
+                                     (context-gas-limit 0)
+                                     (block-hashes (make-hash-table)))
   (let* ((effective-chain-rules
            (execution-chain-rules chain-rules chain-config block-number timestamp))
          (intrinsic-gas (execution-transaction-intrinsic-gas
@@ -61,7 +62,8 @@
                           :prev-randao prev-randao
                           :difficulty difficulty
                           :random-p random-p
-                          :context-gas-limit context-gas-limit))
+                          :context-gas-limit context-gas-limit
+                          :block-hashes block-hashes))
                        (result
                          (execute-bytecode
                           (transaction-data tx)

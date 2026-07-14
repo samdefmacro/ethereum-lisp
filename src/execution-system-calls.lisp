@@ -22,7 +22,8 @@
     (state target input header chain-rules
      &key (caller +protocol-system-address+)
           (gas-limit +protocol-system-call-gas-limit+)
-          (blob-base-fee 0))
+          (blob-base-fee 0)
+          (block-hashes (make-hash-table)))
   "Execute a protocol call without transaction accounting or a receipt.
 
 The target is warm at call entry.  A revert or EVM execution error rolls back
@@ -58,6 +59,7 @@ system-call processing."
                 :chain-rules chain-rules
                 :base-fee (or (block-header-base-fee-per-gas header) 0)
                 :blob-base-fee blob-base-fee
+                :block-hashes block-hashes
                 :accessed-addresses
                 (protocol-system-call-accessed-addresses target))))
         (handler-case
@@ -75,7 +77,8 @@ system-call processing."
             nil))))))
 
 (defun process-parent-beacon-block-root
-    (state header chain-rules &key (blob-base-fee 0))
+    (state header chain-rules
+     &key (blob-base-fee 0) (block-hashes (make-hash-table)))
   "Apply the EIP-4788 parent beacon block root transition when active."
   (when (and (plusp (block-header-number header))
              (if chain-rules
@@ -91,5 +94,6 @@ system-call processing."
        (hash32-bytes parent-beacon-root)
        header
        chain-rules
-       :blob-base-fee blob-base-fee)))
+       :blob-base-fee blob-base-fee
+       :block-hashes block-hashes)))
   state)

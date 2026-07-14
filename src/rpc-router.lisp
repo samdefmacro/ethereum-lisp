@@ -207,6 +207,12 @@
            (json-rpc-error-object
             -32602
             (ethereum-lisp-error-message condition)))))
+      (state-unavailable-error (condition)
+        (declare (ignore condition))
+        (unless notification-p
+          (json-rpc-response
+           id
+           :error (json-rpc-error-object -32603 "Internal error"))))
       (storage-error (condition)
         (declare (ignore condition))
         (unless notification-p
