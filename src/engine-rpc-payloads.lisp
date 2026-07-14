@@ -72,7 +72,8 @@
     (engine-rpc-execution-payload-envelope-object
      (engine-rpc-prepared-payload-envelope prepared-payload)
      :include-blobs-bundle-p t
-     :include-override-p t)))
+     :include-override-p t
+     :include-requests-p t)))
 
 (defun engine-rpc-handle-get-payload-v5 (params store)
   (let ((prepared-payload
@@ -83,7 +84,8 @@
     (engine-rpc-execution-payload-envelope-object
      (engine-rpc-prepared-payload-envelope prepared-payload)
      :include-blobs-bundle-p t
-     :include-override-p t)))
+     :include-override-p t
+     :include-requests-p t)))
 
 (defun engine-rpc-handle-get-payload-v6 (params store)
   (let ((prepared-payload
@@ -94,4 +96,5 @@
     (engine-rpc-execution-payload-envelope-object
      (engine-rpc-prepared-payload-envelope prepared-payload)
      :include-blobs-bundle-p t
-     :include-override-p t)))
+     :include-override-p t
+     :include-requests-p t)))

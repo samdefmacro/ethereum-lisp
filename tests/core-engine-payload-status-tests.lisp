@@ -251,6 +251,15 @@
       (is (not block)))
     (multiple-value-bind (status block)
         (engine-new-payload-version-status
+         3 prague-payload prague-config
+         :parent-beacon-root parent-beacon-root
+         :versioned-hashes '())
+      (is (string= +payload-status-invalid+ (payload-status-status status)))
+      (is (string= "newPayloadV3 is unsupported after Cancun"
+                   (payload-status-validation-error status)))
+      (is (not block)))
+    (multiple-value-bind (status block)
+        (engine-new-payload-version-status
          4 prague-payload prague-config
          :parent-beacon-root parent-beacon-root
          :versioned-hashes '()
@@ -289,4 +298,49 @@
       (is (string= +payload-status-invalid+ (payload-status-status status)))
       (is (string= "blockAccessList required after Amsterdam"
                    (payload-status-validation-error status)))
+      (is (not block)))
+    (multiple-value-bind (status block)
+        (engine-new-payload-version-status
+         4 amsterdam-payload amsterdam-config
+         :parent-beacon-root parent-beacon-root
+         :versioned-hashes '()
+         :requests requests)
+      (is (string= +payload-status-invalid+ (payload-status-status status)))
+      (is (string= "newPayloadV4 is unsupported at Amsterdam"
+                   (payload-status-validation-error status)))
       (is (not block)))))
+
+(deftest engine-rpc-new-payload-versions-reject-unsupported-forks
+  (labels ((assert-supported (version config)
+             (ethereum-lisp.engine-api::engine-rpc-validate-new-payload-fork
+              version
+              (make-executable-data :number 1 :timestamp 100)
+              config))
+           (assert-unsupported (version config)
+             (handler-case
+                 (progn
+                   (assert-supported version config)
+                   (error "newPayloadV~D unexpectedly accepted fork" version))
+               (ethereum-lisp.engine-api:engine-rpc-error (condition)
+                 (is (= -38005
+                        (ethereum-lisp.engine-api:engine-rpc-error-code
+                         condition)))))))
+    (let ((cancun-config
+            (make-chain-config :london-block 0 :cancun-time 0))
+          (prague-config
+            (make-chain-config :london-block 0 :cancun-time 0
+                               :prague-time 0))
+          (osaka-config
+            (make-chain-config :london-block 0 :cancun-time 0 :prague-time 0
+                               :osaka-time 0))
+          (amsterdam-config
+            (make-chain-config :london-block 0 :cancun-time 0 :prague-time 0
+                               :osaka-time 0 :amsterdam-time 0)))
+      (assert-supported 3 cancun-config)
+      (assert-unsupported 3 prague-config)
+      (assert-unsupported 4 cancun-config)
+      (assert-supported 4 prague-config)
+      (assert-supported 4 osaka-config)
+      (assert-unsupported 4 amsterdam-config)
+      (assert-unsupported 5 osaka-config)
+      (assert-supported 5 amsterdam-config))))

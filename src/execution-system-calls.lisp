@@ -26,16 +26,22 @@
      &key (caller +protocol-system-address+)
           (gas-limit +protocol-system-call-gas-limit+)
           (blob-base-fee 0)
-          (block-hashes (make-hash-table)))
+          (block-hashes (make-hash-table))
+          (require-code-p nil)
+          (require-success-p nil))
   "Execute a protocol call without transaction accounting or a receipt.
 
 The target is warm at call entry.  A revert or EVM execution error rolls back
-only this call and is intentionally ignored by the caller, matching Ethereum's
-system-call processing."
+only this call. REQUIRE-CODE-P rejects an empty target and REQUIRE-SUCCESS-P
+rejects execution failure for protocol calls whose EIPs mandate both."
   (let ((code (if (or (null chain-rules)
                       (chain-rules-prague-p chain-rules))
                   (execution-resolved-code state target)
                   (state-db-get-code state target))))
+    (when (and require-code-p (zerop (length code)))
+      (block-validation-fail
+       "Required protocol system contract ~A has no code"
+       (address-to-hex target)))
     (when (plusp (length code))
       (let* ((snapshot (state-db-copy state))
              (context
@@ -65,19 +71,25 @@ system-call processing."
                 :block-hashes block-hashes
                 :accessed-addresses
                 (protocol-system-call-accessed-addresses target))))
-        (handler-case
-            (let ((result
-                    (execute-bytecode code
-                                      :context context
-                                      :gas-limit gas-limit
-                                      :max-steps (1+ gas-limit))))
-              (if (eq (evm-result-status result) :reverted)
-                  (state-db-restore state snapshot)
-                  (finalize-evm-selfdestructs state context))
-              result)
-          (evm-error ()
-            (state-db-restore state snapshot)
-            nil))))))
+        (flet ((rollback-failed-call (&optional result)
+                 (state-db-restore state snapshot)
+                 (when require-success-p
+                   (block-validation-fail
+                    "Protocol system call to ~A failed"
+                    (address-to-hex target)))
+                 result))
+          (handler-case
+              (let ((result
+                      (execute-bytecode code
+                                        :context context
+                                        :gas-limit gas-limit
+                                        :max-steps (1+ gas-limit))))
+                (if (eq (evm-result-status result) :reverted)
+                    (rollback-failed-call result)
+                    (finalize-evm-selfdestructs state context))
+                result)
+            (evm-error ()
+              (rollback-failed-call))))))))
 
 (defun process-parent-beacon-block-root
     (state header chain-rules

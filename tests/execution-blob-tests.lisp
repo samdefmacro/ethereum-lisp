@@ -233,6 +233,7 @@
                        :to recipient
                        :max-fee-per-blob-gas 1
                        :blob-versioned-hashes (list blob-hash))))
+    (install-empty-prague-request-contracts state)
     (state-db-set-account state sender
                           (make-state-account :balance 1000000))
     (multiple-value-bind (block receipts)

@@ -4,6 +4,7 @@
 (defconstant +engine-rpc-error-invalid-forkchoice-state+ -38002)
 (defconstant +engine-rpc-error-invalid-payload-attributes+ -38003)
 (defconstant +engine-rpc-error-too-large-request+ -38004)
+(defconstant +engine-rpc-error-unsupported-fork+ -38005)
 
 (define-condition engine-rpc-error (error)
   ((code :initarg :code :reader engine-rpc-error-code)

@@ -121,37 +121,51 @@
                    (block-header-gas-limit header)))
               (when withdrawals-supplied-p
                 (apply-withdrawals state withdrawals))
-              (when apply-block-rewards-p
-                (apply-block-rewards-for-header
-                 state header ommers effective-chain-rules))
-              (when (or (plusp actual-blob-gas-used)
-                        (block-header-blob-gas-used header)
-                        (block-header-excess-blob-gas header))
-                (setf (block-header-blob-gas-used header)
-                      actual-blob-gas-used)
-                (unless (block-header-excess-blob-gas header)
-                  (setf (block-header-excess-blob-gas header) 0)))
-              (validate-supplied-block-execution-roots
-               header transactions receipts (state-db-root state))
-              (setf (block-header-state-root header) (state-db-root state)
-                    (block-header-gas-used header) gas-used)
-              (values
-               (apply #'make-block
-                      (append (list :header header
-                                    :transactions transactions
-                                    :ommers ommers
-                                    :receipts receipts)
-                              (when withdrawals-supplied-p
-                                (list :withdrawals withdrawals))
-                              (when requests-supplied-p
-                                (list :requests requests))
-                              (when block-access-list-supplied-p
-                                (if encoded-block-access-list
-                                    (list :block-access-list-rlp
-                                          encoded-block-access-list)
-                                    (list :block-access-list
-                                          block-access-list)))))
-               receipts)))
+              (multiple-value-bind (derived-requests requests-derived-p)
+                  (derive-prague-execution-requests
+                   state receipts header effective-chain-rules chain-config
+                   :blob-base-fee block-blob-base-fee
+                   :block-hashes block-hashes)
+                (let ((effective-requests
+                        (if requests-derived-p derived-requests requests))
+                      (effective-requests-supplied-p
+                        (or requests-derived-p requests-supplied-p)))
+                  (when requests-derived-p
+                    (validate-execution-request-list-fields effective-requests)
+                    (validate-derived-execution-requests
+                     header effective-requests))
+                  (when apply-block-rewards-p
+                    (apply-block-rewards-for-header
+                     state header ommers effective-chain-rules))
+                  (when (or (plusp actual-blob-gas-used)
+                            (block-header-blob-gas-used header)
+                            (block-header-excess-blob-gas header))
+                    (setf (block-header-blob-gas-used header)
+                          actual-blob-gas-used)
+                    (unless (block-header-excess-blob-gas header)
+                      (setf (block-header-excess-blob-gas header) 0)))
+                  (validate-supplied-block-execution-roots
+                   header transactions receipts (state-db-root state))
+                  (setf (block-header-state-root header) (state-db-root state)
+                        (block-header-gas-used header) gas-used)
+                  (values
+                   (apply #'make-block
+                          (append
+                           (list :header header
+                                 :transactions transactions
+                                 :ommers ommers
+                                 :receipts receipts)
+                           (when withdrawals-supplied-p
+                             (list :withdrawals withdrawals))
+                           (when effective-requests-supplied-p
+                             (list :requests effective-requests))
+                           (when block-access-list-supplied-p
+                             (if encoded-block-access-list
+                                 (list :block-access-list-rlp
+                                       encoded-block-access-list)
+                                 (list :block-access-list
+                                       block-access-list)))))
+                   receipts)))))
         (error (condition)
           (state-db-restore state snapshot)
           (restore-block-header-for-execution header header-snapshot)
