@@ -46,6 +46,29 @@
     (is (= #xde0b6b3a7640000
            (chain-store-account-balance store head-hash funded)))))
 
+(deftest devnet-node-store-rebind-preserves-live-database-tracking
+  (let ((database-path
+          (devnet-cli-temp-path "ethereum-lisp-rebind-database" "sexp")))
+    (unwind-protect
+         (let* ((node
+                  (ethereum-lisp.cli:make-devnet-node
+                   :genesis-path +devnet-cli-genesis-fixture+
+                   :port 0
+                   :database-path (namestring database-path)))
+                (replacement-store (make-engine-payload-memory-store))
+                (config (ethereum-lisp.cli:devnet-node-config node)))
+           (is (not
+                (ethereum-lisp.txpool:engine-payload-store-txpool-database-change-tracking-enabled-p
+                 replacement-store)))
+           (devnet-cli-set-node-store-config
+            node replacement-store config)
+           (is (eq replacement-store
+                   (ethereum-lisp.cli:devnet-node-store node)))
+           (is (ethereum-lisp.txpool:engine-payload-store-txpool-database-change-tracking-enabled-p
+                replacement-store)))
+      (when (probe-file database-path)
+        (delete-file database-path)))))
+
 (deftest devnet-node-splits-engine-and-public-rpc-methods
   (let* ((coinbase
            (address-from-hex "0x00000000000000000000000000000000000000cb"))

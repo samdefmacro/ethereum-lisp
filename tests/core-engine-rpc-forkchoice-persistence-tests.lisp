@@ -35,9 +35,11 @@
          (calls 0)
          observed-head
          observed-safe
-         observed-finalized)
+         observed-finalized
+         observed-transition)
     (engine-payload-store-put-block store genesis :state-available-p t)
-    (engine-payload-store-put-block store head :state-available-p t)
+    (engine-payload-store-put-block
+     store head :state-available-p t :canonicalize-p nil)
     (let* ((response
              (engine-rpc-handle-request
               (forkchoice-persistence-test-request
@@ -47,8 +49,9 @@
               store
               config
               :forkchoice-persistence-function
-              (lambda (current-store)
+              (lambda (current-store transition)
                 (incf calls)
+                (setf observed-transition transition)
                 (setf observed-head
                       (block-hash (chain-store-head-block current-store))
                       observed-safe
@@ -63,6 +66,22 @@
       (is (string= +payload-status-valid+
                    (forkchoice-persistence-test-field payload-status "status")))
       (is (= 1 calls))
+      (is (= 1
+             (length
+              (ethereum-lisp.canonical-chain:canonical-chain-transition-installed-blocks
+               observed-transition))))
+      (is (ethereum-lisp.types:hash32=
+           (block-hash
+            (first
+             (ethereum-lisp.canonical-chain:canonical-chain-transition-installed-blocks
+              observed-transition)))
+           (block-hash head)))
+      (is (null
+           (ethereum-lisp.canonical-chain:canonical-chain-transition-displaced-blocks
+            observed-transition)))
+      (is (null
+           (ethereum-lisp.canonical-chain:canonical-chain-transition-changed-txpool-hashes
+            observed-transition)))
       (is (bytes= (hash32-bytes observed-head)
                   (hash32-bytes (block-hash head))))
       (is (bytes= (hash32-bytes observed-safe)
@@ -80,8 +99,8 @@
                 store
                 config
                 :forkchoice-persistence-function
-                (lambda (current-store)
-                  (declare (ignore current-store))
+                (lambda (current-store transition)
+                  (declare (ignore current-store transition))
                   (incf calls))))
              (syncing-status
                (forkchoice-persistence-test-field
@@ -118,7 +137,8 @@
               store
               config
               :forkchoice-persistence-function
-              (lambda (current-store)
+              (lambda (current-store transition)
+                (declare (ignore transition))
                 (setf observed-head
                       (block-hash (chain-store-head-block current-store))
                       observed-safe
@@ -147,6 +167,140 @@
       (is (bytes= (hash32-bytes (chain-store-canonical-hash store 1))
                   (hash32-bytes (block-hash old-head))))
       (is (not (chain-store-canonical-hash store 2))))))
+
+(deftest engine-rpc-forkchoice-delta-batch-failure-rolls-back-and-retries
+  (let ((database (make-instance 'forkchoice-delta-failing-test-database)))
+    (multiple-value-bind
+        (store config returned-database genesis parent candidate side
+         included-transaction unrelated-transaction)
+        (forkchoice-delta-test-extension-fixture :database database)
+      (declare (ignore returned-database side))
+      (let* ((included-hash (transaction-hash included-transaction))
+             (unrelated-hash (transaction-hash unrelated-transaction))
+             (before-database
+               (payload-candidate-export-database-snapshot database))
+             (persistence-function
+               (lambda (current-store transition)
+                 (ethereum-lisp.node-store.persistence:node-store-export-forkchoice-to-kv
+                  current-store transition database))))
+        (setf (forkchoice-delta-failing-test-database-apply-attempts database)
+              0)
+        (is (forkchoice-delta-test-one-hash-p
+             (ethereum-lisp.txpool:engine-payload-store-txpool-database-dirty-transaction-hashes
+              store)
+             unrelated-hash))
+        (setf (forkchoice-delta-failing-test-database-fail-next-apply-p
+               database)
+              t)
+        (let* ((response
+                 (engine-rpc-handle-request
+                  (forkchoice-persistence-test-request
+                   58 (block-hash candidate)
+                   :safe (block-hash genesis)
+                   :finalized (block-hash genesis))
+                  store
+                  config
+                  :forkchoice-persistence-function persistence-function))
+               (rpc-error
+                 (forkchoice-persistence-test-field response "error")))
+          (is (= 58 (forkchoice-persistence-test-field response "id")))
+          (is (= -32603
+                 (forkchoice-persistence-test-field rpc-error "code")))
+          (is (string= "Internal error"
+                       (forkchoice-persistence-test-field
+                        rpc-error "message"))))
+        (is (= 1
+               (forkchoice-delta-failing-test-database-apply-attempts
+                database)))
+        (is (equalp before-database
+                    (payload-candidate-export-database-snapshot database)))
+        (is (null
+             (forkchoice-delta-test-database-applied-operation-batches
+              database)))
+        (is (ethereum-lisp.types:hash32=
+             (chain-store-canonical-hash store 1)
+             (block-hash parent)))
+        (is (null (chain-store-canonical-hash store 2)))
+        (is (ethereum-lisp.types:hash32=
+             (block-hash (chain-store-head-block store))
+             (block-hash parent)))
+        (is (ethereum-lisp.types:hash32=
+             (block-hash (chain-store-safe-block store))
+             (block-hash genesis)))
+        (is (ethereum-lisp.types:hash32=
+             (block-hash (chain-store-finalized-block store))
+             (block-hash genesis)))
+        (is (null (chain-store-transaction-location store included-hash)))
+        (is (ethereum-lisp.txpool:engine-payload-store-pending-transaction
+             store included-hash))
+        (is (ethereum-lisp.txpool:engine-payload-store-pending-transaction
+             store unrelated-hash))
+        (is (forkchoice-delta-test-one-hash-p
+             (ethereum-lisp.txpool:engine-payload-store-txpool-database-dirty-transaction-hashes
+              store)
+             unrelated-hash))
+        (forkchoice-delta-test-reset-operations database)
+        (let* ((response
+                 (engine-rpc-handle-request
+                  (forkchoice-persistence-test-request
+                   59 (block-hash candidate)
+                   :safe (block-hash genesis)
+                   :finalized (block-hash genesis))
+                  store
+                  config
+                  :forkchoice-persistence-function persistence-function))
+               (payload-status
+                 (forkchoice-persistence-test-field
+                  (forkchoice-persistence-test-field response "result")
+                  "payloadStatus")))
+          (is (= 59 (forkchoice-persistence-test-field response "id")))
+          (is (string= +payload-status-valid+
+                       (forkchoice-persistence-test-field
+                        payload-status "status"))))
+        (is (= 2
+               (forkchoice-delta-failing-test-database-apply-attempts
+                database)))
+        (is (ethereum-lisp.types:hash32=
+             (chain-store-canonical-hash store 2)
+             (block-hash candidate)))
+        (is (ethereum-lisp.types:hash32=
+             (block-hash (chain-store-head-block store))
+             (block-hash candidate)))
+        (is (ethereum-lisp.types:hash32=
+             (block-hash (chain-store-safe-block store))
+             (block-hash genesis)))
+        (is (ethereum-lisp.types:hash32=
+             (block-hash (chain-store-finalized-block store))
+             (block-hash genesis)))
+        (is (chain-store-transaction-location store included-hash))
+        (is (null
+             (ethereum-lisp.txpool:engine-payload-store-pending-transaction
+              store included-hash)))
+        (is (ethereum-lisp.txpool:engine-payload-store-pending-transaction
+             store unrelated-hash))
+        (is (null
+             (ethereum-lisp.txpool:engine-payload-store-txpool-database-dirty-transaction-hashes
+              store)))
+        (multiple-value-bind (value present-p)
+            (kv-get-chain-canonical-hash database 2)
+          (is present-p)
+          (is (bytes= (hash32-bytes (block-hash candidate)) value)))
+        (multiple-value-bind (value present-p)
+            (kv-get-chain-record
+             database :transaction-location
+             (hash32-bytes included-hash))
+          (declare (ignore value))
+          (is present-p))
+        (multiple-value-bind (value present-p)
+            (kv-get-chain-record
+             database :txpool (hash32-bytes included-hash) :missing)
+          (is (eq :missing value))
+          (is (not present-p)))
+        (multiple-value-bind (value present-p)
+            (kv-get-chain-record
+             database :txpool (hash32-bytes unrelated-hash))
+          (declare (ignore value))
+          (is present-p))))))
 
 (deftest engine-rpc-new-payload-remains-noncanonical-when-live-persistence-fails
   (let* ((store (make-engine-payload-memory-store))
@@ -228,8 +382,8 @@
               store
               config
               :forkchoice-persistence-function
-              (lambda (current-store)
-                (declare (ignore current-store))
+              (lambda (current-store transition)
+                (declare (ignore current-store transition))
                 (error "simulated database failure"))))
            (rpc-error
              (forkchoice-persistence-test-field forkchoice-response "error")))

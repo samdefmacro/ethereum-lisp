@@ -77,4 +77,9 @@
       transaction-copies)
      :transaction-admitted-at
      (engine-pending-txpool-copy-metadata-table
-      (engine-pending-txpool-transaction-admitted-at txpool)))))
+      (engine-pending-txpool-transaction-admitted-at txpool))
+     :database-change-tracking-enabled-p
+     (engine-pending-txpool-database-change-tracking-enabled-p txpool)
+     :database-dirty-transaction-keys
+     (engine-pending-txpool-copy-metadata-table
+      (engine-pending-txpool-database-dirty-transaction-keys txpool)))))

@@ -19,7 +19,10 @@
 (defgeneric kv-get (database key &optional default))
 (defgeneric kv-put (database key value))
 (defgeneric kv-delete (database key))
-(defgeneric kv-apply-batch (database batch))
+(defgeneric kv-apply-batch (database batch)
+  (:documentation
+   "Apply every BATCH operation atomically.
+If an error is signaled, no batch operation may remain durably visible."))
 (defgeneric kv-iterator (database &key start end reverse-p))
 
 (defun make-memory-key-value-database ()

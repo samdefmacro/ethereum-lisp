@@ -12,6 +12,10 @@
         #:ethereum-lisp.chain-store)
   (:export
    #:engine-payload-store-txpool
+   #:engine-payload-store-enable-txpool-database-change-tracking
+   #:engine-payload-store-txpool-database-change-tracking-enabled-p
+   #:engine-payload-store-txpool-database-dirty-transaction-hashes
+   #:engine-payload-store-clear-txpool-database-dirty-transaction-hashes
    #:engine-payload-store-queued-sender-index
    #:engine-payload-store-basefee-sender-index
    #:engine-payload-store-blob-sender-index
@@ -78,6 +82,11 @@
         #:ethereum-lisp.chain-store
         #:ethereum-lisp.txpool)
   (:export
+   #:canonical-chain-transition
+   #:canonical-chain-transition-p
+   #:canonical-chain-transition-installed-blocks
+   #:canonical-chain-transition-displaced-blocks
+   #:canonical-chain-transition-changed-txpool-hashes
    #:chain-store-set-canonical-head))
 
 (defpackage #:ethereum-lisp.engine

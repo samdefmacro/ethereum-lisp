@@ -210,7 +210,9 @@
        (when database-path
          (node-store-export-to-kv
           (devnet-node-store node)
-          (devnet-cli-make-output-kv-database database-path))))
+          (devnet-cli-make-output-kv-database database-path))
+         (engine-payload-store-clear-txpool-database-dirty-transaction-hashes
+          (devnet-node-store node))))
      (let ((journal-path (devnet-node-txpool-journal-path node)))
        (when journal-path
          (node-store-export-txpool-records-to-kv

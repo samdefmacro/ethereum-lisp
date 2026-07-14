@@ -22,6 +22,11 @@
         #:ethereum-lisp.node-state
         #:ethereum-lisp.chain-store
         #:ethereum-lisp.txpool)
+  (:import-from #:ethereum-lisp.canonical-chain
+                #:canonical-chain-transition-p
+                #:canonical-chain-transition-installed-blocks
+                #:canonical-chain-transition-displaced-blocks
+                #:canonical-chain-transition-changed-txpool-hashes)
   (:export
    #:chain-store-export-indexes-to-kv
    #:chain-store-export-block-records-to-kv

@@ -49,7 +49,9 @@
               (remhash
                (engine-pending-txpool-hash-key (transaction-hash conflict))
                transactions)
-              (engine-pending-txpool-clear-admission-time txpool conflict)))
+              (engine-pending-txpool-clear-admission-time txpool conflict)
+              (engine-pending-txpool-record-transaction-change
+               txpool conflict)))
           (engine-pending-txpool-remove-replacement-conflicts
            txpool
            cross-subpool-conflicts)
@@ -59,6 +61,8 @@
           (engine-pending-txpool-index-pending-transaction
            txpool
            transaction)
+          (engine-pending-txpool-record-transaction-change
+           txpool transaction)
           (values transaction t)))))
 
 (defun engine-pending-txpool-put-queued-transaction
@@ -111,7 +115,9 @@
               (remhash
                (engine-pending-txpool-hash-key (transaction-hash conflict))
                transactions)
-              (engine-pending-txpool-clear-admission-time txpool conflict)))
+              (engine-pending-txpool-clear-admission-time txpool conflict)
+              (engine-pending-txpool-record-transaction-change
+               txpool conflict)))
           (engine-pending-txpool-remove-replacement-conflicts
            txpool
            cross-subpool-conflicts)
@@ -121,6 +127,8 @@
           (engine-pending-txpool-index-queued-transaction
            txpool
            transaction)
+          (engine-pending-txpool-record-transaction-change
+           txpool transaction)
           (values transaction t)))))
 
 (defun engine-pending-txpool-put-flat-transaction
@@ -156,7 +164,9 @@
               (remhash
                (engine-pending-txpool-hash-key (transaction-hash conflict))
                transactions)
-              (engine-pending-txpool-clear-admission-time txpool conflict)))
+              (engine-pending-txpool-clear-admission-time txpool conflict)
+              (engine-pending-txpool-record-transaction-change
+               txpool conflict)))
           (engine-pending-txpool-remove-replacement-conflicts
            txpool
            cross-subpool-conflicts)
@@ -166,6 +176,8 @@
           (engine-pending-txpool-index-transaction
            sender-index
            transaction)
+          (engine-pending-txpool-record-transaction-change
+           txpool transaction)
           (values transaction t)))))
 
 (defun engine-pending-txpool-put-basefee-transaction

@@ -4,6 +4,26 @@
   (or (txpool-component store)
       (block-validation-fail "Txpool component is not available")))
 
+(defun engine-payload-store-enable-txpool-database-change-tracking (store)
+  (engine-pending-txpool-enable-database-change-tracking
+   (engine-payload-store-txpool store))
+  store)
+
+(defun engine-payload-store-txpool-database-change-tracking-enabled-p (store)
+  (engine-pending-txpool-database-change-tracking-enabled-p
+   (engine-payload-store-txpool store)))
+
+(defun engine-payload-store-txpool-database-dirty-transaction-hashes (store)
+  (engine-pending-txpool-database-dirty-transaction-hashes
+   (engine-payload-store-txpool store)))
+
+(defun engine-payload-store-clear-txpool-database-dirty-transaction-hashes
+    (store &optional hashes)
+  (engine-pending-txpool-clear-database-dirty-transaction-hashes
+   (engine-payload-store-txpool store)
+   hashes)
+  store)
+
 (defun engine-payload-store-pending-transaction-table (store)
   (engine-pending-txpool-transactions
    (engine-payload-store-txpool store)))

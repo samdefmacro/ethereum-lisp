@@ -35,6 +35,8 @@
            ("tests/core-engine-payload-tests.lisp" :unit :engine)
            ("tests/core-chain-store-payload-candidate-export-tests.lisp"
             :unit :persistence)
+           ("tests/core-chain-store-forkchoice-delta-export-tests.lisp"
+            :unit :persistence)
            ("tests/core-chain-store-tests.lisp" :integration :persistence)
            ("tests/core-txpool-tests.lisp" :unit :txpool)
            ("tests/core-execution-tests.lisp" :unit :execution)

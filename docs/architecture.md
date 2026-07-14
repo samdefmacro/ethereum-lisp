@@ -216,13 +216,16 @@ The current source ownership map is:
   service operations.
 - `ethereum-lisp.canonical-chain` / `canonical-chain.lisp`: canonical path
   discovery, index replacement, displaced transaction recovery, txpool
-  reconciliation, and filter notification. This is an application service
-  over chain-store and txpool, with each phase expressed as a separate step.
+  reconciliation, filter notification, and a transition descriptor
+  containing installed/displaced blocks and affected txpool hashes. This is an
+  application service over chain-store and txpool, with each phase expressed
+  as a separate step.
 - `ethereum-lisp.node-store.persistence`: the node-level database adapter for
-  atomic KV snapshots and staged, validated restore. It owns orchestration
-  across chain and txpool components; record codecs remain grouped by the
-  domain data they persist. Database, chain-store, and txpool never depend on
-  this adapter.
+  atomic KV snapshots, record-scoped live deltas, and staged, validated
+  restore. It imports only the canonical transition descriptor API and owns
+  orchestration across chain and txpool components; record codecs remain
+  grouped by the domain data they persist. Database, chain-store, canonical
+  chain, and txpool never depend on this adapter.
 - `chain-store-copy-values.lisp`: defensive copying for shared store values,
   filters, checkpoints, and blob proof records.
 - `chain-store-copy-blocks.lisp`: defensive copying for block headers, logs,
