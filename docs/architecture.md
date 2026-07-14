@@ -226,6 +226,11 @@ The current source ownership map is:
   orchestration across chain and txpool components; record codecs remain
   grouped by the domain data they persist. Database, chain-store, canonical
   chain, and txpool never depend on this adapter.
+- `node-store-persistence-metadata.lisp`: versioned persistence authority
+  records binding an artifact role, chain ID, genesis hash, lifecycle-unique
+  authority ID, publication generation, and base chain generation. Metadata is
+  populated into the same KV batch as the chain delta or complete txpool
+  snapshot it describes.
 - `chain-store-copy-values.lisp`: defensive copying for shared store values,
   filters, checkpoints, and blob proof records.
 - `chain-store-copy-blocks.lisp`: defensive copying for block headers, logs,

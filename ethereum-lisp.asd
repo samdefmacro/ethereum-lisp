@@ -142,6 +142,7 @@
      (:file "txpool-pending-revalidation")
      (:file "txpool-reorg")
      (:file "canonical-chain")
+     (:file "node-store-persistence-metadata")
      (:file "chain-store-export-indexes")
      (:file "chain-store-export-blocks")
      (:file "chain-store-export-transactions")

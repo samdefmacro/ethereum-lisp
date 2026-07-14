@@ -49,6 +49,13 @@
     (error "Devnet node requires a genesis JSON path or source"))
   (unless (functionp public-allowed-method-p)
     (error "Devnet public RPC method filter must be a function"))
+  (when (and database-path
+             txpool-journal-path
+             (devnet-cli-same-output-path-p
+              database-path txpool-journal-path))
+    (error
+     "--database and --txpool.journal must name different files: ~A"
+     database-path))
   (let* ((engine-endpoint-config
            (make-devnet-endpoint-config
             :host host :port port :rpc-prefix engine-rpc-prefix
@@ -103,13 +110,19 @@
                (genesis-block-from-state-genesis-json-file
                 genesis-path
                 :config config)))
+         (persistence-state
+           (make-devnet-persistence-state
+            :chain-id (chain-config-chain-id config)
+            :genesis-hash (block-hash genesis-block)
+            :authority-id (devnet-cli-new-persistence-authority-id)))
          (effective-network-id (or network-id (chain-config-chain-id config)))
          (store (make-engine-payload-memory-store))
          (store-guard-function (make-devnet-store-guard-function))
          (new-payload-persistence-function
            (devnet-cli-new-payload-persistence-function database-path))
          (forkchoice-persistence-function
-           (devnet-cli-forkchoice-persistence-function database-path))
+           (devnet-cli-forkchoice-persistence-function
+            database-path persistence-state))
          (jwt-secret (and jwt-secret-path
                           (devnet-cli-read-jwt-secret jwt-secret-path)))
          (service
@@ -181,7 +194,12 @@
     (chain-store-put-block store genesis-block :state-available-p t)
     (commit-state-db-to-chain-store store (block-hash genesis-block) state)
     (devnet-cli-import-persistent-state
-     store database-path txpool-journal-path config genesis-block)
+     store
+     database-path
+     txpool-journal-path
+     config
+     genesis-block
+     persistence-state)
     (%make-devnet-node
      :genesis-path genesis-path
      :store store
@@ -204,6 +222,7 @@
      :dev-mode-p dev-mode-p
      :coinbase coinbase
      :store-guard-function store-guard-function
+     :persistence-state persistence-state
      :canonical-transition-persistence-function
      forkchoice-persistence-function
      :txpool-journal-path txpool-journal-path

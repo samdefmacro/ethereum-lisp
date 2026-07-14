@@ -298,7 +298,8 @@ same-head forkchoice call without reintroducing a full-store scan."
           (kv-apply-batch database batch))
         database))))
 
-(defun node-store-export-forkchoice-to-kv (store transition database)
+(defun node-store-export-forkchoice-to-kv
+    (store transition database &key persistence-metadata)
   (let ((chain-store (chain-store-require-memory-store store)))
     (unless (canonical-chain-transition-p transition)
       (block-validation-fail
@@ -306,6 +307,8 @@ same-head forkchoice call without reintroducing a full-store scan."
     (unless (typep database 'key-value-database)
       (block-validation-fail
        "Forkchoice export target must be a key-value database"))
+    (node-store-require-persistence-metadata-for-versioned-target
+     database persistence-metadata "Forkchoice")
     (unless (engine-payload-store-txpool-database-change-tracking-enabled-p
              store)
       (block-validation-fail
@@ -383,16 +386,23 @@ same-head forkchoice call without reintroducing a full-store scan."
                    database batch :txpool identifier
                    (node-store-final-txpool-record store transaction-hash))
               (setf changed-p t))))
+        (when persistence-metadata
+          (node-store-populate-persistence-metadata-batch
+           batch persistence-metadata)
+          (setf changed-p t))
         (when changed-p
           (kv-apply-batch database batch))
         (engine-payload-store-clear-txpool-database-dirty-transaction-hashes
          store transaction-hashes)
         database))))
 
-(defun node-store-export-to-kv (store database)
+(defun node-store-export-to-kv
+    (store database &key persistence-metadata)
   (let ((chain-store (chain-store-require-memory-store store)))
     (unless (typep database 'key-value-database)
       (block-validation-fail "Node export target must be a key-value database"))
+    (node-store-require-persistence-metadata-for-versioned-target
+     database persistence-metadata "Node")
     (let ((batch (make-kv-write-batch)))
       (chain-store-populate-index-export-batch chain-store database batch)
       (chain-store-populate-block-record-export-batch
@@ -410,4 +420,6 @@ same-head forkchoice call without reintroducing a full-store scan."
        chain-store database batch)
       (chain-store-populate-prepared-payload-export-batch
        chain-store database batch)
+      (node-store-populate-persistence-metadata-batch
+       batch persistence-metadata)
       (kv-apply-batch database batch))))

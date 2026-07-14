@@ -42,9 +42,10 @@ Git history.
 - **Durability and synchronization:** active. The immediate goal is to replace
   snapshot-only publication with record-scoped durable chain/state commits.
   Engine candidates, consensus-selected forkchoice transitions, and local
-  dev-period seals now commit before publication; the next boundary is an
-  explicit database/journal authority contract, followed by persisted sync
-  progress and unwind behavior before real peer-to-peer synchronization.
+  dev-period seals now commit before publication, and the chain database and
+  txpool journal now share an explicit generation/authority contract. The next
+  boundary is persisted staged-import progress and unwind behavior before real
+  peer-to-peer synchronization.
 
 ## Priority Order
 

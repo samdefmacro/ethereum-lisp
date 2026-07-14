@@ -20,9 +20,8 @@ The pinned Shanghai import profile and repository-local Engine/RPC devnet
 profile are closed. Current work is moving the client from snapshot-oriented
 development persistence toward incremental durability and staged sync:
 
-- define an explicit generation/authority rule between the chain database and
-  the independently refreshed transaction-pool journal
 - add persisted staged-import progress and unwind behavior
+- replace whole-state snapshots with durable content-addressed trie/state data
 - implement networking only after durable import and unwind contracts are
   established
 
@@ -63,13 +62,19 @@ Implemented so far:
   visibility; explicitly classified transient file-write failures retain the
   pending transaction, emit a warning, and retry on a later worker tick, while
   persistence invariants fail-stop, with SIGKILL restart coverage
+- an explicit txpool persistence authority protocol shared by the chain
+  database and independently refreshed journal: versioned role, chain,
+  genesis, lifecycle authority, generation, and base-generation metadata is
+  committed with each snapshot; only a compatible journal strictly newer than
+  its DB base can replace the DB txpool, while equal/stale journals lose and
+  canonical transactions are always suppressed; database and journal paths
+  must resolve to distinct artifacts, and versioned snapshot/delta targets
+  cannot be changed without publishing metadata in the same batch
 
-The main durability gap is now authority between the synchronously committed
-chain database and the independently refreshed transaction-pool journal, which
-still lacks an explicit generation marker. The development file backend still
-rewrites its complete S-expression image for a logical record batch. Durable
-trie nodes, staged sync/unwind, devp2p, and external Hive validation remain
-future work.
+The next durability gap is persisted staged-import progress and deterministic
+unwind. The development file backend still rewrites its complete S-expression
+image for a logical record batch. Durable trie nodes, devp2p, and external Hive
+validation remain future work.
 
 ## Run tests
 

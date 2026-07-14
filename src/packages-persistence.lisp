@@ -28,6 +28,15 @@
                 #:canonical-chain-transition-displaced-blocks
                 #:canonical-chain-transition-changed-txpool-hashes)
   (:export
+   #:node-store-persistence-metadata
+   #:make-node-store-persistence-metadata
+   #:node-store-persistence-metadata-role
+   #:node-store-persistence-metadata-generation
+   #:node-store-persistence-metadata-chain-id
+   #:node-store-persistence-metadata-genesis-hash
+   #:node-store-persistence-metadata-authority-id
+   #:node-store-persistence-metadata-base-chain-generation
+   #:node-store-read-persistence-metadata
    #:chain-store-export-indexes-to-kv
    #:chain-store-export-block-records-to-kv
    #:chain-store-export-transaction-locations-to-kv

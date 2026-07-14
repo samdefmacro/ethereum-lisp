@@ -1,5 +1,13 @@
 (in-package #:ethereum-lisp.test)
 
+(defun devnet-cli-test-persistence-metadata (path)
+  (multiple-value-bind (metadata present-p)
+      (ethereum-lisp.node-store.persistence:node-store-read-persistence-metadata
+       (make-file-key-value-database path))
+    (unless present-p
+      (error "Expected persistence metadata at ~A" path))
+    metadata))
+
 (deftest devnet-cli-txpool-journal-persists-pending-transactions
   (let ((journal-path
           (devnet-cli-temp-path "ethereum-lisp-devnet-txpool-journal" "sexp"))
@@ -28,6 +36,17 @@
            (ethereum-lisp.cli::devnet-node-export-database seed-node)
            (let ((journal (make-file-key-value-database journal-path)))
              (is (= 1 (length (kv-chain-record-entries journal :txpool)))))
+           (let ((metadata
+                   (devnet-cli-test-persistence-metadata journal-path)))
+             (is (eq :journal
+                     (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-role
+                      metadata)))
+             (is (= 1
+                    (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-generation
+                     metadata)))
+             (is (zerop
+                  (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-base-chain-generation
+                   metadata))))
            (let* ((restored-node
                     (ethereum-lisp.cli:make-devnet-node
                      :genesis-path (namestring genesis-path)
@@ -67,7 +86,8 @@
          (progn
            (devnet-cli-write-temp-file
             genesis-path
-            (devnet-cli-funded-txpool-genesis-json))
+            (devnet-cli-funded-txpool-genesis-json
+             :private-keys (list +devnet-cli-txpool-private-key+ 2)))
            (let* ((seed-node
                     (ethereum-lisp.cli:make-devnet-node
                      :genesis-path (namestring genesis-path)
@@ -81,7 +101,15 @@
                      (ethereum-lisp.cli:devnet-node-config seed-node)
                      0
                      +devnet-cli-txpool-pending-gas-price+))
-                  (transaction-hash (transaction-hash transaction)))
+                  (transaction-hash (transaction-hash transaction))
+                  (journal-transaction
+                    (devnet-cli-txpool-transaction
+                     (ethereum-lisp.cli:devnet-node-config seed-node)
+                     0
+                     +devnet-cli-txpool-pending-gas-price+
+                     :private-key 2))
+                  (journal-transaction-hash
+                    (transaction-hash journal-transaction)))
              (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
               seed-store
               transaction)
@@ -96,6 +124,41 @@
                      (kv-chain-record-entries
                       (make-file-key-value-database journal-path)
                       :txpool))))
+             (let ((database-metadata
+                     (devnet-cli-test-persistence-metadata database-path))
+                   (journal-metadata
+                     (devnet-cli-test-persistence-metadata journal-path)))
+               (is (eq :database
+                       (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-role
+                        database-metadata)))
+               (is (eq :journal
+                       (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-role
+                        journal-metadata)))
+               (is (=
+                    (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-generation
+                     database-metadata)
+                    (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-generation
+                     journal-metadata)))
+               (is (=
+                    (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-generation
+                     database-metadata)
+                    (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-base-chain-generation
+                     journal-metadata)))
+               (is (ethereum-lisp.types:hash32=
+                    (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-authority-id
+                     database-metadata)
+                    (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-authority-id
+                     journal-metadata)))
+               ;; Deliberately diverge the equal-generation journal.  The
+               ;; database must win the tie; accepting JOURNAL-TRANSACTION here
+               ;; would expose a >= comparison bug.
+               (let ((journal-source (make-engine-payload-memory-store)))
+                 (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
+                  journal-source journal-transaction)
+                 (ethereum-lisp.node-store.persistence:node-store-export-txpool-records-to-kv
+                  journal-source
+                  (make-file-key-value-database journal-path)
+                  :persistence-metadata journal-metadata)))
              (let* ((restored-node
                       (ethereum-lisp.cli:make-devnet-node
                        :genesis-path (namestring genesis-path)
@@ -108,7 +171,411 @@
                            (transaction-encoding
                             (ethereum-lisp.txpool:engine-payload-store-pending-transaction
                              restored-store
-                             transaction-hash)))))))
+                             transaction-hash))))
+               (is (eq nil
+                       (ethereum-lisp.txpool:engine-payload-store-pooled-transaction
+                        restored-store journal-transaction-hash)))
+               ;; Advance only the database, leaving the divergent journal one
+               ;; generation behind.  This models the DB-first crash window
+               ;; with a noncanonical sentinel that canonical filtering cannot
+               ;; hide.
+               (ethereum-lisp.cli::devnet-cli-call-with-next-persistence-generation
+                (ethereum-lisp.cli::devnet-node-persistence-state restored-node)
+                :database
+                (lambda (metadata)
+                  (node-store-export-to-kv
+                   restored-store
+                   (make-file-key-value-database database-path)
+                   :persistence-metadata metadata)))
+               (let ((database-metadata
+                       (devnet-cli-test-persistence-metadata database-path))
+                     (journal-metadata
+                       (devnet-cli-test-persistence-metadata journal-path)))
+                 (is (>
+                      (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-generation
+                       database-metadata)
+                      (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-generation
+                       journal-metadata))))
+               (let* ((stale-restored-node
+                        (ethereum-lisp.cli:make-devnet-node
+                         :genesis-path (namestring genesis-path)
+                         :port 0
+                         :database-path (namestring database-path)
+                         :txpool-journal-path (namestring journal-path)))
+                      (stale-restored-store
+                        (ethereum-lisp.cli:devnet-node-store
+                         stale-restored-node)))
+                 (is (bytes=
+                      (transaction-encoding transaction)
+                      (transaction-encoding
+                       (ethereum-lisp.txpool:engine-payload-store-pending-transaction
+                        stale-restored-store transaction-hash))))
+                 (is (eq nil
+                         (ethereum-lisp.txpool:engine-payload-store-pooled-transaction
+                          stale-restored-store
+                          journal-transaction-hash)))))))
+      (when (probe-file database-path)
+        (delete-file database-path))
+      (when (probe-file journal-path)
+        (delete-file journal-path))
+      (when (probe-file genesis-path)
+        (delete-file genesis-path)))))
+
+(deftest devnet-cli-newer-txpool-journal-replaces-database-snapshot
+  (let ((database-path
+          (devnet-cli-temp-path "ethereum-lisp-devnet-newer-journal-db"
+                                "sexp"))
+        (journal-path
+          (devnet-cli-temp-path "ethereum-lisp-devnet-newer-journal"
+                                "sexp"))
+        (genesis-path
+          (devnet-cli-temp-path "ethereum-lisp-devnet-newer-journal-genesis"
+                                "json")))
+    (unwind-protect
+         (progn
+           (devnet-cli-write-temp-file
+            genesis-path
+            (devnet-cli-funded-txpool-genesis-json
+             :private-keys (list 2 +devnet-cli-txpool-private-key+)))
+           (let* ((node
+                    (ethereum-lisp.cli:make-devnet-node
+                     :genesis-path (namestring genesis-path)
+                     :database-path (namestring database-path)
+                     :txpool-journal-path (namestring journal-path)))
+                  (store (ethereum-lisp.cli:devnet-node-store node))
+                  (config (ethereum-lisp.cli:devnet-node-config node))
+                  (database-transaction
+                    (devnet-cli-txpool-transaction
+                     config 0 +devnet-cli-txpool-pending-gas-price+
+                     :private-key 2))
+                  (journal-transaction
+                    (devnet-cli-txpool-transaction
+                     config 0 +devnet-cli-txpool-pending-gas-price+))
+                  (database-hash (transaction-hash database-transaction))
+                  (journal-hash (transaction-hash journal-transaction)))
+             (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
+              store database-transaction)
+             (ethereum-lisp.cli::devnet-node-export-database node)
+             (ethereum-lisp.txpool::engine-payload-store-remove-pending-transaction
+              store database-hash)
+             (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
+              store journal-transaction)
+             (is (eq t (ethereum-lisp.cli::devnet-node-rejournal node)))
+             (let ((database-metadata
+                     (devnet-cli-test-persistence-metadata database-path))
+                   (journal-metadata
+                     (devnet-cli-test-persistence-metadata journal-path)))
+               (is (<
+                    (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-generation
+                     database-metadata)
+                    (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-generation
+                     journal-metadata)))
+               (is (=
+                    (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-generation
+                     database-metadata)
+                    (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-base-chain-generation
+                     journal-metadata))))
+             (let* ((restored-node
+                      (ethereum-lisp.cli:make-devnet-node
+                       :genesis-path (namestring genesis-path)
+                       :database-path (namestring database-path)
+                       :txpool-journal-path (namestring journal-path)))
+                    (restored-store
+                      (ethereum-lisp.cli:devnet-node-store restored-node)))
+               (is (eq nil
+                       (ethereum-lisp.txpool:engine-payload-store-pooled-transaction
+                        restored-store database-hash)))
+               (is (bytes=
+                    (transaction-encoding journal-transaction)
+                    (transaction-encoding
+                     (ethereum-lisp.txpool:engine-payload-store-pooled-transaction
+                      restored-store journal-hash))))
+               (let ((database
+                       (make-file-key-value-database database-path))
+                     (database-metadata
+                       (devnet-cli-test-persistence-metadata database-path))
+                     (journal-metadata
+                       (devnet-cli-test-persistence-metadata journal-path)))
+                 (is (= 1 (length (kv-chain-record-entries database :txpool))))
+                 (is (bytes=
+                      (hash32-bytes journal-hash)
+                      (caar (kv-chain-record-entries database :txpool))))
+                 (is (=
+                      (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-generation
+                       database-metadata)
+                      (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-generation
+                       journal-metadata)))
+                 (is (=
+                      (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-generation
+                       database-metadata)
+                      (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-base-chain-generation
+                       journal-metadata)))))))
+      (when (probe-file database-path)
+        (delete-file database-path))
+      (when (probe-file journal-path)
+        (delete-file journal-path))
+      (when (probe-file genesis-path)
+        (delete-file genesis-path)))))
+
+(deftest devnet-cli-newer-empty-journal-clears-database-txpool
+  (let* ((database-path
+          (devnet-cli-temp-path "ethereum-lisp-devnet-empty-journal-db"
+                                "sexp"))
+        (journal-path
+          (devnet-cli-temp-path "ethereum-lisp-devnet-empty-journal"
+                                "sexp"))
+        (genesis-path
+          (devnet-cli-temp-path "ethereum-lisp-devnet-empty-journal-genesis"
+                                "json"))
+        (real-directory
+          (merge-pathnames
+           (make-pathname
+            :directory
+            (list :relative
+                  (format nil "ethereum-lisp-real-~A"
+                          (devnet-cli-temp-token))))
+           (devnet-cli-temp-root)))
+        (link-path
+          (devnet-cli-temp-path "ethereum-lisp-devnet-link" nil))
+        (symlink-database-path
+          (merge-pathnames "database.sexp" real-directory))
+        (symlink-journal-path
+          (format nil
+                  "~A~A/../~A/~A"
+                  (namestring (devnet-cli-temp-root))
+                  (gensym "MISSING-")
+                  (file-namestring link-path)
+                  (file-namestring symlink-database-path))))
+    (unwind-protect
+         (progn
+           (devnet-cli-write-temp-file
+            genesis-path (devnet-cli-funded-txpool-genesis-json))
+           ;; A lexical cancellation can expose an existing directory
+           ;; symlink, so canonicalization must repeat until stable.
+           (ensure-directories-exist symlink-database-path)
+           (uiop:run-program
+            (list "ln" "-s"
+                  (namestring real-directory)
+                  (namestring link-path))
+            :output nil
+            :error-output nil)
+           (is (not (string= (namestring symlink-database-path)
+                             symlink-journal-path)))
+           (signals error
+             (ethereum-lisp.cli:make-devnet-node
+              :genesis-path (namestring genesis-path)
+              :database-path (namestring symlink-database-path)
+              :txpool-journal-path symlink-journal-path))
+           (is (not (probe-file symlink-database-path)))
+           ;; Database and journal writes must never target the same artifact.
+           (signals error
+             (ethereum-lisp.cli:make-devnet-node
+              :genesis-path (namestring genesis-path)
+              :database-path (namestring database-path)
+              :txpool-journal-path
+              (enough-namestring
+               database-path *default-pathname-defaults*)))
+           (signals error
+             (ethereum-lisp.cli:make-devnet-node
+              :genesis-path (namestring genesis-path)
+              :database-path (namestring database-path)
+              :txpool-journal-path
+              (format nil
+                      "~A~A/../~A"
+                      (namestring
+                       (uiop:pathname-directory-pathname database-path))
+                      (gensym "MISSING-")
+                      (file-namestring database-path))))
+           (is (not (probe-file database-path)))
+           (let* ((node
+                    (ethereum-lisp.cli:make-devnet-node
+                     :genesis-path (namestring genesis-path)
+                     :database-path (namestring database-path)
+                     :txpool-journal-path (namestring journal-path)))
+                  (store (ethereum-lisp.cli:devnet-node-store node))
+                  (transaction
+                    (devnet-cli-txpool-transaction
+                     (ethereum-lisp.cli:devnet-node-config node)
+                     0
+                     +devnet-cli-txpool-pending-gas-price+))
+                  (transaction-hash (transaction-hash transaction)))
+             (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
+              store transaction)
+             (ethereum-lisp.cli::devnet-node-export-database node)
+             (ethereum-lisp.txpool::engine-payload-store-remove-pending-transaction
+              store transaction-hash)
+             (is (eq t (ethereum-lisp.cli::devnet-node-rejournal node)))
+             (is (null
+                  (kv-chain-record-entries
+                   (make-file-key-value-database journal-path) :txpool)))
+             (let* ((restored-node
+                      (ethereum-lisp.cli:make-devnet-node
+                       :genesis-path (namestring genesis-path)
+                       :database-path (namestring database-path)
+                       :txpool-journal-path (namestring journal-path)))
+                    (restored-store
+                      (ethereum-lisp.cli:devnet-node-store restored-node)))
+               (is (eq nil
+                       (ethereum-lisp.txpool:engine-payload-store-pooled-transaction
+                        restored-store transaction-hash)))
+               (is (null
+                    (kv-chain-record-entries
+                     (make-file-key-value-database database-path) :txpool)))
+               (let ((database-metadata
+                       (devnet-cli-test-persistence-metadata database-path))
+                     (journal-metadata
+                       (devnet-cli-test-persistence-metadata journal-path)))
+                 (is (=
+                      (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-generation
+                       database-metadata)
+                      (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-generation
+                       journal-metadata)))
+                 (is (=
+                      (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-generation
+                       database-metadata)
+                      (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-base-chain-generation
+                       journal-metadata)))))))
+      (when (probe-file database-path)
+        (delete-file database-path))
+      (when (probe-file journal-path)
+        (delete-file journal-path))
+      (when (probe-file genesis-path)
+        (delete-file genesis-path))
+      (when (probe-file link-path)
+        (delete-file link-path))
+      (when (probe-file real-directory)
+        (uiop:delete-directory-tree real-directory :validate t)))))
+
+(deftest devnet-cli-rejects-incompatible-journal-metadata
+  (let ((database-path
+          (devnet-cli-temp-path "ethereum-lisp-devnet-incompatible-db"
+                                "sexp"))
+        (journal-path
+          (devnet-cli-temp-path "ethereum-lisp-devnet-incompatible-journal"
+                                "sexp"))
+        (genesis-path
+          (devnet-cli-temp-path "ethereum-lisp-devnet-incompatible-genesis"
+                                "json")))
+    (unwind-protect
+         (progn
+           (devnet-cli-write-temp-file
+            genesis-path (devnet-cli-funded-txpool-genesis-json))
+           (let* ((node
+                    (ethereum-lisp.cli:make-devnet-node
+                     :genesis-path (namestring genesis-path)
+                     :database-path (namestring database-path)
+                     :txpool-journal-path (namestring journal-path)))
+                  (store (ethereum-lisp.cli:devnet-node-store node))
+                  (config (ethereum-lisp.cli:devnet-node-config node))
+                  (transaction
+                    (devnet-cli-txpool-transaction
+                     config 0 +devnet-cli-txpool-pending-gas-price+))
+                  (transaction-hash (transaction-hash transaction)))
+             (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
+              store transaction)
+             (ethereum-lisp.cli::devnet-node-export-database node)
+             ;; Leave an unapplied txpool delta so the forkchoice guard must
+             ;; preserve both the durable record and its dirty acknowledgement.
+             (ethereum-lisp.txpool::engine-payload-store-remove-pending-transaction
+              store transaction-hash)
+             (let* ((database-metadata
+                      (devnet-cli-test-persistence-metadata database-path))
+                    (database-generation
+                      (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-generation
+                       database-metadata))
+                    (authority-id
+                      (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-authority-id
+                       database-metadata))
+                    (genesis-hash
+                      (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-genesis-hash
+                       database-metadata))
+                    (chain-id
+                      (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-chain-id
+                       database-metadata))
+                    (dirty-hashes-before
+                      (mapcar
+                       #'hash32-to-hex
+                       (ethereum-lisp.txpool:engine-payload-store-txpool-database-dirty-transaction-hashes
+                        store)))
+                    (txpool-records-before
+                      (kv-chain-record-entries
+                       (make-file-key-value-database database-path)
+                       :txpool)))
+               (is (= 1 (length dirty-hashes-before)))
+               (is (= 1 (length txpool-records-before)))
+               ;; Versioned artifacts cannot change while retaining stale
+               ;; authority metadata.
+               (signals block-validation-error
+                 (ethereum-lisp.node-store.persistence:node-store-export-to-kv
+                  store (make-file-key-value-database database-path)))
+               (signals block-validation-error
+                 (ethereum-lisp.node-store.persistence:chain-store-export-indexes-to-kv
+                  store (make-file-key-value-database database-path)))
+               (signals block-validation-error
+                 (ethereum-lisp.node-store.persistence:node-store-export-forkchoice-to-kv
+                  store
+                  (ethereum-lisp.canonical-chain::make-canonical-chain-transition
+                   :changed-txpool-hashes (list transaction-hash))
+                  (make-file-key-value-database database-path)))
+               (is (equal dirty-hashes-before
+                          (mapcar
+                           #'hash32-to-hex
+                           (ethereum-lisp.txpool:engine-payload-store-txpool-database-dirty-transaction-hashes
+                            store))))
+               (is (equalp
+                    txpool-records-before
+                    (kv-chain-record-entries
+                     (make-file-key-value-database database-path)
+                     :txpool)))
+               ;; A journal cannot claim a snapshot based on a future DB.
+               (ethereum-lisp.node-store.persistence:node-store-export-txpool-records-to-kv
+                store
+                (make-file-key-value-database journal-path)
+                :persistence-metadata
+                (ethereum-lisp.node-store.persistence:make-node-store-persistence-metadata
+                 :role :journal
+                 :generation (+ database-generation 2)
+                 :base-chain-generation (1+ database-generation)
+                 :chain-id chain-id
+                 :genesis-hash genesis-hash
+                 :authority-id authority-id))
+               (signals block-validation-error
+                 (ethereum-lisp.node-store.persistence:node-store-export-txpool-records-to-kv
+                  store (make-file-key-value-database journal-path)))
+               (signals block-validation-error
+                 (ethereum-lisp.cli:make-devnet-node
+                  :genesis-path (namestring genesis-path)
+                  :database-path (namestring database-path)
+                  :txpool-journal-path (namestring journal-path)))
+               ;; Matching generations still cannot bridge persistence
+               ;; lifecycles with different authority ids.
+               (ethereum-lisp.node-store.persistence:node-store-export-txpool-records-to-kv
+                store
+                (make-file-key-value-database journal-path)
+                :persistence-metadata
+                (ethereum-lisp.node-store.persistence:make-node-store-persistence-metadata
+                 :role :journal
+                 :generation (1+ database-generation)
+                 :base-chain-generation database-generation
+                 :chain-id chain-id
+                 :genesis-hash genesis-hash
+                 :authority-id (zero-hash32)))
+               (signals block-validation-error
+                 (ethereum-lisp.cli:make-devnet-node
+                  :genesis-path (namestring genesis-path)
+                  :database-path (namestring database-path)
+                  :txpool-journal-path (namestring journal-path)))
+               ;; A present but undecodable metadata record fails closed.
+               (kv-put-chain-record
+                (make-file-key-value-database journal-path)
+                :metadata
+                ethereum-lisp.node-store.persistence::+node-store-persistence-metadata-identifier+
+                (vector #xff))
+               (signals block-validation-error
+                 (ethereum-lisp.cli:make-devnet-node
+                  :genesis-path (namestring genesis-path)
+                  :database-path (namestring database-path)
+                  :txpool-journal-path (namestring journal-path))))))
       (when (probe-file database-path)
         (delete-file database-path))
       (when (probe-file journal-path)
@@ -647,4 +1114,3 @@
               :txpool-journal-path (namestring journal-path))))
       (when (probe-file journal-path)
         (delete-file journal-path)))))
-
