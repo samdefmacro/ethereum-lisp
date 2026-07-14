@@ -16,6 +16,9 @@
                 #:node-store-export-txpool-records-to-kv
                 #:node-store-import-txpool-records-from-kv
                 #:node-store-restore-txpool-consistency)
+  (:import-from #:ethereum-lisp.validation
+                #:storage-error
+                #:storage-fail)
   (:export
    #:devnet-node
    #:devnet-endpoint-config

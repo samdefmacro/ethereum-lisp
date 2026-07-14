@@ -436,7 +436,7 @@
       (when (probe-file database-path)
         (delete-file database-path)))))
 
-(deftest devnet-live-persistence-same-head-forkchoice-flushes-local-canonical-block
+(deftest devnet-live-persistence-dev-period-seal-is-durable-before-return
   (let ((database-path
           (devnet-cli-temp-path
            "ethereum-lisp-devnet-live-local-canonical" "sexp")))
@@ -451,7 +451,52 @@
                 (store (ethereum-lisp.cli:devnet-node-store node))
                 (config (ethereum-lisp.cli:devnet-node-config node))
                 (genesis (ethereum-lisp.cli:devnet-node-genesis-block node))
+                (genesis-header (block-header genesis))
                 (genesis-hash (block-hash genesis))
+                (side-state
+                  (state-db-copy
+                   (chain-store-state-db store genesis-hash)))
+                (side-block
+                  (execute-signed-block
+                   side-state
+                   '()
+                   :expected-chain-id (chain-config-chain-id config)
+                   :header
+                   (make-block-header
+                    :parent-hash genesis-hash
+                    :beneficiary (zero-address)
+                    :mix-hash (zero-hash32)
+                    :number 1
+                    :gas-limit (block-header-gas-limit genesis-header)
+                    :timestamp (1+ (block-header-timestamp genesis-header))
+                    :base-fee-per-gas
+                    (expected-base-fee-per-gas genesis-header))
+                   :chain-config config
+                   :withdrawals '()))
+                (side-hash (block-hash side-block))
+                (engine-context
+                  (ethereum-lisp.rpc-http:engine-rpc-http-service-rpc-context
+                   (ethereum-lisp.cli:devnet-node-service node)))
+                ;; Import an executable candidate at the next height but do
+                ;; not select it through forkchoice.  Local mining must still
+                ;; build on the consensus-selected genesis head.
+                (side-response
+                  (ethereum-lisp.rpc:rpc-handle-request
+                   (engine-fixture-payload-request
+                    78
+                    (execution-payload-envelope-execution-payload
+                     (block-to-executable-data side-block)))
+                   engine-context))
+                (side-status
+                  (fixture-object-field side-response "result"))
+                (side-unselected-p
+                  (and
+                   (engine-payload-store-known-block store side-hash)
+                   (engine-payload-store-state-available-p store side-hash)
+                   (null (chain-store-canonical-hash store 1))
+                   (ethereum-lisp.types:hash32=
+                    genesis-hash
+                    (block-hash (chain-store-latest-block store)))))
                 (transaction
                   (devnet-cli-txpool-transaction
                    config 0 +devnet-cli-txpool-pending-gas-price+))
@@ -461,9 +506,6 @@
                 (public-context
                   (ethereum-lisp.rpc-http:engine-rpc-http-service-rpc-context
                    (ethereum-lisp.cli:devnet-node-public-service node)))
-                (engine-context
-                  (ethereum-lisp.rpc-http:engine-rpc-http-service-rpc-context
-                   (ethereum-lisp.cli:devnet-node-service node)))
                 (send-response
                   (ethereum-lisp.rpc:rpc-handle-request
                    (list (cons "jsonrpc" "2.0")
@@ -471,27 +513,26 @@
                          (cons "method" "eth_sendRawTransaction")
                          (cons "params" (list raw-transaction)))
                    public-context))
-                ;; This is deliberately a local canonical publication, not a
-                ;; newPayload candidate or a forkchoice transition.
+                ;; This is deliberately a local canonical publication.  No
+                ;; forkchoice request or lifecycle export follows it.
                 (sealed-block
                   (ethereum-lisp.cli::devnet-node-seal-pending-block node))
                 (sealed-hash (block-hash sealed-block))
                 (sealed-number
-                  (block-header-number (block-header sealed-block)))
-                (forkchoice-response
-                  (ethereum-lisp.rpc:rpc-handle-request
-                   (devnet-cli-engine-forkchoice-v2-request
-                    80 sealed-hash
-                    :safe genesis-hash
-                    :finalized genesis-hash)
-                   engine-context))
-                (forkchoice-status
-                  (fixture-object-field
-                   (fixture-object-field forkchoice-response "result")
-                   "payloadStatus")))
+                  (block-header-number (block-header sealed-block))))
+           (is (string= +payload-status-valid+
+                        (fixture-object-field side-status "status")))
+           (is (engine-payload-store-known-block store side-hash))
+           (is (engine-payload-store-state-available-p store side-hash))
+           (is side-unselected-p)
            (is (string= (hash32-to-hex transaction-hash)
                         (fixture-object-field send-response "result")))
            (is (typep sealed-block 'ethereum-block))
+           (is (not (ethereum-lisp.types:hash32= sealed-hash side-hash)))
+           (is (ethereum-lisp.types:hash32=
+                genesis-hash
+                (block-header-parent-hash (block-header sealed-block))))
+           (is (not (chain-store-canonical-block-p store side-block)))
            (is (bytes=
                 (hash32-bytes sealed-hash)
                 (hash32-bytes
@@ -500,10 +541,17 @@
            (is (typep
                 (chain-store-transaction-location store transaction-hash)
                 'engine-transaction-location))
-           (is (string= +payload-status-valid+
-                        (fixture-object-field forkchoice-status "status")))
-           ;; No lifecycle full export is invoked. A same-head FCU must flush
-           ;; the local canonical delta that was published before the request.
+           (is (bytes=
+                (hash32-bytes sealed-hash)
+                (hash32-bytes
+                 (block-hash (chain-store-head-block store)))))
+           (is (= 0
+                  (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
+                   store)))
+           (is (null
+                (ethereum-lisp.txpool:engine-payload-store-txpool-database-dirty-transaction-hashes
+                 store)))
+           ;; The durable delta must already exist when sealing returns.
            (let ((database (make-file-key-value-database database-path))
                  (sealed-id (hash32-bytes sealed-hash)))
              (multiple-value-bind (value present-p)
@@ -542,7 +590,7 @@
                   (receipt-response
                     (ethereum-lisp.rpc:rpc-handle-request
                      (engine-fixture-receipt-request
-                      81 transaction-hash)
+                      80 transaction-hash)
                      restored-public-context))
                   (receipt
                     (fixture-object-field receipt-response "result")))
@@ -559,6 +607,11 @@
                     restored-store sealed-number))))
              (is (engine-payload-store-state-available-p
                   restored-store sealed-hash))
+             (is (engine-payload-store-known-block
+                  restored-store side-hash))
+             (is (not
+                  (chain-store-canonical-block-p
+                   restored-store side-block)))
              (is restored-state)
              (is (bytes=
                   (hash32-bytes (state-db-root restored-state))
@@ -577,6 +630,469 @@
              (is (= 0
                     (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
                      restored-store)))))
+      (when (probe-file database-path)
+        (delete-file database-path)))))
+
+(deftest devnet-live-persistence-dev-period-write-failure-rolls-back-and-retries
+  (let ((database-path
+          (devnet-cli-temp-path
+           "ethereum-lisp-devnet-period-rollback" "sexp")))
+    (unwind-protect
+         (let* ((now 0)
+                (genesis-json (devnet-cli-funded-txpool-genesis-json))
+                (node
+                  (ethereum-lisp.cli:make-devnet-node
+                   :genesis-json genesis-json
+                   :database-path (namestring database-path)
+                   :dev-mode-p t
+                   :dev-period-seconds 1))
+                (store (ethereum-lisp.cli:devnet-node-store node))
+                (config (ethereum-lisp.cli:devnet-node-config node))
+                (genesis (ethereum-lisp.cli:devnet-node-genesis-block node))
+                (genesis-hash (block-hash genesis))
+                (genesis-state-root
+                  (state-db-root (chain-store-state-db store genesis-hash)))
+                (transaction
+                  (devnet-cli-txpool-transaction
+                   config 0 +devnet-cli-txpool-pending-gas-price+))
+                (transaction-hash (transaction-hash transaction))
+                (transaction-id (hash32-bytes transaction-hash))
+                (public-context
+                  (ethereum-lisp.rpc-http:engine-rpc-http-service-rpc-context
+                   (ethereum-lisp.cli:devnet-node-public-service node)))
+                (state
+                  (ethereum-lisp.cli::make-devnet-dev-period-state
+                   node 1 :now-function (lambda () now)))
+                (failing-database
+                  (make-instance 'forkchoice-delta-failing-test-database))
+                (original-persistence-function
+                  (ethereum-lisp.cli::devnet-node-canonical-transition-persistence-function
+                   node))
+                (tentative-block nil)
+                (tentative-installed-count nil)
+                (tentative-dirty-hashes nil))
+           ;; Give the injected database the same durable genesis baseline as
+           ;; the real configured database.  Its next batch application then
+           ;; fails inside the production record-scoped exporter.
+           (node-store-export-to-kv store failing-database)
+           (forkchoice-delta-test-reset-operations failing-database)
+           (setf
+            (forkchoice-delta-failing-test-database-apply-attempts
+             failing-database)
+            0)
+           (let ((send-response
+                   (ethereum-lisp.rpc:rpc-handle-request
+                    (list (cons "jsonrpc" "2.0")
+                          (cons "id" 81)
+                          (cons "method" "eth_sendRawTransaction")
+                          (cons "params"
+                                (list
+                                 (devnet-cli-transaction-raw transaction))))
+                    public-context)))
+             (is (string= (hash32-to-hex transaction-hash)
+                          (fixture-object-field send-response "result"))))
+           (let ((before-database
+                   (payload-candidate-export-database-snapshot
+                    failing-database)))
+             (setf
+              (ethereum-lisp.cli::devnet-node-canonical-transition-persistence-function
+               node)
+              (lambda (current-store transition)
+                (setf tentative-block
+                      (first
+                       (ethereum-lisp.canonical-chain:canonical-chain-transition-installed-blocks
+                        transition))
+                      tentative-installed-count
+                      (length
+                       (ethereum-lisp.canonical-chain:canonical-chain-transition-installed-blocks
+                        transition))
+                      tentative-dirty-hashes
+                      (ethereum-lisp.canonical-chain:canonical-chain-transition-changed-txpool-hashes
+                       transition))
+                (ethereum-lisp.node-store.persistence:node-store-export-forkchoice-to-kv
+                 current-store transition failing-database)))
+             (setf
+              (forkchoice-delta-failing-test-database-fail-next-apply-p
+               failing-database)
+              t
+              now 1)
+             (signals error
+               (ethereum-lisp.cli::devnet-dev-period-state-tick state))
+             (is (= 0
+                    (ethereum-lisp.cli::devnet-dev-period-state-last-run-time
+                     state)))
+             (is (= 1 tentative-installed-count))
+             (is (typep tentative-block 'ethereum-block))
+             (is (forkchoice-delta-test-one-hash-p
+                  tentative-dirty-hashes transaction-hash))
+             (is (= 1
+                    (forkchoice-delta-failing-test-database-apply-attempts
+                     failing-database)))
+             (is (equalp
+                  before-database
+                  (payload-candidate-export-database-snapshot
+                   failing-database)))
+             (is (null
+                  (forkchoice-delta-test-database-applied-operation-batches
+                   failing-database))))
+           ;; Every tentative memory mutation is gone, while the pending
+           ;; transaction and its database dirty marker are restored.
+           (let ((tentative-hash (block-hash tentative-block)))
+             (is (= 0 (chain-store-head-number store)))
+             (is (bytes= (hash32-bytes genesis-hash)
+                         (hash32-bytes
+                          (block-hash (chain-store-latest-block store)))))
+             (is (not (chain-store-canonical-hash store 1)))
+             (is (not (chain-store-known-block store tentative-hash)))
+             (is (not (engine-payload-store-state-available-p
+                       store tentative-hash)))
+             (is (not (chain-store-transaction-location
+                       store transaction-hash)))
+             (is (bytes=
+                  (hash32-bytes genesis-state-root)
+                  (hash32-bytes
+                   (state-db-root
+                    (chain-store-state-db store genesis-hash)))))
+             (is (ethereum-lisp.txpool:engine-payload-store-pending-transaction
+                  store transaction-hash))
+             (is (forkchoice-delta-test-one-hash-p
+                  (ethereum-lisp.txpool:engine-payload-store-txpool-database-dirty-transaction-hashes
+                   store)
+                  transaction-hash))
+             (let ((database
+                     (make-file-key-value-database database-path)))
+               (multiple-value-bind (value present-p)
+                   (kv-get-chain-checkpoint database :head)
+                 (is present-p)
+                 (is (bytes= (hash32-bytes genesis-hash) value)))
+               (multiple-value-bind (value present-p)
+                   (kv-get-chain-canonical-hash database 1 :missing)
+                 (is (eq :missing value))
+                 (is (not present-p)))
+               (dolist (kind '(:block :header :receipt :state))
+                 (multiple-value-bind (value present-p)
+                     (kv-get-chain-record
+                      database kind (hash32-bytes tentative-hash) :missing)
+                   (is (eq :missing value))
+                   (is (not present-p)))))
+             ;; The failed tick did not advance its clock, so the same instant
+             ;; can retry and deterministically produce the same block.
+             (setf
+              (ethereum-lisp.cli::devnet-node-canonical-transition-persistence-function
+               node)
+              original-persistence-function)
+             (let* ((sealed-block
+                      (ethereum-lisp.cli::devnet-dev-period-state-tick state))
+                    (sealed-hash (block-hash sealed-block)))
+               (is (= 1
+                      (ethereum-lisp.cli::devnet-dev-period-state-last-run-time
+                       state)))
+               (is (bytes= (hash32-bytes tentative-hash)
+                           (hash32-bytes sealed-hash)))
+               (is (bytes= (hash32-bytes sealed-hash)
+                           (hash32-bytes
+                            (chain-store-canonical-hash store 1))))
+               (is (not
+                    (ethereum-lisp.txpool:engine-payload-store-pending-transaction
+                     store transaction-hash)))
+               (is (null
+                    (ethereum-lisp.txpool:engine-payload-store-txpool-database-dirty-transaction-hashes
+                     store)))
+               (let ((database
+                       (make-file-key-value-database database-path)))
+                 (multiple-value-bind (value present-p)
+                     (kv-get-chain-checkpoint database :head)
+                   (is present-p)
+                   (is (bytes= (hash32-bytes sealed-hash) value)))
+                 (multiple-value-bind (value present-p)
+                     (kv-get-chain-canonical-hash database 1)
+                   (is present-p)
+                   (is (bytes= (hash32-bytes sealed-hash) value)))
+                 (multiple-value-bind (value present-p)
+                   (kv-get-chain-record
+                      database :transaction-location transaction-id)
+                   (declare (ignore value))
+                   (is present-p))))))
+      (when (probe-file database-path)
+        (delete-file database-path)))))
+
+(deftest devnet-live-persistence-dev-period-worker-retries-storage-error
+  #-sbcl
+  (skip-test "Dev-period persistence retry worker requires SBCL threads")
+  #+sbcl
+  (let ((database-path
+          (devnet-cli-temp-path
+           "ethereum-lisp-devnet-period-worker-retry" "sexp")))
+    (unwind-protect
+         (let* ((sink
+                  (ethereum-lisp.telemetry:make-memory-telemetry-sink))
+                (genesis-json (devnet-cli-funded-txpool-genesis-json))
+                (node
+                  (ethereum-lisp.cli:make-devnet-node
+                   :genesis-json genesis-json
+                   :database-path (namestring database-path)
+                   :dev-mode-p t
+                   :dev-period-seconds 1
+                   :telemetry-sink sink))
+                (store (ethereum-lisp.cli:devnet-node-store node))
+                (config (ethereum-lisp.cli:devnet-node-config node))
+                (transaction
+                  (devnet-cli-txpool-transaction
+                   config 0 +devnet-cli-txpool-pending-gas-price+))
+                (transaction-hash (transaction-hash transaction))
+                (transaction-id (hash32-bytes transaction-hash))
+                (public-context
+                  (ethereum-lisp.rpc-http:engine-rpc-http-service-rpc-context
+                   (ethereum-lisp.cli:devnet-node-public-service node)))
+                (original-persistence-function
+                  (ethereum-lisp.cli::devnet-node-canonical-transition-persistence-function
+                   node))
+                (shutdown-controller
+                  (ethereum-lisp.cli:make-devnet-shutdown-controller))
+                (durable-retry-completed
+                  (sb-thread:make-semaphore :count 0))
+                (persistence-attempts 0)
+                (terminal-error nil)
+                (worker-thread nil))
+           (is (functionp original-persistence-function))
+           (let ((send-response
+                   (ethereum-lisp.rpc:rpc-handle-request
+                    (list (cons "jsonrpc" "2.0")
+                          (cons "id" 811)
+                          (cons "method" "eth_sendRawTransaction")
+                          (cons "params"
+                                (list
+                                 (devnet-cli-transaction-raw transaction))))
+                    public-context)))
+             (is (string= (hash32-to-hex transaction-hash)
+                          (fixture-object-field send-response "result"))))
+           (setf
+            (ethereum-lisp.cli::devnet-node-canonical-transition-persistence-function
+             node)
+            (lambda (current-store transition)
+              (incf persistence-attempts)
+              (if (= persistence-attempts 1)
+                  (ethereum-lisp.cli::devnet-cli-call-with-retryable-file-write
+                   "simulated transient dev-period persistence"
+                   (lambda ()
+                     (error 'file-error :pathname database-path)))
+                  (prog1
+                      (funcall original-persistence-function
+                               current-store transition)
+                    (sb-thread:signal-semaphore
+                     durable-retry-completed)))))
+           (unwind-protect
+                (progn
+                  (setf worker-thread
+                        (ethereum-lisp.cli::devnet-start-dev-period-thread
+                         node
+                         shutdown-controller
+                         (lambda (condition)
+                           (setf terminal-error condition))))
+                  (is worker-thread)
+                  (unless
+                      (sb-thread:wait-on-semaphore
+                       durable-retry-completed :timeout 8)
+                    (error
+                     "Timed out waiting for dev-period worker persistence retry"))
+                  ;; The callback signals after its durable write but before
+                  ;; the enclosing tick releases the node-store guard.  Enter
+                  ;; that guard once to establish a completion barrier before
+                  ;; inspecting the committed in-memory view.
+                  (ethereum-lisp.cli::call-with-devnet-node-store-guard
+                   node (lambda () t))
+                  (is (= 2 persistence-attempts))
+                  (is (null terminal-error))
+                  (is (not
+                       (ethereum-lisp.cli:devnet-shutdown-requested-p
+                        shutdown-controller)))
+                  (is (= 1 (chain-store-head-number store)))
+                  (is (not
+                       (ethereum-lisp.txpool:engine-payload-store-pending-transaction
+                        store transaction-hash)))
+                  (let ((retry-event
+                          (find
+                           "devnet.dev_period.persistence_retry"
+                           (ethereum-lisp.telemetry:telemetry-events sink)
+                           :key
+                           #'ethereum-lisp.telemetry:telemetry-event-name
+                           :test #'string=)))
+                    (is retry-event)
+                    (is (eq :log
+                            (ethereum-lisp.telemetry:telemetry-event-kind
+                             retry-event)))
+                    (is (eq :warning
+                            (ethereum-lisp.telemetry:telemetry-event-value
+                             retry-event)))
+                    (is
+                     (search
+                      "simulated transient dev-period persistence file write failed"
+                      (cdr
+                       (assoc
+                        "error"
+                        (ethereum-lisp.telemetry:telemetry-event-fields
+                         retry-event)
+                        :test #'string=)))))
+                  (let ((database
+                          (make-file-key-value-database database-path))
+                        (head-hash
+                          (block-hash (chain-store-head-block store))))
+                    (multiple-value-bind (value present-p)
+                        (kv-get-chain-checkpoint database :head)
+                      (is present-p)
+                      (is (bytes= (hash32-bytes head-hash) value)))
+                    (multiple-value-bind (value present-p)
+                        (kv-get-chain-canonical-hash database 1)
+                      (is present-p)
+                      (is (bytes= (hash32-bytes head-hash) value)))
+                    (multiple-value-bind (value present-p)
+                        (kv-get-chain-record
+                         database :transaction-location transaction-id)
+                      (declare (ignore value))
+                      (is present-p))))
+             (ethereum-lisp.cli:devnet-shutdown-request
+              shutdown-controller)
+             (when (and worker-thread
+                        (sb-thread:thread-alive-p worker-thread))
+               (when
+                   (eq :timeout
+                       (sb-thread:join-thread
+                        worker-thread :timeout 5 :default :timeout))
+                 (sb-thread:terminate-thread worker-thread)
+                 (sb-thread:join-thread
+                  worker-thread :timeout 1 :default :timeout)))
+             (setf
+              (ethereum-lisp.cli::devnet-node-canonical-transition-persistence-function
+               node)
+              original-persistence-function)))
+      (when (probe-file database-path)
+        (delete-file database-path)))))
+
+(deftest devnet-live-persistence-dev-period-worker-fail-stops-on-invariant
+  #-sbcl
+  (skip-test "Dev-period persistence fail-stop worker requires SBCL threads")
+  #+sbcl
+  (let ((database-path
+          (devnet-cli-temp-path
+           "ethereum-lisp-devnet-period-worker-fail-stop" "sexp")))
+    (unwind-protect
+         (let* ((sink
+                  (ethereum-lisp.telemetry:make-memory-telemetry-sink))
+                (genesis-json (devnet-cli-funded-txpool-genesis-json))
+                (node
+                  (ethereum-lisp.cli:make-devnet-node
+                   :genesis-json genesis-json
+                   :database-path (namestring database-path)
+                   :dev-mode-p t
+                   :dev-period-seconds 1
+                   :telemetry-sink sink))
+                (store (ethereum-lisp.cli:devnet-node-store node))
+                (genesis-hash
+                  (block-hash
+                   (ethereum-lisp.cli:devnet-node-genesis-block node)))
+                (config (ethereum-lisp.cli:devnet-node-config node))
+                (transaction
+                  (devnet-cli-txpool-transaction
+                   config 0 +devnet-cli-txpool-pending-gas-price+))
+                (transaction-hash (transaction-hash transaction))
+                (public-context
+                  (ethereum-lisp.rpc-http:engine-rpc-http-service-rpc-context
+                   (ethereum-lisp.cli:devnet-node-public-service node)))
+                (original-persistence-function
+                  (ethereum-lisp.cli::devnet-node-canonical-transition-persistence-function
+                   node))
+                (shutdown-controller
+                  (ethereum-lisp.cli:make-devnet-shutdown-controller))
+                (terminal-error-received
+                  (sb-thread:make-semaphore :count 0))
+                (persistence-attempts 0)
+                (terminal-error nil)
+                (worker-thread nil))
+           (let ((send-response
+                   (ethereum-lisp.rpc:rpc-handle-request
+                    (list (cons "jsonrpc" "2.0")
+                          (cons "id" 812)
+                          (cons "method" "eth_sendRawTransaction")
+                          (cons "params"
+                                (list
+                                 (devnet-cli-transaction-raw transaction))))
+                    public-context)))
+             (is (string= (hash32-to-hex transaction-hash)
+                          (fixture-object-field send-response "result"))))
+           (setf
+            (ethereum-lisp.cli::devnet-node-canonical-transition-persistence-function
+             node)
+            (lambda (current-store transition)
+              (declare (ignore current-store transition))
+              (incf persistence-attempts)
+              (ethereum-lisp.cli::devnet-cli-call-with-retryable-file-write
+               "simulated permanent dev-period persistence"
+               (lambda ()
+                 (ethereum-lisp.validation:block-validation-fail
+                  "simulated permanent dev-period persistence invariant")))))
+           (unwind-protect
+                (progn
+                  (setf worker-thread
+                        (ethereum-lisp.cli::devnet-start-dev-period-thread
+                         node
+                         shutdown-controller
+                         (lambda (condition)
+                           (setf terminal-error condition)
+                           (sb-thread:signal-semaphore
+                            terminal-error-received))))
+                  (is worker-thread)
+                  (unless
+                      (sb-thread:wait-on-semaphore
+                       terminal-error-received :timeout 8)
+                    (error
+                     "Timed out waiting for dev-period invariant fail-stop"))
+                  (is (not
+                       (eq :timeout
+                           (sb-thread:join-thread
+                            worker-thread :timeout 5 :default :timeout))))
+                  (is (= 1 persistence-attempts))
+                  (is (typep
+                       terminal-error
+                       'ethereum-lisp.validation:block-validation-error))
+                  (is (ethereum-lisp.cli:devnet-shutdown-requested-p
+                       shutdown-controller))
+                  (is (= 0 (chain-store-head-number store)))
+                  (is (null (chain-store-canonical-hash store 1)))
+                  (is
+                   (ethereum-lisp.txpool:engine-payload-store-pending-transaction
+                    store transaction-hash))
+                  (is
+                   (not
+                    (find
+                     "devnet.dev_period.persistence_retry"
+                     (ethereum-lisp.telemetry:telemetry-events sink)
+                     :key #'ethereum-lisp.telemetry:telemetry-event-name
+                     :test #'string=)))
+                  (let ((database
+                          (make-file-key-value-database database-path)))
+                    (multiple-value-bind (value present-p)
+                        (kv-get-chain-checkpoint database :head)
+                      (is present-p)
+                      (is (bytes= (hash32-bytes genesis-hash) value)))
+                    (multiple-value-bind (value present-p)
+                        (kv-get-chain-canonical-hash database 1 :missing)
+                      (is (eq :missing value))
+                      (is (not present-p)))))
+             (ethereum-lisp.cli:devnet-shutdown-request
+              shutdown-controller)
+             (when (and worker-thread
+                        (sb-thread:thread-alive-p worker-thread))
+               (when
+                   (eq :timeout
+                       (sb-thread:join-thread
+                        worker-thread :timeout 5 :default :timeout))
+                 (sb-thread:terminate-thread worker-thread)
+                 (sb-thread:join-thread
+                  worker-thread :timeout 1 :default :timeout)))
+             (setf
+              (ethereum-lisp.cli::devnet-node-canonical-transition-persistence-function
+               node)
+              original-persistence-function)))
       (when (probe-file database-path)
         (delete-file database-path)))))
 
@@ -765,6 +1281,232 @@
                           (fixture-object-field txpool-status "pending")))
              (is (string= "0x0"
                           (fixture-object-field txpool-status "queued")))))
+      (when (probe-file database-path)
+        (delete-file database-path)))))
+
+(deftest devnet-live-persistence-dev-period-guard-hides-tentative-publication
+  #-sbcl
+  (skip-test "Dev-period store guard concurrency test requires SBCL threads")
+  #+sbcl
+  (let ((database-path
+          (devnet-cli-temp-path
+           "ethereum-lisp-devnet-period-guard" "sexp")))
+    (unwind-protect
+         (let* ((genesis-json (devnet-cli-funded-txpool-genesis-json))
+                (node
+                  (ethereum-lisp.cli:make-devnet-node
+                   :genesis-json genesis-json
+                   :database-path (namestring database-path)
+                   :dev-mode-p t
+                   :dev-period-seconds 1))
+                (store (ethereum-lisp.cli:devnet-node-store node))
+                (config (ethereum-lisp.cli:devnet-node-config node))
+                (genesis (ethereum-lisp.cli:devnet-node-genesis-block node))
+                (genesis-hash (block-hash genesis))
+                (transaction
+                  (devnet-cli-txpool-transaction
+                   config 0 +devnet-cli-txpool-pending-gas-price+))
+                (transaction-hash (transaction-hash transaction))
+                (public-context
+                  (ethereum-lisp.rpc-http:engine-rpc-http-service-rpc-context
+                   (ethereum-lisp.cli:devnet-node-public-service node)))
+                (engine-context
+                  (ethereum-lisp.rpc-http:engine-rpc-http-service-rpc-context
+                   (ethereum-lisp.cli:devnet-node-service node)))
+                (test-store-mutex
+                  (sb-thread:make-mutex
+                   :name "ethereum-lisp-test-observable-node-store"))
+                (test-store-guard
+                  (lambda (thunk)
+                    (sb-thread:with-mutex (test-store-mutex)
+                      (funcall thunk))))
+                (original-node-store-guard
+                  (ethereum-lisp.cli::devnet-node-store-guard-function node))
+                (original-public-guard
+                  (ethereum-lisp.rpc::rpc-context-request-guard-function
+                   public-context))
+                (original-engine-guard
+                  (ethereum-lisp.rpc::rpc-context-request-guard-function
+                   engine-context))
+                (original-persistence-function
+                  (ethereum-lisp.cli::devnet-node-canonical-transition-persistence-function
+                   node))
+                (persistence-entered (sb-thread:make-semaphore :count 0))
+                (release-persistence (sb-thread:make-semaphore :count 0))
+                (public-lock-contended
+                  (sb-thread:make-semaphore :count 0))
+                (tentative-head-hash nil)
+                (tentative-installed-count nil)
+                (tentative-location-visible-p nil)
+                (tentative-pending-visible-p nil)
+                (seal-result nil)
+                (seal-error nil)
+                (public-response nil)
+                (seal-thread nil)
+                (public-thread nil))
+           (let ((send-response
+                   (ethereum-lisp.rpc:rpc-handle-request
+                    (list (cons "jsonrpc" "2.0")
+                          (cons "id" 82)
+                          (cons "method" "eth_sendRawTransaction")
+                          (cons "params"
+                                (list
+                                 (devnet-cli-transaction-raw transaction))))
+                    public-context)))
+             (is (string= (hash32-to-hex transaction-hash)
+                          (fixture-object-field send-response "result"))))
+           ;; Preserve coverage of the production wiring before replacing the
+           ;; guard with a test-visible mutex for deterministic contention.
+           (is (eq original-node-store-guard original-public-guard))
+           (is (eq original-node-store-guard original-engine-guard))
+           (setf
+            (ethereum-lisp.cli::devnet-node-store-guard-function node)
+            test-store-guard
+            (ethereum-lisp.rpc::rpc-context-request-guard-function
+             public-context)
+            (lambda (thunk)
+              ;; First try the exact mutex used by the seal without waiting.
+              ;; Signal only after that real acquisition fails, then block on
+              ;; the same mutex before dispatching the RPC.  A scheduler pause
+              ;; before lock acquisition can therefore no longer look like
+              ;; store-guard isolation.
+              (let ((acquired-p nil)
+                    (values nil))
+                (sb-thread:with-mutex (test-store-mutex :wait-p nil)
+                  (setf acquired-p t
+                        values (multiple-value-list (funcall thunk))))
+                (if acquired-p
+                    (values-list values)
+                    (progn
+                      (sb-thread:signal-semaphore public-lock-contended)
+                      (sb-thread:with-mutex (test-store-mutex)
+                        (funcall thunk))))))
+            (ethereum-lisp.cli::devnet-node-canonical-transition-persistence-function
+             node)
+            (lambda (current-store transition)
+              (setf tentative-head-hash
+                    (block-hash (chain-store-head-block current-store))
+                    tentative-installed-count
+                    (length
+                     (ethereum-lisp.canonical-chain:canonical-chain-transition-installed-blocks
+                      transition))
+                    tentative-location-visible-p
+                    (typep
+                     (chain-store-transaction-location
+                      current-store transaction-hash)
+                     'engine-transaction-location)
+                    tentative-pending-visible-p
+                    (not
+                     (null
+                       (ethereum-lisp.txpool:engine-payload-store-pending-transaction
+                        current-store transaction-hash))))
+              (sb-thread:signal-semaphore persistence-entered)
+              (unless
+                  (sb-thread:wait-on-semaphore
+                   release-persistence :timeout 10)
+                (error
+                 "Timed out waiting to release simulated persistence failure"))
+              (error "simulated dev-period database failure")))
+           (unwind-protect
+                (progn
+                  (setf seal-thread
+                        (sb-thread:make-thread
+                         (lambda ()
+                           (handler-case
+                               (setf seal-result
+                                     (ethereum-lisp.cli::devnet-node-seal-pending-block
+                                      node :timestamp 1))
+                             (error (condition)
+                               (setf seal-error condition))))
+                         :name "ethereum-lisp-test-dev-period-seal"))
+                  (unless
+                      (sb-thread:wait-on-semaphore
+                       persistence-entered :timeout 5)
+                    (error
+                     "Timed out waiting for dev-period persistence callback"))
+                  (setf public-thread
+                        (sb-thread:make-thread
+                         (lambda ()
+                           (setf public-response
+                                 (ethereum-lisp.rpc:rpc-handle-request
+                                  (list (cons "jsonrpc" "2.0")
+                                        (cons "id" 83)
+                                        (cons "method" "eth_blockNumber")
+                                        (cons "params" #()))
+                                  public-context)))
+                         :name "ethereum-lisp-test-dev-period-public-rpc"))
+                  (unless
+                      (sb-thread:wait-on-semaphore
+                       public-lock-contended :timeout 5)
+                    (error
+                     "Timed out waiting for observed public RPC lock contention"))
+                  (is (eq :timeout
+                          (sb-thread:join-thread
+                           public-thread :timeout 0.2 :default :timeout)))
+                  (sb-thread:signal-semaphore release-persistence)
+                  (is (not
+                       (eq :timeout
+                           (sb-thread:join-thread
+                            seal-thread :timeout 5 :default :timeout))))
+                  (is (not
+                       (eq :timeout
+                           (sb-thread:join-thread
+                            public-thread :timeout 5 :default :timeout))))
+                  (is (null seal-result))
+                  (is seal-error)
+                  (is (= 1 tentative-installed-count))
+                  (is tentative-location-visible-p)
+                  (is (not tentative-pending-visible-p))
+                  (is (not (ethereum-lisp.types:hash32=
+                            tentative-head-hash genesis-hash)))
+                  (is (string= "0x0"
+                               (fixture-object-field
+                                public-response "result")))
+                  (is (= 0 (chain-store-head-number store)))
+                  (is (bytes= (hash32-bytes genesis-hash)
+                              (hash32-bytes
+                               (block-hash
+                                (chain-store-latest-block store)))))
+                  (is (not (chain-store-canonical-hash store 1)))
+                  (is (not
+                       (chain-store-transaction-location
+                        store transaction-hash)))
+                  (is
+                   (ethereum-lisp.txpool:engine-payload-store-pending-transaction
+                    store transaction-hash))
+                  (let ((receipt-response
+                          (ethereum-lisp.rpc:rpc-handle-request
+                           (engine-fixture-receipt-request
+                            84 transaction-hash)
+                           public-context)))
+                    (is (null
+                         (fixture-object-field receipt-response "result")))))
+             (sb-thread:signal-semaphore release-persistence)
+             (when (and seal-thread (sb-thread:thread-alive-p seal-thread))
+               (when
+                   (eq :timeout
+                       (sb-thread:join-thread
+                        seal-thread :timeout 5 :default :timeout))
+                 (sb-thread:terminate-thread seal-thread)
+                 (sb-thread:join-thread
+                  seal-thread :timeout 1 :default :timeout)))
+             (when (and public-thread (sb-thread:thread-alive-p public-thread))
+               (when
+                   (eq :timeout
+                       (sb-thread:join-thread
+                        public-thread :timeout 5 :default :timeout))
+                 (sb-thread:terminate-thread public-thread)
+                 (sb-thread:join-thread
+                  public-thread :timeout 1 :default :timeout)))
+             (setf
+              (ethereum-lisp.cli::devnet-node-store-guard-function node)
+              original-node-store-guard
+              (ethereum-lisp.rpc::rpc-context-request-guard-function
+               public-context)
+              original-public-guard
+              (ethereum-lisp.cli::devnet-node-canonical-transition-persistence-function
+               node)
+              original-persistence-function)))
       (when (probe-file database-path)
         (delete-file database-path)))))
 

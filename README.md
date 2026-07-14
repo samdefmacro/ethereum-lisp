@@ -20,7 +20,6 @@ The pinned Shanghai import profile and repository-local Engine/RPC devnet
 profile are closed. Current work is moving the client from snapshot-oriented
 development persistence toward incremental durability and staged sync:
 
-- persist dev-period canonical sealing before it becomes publicly visible
 - define an explicit generation/authority rule between the chain database and
   the independently refreshed transaction-pool journal
 - add persisted staged-import progress and unwind behavior
@@ -57,14 +56,20 @@ Implemented so far:
   `newPayload` candidate, with fresh-database baseline seeding, conflict checks,
   explicit head bounds and legacy-baseline migration, rollback on write
   failure, and pre-forkchoice SIGKILL recovery
+- synchronous record-scoped persistence for locally sealed dev-period blocks:
+  execution first stages a noncanonical candidate, then canonical publication,
+  checkpoint/index updates, state, receipts, transaction locations, and coupled
+  txpool changes commit under one guarded rollback boundary before public
+  visibility; explicitly classified transient file-write failures retain the
+  pending transaction, emit a warning, and retry on a later worker tick, while
+  persistence invariants fail-stop, with SIGKILL restart coverage
 
-The main durability gap is now local publication: dev-period blocks still
-depend on a later forkchoice call or lifecycle export instead of committing
-before canonical visibility. The transaction-pool journal also lacks an
-explicit generation marker relative to the chain database. The development
-file backend still rewrites its complete S-expression image for a logical
-record batch. Durable trie nodes, staged sync/unwind, devp2p, and external Hive
-validation remain future work.
+The main durability gap is now authority between the synchronously committed
+chain database and the independently refreshed transaction-pool journal, which
+still lacks an explicit generation marker. The development file backend still
+rewrites its complete S-expression image for a logical record batch. Durable
+trie nodes, staged sync/unwind, devp2p, and external Hive validation remain
+future work.
 
 ## Run tests
 
