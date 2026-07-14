@@ -31,6 +31,10 @@
                    payload-attributes)
                   (payload-attributes-v1-withdrawals payload-attributes))
                  (chain-config-cancun-p
+                  config block-number timestamp)
+                 (chain-config-prague-p
+                  config block-number timestamp)
+                 (chain-config-ubt-p
                   config block-number timestamp)))
         block
         (let ((state (chain-store-state-db store (block-hash parent-block))))
