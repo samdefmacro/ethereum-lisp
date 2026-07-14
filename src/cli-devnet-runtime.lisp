@@ -18,9 +18,14 @@
    (lambda ()
      (let ((journal-path (devnet-node-txpool-journal-path node)))
        (when journal-path
-         (node-store-export-txpool-records-to-kv
-          (devnet-node-store node)
-          (devnet-cli-make-output-kv-database journal-path))
+         (devnet-cli-call-with-next-persistence-generation
+          (devnet-node-persistence-state node)
+          :journal
+          (lambda (metadata)
+            (node-store-export-txpool-records-to-kv
+             (devnet-node-store node)
+             (devnet-cli-make-output-kv-database journal-path)
+             :persistence-metadata metadata)))
          t)))))
 
 (defun make-devnet-rejournal-state
@@ -242,16 +247,44 @@
      (when state-prune-before
        (chain-store-prune-state-before
         (devnet-node-store node) state-prune-before))
-     (let ((database-path (devnet-node-database-path node)))
-       (when database-path
-         (node-store-export-to-kv
-          (devnet-node-store node)
-          (devnet-cli-make-output-kv-database database-path))
-         (engine-payload-store-clear-txpool-database-dirty-transaction-hashes
-          (devnet-node-store node))))
-     (let ((journal-path (devnet-node-txpool-journal-path node)))
-       (when journal-path
-         (node-store-export-txpool-records-to-kv
-          (devnet-node-store node)
-          (devnet-cli-make-output-kv-database journal-path))
-         t)))))
+     (let ((database-generation nil)
+           (persistence-state (devnet-node-persistence-state node)))
+       (let ((database-path (devnet-node-database-path node)))
+         (when database-path
+           (multiple-value-bind (result generation)
+               (devnet-cli-call-with-next-persistence-generation
+                persistence-state
+                :database
+                (lambda (metadata)
+                  (node-store-export-to-kv
+                   (devnet-node-store node)
+                   (devnet-cli-make-output-kv-database database-path)
+                   :persistence-metadata metadata)))
+             (declare (ignore result))
+             (setf database-generation generation))
+           (engine-payload-store-clear-txpool-database-dirty-transaction-hashes
+            (devnet-node-store node))))
+       (let ((journal-path (devnet-node-txpool-journal-path node)))
+         (when journal-path
+           (if database-generation
+               ;; The lifecycle snapshot is identical to the just-committed
+               ;; database view, so both files publish one generation.  If the
+               ;; journal write fails, the database already wins recovery.
+               (node-store-export-txpool-records-to-kv
+                (devnet-node-store node)
+                (devnet-cli-make-output-kv-database journal-path)
+                :persistence-metadata
+                (devnet-cli-persistence-metadata-for-generation
+                 persistence-state
+                 :journal
+                 database-generation
+                 :base-chain-generation database-generation))
+               (devnet-cli-call-with-next-persistence-generation
+                persistence-state
+                :journal
+                (lambda (metadata)
+                  (node-store-export-txpool-records-to-kv
+                   (devnet-node-store node)
+                   (devnet-cli-make-output-kv-database journal-path)
+                   :persistence-metadata metadata))))
+           t))))))

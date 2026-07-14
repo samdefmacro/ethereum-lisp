@@ -112,7 +112,8 @@
                 (forkchoice-status
                   (fixture-object-field
                    (fixture-object-field forkchoice-response "result")
-                   "payloadStatus")))
+                   "payloadStatus"))
+                (selected-journal-generation nil))
            (is (string= (hash32-to-hex
                          (transaction-hash included-transaction))
                         (fixture-object-field send-response "result")))
@@ -126,14 +127,54 @@
            (is (string= +payload-status-valid+
                         (fixture-object-field forkchoice-status "status")))
            (is (probe-file database-path))
-           ;; The FCU commit updates the authoritative chain database, but an
-           ;; abrupt stop may leave the independent journal one generation
-           ;; behind.  Recovery must ignore its now-canonical transaction.
+           ;; The FCU commit first leaves the independent journal behind.
            (is (= 1
                   (length
                    (kv-chain-record-entries
                     (make-file-key-value-database journal-path)
                     :txpool))))
+           (let ((database-metadata
+                   (devnet-cli-test-persistence-metadata database-path))
+                 (journal-metadata
+                   (devnet-cli-test-persistence-metadata journal-path)))
+             (is (>
+                  (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-generation
+                   database-metadata)
+                  (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-generation
+                   journal-metadata)))
+             (is (<
+                  (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-base-chain-generation
+                   journal-metadata)
+                  (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-generation
+                   database-metadata)))
+             ;; Publish a strictly newer, compatible overlay that still
+             ;; contains the now-canonical transaction.  Recovery must select
+             ;; this snapshot (proved by generation catch-up below) while
+             ;; suppressing that transaction through the canonical index.
+             (let* ((database-generation
+                      (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-generation
+                       database-metadata))
+                    (journal-source (make-engine-payload-memory-store)))
+               (setf selected-journal-generation (1+ database-generation))
+               (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
+                journal-source included-transaction)
+               (ethereum-lisp.node-store.persistence:node-store-export-txpool-records-to-kv
+                journal-source
+                (make-file-key-value-database journal-path)
+                :persistence-metadata
+                (ethereum-lisp.node-store.persistence:make-node-store-persistence-metadata
+                 :role :journal
+                 :generation selected-journal-generation
+                 :base-chain-generation database-generation
+                 :chain-id
+                 (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-chain-id
+                  database-metadata)
+                 :genesis-hash
+                 (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-genesis-hash
+                  database-metadata)
+                 :authority-id
+                 (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-authority-id
+                  database-metadata)))))
            ;; Constructing the second node directly simulates restart without
            ;; invoking DEVNET-NODE-EXPORT-DATABASE for the first node.
            (let* ((second-node
@@ -176,6 +217,19 @@
                   restored-store child-hash))
              (is (string= "0x0"
                           (fixture-object-field txpool-status "pending")))
+             (let ((database-metadata
+                     (devnet-cli-test-persistence-metadata database-path))
+                   (journal-metadata
+                     (devnet-cli-test-persistence-metadata journal-path)))
+               (is (= selected-journal-generation
+                      (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-generation
+                       database-metadata)))
+               (is (= selected-journal-generation
+                      (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-generation
+                       journal-metadata)))
+               (is (= selected-journal-generation
+                      (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-base-chain-generation
+                       journal-metadata))))
              (is (= (hex-to-quantity
                      (fixture-object-field expect "recipientBalance"))
                     (chain-store-account-balance
@@ -668,6 +722,14 @@
                 (original-persistence-function
                   (ethereum-lisp.cli::devnet-node-canonical-transition-persistence-function
                    node))
+                (persistence-state
+                  (ethereum-lisp.cli::devnet-node-persistence-state node))
+                (initial-current-generation
+                  (ethereum-lisp.cli::devnet-persistence-state-current-generation
+                   persistence-state))
+                (initial-chain-generation
+                  (ethereum-lisp.cli::devnet-persistence-state-chain-generation
+                   persistence-state))
                 (tentative-block nil)
                 (tentative-installed-count nil)
                 (tentative-dirty-hashes nil))
@@ -709,8 +771,15 @@
                       tentative-dirty-hashes
                       (ethereum-lisp.canonical-chain:canonical-chain-transition-changed-txpool-hashes
                        transition))
-                (ethereum-lisp.node-store.persistence:node-store-export-forkchoice-to-kv
-                 current-store transition failing-database)))
+                (ethereum-lisp.cli::devnet-cli-call-with-next-persistence-generation
+                 persistence-state
+                 :database
+                 (lambda (metadata)
+                   (ethereum-lisp.node-store.persistence:node-store-export-forkchoice-to-kv
+                    current-store
+                    transition
+                    failing-database
+                    :persistence-metadata metadata)))))
              (setf
               (forkchoice-delta-failing-test-database-fail-next-apply-p
                failing-database)
@@ -734,7 +803,13 @@
                    failing-database)))
              (is (null
                   (forkchoice-delta-test-database-applied-operation-batches
-                   failing-database))))
+                   failing-database)))
+             (is (= initial-current-generation
+                    (ethereum-lisp.cli::devnet-persistence-state-current-generation
+                     persistence-state)))
+             (is (= initial-chain-generation
+                    (ethereum-lisp.cli::devnet-persistence-state-chain-generation
+                     persistence-state))))
            ;; Every tentative memory mutation is gone, while the pending
            ;; transaction and its database dirty marker are restored.
            (let ((tentative-hash (block-hash tentative-block)))
@@ -812,7 +887,18 @@
                    (kv-get-chain-record
                       database :transaction-location transaction-id)
                    (declare (ignore value))
-                   (is present-p))))))
+                   (is present-p))
+                 (let ((metadata
+                         (devnet-cli-test-persistence-metadata database-path)))
+                   (is (= (1+ initial-current-generation)
+                          (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-generation
+                           metadata)))
+                   (is (= (1+ initial-current-generation)
+                          (ethereum-lisp.cli::devnet-persistence-state-current-generation
+                           persistence-state)))
+                   (is (= (1+ initial-chain-generation)
+                          (ethereum-lisp.cli::devnet-persistence-state-chain-generation
+                           persistence-state))))))))
       (when (probe-file database-path)
         (delete-file database-path)))))
 

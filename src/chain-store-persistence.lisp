@@ -2,7 +2,8 @@
 
 (defun node-store-import-from-kv
     (store database &key expected-chain-id chain-config
-                         track-txpool-database-changes-p)
+                         track-txpool-database-changes-p
+                         (import-txpool-p t))
   (chain-store-require-memory-store store)
   (unless (txpool-component store)
     (block-validation-fail "Node import target requires a txpool component"))
@@ -16,11 +17,12 @@
     (chain-store-import-state-records-from-kv staging database)
     (chain-store-import-checkpoints-from-kv staging database)
     (chain-store-import-transaction-locations-from-kv staging database)
-    (node-store-import-txpool-records-from-kv
-     staging
-     database
-     :expected-chain-id expected-chain-id
-     :chain-config chain-config)
+    (when import-txpool-p
+      (node-store-import-txpool-records-from-kv
+       staging
+       database
+       :expected-chain-id expected-chain-id
+       :chain-config chain-config))
     ;; Imported records are the baseline.  When requested by a live database
     ;; owner, start tracking immediately before normalization so every
     ;; prune/promotion relative to that baseline is eligible for the next

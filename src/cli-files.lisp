@@ -74,6 +74,66 @@
       (delete-file existing-path)))
   (ethereum-lisp.database:make-file-key-value-database path))
 
+(defun devnet-cli-normalize-absolute-directory-components (components)
+  (let ((normalized (list (first components))))
+    (dolist (component (rest components) normalized)
+      (cond
+        ((or (eq component :current)
+             (and (stringp component) (string= component "."))))
+        ((or (member component '(:up :back))
+             (and (stringp component) (string= component "..")))
+         (when (> (length normalized) 1)
+           (setf normalized (butlast normalized))))
+        (t
+         (setf normalized (append normalized (list component))))))))
+
+(defun devnet-cli-existing-directory-prefix (absolute-path)
+  (let ((directory (pathname-directory absolute-path)))
+    (loop for end from (length directory) downto 1
+          for prefix =
+            (make-pathname
+             :directory (subseq directory 0 end)
+             :name nil
+             :type nil
+             :version nil
+             :defaults absolute-path)
+          for existing-prefix = (ignore-errors (probe-file prefix))
+          when existing-prefix
+            return (values (truename existing-prefix)
+                           (subseq directory end)))))
+
+(defun devnet-cli-canonical-output-pathname-once (absolute-path)
+  (let ((existing-path (probe-file absolute-path)))
+    (if existing-path
+        (truename existing-path)
+        (multiple-value-bind (existing-prefix remaining-components)
+            (devnet-cli-existing-directory-prefix absolute-path)
+          (make-pathname
+           :directory
+           (devnet-cli-normalize-absolute-directory-components
+            (append (pathname-directory existing-prefix)
+                    remaining-components))
+           :name (pathname-name absolute-path)
+           :type (pathname-type absolute-path)
+           :version (pathname-version absolute-path)
+           :defaults existing-prefix)))))
+
+(defun devnet-cli-canonical-output-pathname (path)
+  (loop with current =
+          (merge-pathnames (pathname path) *default-pathname-defaults*)
+        for canonical =
+          (devnet-cli-canonical-output-pathname-once current)
+        when (string= (namestring current) (namestring canonical))
+          return canonical
+        do (setf current canonical)))
+
+(defun devnet-cli-same-output-path-p (left right)
+  ;; Conservatively reject case-only differences as well: the usual macOS
+  ;; filesystem treats them as the same file, while Linux may not.
+  (string-equal
+   (namestring (devnet-cli-canonical-output-pathname left))
+   (namestring (devnet-cli-canonical-output-pathname right))))
+
 (defun devnet-cli-datadir-database-path (datadir)
   (namestring
    (merge-pathnames

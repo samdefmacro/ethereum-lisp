@@ -61,6 +61,16 @@
   command
   timeout-seconds)
 
+(defstruct (devnet-persistence-state
+            (:constructor make-devnet-persistence-state
+                (&key (current-generation 0) (chain-generation 0)
+                      chain-id genesis-hash authority-id)))
+  (current-generation 0 :type integer)
+  (chain-generation 0 :type integer)
+  chain-id
+  genesis-hash
+  authority-id)
+
 (defstruct (devnet-node
             (:constructor %make-devnet-node
                 (&key genesis-path store config genesis-block service
@@ -69,6 +79,7 @@
                       public-api-modules engine-endpoint-config
                       public-endpoint-config txpool-policy kzg-config
                       dev-mode-p coinbase store-guard-function
+                      persistence-state
                       canonical-transition-persistence-function
                       txpool-journal-path
                       txpool-rejournal-seconds
@@ -93,6 +104,7 @@
   dev-mode-p
   coinbase
   store-guard-function
+  persistence-state
   canonical-transition-persistence-function
   txpool-journal-path
   txpool-rejournal-seconds

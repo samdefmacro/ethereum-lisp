@@ -1,11 +1,13 @@
 (in-package #:ethereum-lisp.node-store.persistence)
 
 (defun chain-store-apply-export-batch
-    (store database record-label populate-batch)
+    (store database record-label populate-batch &key persistence-metadata)
   (unless (typep database 'key-value-database)
     (block-validation-fail
      "Chain ~A export target must be a key-value database"
      record-label))
+  (node-store-require-persistence-metadata-for-versioned-target
+   database persistence-metadata record-label)
   (let ((batch (make-kv-write-batch)))
     (funcall populate-batch store database batch)
     (kv-apply-batch database batch)))

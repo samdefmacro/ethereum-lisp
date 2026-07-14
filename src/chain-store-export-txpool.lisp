@@ -58,7 +58,12 @@
       (unless (gethash (bytes-to-hex (car entry)) current-transaction-keys)
         (kv-batch-delete-chain-record batch :txpool (car entry))))))
 
-(defun node-store-export-txpool-records-to-kv (store database)
+(defun node-store-export-txpool-records-to-kv
+    (store database &key persistence-metadata)
   (chain-store-apply-export-batch
    store database "txpool"
-   #'chain-store-populate-txpool-record-export-batch))
+   (lambda (source target batch)
+     (chain-store-populate-txpool-record-export-batch source target batch)
+     (node-store-populate-persistence-metadata-batch
+      batch persistence-metadata))
+   :persistence-metadata persistence-metadata))

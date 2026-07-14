@@ -2,6 +2,8 @@
   (:use #:cl
         #:ethereum-lisp
         #:ethereum-lisp.telemetry)
+  (:import-from #:ethereum-lisp.types
+                #:hash32=)
   (:import-from #:ethereum-lisp.txpool
                 #:engine-payload-store-enable-txpool-database-change-tracking
                 #:engine-payload-store-txpool-database-change-tracking-enabled-p
@@ -10,6 +12,14 @@
                 #:engine-payload-store-pooled-transactions
                 #:engine-select-mining-transactions)
   (:import-from #:ethereum-lisp.node-store.persistence
+                #:make-node-store-persistence-metadata
+                #:node-store-persistence-metadata-role
+                #:node-store-persistence-metadata-generation
+                #:node-store-persistence-metadata-chain-id
+                #:node-store-persistence-metadata-genesis-hash
+                #:node-store-persistence-metadata-authority-id
+                #:node-store-persistence-metadata-base-chain-generation
+                #:node-store-read-persistence-metadata
                 #:node-store-export-payload-candidate-to-kv
                 #:node-store-export-forkchoice-to-kv
                 #:node-store-export-to-kv
@@ -17,6 +27,7 @@
                 #:node-store-import-txpool-records-from-kv
                 #:node-store-restore-txpool-consistency)
   (:import-from #:ethereum-lisp.validation
+                #:block-validation-fail
                 #:storage-error
                 #:storage-fail)
   (:export
