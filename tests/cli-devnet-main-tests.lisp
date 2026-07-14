@@ -370,6 +370,42 @@
       (when (probe-file database-path)
         (delete-file database-path)))))
 
+(deftest devnet-cli-main-rejects-partial-database-without-chain-baseline
+  (let ((database-path
+          (devnet-cli-temp-path "ethereum-lisp-devnet-partial-chain" "sexp"))
+        (raw-key #(255 238 221 204))
+        (raw-value #(1 3 3 7))
+        (output (make-string-output-stream))
+        (errors (make-string-output-stream)))
+    (unwind-protect
+         (let* ((database (make-file-key-value-database database-path)))
+           (kv-put database raw-key raw-value)
+           (let ((before (devnet-cli-file-string database-path)))
+             (is (= 1
+                    (ethereum-lisp.cli:main
+                     (list "devnet"
+                           "--genesis" +devnet-cli-genesis-fixture+
+                           "--port" "0"
+                           "--database" (namestring database-path)
+                           "--json"
+                           "--no-serve")
+                     :output-stream output
+                     :error-stream errors)))
+             (is (string= "" (get-output-stream-string output)))
+             (is (search "Devnet database contains records without a chain baseline"
+                         (get-output-stream-string errors)))
+             (is (string= before (devnet-cli-file-string database-path)))
+             (let ((reopened (make-file-key-value-database database-path)))
+               (multiple-value-bind (value present-p)
+                   (kv-get reopened raw-key)
+                 (is present-p)
+                 (is (bytes= raw-value value)))
+               (dolist (kind '(:block :header :receipt :canonical-hash
+                               :checkpoint :state :transaction-location))
+                 (is (null (kv-chain-record-entries reopened kind)))))))
+      (when (probe-file database-path)
+        (delete-file database-path)))))
+
 (deftest devnet-cli-main-datadir-defaults-database-path
   (let* ((datadir
            (devnet-cli-temp-directory "ethereum-lisp-devnet-datadir"))

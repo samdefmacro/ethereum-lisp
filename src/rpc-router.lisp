@@ -2,7 +2,10 @@
 
 (defstruct (rpc-context
             (:constructor %make-rpc-context
-                (&key store config import-function network-id coinbase
+                (&key store config import-function
+                      new-payload-persistence-function
+                      forkchoice-persistence-function request-guard-function
+                      network-id coinbase
                       allowed-method-p allow-unprotected-transactions-p
                       txpool-price-limit txpool-price-bump-percent
                       txpool-account-slot-limit txpool-global-slot-limit
@@ -12,6 +15,9 @@
   store
   config
   import-function
+  new-payload-persistence-function
+  forkchoice-persistence-function
+  request-guard-function
   network-id
   coinbase
   allowed-method-p
@@ -29,6 +35,9 @@
 
 (defun make-rpc-context
     (store config &key import-function
+                       new-payload-persistence-function
+                       forkchoice-persistence-function
+                       request-guard-function
                        network-id
                        coinbase
                        (allowed-method-p #'engine-rpc-any-method-p)
@@ -45,10 +54,25 @@
                        txpool-now)
   (unless (functionp allowed-method-p)
     (block-validation-fail "JSON-RPC method filter must be a function"))
+  (when (and new-payload-persistence-function
+             (not (functionp new-payload-persistence-function)))
+    (block-validation-fail
+     "JSON-RPC new payload persistence callback must be a function"))
+  (when (and forkchoice-persistence-function
+             (not (functionp forkchoice-persistence-function)))
+    (block-validation-fail
+     "JSON-RPC forkchoice persistence callback must be a function"))
+  (when (and request-guard-function
+             (not (functionp request-guard-function)))
+    (block-validation-fail
+     "JSON-RPC request guard must be a function"))
   (%make-rpc-context
    :store store
    :config config
    :import-function import-function
+   :new-payload-persistence-function new-payload-persistence-function
+   :forkchoice-persistence-function forkchoice-persistence-function
+   :request-guard-function request-guard-function
    :network-id network-id
    :coinbase coinbase
    :allowed-method-p allowed-method-p
@@ -125,12 +149,16 @@
            id method params
            (rpc-context-store context)
            (rpc-context-config context)
-           :import-function (rpc-context-import-function context))
+           :import-function (rpc-context-import-function context)
+           :new-payload-persistence-function
+           (rpc-context-new-payload-persistence-function context)
+           :forkchoice-persistence-function
+           (rpc-context-forkchoice-persistence-function context))
           (rpc-dispatch-public-method id method params context)
           (rpc-method-not-found-response id))
       (rpc-method-not-found-response id)))
 
-(defun rpc-handle-request (request context)
+(defun rpc-handle-request-without-guard (request context)
   (unless (typep context 'rpc-context)
     (block-validation-fail "JSON-RPC context must be an rpc-context"))
   (let ((id (and (json-object-p request)
@@ -178,7 +206,23 @@
            :error
            (json-rpc-error-object
             -32602
-            (ethereum-lisp-error-message condition))))))))
+            (ethereum-lisp-error-message condition)))))
+      (storage-error (condition)
+        (declare (ignore condition))
+        (unless notification-p
+          (json-rpc-response
+           id
+           :error (json-rpc-error-object -32603 "Internal error")))))))
+
+(defun rpc-handle-request (request context)
+  (unless (typep context 'rpc-context)
+    (block-validation-fail "JSON-RPC context must be an rpc-context"))
+  (let ((thunk (lambda ()
+                 (rpc-handle-request-without-guard request context)))
+        (guard (rpc-context-request-guard-function context)))
+    (if guard
+        (funcall guard thunk)
+        (funcall thunk))))
 
 (defun rpc-handle-request-value (request context)
   (cond

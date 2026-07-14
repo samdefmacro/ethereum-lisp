@@ -11,6 +11,7 @@
 (dolist (relative-path
          '("tests/core-engine-rpc-new-payload-cache-tests.lisp"
            "tests/core-engine-rpc-dispatch-tests.lisp"
+           "tests/core-engine-rpc-new-payload-persistence-tests.lisp"
            "tests/core-engine-rpc-new-payload-import-tests.lisp"
            "tests/core-engine-rpc-new-payload-sender-receipt-tests.lisp"
            "tests/core-engine-rpc-new-payload-typed-receipt-tests.lisp"

@@ -10,5 +10,6 @@
 
 (dolist (relative-path
          '("tests/cli-serve-payload-import-tests.lisp"
+           "tests/cli-serve-live-persistence-tests.lisp"
            "tests/cli-serve-restored-state-tests.lisp"))
   (load-cli-serve-payload-state-test-file relative-path))

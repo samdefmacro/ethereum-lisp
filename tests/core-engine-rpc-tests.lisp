@@ -10,6 +10,7 @@
 (dolist (relative-path
          '("tests/core-engine-rpc-new-payload-tests.lisp"
            "tests/core-engine-rpc-forkchoice-visibility-tests.lisp"
+           "tests/core-engine-rpc-forkchoice-persistence-tests.lisp"
            "tests/core-engine-rpc-payload-preparation-tests.lisp"
            "tests/core-engine-rpc-get-payload-tests.lisp"
            "tests/core-engine-rpc-payload-body-tests.lisp"

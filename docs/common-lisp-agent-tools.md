@@ -53,12 +53,16 @@ sbcl --script scripts/dev-image.lisp
 The script loads all project and test definitions without immediately running
 the full suite, then optionally starts a localhost Swank server.
 
-## Measurements
+## Historical Measurements
 
-- Cold CLI full suite: `sbcl --script tests/run-tests.lisp` took about 29.5s.
+- Before explicit test layers were introduced, the cold CLI suite command
+  `sbcl --script tests/run-tests.lisp` took about 29.5s.
 - First load of the dev image plus full suite took about 29.5s.
 - Re-running the full suite in the same image took about 26.2s.
 - Re-running `trie-fixture-vectors` in the same image took about 0.2s.
+
+The current default runner command selects only the unit layer. Current full
+acceptance uses `make test-all`; see `docs/validation.md`.
 
 ## Assessment
 
@@ -78,7 +82,7 @@ Limits:
 - Full-suite runtime is dominated by test execution and allocation, not only
   startup, so a warm image does not materially replace CI-style validation.
 - Live images can retain stale definitions. Final verification must still use
-  `sbcl --script tests/run-tests.lisp` from a clean process.
+  `make test-all` so unit, integration, and e2e layers run in clean processes.
 - MCP eval tools are equivalent to local code execution. They should only bind
   to localhost and should not be enabled for untrusted workspaces.
 

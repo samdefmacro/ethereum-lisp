@@ -7,7 +7,19 @@
              (list (cons "jsonrpc" "2.0")
                    (cons "id" id)
                    (cons "method" "eth_getTransactionReceipt")
-                   (cons "params" (list (hash32-to-hex hash))))))
+                   (cons "params" (list (hash32-to-hex hash)))))
+           (forkchoice-request (id head checkpoint)
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" id)
+                   (cons "method" "engine_forkchoiceUpdatedV2")
+                   (cons "params"
+                         (list
+                          (list
+                           (cons "headBlockHash" (hash32-to-hex head))
+                           (cons "safeBlockHash"
+                                 (hash32-to-hex checkpoint))
+                           (cons "finalizedBlockHash"
+                                 (hash32-to-hex checkpoint))))))))
     (let* ((store (make-engine-payload-memory-store))
            (config (make-chain-config :chain-id 1
                                       :byzantium-block 0
@@ -109,27 +121,48 @@
                    (engine-rpc-handle-request
                     request store config
                     :import-function #'execute-and-commit-engine-payload))
-                 (import-result (field import-response "result"))
-                 (receipt-response
-                   (engine-rpc-handle-request
-                    (receipt-request 32 (transaction-hash transaction))
-                    store config))
-                 (receipt (field receipt-response "result")))
+                 (import-result (field import-response "result")))
             (is (string= +payload-status-valid+
                          (field import-result "status")))
             (is (bytes= #(0)
                         (chain-store-account-code
                          store (block-hash child-block) created-contract)))
-            (is (null (field receipt "contractAddress")))
-            (is (string= (address-to-hex contract)
-                         (field receipt "to")))
-            (is (string= (quantity-to-hex 1) (field receipt "status")))
-            (is (string= (quantity-to-hex 0)
-                         (field receipt "transactionIndex")))
-            (is (string= (hash32-to-hex (transaction-hash transaction))
-                         (field receipt "transactionHash")))
-            (is (string= (hash32-to-hex (block-hash child-block))
-                         (field receipt "blockHash")))))))))
+            (is (null (chain-store-transaction-location
+                       store
+                       (transaction-hash transaction))))
+            (is (null
+                 (field
+                  (engine-rpc-handle-request
+                   (receipt-request 32 (transaction-hash transaction))
+                   store config)
+                  "result")))
+            (let* ((forkchoice-response
+                     (engine-rpc-handle-request
+                      (forkchoice-request
+                       33
+                       (block-hash child-block)
+                       (block-hash parent-block))
+                      store config))
+                   (forkchoice-status
+                     (field (field forkchoice-response "result")
+                            "payloadStatus")))
+              (is (string= +payload-status-valid+
+                           (field forkchoice-status "status")))
+              (let* ((receipt-response
+                       (engine-rpc-handle-request
+                        (receipt-request 34 (transaction-hash transaction))
+                        store config))
+                     (receipt (field receipt-response "result")))
+                (is (null (field receipt "contractAddress")))
+                (is (string= (address-to-hex contract)
+                             (field receipt "to")))
+                (is (string= (quantity-to-hex 1) (field receipt "status")))
+                (is (string= (quantity-to-hex 0)
+                             (field receipt "transactionIndex")))
+                (is (string= (hash32-to-hex (transaction-hash transaction))
+                             (field receipt "transactionHash")))
+                (is (string= (hash32-to-hex (block-hash child-block))
+                             (field receipt "blockHash")))))))))))
 
 (deftest engine-rpc-new-payload-v2-dynamic-fee-typed-receipt
   (labels ((field (object name)
@@ -138,7 +171,19 @@
              (list (cons "jsonrpc" "2.0")
                    (cons "id" id)
                    (cons "method" "eth_getTransactionReceipt")
-                   (cons "params" (list (hash32-to-hex hash))))))
+                   (cons "params" (list (hash32-to-hex hash)))))
+           (forkchoice-request (id head checkpoint)
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" id)
+                   (cons "method" "engine_forkchoiceUpdatedV2")
+                   (cons "params"
+                         (list
+                          (list
+                           (cons "headBlockHash" (hash32-to-hex head))
+                           (cons "safeBlockHash"
+                                 (hash32-to-hex checkpoint))
+                           (cons "finalizedBlockHash"
+                                 (hash32-to-hex checkpoint))))))))
     (let* ((store (make-engine-payload-memory-store))
            (config (make-chain-config :chain-id 1
                                       :london-block 0
@@ -222,37 +267,58 @@
                  (engine-rpc-handle-request
                   request store config
                   :import-function #'execute-and-commit-engine-payload))
-               (import-result (field import-response "result"))
-               (receipts
-                 (chain-store-block-receipts store (block-hash child-block)))
-               (receipt-response
-                 (engine-rpc-handle-request
-                  (receipt-request 32 (transaction-hash transaction))
-                  store config))
-               (receipt (field receipt-response "result")))
+               (import-result (field import-response "result")))
           (is (string= +payload-status-valid+
                        (field import-result "status")))
-          (is (= 1 (length receipts)))
-          (is (string= (hash32-to-hex
-                        (transaction-receipt-list-root
-                         (list transaction)
-                         receipts))
-                       (hash32-to-hex
-                        (block-header-receipts-root
-                         (block-header child-block)))))
-          (is (not
-               (string= (hash32-to-hex (receipt-list-root receipts))
-                        (hash32-to-hex
-                         (block-header-receipts-root
-                          (block-header child-block))))))
-          (is (string= (quantity-to-hex 2) (field receipt "type")))
-          (is (string= (quantity-to-hex 1) (field receipt "status")))
-          (is (string= (quantity-to-hex 100)
-                       (field receipt "effectiveGasPrice")))
-          (is (string= (hash32-to-hex (transaction-hash transaction))
-                       (field receipt "transactionHash")))
-          (is (string= (hash32-to-hex (block-hash child-block))
-                       (field receipt "blockHash"))))))))
+          (is (null (chain-store-transaction-location
+                     store
+                     (transaction-hash transaction))))
+          (is (null
+               (field
+                (engine-rpc-handle-request
+                 (receipt-request 32 (transaction-hash transaction))
+                 store config)
+                "result")))
+          (let* ((forkchoice-response
+                   (engine-rpc-handle-request
+                    (forkchoice-request
+                     33
+                     (block-hash child-block)
+                     (block-hash parent-block))
+                    store config))
+                 (forkchoice-status
+                   (field (field forkchoice-response "result")
+                          "payloadStatus")))
+            (is (string= +payload-status-valid+
+                         (field forkchoice-status "status")))
+            (let* ((receipts
+                     (chain-store-block-receipts store (block-hash child-block)))
+                   (receipt-response
+                     (engine-rpc-handle-request
+                      (receipt-request 34 (transaction-hash transaction))
+                      store config))
+                   (receipt (field receipt-response "result")))
+              (is (= 1 (length receipts)))
+              (is (string= (hash32-to-hex
+                            (transaction-receipt-list-root
+                             (list transaction)
+                             receipts))
+                           (hash32-to-hex
+                            (block-header-receipts-root
+                             (block-header child-block)))))
+              (is (not
+                   (string= (hash32-to-hex (receipt-list-root receipts))
+                            (hash32-to-hex
+                             (block-header-receipts-root
+                              (block-header child-block))))))
+              (is (string= (quantity-to-hex 2) (field receipt "type")))
+              (is (string= (quantity-to-hex 1) (field receipt "status")))
+              (is (string= (quantity-to-hex 100)
+                           (field receipt "effectiveGasPrice")))
+              (is (string= (hash32-to-hex (transaction-hash transaction))
+                           (field receipt "transactionHash")))
+              (is (string= (hash32-to-hex (block-hash child-block))
+                           (field receipt "blockHash"))))))))))
 
 (deftest engine-rpc-new-payload-v2-access-list-typed-receipt
   (labels ((field (object name)
@@ -261,7 +327,19 @@
              (list (cons "jsonrpc" "2.0")
                    (cons "id" id)
                    (cons "method" "eth_getTransactionReceipt")
-                   (cons "params" (list (hash32-to-hex hash))))))
+                   (cons "params" (list (hash32-to-hex hash)))))
+           (forkchoice-request (id head checkpoint)
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" id)
+                   (cons "method" "engine_forkchoiceUpdatedV2")
+                   (cons "params"
+                         (list
+                          (list
+                           (cons "headBlockHash" (hash32-to-hex head))
+                           (cons "safeBlockHash"
+                                 (hash32-to-hex checkpoint))
+                           (cons "finalizedBlockHash"
+                                 (hash32-to-hex checkpoint))))))))
     (let* ((store (make-engine-payload-memory-store))
            (config (make-chain-config :chain-id 1
                                       :berlin-block 0
@@ -345,35 +423,55 @@
                  (engine-rpc-handle-request
                   request store config
                   :import-function #'execute-and-commit-engine-payload))
-               (import-result (field import-response "result"))
-               (receipts
-                 (chain-store-block-receipts store (block-hash child-block)))
-               (receipt-response
-                 (engine-rpc-handle-request
-                  (receipt-request 34 (transaction-hash transaction))
-                  store config))
-               (receipt (field receipt-response "result")))
+               (import-result (field import-response "result")))
           (is (string= +payload-status-valid+
                        (field import-result "status")))
-          (is (= 1 (length receipts)))
-          (is (string= (hash32-to-hex
-                        (transaction-receipt-list-root
-                         (list transaction)
-                         receipts))
-                       (hash32-to-hex
-                        (block-header-receipts-root
-                         (block-header child-block)))))
-          (is (not
-               (string= (hash32-to-hex (receipt-list-root receipts))
-                        (hash32-to-hex
-                         (block-header-receipts-root
-                          (block-header child-block))))))
-          (is (string= (quantity-to-hex 1) (field receipt "type")))
-          (is (string= (quantity-to-hex 1) (field receipt "status")))
-          (is (string= (quantity-to-hex 1)
-                       (field receipt "effectiveGasPrice")))
-          (is (string= (hash32-to-hex (transaction-hash transaction))
-                       (field receipt "transactionHash")))
-          (is (string= (hash32-to-hex (block-hash child-block))
-                       (field receipt "blockHash"))))))))
-
+          (is (null (chain-store-transaction-location
+                     store
+                     (transaction-hash transaction))))
+          (is (null
+               (field
+                (engine-rpc-handle-request
+                 (receipt-request 34 (transaction-hash transaction))
+                 store config)
+                "result")))
+          (let* ((forkchoice-response
+                   (engine-rpc-handle-request
+                    (forkchoice-request
+                     35
+                     (block-hash child-block)
+                     (block-hash parent-block))
+                    store config))
+                 (forkchoice-status
+                   (field (field forkchoice-response "result")
+                          "payloadStatus")))
+            (is (string= +payload-status-valid+
+                         (field forkchoice-status "status")))
+            (let* ((receipts
+                     (chain-store-block-receipts store (block-hash child-block)))
+                   (receipt-response
+                     (engine-rpc-handle-request
+                      (receipt-request 36 (transaction-hash transaction))
+                      store config))
+                   (receipt (field receipt-response "result")))
+              (is (= 1 (length receipts)))
+              (is (string= (hash32-to-hex
+                            (transaction-receipt-list-root
+                             (list transaction)
+                             receipts))
+                           (hash32-to-hex
+                            (block-header-receipts-root
+                             (block-header child-block)))))
+              (is (not
+                   (string= (hash32-to-hex (receipt-list-root receipts))
+                            (hash32-to-hex
+                             (block-header-receipts-root
+                              (block-header child-block))))))
+              (is (string= (quantity-to-hex 1) (field receipt "type")))
+              (is (string= (quantity-to-hex 1) (field receipt "status")))
+              (is (string= (quantity-to-hex 1)
+                           (field receipt "effectiveGasPrice")))
+              (is (string= (hash32-to-hex (transaction-hash transaction))
+                           (field receipt "transactionHash")))
+              (is (string= (hash32-to-hex (block-hash child-block))
+                           (field receipt "blockHash"))))))))))

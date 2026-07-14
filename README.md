@@ -11,25 +11,20 @@ cross-checking behavior against:
 
 The reference repositories are local clones for reading and comparison only;
 they are ignored by git. `references/reth` is optional until that clone is
-available locally, but the roadmap and task backlog now treat Reth/revm as the
-Rust-side comparison point for architecture, provider boundaries, EVM behavior,
-txpool, RPC, and Engine API work.
+available locally. Reth/revm is the Rust-side comparison point for architecture,
+provider boundaries, EVM behavior, txpool, RPC, and Engine API work.
 
 ## Current scope
 
-The current milestone is moving from an in-memory Engine/RPC prototype toward a
-verifiable chain-import core:
+The pinned Shanghai import profile and repository-local Engine/RPC devnet
+profile are closed. Current work is moving the client from snapshot-oriented
+development persistence toward incremental durability and staged sync:
 
-- keep a straightforward Common Lisp substrate and test runner
-- allow ASDF/Quicklisp dependencies when they make core implementation,
-  validation, or developer workflows more maintainable
-- introduce a chain-store boundary with explicit canonical indexes
-- route `engine_newPayload` through real block execution when parent state is
-  available
-- validate imported blocks against state root, receipts root, logs bloom, gas
-  used, and forkchoice state
-- add external fixture harnesses before widening nonessential RPC, txpool,
-  persistence, networking, or CLI surface area
+- replace the live forkchoice full-store scan with record-scoped durable batches
+- persist dev-period canonical sealing before it becomes publicly visible
+- add persisted staged-import progress and unwind behavior
+- implement networking only after durable import and unwind contracts are
+  established
 
 The project currently ships an SBCL script entry point for running the core
 suite.
@@ -37,25 +32,34 @@ suite.
 Implemented so far:
 
 - RLP, Keccak-256, and basic Ethereum domain types
-- Merkle Patricia Trie encoding and root calculation
+- fixture-backed Merkle Patricia Trie roots, proofs, range iteration, and state
+  commitments
 - account, transaction, receipt, bloom, and header encodings
-- in-memory secure state root prototype
 - a broad first-pass EVM interpreter with fork gates, precompile scaffolding,
   access-list warming, memory/gas accounting, CALL/CREATE paths, refunds, logs,
   and Cancun/Prague/Amsterdam-oriented fields where currently modeled
 - signed transaction and block execution paths with receipt/root/logs-bloom
   derivation and rollback coverage
-- geth/Nethermind-shaped Engine payload projection, in-memory payload storage,
-  forkchoice checkpoints, public JSON-RPC read methods, polling filters, a
-  policy-driven local transaction pool, and a stream-based HTTP adapter
+- geth/Nethermind-shaped Engine payload handling, forkchoice checkpoints,
+  public JSON-RPC read/simulation methods, polling filters, a policy-driven
+  local transaction pool, and concrete split HTTP socket listeners
 - explicit JSON null/false/empty-container values at RPC boundaries, defensive
   byte ownership for hashes and addresses, and typed node configuration
-- extensible chain-store and transaction protocols, application-level txpool
-  admission, and capability-gated Engine method registration
+- extensible chain-store, transaction-pool, persistence, and execution-service
+  boundaries; application-level admission; capability-gated Engine methods;
+  and restart/reorg coverage over the development KV snapshot format
+- synchronous live persistence for successful canonical forkchoice transitions,
+  with in-memory rollback on write failure, cross-service mutation isolation,
+  stale-journal recovery, and SIGKILL restart coverage
+- synchronous record-scoped persistence for each successful noncanonical
+  `newPayload` candidate, with fresh-database baseline seeding, conflict checks,
+  rollback on write failure, and pre-forkchoice SIGKILL recovery
 
-The main gap is no longer "can the project parse Ethereum-shaped objects"; it
-is whether those objects can be imported, executed, stored, reorged, queried,
-and fixture-checked like a real execution client.
+The main durability gap is now granularity: forkchoice commits still scan the
+whole known block/state view, and dev-period blocks still depend on lifecycle
+export. The development file backend also rewrites its complete S-expression
+image for a logical record batch. Durable trie nodes, staged sync/unwind,
+devp2p, and external Hive validation remain future work.
 
 ## Run tests
 
@@ -110,7 +114,7 @@ EEST fixture tests remain controlled by
 
 ## Reference layout
 
-See `docs/reference-map.md` for the source modules used as the main comparison
-points, `docs/roadmap.md` for the long-running implementation plan, and
-`docs/tasks.md` for the tactical backlog used by long-running implementation
-work.
+See `PROJECT.md` for the project contract, `docs/status.md` for the current
+verified snapshot and active objective, `docs/architecture.md` for package and
+dependency boundaries, `docs/validation.md` for acceptance commands, and
+`docs/reference-map.md` for reference-client comparison points.

@@ -123,6 +123,7 @@
    #:rpc-context-store
    #:rpc-context-config
    #:rpc-context-import-function
+   #:rpc-context-new-payload-persistence-function
    #:rpc-context-network-id
    #:rpc-context-coinbase
    #:rpc-context-allowed-method-p
@@ -165,6 +166,7 @@
    #:engine-rpc-http-service-jwt-secret
    #:engine-rpc-http-service-now-provider
    #:engine-rpc-http-service-import-function
+   #:engine-rpc-http-service-new-payload-persistence-function
    #:engine-rpc-http-service-telemetry-sink
    #:engine-rpc-http-service-allowed-method-p
    #:engine-rpc-http-service-network-id

@@ -9,8 +9,19 @@
     ((string= method "engine_newPayloadV5") 5)
     (t nil)))
 
+(defun engine-rpc-persist-new-payload
+    (store candidate new-payload-persistence-function)
+  (when new-payload-persistence-function
+    (handler-case
+        (funcall new-payload-persistence-function store candidate)
+      (storage-error (condition)
+        (error condition))
+      (error (condition)
+        (storage-fail "New payload persistence failed: ~A" condition)))))
+
 (defun engine-rpc-handle-new-payload
-    (version params store config &key import-function)
+    (version params store config
+     &key import-function new-payload-persistence-function)
   (unless (and (listp params) params)
     (block-validation-fail "engine_newPayload params must include payload"))
   (let* ((payload
@@ -35,27 +46,37 @@
               (json-rpc-required-param
                params 3 "executionRequests" "engine_newPayload")
               "executionRequests"))))
-    (multiple-value-bind (status block)
-        (cond
-          ((<= version 2)
-           (engine-new-payload-memory-status
-            store version payload config
-            :import-function import-function))
-          ((= version 3)
-           (engine-new-payload-memory-status
-            store version payload config
-            :versioned-hashes versioned-hashes
-            :parent-beacon-root parent-beacon-root
-            :import-function import-function))
-          (t
-           (engine-new-payload-memory-status
-            store version payload config
-            :versioned-hashes versioned-hashes
-            :parent-beacon-root parent-beacon-root
-            :requests requests
-            :import-function import-function)))
-      (declare (ignore block))
-      (engine-rpc-payload-status-object status))))
+    (labels ((handle-payload ()
+               (multiple-value-bind (status block)
+                   (cond
+                     ((<= version 2)
+                      (engine-new-payload-memory-status
+                       store version payload config
+                       :import-function import-function))
+                     ((= version 3)
+                      (engine-new-payload-memory-status
+                       store version payload config
+                       :versioned-hashes versioned-hashes
+                       :parent-beacon-root parent-beacon-root
+                       :import-function import-function))
+                     (t
+                      (engine-new-payload-memory-status
+                       store version payload config
+                       :versioned-hashes versioned-hashes
+                       :parent-beacon-root parent-beacon-root
+                       :requests requests
+                       :import-function import-function)))
+                 (when (string= +payload-status-valid+
+                                (payload-status-status status))
+                   (unless block
+                     (storage-fail
+                      "VALID new payload did not publish a candidate block"))
+                   (engine-rpc-persist-new-payload
+                    store block new-payload-persistence-function))
+                 (engine-rpc-payload-status-object status))))
+      (if new-payload-persistence-function
+          (chain-store-atomic-commit store #'handle-payload)
+          (handle-payload)))))
 
 (defun engine-rpc-string-list-p (value)
   (and (not (stringp value))

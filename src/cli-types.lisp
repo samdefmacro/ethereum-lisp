@@ -68,7 +68,7 @@
                       database-path pid-file-path network-id
                       public-api-modules engine-endpoint-config
                       public-endpoint-config txpool-policy kzg-config
-                      dev-mode-p coinbase
+                      dev-mode-p coinbase store-guard-function
                       txpool-journal-path
                       txpool-rejournal-seconds
                       dev-period-seconds)))
@@ -91,9 +91,27 @@
   kzg-config
   dev-mode-p
   coinbase
+  store-guard-function
   txpool-journal-path
   txpool-rejournal-seconds
   dev-period-seconds)
+
+(defun make-devnet-store-guard-function ()
+  #+sbcl
+  (let ((mutex (sb-thread:make-mutex :name "ethereum-lisp-node-store")))
+    (lambda (thunk)
+      (sb-thread:with-mutex (mutex)
+        (funcall thunk))))
+  #-sbcl
+  (lambda (thunk)
+    (funcall thunk)))
+
+(defun call-with-devnet-node-store-guard (node thunk)
+  (unless (typep node 'devnet-node)
+    (error "Devnet store guard requires a devnet node"))
+  (unless (functionp thunk)
+    (error "Devnet store guard requires a function"))
+  (funcall (devnet-node-store-guard-function node) thunk))
 
 (defun devnet-node-engine-cors-origins (node)
   (devnet-endpoint-config-cors-origins

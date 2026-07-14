@@ -3,18 +3,25 @@
 (defun devnet-node-prune-state-before (node block-number)
   (unless (typep node 'devnet-node)
     (error "Devnet node must be devnet-node"))
-  (when block-number
-    (chain-store-prune-state-before (devnet-node-store node) block-number)))
+  (call-with-devnet-node-store-guard
+   node
+   (lambda ()
+     (when block-number
+       (chain-store-prune-state-before
+        (devnet-node-store node) block-number)))))
 
 (defun devnet-node-rejournal (node)
   (unless (typep node 'devnet-node)
     (error "Devnet node must be devnet-node"))
-  (let ((journal-path (devnet-node-txpool-journal-path node)))
-    (when journal-path
-      (node-store-export-txpool-records-to-kv
-       (devnet-node-store node)
-       (devnet-cli-make-output-kv-database journal-path))
-      t)))
+  (call-with-devnet-node-store-guard
+   node
+   (lambda ()
+     (let ((journal-path (devnet-node-txpool-journal-path node)))
+       (when journal-path
+         (node-store-export-txpool-records-to-kv
+          (devnet-node-store node)
+          (devnet-cli-make-output-kv-database journal-path))
+         t)))))
 
 (defun make-devnet-rejournal-state
     (node interval-seconds &key (now-function #'get-universal-time))
@@ -58,7 +65,7 @@
     (engine-payload-store-pending-mining-transactions
      store expected-chain-id)))
 
-(defun devnet-node-seal-pending-block (node &key timestamp)
+(defun devnet-node-seal-pending-block-without-guard (node &key timestamp)
   (unless (typep node 'devnet-node)
     (error "Devnet node must be devnet-node"))
   (let* ((store (devnet-node-store node))
@@ -145,6 +152,15 @@
             (declare (ignore receipts))
             block))))))
 
+(defun devnet-node-seal-pending-block (node &key timestamp)
+  (unless (typep node 'devnet-node)
+    (error "Devnet node must be devnet-node"))
+  (call-with-devnet-node-store-guard
+   node
+   (lambda ()
+     (devnet-node-seal-pending-block-without-guard
+      node :timestamp timestamp))))
+
 (defun make-devnet-dev-period-state
     (node interval-seconds &key (now-function #'get-universal-time))
   (unless (typep node 'devnet-node)
@@ -184,10 +200,20 @@
 (defun devnet-node-export-database (node &key state-prune-before)
   (unless (typep node 'devnet-node)
     (error "Devnet node must be devnet-node"))
-  (devnet-node-prune-state-before node state-prune-before)
-  (let ((database-path (devnet-node-database-path node)))
-    (when database-path
-      (node-store-export-to-kv
-       (devnet-node-store node)
-       (devnet-cli-make-output-kv-database database-path))))
-  (devnet-node-rejournal node))
+  (call-with-devnet-node-store-guard
+   node
+   (lambda ()
+     (when state-prune-before
+       (chain-store-prune-state-before
+        (devnet-node-store node) state-prune-before))
+     (let ((database-path (devnet-node-database-path node)))
+       (when database-path
+         (node-store-export-to-kv
+          (devnet-node-store node)
+          (devnet-cli-make-output-kv-database database-path))))
+     (let ((journal-path (devnet-node-txpool-journal-path node)))
+       (when journal-path
+         (node-store-export-txpool-records-to-kv
+          (devnet-node-store node)
+          (devnet-cli-make-output-kv-database journal-path))
+         t)))))
