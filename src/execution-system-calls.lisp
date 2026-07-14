@@ -8,6 +8,9 @@
 (defparameter +beacon-roots-address+
   (address-from-hex "0x000f3df6d732807ef1319fb7b8bb8522d0beac02"))
 
+(defparameter +history-storage-address+
+  (address-from-hex "0x0000f90827f1c53a10cb7a02335b175320002935"))
+
 (defconstant +protocol-system-call-gas-limit+ 30000000)
 
 (defun protocol-system-call-accessed-addresses (target)
@@ -92,6 +95,29 @@ system-call processing."
        state
        +beacon-roots-address+
        (hash32-bytes parent-beacon-root)
+       header
+       chain-rules
+       :blob-base-fee blob-base-fee
+       :block-hashes block-hashes)))
+  state)
+
+(defun process-parent-block-hash-history
+    (state header chain-rules
+     &key (blob-base-fee 0) (block-hashes (make-hash-table)))
+  "Apply the EIP-2935 parent block hash transition when active."
+  (when (and (plusp (block-header-number header))
+             (if chain-rules
+                 (or (chain-rules-prague-p chain-rules)
+                     (chain-rules-ubt-p chain-rules))
+                 (block-header-requests-hash header)))
+    (let ((parent-hash (block-header-parent-hash header)))
+      (unless parent-hash
+        (block-validation-fail
+         "Header is missing parent hash for EIP-2935"))
+      (execute-protocol-system-call
+       state
+       +history-storage-address+
+       (hash32-bytes parent-hash)
        header
        chain-rules
        :blob-base-fee blob-base-fee

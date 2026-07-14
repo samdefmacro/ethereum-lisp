@@ -216,6 +216,7 @@
                                     :cancun-time 0
                                     :prague-time 10))
          (header (make-block-header :number 1
+                                    :parent-hash (zero-hash32)
                                     :timestamp 10
                                     :gas-limit 100000
                                     :base-fee-per-gas 2
@@ -570,4 +571,3 @@
     (is (null (state-db-get-account state first-recipient)))
     (is (null (state-db-get-account state second-recipient)))
     (is (= 0 (block-header-blob-gas-used header)))))
-

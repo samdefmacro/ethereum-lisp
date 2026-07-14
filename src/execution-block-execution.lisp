@@ -95,6 +95,10 @@
              state header effective-chain-rules
              :blob-base-fee block-blob-base-fee
              :block-hashes block-hashes)
+            (process-parent-block-hash-history
+             state header effective-chain-rules
+             :blob-base-fee block-blob-base-fee
+             :block-hashes block-hashes)
             (multiple-value-bind (receipts gas-used)
                 (funcall
                  apply-transactions
