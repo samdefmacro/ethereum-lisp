@@ -6,67 +6,25 @@ Last updated: 2026-07-14
 
 Build a usable Common Lisp Ethereum execution-layer client whose consensus
 behavior can be checked against official fixtures and reference clients. The
-project should progress from deterministic execution and local Engine/RPC
-operation toward durable storage, staged synchronization, and real client
-interoperability.
+project combines deterministic execution, local Engine/RPC operation, durable
+storage, synchronization, and real client interoperability.
 
 The project is not claiming production mainnet readiness. Correctness,
 recoverability, and explicit capability boundaries take priority over API
 breadth or superficial compatibility.
 
-## Source Of Truth
+## Working Direction
 
-The repository does not maintain a static roadmap or task backlog. Current
-direction is derived from, in order:
+The user's current request defines the development priority. When no feature is
+specified, choose one coherent missing capability by its value to a usable,
+interoperable client, not by how easy it is to test or document.
 
-1. executable behavior and deterministic tests;
-2. the architecture and dependency rules in `docs/architecture.md`;
-3. this project contract;
-4. the verified snapshot and active objective in `docs/status.md`;
-5. Git history for completed implementation detail.
-
-Historical plans are not current requirements merely because they remain in
-Git history.
-
-## Phase State
-
-- **Verifiable import:** closed for the pinned post-Merge Shanghai
-  `engine_newPayloadV2` profile. The closure gate covers atomic execution and
-  commitment validation, sender recovery, retained state, canonical reorgs,
-  and pinned fixture replay.
-- **Local Engine/RPC devnet:** closed for the repository-local process profile.
-  The client can start split authenticated Engine and public HTTP listeners,
-  execute the local payload lifecycle, operate its transaction pool, restore a
-  development database, and survive bounded reorg/restart scenarios. This does
-  not claim validation by the external Ethereum Hive test harness.
-- **Durability and synchronization:** active. The immediate goal is to replace
-  snapshot-only publication with record-scoped durable chain/state commits.
-  Engine candidates, consensus-selected forkchoice transitions, and local
-  dev-period seals now commit before publication, and the chain database and
-  txpool journal now share an explicit generation/authority contract. A first
-  local staged-import boundary now persists chain-config-bound progress,
-  executes from durable parent state, resumes after restart, and unwinds in
-  reverse dependency order without publishing canonical state. The next
-  boundary is content-addressed durable trie/state storage with explicit
-  retention roots before a live sync coordinator or peer transport is added.
-
-## Priority Order
-
-When choosing work, prefer the highest item that has a concrete unmet behavior
-and a deterministic acceptance test:
-
-1. consensus or state-transition correctness regressions;
-2. executable end-to-end client behavior;
-3. incremental persistence, crash consistency, and durable state/trie access;
-4. staged import, persisted progress, and unwind/reorg behavior;
-5. external Hive and reference-client interoperability;
-6. devp2p, discovery, RLPx, and `eth`/`snap` synchronization;
-7. operational hardening and performance;
-8. additional RPC surface or convenience tooling.
-
-Fixture widening, malformed-input matrices, and refactors are selected only
-when they expose a real correctness risk, unblock a higher priority, or make an
-active implementation slice safely testable.
+The current code and Git history describe completed work. The repository does
+not maintain an active-objective, phase-status, roadmap, or test-baseline file.
+Tests are verification tools; adding tests, widening fixtures, refactoring, or
+editing documentation is not a standalone development objective unless the
+user requests it or it directly unblocks a product capability or correctness
+fix.
 
 ## Invariants
 
@@ -95,29 +53,30 @@ archive `fixtures_stable.tar.gz`, archive SHA-256
 
 ## Development Method
 
-For each implementation round, the agent:
+Feature implementation is the default use of development time:
 
-1. inspects the clean Git state, recent changes, current architecture, and test
-   baseline;
-2. ranks at least two concrete candidate slices by project value, dependency,
-   risk, and validation cost;
-3. implements one coherent vertical behavior with explicit non-goals;
-4. runs focused tests while iterating and the risk-appropriate gates from
-   `docs/validation.md`; on macOS, every SBCL build or test process runs only
-   inside the repository's Docker test environment;
-5. obtains an independent diff review for production changes;
-6. updates `docs/status.md` only when the verified capability, gap, objective,
-   or test baseline changes;
-7. commits the accepted phase as one intentional Git change and pushes the
-   current work branch. A publish failure is reported as a blocker instead of
-   silently leaving an accepted phase only in the worktree.
+1. identify the requested observable behavior and the production boundaries it
+   touches;
+2. implement a coherent functional slice, including adjacent enabling work when
+   needed;
+3. run the smallest relevant verification after implementation, proportional to
+   the risk of the change; reserve the full suite for an explicit user request,
+   release/CI work, or a genuinely broad high-risk change;
+4. update durable documentation only when user-facing usage, a public contract,
+   or an architecture boundary actually changes.
 
-Completed micro-steps belong in Git history, not an append-only planning file.
+Do not create or maintain status snapshots, phase records, test baselines,
+recurring plans, or generic progress reports as a side effect of feature work.
+Unrelated test failures, coverage expansion, refactors, review exercises, and
+documentation polish are reported rather than turned into blockers or new
+workstreams. If an SBCL check is run on macOS, use the repository's Docker test
+environment.
 
 ## Decision Boundary
 
-The agent may autonomously choose and implement slices that advance the active
-project goal while preserving this contract. User direction is required before
-changing the project target, supported baseline fork, consensus invariants,
-public compatibility commitment, or adopting a major external runtime or
-storage dependency.
+The agent may autonomously implement the requested feature and adjacent enabling
+work while preserving this contract. Completing a task is a terminal condition:
+do not invent another development round from repository documents. User
+direction is required before changing the project target, supported baseline
+fork, consensus invariants, public compatibility commitment, or adopting a
+major external runtime or storage dependency.
