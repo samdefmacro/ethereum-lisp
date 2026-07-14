@@ -964,3 +964,48 @@ Content-Type: application/json
                (close stream))
              (sb-thread:join-thread server-thread))
         (ignore-errors (engine-rpc-http-listener-close listener))))))
+
+#+sbcl
+(deftest engine-rpc-http-socket-listener-close-unblocks-accept
+  (:layer :integration :module :rpc-http :requires-local-sockets t)
+  (let* ((service (make-engine-rpc-http-service
+                   :host "127.0.0.1"
+                   :port 0))
+         (listener
+           (handler-case
+               (make-engine-rpc-http-socket-listener service)
+             (sb-bsd-sockets:operation-not-permitted-error ()
+               (skip-test
+                "Local socket bind is not permitted in this sandbox"))))
+         (accept-started-p nil)
+         (accept-result nil)
+         (accept-thread
+           (sb-thread:make-thread
+            (lambda ()
+              (setf accept-started-p t)
+              (handler-case
+                  (setf accept-result
+                        (engine-rpc-http-listener-accept listener))
+                (error (condition)
+                  (setf accept-result condition))))
+            :name "ethereum-lisp-rpc-http-close-unblocks-accept")))
+    (unwind-protect
+         (progn
+           (wait-for-test-condition
+            "socket listener accept start"
+            1d0
+            (lambda () accept-started-p))
+           (is (eq :timeout
+                   (sb-thread:join-thread
+                    accept-thread :timeout 0.05 :default :timeout)))
+           (engine-rpc-http-listener-close listener)
+           (let ((status
+                   (sb-thread:join-thread
+                    accept-thread :timeout 2 :default :timeout)))
+             (is (not (eq :timeout status)))
+             (is (or (null accept-result)
+                     (typep accept-result 'error))))
+           (engine-rpc-http-listener-close listener))
+      (ignore-errors (engine-rpc-http-listener-close listener))
+      (when (sb-thread:thread-alive-p accept-thread)
+        (sb-thread:terminate-thread accept-thread)))))

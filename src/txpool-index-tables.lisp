@@ -51,5 +51,7 @@
        sender-index
        transaction)
       (engine-pending-txpool-clear-admission-time txpool hash)
-      (remhash key transactions))
+      (remhash key transactions)
+      (engine-pending-txpool-record-transaction-change
+       txpool transaction))
     transaction))

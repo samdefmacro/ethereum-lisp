@@ -49,10 +49,10 @@
              payload-attributes config block-number timestamp)))))))
 
 (defun engine-rpc-persist-forkchoice
-    (store forkchoice-persistence-function)
+    (store transition forkchoice-persistence-function)
   (when forkchoice-persistence-function
     (handler-case
-        (funcall forkchoice-persistence-function store)
+        (funcall forkchoice-persistence-function store transition)
       (storage-error (condition)
         (error condition))
       (error (condition)
@@ -96,13 +96,15 @@
          store
          (lambda ()
            (chain-store-update-forkchoice-checkpoints store state)
-           (chain-store-set-canonical-head
-            store
-            (forkchoice-state-head-block-hash state)
-            :expected-chain-id (chain-config-chain-id config)
-            :chain-config config)
-           (engine-rpc-persist-forkchoice
-            store forkchoice-persistence-function))))
+           (multiple-value-bind (head transition)
+               (chain-store-set-canonical-head
+                store
+                (forkchoice-state-head-block-hash state)
+                :expected-chain-id (chain-config-chain-id config)
+                :chain-config config)
+             (declare (ignore head))
+             (engine-rpc-persist-forkchoice
+              store transition forkchoice-persistence-function)))))
       (when (and payload-attributes
                  (string= +payload-status-valid+
                           (payload-status-status status)))

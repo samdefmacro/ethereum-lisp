@@ -519,11 +519,11 @@ references/ checkouts.~%")
      (ethereum-lisp.cli:devnet-node-store node)
      (make-file-key-value-database path)
      :expected-chain-id (chain-config-chain-id config))
+    (setf (ethereum-lisp.cli::devnet-node-database-path node) path)
     (devnet-cli-set-node-store-config
      node
      (ethereum-lisp.cli:devnet-node-store node)
      config)
-    (setf (ethereum-lisp.cli::devnet-node-database-path node) path)
     node))
 
 (defun devnet-smoke-gate-write-kzg-prepared-payload-database (genesis-path)

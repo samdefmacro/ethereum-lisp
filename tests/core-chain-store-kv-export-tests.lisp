@@ -5,12 +5,25 @@
           (find-package '#:ethereum-lisp.node-store.persistence))
         (database (find-package '#:ethereum-lisp.database))
         (chain-store (find-package '#:ethereum-lisp.chain-store))
+        (canonical-chain (find-package '#:ethereum-lisp.canonical-chain))
         (txpool (find-package '#:ethereum-lisp.txpool))
         (core (find-package '#:ethereum-lisp.core)))
     (is (not (member core (package-use-list persistence))))
     (is (member database (package-use-list persistence)))
     (is (member chain-store (package-use-list persistence)))
+    (is (not (member canonical-chain (package-use-list persistence))))
     (is (member txpool (package-use-list persistence)))
+    (dolist (name '("CANONICAL-CHAIN-TRANSITION-P"
+                    "CANONICAL-CHAIN-TRANSITION-INSTALLED-BLOCKS"
+                    "CANONICAL-CHAIN-TRANSITION-DISPLACED-BLOCKS"
+                    "CANONICAL-CHAIN-TRANSITION-CHANGED-TXPOOL-HASHES"))
+      (multiple-value-bind (persistence-symbol persistence-status)
+          (find-symbol name persistence)
+        (multiple-value-bind (canonical-symbol canonical-status)
+            (find-symbol name canonical-chain)
+          (is (eq :internal persistence-status))
+          (is (eq :external canonical-status))
+          (is (eq persistence-symbol canonical-symbol)))))
     (dolist (name '("NODE-STORE-EXPORT-TO-KV"
                     "NODE-STORE-IMPORT-FROM-KV"))
       (multiple-value-bind (persistence-symbol persistence-status)

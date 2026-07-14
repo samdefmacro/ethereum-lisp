@@ -83,7 +83,11 @@
                 (engine-rpc-http-service-host service)))
          (socket (make-instance 'sb-bsd-sockets:inet-socket
                                 :type :stream
-                                :protocol :tcp)))
+                                :protocol :tcp))
+         (close-lock
+           (sb-thread:make-mutex
+            :name "ethereum-lisp-rpc-http-listener-close"))
+         (closed-p nil))
     (setf (sb-bsd-sockets:sockopt-reuse-address socket) t)
     (handler-case
         (progn
@@ -118,7 +122,17 @@
                     :close-function (lambda () (close stream))))))
              :close-function
              (lambda ()
-               (sb-bsd-sockets:socket-close socket)))))
+               (sb-thread:with-mutex (close-lock)
+                 (unless closed-p
+                   (setf closed-p t)
+                   ;; On Linux, closing a listening descriptor from another
+                   ;; thread does not reliably wake a blocking accept(2).
+                   ;; shutdown(2) first so service shutdown can join the
+                   ;; listener thread without waiting for another client.
+                   (ignore-errors
+                     (sb-bsd-sockets:socket-shutdown
+                      socket :direction :io))
+                   (sb-bsd-sockets:socket-close socket)))))))
       (error (condition)
         (ignore-errors (sb-bsd-sockets:socket-close socket))
         (error condition)))))

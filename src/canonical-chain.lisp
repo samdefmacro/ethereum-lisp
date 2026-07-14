@@ -1,5 +1,13 @@
 (in-package #:ethereum-lisp.canonical-chain)
 
+(defstruct (canonical-chain-transition
+            (:constructor make-canonical-chain-transition
+                (&key installed-blocks displaced-blocks
+                      changed-txpool-hashes)))
+  (installed-blocks nil :type list)
+  (displaced-blocks nil :type list)
+  (changed-txpool-hashes nil :type list))
+
 (defun canonical-chain-block-number (block)
   (block-header-number (block-header block)))
 
@@ -136,25 +144,49 @@
                  (not (hash32= previous-head-hash hash))))
            (path (canonical-chain-path chain-store head-block))
            (displaced-blocks
-             (canonical-chain-replaced-blocks chain-store path)))
-      (canonical-chain-install-path chain-store txpool path)
-      (setf displaced-blocks
-            (nconc displaced-blocks
-                   (canonical-chain-prune-descendants
-                    chain-store
-                    (canonical-chain-block-number head-block))))
-      (canonical-chain-set-head-metadata chain-store head-block)
-      (canonical-chain-reinsert-displaced-transactions
-       store displaced-blocks expected-chain-id chain-config)
-      (when head-changed-p
-        (canonical-chain-notify-log-filters
-         chain-store displaced-blocks path))
-      (canonical-chain-reconcile-txpool
-       store expected-chain-id chain-config)
-      (when head-changed-p
-        (engine-payload-store-notify-block-filters
-         chain-store head-block))
-      head-block)))
+             (canonical-chain-replaced-blocks chain-store path))
+           (changed-txpool-keys (make-hash-table :test 'equalp)))
+      (call-with-engine-pending-txpool-change-tracking
+       (lambda (transaction-hash)
+         (setf (gethash (hash32-to-hex transaction-hash)
+                        changed-txpool-keys)
+               t))
+       (lambda ()
+         (canonical-chain-install-path chain-store txpool path)
+         (setf displaced-blocks
+               (nconc displaced-blocks
+                      (canonical-chain-prune-descendants
+                       chain-store
+                       (canonical-chain-block-number head-block))))
+         (canonical-chain-set-head-metadata chain-store head-block)
+         (canonical-chain-reinsert-displaced-transactions
+          store displaced-blocks expected-chain-id chain-config)
+         (when head-changed-p
+           (canonical-chain-notify-log-filters
+            chain-store displaced-blocks path))
+         (canonical-chain-reconcile-txpool
+          store expected-chain-id chain-config)
+         (when head-changed-p
+           (engine-payload-store-notify-block-filters
+            chain-store head-block))))
+      (dolist (transaction-hash
+               (engine-payload-store-txpool-database-dirty-transaction-hashes
+                store))
+        (setf (gethash (hash32-to-hex transaction-hash)
+                       changed-txpool-keys)
+              t))
+      (values
+       head-block
+       (make-canonical-chain-transition
+        :installed-blocks (copy-list path)
+        :displaced-blocks (copy-list displaced-blocks)
+        :changed-txpool-hashes
+        (mapcar
+         #'hash32-from-hex
+         (sort
+          (loop for key being the hash-keys of changed-txpool-keys
+                collect key)
+          #'string<)))))))
 
 (defun chain-store-set-canonical-head
     (store hash &key expected-chain-id chain-config)

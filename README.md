@@ -20,8 +20,9 @@ The pinned Shanghai import profile and repository-local Engine/RPC devnet
 profile are closed. Current work is moving the client from snapshot-oriented
 development persistence toward incremental durability and staged sync:
 
-- replace the live forkchoice full-store scan with record-scoped durable batches
 - persist dev-period canonical sealing before it becomes publicly visible
+- define an explicit generation/authority rule between the chain database and
+  the independently refreshed transaction-pool journal
 - add persisted staged-import progress and unwind behavior
 - implement networking only after durable import and unwind contracts are
   established
@@ -48,29 +49,50 @@ Implemented so far:
 - extensible chain-store, transaction-pool, persistence, and execution-service
   boundaries; application-level admission; capability-gated Engine methods;
   and restart/reorg coverage over the development KV snapshot format
-- synchronous live persistence for successful canonical forkchoice transitions,
-  with in-memory rollback on write failure, cross-service mutation isolation,
-  stale-journal recovery, and SIGKILL restart coverage
+- synchronous record-scoped persistence for successful canonical forkchoice
+  transitions, including direct-key canonical reconciliation, coupled txpool
+  dirty tracking, in-memory rollback on write failure, cross-service mutation
+  isolation, and reorg/SIGKILL restart coverage
 - synchronous record-scoped persistence for each successful noncanonical
   `newPayload` candidate, with fresh-database baseline seeding, conflict checks,
-  rollback on write failure, and pre-forkchoice SIGKILL recovery
+  explicit head bounds and legacy-baseline migration, rollback on write
+  failure, and pre-forkchoice SIGKILL recovery
 
-The main durability gap is now granularity: forkchoice commits still scan the
-whole known block/state view, and dev-period blocks still depend on lifecycle
-export. The development file backend also rewrites its complete S-expression
-image for a logical record batch. Durable trie nodes, staged sync/unwind,
-devp2p, and external Hive validation remain future work.
+The main durability gap is now local publication: dev-period blocks still
+depend on a later forkchoice call or lifecycle export instead of committing
+before canonical visibility. The transaction-pool journal also lacks an
+explicit generation marker relative to the chain database. The development
+file backend still rewrites its complete S-expression image for a logical
+record batch. Durable trie nodes, staged sync/unwind, devp2p, and external Hive
+validation remain future work.
 
 ## Run tests
 
+Local SBCL builds and tests run inside Docker so compiler caches, temporary
+artifacts, child processes, and loopback listeners stay isolated from macOS.
+The repository is mounted read-only; only the container-local `.cache` tmpfs
+is writable. The container has no external network or published host ports;
+real socket tests use loopback only inside its network namespace:
+
 ```sh
-sbcl --script tests/run-tests.lisp
+make docker-test-unit
+make docker-test-integration
+make docker-test-e2e                 # two bounded workers by default
+make docker-test-e2e DOCKER_E2E_JOBS=4
+make docker-test-all                 # required before publishing a phase
+make docker-test-unit DOCKER_TEST_ARGS="--match TRANSACTION"
+make docker-sbcl DOCKER_SBCL_ARGS="--script scripts/phase-a-smoke-gate.lisp -- --json"
 ```
 
-The default command runs the process-free `unit` layer. The remaining stable
-layer commands are:
+The Docker image includes SBCL, Go 1.24 for the vendored KZG verifier, and the
+small set of process tools exercised by the suite. Each test invocation first
+loads all test definitions once, preventing concurrent ASDF compilation races.
+
+Inside CI or an already isolated Linux container, the underlying commands are
+shown below. Never invoke these directly on the macOS development host:
 
 ```sh
+sbcl --script tests/run-tests.lisp
 sbcl --script tests/run-tests.lisp --layer integration
 sbcl --script tests/run-tests.lisp --layer e2e
 sbcl --script tests/run-tests.lisp --layer all
@@ -80,21 +102,21 @@ sbcl --script tests/run-tests.lisp --layer all
 verification. `e2e` launches standalone SBCL processes and may bind local
 sockets. Run every layer before publishing an architectural change.
 
-Focused runs and discovery are available without editing the suite:
+Focused runs and discovery remain Docker-isolated:
 
 ```sh
-sbcl --script tests/run-tests.lisp --list
-sbcl --script tests/run-tests.lisp --layer integration --list --verbose
-sbcl --script tests/run-tests.lisp --match TRANSACTION
-sbcl --script tests/run-tests.lisp --exclude SMOKE --exclude OPTIONAL
-sbcl --script tests/run-tests.lisp --layer unit --timing --slow 1
+make docker-test-unit DOCKER_TEST_ARGS="--list"
+make docker-test-integration DOCKER_TEST_ARGS="--list --verbose"
+make docker-test-unit DOCKER_TEST_ARGS="--match TRANSACTION"
+make docker-test-unit DOCKER_TEST_ARGS="--exclude SMOKE --exclude OPTIONAL"
+make docker-test-unit DOCKER_TEST_ARGS="--timing --slow 1"
 ```
 
 `--layer` may be repeated to compose layers. `--timing` reports execution
 totals and the ten slowest selected tests; `--slow SECONDS` limits that report
 to tests at or above the threshold.
 
-Stable developer and CI commands are also available:
+The corresponding inner Make targets used by CI and the Docker wrapper are:
 
 ```sh
 make test-unit
@@ -111,6 +133,8 @@ Go KZG verifier, so it requires Go and permission to bind loopback sockets.
 worker, and requires the same loopback/process permissions. Optional external
 EEST fixture tests remain controlled by
 `ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT` and skip cleanly when it is absent.
+When set to a host directory, the Docker wrapper mounts it read-only at
+`/fixtures/execution-spec-tests` and forwards that container path to SBCL.
 
 ## Reference layout
 

@@ -3,6 +3,9 @@
         #:ethereum-lisp
         #:ethereum-lisp.telemetry)
   (:import-from #:ethereum-lisp.txpool
+                #:engine-payload-store-enable-txpool-database-change-tracking
+                #:engine-payload-store-txpool-database-change-tracking-enabled-p
+                #:engine-payload-store-clear-txpool-database-dirty-transaction-hashes
                 #:engine-payload-store-pending-mining-transactions
                 #:engine-payload-store-pooled-transactions
                 #:engine-select-mining-transactions)

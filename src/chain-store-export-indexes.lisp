@@ -18,10 +18,29 @@
     (when (and label hash)
       (kv-batch-put-chain-checkpoint batch label (hash32-bytes hash)))))
 
+(defun chain-store-export-head-checkpoint (store)
+  (setf store (chain-store-require-memory-store store))
+  (let* ((checkpoint (memory-chain-store-head-checkpoint store))
+         (checkpoint-hash
+           (and checkpoint
+                (chain-store-checkpoint-block-hash checkpoint))))
+    (if checkpoint-hash
+        checkpoint
+        (let* ((head-number (memory-chain-store-head-number store))
+               (head-hash (chain-store-canonical-hash store head-number)))
+          ;; A full readable-store export is also the live-delta baseline.
+          ;; Give that baseline an explicit upper bound whenever the inferred
+          ;; canonical head is restartable.  Partial block-only snapshots stay
+          ;; headless and are rejected if used for live forkchoice persistence.
+          (when (and head-hash
+                     (chain-store-state-available-p store head-hash))
+            (make-chain-store-checkpoint
+             :label :head :block-hash head-hash))))))
+
 (defun chain-store-checkpoint-labels-with-hashes (store)
   (setf store (chain-store-require-memory-store store))
   (loop for checkpoint in
-          (list (memory-chain-store-head-checkpoint store)
+          (list (chain-store-export-head-checkpoint store)
                 (memory-chain-store-safe-checkpoint store)
                 (memory-chain-store-finalized-checkpoint store))
         for label = (and checkpoint
@@ -51,7 +70,7 @@
    (memory-chain-store-canonical-hashes store))
   (chain-store-export-checkpoint-to-kv
    batch
-   (memory-chain-store-head-checkpoint store))
+   (chain-store-export-head-checkpoint store))
   (chain-store-export-checkpoint-to-kv
    batch
    (memory-chain-store-safe-checkpoint store))

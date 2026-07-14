@@ -40,10 +40,10 @@ Git history.
   development database, and survive bounded reorg/restart scenarios. This does
   not claim validation by the external Ethereum Hive test harness.
 - **Durability and synchronization:** active. The immediate goal is to replace
-  full-store live persistence scans with record-scoped durable chain/state
-  commits, make every locally published canonical transition durable, then add
-  persisted sync progress and unwind behavior before real peer-to-peer
-  synchronization.
+  snapshot-only publication with record-scoped durable chain/state commits,
+  make every locally published canonical transition durable, define database
+  and journal authority, then add persisted sync progress and unwind behavior
+  before real peer-to-peer synchronization.
 
 ## Priority Order
 
@@ -98,7 +98,8 @@ For each implementation round, the agent:
    risk, and validation cost;
 3. implements one coherent vertical behavior with explicit non-goals;
 4. runs focused tests while iterating and the risk-appropriate gates from
-   `docs/validation.md`;
+   `docs/validation.md`; on macOS, every SBCL build or test process runs only
+   inside the repository's Docker test environment;
 5. obtains an independent diff review for production changes;
 6. updates `docs/status.md` only when the verified capability, gap, objective,
    or test baseline changes;

@@ -1,17 +1,17 @@
 # Current Status
 
-Last updated: 2026-07-13
+Last updated: 2026-07-14
 
 This is a replace-in-place snapshot of verified project state. It is not a
 backlog or implementation history; completed detail is available from Git.
 
 ## Baseline
 
-- Branch baseline at the start of this update: `main` at `5585cfe`.
-- The worktree was clean and aligned with `origin/main`.
-- `make test-all E2E_JOBS=4` passed on 2026-07-13 with 961 tests passed,
-  5 optional-fixture tests skipped, and 0 failed: unit 698/3 skipped,
-  integration 205/2 skipped, and e2e 58/0 skipped.
+- Branch baseline at the start of this phase:
+  `codex/goal-led-live-persistence` at `ea05eef`.
+- `make docker-test-all` passed on 2026-07-14 with 979 tests passed,
+  5 optional-fixture tests skipped, and 0 failed: unit 710/3 skipped,
+  integration 211/2 skipped, and e2e 58/0 skipped.
 - The skipped tests require an external EEST fixture root and are not counted
   as external fixture validation.
 
@@ -77,13 +77,31 @@ selection, execution-aware gas repacking, or blob-sidecar construction.
   match, repeat delivery is idempotent, and the batch does not write canonical,
   checkpoint, transaction-location, or txpool records.
 - An empty configured database is seeded with the current canonical genesis
-  view before listeners become ready. A nonempty database without a chain
-  baseline is rejected instead of being overwritten.
+  view and an explicit head bound before listeners become ready. A validated
+  legacy baseline without a head checkpoint is migrated once at startup; live
+  direct-key deltas reject an unbounded baseline. A nonempty database without
+  a chain baseline is rejected instead of being overwritten.
 - A successful `engine_forkchoiceUpdatedV1` through V4 now publishes canonical,
   safe, finalized, transaction-location, state, and txpool changes to the
   configured development database in one file batch before returning `VALID`.
   A durable-write error restores the prior in-memory view and returns JSON-RPC
   `-32603` instead of an Engine payload status.
+- Forkchoice persistence is logically record-scoped. The canonical service
+  emits installed/displaced blocks and affected txpool hashes; the exporter
+  performs direct keyed reads and writes only for affected heights,
+  checkpoints, immutable block/header/receipt/state records, transaction
+  locations, and final txpool records. It does not iterate the database or the
+  complete known block/state view.
+- A direct-key canonical reconciliation walk stops at the first persisted
+  common ancestor. It flushes locally canonicalized blocks before a same-head
+  forkchoice response and handles a persisted higher or divergent head while
+  retaining hash-addressed displaced block records and deleting their stale
+  transaction locations. Delta export requires the chain baseline seeded by
+  startup rather than partially initializing an empty database.
+- Txpool mutations accumulate a hash-scoped dirty set from the last successful
+  chain-database commit. The set survives atomic snapshots, covers startup
+  normalization and journal-derived mutations, joins the next forkchoice
+  batch, and is acknowledged only after a successful atomic KV apply.
 - Engine RPC, public RPC, dev-period sealing, pruning, rejournaling, and
   lifecycle export share one node-store guard, so another thread cannot observe
   or mutate the tentative forkchoice view while its durable batch is pending.
@@ -91,44 +109,50 @@ selection, execution-aware gas repacking, or blob-sidecar construction.
   authoritative canonical database, while the generic KV importer remains
   strict about duplicate indexed transactions.
 - Unit, integration, and process tests collectively cover candidate exporter
-  conflicts and idempotence, persistence failure rollback, concurrent public
-  reads, stale-journal recovery, and SIGKILL recovery both before and after
-  forkchoice without a shutdown export.
+  conflicts and idempotence, delta scope without database iteration,
+  checkpoint-only updates, extension/short/same-height reorgs, DB-ahead
+  reconciliation, startup txpool normalization, persistence failure rollback
+  and retry, concurrent public reads, stale-journal recovery, and SIGKILL
+  recovery both before and after forkchoice without a shutdown export.
 
 ## Principal Gaps
 
-1. The live forkchoice adapter still scans the complete known
-   block/state/txpool view to construct each batch; it is not logically
-   record-scoped incremental persistence.
-2. Dev-period blocks still depend on lifecycle export rather than a durable
-   commit before public canonical visibility.
-3. Trie/state data is restored from whole account snapshots rather than durable
+1. Dev-period blocks become canonical in memory before a durable commit. A
+   later same-head forkchoice now flushes them safely, but a crash before that
+   call or lifecycle export still loses the locally published block.
+2. The chain database and independently refreshed txpool journal have no shared
+   generation marker. The current empty/nonempty selection rule can skip a
+   newer journal overlay or reintroduce a stale noncanonical transaction.
+3. Lifecycle export remains a full readable-store snapshot even though live
+   `newPayload` and forkchoice commits are record-scoped.
+4. Trie/state data is restored from whole account snapshots rather than durable
    content-addressed trie/state nodes with an explicit retention policy.
-4. The file backend uses temp-file replacement but does not fsync the file and
+5. The file backend uses temp-file replacement but does not fsync the file and
    containing directory, so the verified SIGKILL/process-crash contract is not
    a power-loss durability claim.
-5. Header/body/execution/receipt/index stages do not yet have persisted progress
+6. Header/body/execution/receipt/index stages do not yet have persisted progress
    markers and unwind functions.
-6. There is no implemented discovery, RLPx, `eth`, or `snap` peer path.
-7. External Hive interoperability has not been demonstrated.
+7. There is no implemented discovery, RLPx, `eth`, or `snap` peer path.
+8. External Hive interoperability has not been demonstrated.
 
 ## Active Objective
 
-The active Phase C objective is the next record-scoped durability slice:
+The active Phase C objective is the next publication-boundary durability slice:
 
-> Replace the live forkchoice full-known-store export with a logical delta batch
-> scoped to the selected canonical transition: changed canonical/checkpoint
-> indexes, newly required block/header/receipt/state records, affected
-> transaction locations, and coupled txpool changes must commit before the
-> `VALID` response.
+> Make each successful dev-period seal durable before the new canonical block
+> can be observed: block/header/receipt/state, canonical/checkpoint indexes,
+> transaction locations, and coupled txpool changes must commit as one logical
+> delta under the node-store guard.
 
-The slice must preserve reorg and stale-journal behavior, delete obsolete
-canonical/location records, avoid scanning or rewriting unrelated side-chain
-records at the logical KV layer, and retain the existing in-memory rollback and
-shared request guard. It must not claim physical incremental I/O from the
-S-expression backend, introduce networking, a new database dependency,
-trie-node storage, power-loss guarantees, or historical pruning.
+The slice must place execution, canonical publication, and the durable callback
+inside one rollback boundary; a database error must leave the prior block,
+state, transaction locations, and txpool publicly visible and permit a clean
+retry. It should reuse the record-scoped exporter, avoid a later-forkchoice or
+lifecycle dependency, and preserve no-database dev mode. It must not claim
+physical incremental I/O from the S-expression backend, solve journal
+generation authority, introduce networking or a new database dependency, add
+trie-node storage, claim power-loss durability, or add historical pruning.
 
-Acceptance requires extension and reorg restart tests, focused delta-scope and
-failure/rollback tests, an independent diff review, and the gates selected by
-`docs/validation.md`.
+Acceptance requires successful restart before lifecycle export, injected-write
+failure rollback and retry, public-read isolation under the shared guard, an
+independent diff review, and the gates selected by `docs/validation.md`.

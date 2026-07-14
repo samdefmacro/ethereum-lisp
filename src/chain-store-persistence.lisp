@@ -1,7 +1,8 @@
 (in-package #:ethereum-lisp.node-store.persistence)
 
 (defun node-store-import-from-kv
-    (store database &key expected-chain-id chain-config)
+    (store database &key expected-chain-id chain-config
+                         track-txpool-database-changes-p)
   (chain-store-require-memory-store store)
   (unless (txpool-component store)
     (block-validation-fail "Node import target requires a txpool component"))
@@ -20,6 +21,12 @@
      database
      :expected-chain-id expected-chain-id
      :chain-config chain-config)
+    ;; Imported records are the baseline.  When requested by a live database
+    ;; owner, start tracking immediately before normalization so every
+    ;; prune/promotion relative to that baseline is eligible for the next
+    ;; record-scoped forkchoice commit.
+    (when track-txpool-database-changes-p
+      (engine-payload-store-enable-txpool-database-change-tracking staging))
     (chain-store-import-invalid-tipsets-from-kv staging database)
     (chain-store-import-remote-blocks-from-kv staging database)
     (chain-store-import-blob-sidecars-from-kv staging database)

@@ -23,7 +23,16 @@
             (ethereum-lisp.cli::devnet-node-network-id node)
             effective-network-id)
       (rebind-service (ethereum-lisp.cli:devnet-node-service node))
-      (rebind-service (ethereum-lisp.cli:devnet-node-public-service node))))
+      (rebind-service (ethereum-lisp.cli:devnet-node-public-service node)))
+    ;; Smoke fixtures replace the store after MAKE-DEVNET-NODE has initialized
+    ;; the configured database. Preserve the live-persistence invariant on the
+    ;; replacement store just as the production import path does.
+    (when (and (ethereum-lisp.cli::devnet-node-database-path node)
+               (not
+                (ethereum-lisp.txpool:engine-payload-store-txpool-database-change-tracking-enabled-p
+                 store)))
+      (ethereum-lisp.txpool:engine-payload-store-enable-txpool-database-change-tracking
+       store)))
   node)
 
 (defun devnet-cli-engine-forkchoice-v2-request
