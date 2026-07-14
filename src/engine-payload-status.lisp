@@ -195,7 +195,8 @@
             (progn
               (engine-payload-store-put-block
                store block
-               :state-available-p import-state-available-p)
+               :state-available-p import-state-available-p
+               :canonicalize-p nil)
               (values (make-payload-status
                        :status +payload-status-valid+
                        :latest-valid-hash hash)

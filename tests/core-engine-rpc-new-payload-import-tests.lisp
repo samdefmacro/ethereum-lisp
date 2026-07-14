@@ -7,7 +7,19 @@
              (list (cons "jsonrpc" "2.0")
                    (cons "id" id)
                    (cons "method" "eth_getTransactionReceipt")
-                   (cons "params" (list (hash32-to-hex hash))))))
+                   (cons "params" (list (hash32-to-hex hash)))))
+           (forkchoice-request (id head checkpoint)
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" id)
+                   (cons "method" "engine_forkchoiceUpdatedV2")
+                   (cons "params"
+                         (list
+                          (list
+                           (cons "headBlockHash" (hash32-to-hex head))
+                           (cons "safeBlockHash"
+                                 (hash32-to-hex checkpoint))
+                           (cons "finalizedBlockHash"
+                                 (hash32-to-hex checkpoint))))))))
     (let* ((store (make-engine-payload-memory-store))
            (config (make-chain-config :chain-id 1
                                       :byzantium-block 0
@@ -116,30 +128,51 @@
           (is (= +wei-per-gwei+
                  (chain-store-account-balance
                   store (block-hash child-block) withdrawal-recipient)))
-          (is (typep (chain-store-transaction-location
-                      store
-                      (transaction-hash transaction))
-                     'engine-transaction-location))
-          (let* ((receipts
-                   (chain-store-block-receipts store (block-hash child-block)))
-                 (receipt-response
+          (is (null (chain-store-transaction-location
+                     store
+                     (transaction-hash transaction))))
+          (is (null
+               (field
+                (engine-rpc-handle-request
+                 (receipt-request 28 (transaction-hash transaction))
+                 store config)
+                "result")))
+          (let* ((forkchoice-response
                    (engine-rpc-handle-request
-                    (receipt-request 28 (transaction-hash transaction))
+                    (forkchoice-request
+                     29
+                     (block-hash child-block)
+                     (block-hash parent-block))
                     store config))
-                 (receipt (field receipt-response "result"))
-                 (receipts-root
-                   (block-header-receipts-root (block-header child-block))))
-            (is (= 1 (length receipts)))
-            (is (string= (hash32-to-hex (receipt-list-root receipts))
-                         (hash32-to-hex receipts-root)))
-            (is (string= (hash32-to-hex
-                          (transaction-receipt-list-root
-                           (list transaction)
-                           receipts))
-                         (hash32-to-hex receipts-root)))
-            (is (string= (quantity-to-hex 0) (field receipt "type")))
-            (is (string= (quantity-to-hex 1)
-                         (field receipt "status")))))))))
+                 (forkchoice-status
+                   (field (field forkchoice-response "result")
+                          "payloadStatus")))
+            (is (string= +payload-status-valid+
+                         (field forkchoice-status "status")))
+            (is (typep (chain-store-transaction-location
+                        store
+                        (transaction-hash transaction))
+                       'engine-transaction-location))
+            (let* ((receipts
+                     (chain-store-block-receipts store (block-hash child-block)))
+                   (receipt-response
+                     (engine-rpc-handle-request
+                      (receipt-request 30 (transaction-hash transaction))
+                      store config))
+                   (receipt (field receipt-response "result"))
+                   (receipts-root
+                     (block-header-receipts-root (block-header child-block))))
+              (is (= 1 (length receipts)))
+              (is (string= (hash32-to-hex (receipt-list-root receipts))
+                           (hash32-to-hex receipts-root)))
+              (is (string= (hash32-to-hex
+                            (transaction-receipt-list-root
+                             (list transaction)
+                             receipts))
+                           (hash32-to-hex receipts-root)))
+              (is (string= (quantity-to-hex 0) (field receipt "type")))
+              (is (string= (quantity-to-hex 1)
+                           (field receipt "status"))))))))))
 
 (deftest engine-rpc-new-payload-v2-rolls-back-state-projection-on-bad-commitment
   (labels ((field (object name)
@@ -281,4 +314,3 @@
            (lambda (header)
              (setf (block-header-gas-used header) 1))
            "Gas used mismatch"))))))
-

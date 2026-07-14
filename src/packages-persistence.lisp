@@ -28,6 +28,8 @@
    #:chain-store-export-transaction-locations-to-kv
    #:chain-store-export-state-records-to-kv
    #:node-store-export-txpool-records-to-kv
+   #:node-store-export-payload-candidate-to-kv
+   #:node-store-export-forkchoice-to-kv
    #:node-store-export-to-kv
    #:node-store-import-txpool-records-from-kv
    #:node-store-restore-txpool-consistency

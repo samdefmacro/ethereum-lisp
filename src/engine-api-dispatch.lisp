@@ -1,7 +1,9 @@
 (in-package #:ethereum-lisp.engine-api)
 
 (defun engine-rpc-handle-engine-method
-    (id method params store config &key import-function)
+    (id method params store config
+     &key import-function new-payload-persistence-function
+          forkchoice-persistence-function)
   (let ((version (engine-rpc-new-payload-version method)))
     (cond
       (version
@@ -10,7 +12,9 @@
         :result
         (engine-rpc-handle-new-payload
          version params store config
-         :import-function import-function)))
+         :import-function import-function
+         :new-payload-persistence-function
+         new-payload-persistence-function)))
       ((string= method "engine_exchangeCapabilities")
        (json-rpc-response
         id
@@ -20,22 +24,30 @@
        (json-rpc-response
         id
         :result
-        (engine-rpc-handle-forkchoice-updated-v1 params store config)))
+        (engine-rpc-handle-forkchoice-updated-v1
+         params store config
+         :forkchoice-persistence-function forkchoice-persistence-function)))
       ((string= method "engine_forkchoiceUpdatedV2")
        (json-rpc-response
         id
         :result
-        (engine-rpc-handle-forkchoice-updated-v2 params store config)))
+        (engine-rpc-handle-forkchoice-updated-v2
+         params store config
+         :forkchoice-persistence-function forkchoice-persistence-function)))
       ((string= method "engine_forkchoiceUpdatedV3")
        (json-rpc-response
         id
         :result
-        (engine-rpc-handle-forkchoice-updated-v3 params store config)))
+        (engine-rpc-handle-forkchoice-updated-v3
+         params store config
+         :forkchoice-persistence-function forkchoice-persistence-function)))
       ((string= method "engine_forkchoiceUpdatedV4")
        (json-rpc-response
         id
         :result
-        (engine-rpc-handle-forkchoice-updated-v4 params store config)))
+        (engine-rpc-handle-forkchoice-updated-v4
+         params store config
+         :forkchoice-persistence-function forkchoice-persistence-function)))
       ((string= method "engine_getPayloadV1")
        (json-rpc-response
         id

@@ -116,7 +116,19 @@
              (list (cons "jsonrpc" "2.0")
                    (cons "id" id)
                    (cons "method" "eth_getTransactionReceipt")
-                   (cons "params" (list (hash32-to-hex hash))))))
+                   (cons "params" (list (hash32-to-hex hash)))))
+           (forkchoice-request (id head checkpoint)
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" id)
+                   (cons "method" "engine_forkchoiceUpdatedV2")
+                   (cons "params"
+                         (list
+                          (list
+                           (cons "headBlockHash" (hash32-to-hex head))
+                           (cons "safeBlockHash"
+                                 (hash32-to-hex checkpoint))
+                           (cons "finalizedBlockHash"
+                                 (hash32-to-hex checkpoint))))))))
     (let* ((store (make-engine-payload-memory-store))
            (config (make-chain-config :chain-id 1
                                       :byzantium-block 0
@@ -208,22 +220,42 @@
                  (engine-rpc-handle-request
                   request store config
                   :import-function #'execute-and-commit-engine-payload))
-               (import-result (field import-response "result"))
-               (receipt-response
-                 (engine-rpc-handle-request
-                  (receipt-request 30 (transaction-hash transaction))
-                  store config))
-               (receipt (field receipt-response "result")))
+               (import-result (field import-response "result")))
           (is (string= +payload-status-valid+
                        (field import-result "status")))
-          (is (string= (address-to-hex contract)
-                       (field receipt "contractAddress")))
-          (is (null (field receipt "to")))
-          (is (string= (quantity-to-hex 1) (field receipt "status")))
-          (is (string= (quantity-to-hex 0)
-                       (field receipt "transactionIndex")))
-          (is (string= (hash32-to-hex (transaction-hash transaction))
-                       (field receipt "transactionHash")))
-          (is (string= (hash32-to-hex (block-hash child-block))
-                       (field receipt "blockHash"))))))))
-
+          (is (null (chain-store-transaction-location
+                     store
+                     (transaction-hash transaction))))
+          (is (null
+               (field
+                (engine-rpc-handle-request
+                 (receipt-request 30 (transaction-hash transaction))
+                 store config)
+                "result")))
+          (let* ((forkchoice-response
+                   (engine-rpc-handle-request
+                    (forkchoice-request
+                     31
+                     (block-hash child-block)
+                     (block-hash parent-block))
+                    store config))
+                 (forkchoice-status
+                   (field (field forkchoice-response "result")
+                          "payloadStatus")))
+            (is (string= +payload-status-valid+
+                         (field forkchoice-status "status")))
+            (let* ((receipt-response
+                     (engine-rpc-handle-request
+                      (receipt-request 32 (transaction-hash transaction))
+                      store config))
+                   (receipt (field receipt-response "result")))
+              (is (string= (address-to-hex contract)
+                           (field receipt "contractAddress")))
+              (is (null (field receipt "to")))
+              (is (string= (quantity-to-hex 1) (field receipt "status")))
+              (is (string= (quantity-to-hex 0)
+                           (field receipt "transactionIndex")))
+              (is (string= (hash32-to-hex (transaction-hash transaction))
+                           (field receipt "transactionHash")))
+              (is (string= (hash32-to-hex (block-hash child-block))
+                           (field receipt "blockHash"))))))))))

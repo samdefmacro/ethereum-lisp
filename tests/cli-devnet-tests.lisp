@@ -9,6 +9,7 @@
 
 (dolist (relative-path
          '("tests/cli-devnet-node-tests.lisp"
+           "tests/cli-devnet-live-persistence-tests.lisp"
            "tests/cli-devnet-main-tests.lisp"
            "tests/cli-devnet-txpool-period-tests.lisp"
            "tests/cli-devnet-artifact-tests.lisp"

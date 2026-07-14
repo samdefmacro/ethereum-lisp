@@ -54,6 +54,12 @@
    '(:block :header :receipt :canonical-hash :checkpoint :state
      :transaction-location)))
 
+(defun devnet-cli-kv-records-present-p (database)
+  (multiple-value-bind (key value present-p)
+      (funcall (ethereum-lisp.database:kv-iterator database))
+    (declare (ignore key value))
+    present-p))
+
 (defun devnet-cli-kv-txpool-records-present-p (database)
   (not (null
         (ethereum-lisp.database:kv-chain-record-entries database :txpool))))
@@ -152,10 +158,17 @@
               path)))))
 
 (defun devnet-cli-validate-imported-genesis (store genesis-block database-path)
-  (let ((restored-genesis (chain-store-block-by-number store 0)))
-    (when (and restored-genesis
-               (not (equalp (hash32-bytes (block-hash restored-genesis))
-                            (hash32-bytes (block-hash genesis-block)))))
+  (let* ((genesis-number
+           (block-header-number (block-header genesis-block)))
+         (restored-genesis
+           (chain-store-block-by-number store genesis-number)))
+    (unless restored-genesis
+      (error
+       "Devnet database is missing canonical genesis at block ~D (~A)"
+       genesis-number
+       database-path))
+    (when (not (equalp (hash32-bytes (block-hash restored-genesis))
+                       (hash32-bytes (block-hash genesis-block))))
       (error
        "Devnet database genesis does not match genesis file (~A): expected ~A, got ~A"
        database-path

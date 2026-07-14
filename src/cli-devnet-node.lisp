@@ -105,6 +105,11 @@
                 :config config)))
          (effective-network-id (or network-id (chain-config-chain-id config)))
          (store (make-engine-payload-memory-store))
+         (store-guard-function (make-devnet-store-guard-function))
+         (new-payload-persistence-function
+           (devnet-cli-new-payload-persistence-function database-path))
+         (forkchoice-persistence-function
+           (devnet-cli-forkchoice-persistence-function database-path))
          (jwt-secret (and jwt-secret-path
                           (devnet-cli-read-jwt-secret jwt-secret-path)))
          (service
@@ -116,6 +121,10 @@
             :network-id effective-network-id
             :coinbase coinbase
             :import-function #'execute-and-commit-engine-payload
+            :new-payload-persistence-function
+            new-payload-persistence-function
+            :forkchoice-persistence-function forkchoice-persistence-function
+            :request-guard-function store-guard-function
             :jwt-secret jwt-secret
             :rpc-prefix
             (devnet-endpoint-config-rpc-prefix engine-endpoint-config)
@@ -135,6 +144,10 @@
             :network-id effective-network-id
             :coinbase coinbase
             :import-function #'execute-and-commit-engine-payload
+            :new-payload-persistence-function
+            new-payload-persistence-function
+            :forkchoice-persistence-function forkchoice-persistence-function
+            :request-guard-function store-guard-function
             :now-provider #'get-universal-time
             :rpc-prefix
             (devnet-endpoint-config-rpc-prefix public-endpoint-config)
@@ -190,6 +203,7 @@
      :kzg-config kzg-config
      :dev-mode-p dev-mode-p
      :coinbase coinbase
+     :store-guard-function store-guard-function
      :txpool-journal-path txpool-journal-path
      :txpool-rejournal-seconds txpool-rejournal-seconds
      :dev-period-seconds dev-period-seconds)))

@@ -48,8 +48,19 @@
             (engine-rpc-prepared-payload-body-arguments
              payload-attributes config block-number timestamp)))))))
 
+(defun engine-rpc-persist-forkchoice
+    (store forkchoice-persistence-function)
+  (when forkchoice-persistence-function
+    (handler-case
+        (funcall forkchoice-persistence-function store)
+      (storage-error (condition)
+        (error condition))
+      (error (condition)
+        (storage-fail "Forkchoice persistence failed: ~A" condition)))))
+
 (defun engine-rpc-handle-forkchoice-updated
-    (params store config method payload-version payload-attributes-parser)
+    (params store config method payload-version payload-attributes-parser
+     &key forkchoice-persistence-function)
   (unless (and (listp params) params)
     (block-validation-fail "~A params must include forkchoice state" method))
   (let ((state
@@ -89,7 +100,9 @@
             store
             (forkchoice-state-head-block-hash state)
             :expected-chain-id (chain-config-chain-id config)
-            :chain-config config))))
+            :chain-config config)
+           (engine-rpc-persist-forkchoice
+            store forkchoice-persistence-function))))
       (when (and payload-attributes
                  (string= +payload-status-valid+
                           (payload-status-status status)))
@@ -132,24 +145,32 @@
        status
        :payload-id payload-id))))
 
-(defun engine-rpc-handle-forkchoice-updated-v1 (params store config)
+(defun engine-rpc-handle-forkchoice-updated-v1
+    (params store config &key forkchoice-persistence-function)
   (engine-rpc-handle-forkchoice-updated
    params store config "engine_forkchoiceUpdatedV1" 1
    (lambda (payload-attributes)
      (engine-rpc-validate-payload-attributes-v1
-      payload-attributes :method "engine_forkchoiceUpdatedV1"))))
+      payload-attributes :method "engine_forkchoiceUpdatedV1"))
+   :forkchoice-persistence-function forkchoice-persistence-function))
 
-(defun engine-rpc-handle-forkchoice-updated-v2 (params store config)
+(defun engine-rpc-handle-forkchoice-updated-v2
+    (params store config &key forkchoice-persistence-function)
   (engine-rpc-handle-forkchoice-updated
    params store config "engine_forkchoiceUpdatedV2" 2
-   #'engine-rpc-validate-payload-attributes-v2))
+   #'engine-rpc-validate-payload-attributes-v2
+   :forkchoice-persistence-function forkchoice-persistence-function))
 
-(defun engine-rpc-handle-forkchoice-updated-v3 (params store config)
+(defun engine-rpc-handle-forkchoice-updated-v3
+    (params store config &key forkchoice-persistence-function)
   (engine-rpc-handle-forkchoice-updated
    params store config "engine_forkchoiceUpdatedV3" 3
-   #'engine-rpc-validate-payload-attributes-v3))
+   #'engine-rpc-validate-payload-attributes-v3
+   :forkchoice-persistence-function forkchoice-persistence-function))
 
-(defun engine-rpc-handle-forkchoice-updated-v4 (params store config)
+(defun engine-rpc-handle-forkchoice-updated-v4
+    (params store config &key forkchoice-persistence-function)
   (engine-rpc-handle-forkchoice-updated
    params store config "engine_forkchoiceUpdatedV4" 4
-   #'engine-rpc-validate-payload-attributes-v4))
+   #'engine-rpc-validate-payload-attributes-v4
+   :forkchoice-persistence-function forkchoice-persistence-function))

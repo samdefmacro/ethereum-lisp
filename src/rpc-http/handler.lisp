@@ -78,6 +78,9 @@
 
 (defun engine-rpc-handle-http-request-string
     (request store config &key jwt-secret now import-function
+                               new-payload-persistence-function
+                               forkchoice-persistence-function
+                               request-guard-function
                                network-id
                                coinbase
                                (rpc-prefix "/")
@@ -99,6 +102,9 @@
    (make-rpc-context
     store config
     :import-function import-function
+    :new-payload-persistence-function new-payload-persistence-function
+    :forkchoice-persistence-function forkchoice-persistence-function
+    :request-guard-function request-guard-function
     :network-id network-id
     :coinbase coinbase
     :allowed-method-p allowed-method-p
@@ -161,6 +167,9 @@
 (defun engine-rpc-handle-http-stream
     (input-stream output-stream store config
      &key jwt-secret now import-function
+          new-payload-persistence-function
+          forkchoice-persistence-function
+          request-guard-function
           network-id
           coinbase
           (rpc-prefix "/")
@@ -185,6 +194,9 @@
    (make-rpc-context
     store config
     :import-function import-function
+    :new-payload-persistence-function new-payload-persistence-function
+    :forkchoice-persistence-function forkchoice-persistence-function
+    :request-guard-function request-guard-function
     :network-id network-id
     :coinbase coinbase
     :allowed-method-p allowed-method-p

@@ -31,6 +31,10 @@
   (rpc-context-import-function
    (engine-rpc-http-service-rpc-context service)))
 
+(defun engine-rpc-http-service-new-payload-persistence-function (service)
+  (rpc-context-new-payload-persistence-function
+   (engine-rpc-http-service-rpc-context service)))
+
 (defun engine-rpc-http-service-allowed-method-p (service)
   (rpc-context-allowed-method-p
    (engine-rpc-http-service-rpc-context service)))
@@ -76,6 +80,9 @@
        jwt-secret
        (now-provider (lambda () 0))
        import-function
+       new-payload-persistence-function
+       forkchoice-persistence-function
+       request-guard-function
        (allowed-method-p #'engine-rpc-any-method-p)
        network-id
        (coinbase (zero-address))
@@ -113,6 +120,18 @@
   (when (and import-function (not (functionp import-function)))
     (block-validation-fail
      "Engine RPC HTTP import function must be a function"))
+  (when (and new-payload-persistence-function
+             (not (functionp new-payload-persistence-function)))
+    (block-validation-fail
+     "Engine RPC HTTP new payload persistence callback must be a function"))
+  (when (and forkchoice-persistence-function
+             (not (functionp forkchoice-persistence-function)))
+    (block-validation-fail
+     "Engine RPC HTTP forkchoice persistence callback must be a function"))
+  (when (and request-guard-function
+             (not (functionp request-guard-function)))
+    (block-validation-fail
+     "Engine RPC HTTP request guard must be a function"))
   (unless (functionp allowed-method-p)
     (block-validation-fail
      "Engine RPC HTTP method filter must be a function"))
@@ -149,6 +168,9 @@
    (make-rpc-context
     store config
     :import-function import-function
+    :new-payload-persistence-function new-payload-persistence-function
+    :forkchoice-persistence-function forkchoice-persistence-function
+    :request-guard-function request-guard-function
     :network-id network-id
     :coinbase coinbase
     :allowed-method-p allowed-method-p

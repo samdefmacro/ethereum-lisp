@@ -112,14 +112,19 @@
        txpool subpool transaction))))
 
 (defun node-store-import-txpool-records-from-kv
-    (store database &key expected-chain-id chain-config)
+    (store database &key expected-chain-id chain-config
+                         skip-indexed-transactions-p)
   (dolist (entry (kv-chain-record-entries database :txpool))
-    (chain-store-import-txpool-transaction-from-kv
-     store
-     (car entry)
-     (cdr entry)
-     :expected-chain-id expected-chain-id
-     :chain-config chain-config)))
+    (let ((transaction-hash (make-hash32 (car entry))))
+      (unless (and skip-indexed-transactions-p
+                   (chain-store-transaction-location
+                    store transaction-hash))
+        (chain-store-import-txpool-transaction-from-kv
+         store
+         (hash32-bytes transaction-hash)
+         (cdr entry)
+         :expected-chain-id expected-chain-id
+         :chain-config chain-config)))))
 
 (defun node-store-restore-txpool-consistency
     (store &key expected-chain-id chain-config)

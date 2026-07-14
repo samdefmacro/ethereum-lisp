@@ -704,6 +704,7 @@
    #:chain-store-export-block-records-to-kv
    #:chain-store-export-transaction-locations-to-kv
    #:chain-store-export-state-records-to-kv
+   #:node-store-export-payload-candidate-to-kv
    #:node-store-export-to-kv
    #:node-store-import-from-kv)
   (#:ethereum-lisp.engine-api
@@ -742,6 +743,7 @@
    #:engine-rpc-http-service-jwt-secret
    #:engine-rpc-http-service-now-provider
    #:engine-rpc-http-service-import-function
+   #:engine-rpc-http-service-new-payload-persistence-function
    #:engine-rpc-http-service-telemetry-sink
    #:engine-rpc-http-service-allowed-method-p
    #:engine-rpc-http-service-coinbase

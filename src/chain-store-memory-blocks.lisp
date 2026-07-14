@@ -3,7 +3,7 @@
 ;;;; In-memory block storage and forkchoice checkpoint updates.
 
 (defun memory-chain-store-put-block
-    (store block &key (state-available-p nil))
+    (store block &key (state-available-p nil) (canonicalize-p t))
   (setf store (chain-store-require-memory-store store))
   (unless (typep block 'ethereum-block)
     (block-validation-fail "Chain store block must be a block"))
@@ -19,7 +19,8 @@
         (setf (gethash number
                        (memory-chain-store-number-blocks store))
               stored-block)
-        (when (and (not (gethash
+        (when (and canonicalize-p
+                   (not (gethash
                          number
                          (memory-chain-store-canonical-hashes store)))
                    (engine-payload-store-canonical-parent-p
