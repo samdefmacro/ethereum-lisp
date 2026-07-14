@@ -1125,7 +1125,25 @@
           (is (ethereum-lisp.json:json-empty-array-p
                (field bundle "blobs"))))))))
 
-(deftest engine-rpc-forkchoice-updated-v4-prepares-amsterdam-payload
+(deftest engine-rpc-forkchoice-selects-the-fork-get-payload-version
+  (let ((cancun (make-chain-config :london-block 0 :cancun-time 0))
+        (prague (make-chain-config :london-block 0 :cancun-time 0
+                                   :prague-time 0))
+        (osaka (make-chain-config :london-block 0 :cancun-time 0
+                                  :prague-time 0 :osaka-time 0))
+        (amsterdam (make-chain-config :london-block 0 :cancun-time 0
+                                      :prague-time 0 :osaka-time 0
+                                      :amsterdam-time 0)))
+    (is (= 3 (ethereum-lisp.engine-api::engine-rpc-prepared-payload-version
+              3 cancun 1 1)))
+    (is (= 4 (ethereum-lisp.engine-api::engine-rpc-prepared-payload-version
+              3 prague 1 1)))
+    (is (= 5 (ethereum-lisp.engine-api::engine-rpc-prepared-payload-version
+              3 osaka 1 1)))
+    (is (= 6 (ethereum-lisp.engine-api::engine-rpc-prepared-payload-version
+              4 amsterdam 1 1)))))
+
+(deftest engine-rpc-forkchoice-updated-v4-prepares-amsterdam-payload-v6
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))
            (forkchoice-state-object
@@ -1161,13 +1179,25 @@
                                       :cancun-time 0
                                       :prague-time 0
                                       :amsterdam-time 0))
-           (known-block (make-block))
+           (parent-state (make-state-db))
+           (known-block
+             (progn
+               (dolist (address
+                        '("0x00000961ef480eb55e80d19ad83579a64c007002"
+                          "0x0000bbddc7ce488642fb579f8b00f3a590007251"))
+                 (state-db-set-code
+                  parent-state (address-from-hex address)
+                  #(#x60 #x00 #x60 #x00 #xf3)))
+               (make-block
+                :header (make-block-header
+                         :state-root (state-db-root parent-state)))))
            (known-hash (block-hash known-block))
            (parent-beacon-root
              (hash32-from-hex
               "0x4444444444444444444444444444444444444444444444444444444444444444")))
       (engine-payload-store-put-block
        store known-block :state-available-p t)
+      (commit-state-db-to-chain-store store known-hash parent-state)
       (let* ((response
                (engine-rpc-handle-request
                 (forkchoice-request
@@ -1188,19 +1218,20 @@
         (is (= 32 (field response "id")))
         (is (string= +payload-status-valid+
                      (field payload-status "status")))
-        (is (string= "04" (subseq payload-id 2 4)))
+        (is (string= "06" (subseq payload-id 2 4)))
         (is (= 42 (block-header-slot-number prepared-header)))
         (let* ((get-payload-response
                  (engine-rpc-handle-request
                   (list (cons "jsonrpc" "2.0")
                         (cons "id" 33)
-                        (cons "method" "engine_getPayloadV4")
+                        (cons "method" "engine_getPayloadV6")
                         (cons "params" (list payload-id)))
                   store
                   config))
                (envelope (field get-payload-response "result"))
                (payload (field envelope "executionPayload"))
                (bundle (field envelope "blobsBundle"))
+               (execution-requests (field envelope "executionRequests"))
                (withdrawals (field payload "withdrawals")))
           (is (= 33 (field get-payload-response "id")))
           (is (eq :false (field envelope "shouldOverrideBuilder")))
@@ -1208,6 +1239,7 @@
           (is (string= "0x0" (field payload "blobGasUsed")))
           (is (string= "0x0" (field payload "excessBlobGas")))
           (is (= 1 (length withdrawals)))
+          (is (ethereum-lisp.json:json-empty-array-p execution-requests))
           (is (ethereum-lisp.json:json-empty-array-p
                (field bundle "commitments")))
           (is (ethereum-lisp.json:json-empty-array-p

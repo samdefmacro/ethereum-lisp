@@ -70,6 +70,27 @@
       (error (condition)
         (storage-fail "Forkchoice persistence failed: ~A" condition)))))
 
+(defun engine-rpc-prepared-payload-version
+    (forkchoice-version config block-number timestamp)
+  (case forkchoice-version
+    (3
+     (cond
+       ((chain-config-amsterdam-p config block-number timestamp)
+        (engine-rpc-fail +engine-rpc-error-unsupported-fork+
+                         "forkchoiceUpdatedV3 is unsupported after Amsterdam"))
+       ((chain-config-osaka-p config block-number timestamp) 5)
+       ((chain-config-prague-p config block-number timestamp) 4)
+       ((chain-config-cancun-p config block-number timestamp) 3)
+       (t
+        (engine-rpc-fail +engine-rpc-error-unsupported-fork+
+                         "forkchoiceUpdatedV3 requires Cancun or later"))))
+    (4
+     (if (chain-config-amsterdam-p config block-number timestamp)
+         6
+         (engine-rpc-fail +engine-rpc-error-unsupported-fork+
+                          "forkchoiceUpdatedV4 requires Amsterdam")))
+    (otherwise forkchoice-version)))
+
 (defun engine-rpc-handle-forkchoice-updated
     (params store config method payload-version payload-attributes-parser
      &key forkchoice-persistence-function)
@@ -130,22 +151,30 @@
                (head-hash (forkchoice-state-head-block-hash state))
                (parent-block
                  (chain-store-known-block store head-hash))
+               (parent-header (block-header parent-block))
+               (block-number (1+ (block-header-number parent-header)))
+               (timestamp (payload-attributes-v1-timestamp
+                           payload-attributes))
+               (prepared-payload-version
+                 (engine-rpc-prepared-payload-version
+                  payload-version config block-number timestamp))
                (transactions
                  (engine-select-mining-transactions
                   (engine-payload-store-pending-mining-transactions
                    store (chain-config-chain-id config))
-                  (block-header-gas-limit (block-header parent-block))
+                  (block-header-gas-limit parent-header)
                   (chain-config-chain-id config)))
                (candidate-id
                  (engine-payload-id-with-transactions
-                  payload-version head-hash payload-attributes transactions)))
+                  prepared-payload-version head-hash payload-attributes
+                  transactions)))
           (unless (chain-store-prepared-payload
                    store candidate-id)
             (chain-store-put-prepared-payload
              store
              (make-engine-prepared-payload
               :payload-id candidate-id
-              :version payload-version
+              :version prepared-payload-version
               :block
               (handler-case
                   (engine-rpc-build-prepared-payload

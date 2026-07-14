@@ -513,6 +513,52 @@
 (defun eip4788-test-slot (number)
   (hash32-from-hex (format nil "0x~64,'0X" number)))
 
+(defun install-empty-prague-request-contracts (state)
+  (dolist (address
+           '("0x00000961ef480eb55e80d19ad83579a64c007002"
+             "0x0000bbddc7ce488642fb579f8b00f3a590007251"))
+    ;; PUSH1 0 PUSH1 0 RETURN
+    (state-db-set-code state (address-from-hex address)
+                       #(#x60 #x00 #x60 #x00 #xf3)))
+  state)
+
+(defun eip7685-test-word (value)
+  (let* ((bytes (integer-to-minimal-bytes value))
+         (word (make-byte-vector 32)))
+    (replace word bytes :start1 (- 32 (length bytes)))
+    word))
+
+(defun eip7685-test-return-code (data)
+  (let ((data (ensure-byte-vector data)))
+    (unless (< (length data) 256)
+      (error "Test system-call output exceeds PUSH1"))
+    ;; Copy the bytes appended after this ten-byte prefix and return them.
+    (concat-bytes #(#x60) (vector (length data))
+                  #(#x60 #x0a #x5f #x39 #x60)
+                  (vector (length data)) #(#x5f #xf3)
+                  data)))
+
+(defun eip6110-test-deposit-event-data ()
+  (let ((pubkey (make-byte-vector 48 :initial-element #x11))
+        (withdrawal-credentials
+          (make-byte-vector 32 :initial-element #x22))
+        (amount (make-byte-vector 8 :initial-element #x33))
+        (signature (make-byte-vector 96 :initial-element #x44))
+        (index (make-byte-vector 8 :initial-element #x55)))
+    (values
+     (concat-bytes
+      (eip7685-test-word 160)
+      (eip7685-test-word 256)
+      (eip7685-test-word 320)
+      (eip7685-test-word 384)
+      (eip7685-test-word 512)
+      (eip7685-test-word 48) pubkey (make-byte-vector 16)
+      (eip7685-test-word 32) withdrawal-credentials
+      (eip7685-test-word 8) amount (make-byte-vector 24)
+      (eip7685-test-word 96) signature
+      (eip7685-test-word 8) index (make-byte-vector 24))
+     (concat-bytes pubkey withdrawal-credentials amount signature index))))
+
 (deftest cancun-block-processes-parent-beacon-root-before-transactions
   (let* ((state (make-state-db))
          (system-address
@@ -623,6 +669,7 @@
     (state-db-set-storage state history-address (eip4788-test-slot 0) 7)
     (state-db-set-storage state history-address (eip4788-test-slot 1) 9)
     (state-db-set-code state observer observer-code)
+    (install-empty-prague-request-contracts state)
     (state-db-set-account state sender (make-state-account :balance 1000000))
     (multiple-value-bind (block receipts)
         (execute-legacy-block state sender (list transaction)
@@ -641,6 +688,140 @@
                                    (eip4788-test-slot 0))))
       (is (= (receipt-cumulative-gas-used (first receipts))
              (block-header-gas-used (block-header block)))))))
+
+(deftest prague-block-derives-all-execution-request-types
+  (multiple-value-bind (deposit-event-data deposit-request-data)
+      (eip6110-test-deposit-event-data)
+    (let* ((state (make-state-db))
+           (deposit-contract
+             (address-from-hex
+              "0x00000000219ab540356cbb839cbe05303d7705fa"))
+           (withdrawal-contract
+             (address-from-hex
+              "0x00000961ef480eb55e80d19ad83579a64c007002"))
+           (consolidation-contract
+             (address-from-hex
+              "0x0000bbddc7ce488642fb579f8b00f3a590007251"))
+           (sender
+             (address-from-hex
+              "0x0000000000000000000000000000000000000001"))
+           (withdrawal-data (make-byte-vector 76 :initial-element #x66))
+           (consolidation-data
+             (make-byte-vector 116 :initial-element #x77))
+           (deposit-code
+             (concat-bytes
+              #(#x36 #x5f #x5f #x37 #x7f)
+              (hash32-bytes
+               (hash32-from-hex
+                "0x649bbc62d0e31342afea4e5cd82d4049e7e1ee912fc0889aa790803be39038c5"))
+              #(#x36 #x5f #xa1 #x00)))
+           (config (make-chain-config
+                    :byzantium-block 0
+                    :berlin-block 0
+                    :london-block 0
+                    :shanghai-time 0
+                    :cancun-time 0
+                    :prague-time 0
+                    :deposit-contract-address deposit-contract))
+           (header (make-block-header
+                    :parent-hash (zero-hash32)
+                    :number 1
+                    :timestamp 1
+                    :gas-limit 200000
+                    :base-fee-per-gas 0
+                    :blob-gas-used 0
+                    :excess-blob-gas 0
+                    :parent-beacon-root (zero-hash32)))
+           (transaction (make-legacy-transaction
+                         :nonce 0
+                         :gas-price 1
+                         :gas-limit 150000
+                         :to deposit-contract
+                         :data deposit-event-data))
+           (expected-requests
+             (list (concat-bytes #(#x00) deposit-request-data)
+                   (concat-bytes #(#x01) withdrawal-data)
+                   (concat-bytes #(#x02) consolidation-data))))
+      (state-db-set-code state deposit-contract deposit-code)
+      (state-db-set-code state withdrawal-contract
+                         (eip7685-test-return-code withdrawal-data))
+      (state-db-set-code state consolidation-contract
+                         (eip7685-test-return-code consolidation-data))
+      (state-db-set-account state sender
+                            (make-state-account :balance 1000000))
+      (multiple-value-bind (block receipts)
+          (execute-legacy-block state sender (list transaction)
+                                :header header
+                                :chain-config config
+                                :withdrawals '()
+                                :requests '())
+        (is (= 1 (length receipts)))
+        (is (block-requests-present-p block))
+        (is (= 3 (length (block-requests block))))
+        (loop for actual in (block-requests block)
+              for expected in expected-requests
+              do (is (bytes= expected actual)))
+        (is (string=
+             (hash32-to-hex (execution-requests-hash expected-requests))
+             (hash32-to-hex
+              (block-header-requests-hash (block-header block)))))
+        (is (= (receipt-cumulative-gas-used (first receipts))
+               (block-header-gas-used (block-header block))))))))
+
+(deftest prague-request-system-contracts-are-mandatory
+  (let* ((state (make-state-db))
+         (config (make-chain-config :london-block 0
+                                    :shanghai-time 0
+                                    :cancun-time 0
+                                    :prague-time 0))
+         (header (make-block-header
+                  :parent-hash (zero-hash32)
+                  :number 1
+                  :timestamp 1
+                  :gas-limit 100000
+                  :base-fee-per-gas 0
+                  :blob-gas-used 0
+                  :excess-blob-gas 0
+                  :parent-beacon-root (zero-hash32))))
+    (signals block-validation-error
+      (execute-legacy-block state (zero-address) '()
+                            :header header
+                            :chain-config config
+                            :withdrawals '()
+                            :requests '()))))
+
+(deftest prague-block-rejects-requests-not-derived-from-execution
+  (let* ((state (make-state-db))
+         (withdrawal-contract
+           (address-from-hex
+            "0x00000961ef480eb55e80d19ad83579a64c007002"))
+         (consolidation-contract
+           (address-from-hex
+            "0x0000bbddc7ce488642fb579f8b00f3a590007251"))
+         (config (make-chain-config :london-block 0
+                                    :shanghai-time 0
+                                    :cancun-time 0
+                                    :prague-time 0))
+         (header (make-block-header
+                  :parent-hash (zero-hash32)
+                  :number 1
+                  :timestamp 1
+                  :gas-limit 100000
+                  :base-fee-per-gas 0
+                  :blob-gas-used 0
+                  :excess-blob-gas 0
+                  :parent-beacon-root (zero-hash32)
+                  :requests-hash (execution-requests-hash '()))))
+    (state-db-set-code state withdrawal-contract
+                       (eip7685-test-return-code #(#xaa)))
+    (state-db-set-code state consolidation-contract
+                       #(#x60 #x00 #x60 #x00 #xf3))
+    (signals block-validation-error
+      (execute-legacy-block state (zero-address) '()
+                            :header header
+                            :chain-config config
+                            :withdrawals '()
+                            :requests '()))))
 
 (deftest reverted-parent-beacon-root-system-call-does-not-reject-block
   (let* ((state (make-state-db))

@@ -115,7 +115,8 @@
            (engine-rpc-json-array #'bytes-to-hex cell-proofs)))))
 
 (defun engine-rpc-execution-payload-envelope-object
-    (envelope &key include-blobs-bundle-p include-override-p)
+    (envelope &key include-blobs-bundle-p include-override-p
+                   include-requests-p)
   (unless (typep envelope 'execution-payload-envelope)
     (block-validation-fail
      "Engine RPC payload envelope must be execution-payload-envelope"))
@@ -126,12 +127,13 @@
            (execution-payload-envelope-execution-payload envelope)))
     (cons "blockValue"
           (quantity-to-hex (execution-payload-envelope-block-value envelope))))
-   (when (execution-payload-envelope-requests envelope)
+   (when (or include-requests-p
+             (execution-payload-envelope-requests envelope))
      (list
       (cons "executionRequests"
             (engine-rpc-json-array
              #'bytes-to-hex
-             (execution-payload-envelope-requests envelope)))))
+             (or (execution-payload-envelope-requests envelope) '())))))
    (when include-blobs-bundle-p
      (list
       (cons "blobsBundle"

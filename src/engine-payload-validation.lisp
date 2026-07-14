@@ -45,6 +45,7 @@
          (shanghai-p (chain-config-shanghai-p config number timestamp))
          (cancun-p (chain-config-cancun-p config number timestamp))
          (prague-p (chain-config-prague-p config number timestamp))
+         (osaka-p (chain-config-osaka-p config number timestamp))
          (amsterdam-p (chain-config-amsterdam-p config number timestamp)))
     (cond
       ((= version 1)
@@ -63,6 +64,10 @@
           "blobGasUsed not supported before Cancun")))
       ((= version 3)
        (cond
+         ((or prague-p osaka-p amsterdam-p)
+          "newPayloadV3 is unsupported after Cancun")
+         ((not cancun-p)
+          "newPayloadV3 requires Cancun")
          ((not withdrawals-present-p) "withdrawals required after Shanghai")
          ((null (executable-data-excess-blob-gas payload))
           "excessBlobGas required after Cancun")
@@ -71,11 +76,13 @@
          ((not versioned-hashes-supplied-p)
           "versionedHashes required after Cancun")
          ((not parent-beacon-root-supplied-p)
-          "parentBeaconBlockRoot required after Cancun")
-         ((not cancun-p)
-          "newPayloadV3 requires Cancun")))
+          "parentBeaconBlockRoot required after Cancun")))
       ((= version 4)
        (cond
+         (amsterdam-p
+          "newPayloadV4 is unsupported at Amsterdam")
+         ((not (or prague-p osaka-p))
+          "newPayloadV4 requires Prague or Osaka")
          ((not withdrawals-present-p) "withdrawals required after Shanghai")
          ((null (executable-data-excess-blob-gas payload))
           "excessBlobGas required after Cancun")
@@ -86,11 +93,11 @@
          ((not parent-beacon-root-supplied-p)
           "parentBeaconBlockRoot required after Cancun")
          ((not requests-supplied-p)
-          "executionRequests required after Prague")
-         ((not prague-p)
-          "newPayloadV4 requires Prague or later")))
+          "executionRequests required after Prague")))
       ((= version 5)
        (cond
+         ((not amsterdam-p)
+          "newPayloadV5 requires Amsterdam")
          ((not withdrawals-present-p) "withdrawals required after Shanghai")
          ((null (executable-data-excess-blob-gas payload))
           "excessBlobGas required after Cancun")
@@ -105,9 +112,7 @@
          ((null (executable-data-slot-number payload))
           "slotNumber required after Amsterdam")
          ((null (executable-data-block-access-list payload))
-          "blockAccessList required after Amsterdam")
-         ((not amsterdam-p)
-          "newPayloadV5 requires Amsterdam")))
+          "blockAccessList required after Amsterdam")))
       (t "unsupported newPayload version"))))
 
 (defun engine-new-payload-version-status
