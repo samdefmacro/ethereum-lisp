@@ -79,7 +79,7 @@
        (config (make-chain-config))
        jwt-secret
        (now-provider (lambda () 0))
-       import-function
+       (import-function #'execute-and-commit-engine-payload)
        new-payload-persistence-function
        forkchoice-persistence-function
        request-guard-function
@@ -117,7 +117,7 @@
   (unless (functionp now-provider)
     (block-validation-fail
      "Engine RPC HTTP now provider must be a function"))
-  (when (and import-function (not (functionp import-function)))
+  (unless (functionp import-function)
     (block-validation-fail
      "Engine RPC HTTP import function must be a function"))
   (when (and new-payload-persistence-function

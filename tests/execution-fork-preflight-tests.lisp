@@ -494,3 +494,109 @@
                     (block-header-block-access-list-hash
                      (block-header block))))))))
 
+(defun eip4788-test-chain-config ()
+  (make-chain-config :byzantium-block 0
+                     :berlin-block 0
+                     :london-block 0
+                     :shanghai-time 0
+                     :cancun-time 0))
+
+(defun eip4788-test-header (parent-beacon-root)
+  (make-block-header :number 1
+                     :timestamp 1
+                     :gas-limit 100000
+                     :base-fee-per-gas 0
+                     :blob-gas-used 0
+                     :excess-blob-gas 0
+                     :parent-beacon-root parent-beacon-root))
+
+(defun eip4788-test-slot (number)
+  (hash32-from-hex (format nil "0x~64,'0X" number)))
+
+(deftest cancun-block-processes-parent-beacon-root-before-transactions
+  (let* ((state (make-state-db))
+         (system-address
+           (address-from-hex
+            "0xfffffffffffffffffffffffffffffffffffffffe"))
+         (beacon-roots-address
+           (address-from-hex
+            "0x000f3df6d732807ef1319fb7b8bb8522d0beac02"))
+         (sender
+           (address-from-hex
+            "0x0000000000000000000000000000000000000001"))
+         (parent-beacon-root
+           (hash32-from-hex
+            "0x1111111111111111111111111111111111111111111111111111111111111111"))
+         (transaction-data
+           (hash32-bytes
+            (hash32-from-hex
+             "0x2222222222222222222222222222222222222222222222222222222222222222")))
+         ;; The system branch stores the beacon root and call identity.  The
+         ;; ordinary transaction branch overwrites slot zero, proving order.
+         (code
+           (concat-bytes
+            #(#x33 #x73)
+            (address-bytes system-address)
+            #(#x14 #x60 #x21 #x57
+              #x60 #x00 #x35 #x60 #x00 #x55 #x00
+              #x5b #x60 #x00 #x35 #x60 #x00 #x55
+              #x33 #x60 #x01 #x55
+              #x32 #x60 #x02 #x55
+              #x34 #x60 #x03 #x55
+              #x3a #x60 #x04 #x55 #x00)))
+         (transaction
+           (make-legacy-transaction :nonce 0
+                                    :gas-price 1
+                                    :gas-limit 80000
+                                    :to beacon-roots-address
+                                    :data transaction-data))
+         (header (eip4788-test-header parent-beacon-root)))
+    (state-db-set-code state beacon-roots-address code)
+    (state-db-set-account state sender (make-state-account :balance 1000000))
+    (multiple-value-bind (block receipts)
+        (execute-legacy-block
+         state sender (list transaction)
+         :header header
+         :withdrawals '())
+      (is (= 1 (length receipts)))
+      (is (= (bytes-to-integer transaction-data)
+             (state-db-get-storage state beacon-roots-address
+                                   (eip4788-test-slot 0))))
+      (is (= (bytes-to-integer (address-bytes system-address))
+             (state-db-get-storage state beacon-roots-address
+                                   (eip4788-test-slot 1))))
+      (is (= (bytes-to-integer (address-bytes system-address))
+             (state-db-get-storage state beacon-roots-address
+                                   (eip4788-test-slot 2))))
+      (is (zerop (state-db-get-storage state beacon-roots-address
+                                       (eip4788-test-slot 3))))
+      (is (zerop (state-db-get-storage state beacon-roots-address
+                                       (eip4788-test-slot 4))))
+      (is (= (receipt-cumulative-gas-used (first receipts))
+             (block-header-gas-used (block-header block)))))))
+
+(deftest reverted-parent-beacon-root-system-call-does-not-reject-block
+  (let* ((state (make-state-db))
+         (beacon-roots-address
+           (address-from-hex
+            "0x000f3df6d732807ef1319fb7b8bb8522d0beac02"))
+         (parent-beacon-root
+           (hash32-from-hex
+            "0x3333333333333333333333333333333333333333333333333333333333333333"))
+         (slot (eip4788-test-slot 0))
+         ;; Store calldata, then revert the system call frame.
+         (code #(#x60 #x00 #x35 #x60 #x00 #x55
+                 #x60 #x00 #x60 #x00 #xfd)))
+    (state-db-set-code state beacon-roots-address code)
+    (state-db-set-storage state beacon-roots-address slot 9)
+    (multiple-value-bind (block receipts)
+        (execute-legacy-block
+         state
+         (zero-address)
+         '()
+         :header (eip4788-test-header parent-beacon-root)
+         :chain-config (eip4788-test-chain-config)
+         :withdrawals '())
+      (is (null receipts))
+      (is (zerop (block-header-gas-used (block-header block))))
+      (is (= 9 (state-db-get-storage state beacon-roots-address slot))))))

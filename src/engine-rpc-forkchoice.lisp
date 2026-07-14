@@ -21,13 +21,19 @@
 
 (defun engine-rpc-build-prepared-payload
     (store parent-block payload-attributes config transactions)
-  (let ((block (engine-build-empty-payload parent-block payload-attributes)))
-    (if (null transactions)
+  (let* ((block (engine-build-empty-payload parent-block payload-attributes))
+         (header (block-header block))
+         (block-number (block-header-number header))
+         (timestamp (block-header-timestamp header)))
+    (if (not (or transactions
+                 (and
+                  (payload-attributes-v1-withdrawals-present-p
+                   payload-attributes)
+                  (payload-attributes-v1-withdrawals payload-attributes))
+                 (chain-config-cancun-p
+                  config block-number timestamp)))
         block
-        (let* ((header (block-header block))
-               (block-number (block-header-number header))
-               (timestamp (block-header-timestamp header))
-               (state (chain-store-state-db store (block-hash parent-block))))
+        (let ((state (chain-store-state-db store (block-hash parent-block))))
           (unless state
             (block-validation-fail
              "Prepared payload parent state is unavailable"))
