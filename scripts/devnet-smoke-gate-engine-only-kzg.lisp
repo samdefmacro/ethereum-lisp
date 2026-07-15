@@ -1,5 +1,48 @@
 (in-package #:ethereum-lisp.test)
 
+(defun devnet-smoke-gate-write-kzg-fork-genesis
+    (source-path &key path)
+  "Write the fork schedule and state required by the KZG Engine smoke case."
+  (let* ((genesis
+           (parse-json (devnet-smoke-gate-file-string source-path)))
+         (config (fixture-object-field genesis "config"))
+         (alloc (fixture-object-field genesis "alloc"))
+         (timestamp (fixture-quantity-field genesis "timestamp"))
+         (path (or path
+                   (devnet-cli-temp-path
+                    "ethereum-lisp-smoke-kzg-genesis" "json"))))
+    (dolist (field
+             (list (cons "cancunTime" (quantity-to-hex (1+ timestamp)))
+                   (cons "pragueTime" (quantity-to-hex (+ timestamp 2)))
+                   (cons "osakaTime" (quantity-to-hex (+ timestamp 2)))
+                   (cons "amsterdamTime" (quantity-to-hex (+ timestamp 2)))))
+      (let ((cell (assoc (car field) config :test #'string=)))
+        (if cell
+            (setf (cdr cell) (cdr field))
+            (setf config (append config (list field))))))
+    (dolist (address
+             '("0x00000961ef480eb55e80d19ad83579a64c007002"
+               "0x0000bbddc7ce488642fb579f8b00f3a590007251"))
+      (let* ((account (list (cons "code" "0x60006000f3")))
+             (cell (assoc address alloc :test #'string=)))
+        (if cell
+            (setf (cdr cell) account)
+            (setf alloc (append alloc (list (cons address account)))))))
+    (setf (cdr (assoc "config" genesis :test #'string=)) config
+          (cdr (assoc "alloc" genesis :test #'string=)) alloc)
+    (let* ((state
+             (state-db-from-genesis-json-string (json-encode genesis)))
+           (state-root (hash32-to-hex (state-db-root state)))
+           (state-root-cell (assoc "stateRoot" genesis :test #'string=)))
+      (if state-root-cell
+          (setf (cdr state-root-cell) state-root)
+          (setf genesis
+                (append genesis (list (cons "stateRoot" state-root))))))
+    (let ((json (json-encode genesis)))
+      (validate-genesis-json-state-root json)
+      (devnet-cli-write-temp-file path json))
+    path))
+
 (defun devnet-smoke-gate-verify-engine-only-kzg-opt-in ()
   #+sbcl
   (labels ((field-present-p (object name)
@@ -69,17 +112,18 @@
             (truename
              (merge-pathnames "scripts/ethereum-lisp.lisp"
                               *ethereum-lisp-devnet-smoke-gate-root*))))
-         (genesis
+         (source-genesis
            (namestring
             (truename
              (merge-pathnames +devnet-cli-genesis-fixture+
                               *ethereum-lisp-devnet-smoke-gate-root*))))
-         (genesis-json
-           (parse-json (devnet-smoke-gate-file-string genesis)))
-         (blob-database
-           (devnet-smoke-gate-write-kzg-prepared-payload-database genesis))
+         (genesis-path
+           (devnet-cli-temp-path "ethereum-lisp-smoke-kzg-genesis" "json"))
+         (genesis nil)
+         (genesis-json nil)
+         (blob-database nil)
          (database-path
-           (getf blob-database :database-path))
+           (devnet-cli-temp-path "ethereum-lisp-smoke-kzg-blob" "db"))
          (kzg-command
            (devnet-cli-temp-path "ethereum-lisp-smoke-kzg-command" "sh"))
          (ready-path
@@ -92,6 +136,14 @@
          (report nil))
     (unwind-protect
          (progn
+           (devnet-smoke-gate-write-kzg-fork-genesis
+            source-genesis :path genesis-path)
+           (setf genesis (namestring genesis-path)
+                 genesis-json
+                 (parse-json (devnet-smoke-gate-file-string genesis))
+                 blob-database
+                 (devnet-smoke-gate-write-kzg-prepared-payload-database
+                  genesis :database-path database-path))
            (devnet-cli-write-temp-file kzg-command "#!/bin/sh\necho true\n")
            (devnet-cli-make-executable kzg-command)
            (setf process
@@ -243,7 +295,7 @@
                      (devnet-cli-json-rpc-http-request
                       (get-payload-request
                        719
-                       "engine_getPayloadV4"
+                       "engine_getPayloadV6"
                        payload-id-v4))))
                   (get-payload-v4-rpc
                     (parse-json
@@ -735,45 +787,45 @@
              (devnet-smoke-gate-require
               (and (stringp payload-id-v4)
                    (= 18 (length payload-id-v4))
-                   (string= "04" (subseq payload-id-v4 2 4)))
-              "KZG opt-in engine_forkchoiceUpdatedV4 did not return a V4 payload id")
+                   (string= "06" (subseq payload-id-v4 2 4)))
+              "KZG opt-in engine_forkchoiceUpdatedV4 did not return an Amsterdam V6 payload id")
              (devnet-smoke-gate-require
               (= 200 (devnet-cli-http-status get-payload-v4-response))
-              "KZG opt-in engine_getPayloadV4 HTTP status mismatch")
+              "KZG opt-in FCU V4 engine_getPayloadV6 HTTP status mismatch")
              (devnet-smoke-gate-require
               (not (fixture-object-field get-payload-v4-rpc "error"))
-              "KZG opt-in engine_getPayloadV4 returned an error: ~S"
+              "KZG opt-in FCU V4 engine_getPayloadV6 returned an error: ~S"
               (fixture-object-field get-payload-v4-rpc "error"))
              (devnet-smoke-gate-require
               (string= head-hash
                        (fixture-object-field execution-payload-v4
                                              "parentHash"))
-              "KZG opt-in engine_getPayloadV4 parentHash mismatch")
+              "KZG opt-in FCU V4 engine_getPayloadV6 parentHash mismatch")
              (devnet-smoke-gate-require
               (string= next-block-number
                        (fixture-object-field execution-payload-v4
                                              "blockNumber"))
-              "KZG opt-in engine_getPayloadV4 blockNumber mismatch")
+              "KZG opt-in FCU V4 engine_getPayloadV6 blockNumber mismatch")
              (devnet-smoke-gate-require
               (string= v4-slot-number
                        (fixture-object-field execution-payload-v4
                                              "slotNumber"))
-              "KZG opt-in engine_getPayloadV4 slotNumber mismatch")
+              "KZG opt-in FCU V4 engine_getPayloadV6 slotNumber mismatch")
              (devnet-smoke-gate-require
               (not (fixture-object-field payload-envelope-v4
                                          "shouldOverrideBuilder"))
-              "KZG opt-in engine_getPayloadV4 shouldOverrideBuilder mismatch")
+              "KZG opt-in FCU V4 engine_getPayloadV6 shouldOverrideBuilder mismatch")
              (devnet-smoke-gate-require
               (field-present-p payload-envelope-v4 "blobsBundle")
-              "KZG opt-in engine_getPayloadV4 omitted blobsBundle")
+              "KZG opt-in FCU V4 engine_getPayloadV6 omitted blobsBundle")
              (dolist (field '("commitments" "proofs" "blobs"))
                (devnet-smoke-gate-require
                 (field-present-p blobs-bundle-v4 field)
-                "KZG opt-in engine_getPayloadV4 blobsBundle omitted ~A"
+                "KZG opt-in FCU V4 engine_getPayloadV6 blobsBundle omitted ~A"
                 field)
                (devnet-smoke-gate-require
                 (listp (fixture-object-field blobs-bundle-v4 field))
-                "KZG opt-in engine_getPayloadV4 blobsBundle ~A must be a JSON array"
+                "KZG opt-in FCU V4 engine_getPayloadV6 blobsBundle ~A must be a JSON array"
                 field))
              (devnet-smoke-gate-require
               (= 200 (devnet-cli-http-status get-payload-v5-response))
@@ -1861,9 +1913,12 @@
                           (cons "publicConnections" 0)
                           (cons "totalConnections" 26))))))))
       (when (and process (uiop:process-alive-p process))
-        (uiop:terminate-process process))
+        (uiop:terminate-process process)
+        (devnet-cli-wait-process-exit process 5))
       (when (and database-path (probe-file database-path))
         (delete-file database-path))
+      (when (and genesis-path (probe-file genesis-path))
+        (delete-file genesis-path))
       (when (probe-file kzg-command)
         (delete-file kzg-command))
       (when (probe-file ready-path)

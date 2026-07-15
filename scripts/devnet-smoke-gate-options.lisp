@@ -526,9 +526,11 @@ references/ checkouts.~%")
      config)
     node))
 
-(defun devnet-smoke-gate-write-kzg-prepared-payload-database (genesis-path)
+(defun devnet-smoke-gate-write-kzg-prepared-payload-database
+    (genesis-path &key database-path)
   (let* ((database-path
-           (devnet-cli-temp-path "ethereum-lisp-smoke-kzg-blob" "db"))
+           (or database-path
+               (devnet-cli-temp-path "ethereum-lisp-smoke-kzg-blob" "db")))
          (store (make-engine-payload-memory-store))
          (config (chain-config-from-genesis-json-file genesis-path))
          (state (state-db-from-genesis-json-file genesis-path))
