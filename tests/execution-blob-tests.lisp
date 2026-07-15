@@ -137,7 +137,7 @@
 (deftest blob-block-execution-populates-blob-gas-used
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
-         (recipient (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (recipient (address-from-hex "0x00000000000000000000000000000000000000f2"))
          (blob-hash (hash32-from-hex
                      "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"))
          (header (make-block-header :gas-limit 100000
@@ -157,6 +157,7 @@
         (execute-legacy-block state sender (list transaction)
                               :header header)
       (is (= 1 (length receipts)))
+      (is (= 1 (receipt-status (first receipts))))
       (is (= +blob-gas-per-blob+
              (block-header-blob-gas-used (block-header block))))
       (is (= +blob-gas-per-blob+
@@ -171,7 +172,7 @@
 (deftest blob-block-execution-uses-osaka-blob-base-fee-fraction
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
-         (recipient (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (recipient (address-from-hex "0x00000000000000000000000000000000000000f2"))
          (blob-hash (hash32-from-hex
                      "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"))
          (config (make-chain-config :london-block 0
@@ -199,6 +200,7 @@
                               :header header
                               :chain-config config)
       (is (= 1 (length receipts)))
+      (is (= 1 (receipt-status (first receipts))))
       (is (validate-block-body-against-config block config))
       (is (= (- 1000000
                 (* 21000 3)
@@ -209,7 +211,7 @@
 (deftest blob-block-execution-uses-prague-blob-schedule
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
-         (recipient (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (recipient (address-from-hex "0x00000000000000000000000000000000000000f2"))
          (blob-hash (hash32-from-hex
                      "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"))
          (config (make-chain-config :london-block 0
@@ -242,6 +244,7 @@
                               :chain-config config
                               :requests '())
       (is (= 1 (length receipts)))
+      (is (= 1 (receipt-status (first receipts))))
       (is (validate-block-body-against-config block config))
       (is (= (- 1000000
                 (* 21000 3)
@@ -253,9 +256,9 @@
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
          (first-recipient
-           (address-from-hex "0x0000000000000000000000000000000000000002"))
+           (address-from-hex "0x00000000000000000000000000000000000000f2"))
          (second-recipient
-           (address-from-hex "0x0000000000000000000000000000000000000003"))
+           (address-from-hex "0x00000000000000000000000000000000000000f3"))
          (blob-hash (hash32-from-hex
                      "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"))
          (six-hashes (loop repeat +max-blobs-per-block+
@@ -301,6 +304,7 @@
                               :header header
                               :chain-config config)
       (is (= 2 (length receipts)))
+      (is (every (lambda (receipt) (= 1 (receipt-status receipt))) receipts))
       (is (= (* +osaka-max-blobs-per-block+ +blob-gas-per-blob+)
              (block-header-blob-gas-used (block-header block))))
       (is (validate-block-body-against-config block config)))))
@@ -309,11 +313,11 @@
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
          (first-recipient
-           (address-from-hex "0x0000000000000000000000000000000000000002"))
+           (address-from-hex "0x00000000000000000000000000000000000000f2"))
          (second-recipient
-           (address-from-hex "0x0000000000000000000000000000000000000003"))
+           (address-from-hex "0x00000000000000000000000000000000000000f3"))
          (third-recipient
-           (address-from-hex "0x0000000000000000000000000000000000000004"))
+           (address-from-hex "0x00000000000000000000000000000000000000f4"))
          (blob-hash (hash32-from-hex
                      "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"))
          (six-hashes (loop repeat +max-blobs-per-block+
@@ -370,6 +374,7 @@
                               :header header
                               :chain-config config)
       (is (= 3 (length receipts)))
+      (is (every (lambda (receipt) (= 1 (receipt-status receipt))) receipts))
       (is (= (* +bpo1-max-blobs-per-block+ +blob-gas-per-blob+)
              (block-header-blob-gas-used (block-header block))))
       (is (validate-block-body-against-config block config)))))
@@ -378,7 +383,7 @@
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
          (recipient
-           (address-from-hex "0x0000000000000000000000000000000000000002"))
+           (address-from-hex "0x00000000000000000000000000000000000000f2"))
          (blob-hash (hash32-from-hex
                      "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"))
          (six-hashes (loop repeat +max-blobs-per-block+
@@ -423,6 +428,7 @@
                               :header header
                               :chain-config config)
       (is (= 6 (length receipts)))
+      (is (every (lambda (receipt) (= 1 (receipt-status receipt))) receipts))
       (is (= (* +bpo3-max-blobs-per-block+ +blob-gas-per-blob+)
              (block-header-blob-gas-used (block-header block))))
       (is (validate-block-body-against-config block config)))))
@@ -431,9 +437,9 @@
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
          (first-recipient
-           (address-from-hex "0x0000000000000000000000000000000000000002"))
+           (address-from-hex "0x00000000000000000000000000000000000000f2"))
          (second-recipient
-           (address-from-hex "0x0000000000000000000000000000000000000003"))
+           (address-from-hex "0x00000000000000000000000000000000000000f3"))
          (blob-hash (hash32-from-hex
                      "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"))
          (six-hashes (loop repeat +max-blobs-per-block+
@@ -481,6 +487,7 @@
                               :header header
                               :chain-config config)
       (is (= 2 (length receipts)))
+      (is (every (lambda (receipt) (= 1 (receipt-status receipt))) receipts))
       (is (= (* 7 +blob-gas-per-blob+)
              (block-header-blob-gas-used (block-header block))))
       (is (validate-block-body-against-config block config)))))

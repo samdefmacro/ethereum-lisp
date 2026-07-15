@@ -18,7 +18,6 @@ merging are deliberately not configurable; those are shared EVM invariants."
   read-only-p
   charge-value-gas-p
   new-account-p
-  funding-address
   value-transfer-from
   value-transfer-to
   balance-check-address
@@ -31,7 +30,7 @@ merging are deliberately not configurable; those are shared EVM invariants."
   (with-slots (requested-gas code-address args-offset args-size
                return-offset return-size rest-stack child-address
                child-caller child-value read-only-p charge-value-gas-p
-               new-account-p funding-address value-transfer-from
+               new-account-p value-transfer-from
                value-transfer-to balance-check-address balance-check-value
                balance-check-message merge-logs-p)
       call
@@ -58,12 +57,7 @@ merging are deliberately not configurable; those are shared EVM invariants."
              (precompile-p
                (active-precompile-address-p
                 code-address
-                (evm-context-chain-rules context)))
-             (insufficient-balance-p
-               (and funding-address
-                    (plusp child-value)
-                    (< (account-balance state funding-address)
-                       child-value))))
+                (evm-context-chain-rules context))))
         (charge-account-access-gas
          context
          code-address
@@ -72,72 +66,69 @@ merging are deliberately not configurable; those are shared EVM invariants."
         ;; Warmth survives a failed child, so the rollback snapshot must include
         ;; the just-accessed code address before child execution starts.
         (refresh-execution-snapshot-accessed-addresses snapshot context)
-        (when charge-value-gas-p
-          (let* ((required-value-gas
-                   (call-value-extra-gas
-                    state code-address child-value
-                    :new-account-p new-account-p))
-                 (stipend-discount-p
-                   (or insufficient-balance-p
-                       precompile-p
-                       (and (plusp child-value)
-                            (evm-machine-gas-limit machine)
-                            (= (+ (evm-machine-gas-used machine)
-                                  required-value-gas)
-                               (evm-machine-gas-limit machine))))))
-            (evm-machine-charge-call-value-gas
-             machine
-             required-value-gas
-             (call-value-extra-gas
-              state code-address child-value
-              :new-account-p new-account-p
-              :stipend-discount-p stipend-discount-p))))
-        (let ((child-gas-limit
-                (child-call-gas-limit
-                 requested-gas
-                 (evm-machine-gas-limit machine)
-                 (evm-machine-gas-used machine)
-                 :stipend (if (and charge-value-gas-p
-                                   (plusp child-value))
-                              +call-stipend+
-                              0))))
-          (multiple-value-bind
+        (let ((gas-used-for-call-cap (evm-machine-gas-used machine)))
+          (when charge-value-gas-p
+            (let* ((required-value-gas
+                     (call-value-extra-gas
+                      state code-address child-value
+                      :new-account-p new-account-p))
+                   (charged-value-gas
+                     (call-value-extra-gas
+                      state code-address child-value
+                      :new-account-p new-account-p
+                      :stipend-discount-p (plusp child-value))))
+              (evm-machine-charge-call-value-gas
+               machine required-value-gas charged-value-gas)
+              ;; EIP-150 caps the requested child gas after deducting the full
+              ;; value-transfer cost.  The stipend affects net parent usage,
+              ;; but must not increase the gas used to calculate that cap.
+              ;; The child receives and may refund the stipend, so the parent
+              ;; ultimately spends full-cost - stipend + child-gas-used.
+              (setf gas-used-for-call-cap
+                    (+ (evm-machine-gas-used machine)
+                       (- required-value-gas charged-value-gas)))))
+          (let ((child-gas-limit
+                  (child-call-gas-limit
+                   requested-gas
+                   (evm-machine-gas-limit machine)
+                   gas-used-for-call-cap
+                   :stipend (if (and charge-value-gas-p
+                                     (plusp child-value))
+                                +call-stipend+
+                                0))))
+            (multiple-value-bind
                 (success child-return-data child-gas-used
                  child-logs child-refund-counter)
-              (execute-message-call-child
-               state context snapshot code-address args child-gas-limit
-               :child-address child-address
-               :child-caller child-caller
-               :child-call-value child-value
-               :read-only-p read-only-p
-               :precompile-address-p precompile-p
-               :value-transfer-from value-transfer-from
-               :value-transfer-to value-transfer-to
-               :balance-check-address balance-check-address
-               :balance-check-value balance-check-value
-               :balance-check-message balance-check-message)
-            (evm-machine-charge-gas
-             machine
-             (if (and charge-value-gas-p (not precompile-p))
-                 (call-child-gas-charge child-gas-used child-value)
-                 child-gas-used))
-            (incf (evm-machine-refund-counter machine)
-                  child-refund-counter)
-            (setf (evm-machine-return-data-buffer machine)
-                  child-return-data
-                  (evm-machine-memory machine)
-                  (copy-child-return-data-to-memory
-                   (evm-machine-memory machine)
-                   return-offset
-                   return-size
-                   child-return-data)
-                  (evm-machine-stack machine)
-                  (stack-push rest-stack success))
-            (when merge-logs-p
-              (setf (evm-machine-logs machine)
-                    (prepend-child-logs
-                     child-logs
-                     (evm-machine-logs machine))))))))))
+                (execute-message-call-child
+                 state context snapshot code-address args child-gas-limit
+                 :child-address child-address
+                 :child-caller child-caller
+                 :child-call-value child-value
+                 :read-only-p read-only-p
+                 :precompile-address-p precompile-p
+                 :value-transfer-from value-transfer-from
+                 :value-transfer-to value-transfer-to
+                 :balance-check-address balance-check-address
+                 :balance-check-value balance-check-value
+                 :balance-check-message balance-check-message)
+              (evm-machine-charge-gas machine child-gas-used)
+              (incf (evm-machine-refund-counter machine)
+                    child-refund-counter)
+              (setf (evm-machine-return-data-buffer machine)
+                    child-return-data
+                    (evm-machine-memory machine)
+                    (copy-child-return-data-to-memory
+                     (evm-machine-memory machine)
+                     return-offset
+                     return-size
+                     child-return-data)
+                    (evm-machine-stack machine)
+                    (stack-push rest-stack success))
+              (when merge-logs-p
+                (setf (evm-machine-logs machine)
+                      (prepend-child-logs
+                       child-logs
+                       (evm-machine-logs machine)))))))))))
 
 (defun execute-message-call-child (state
                                    context
@@ -176,19 +167,14 @@ merging are deliberately not configurable; those are shared EVM invariants."
                                  value-transfer-to
                                  child-call-value))
           (when precompile-address-p
-            (setf child-started-p t)
-            (ensure-precompile-upfront-gas
-             code-address args
-             (evm-context-chain-rules context)
-             child-gas-limit))
+            (setf child-started-p t))
           (multiple-value-bind (precompile-output precompile-gas precompile-p)
-              (run-precompile code-address args
-                              (evm-context-chain-rules context))
+              (execute-precompile
+               code-address args
+               (evm-context-chain-rules context)
+               child-gas-limit)
             (if precompile-p
                 (progn
-                  (setf child-started-p t)
-                  (when (> precompile-gas child-gas-limit)
-                    (fail "Precompile out of gas"))
                   (setf success 1
                         child-gas-used precompile-gas
                         child-return-data precompile-output))

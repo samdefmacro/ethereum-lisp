@@ -2,7 +2,7 @@
 
 (deftest set-code-intrinsic-gas-adds-authorization-cost
   (let* ((address (address-from-hex
-                   "0x0000000000000000000000000000000000000002"))
+                   "0x00000000000000000000000000000000000000f2"))
          (authorization (make-set-code-authorization
                          :chain-id 1
                          :address address
@@ -20,7 +20,7 @@
          (sender (address-from-hex
                   "0x0000000000000000000000000000000000000001"))
          (recipient (address-from-hex
-                     "0x0000000000000000000000000000000000000002"))
+                     "0x00000000000000000000000000000000000000f2"))
          (authorization (make-set-code-authorization
                          :chain-id 1
                          :address recipient
@@ -46,7 +46,7 @@
          (sender (address-from-hex
                   "0x0000000000000000000000000000000000000001"))
          (recipient (address-from-hex
-                     "0x0000000000000000000000000000000000000002"))
+                     "0x00000000000000000000000000000000000000f2"))
          (balance 100000)
          (malformed-address-authorization
            (make-set-code-authorization
@@ -92,7 +92,7 @@
          (sender (address-from-hex
                   "0x71562b71999873db5b286df957af199ec94617f7"))
          (recipient (address-from-hex
-                     "0x0000000000000000000000000000000000000002"))
+                     "0x00000000000000000000000000000000000000f2"))
          (delegated-address (address-from-hex
                              "0x000000000000000000000000000000000000aaaa"))
          (authorization
@@ -133,7 +133,7 @@
          (authority (address-from-hex
                      "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f"))
          (recipient (address-from-hex
-                     "0x0000000000000000000000000000000000000002"))
+                     "0x00000000000000000000000000000000000000f2"))
          (delegated-address (address-from-hex
                              "0x000000000000000000000000000000000000bbbb"))
          (authorization
@@ -172,7 +172,7 @@
          (authority (address-from-hex
                      "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f"))
          (recipient (address-from-hex
-                     "0x0000000000000000000000000000000000000002"))
+                     "0x00000000000000000000000000000000000000f2"))
          (first-delegated-address (address-from-hex
                                    "0x000000000000000000000000000000000000bbbb"))
          (second-delegated-address (address-from-hex
@@ -220,7 +220,7 @@
          (sender (address-from-hex
                   "0x71562b71999873db5b286df957af199ec94617f7"))
          (recipient (address-from-hex
-                     "0x0000000000000000000000000000000000000002"))
+                     "0x00000000000000000000000000000000000000f2"))
          (delegated-address (address-from-hex
                              "0x000000000000000000000000000000000000aaaa"))
          (authorization
@@ -256,7 +256,7 @@
          (sender (address-from-hex
                   "0x71562b71999873db5b286df957af199ec94617f7"))
          (recipient (address-from-hex
-                     "0x0000000000000000000000000000000000000002"))
+                     "0x00000000000000000000000000000000000000f2"))
          (delegated-address (address-from-hex
                              "0x000000000000000000000000000000000000aaaa"))
          (authorization
@@ -292,7 +292,7 @@
          (authority (address-from-hex
                      "0x703c4b2bd70c169f5717101caee543299fc946c7"))
          (recipient (address-from-hex
-                     "0x0000000000000000000000000000000000000002"))
+                     "0x00000000000000000000000000000000000000f2"))
          (delegated-address (address-from-hex
                              "0x000000000000000000000000000000000000bbbb"))
          (authorization
@@ -332,7 +332,7 @@
          (authority (address-from-hex
                      "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f"))
          (recipient (address-from-hex
-                     "0x0000000000000000000000000000000000000002"))
+                     "0x00000000000000000000000000000000000000f2"))
          (delegated-address (address-from-hex
                              "0x000000000000000000000000000000000000bbbb"))
          (authorization
@@ -372,7 +372,7 @@
          (authority (address-from-hex
                      "0x703c4b2bd70c169f5717101caee543299fc946c7"))
          (recipient (address-from-hex
-                     "0x0000000000000000000000000000000000000002"))
+                     "0x00000000000000000000000000000000000000f2"))
          (delegated-address (address-from-hex
                              "0x000000000000000000000000000000000000bbbb"))
          (authority-code #(96 0 96 0))
@@ -412,7 +412,7 @@
          (sender (address-from-hex
                   "0x71562b71999873db5b286df957af199ec94617f7"))
          (recipient (address-from-hex
-                     "0x0000000000000000000000000000000000000002"))
+                     "0x00000000000000000000000000000000000000f2"))
          (old-delegated-address (address-from-hex
                                  "0x000000000000000000000000000000000000aaaa"))
          (authorization
@@ -450,7 +450,7 @@
          (authority (address-from-hex
                      "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f"))
          (recipient (address-from-hex
-                     "0x0000000000000000000000000000000000000002"))
+                     "0x00000000000000000000000000000000000000f2"))
          (old-delegated-address (address-from-hex
                                  "0x000000000000000000000000000000000000aaaa"))
          (authorization
@@ -489,7 +489,7 @@
          (sender (address-from-hex
                   "0x0000000000000000000000000000000000000001"))
          (recipient (address-from-hex
-                     "0x0000000000000000000000000000000000000002"))
+                     "0x00000000000000000000000000000000000000f2"))
          (transaction (make-legacy-transaction
                        :nonce 0
                        :gas-price 1
@@ -508,7 +508,7 @@
          (sender (address-from-hex
                   "0x0000000000000000000000000000000000000001"))
          (recipient (address-from-hex
-                     "0x0000000000000000000000000000000000000002"))
+                     "0x00000000000000000000000000000000000000f2"))
          (target (address-from-hex
                   "0x00000000000000000000000000000000000000aa"))
          (transaction (make-legacy-transaction
@@ -551,4 +551,3 @@
       (is (= (bytes-to-integer (address-bytes delegated))
              (state-db-get-storage state delegated slot)))
       (is (= 0 (state-db-get-storage state target slot))))))
-

@@ -27,7 +27,7 @@
 (deftest legacy-transfer-state-transition
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
-         (recipient (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (recipient (address-from-hex "0x00000000000000000000000000000000000000f2"))
          (tx (make-legacy-transaction :nonce 0
                                       :gas-price 2
                                       :gas-limit 21000
@@ -47,7 +47,7 @@
 (deftest legacy-transfer-zero-value-does-not-create-empty-recipient
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
-         (recipient (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (recipient (address-from-hex "0x00000000000000000000000000000000000000f2"))
          (tx (make-legacy-transaction :nonce 0
                                       :gas-price 1
                                       :gas-limit 21000
@@ -65,7 +65,7 @@
 
 (deftest legacy-transfer-self-transfer-preserves-value-balance
   (let* ((state (make-state-db))
-         (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (sender (address-from-hex "0x00000000000000000000000000000000000000aa"))
          (tx (make-legacy-transaction :nonce 0
                                       :gas-price 1
                                       :gas-limit 21000
@@ -84,7 +84,7 @@
 (deftest legacy-transfer-validation-errors
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
-         (recipient (address-from-hex "0x0000000000000000000000000000000000000002")))
+         (recipient (address-from-hex "0x00000000000000000000000000000000000000f2")))
     (state-db-set-account state sender
                           (make-state-account :nonce 1 :balance 1))
     (signals transaction-validation-error
@@ -139,7 +139,7 @@
 (deftest legacy-transaction-list-execution-roots
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
-         (recipient (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (recipient (address-from-hex "0x00000000000000000000000000000000000000f2"))
          (txs (list
                (make-legacy-transaction :nonce 0 :gas-price 1 :gas-limit 21000
                                         :to recipient :value 10)
@@ -160,7 +160,7 @@
 (deftest legacy-transaction-list-executes-contract-creation
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
-         (recipient (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (recipient (address-from-hex "0x00000000000000000000000000000000000000f2"))
          (initcode #(96 0 96 0 83 96 1 96 0 243))
          (contract
            (make-address

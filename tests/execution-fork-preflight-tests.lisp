@@ -393,7 +393,7 @@
 (deftest legacy-block-execution-carries-empty-block-access-list
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
-         (recipient (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (recipient (address-from-hex "0x00000000000000000000000000000000000000f2"))
          (config (make-chain-config :london-block 0
                                     :amsterdam-time 10))
          (header (make-block-header :timestamp 10
@@ -412,6 +412,7 @@
                               :chain-config config
                               :block-access-list '())
       (is (= 1 (length receipts)))
+      (is (= 1 (receipt-status (first receipts))))
       (is (block-block-access-list-present-p block))
       (is (null (block-block-access-list block)))
       (is (string= (hash32-to-hex (block-access-list-hash '()))
@@ -422,7 +423,7 @@
 (deftest legacy-block-execution-carries-encoded-block-access-list
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
-         (recipient (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (recipient (address-from-hex "0x00000000000000000000000000000000000000f2"))
          (account (make-block-access-account
                    :address (address-from-hex
                              "0x0000000000000000000000000000000000000003")))
@@ -445,6 +446,7 @@
                               :chain-config config
                               :block-access-list-rlp encoded)
       (is (= 1 (length receipts)))
+      (is (= 1 (receipt-status (first receipts))))
       (is (block-block-access-list-present-p block))
       (is (bytes= encoded (block-encoded-block-access-list block)))
       (is (bytes= encoded
@@ -631,7 +633,7 @@
             "0x0000000000000000000000000000000000000001"))
          (observer
            (address-from-hex
-            "0x0000000000000000000000000000000000000002"))
+            "0x00000000000000000000000000000000000000f2"))
          (parent-hash
            (hash32-from-hex
             "0x4444444444444444444444444444444444444444444444444444444444444444"))

@@ -98,7 +98,6 @@
                :read-only-p (evm-context-read-only-p context)
                :charge-value-gas-p t
                :new-account-p t
-               :funding-address caller
                :value-transfer-from caller
                :value-transfer-to callee))))
          (incf pc))
@@ -133,7 +132,6 @@
                :child-value value
                :read-only-p (evm-context-read-only-p context)
                :charge-value-gas-p t
-               :funding-address current-address
                :balance-check-address current-address
                :balance-check-value value
                :balance-check-message

@@ -164,7 +164,7 @@
     (state-db-set-account state caller (make-state-account :balance 10))
     (let ((result (execute-bytecode code :context context)))
       (is (= 1 (first (evm-result-stack result))))
-      (is (= 36617 (evm-result-gas-used result)))
+      (is (= 34317 (evm-result-gas-used result)))
       (is (= 3 (state-account-balance (state-db-get-account state caller))))
       (is (= 7 (state-account-balance (state-db-get-account state target)))))))
 
@@ -178,7 +178,7 @@
     (state-db-set-account state caller (make-state-account :balance 10))
     (let ((result (execute-bytecode code :context context)))
       (is (= 1 (first (evm-result-stack result))))
-      (is (= 11617 (evm-result-gas-used result)))
+      (is (= 9317 (evm-result-gas-used result)))
       (is (= 10 (state-account-balance
                  (state-db-get-account state caller)))))))
 
@@ -244,7 +244,7 @@
     (state-db-set-code state callee callee-code)
     (let ((result (execute-bytecode caller-code :context context)))
       (is (= 1 (first (evm-result-stack result))))
-      (is (= 11625 (evm-result-gas-used result)))
+      (is (= 9342 (evm-result-gas-used result)))
       (is (= 2298 (bytes-to-integer (evm-result-return-data result))))
       (is (= 9 (state-account-balance (state-db-get-account state caller))))
       (is (= 1 (state-account-balance (state-db-get-account state callee)))))))
@@ -455,4 +455,3 @@
                                              :read-only-p t)))
     (signals evm-error
       (execute-bytecode #(95 #xff) :context readonly-context))))
-

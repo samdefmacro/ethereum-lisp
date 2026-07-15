@@ -63,6 +63,7 @@
 
 (defun blake2f-precompile-required-gas (input)
   (let ((input (ensure-byte-vector input)))
-    (when (and (= (length input) +blake2f-input-size+)
-               (member (aref input 212) '(0 1) :test #'=))
+    ;; RequiredGas depends only on the input length and round field.  The final
+    ;; flag is validated by Run after the caller has passed this gas check.
+    (when (= (length input) +blake2f-input-size+)
       (load-big-endian-u32 input 0))))

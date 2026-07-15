@@ -418,5 +418,6 @@
         (ethereum-lisp.evm.internal::run-precompile
          (ethereum-lisp.evm.internal::precompile-address 5) #() byzantium-rules)
       (is (byte-vector-p output))
-      (is (plusp gas))
+      ;; EIP-198 has no minimum charge: three zero declared lengths cost 0.
+      (is (zerop gas))
       (is active-p))))

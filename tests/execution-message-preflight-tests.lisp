@@ -53,6 +53,112 @@
     (is (gethash (address-bytes (precompile-address 5))
                  byzantium-accesses))))
 
+(defun execution-test-modexp-input ()
+  (labels ((fixed32 (value)
+             (let ((bytes (make-byte-vector 32)))
+               (setf (aref bytes 31) value)
+               bytes)))
+    (concat-bytes (fixed32 1)
+                  (fixed32 1)
+                  (fixed32 1)
+                  #(2 5 13))))
+
+(deftest direct-message-executes-modexp-precompile-and-charges-gas
+  (let* ((state (make-state-db))
+         (sender
+           (address-from-hex
+            "0x00000000000000000000000000000000000000aa"))
+         (modexp (precompile-address 5))
+         (rules (make-chain-rules :byzantium-p t :berlin-p t))
+         (input (execution-test-modexp-input))
+         (value 7)
+         (initial-balance 1000000)
+         (tx (make-legacy-transaction :nonce 0
+                                      :gas-price 1
+                                      :gas-limit 50000
+                                      :to modexp
+                                      :value value
+                                      :data input))
+         (intrinsic-gas
+           (ethereum-lisp.execution::execution-transaction-intrinsic-gas
+            tx rules)))
+    (state-db-set-account
+     state sender (make-state-account :balance initial-balance))
+    (let ((receipt (apply-message state sender tx :chain-rules rules)))
+      (is (= 1 (receipt-status receipt)))
+      (is (= (+ intrinsic-gas 200)
+             (receipt-cumulative-gas-used receipt)))
+      (is (= 1 (state-account-nonce (state-db-get-account state sender))))
+      (is (= (- initial-balance intrinsic-gas 200 value)
+             (state-account-balance (state-db-get-account state sender))))
+      (is (= value
+             (state-account-balance (state-db-get-account state modexp)))))))
+
+(deftest direct-message-modexp-oog-reverts-value-and-consumes-all-gas
+  (let* ((state (make-state-db))
+         (sender
+           (address-from-hex
+            "0x00000000000000000000000000000000000000aa"))
+         (modexp (precompile-address 5))
+         (rules (make-chain-rules :byzantium-p t :berlin-p t))
+         (input (execution-test-modexp-input))
+         (value 7)
+         (initial-balance 1000000)
+         (template (make-legacy-transaction :to modexp :data input))
+         (intrinsic-gas
+           (ethereum-lisp.execution::execution-transaction-intrinsic-gas
+            template rules))
+         (gas-limit (+ intrinsic-gas 199))
+         (tx (make-legacy-transaction :nonce 0
+                                      :gas-price 1
+                                      :gas-limit gas-limit
+                                      :to modexp
+                                      :value value
+                                      :data input)))
+    (state-db-set-account
+     state sender (make-state-account :balance initial-balance))
+    (let ((receipt (apply-message state sender tx :chain-rules rules)))
+      (is (= 0 (receipt-status receipt)))
+      (is (= gas-limit (receipt-cumulative-gas-used receipt)))
+      (is (= 1 (state-account-nonce (state-db-get-account state sender))))
+      (is (= (- initial-balance gas-limit)
+             (state-account-balance (state-db-get-account state sender))))
+      (is (null (state-db-get-account state modexp))))))
+
+(deftest direct-call-simulation-executes-modexp-and-reports-oog
+  (let* ((state (make-state-db))
+         (sender
+           (address-from-hex
+            "0x00000000000000000000000000000000000000aa"))
+         (modexp (precompile-address 5))
+         (rules (make-chain-rules :byzantium-p t :berlin-p t))
+         (input (execution-test-modexp-input))
+         (template (make-legacy-transaction :to modexp :data input))
+         (intrinsic-gas
+           (ethereum-lisp.execution::execution-transaction-intrinsic-gas
+            template rules))
+         (state-root-before (state-db-root state))
+         (success-tx
+           (make-legacy-transaction :gas-limit (+ intrinsic-gas 200)
+                                    :to modexp
+                                    :data input))
+         (oog-tx
+           (make-legacy-transaction :gas-limit (+ intrinsic-gas 199)
+                                    :to modexp
+                                    :data input)))
+    (multiple-value-bind (status output gas-used)
+        (execute-message-call state sender success-tx :chain-rules rules)
+      (is (eq :successful status))
+      (is (bytes= #(6) output))
+      (is (= (+ intrinsic-gas 200) gas-used)))
+    (multiple-value-bind (status output gas-used)
+        (execute-message-call state sender oog-tx :chain-rules rules)
+      (is (eq :failed status))
+      (is (zerop (length output)))
+      (is (= (+ intrinsic-gas 199) gas-used)))
+    (is (string= (hash32-to-hex state-root-before)
+                 (hash32-to-hex (state-db-root state))))))
+
 (deftest legacy-message-executes-recipient-code-and-logs
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
@@ -333,7 +439,7 @@
 (deftest legacy-message-zero-value-to-empty-recipient-does-not-create-account
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
-         (recipient (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (recipient (address-from-hex "0x0000000000000000000000000000000000000012"))
          (tx (make-legacy-transaction :nonce 0
                                       :gas-price 1
                                       :gas-limit 30000
@@ -350,7 +456,7 @@
 
 (deftest legacy-message-self-transfer-preserves-value-balance
   (let* ((state (make-state-db))
-         (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (sender (address-from-hex "0x00000000000000000000000000000000000000aa"))
          (tx (make-legacy-transaction :nonce 0
                                       :gas-price 1
                                       :gas-limit 30000
@@ -445,4 +551,3 @@
     (is (= balance
            (state-account-balance (state-db-get-account state sender))))
     (is (null (state-db-get-account state recipient)))))
-

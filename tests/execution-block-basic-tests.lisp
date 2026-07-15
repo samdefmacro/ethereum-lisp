@@ -45,7 +45,7 @@
 (deftest legacy-block-execution-applies-withdrawals-and-header-roots
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
-         (recipient (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (recipient (address-from-hex "0x00000000000000000000000000000000000000f2"))
          (tx (make-legacy-transaction :nonce 0
                                       :gas-price 1
                                       :gas-limit 21000
@@ -78,11 +78,15 @@
 (deftest legacy-block-execution-carries-execution-requests
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
-         (header (make-block-header :gas-limit 50000))
-         (requests (list #(#x00 #xbb) #(#x01 #xaa))))
+         (requests (list #(#x00 #xbb) #(#x01 #xaa)))
+         (header
+           (make-block-header
+            :gas-limit 50000
+            :requests-hash (execution-requests-hash requests))))
     (multiple-value-bind (block receipts)
         (execute-legacy-block state sender '()
                               :header header
+                              :chain-rules (make-chain-rules)
                               :requests requests)
       (declare (ignore receipts))
       (is (block-requests-present-p block))
@@ -94,7 +98,7 @@
 (deftest legacy-block-execution-rejects-transaction-root-mismatch-before-state-mutation
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
-         (recipient (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (recipient (address-from-hex "0x00000000000000000000000000000000000000f2"))
          (header (make-block-header :gas-limit 50000
                                     :transactions-root (zero-hash32)))
          (tx (make-legacy-transaction :nonce 0
@@ -115,7 +119,7 @@
 (deftest legacy-block-execution-rejects-withdrawals-root-mismatch-before-state-mutation
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
-         (recipient (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (recipient (address-from-hex "0x00000000000000000000000000000000000000f2"))
          (header (make-block-header :gas-limit 50000
                                     :withdrawals-root (zero-hash32)))
          (withdrawal (make-withdrawal :index 0
@@ -131,7 +135,7 @@
 (deftest legacy-block-execution-rejects-requests-hash-mismatch-before-state-mutation
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
-         (recipient (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (recipient (address-from-hex "0x00000000000000000000000000000000000000f2"))
          (header (make-block-header :gas-limit 50000
                                     :requests-hash (zero-hash32)))
          (requests (list #(#x01 #xaa)))
@@ -154,7 +158,7 @@
 (deftest legacy-block-execution-rejects-supplied-state-root-mismatch
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
-         (recipient (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (recipient (address-from-hex "0x00000000000000000000000000000000000000f2"))
          (header (make-block-header :gas-limit 50000
                                     :state-root (zero-hash32)))
          (tx (make-legacy-transaction :nonce 0
@@ -177,7 +181,7 @@
 (deftest legacy-block-execution-rejects-supplied-gas-used-mismatch
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
-         (recipient (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (recipient (address-from-hex "0x00000000000000000000000000000000000000f2"))
          (header (make-block-header :gas-limit 50000
                                     :gas-used 1))
          (tx (make-legacy-transaction :nonce 0
@@ -195,7 +199,7 @@
 (deftest block-execution-restores-header-on-execution-phase-failure
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
-         (recipient (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (recipient (address-from-hex "0x00000000000000000000000000000000000000f2"))
          (blob-hash (hash32-from-hex
                      "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"))
          (header (make-block-header :gas-limit 100000
@@ -226,7 +230,7 @@
 (deftest dynamic-fee-block-execution-rejects-supplied-legacy-receipts-root
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
-         (recipient (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (recipient (address-from-hex "0x00000000000000000000000000000000000000f2"))
          (transaction (make-dynamic-fee-transaction
                        :nonce 0
                        :max-priority-fee-per-gas 1
@@ -394,7 +398,7 @@
 (deftest block-execution-rejects-cumulative-gas-above-limit
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
-         (recipient (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (recipient (address-from-hex "0x00000000000000000000000000000000000000f2"))
          (header (make-block-header :gas-limit 30000))
          (first (make-legacy-transaction :nonce 0
                                          :gas-price 1
@@ -415,4 +419,3 @@
     (is (= 100000
            (state-account-balance (state-db-get-account state sender))))
     (is (null (state-db-get-account state recipient)))))
-
