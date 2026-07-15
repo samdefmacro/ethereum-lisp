@@ -36,6 +36,20 @@
             :defaults source-root)))
     (sort (directory pattern) #'string< :key #'namestring)))
 
+(defun ethereum-lisp-asdf-source-paths ()
+  (labels ((collect-source-paths (component)
+             (cond
+               ((typep component 'asdf:cl-source-file)
+                (list (truename (asdf:component-pathname component))))
+               ((typep component 'asdf:module)
+                (mapcan #'collect-source-paths
+                        (asdf:component-children component)))
+               (t
+                '()))))
+    (sort (collect-source-paths (asdf:find-system '#:ethereum-lisp))
+          #'string<
+          :key #'namestring)))
+
 (defun ethereum-lisp-form-package-dependencies (form owner)
   (let ((dependencies '()))
     (labels ((walk (value)
@@ -131,6 +145,13 @@
   (dolist (package (list-all-packages))
     (when (ethereum-lisp-project-package-p package)
       (is (not (ethereum-lisp-package-dependency-cycle-p package))))))
+
+(deftest production-asdf-covers-every-source-file-exactly-once
+  (let ((source-paths (mapcar #'truename (ethereum-lisp-source-paths)))
+        (asdf-paths (ethereum-lisp-asdf-source-paths)))
+    (is (= (length asdf-paths)
+           (length (remove-duplicates asdf-paths :test #'equal))))
+    (is (equal source-paths asdf-paths))))
 
 (deftest project-package-dependency-graph-includes-source-references
   (let ((validation (find-package '#:ethereum-lisp.validation))
