@@ -66,11 +66,18 @@
                                (evm-context-chain-rules context))
                           (fail "~A produced invalid runtime code"
                                 operation-name))
-                        (incf child-gas-used
-                              (created-code-deposit-gas child-return-data))
-                        (when (and gas-limit
-                                   (> (+ gas-used child-gas-used) gas-limit))
-                          (fail "~A code deposit out of gas" operation-name))
+                        (let ((deposit-gas
+                                (created-code-deposit-gas
+                                 child-return-data)))
+                          ;; EIP-150 reserves one 64th in the parent.  Runtime
+                          ;; code deposit is part of child creation and cannot
+                          ;; spend that reserve.
+                          (when (and child-gas-limit
+                                     (> (+ child-gas-used deposit-gas)
+                                        child-gas-limit))
+                            (fail "~A code deposit out of gas"
+                                  operation-name))
+                          (incf child-gas-used deposit-gas))
                         (state-db-set-code state
                                            new-address
                                            child-return-data)
