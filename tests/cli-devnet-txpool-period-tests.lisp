@@ -1036,7 +1036,13 @@
              :config-fields
              (list (cons "cancunTime" "0x0")
                    (cons "pragueTime" "0x0")
-                   (cons "amsterdamTime" "0x0")))
+                   (cons "amsterdamTime" "0x0"))
+             :code-accounts
+             (loop for address
+                     in '("0x00000961ef480eb55e80d19ad83579a64c007002"
+                          "0x0000bbddc7ce488642fb579f8b00f3a590007251")
+                   collect
+                   (cons address #(#x60 #x00 #x60 #x00 #xf3))))
             :port 0
             :dev-mode-p t
             :dev-period-seconds 1))

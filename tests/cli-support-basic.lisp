@@ -115,6 +115,7 @@
 
 (defun devnet-cli-funded-txpool-genesis-json
     (&key config-fields gas-limit
+       (code-accounts '())
        (private-keys (list +devnet-cli-txpool-private-key+)))
   (let* ((genesis (parse-json
                    (devnet-cli-file-string +devnet-cli-genesis-fixture+)))
@@ -135,6 +136,13 @@
          (make-state-account :nonce 0
                              :balance +devnet-cli-txpool-balance+))
         (push (cons (address-to-hex sender) account) accounts)))
+    (dolist (entry code-accounts)
+      (let* ((address (address-from-hex (car entry)))
+             (code (ensure-byte-vector (cdr entry))))
+        (state-db-set-code state address code)
+        (push (cons (address-to-hex address)
+                    (list (cons "code" (bytes-to-hex code))))
+              accounts)))
     (setf (cdr (assoc "stateRoot" genesis :test #'string=))
           (hash32-to-hex (state-db-root state)))
     (dolist (field config-fields)

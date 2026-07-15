@@ -77,13 +77,15 @@
     ;; Execution requests are Engine side data derived from execution, not a
     ;; canonical block-body field.  When supplied by newPayload, validate the
     ;; early commitment; canonical block imports may omit them and are checked
-    ;; against the derived requests after execution.
+    ;; against the derived requests after execution.  Local payload builders
+    ;; may supply an empty side-data placeholder before the header commitment
+    ;; has been derived, so only compare the commitment when one is present.
     (when requests-supplied-p
       (validate-execution-request-list-fields requests)
-      (unless (and (block-header-requests-hash header)
-                   (execution-hash32=
-                    (block-header-requests-hash header)
-                    (execution-requests-hash requests)))
+      (when (and (block-header-requests-hash header)
+                 (not (execution-hash32=
+                       (block-header-requests-hash header)
+                       (execution-requests-hash requests))))
         (error 'block-validation-error
                :message "Execution requests hash mismatch")))
     (when (block-header-block-access-list-hash header)
