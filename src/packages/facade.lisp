@@ -835,6 +835,10 @@
    #:transaction-receipt-list-root)
   (#:ethereum-lisp.evm
    #:evm-error
+   #:evm-step-limit-error
+   #:evm-step-limit-error-limit
+   #:evm-step-limit-error-steps
+   #:evm-step-limit-error-pc
    #:precompile-address
    #:prewarm-precompile-addresses
    #:evm-context

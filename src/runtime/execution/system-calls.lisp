@@ -82,8 +82,7 @@ rejects execution failure for protocol calls whose EIPs mandate both."
               (let ((result
                       (execute-bytecode code
                                         :context context
-                                        :gas-limit gas-limit
-                                        :max-steps (1+ gas-limit))))
+                                        :gas-limit gas-limit)))
                 (if (eq (evm-result-status result) :reverted)
                     (rollback-failed-call result)
                     (finalize-evm-selfdestructs state context))

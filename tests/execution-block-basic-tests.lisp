@@ -353,6 +353,39 @@
                                       (list tx) receipts))
                      (hash32-to-hex (block-header-receipts-root header))))))))
 
+(deftest signed-block-executes-contract-beyond-100000-steps-within-gas
+  (let* ((state (make-state-db))
+         (sender (fixture-private-key-address 1))
+         (contract
+           (address-from-hex
+            "0x00000000000000000000000000000000000000cc"))
+         (header (make-block-header :gas-limit 500000))
+         (transaction
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction :nonce 0
+                                     :gas-price 1
+                                     :gas-limit 420000
+                                     :to contract)
+            1
+            1)))
+    (state-db-set-account state sender
+                          (make-state-account :balance 1000000))
+    (state-db-set-code state contract (evm-long-loop-code))
+    (multiple-value-bind (block receipts)
+        (execute-signed-block state (list transaction)
+                              :expected-chain-id 1
+                              :header header)
+      (let ((receipt (first receipts)))
+        (is (= 1 (length receipts)))
+        (is (= 1 (receipt-status receipt)))
+        ;; 21,000 intrinsic gas plus 390,005 exact EVM execution gas.
+        (is (= 411005 (receipt-cumulative-gas-used receipt)))
+        (is (= 411005 (block-header-gas-used (block-header block))))
+        (is (= 1 (state-account-nonce
+                  (state-db-get-account state sender))))
+        (is (= 588995 (state-account-balance
+                       (state-db-get-account state sender))))))))
+
 (deftest historical-block-reward-follows-fork-rules
   (is (= 5000000000000000000
          (ethereum-lisp.execution::block-reward-for-rules

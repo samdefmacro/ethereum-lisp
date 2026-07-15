@@ -1,5 +1,18 @@
 (in-package #:ethereum-lisp.evm.internal)
 
+(defconstant +default-gasless-evm-max-steps+ 100000)
+
+(defstruct evm-step-budget
+  "Mutable diagnostic instruction budget shared by an execution tree."
+  (limit 0 :type (integer 0 *))
+  (steps 0 :type (integer 0 *)))
+
+(defvar *evm-step-budget* nil
+  "Dynamically inherited diagnostic budget for nested EVM frames.")
+
+(defvar *evm-step-budget-policy-active-p* nil
+  "Whether the enclosing execution tree has selected its budget policy.")
+
 (defstruct (evm-machine (:constructor %make-evm-machine))
   "Mutable state for one EVM call frame.
 
@@ -9,7 +22,7 @@ hiding them in one large lexical scope."
   (code (make-byte-vector 0) :type byte-vector)
   context
   gas-limit
-  (max-steps 100000 :type (integer 0 *))
+  step-budget
   (pc 0 :type (integer 0 *))
   (steps 0 :type (integer 0 *))
   (gas-used 0 :type (integer 0 *))
@@ -25,12 +38,12 @@ hiding them in one large lexical scope."
   (status :stopped)
   (halted-p nil :type boolean))
 
-(defun make-evm-machine (code context gas-limit max-steps)
+(defun make-evm-machine (code context gas-limit step-budget)
   (%make-evm-machine
    :code (ensure-byte-vector code)
    :context context
    :gas-limit gas-limit
-   :max-steps max-steps
+   :step-budget step-budget
    :return-data-buffer
    (if context
        (ensure-byte-vector (evm-context-return-data context))
@@ -101,7 +114,7 @@ hiding them in one large lexical scope."
 
 (defmacro with-evm-machine-state ((machine) &body body)
   "Bind the mutable frame fields used by an opcode handler."
-  `(with-slots (code context gas-limit max-steps pc steps gas-used stack memory
+  `(with-slots (code context gas-limit step-budget pc steps gas-used stack memory
                 return-data return-data-buffer frame-snapshot
                 original-storage-values cleared-storage-slots logs
                 refund-counter status halted-p)
