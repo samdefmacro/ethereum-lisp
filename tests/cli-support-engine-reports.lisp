@@ -186,7 +186,7 @@
            "preparedPayloadV3ShouldOverrideBuilder")))
   (is (= 0 (fixture-object-field report "preparedPayloadV3BlobCount")))
   (is (stringp (fixture-object-field report "preparedPayloadV4Id")))
-  (is (string= "04"
+  (is (string= "06"
                (subseq (fixture-object-field report "preparedPayloadV4Id")
                        2
                        4)))
