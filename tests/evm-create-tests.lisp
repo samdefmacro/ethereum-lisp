@@ -109,6 +109,52 @@
       (is (plusp (first (evm-result-stack result))))
       (is (= 32137 (evm-result-gas-used result))))))
 
+(deftest evm-create-and-create2-initcode-are-not-capped-at-100000-steps
+  (dolist (spec
+           (list
+            ;; Copy 18-byte initcode beginning at byte 12, then CREATE.
+            (list #(#x60 #x12 #x60 #x0c #x5f #x39
+                    #x60 #x12 #x5f #x5f #xf0 #x00)
+                  422037)
+            ;; The CREATE2 prefix is two bytes longer because it pushes salt 5.
+            (list #(#x60 #x12 #x60 #x0e #x5f #x39
+                    #x60 #x05 #x60 #x12 #x5f #x5f #xf5 #x00)
+                  422046)))
+    (destructuring-bind (prefix expected-gas-used) spec
+      (dolist (mode '(:finite-gas :explicitly-unbounded))
+        (let* ((state (make-state-db))
+               (creator
+                 (address-from-hex
+                  "0x00000000000000000000000000000000000000aa"))
+               (context (make-evm-context :state state :address creator))
+               (code (concat-bytes prefix (evm-long-loop-initcode))))
+          (state-db-set-account state creator
+                                (make-state-account :balance 10))
+          (let* ((result
+                   (ecase mode
+                     (:finite-gas
+                      (execute-bytecode code
+                                        :context context
+                                        :gas-limit 500000))
+                     (:explicitly-unbounded
+                      ;; Explicit NIL disables the diagnostic budget for the
+                      ;; complete gasless CREATE/CREATE2 execution tree.
+                      (execute-bytecode code
+                                        :context context
+                                        :max-steps nil))))
+                 (created-word (first (evm-result-stack result)))
+                 (created-address
+                   (ethereum-lisp.evm.internal::word-to-address created-word))
+                 (created-account
+                   (state-db-get-account state created-address)))
+            (is (eq :stopped (evm-result-status result)))
+            (is (plusp created-word))
+            (is (= expected-gas-used (evm-result-gas-used result)))
+            (is created-account)
+            (is (= 1 (state-account-nonce created-account)))
+            (is (zerop
+                 (length (state-db-get-code state created-address))))))))))
+
 (deftest evm-create-rejects-creator-nonce-overflow
   (let* ((creator (address-from-hex "0x00000000000000000000000000000000000000aa"))
          (max-nonce (1- (ash 1 64)))

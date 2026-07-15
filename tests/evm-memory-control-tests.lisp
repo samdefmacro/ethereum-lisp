@@ -113,5 +113,44 @@
 (deftest evm-rejects-invalid-jump-and-step-limit
   (signals evm-error (execute-bytecode #(96 1 86)))
   (signals evm-error (execute-bytecode #(96 3 86 97 91 0 91 0)))
-  (signals evm-error (execute-bytecode #(91 96 0 86) :max-steps 4)))
+  (signals evm-step-limit-error
+    (execute-bytecode #(91 96 0 86) :max-steps 4)))
 
+(deftest evm-gas-bounds-long-finite-execution-instead-of-implicit-step-limit
+  (let* ((code (evm-long-loop-code))
+         (result
+           (execute-bytecode code :gas-limit +evm-long-loop-gas+))
+         (step-limit-error
+           (capture-evm-step-limit-error
+            (lambda ()
+              (execute-bytecode code
+                                :gas-limit +evm-long-loop-gas+
+                                :max-steps 100000))))
+         (gasless-default-error
+           (capture-evm-step-limit-error
+            (lambda ()
+              ;; Gasless tooling retains its implicit safety guard.
+              (execute-bytecode #(#x5b #x60 #x00 #x56)))))
+         (out-of-gas-error
+           (capture-evm-error-message
+            (lambda ()
+              (execute-bytecode code
+                                :gas-limit (1- +evm-long-loop-gas+))))))
+    (is (eq :stopped (evm-result-status result)))
+    (is (= +evm-long-loop-gas+ (evm-result-gas-used result)))
+    (is (and step-limit-error
+             (= 100000
+                (evm-step-limit-error-limit step-limit-error))))
+    (is (= 100001 (evm-step-limit-error-steps step-limit-error)))
+    (is (not (typep step-limit-error 'evm-error)))
+    (is (search "maximum step count 100000"
+                (princ-to-string step-limit-error)))
+    (is (and gasless-default-error
+             (= 100000
+                (evm-step-limit-error-limit gasless-default-error))))
+    (is (= 100001 (evm-step-limit-error-steps gasless-default-error)))
+    (is (search "maximum step count 100000"
+                (princ-to-string gasless-default-error)))
+    (is (and out-of-gas-error
+             (search "out of gas" out-of-gas-error)))
+    (is (not (search "maximum step count" out-of-gas-error)))))

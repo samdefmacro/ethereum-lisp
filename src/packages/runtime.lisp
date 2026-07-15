@@ -112,6 +112,10 @@
         #:ethereum-lisp.state)
   (:export
    #:evm-error
+   #:evm-step-limit-error
+   #:evm-step-limit-error-limit
+   #:evm-step-limit-error-steps
+   #:evm-step-limit-error-pc
    #:precompile-address
    #:active-precompile-address-p
    #:prewarm-precompile-addresses
@@ -159,6 +163,10 @@
 (ethereum-lisp.package-tools:define-api-package #:ethereum-lisp.evm
   (#:ethereum-lisp.evm.internal
    #:evm-error
+   #:evm-step-limit-error
+   #:evm-step-limit-error-limit
+   #:evm-step-limit-error-steps
+   #:evm-step-limit-error-pc
    #:precompile-address
    #:active-precompile-address-p
    #:prewarm-precompile-addresses

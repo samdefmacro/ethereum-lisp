@@ -124,7 +124,13 @@
 (deftest evm-public-package-is-a-thin-facade
   (let ((public (find-package '#:ethereum-lisp.evm))
         (internal (find-package '#:ethereum-lisp.evm.internal)))
-    (dolist (name '("EVM-CONTEXT" "EVM-RESULT" "EXECUTE-BYTECODE"))
+    (dolist (name '("EVM-CONTEXT"
+                    "EVM-RESULT"
+                    "EVM-STEP-LIMIT-ERROR"
+                    "EVM-STEP-LIMIT-ERROR-LIMIT"
+                    "EVM-STEP-LIMIT-ERROR-STEPS"
+                    "EVM-STEP-LIMIT-ERROR-PC"
+                    "EXECUTE-BYTECODE"))
       (multiple-value-bind (public-symbol public-status)
           (find-symbol name public)
         (multiple-value-bind (internal-symbol internal-status)

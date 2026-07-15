@@ -5,6 +5,18 @@
   (:report (lambda (condition stream)
              (format stream "~A" (evm-error-message condition)))))
 
+(define-condition evm-step-limit-error (error)
+  ((limit :initarg :limit :reader evm-step-limit-error-limit)
+   (steps :initarg :steps :reader evm-step-limit-error-steps)
+   (pc :initarg :pc :reader evm-step-limit-error-pc))
+  (:report
+   (lambda (condition stream)
+     (format stream
+             "EVM exceeded maximum step count ~D at pc ~D (attempted step ~D)"
+             (evm-step-limit-error-limit condition)
+             (evm-step-limit-error-pc condition)
+             (evm-step-limit-error-steps condition)))))
+
 (define-condition evm-precompile-error (evm-error)
   ((gas-used :initarg :gas-used :reader evm-precompile-error-gas-used)))
 

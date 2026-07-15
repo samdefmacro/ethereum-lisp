@@ -21,6 +21,30 @@
   accessed-addresses
   selfdestructed-addresses)
 
+(defstruct (evm-root-execution-snapshot
+            (:constructor make-evm-root-execution-snapshot
+                (&key execution frame storage-originals)))
+  "Rollback data for an execution-tree host abort, not an EVM frame revert."
+  execution
+  frame
+  storage-originals)
+
+(defun copy-storage-originals (context)
+  (let ((copy (make-hash-table :test 'equalp)))
+    (when context
+      (maphash (lambda (key value)
+                 (setf (gethash key copy) value))
+               (evm-context-storage-originals context)))
+    copy))
+
+(defun restore-storage-originals (context snapshot)
+  (when context
+    (let ((originals (evm-context-storage-originals context)))
+      (clrhash originals)
+      (maphash (lambda (key value)
+                 (setf (gethash key originals) value))
+               snapshot))))
+
 (defun capture-frame-snapshot (context)
   (make-evm-frame-snapshot
    :transient-storage (copy-transient-storage context)
@@ -77,3 +101,22 @@
   (restore-selfdestructed-addresses
    context
    (evm-execution-snapshot-selfdestructed-addresses snapshot)))
+
+(defun capture-root-execution-snapshot (state context)
+  "Capture all mutable execution data for a non-protocol host abort."
+  (make-evm-root-execution-snapshot
+   :execution (and state (capture-execution-snapshot state context))
+   :frame (and (null state) (capture-frame-snapshot context))
+   :storage-originals (copy-storage-originals context)))
+
+(defun restore-root-execution-snapshot (state context snapshot)
+  (cond
+    ((evm-root-execution-snapshot-execution snapshot)
+     (restore-execution-snapshot
+      state context (evm-root-execution-snapshot-execution snapshot)))
+    ((evm-root-execution-snapshot-frame snapshot)
+     (restore-frame-snapshot
+      context (evm-root-execution-snapshot-frame snapshot))))
+  (restore-storage-originals
+   context
+   (evm-root-execution-snapshot-storage-originals snapshot)))

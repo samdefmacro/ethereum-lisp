@@ -19,12 +19,17 @@
            (evm-machine-pc machine)))))
 
 (defun step-evm-machine (machine)
-  "Fetch and execute one opcode, enforcing frame-wide step and gas limits."
+  "Fetch and execute one opcode, enforcing tree-wide step and frame gas limits."
   (incf (evm-machine-steps machine))
-  (when (> (evm-machine-steps machine)
-           (evm-machine-max-steps machine))
-    (fail "EVM exceeded maximum step count ~D"
-          (evm-machine-max-steps machine)))
+  (let ((budget (evm-machine-step-budget machine)))
+    (when budget
+      (incf (evm-step-budget-steps budget))
+      (when (> (evm-step-budget-steps budget)
+               (evm-step-budget-limit budget))
+        (error 'evm-step-limit-error
+               :limit (evm-step-budget-limit budget)
+               :steps (evm-step-budget-steps budget)
+               :pc (evm-machine-pc machine)))))
   (let ((opcode (aref (evm-machine-code machine)
                       (evm-machine-pc machine))))
     (evm-machine-charge-gas machine (opcode-base-gas opcode))

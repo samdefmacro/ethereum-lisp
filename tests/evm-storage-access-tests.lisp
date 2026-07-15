@@ -250,3 +250,30 @@
     (let ((result (execute-bytecode #(96 2 #x5c 0) :context context)))
       (is (= 0 (first (evm-result-stack result)))))))
 
+(deftest evm-tree-step-limit-rolls-back-state-less-context
+  (let* ((transient-storage (make-hash-table :test 'equalp))
+         (storage-originals (make-hash-table :test 'equalp))
+         (contract
+           (address-from-hex
+            "0x00000000000000000000000000000000000000aa"))
+         (context
+           (make-evm-context :address contract
+                             :transient-storage transient-storage
+                             :storage-originals storage-originals))
+         (sentinel (make-byte-vector 52 :initial-element #x5a)))
+    (setf (gethash sentinel storage-originals) :sentinel)
+    (let ((condition
+            (capture-evm-step-limit-error
+             (lambda ()
+               ;; TSTORE mutates a context without a state DB, then this loop
+               ;; exceeds the root diagnostic budget at pc 5.
+               (execute-bytecode
+                #(#x60 #x2a #x60 #x01 #x5d #x5b #x60 #x05 #x56)
+                :context context
+                :max-steps 6)))))
+      (is condition)
+      (is (= 7 (evm-step-limit-error-steps condition)))
+      (is (= 5 (evm-step-limit-error-pc condition)))
+      (is (= 0 (hash-table-count transient-storage)))
+      (is (= 1 (hash-table-count storage-originals)))
+      (is (eq :sentinel (gethash sentinel storage-originals))))))
