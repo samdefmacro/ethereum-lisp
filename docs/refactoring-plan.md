@@ -236,6 +236,9 @@ make docker-test-e2e
   - `PHASE-A-SMOKE-GATE-DEVNET-MODE-IS-CWD-INDEPENDENT`。
   首个失败报告 KZG opt-in `engine_forkchoiceUpdatedV3` status mismatch，后两项是包含该
   smoke gate 的上层场景失败。
+- ASDF 收紧后共有 10 个显式逻辑 module、304 个 production source component；cold
+  coverage 和 module dependency edge 测试通过，unit、integration、e2e 的结果与上述
+  基线保持一致。
 
 ## 完成标准
 
@@ -246,7 +249,7 @@ make docker-test-e2e
 - package dependency graph 保持无环，低层不依赖 RPC、HTTP 或 CLI；
 - unit、integration、e2e 均通过，或失败已证明可在同步基线复现；
 - 架构文档中的 source ownership map 使用新路径；
-- ASDF module DAG 和小文件合并分别作为后续独立变更验证。
+- ASDF module DAG 与纯移动分开验证；小文件合并继续作为后续独立变更。
 
 ## 回滚与提交边界
 
