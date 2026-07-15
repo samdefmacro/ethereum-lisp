@@ -122,7 +122,7 @@
     actual-blob-gas-used))
 
 (defun validate-supplied-block-execution-roots
-    (header transactions receipts state-root)
+    (header transactions receipts state-root &key expected-block-hash)
   (let ((receipts-root (transaction-receipt-list-root transactions receipts))
         (gas-used (if receipts
                       (receipt-cumulative-gas-used (car (last receipts)))
@@ -131,7 +131,10 @@
                      (receipt-bloom
                       (loop for receipt in receipts
                             append (receipt-logs receipt))))))
-    (when (and (plusp (block-header-gas-used header))
+    ;; A zero gasUsed is a real Engine payload commitment.  It is only a local
+    ;; builder template when the caller did not bind execution to a block hash.
+    (when (and (or expected-block-hash
+                   (plusp (block-header-gas-used header)))
                (/= (block-header-gas-used header) gas-used))
       (error 'block-validation-error :message "Gas used mismatch"))
     (when (and (block-header-state-root header)

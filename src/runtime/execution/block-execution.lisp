@@ -41,7 +41,12 @@
           (block-access-list nil)
           (block-access-list-supplied-p nil)
           (block-access-list-rlp nil)
-          (block-access-list-rlp-supplied-p nil))
+          (block-access-list-rlp-supplied-p nil)
+          expected-block-hash)
+  (when (and expected-block-hash
+             (not (hash32-p expected-block-hash)))
+    (error 'block-validation-error
+           :message "Expected block hash must be a hash32"))
   (multiple-value-bind (block-access-list block-access-list-supplied-p
                         encoded-block-access-list)
       (normalize-execution-block-access-list-input
@@ -145,27 +150,36 @@
                     (unless (block-header-excess-blob-gas header)
                       (setf (block-header-excess-blob-gas header) 0)))
                   (validate-supplied-block-execution-roots
-                   header transactions receipts (state-db-root state))
+                   header transactions receipts (state-db-root state)
+                   :expected-block-hash expected-block-hash)
                   (setf (block-header-state-root header) (state-db-root state)
                         (block-header-gas-used header) gas-used)
-                  (values
-                   (apply #'make-block
-                          (append
-                           (list :header header
-                                 :transactions transactions
-                                 :ommers ommers
-                                 :receipts receipts)
-                           (when withdrawals-supplied-p
-                             (list :withdrawals withdrawals))
-                           (when effective-requests-supplied-p
-                             (list :requests effective-requests))
-                           (when block-access-list-supplied-p
-                             (if encoded-block-access-list
-                                 (list :block-access-list-rlp
-                                       encoded-block-access-list)
-                                 (list :block-access-list
-                                       block-access-list)))))
-                   receipts)))))
+                  (let ((executed-block
+                          (apply #'make-block
+                                 (append
+                                  (list :header header
+                                        :transactions transactions
+                                        :ommers ommers
+                                        :receipts receipts)
+                                  (when withdrawals-supplied-p
+                                    (list :withdrawals withdrawals))
+                                  (when effective-requests-supplied-p
+                                    (list :requests effective-requests))
+                                  (when block-access-list-supplied-p
+                                    (if encoded-block-access-list
+                                        (list :block-access-list-rlp
+                                              encoded-block-access-list)
+                                        (list :block-access-list
+                                              block-access-list)))))))
+                    (when (and expected-block-hash
+                               (not (execution-hash32=
+                                     expected-block-hash
+                                     (block-hash executed-block))))
+                      ;; Keep this check inside the rollback handler: make-block
+                      ;; derives commitments by mutating the supplied header.
+                      (error 'block-validation-error
+                             :message "Executed block hash mismatch"))
+                    (values executed-block receipts))))))
         (error (condition)
           (state-db-restore state snapshot)
           (restore-block-header-for-execution header header-snapshot)
@@ -183,7 +197,8 @@
                                   (block-access-list nil
                                    block-access-list-supplied-p)
                                   (block-access-list-rlp nil
-                                   block-access-list-rlp-supplied-p))
+                                   block-access-list-rlp-supplied-p)
+                                  expected-block-hash)
   (execute-block-with-message-applier
    state
    transactions
@@ -202,7 +217,8 @@
    :block-access-list block-access-list
    :block-access-list-supplied-p block-access-list-supplied-p
    :block-access-list-rlp block-access-list-rlp
-   :block-access-list-rlp-supplied-p block-access-list-rlp-supplied-p))
+   :block-access-list-rlp-supplied-p block-access-list-rlp-supplied-p
+   :expected-block-hash expected-block-hash))
 
 (defun execute-signed-block (state transactions
                              &key expected-chain-id
@@ -217,7 +233,8 @@
                                   (block-access-list nil
                                    block-access-list-supplied-p)
                                   (block-access-list-rlp nil
-                                   block-access-list-rlp-supplied-p))
+                                   block-access-list-rlp-supplied-p)
+                                  expected-block-hash)
   "Execute a block by recovering each transaction sender from its signature."
   (execute-block-with-message-applier
    state
@@ -238,4 +255,5 @@
    :block-access-list block-access-list
    :block-access-list-supplied-p block-access-list-supplied-p
    :block-access-list-rlp block-access-list-rlp
-   :block-access-list-rlp-supplied-p block-access-list-rlp-supplied-p))
+   :block-access-list-rlp-supplied-p block-access-list-rlp-supplied-p
+   :expected-block-hash expected-block-hash))
