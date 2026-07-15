@@ -1,5 +1,10 @@
 (in-package #:ethereum-lisp.rpc-http)
 
+(defun engine-rpc-http-unavailable-import-function (store block config)
+  (declare (ignore store block config))
+  (state-unavailable-fail
+   "Engine RPC HTTP transport has no execution importer"))
+
 (defun rpc-http-handle-request
     (request context &key jwt-secret now
                           (rpc-prefix "/")
@@ -77,7 +82,9 @@
        (format nil "~A" condition)))))
 
 (defun engine-rpc-handle-http-request-string
-    (request store config &key jwt-secret now import-function
+    (request store config &key jwt-secret now
+                               (import-function
+                                 #'engine-rpc-http-unavailable-import-function)
                                new-payload-persistence-function
                                forkchoice-persistence-function
                                request-guard-function
@@ -97,6 +104,9 @@
                                txpool-local-addresses
                                txpool-no-local-exemptions-p
                                txpool-lifetime-seconds)
+  (unless (functionp import-function)
+    (block-validation-fail
+     "Engine RPC HTTP import function must be a function"))
   (rpc-http-handle-request
    request
    (make-rpc-context
@@ -166,7 +176,9 @@
 
 (defun engine-rpc-handle-http-stream
     (input-stream output-stream store config
-     &key jwt-secret now import-function
+     &key jwt-secret now
+          (import-function
+            #'engine-rpc-http-unavailable-import-function)
           new-payload-persistence-function
           forkchoice-persistence-function
           request-guard-function
@@ -188,6 +200,9 @@
           txpool-lifetime-seconds
           telemetry-sink
           telemetry-fields)
+  (unless (functionp import-function)
+    (block-validation-fail
+     "Engine RPC HTTP import function must be a function"))
   (rpc-http-handle-stream
    input-stream
    output-stream

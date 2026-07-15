@@ -79,7 +79,7 @@
        (config (make-chain-config))
        jwt-secret
        (now-provider (lambda () 0))
-       (import-function #'execute-and-commit-engine-payload)
+       (import-function #'engine-rpc-http-unavailable-import-function)
        new-payload-persistence-function
        forkchoice-persistence-function
        request-guard-function

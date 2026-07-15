@@ -771,7 +771,55 @@ Content-Type: application/json
         (make-engine-rpc-http-service
          :jwt-secret (make-byte-vector 31 :initial-element 1)))
       (signals block-validation-error
-        (make-engine-rpc-http-service :import-function "not a function")))))
+        (make-engine-rpc-http-service :import-function "not a function"))
+      (signals block-validation-error
+        (make-engine-rpc-http-service :import-function nil)))))
+
+(deftest engine-rpc-http-default-importer-fails-closed
+  (multiple-value-bind (store config parent-block child-block)
+      (new-payload-persistence-test-fixture)
+    (declare (ignore parent-block))
+    (let* ((service
+             (make-engine-rpc-http-service :store store :config config))
+           (body
+             (json-encode
+              (new-payload-persistence-test-request 120 child-block)))
+           (request
+             (format nil
+                     "POST / HTTP/1.1~%Host: localhost~%Content-Type: application/json~%Content-Length: ~D~%~%~A"
+                     (length body)
+                     body))
+           (input (make-string-input-stream request))
+           (output (make-string-output-stream))
+           (http-response
+             (engine-rpc-http-service-handle-stream service input output))
+           (boundary
+             (search (format nil "~C~C~C~C"
+                             #\Return #\Newline #\Return #\Newline)
+                     http-response))
+           (response (parse-json (subseq http-response (+ boundary 4))))
+           (status (new-payload-persistence-test-status response))
+           (child-hash (block-hash child-block)))
+      (is (search "HTTP/1.1 200 OK" http-response))
+      (is (= 120 (new-payload-persistence-test-field response "id")))
+      (is (null (new-payload-persistence-test-field response "error")))
+      (is (string= +payload-status-syncing+
+                   (new-payload-persistence-test-field status "status")))
+      (dolist (field '("latestValidHash" "validationError" "witness"))
+        (is (null (new-payload-persistence-test-field status field))))
+      (is (null (engine-payload-store-known-block store child-hash)))
+      (is (typep (engine-payload-store-remote-block store child-hash)
+                 'ethereum-block))
+      (is (not (chain-store-state-available-p store child-hash)))
+      (signals block-validation-error
+        (engine-rpc-handle-http-request-string
+         request store config :import-function nil))
+      (signals block-validation-error
+        (engine-rpc-handle-http-stream
+         (make-string-input-stream request)
+         (make-string-output-stream)
+         store config
+         :import-function nil)))))
 
 (deftest engine-rpc-http-service-serves-listener-connections
   (labels ((field (object name)
