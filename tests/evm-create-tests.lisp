@@ -243,6 +243,101 @@
       (is (= 1 (state-account-nonce (state-db-get-account state creator))))
       (is (not (state-db-get-account state expected-address))))))
 
+(deftest evm-create-code-deposit-respects-eip150-child-gas
+  (let* ((creator
+           (address-from-hex
+            "0x00000000000000000000000000000000000000aa"))
+         (initcode #(#x60 #x00 #x60 #x00 #x53
+                     #x60 #x01 #x60 #x00 #xf3))
+         (create-code
+           (concat-bytes
+            #(#x60 #x0a #x60 #x0d #x5f #x39
+              #x60 #x0a #x5f #x5f #xf0 #x5a #x00)
+            initcode))
+         (create2-code
+           (concat-bytes
+            #(#x60 #x0a #x60 #x0f #x5f #x39
+              #x60 #x05 #x60 #x0a #x5f #x5f #xf5 #x5a #x00)
+            initcode))
+         (specs
+           (list
+            ;; Parent remaining gas is 218, but EIP-150 forwards only 215.
+            (list create-code
+                  32244
+                  (ethereum-lisp.evm.internal::create-address creator 0))
+            (list create2-code
+                  32253
+                  (ethereum-lisp.evm.internal::create2-address
+                   creator 5 initcode)))))
+    (dolist (spec specs)
+      (destructuring-bind (code mistaken-success-boundary expected-address)
+          spec
+        (let* ((state (make-state-db))
+               (context (make-evm-context :state state :address creator))
+               (result
+                 (progn
+                   (state-db-set-account
+                    state creator (make-state-account :balance 10))
+                   (execute-bytecode
+                    code
+                    :context context
+                    :gas-limit mistaken-success-boundary))))
+          (is (eq :stopped (evm-result-status result)))
+          ;; GAS consumes two of the parent's three reserved gas, then exposes
+          ;; the final one above CREATE's zero failure result.
+          (is (= 2 (length (evm-result-stack result))))
+          (is (= 1 (first (evm-result-stack result))))
+          (is (= 0 (second (evm-result-stack result))))
+          (is (= (1- mistaken-success-boundary)
+                 (evm-result-gas-used result)))
+          (is (= 0 (evm-result-refund-counter result)))
+          (is (null (evm-result-logs result)))
+          (is (= 1
+                 (state-account-nonce
+                  (state-db-get-account state creator))))
+          (is (= 10
+                 (state-account-balance
+                  (state-db-get-account state creator))))
+          (is (not (state-db-get-account state expected-address)))
+          (is (gethash
+               (address-bytes expected-address)
+               (evm-context-accessed-addresses context))))
+        (let* ((state (make-state-db))
+               (context (make-evm-context :state state :address creator))
+               (result
+                 (progn
+                   (state-db-set-account
+                    state creator (make-state-account :balance 10))
+                   ;; Three more parent gas raises the child cap from 215 to
+                   ;; 218, exactly covering initcode plus one-byte deposit.
+                   (execute-bytecode
+                    code
+                    :context context
+                    :gas-limit (+ mistaken-success-boundary 3)))))
+          (is (eq :stopped (evm-result-status result)))
+          (is (= 2 (length (evm-result-stack result))))
+          (is (= 1 (first (evm-result-stack result))))
+          (is (= (bytes-to-integer (address-bytes expected-address))
+                 (second (evm-result-stack result))))
+          (is (= (+ mistaken-success-boundary 2)
+                 (evm-result-gas-used result)))
+          (is (= 0 (evm-result-refund-counter result)))
+          (is (null (evm-result-logs result)))
+          (is (= 1
+                 (state-account-nonce
+                  (state-db-get-account state creator))))
+          (is (= 10
+                 (state-account-balance
+                  (state-db-get-account state creator))))
+          (is (= 1
+                 (state-account-nonce
+                  (state-db-get-account state expected-address))))
+          (is (bytes= #(#x00)
+                      (state-db-get-code state expected-address)))
+          (is (gethash
+               (address-bytes expected-address)
+               (evm-context-accessed-addresses context))))))))
+
 (deftest evm-create-rejects-ef-prefixed-runtime-code
   (let* ((state (make-state-db))
          (creator (address-from-hex "0x00000000000000000000000000000000000000aa"))

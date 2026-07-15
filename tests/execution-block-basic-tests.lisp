@@ -386,6 +386,45 @@
         (is (= 588995 (state-account-balance
                        (state-db-get-account state sender))))))))
 
+(deftest legacy-block-internal-create-deposit-respects-child-gas-cap
+  (let* ((state (make-state-db))
+         (sender
+           (address-from-hex
+            "0x0000000000000000000000000000000000000001"))
+         (contract
+           (address-from-hex
+            "0x00000000000000000000000000000000000000aa"))
+         (initcode #(#x60 #x00 #x60 #x00 #x53
+                     #x60 #x01 #x60 #x00 #xf3))
+         (contract-code
+           (concat-bytes
+            #(#x60 #x0a #x60 #x0d #x5f #x39
+              #x60 #x0a #x5f #x5f #xf0 #x5a #x00)
+            initcode))
+         (created-address
+           (ethereum-lisp.evm.internal::create-address contract 0))
+         (tx (make-legacy-transaction :nonce 0
+                                      :gas-price 1
+                                      :gas-limit 53244
+                                      :to contract))
+         (header (make-block-header :gas-limit 60000)))
+    (state-db-set-account state sender
+                          (make-state-account :balance 100000))
+    (state-db-set-code state contract contract-code)
+    (multiple-value-bind (block receipts)
+        (execute-legacy-block state sender (list tx) :header header)
+      (let ((receipt (first receipts)))
+        ;; The transaction succeeds because only its internal CREATE fails.
+        ;; Intrinsic 21,000 + parent EVM 32,243 = 53,243.
+        (is (= 1 (receipt-status receipt)))
+        (is (= 53243 (receipt-cumulative-gas-used receipt)))
+        (is (= 53243 (block-header-gas-used (block-header block))))
+        (is (= 1 (state-account-nonce
+                  (state-db-get-account state sender))))
+        (is (= 1 (state-account-nonce
+                  (state-db-get-account state contract))))
+        (is (not (state-db-get-account state created-address)))))))
+
 (deftest historical-block-reward-follows-fork-rules
   (is (= 5000000000000000000
          (ethereum-lisp.execution::block-reward-for-rules
