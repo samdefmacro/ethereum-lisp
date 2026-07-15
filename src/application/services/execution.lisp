@@ -118,6 +118,7 @@ so execution only fails if EVM code actually queries unavailable history."
           (requests nil requests-supplied-p)
           (block-access-list nil block-access-list-supplied-p)
           (block-access-list-rlp nil block-access-list-rlp-supplied-p)
+          expected-block-hash
           (state-available-p t)
           (canonicalize-p t))
   (execute-and-commit-block
@@ -130,6 +131,7 @@ so execution only fails if EVM code actually queries unavailable history."
       transactions
       (append
        (list :expected-chain-id expected-chain-id
+             :expected-block-hash expected-block-hash
              :header header
              :chain-rules chain-rules
              :chain-config chain-config
@@ -152,6 +154,7 @@ so execution only fails if EVM code actually queries unavailable history."
 (defun execute-and-commit-engine-payload
     (store block config &key (state-available-p t))
   (let* ((header (block-header block))
+         (expected-block-hash (block-hash block))
          (number (block-header-number header))
          (parent-hash (block-header-parent-hash header))
          (state (if (plusp number)
@@ -167,6 +170,7 @@ so execution only fails if EVM code actually queries unavailable history."
      (block-transactions block)
      (append
       (list :expected-chain-id (chain-config-chain-id config)
+            :expected-block-hash expected-block-hash
             :header header
             :chain-config config
             :ommers (block-ommers block)

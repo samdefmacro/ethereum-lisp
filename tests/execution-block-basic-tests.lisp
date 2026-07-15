@@ -196,6 +196,74 @@
                             :header header))
     (is (= 1 (block-header-gas-used header)))))
 
+(deftest legacy-block-execution-rejects-zero-committed-gas-used
+  (let* ((sender
+           (address-from-hex
+            "0x0000000000000000000000000000000000000001"))
+         (recipient
+           (address-from-hex
+            "0x00000000000000000000000000000000000000f2"))
+         (transaction
+           (make-legacy-transaction :nonce 0
+                                    :gas-price 1
+                                    :gas-limit 21000
+                                    :to recipient
+                                    :value 10))
+         (derivation-state (make-state-db))
+         (template-header (make-block-header :gas-limit 50000))
+         (committed-block nil))
+    (state-db-set-account derivation-state sender
+                          (make-state-account :balance 100000))
+    ;; A zero gas-used header remains a valid local template when no remote
+    ;; block-hash commitment is supplied.
+    (is (= 0 (block-header-gas-used template-header)))
+    (multiple-value-bind (block receipts)
+        (execute-legacy-block derivation-state sender (list transaction)
+                              :header template-header)
+      (is (= 1 (length receipts)))
+      (is (= 21000 (block-header-gas-used (block-header block))))
+      (setf committed-block block))
+    (let* ((candidate-block
+             (block-from-rlp (block-rlp committed-block)))
+           (candidate-header (block-header candidate-block))
+           (committed-block-hash (block-hash committed-block))
+           (state (make-state-db)))
+      (state-db-set-account state sender
+                            (make-state-account :balance 100000))
+      (setf (block-header-gas-used candidate-header) 0)
+      (let* ((expected-block-hash (block-hash candidate-block))
+             (header-rlp-before
+               (copy-seq (block-header-rlp candidate-header)))
+             (header-hash-before (block-header-hash candidate-header))
+             (gas-used-before (block-header-gas-used candidate-header))
+             (state-root-before (state-db-root state))
+             (sender-before (state-db-get-account state sender))
+             (sender-nonce-before (state-account-nonce sender-before))
+             (sender-balance-before (state-account-balance sender-before)))
+        (is (not (bytes= (hash32-bytes committed-block-hash)
+                         (hash32-bytes expected-block-hash))))
+        (is (null (state-db-get-account state recipient)))
+        (signals block-validation-error
+          (execute-legacy-block state sender
+                                (block-transactions candidate-block)
+                                :header candidate-header
+                                :expected-block-hash expected-block-hash))
+        (is (= gas-used-before
+               (block-header-gas-used candidate-header)))
+        (is (bytes= header-rlp-before
+                    (block-header-rlp candidate-header)))
+        (is (bytes= (hash32-bytes header-hash-before)
+                    (hash32-bytes
+                     (block-header-hash candidate-header))))
+        (is (bytes= (hash32-bytes state-root-before)
+                    (hash32-bytes (state-db-root state))))
+        (let ((sender-after (state-db-get-account state sender)))
+          (is (= sender-nonce-before
+                 (state-account-nonce sender-after)))
+          (is (= sender-balance-before
+                 (state-account-balance sender-after))))
+        (is (null (state-db-get-account state recipient)))))))
+
 (deftest block-execution-restores-header-on-execution-phase-failure
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))

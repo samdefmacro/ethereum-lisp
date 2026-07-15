@@ -245,11 +245,30 @@
                              :base-fee-per-gas 100)
                     :chain-config config
                     :withdrawals (list withdrawal)))
-                 (check-case (mutate-header expected-error)
+                 (assert-no-candidate-projection (store hash)
+                   (is (not (chain-store-known-block store hash)))
+                   (is (not (chain-store-state-available-p store hash)))
+                   (is (= 0 (chain-store-account-nonce store hash sender)))
+                   (is (= 0 (chain-store-account-balance store hash sender)))
+                   (is (= 0 (chain-store-account-balance
+                             store hash recipient)))
+                   (is (= 0 (chain-store-account-balance
+                             store hash withdrawal-recipient))))
+                 (check-case (mutate-header expected-error
+                              &key
+                                (expected-gas-used nil
+                                                   expected-gas-used-p))
                    (let* ((store (make-engine-payload-memory-store))
-                          (bad-block (child-block)))
+                          (bad-block (child-block))
+                          (correct-block-hash (block-hash bad-block))
+                          (persistence-calls 0)
+                          captured-candidate
+                          captured-candidate-hash
+                          captured-candidate-header-rlp)
                      (funcall mutate-header (block-header bad-block))
                      (let* ((bad-block-hash (block-hash bad-block))
+                            (bad-block-header-rlp
+                              (block-header-rlp (block-header bad-block)))
                             (payload
                               (execution-payload-envelope-execution-payload
                                (block-to-executable-data bad-block)))
@@ -270,34 +289,81 @@
                                 (engine-rpc-handle-request
                                  request store config
                                  :import-function
-                                 #'execute-and-commit-engine-payload))
+                                 (lambda (current-store candidate
+                                          current-config)
+                                   (setf captured-candidate candidate
+                                         captured-candidate-hash
+                                         (block-hash candidate)
+                                         captured-candidate-header-rlp
+                                         (block-header-rlp
+                                          (block-header candidate)))
+                                   (execute-and-commit-engine-payload
+                                    current-store candidate current-config))
+                                 :new-payload-persistence-function
+                                 (lambda (current-store candidate)
+                                   (declare (ignore current-store candidate))
+                                   (incf persistence-calls))))
                               (result (field response "result")))
+                         (is (not (string=
+                                   (hash32-to-hex correct-block-hash)
+                                   (hash32-to-hex bad-block-hash))))
                          (is (string= +payload-status-invalid+
                                       (field result "status")))
                          (is (string= expected-error
                                       (field result "validationError")))
-                         (is (not (chain-store-known-block
-                                   store bad-block-hash)))
-                         (is (not (chain-store-state-available-p
-                                   store bad-block-hash)))
+                         (is (string=
+                              (hash32-to-hex (block-hash parent-block))
+                              (field result "latestValidHash")))
+                         (is (= 0 persistence-calls))
+                         (assert-no-candidate-projection
+                          store bad-block-hash)
+                         (assert-no-candidate-projection
+                          store correct-block-hash)
                          (is (not (chain-store-transaction-location
                                    store
                                    (transaction-hash transaction))))
-                         (is (= 0
-                                (chain-store-account-nonce
-                                 store bad-block-hash sender)))
-                         (is (= 0
-                                (chain-store-account-balance
-                                 store bad-block-hash recipient)))
-                         (is (= 0
-                                (chain-store-account-balance
-                                 store bad-block-hash withdrawal-recipient)))
+                         (is (null (chain-store-canonical-hash store 42)))
                          (is (= 9
                                 (chain-store-account-nonce
                                  store (block-hash parent-block) sender)))
                          (is (= 2000000000000000000
                                 (chain-store-account-balance
-                                 store (block-hash parent-block) sender))))))))
+                                 store (block-hash parent-block) sender)))
+                         (is (= 0
+                                (chain-store-account-balance
+                                 store (block-hash parent-block) recipient)))
+                         (is (= 0
+                                (chain-store-account-balance
+                                 store (block-hash parent-block)
+                                 withdrawal-recipient)))
+                         (is captured-candidate)
+                         (is (string=
+                              (hash32-to-hex bad-block-hash)
+                              (hash32-to-hex captured-candidate-hash)))
+                         (is (bytes= bad-block-header-rlp
+                                     captured-candidate-header-rlp))
+                         (is (bytes=
+                              captured-candidate-header-rlp
+                              (block-header-rlp
+                               (block-header captured-candidate))))
+                         (is (string=
+                              (hash32-to-hex bad-block-hash)
+                              (hash32-to-hex
+                               (block-hash captured-candidate))))
+                         (when expected-gas-used-p
+                           (is (= expected-gas-used
+                                  (block-header-gas-used
+                                   (block-header captured-candidate)))))
+                         (let ((invalid-block
+                                 (engine-payload-store-invalid-block
+                                  store bad-block-hash)))
+                           (is invalid-block)
+                           (is (string=
+                                (hash32-to-hex bad-block-hash)
+                                (hash32-to-hex (block-hash invalid-block)))))
+                         (is (null
+                              (engine-payload-store-invalid-block
+                               store correct-block-hash))))))))
           (check-case
            (lambda (header)
              (setf (block-header-state-root header) (zero-hash32)))
@@ -313,4 +379,10 @@
           (check-case
            (lambda (header)
              (setf (block-header-gas-used header) 1))
-           "Gas used mismatch"))))))
+           "Gas used mismatch"
+           :expected-gas-used 1)
+          (check-case
+           (lambda (header)
+             (setf (block-header-gas-used header) 0))
+           "Gas used mismatch"
+           :expected-gas-used 0))))))

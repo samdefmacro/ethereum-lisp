@@ -525,6 +525,12 @@
                   store
                   config))
                (payload (field payload-response "result"))
+               (prepared-payload
+                 (engine-payload-store-prepared-payload
+                  store (hex-to-bytes payload-id)))
+               (prepared-header
+                 (block-header
+                  (engine-prepared-payload-block prepared-payload)))
                (payload-transactions (field payload "transactions"))
                (pending-response
                  (request-json
@@ -548,6 +554,11 @@
           (is (= 103 (field prepare-response "id")))
           (is (stringp payload-id))
           (is (= 1 (length payload-transactions)))
+          ;; Prepared payloads start with a zero-valued gas template.  The
+          ;; selected transfer must finalize both the stored header and RPC
+          ;; payload with its actual execution gas.
+          (is (= 21000 (block-header-gas-used prepared-header)))
+          (is (= 21000 (hex-to-quantity (field payload "gasUsed"))))
           (is (member selected-raw (list raw-a raw-b) :test #'string=))
           (is (= 2 (length pending-transactions)))
           (is (member selected-hash pending-hashes :test #'string=))
