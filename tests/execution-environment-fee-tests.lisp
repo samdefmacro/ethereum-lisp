@@ -77,7 +77,7 @@
 (deftest dynamic-fee-message-transfer-uses-effective-gas-price
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
-         (recipient (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (recipient (address-from-hex "0x00000000000000000000000000000000000000f2"))
          (transaction (make-dynamic-fee-transaction
                        :nonce 0
                        :max-priority-fee-per-gas 3
@@ -99,7 +99,7 @@
 (deftest dynamic-fee-message-rejects-fee-cap-below-base-fee
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
-         (recipient (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (recipient (address-from-hex "0x00000000000000000000000000000000000000f2"))
          (transaction (make-dynamic-fee-transaction
                        :nonce 0
                        :max-priority-fee-per-gas 1
@@ -117,7 +117,7 @@
 (deftest dynamic-fee-message-rejects-overwide-fee-caps
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
-         (recipient (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (recipient (address-from-hex "0x00000000000000000000000000000000000000f2"))
          (balance 200000)
          (transaction (make-dynamic-fee-transaction
                        :nonce 0
@@ -136,7 +136,7 @@
 (deftest dynamic-fee-message-requires-balance-for-max-fee-cap
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
-         (recipient (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (recipient (address-from-hex "0x00000000000000000000000000000000000000f2"))
          (transaction (make-dynamic-fee-transaction
                        :nonce 0
                        :max-priority-fee-per-gas 1
@@ -155,7 +155,7 @@
 (deftest dynamic-fee-block-execution-pays-priority-fee-to-coinbase
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
-         (recipient (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (recipient (address-from-hex "0x00000000000000000000000000000000000000f2"))
          (coinbase (address-from-hex "0x00000000000000000000000000000000000000cb"))
          (header (make-block-header :beneficiary coinbase
                                     :base-fee-per-gas 5
@@ -182,7 +182,7 @@
 (deftest dynamic-fee-simple-transfer-refunds-unused-gas
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
-         (recipient (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (recipient (address-from-hex "0x00000000000000000000000000000000000000f2"))
          (coinbase (address-from-hex "0x00000000000000000000000000000000000000cb"))
          (header (make-block-header :beneficiary coinbase
                                     :base-fee-per-gas 5
@@ -212,7 +212,7 @@
 (deftest dynamic-fee-block-execution-uses-typed-receipt-root
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
-         (recipient (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (recipient (address-from-hex "0x00000000000000000000000000000000000000f2"))
          (header (make-block-header :base-fee-per-gas 5))
          (transaction (make-dynamic-fee-transaction
                        :nonce 0
@@ -237,4 +237,3 @@
                         (hash32-to-hex
                          (block-header-receipts-root
                           (block-header block)))))))))
-

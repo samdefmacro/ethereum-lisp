@@ -6,7 +6,7 @@
          (sender
            (address-from-hex "0x0000000000000000000000000000000000000001"))
          (recipient
-           (address-from-hex "0x0000000000000000000000000000000000000002"))
+           (address-from-hex "0x00000000000000000000000000000000000000f2"))
          (contract
            (address-from-hex "0x0000000000000000000000000000000000000003"))
          (storage-slot
@@ -66,7 +66,7 @@
   (let ((sender
           (address-from-hex "0x0000000000000000000000000000000000000001"))
         (recipient
-          (address-from-hex "0x0000000000000000000000000000000000000002")))
+          (address-from-hex "0x00000000000000000000000000000000000000f2")))
     (labels ((bad-logs-bloom ()
                (let ((bloom (make-byte-vector 256)))
                  (setf (aref bloom 0) 1)
@@ -125,7 +125,7 @@
          (sender
            (address-from-hex "0x0000000000000000000000000000000000000001"))
          (recipient
-           (address-from-hex "0x0000000000000000000000000000000000000002"))
+           (address-from-hex "0x00000000000000000000000000000000000000f2"))
          (transaction
            (make-legacy-transaction :nonce 0
                                     :gas-price 1

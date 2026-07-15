@@ -1,17 +1,35 @@
 (in-package #:ethereum-lisp.evm.internal)
 
+(defun precompile-word-count (input)
+  (ceiling (length (ensure-byte-vector input)) 32))
+
+(defun precompile-required-gas (address input &optional rules)
+  "Return the gas required by an active precompile without executing it.
+
+NIL means the input has no computable up-front price (currently only a malformed
+BLAKE2F input length); execution will report that input error without rounds."
+  (let ((number (address-to-word address)))
+    (when (active-precompile-address-p address rules)
+      (case number
+        (1 +ecrecover-gas+)
+        (2 (+ +sha256-base-gas+
+              (* +sha256-word-gas+ (precompile-word-count input))))
+        (3 (+ +ripemd160-base-gas+
+              (* +ripemd160-word-gas+ (precompile-word-count input))))
+        (4 (+ +identity-base-gas+
+              (* +identity-word-gas+ (precompile-word-count input))))
+        (5 (modexp-precompile-required-gas input rules))
+        (6 (bn254-add-gas rules))
+        (7 (bn254-mul-gas rules))
+        (8 (bn254-pairing-gas input rules))
+        (9 (blake2f-precompile-required-gas input))
+        (10 +kzg-point-evaluation-gas+)
+        (otherwise nil)))))
+
 (defun ensure-precompile-upfront-gas (address input rules child-gas-limit)
-  (case (address-to-word address)
-    (5
-     (when (active-precompile-address-number-p 5 rules)
-       (let ((required-gas (modexp-precompile-required-gas input)))
-         (when (> required-gas child-gas-limit)
-           (fail "Precompile out of gas")))))
-    (9
-     (when (active-precompile-address-number-p 9 rules)
-       (let ((required-gas (blake2f-precompile-required-gas input)))
-         (when (and required-gas (> required-gas child-gas-limit))
-           (fail "Precompile out of gas")))))))
+  (let ((required-gas (precompile-required-gas address input rules)))
+    (when (and required-gas (> required-gas child-gas-limit))
+      (fail "Precompile out of gas"))))
 
 (defun all-zero-bytes-p (bytes start end)
   (loop for i from start below end
@@ -31,9 +49,6 @@
             (replace output (address-bytes address) :start1 12)
             (values output +ecrecover-gas+))
           (values (make-byte-vector 0) +ecrecover-gas+)))))
-
-(defun precompile-word-count (input)
-  (ceiling (length (ensure-byte-vector input)) 32))
 
 (defun run-precompile (address input &optional rules)
   (let ((input (ensure-byte-vector input)))
@@ -58,20 +73,23 @@
                        t))
              (values nil 0 nil)))
       (5 (if (active-precompile-address-number-p 5 rules)
-             (multiple-value-bind (output gas) (run-modexp-precompile input)
+             (multiple-value-bind (output gas)
+                 (run-modexp-precompile input rules)
                (values output gas t))
              (values nil 0 nil)))
       (6 (if (active-precompile-address-number-p 6 rules)
-             (multiple-value-bind (output gas) (run-bn254-add-precompile input)
+             (multiple-value-bind (output gas)
+                 (run-bn254-add-precompile input rules)
                (values output gas t))
              (values nil 0 nil)))
       (7 (if (active-precompile-address-number-p 7 rules)
-             (multiple-value-bind (output gas) (run-bn254-mul-precompile input)
+             (multiple-value-bind (output gas)
+                 (run-bn254-mul-precompile input rules)
                (values output gas t))
              (values nil 0 nil)))
       (8 (if (active-precompile-address-number-p 8 rules)
              (multiple-value-bind (output gas)
-                 (run-bn254-pairing-precompile input)
+                 (run-bn254-pairing-precompile input rules)
                (values output gas t))
              (values nil 0 nil)))
       (9 (if (active-precompile-address-number-p 9 rules)
@@ -90,3 +108,16 @@
                      t)
              (values nil 0 nil)))
       (otherwise (values nil 0 nil)))))
+
+(defun execute-precompile (address input rules gas-limit)
+  (if (not (active-precompile-address-p address rules))
+      (values nil 0 nil)
+      (progn
+        (ensure-precompile-upfront-gas address input rules gas-limit)
+        (multiple-value-bind (output gas-used active-p)
+            (run-precompile address input rules)
+          (unless active-p
+            (fail "Active precompile was not dispatched"))
+          (when (> gas-used gas-limit)
+            (fail "Precompile out of gas"))
+          (values output gas-used t)))))

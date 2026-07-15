@@ -113,7 +113,9 @@
   (:export
    #:evm-error
    #:precompile-address
+   #:active-precompile-address-p
    #:prewarm-precompile-addresses
+   #:execute-precompile
    #:evm-context
    #:make-evm-context
    #:evm-context-state
@@ -158,7 +160,9 @@
   (#:ethereum-lisp.evm.internal
    #:evm-error
    #:precompile-address
+   #:active-precompile-address-p
    #:prewarm-precompile-addresses
+   #:execute-precompile
    #:evm-context
    #:make-evm-context
    #:evm-context-state

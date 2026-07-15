@@ -14,8 +14,11 @@
                 (evm-result-refund-counter child-result)))))
 
 (defun failed-precompile-child-gas-used (condition child-gas-limit)
-  (min (evm-precompile-error-gas-used condition)
-       child-gas-limit))
+  ;; A precompile's scheduled gas remains useful on the condition for direct
+  ;; callers and diagnostics, but any error returned by the precompile burns
+  ;; all gas forwarded to the child call.
+  (declare (ignore condition))
+  child-gas-limit)
 
 (defun failed-child-execution-gas-used (child-started-p
                                         child-gas-limit

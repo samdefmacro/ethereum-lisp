@@ -272,8 +272,8 @@ kept stable while a library-backed pairing implementation is wired in."
 (defun false32-byte-vector ()
   (make-byte-vector 32))
 
-(defun run-bn254-pairing-precompile (input)
-  (let ((gas (bn254-pairing-gas input)))
+(defun run-bn254-pairing-precompile (input &optional rules)
+  (let ((gas (bn254-pairing-gas input rules)))
     (cond
       ((not (zerop (mod (length input) 192)))
        (fail-precompile gas "Invalid BN254 pairing input size"))

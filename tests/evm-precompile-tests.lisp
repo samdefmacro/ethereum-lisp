@@ -126,7 +126,12 @@
                (concat-bytes copy-code call-code input))))
     (let* ((state (make-state-db))
            (caller (address-from-hex "0x00000000000000000000000000000000000000aa"))
-           (context (make-evm-context :state state :address caller))
+           (context
+             (make-evm-context
+              :state state
+              :address caller
+              :chain-rules (make-chain-rules :byzantium-p t :berlin-p t
+                                             :shanghai-p t)))
            (result (execute-bytecode (program 3 132) :context context))
            (oog-result (execute-bytecode (program 0 199) :context context)))
       (is (= 1 (first (evm-result-stack result))))
@@ -135,6 +140,210 @@
       (is (= 0 (first (evm-result-stack oog-result))))
       (is (= 357 (evm-result-gas-used oog-result)))
       (is (bytes= #(0) (evm-result-return-data oog-result))))))
+
+(deftest evm-modexp-precompile-pricing-follows-fork-rules
+  (labels ((fixed32-integer (value)
+             (let ((bytes (make-byte-vector 32)))
+               (loop for index downfrom 31
+                     for current = value then (ash current -8)
+                     while (and (>= index 0) (plusp current))
+                     do (setf (aref bytes index) (logand current #xff)))
+               bytes))
+           (modexp-input (base exponent modulus)
+             (concat-bytes
+              (fixed32-integer (length base))
+              (fixed32-integer (length exponent))
+              (fixed32-integer (length modulus))
+              base exponent modulus)))
+    ;; This is the execution-spec-tests EIP-7883 transition vector.  Its
+    ;; lengths and exponent distinguish all three historical pricing rules.
+    (let* ((input
+             (modexp-input
+              (hex-to-bytes
+               "0xe8e77626586f73b955364c7b4bbf0bb7f7685ebd40e852b164633a4acbd3244c0001020304050607")
+              (hex-to-bytes "0x01ffffff")
+              (hex-to-bytes
+               "0xf01681d2220bfea4bb888a5543db8c0916274ddb1ea93b144c042c01d8164c950001020304050607")))
+           (head-boundary-exponent
+             (let ((bytes (make-byte-vector 33)))
+               (setf (aref bytes 31) #x80)
+               bytes))
+           (head-boundary-input
+             (modexp-input (make-byte-vector 33 :initial-element 1)
+                           head-boundary-exponent
+                           (make-byte-vector 33 :initial-element 2)))
+           (byzantium (make-chain-rules :byzantium-p t))
+           (berlin (make-chain-rules :byzantium-p t :berlin-p t))
+           (osaka (make-chain-rules :byzantium-p t :berlin-p t
+                                    :osaka-p t)))
+      (is (= 1920
+             (ethereum-lisp.evm.internal::modexp-precompile-required-gas
+              input byzantium)))
+      (is (= 200
+             (ethereum-lisp.evm.internal::modexp-precompile-required-gas
+              input berlin)))
+      (is (= 1200
+             (ethereum-lisp.evm.internal::modexp-precompile-required-gas
+              input osaka)))
+      ;; Only the first 32 exponent bytes contribute the head bits.  Reading
+      ;; the last 32 bytes would shift #x80 left by one byte and charge 1550.
+      (is (= 1150
+             (ethereum-lisp.evm.internal::modexp-precompile-required-gas
+              head-boundary-input osaka)))
+      ;; Internal callers without explicit rules use the latest fork rules.
+      (is (= 1200
+             (ethereum-lisp.evm.internal::modexp-precompile-required-gas
+              input))))))
+
+(deftest evm-modexp-precompile-enforces-osaka-length-limit
+  (labels ((fixed32-integer (value)
+             (let ((bytes (make-byte-vector 32)))
+               (loop for index downfrom 31
+                     for current = value then (ash current -8)
+                     while (and (>= index 0) (plusp current))
+                     do (setf (aref bytes index) (logand current #xff)))
+               bytes))
+           (declared-length-input (base-length exponent-length modulus-length)
+             (concat-bytes (fixed32-integer base-length)
+                           (fixed32-integer exponent-length)
+                           (fixed32-integer modulus-length))))
+    (let ((berlin (make-chain-rules :byzantium-p t :berlin-p t))
+          (osaka (make-chain-rules :byzantium-p t :berlin-p t
+                                   :osaka-p t)))
+      ;; EIP-7823 permits each declared component through exactly 1024 bytes.
+      (is (= 32768
+             (ethereum-lisp.evm.internal::modexp-precompile-required-gas
+              (declared-length-input 1024 0 0) osaka)))
+      (is (= 253952
+             (ethereum-lisp.evm.internal::modexp-precompile-required-gas
+              (declared-length-input 0 1024 0) osaka)))
+      (is (= 32768
+             (ethereum-lisp.evm.internal::modexp-precompile-required-gas
+              (declared-length-input 0 0 1024) osaka)))
+      (let ((condition
+              (handler-case
+                  (progn
+                    (ethereum-lisp.evm.internal::modexp-precompile-required-gas
+                     (declared-length-input 1025 0 0) osaka)
+                    nil)
+                (ethereum-lisp.evm.internal::evm-precompile-error (condition)
+                  condition))))
+        (is condition)
+        (is (= ethereum-lisp.evm.internal::+precompile-consume-all-child-gas+
+               (ethereum-lisp.evm.internal::evm-precompile-error-gas-used
+                condition))))
+      (signals ethereum-lisp.evm.internal::evm-error
+        (ethereum-lisp.evm.internal::modexp-precompile-required-gas
+         (declared-length-input 0 1025 0) osaka))
+      (signals ethereum-lisp.evm.internal::evm-error
+        (ethereum-lisp.evm.internal::modexp-precompile-required-gas
+         (declared-length-input 0 0 1025) osaka))
+      ;; The bound activates at Osaka; pre-Osaka pricing remains unbounded.
+      (is (= 5547
+             (ethereum-lisp.evm.internal::modexp-precompile-required-gas
+              (declared-length-input 1025 0 0) berlin)))
+      (signals ethereum-lisp.evm.internal::evm-error
+        (ethereum-lisp.evm.internal::modexp-precompile-required-gas
+         (declared-length-input 1025 0 0))))))
+
+(deftest evm-call-modexp-precompile-observes-osaka-500-gas-minimum
+  (labels ((fixed32 (value)
+             (let ((bytes (make-byte-vector 32)))
+               (setf (aref bytes 31) value)
+               bytes))
+           (program (call-gas-high call-gas-low)
+             (let* ((input (concat-bytes (fixed32 1)
+                                         (fixed32 1)
+                                         (fixed32 1)
+                                         #(2 5 13)))
+                    (copy-code #(96 99 96 23 95 57))
+                    (call-code (vector 96 1 95 96 99 95 95 96 5
+                                       97 call-gas-high call-gas-low
+                                       241 96 1 95 243)))
+               (concat-bytes copy-code call-code input))))
+    (let* ((state (make-state-db))
+           (caller (address-from-hex
+                    "0x00000000000000000000000000000000000000aa"))
+           (context
+             (make-evm-context
+              :state state
+              :address caller
+              :chain-rules (make-chain-rules :byzantium-p t :berlin-p t
+                                             :shanghai-p t
+                                             :osaka-p t)))
+           (exact-result (execute-bytecode (program 1 244) :context context))
+           (oog-result (execute-bytecode (program 1 243) :context context)))
+      (is (= 1 (first (evm-result-stack exact-result))))
+      (is (bytes= #(6) (evm-result-return-data exact-result)))
+      (is (= 0 (first (evm-result-stack oog-result))))
+      (is (bytes= #(0) (evm-result-return-data oog-result))))))
+
+(deftest evm-call-value-stipend-does-not-inflate-modexp-eip150-cap
+  (let* ((caller
+           (address-from-hex
+            "0x00000000000000000000000000000000000000aa"))
+         (precompile (ethereum-lisp.evm:precompile-address 5))
+         (rules (make-chain-rules :eip150-p t
+                                  :byzantium-p t
+                                  :berlin-p t
+                                  :shanghai-p t
+                                  :osaka-p t)))
+    (labels ((fixed32-integer (value)
+               (ethereum-lisp.evm.internal::integer-to-fixed-bytes value 32))
+             (prepared-state ()
+               (let ((state (make-state-db)))
+                 (state-db-set-account
+                  state caller (make-state-account :balance 10))
+                 ;; Keep the recipient non-empty so this isolates the 9000-gas
+                 ;; value-transfer charge from the new-account surcharge.
+                 (state-db-set-account
+                  state precompile (make-state-account :balance 1))
+                 state)))
+      (let* ((input
+               (concat-bytes
+                (fixed32-integer 32)
+                (fixed32-integer 32)
+                (fixed32-integer 32)
+                (make-byte-vector 32 :initial-element 1)
+                (make-byte-vector 32 :initial-element #xff)
+                (make-byte-vector 32 :initial-element 2)))
+             ;; Copy the 192-byte input following this 20-byte program, then
+             ;; CALL MODEXP with value=1 and an otherwise ample gas request.
+             (code
+               (concat-bytes
+                #(96 192 96 20 95 57
+                  95 95 96 192 95 96 1 96 5 97 255 255 241 0)
+                input))
+             (reference-state (prepared-state))
+             (reference-result
+               (execute-bytecode
+                code
+                :context (make-evm-context :state reference-state
+                                           :address caller
+                                           :chain-rules rules)))
+             (exact-parent-gas (evm-result-gas-used reference-result))
+             (bounded-state (prepared-state))
+             (bounded-result
+               (execute-bytecode
+                code
+                :context (make-evm-context :state bounded-state
+                                           :address caller
+                                           :chain-rules rules)
+                :gas-limit exact-parent-gas)))
+        (is (= 1 (first (evm-result-stack reference-result))))
+        (is (= 9 (state-account-balance
+                  (state-db-get-account reference-state caller))))
+        (is (= 2 (state-account-balance
+                  (state-db-get-account reference-state precompile))))
+        ;; At the exact unbounded cost, the full value-transfer charge leaves
+        ;; slightly less than MODEXP's 4080 gas after EIP-150's 63/64 cap.
+        ;; The stipend is added only after that cap and cannot make CALL pass.
+        (is (eq :stopped (evm-result-status bounded-result)))
+        (is (= 0 (first (evm-result-stack bounded-result))))
+        (is (= 10 (state-account-balance
+                   (state-db-get-account bounded-state caller))))
+        (is (= 1 (state-account-balance
+                  (state-db-get-account bounded-state precompile))))))))
 
 (deftest evm-modexp-precompile-checks-gas-before-large-allocation
   (labels ((fixed32-integer (value)

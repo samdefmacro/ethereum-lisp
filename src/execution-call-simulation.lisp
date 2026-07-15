@@ -143,7 +143,8 @@ Returns status, return data, gas used, accessed-address table, and
 accessed-storage table as multiple values. The caller's state object is never
 mutated."
   (let* ((effective-chain-rules
-           (execution-chain-rules chain-rules chain-config block-number timestamp))
+           (execution-chain-rules
+            chain-rules chain-config block-number timestamp))
          (recipient (transaction-to tx)))
     (validate-call-transaction-fields tx effective-chain-rules)
     (unless recipient
@@ -170,47 +171,70 @@ mutated."
              (call-transaction-context-base-fee gas-price base-fee))
            (intrinsic-gas (execution-transaction-intrinsic-gas
                            tx effective-chain-rules))
-           (code (execution-resolved-code call-state recipient)))
+           (code (execution-resolved-code call-state recipient))
+           (precompile-p
+             (active-precompile-address-p
+              recipient effective-chain-rules)))
       (transfer-call-value-for-simulation
        call-state sender recipient (transaction-value tx))
-      (if (zerop (length code))
-          (multiple-value-bind (accessed-addresses accessed-storage)
-              (execution-empty-access-tables)
-            (values :successful
-                    (make-byte-vector 0)
-                    intrinsic-gas
-                    accessed-addresses
-                    accessed-storage))
-          (handler-case
-              (let ((context
-                      (make-message-evm-context
-                       call-state sender tx recipient (transaction-data tx)
-                       gas-price
-                       :base-fee context-base-fee
-                       :blob-base-fee blob-base-fee
-                       :chain-id chain-id
-                       :chain-rules effective-chain-rules
-                       :chain-config chain-config
-                       :coinbase coinbase
-                       :timestamp timestamp
-                       :block-number block-number
-                       :prev-randao prev-randao
-                       :difficulty difficulty
-                       :random-p random-p
-                       :context-gas-limit context-gas-limit
-                       :block-hashes block-hashes)))
-                (let ((result
-                        (execute-bytecode
-                         code
-                         :context context
-                         :gas-limit (- gas-limit intrinsic-gas))))
-                  (multiple-value-bind (accessed-addresses accessed-storage)
-                      (execution-context-access-tables context)
-                    (values (evm-result-status result)
-                            (copy-seq (evm-result-return-data result))
-                            (transaction-evm-gas-used
-                             tx result effective-chain-rules)
-                            accessed-addresses
-                            accessed-storage))))
-            (evm-error ()
-              (execution-failed-call-values gas-limit)))))))
+      (cond
+        (precompile-p
+         (handler-case
+             (multiple-value-bind (output precompile-gas-used active-p)
+                 (execute-precompile
+                  recipient
+                  (transaction-data tx)
+                  effective-chain-rules
+                  (- gas-limit intrinsic-gas))
+               (declare (ignore active-p))
+               (multiple-value-bind (accessed-addresses accessed-storage)
+                   (execution-empty-access-tables)
+                 (values :successful
+                         (copy-seq output)
+                         (+ intrinsic-gas precompile-gas-used)
+                         accessed-addresses
+                         accessed-storage)))
+           (evm-error ()
+             (execution-failed-call-values gas-limit))))
+        ((zerop (length code))
+         (multiple-value-bind (accessed-addresses accessed-storage)
+             (execution-empty-access-tables)
+           (values :successful
+                   (make-byte-vector 0)
+                   intrinsic-gas
+                   accessed-addresses
+                   accessed-storage)))
+        (t
+         (handler-case
+             (let ((context
+                     (make-message-evm-context
+                      call-state sender tx recipient (transaction-data tx)
+                      gas-price
+                      :base-fee context-base-fee
+                      :blob-base-fee blob-base-fee
+                      :chain-id chain-id
+                      :chain-rules effective-chain-rules
+                      :chain-config chain-config
+                      :coinbase coinbase
+                      :timestamp timestamp
+                      :block-number block-number
+                      :prev-randao prev-randao
+                      :difficulty difficulty
+                      :random-p random-p
+                      :context-gas-limit context-gas-limit
+                      :block-hashes block-hashes)))
+               (let ((result
+                       (execute-bytecode
+                        code
+                        :context context
+                        :gas-limit (- gas-limit intrinsic-gas))))
+                 (multiple-value-bind (accessed-addresses accessed-storage)
+                     (execution-context-access-tables context)
+                   (values (evm-result-status result)
+                           (copy-seq (evm-result-return-data result))
+                           (transaction-evm-gas-used
+                            tx result effective-chain-rules)
+                           accessed-addresses
+                           accessed-storage))))
+           (evm-error ()
+             (execution-failed-call-values gas-limit))))))))

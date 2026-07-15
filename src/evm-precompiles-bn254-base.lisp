@@ -77,24 +77,50 @@
            (setf addend (bn254-g1-add addend addend))
         finally (return result)))
 
-(defun run-bn254-add-precompile (input)
-  (let* ((left (parse-bn254-g1-point (padded-data-slice input 0 64)
-                                     +bn254-add-gas+))
-         (right (parse-bn254-g1-point (padded-data-slice input 64 64)
-                                      +bn254-add-gas+)))
-    (values (serialize-bn254-g1-point (bn254-g1-add left right))
-            +bn254-add-gas+)))
+(defun bn254-istanbul-p (rules)
+  (or (null rules)
+      (chain-rules-istanbul-p rules)))
 
-(defun run-bn254-mul-precompile (input)
-  (let* ((point (parse-bn254-g1-point (padded-data-slice input 0 64)
-                                      +bn254-mul-gas+))
+(defun bn254-add-gas (&optional rules)
+  (if (bn254-istanbul-p rules)
+      +bn254-add-gas+
+      +bn254-add-gas-eip196+))
+
+(defun bn254-mul-gas (&optional rules)
+  (if (bn254-istanbul-p rules)
+      +bn254-mul-gas+
+      +bn254-mul-gas-eip196+))
+
+(defun bn254-pairing-base-gas (&optional rules)
+  (if (bn254-istanbul-p rules)
+      +bn254-pairing-base-gas+
+      +bn254-pairing-base-gas-eip197+))
+
+(defun bn254-pairing-per-point-gas (&optional rules)
+  (if (bn254-istanbul-p rules)
+      +bn254-pairing-per-point-gas+
+      +bn254-pairing-per-point-gas-eip197+))
+
+(defun run-bn254-add-precompile (input &optional rules)
+  (let* ((gas (bn254-add-gas rules))
+         (left (parse-bn254-g1-point (padded-data-slice input 0 64)
+                                     gas))
+         (right (parse-bn254-g1-point (padded-data-slice input 64 64)
+                                      gas)))
+    (values (serialize-bn254-g1-point (bn254-g1-add left right))
+            gas)))
+
+(defun run-bn254-mul-precompile (input &optional rules)
+  (let* ((gas (bn254-mul-gas rules))
+         (point (parse-bn254-g1-point (padded-data-slice input 0 64)
+                                      gas))
          (scalar (bytes-to-integer (padded-data-slice input 64 32))))
     (values (serialize-bn254-g1-point (bn254-g1-mul point scalar))
-            +bn254-mul-gas+)))
+            gas)))
 
-(defun bn254-pairing-gas (input)
-  (+ +bn254-pairing-base-gas+
-     (* +bn254-pairing-per-point-gas+
+(defun bn254-pairing-gas (input &optional rules)
+  (+ (bn254-pairing-base-gas rules)
+     (* (bn254-pairing-per-point-gas rules)
         (floor (length (ensure-byte-vector input)) 192))))
 
 (defun bn254-fp2 (real imaginary)
