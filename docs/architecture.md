@@ -19,10 +19,11 @@ Lower layers must not depend on higher layers. When a higher layer needs a
 small helper from a lower layer, move the helper down instead of reaching back
 through a broad package dependency.
 
-The physical source tree follows these ownership layers. During the pure-move
-stage, ASDF intentionally keeps the previous global per-file order; changing
-that order and introducing module-level `:depends-on` edges is a separate,
-cold-compile-verified change.
+The physical source tree and the production ASDF definition follow these
+ownership layers. Package declarations and each implementation module retain
+their required internal serial order, while explicit `:depends-on` edges keep
+runtime/storage and persistence/API as parallel sibling layers where no real
+dependency exists.
 
 ## Current Package Boundary
 

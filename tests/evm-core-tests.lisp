@@ -153,6 +153,30 @@
            (length (remove-duplicates asdf-paths :test #'equal))))
     (is (equal source-paths asdf-paths))))
 
+(deftest production-asdf-expresses-source-layer-dependencies
+  (let* ((system (asdf:find-system '#:ethereum-lisp))
+         (source-module
+           (find "src"
+                 (asdf:component-children system)
+                 :test #'string=
+                 :key #'asdf:component-name))
+         (modules (asdf:component-children source-module)))
+    (is (equal
+         (mapcar (lambda (component)
+                   (cons (asdf:component-name component)
+                         (asdf:component-sideway-dependencies component)))
+                 modules)
+         '(("packages")
+           ("foundation" "packages")
+           ("protocol" "foundation")
+           ("runtime-core" "protocol")
+           ("storage-core" "protocol")
+           ("application-services" "runtime-core" "storage-core")
+           ("persistence-adapters" "application-services")
+           ("api" "application-services")
+           ("transport" "api")
+           ("app" "transport" "persistence-adapters"))))))
+
 (deftest project-package-dependency-graph-includes-source-references
   (let ((validation (find-package '#:ethereum-lisp.validation))
         (types (find-package '#:ethereum-lisp.types))
