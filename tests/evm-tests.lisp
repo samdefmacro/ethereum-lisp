@@ -66,5 +66,6 @@
            "tests/evm-call-tests.lisp"
            "tests/evm-precompile-tests.lisp"
            "tests/evm-call-family-tests.lisp"
-           "tests/evm-create-tests.lisp"))
+           "tests/evm-create-tests.lisp"
+           "tests/evm-osaka-tests.lisp"))
   (load-evm-test-file relative-path))
