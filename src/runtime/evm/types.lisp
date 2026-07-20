@@ -20,9 +20,14 @@
 (define-condition evm-precompile-error (evm-error)
   ((gas-used :initarg :gas-used :reader evm-precompile-error-gas-used)))
 
+;; EIP-7951 P256VERIFY lives at address 0x100 (=256), outside the 1..10 range,
+;; so precompile numbers must be encoded across the low two address bytes.
+(defconstant +p256verify-precompile-number+ 256)
+
 (defun precompile-address (number)
   (let ((bytes (make-byte-vector 20)))
-    (setf (aref bytes 19) number)
+    (setf (aref bytes 18) (ldb (byte 8 8) number)
+          (aref bytes 19) (ldb (byte 8 0) number))
     (make-address bytes)))
 
 (defun active-precompile-address-number-p (number rules)
@@ -30,20 +35,27 @@
       (<= number 4)
       (and (<= 5 number 8) (chain-rules-byzantium-p rules))
       (and (= number 9) (chain-rules-istanbul-p rules))
-      (and (= number 10) (chain-rules-cancun-p rules))))
+      (and (= number 10) (chain-rules-cancun-p rules))
+      (and (= number +p256verify-precompile-number+)
+           (chain-rules-osaka-p rules))))
+
+(defun precompile-number-p (number)
+  (or (<= 1 number 10)
+      (= number +p256verify-precompile-number+)))
 
 (defun active-precompile-address-p (address rules)
   (let ((number (address-to-word address)))
-    (and (<= 1 number 10)
+    (and (precompile-number-p number)
          (active-precompile-address-number-p number rules))))
 
 (defun prewarm-precompile-addresses (accessed-addresses &optional rules)
-  (dotimes (i 10 accessed-addresses)
-    (let ((number (1+ i)))
-      (when (active-precompile-address-number-p number rules)
-        (setf (gethash (address-bytes (precompile-address number))
-                       accessed-addresses)
-              t)))))
+  (dolist (number (append (loop for i from 1 to 10 collect i)
+                          (list +p256verify-precompile-number+))
+                  accessed-addresses)
+    (when (active-precompile-address-number-p number rules)
+      (setf (gethash (address-bytes (precompile-address number))
+                     accessed-addresses)
+            t))))
 
 (defun make-initial-accessed-addresses (&optional rules)
   (prewarm-precompile-addresses (make-hash-table :test 'equalp) rules))
@@ -180,6 +192,7 @@
 (defconstant +bn254-pairing-base-gas+ 45000)
 (defconstant +bn254-pairing-per-point-gas+ 34000)
 (defconstant +kzg-point-evaluation-gas+ 50000)
+(defconstant +p256verify-gas+ 6900)
 (defconstant +kzg-point-evaluation-input-size+ 192)
 (defconstant +bls-field-elements-per-blob+ 4096)
 (defconstant +bls-field-modulus+

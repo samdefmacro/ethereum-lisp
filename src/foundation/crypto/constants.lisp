@@ -25,6 +25,25 @@
 (defconstant +secp256k1-gy+
   #x483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8)
 
+;;; NIST P-256 / secp256r1 domain parameters (EIP-7951 P256VERIFY).
+
+(defconstant +secp256r1-p+
+  #xffffffff00000001000000000000000000000000ffffffffffffffffffffffff)
+
+(defconstant +secp256r1-a+ (- +secp256r1-p+ 3))
+
+(defconstant +secp256r1-b+
+  #x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b)
+
+(defconstant +secp256r1-n+
+  #xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551)
+
+(defconstant +secp256r1-gx+
+  #x6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296)
+
+(defconstant +secp256r1-gy+
+  #x4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5)
+
 (defparameter +ripemd160-initial-hash+
   #(#x67452301 #xefcdab89 #x98badcfe #x10325476 #xc3d2e1f0))
 

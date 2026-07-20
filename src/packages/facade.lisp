@@ -89,6 +89,7 @@
    #:secp256k1-recover-public-key
    #:secp256k1-recover-address
    #:secp256k1-valid-signature-values-p
+   #:secp256r1-verify
    #:+kzg-commitment-size+
    #:+kzg-commitment-version+
    #:kzg-commitment-to-versioned-hash
@@ -845,6 +846,7 @@
    #:evm-step-limit-error-pc
    #:precompile-address
    #:prewarm-precompile-addresses
+   #:execute-precompile
    #:evm-context
    #:make-evm-context
    #:evm-context-state
