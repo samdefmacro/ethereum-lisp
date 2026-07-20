@@ -9,6 +9,10 @@
 
 (defconstant +transaction-gas+ 21000)
 (defconstant +contract-creation-transaction-gas+ 53000)
+;; EIP-7623 calldata floor: a zero calldata byte is 1 token, a nonzero byte is
+;; 4 tokens, and the transaction is billed at least 21000 + 10 gas per token.
+(defconstant +standard-token-cost-eip7623+ 4)
+(defconstant +total-cost-floor-per-token-eip7623+ 10)
 (defconstant +initcode-word-gas+ 2)
 (defconstant +set-code-authorization-intrinsic-gas+ 25000)
 

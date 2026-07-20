@@ -12,10 +12,14 @@
      (state-account-code-hash account))))
 
 (defun account-code-hash-word (state address)
-  (let ((account (state-db-get-account state address)))
-    (if account
-        (hash32-to-word (state-account-code-hash account))
-        0)))
+  ;; EIP-1052: EXTCODEHASH returns 0 for a nonexistent or EIP-161-empty
+  ;; account, and the code hash (keccak256("") when codeless) otherwise.
+  (if (empty-account-p state address)
+      0
+      (let ((account (state-db-get-account state address)))
+        (if account
+            (hash32-to-word (state-account-code-hash account))
+            0))))
 
 (defun blockhash-word (context number)
   (let* ((current (evm-context-block-number context))

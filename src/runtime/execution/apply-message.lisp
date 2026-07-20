@@ -16,8 +16,10 @@
           (context-gas-limit 0)
           (block-hashes (make-hash-table)))
   "Apply a transaction message and execute recipient code when present."
-  (let ((effective-chain-rules
-          (execution-chain-rules chain-rules chain-config block-number timestamp)))
+  (let* ((effective-chain-rules
+          (execution-chain-rules chain-rules chain-config block-number timestamp))
+         (*transaction-floor-gas*
+           (transaction-effective-floor-gas tx effective-chain-rules)))
     (validate-execution-transaction-fields
      tx effective-chain-rules blob-base-fee)
     (validate-transaction-sender-code state sender)

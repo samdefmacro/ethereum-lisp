@@ -175,7 +175,8 @@
             (+ (memory-expansion-gas
                 memory
                 0
-                (max (+ destination size) (+ source size)))
+                (memory-regions-high-water (list destination size)
+                                           (list source size)))
                (* +copy-word-gas+ (memory-word-count size))))
            (setf memory
                  (copy-memory-region memory destination source size)

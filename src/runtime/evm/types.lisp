@@ -104,6 +104,9 @@
                                 (accessed-addresses
                                  (make-initial-accessed-addresses chain-rules))
                                 (block-hashes (make-hash-table))
+                                (created-accounts
+                                 (make-hash-table :test 'equalp))
+                                (depth 0)
                                 (read-only-p nil))))
   state
   address
@@ -132,11 +135,16 @@
   accessed-storage
   accessed-addresses
   block-hashes
+  ;; Addresses created (via CREATE/CREATE2 or a create transaction) during the
+  ;; current transaction. Shared across all frames; drives EIP-6780.
+  created-accounts
+  (depth 0 :type (integer 0 *))
   (read-only-p nil :type boolean))
 
 (defconstant +word-modulus+ (expt 2 256))
 (defconstant +precompile-consume-all-child-gas+ (1- +word-modulus+))
 (defconstant +stack-limit+ 1024)
+(defconstant +max-call-depth+ 1024)
 (defconstant +max-account-nonce+ (1- (ash 1 64)))
 (defconstant +initcode-word-gas+ 2)
 (defconstant +keccak256-word-gas+ 6)

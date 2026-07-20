@@ -16,6 +16,8 @@
                                      (block-hashes (make-hash-table)))
   (let* ((effective-chain-rules
            (execution-chain-rules chain-rules chain-config block-number timestamp))
+         (*transaction-floor-gas*
+           (transaction-effective-floor-gas tx effective-chain-rules))
          (intrinsic-gas (execution-transaction-intrinsic-gas
                          tx effective-chain-rules))
          (sender-account (execution-account-or-empty state sender))
@@ -65,10 +67,15 @@
                           :context-gas-limit context-gas-limit
                           :block-hashes block-hashes))
                        (result
-                         (execute-bytecode
-                          (transaction-data tx)
-                                  :context context
-                                  :gas-limit (- gas-limit intrinsic-gas))))
+                         (progn
+                           ;; EIP-6780: the new contract counts as created in
+                           ;; this transaction, so an initcode SELFDESTRUCT of
+                           ;; it deletes the account.
+                           (mark-created-account context contract)
+                           (execute-bytecode
+                            (transaction-data tx)
+                            :context context
+                            :gas-limit (- gas-limit intrinsic-gas)))))
                   (if (eq (evm-result-status result) :reverted)
                       (progn
                         (state-db-restore state snapshot)

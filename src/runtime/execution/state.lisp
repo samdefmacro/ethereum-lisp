@@ -43,10 +43,12 @@
     (make-address out)))
 
 (defun execution-contract-address-collision-p (state address)
+  ;; EIP-7610 / EIP-684: collision on nonzero nonce, non-empty code, or
+  ;; non-empty storage. Balance is irrelevant, so a pre-funded but otherwise
+  ;; empty address does not block the creating transaction.
   (let ((account (state-db-get-account state address)))
     (and account
          (not (and (zerop (state-account-nonce account))
-                   (zerop (state-account-balance account))
                    (bytes= (hash32-bytes (state-account-storage-root account))
                            (hash32-bytes +empty-trie-hash+))
                    (bytes= (hash32-bytes (state-account-code-hash account))

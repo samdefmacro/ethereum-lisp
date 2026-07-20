@@ -32,7 +32,16 @@
       0))
 
 (defun contract-address-collision-p (state address)
-  (not (empty-account-p state address)))
+  ;; EIP-7610 / EIP-684: a create target collides when it already has a
+  ;; nonzero nonce, non-empty code, or non-empty storage. Balance is not a
+  ;; collision (funding a counterfactual address before deployment is legal).
+  (let ((account (state-db-get-account state address)))
+    (and account
+         (or (not (zerop (state-account-nonce account)))
+             (not (bytes= (hash32-bytes (state-account-code-hash account))
+                          (hash32-bytes +empty-code-hash+)))
+             (not (bytes= (hash32-bytes (state-account-storage-root account))
+                          (hash32-bytes +empty-trie-hash+)))))))
 
 (defun account-or-empty (state address)
   (or (state-db-get-account state address)
