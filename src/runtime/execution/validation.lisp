@@ -13,14 +13,26 @@
   (dolist (tx transactions t)
     (validate-execution-transaction-type tx rules)))
 
+(defun validate-execution-transaction-gas-cap (tx rules)
+  "Enforce the EIP-7825 (Osaka) per-transaction gas-limit cap of 2^24."
+  (when (and rules
+             (chain-rules-osaka-p rules)
+             (> (transaction-gas-limit tx)
+                +transaction-gas-limit-cap-eip7825+))
+    (error 'transaction-validation-error
+           :message "Transaction gas limit exceeds the EIP-7825 cap"))
+  t)
+
 (defun validate-execution-transaction-fields (tx rules blob-base-fee)
   (validate-execution-transaction-type tx rules)
+  (validate-execution-transaction-gas-cap tx rules)
   (validate-execution-transaction-scalar-fields tx)
   (validate-transaction-recipient-field tx)
   (validate-transaction-data-field tx)
   (validate-access-list-fields tx)
   (when (typep tx 'blob-transaction)
-    (validate-blob-transaction-fields tx)
+    (validate-blob-transaction-fields
+     tx :max-blobs (chain-rules-max-blobs-per-transaction rules))
     (validate-blob-transaction-fee-cap tx blob-base-fee))
   (validate-set-code-transaction-fields tx)
   (when (< (transaction-gas-limit tx)
@@ -38,7 +50,8 @@
   (validate-transaction-data-field tx)
   (validate-access-list-fields tx)
   (when (typep tx 'blob-transaction)
-    (validate-blob-transaction-fields tx))
+    (validate-blob-transaction-fields
+     tx :max-blobs (chain-rules-max-blobs-per-transaction rules)))
   (validate-set-code-transaction-fields tx)
   (when (< (transaction-gas-limit tx)
            (execution-transaction-intrinsic-gas tx rules))

@@ -7,6 +7,7 @@
                  +blob-base-fee-update-fraction+)
                 (max-blob-gas
                  (* +max-blobs-per-block+ +blob-gas-per-blob+))
+                (max-blobs-per-transaction +max-blobs-per-block+)
                 block-access-list-max-code-size)
   (let* ((header (block-header block))
          (ommers (block-ommers block))
@@ -35,7 +36,8 @@
       (when base-fee
         (validate-1559-transaction-fees transaction base-fee))
       (when (typep transaction 'blob-transaction)
-        (validate-blob-transaction-fields transaction)
+        (validate-blob-transaction-fields
+         transaction :max-blobs max-blobs-per-transaction)
         (when blob-base-fee
           (validate-blob-transaction-fee-cap transaction blob-base-fee))))
     (setf transactions-root (transaction-list-root transactions))

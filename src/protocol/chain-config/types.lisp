@@ -22,6 +22,17 @@
 (defconstant +max-contract-code-size+ 24576)
 (defconstant +amsterdam-max-contract-code-size+ 32768)
 
+;; EIP-7825 (Osaka): a transaction's gas limit may not exceed 2^24.
+(defconstant +transaction-gas-limit-cap-eip7825+ 16777216)
+
+;; EIP-7594 (Osaka): a single blob transaction may carry at most 6 blobs,
+;; independent of the (larger) per-block blob limit.
+(defconstant +max-blobs-per-transaction-eip7594+ 6)
+
+;; EIP-7934 (Osaka): the RLP-encoded block may not exceed
+;; MAX_BLOCK_SIZE (10 MiB) - SAFETY_MARGIN (2 MiB).
+(defconstant +max-rlp-block-size-eip7934+ 8388608)
+
 (defstruct (blob-schedule-entry
             (:constructor make-blob-schedule-entry
                 (&key timestamp target-blobs max-blobs update-fraction)))

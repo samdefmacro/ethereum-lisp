@@ -22,6 +22,10 @@
    #:+bpo4-blob-base-fee-update-fraction+
    #:+max-contract-code-size+
    #:+amsterdam-max-contract-code-size+
+   #:+transaction-gas-limit-cap-eip7825+
+   #:+max-rlp-block-size-eip7934+
+   #:+max-blobs-per-transaction-eip7594+
+   #:chain-rules-max-blobs-per-transaction
    #:blob-schedule-entry
    #:make-blob-schedule-entry
    #:blob-schedule-entry-timestamp

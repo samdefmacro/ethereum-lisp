@@ -14,6 +14,16 @@
 (defun chain-rules-contract-initcode-size-limit (rules)
   (* 2 (chain-rules-contract-code-size-limit rules)))
 
+(defun chain-rules-max-blobs-per-transaction (rules)
+  "Per-transaction blob limit. Osaka fixes it at 6 (EIP-7594); earlier forks
+bound a transaction only by the per-block blob limit from the schedule."
+  (cond
+    ((null rules) +max-blobs-per-transaction-eip7594+)
+    ((chain-rules-osaka-p rules) +max-blobs-per-transaction-eip7594+)
+    ((chain-rules-blob-schedule-max-gas rules)
+     (floor (chain-rules-blob-schedule-max-gas rules) +blob-gas-per-blob+))
+    (t +max-blobs-per-block+)))
+
 (defun chain-config-rules (config block-number timestamp)
   (multiple-value-bind (target-blob-gas max-blob-gas update-fraction)
       (chain-config-blob-schedule config block-number timestamp)
