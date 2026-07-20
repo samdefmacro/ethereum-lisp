@@ -46,7 +46,7 @@
                   #x1a #x1b #x1c #x1d #x35 #x51 #x52 #x53 #x5e)
              :test #'=)
      3)
-    ((member op '(#x02 #x04 #x05 #x06 #x07) :test #'=) 5)
+    ((member op '(#x02 #x04 #x05 #x06 #x07 #x1e) :test #'=) 5)
     ((member op '(#x08 #x09) :test #'=) 8)
     ((= op #x0a) 10)
     ((= op #x0b) 5)
