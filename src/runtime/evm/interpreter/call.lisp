@@ -63,6 +63,21 @@ merging are deliberately not configurable; those are shared EVM invariants."
          code-address
          (lambda (amount)
            (evm-machine-charge-gas machine amount)))
+        ;; EIP-7702 (Prague+): calling a delegated account also accesses and
+        ;; warms the delegation target, at the EIP-2929 cold/warm account cost.
+        (let ((rules (evm-context-chain-rules context)))
+          (when (and rules (chain-rules-prague-p rules))
+            (let ((delegation-target
+                    (set-code-delegation-target
+                     (state-db-get-code state code-address))))
+              (when delegation-target
+                (evm-machine-charge-gas
+                 machine
+                 (if (gethash (account-access-key delegation-target)
+                              (evm-context-accessed-addresses context))
+                     +warm-storage-read-cost-eip2929+
+                     +cold-account-access-cost-eip2929+))
+                (mark-account-accessed context delegation-target)))))
         ;; Warmth survives a failed child, so the rollback snapshot must include
         ;; the just-accessed code address before child execution starts.
         (refresh-execution-snapshot-accessed-addresses snapshot context)
@@ -147,6 +162,11 @@ merging are deliberately not configurable; those are shared EVM invariants."
                                    balance-check-address
                                    (balance-check-value 0)
                                    balance-check-message)
+  ;; A call at the 1024-deep call/create limit fails: push 0, no value
+  ;; transfer, and the full child gas returns to the caller.
+  (when (>= (evm-context-depth context) +max-call-depth+)
+    (return-from execute-message-call-child
+      (values 0 (make-byte-vector 0) 0 '() 0)))
   (let ((success 0)
         (child-return-data (make-byte-vector 0))
         (child-logs '())

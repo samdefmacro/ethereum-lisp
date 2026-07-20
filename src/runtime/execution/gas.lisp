@@ -45,7 +45,28 @@
    tx
    :eip3860-p (chain-rules-initcode-metering-p rules)))
 
+(defun transaction-calldata-tokens (transaction)
+  "EIP-7623 token count: 1 per zero calldata byte, 4 per nonzero byte."
+  (let ((tokens 0))
+    (loop for byte across (ensure-byte-vector (transaction-data transaction))
+          do (incf tokens (if (zerop byte) 1 +standard-token-cost-eip7623+)))
+    tokens))
+
+(defun transaction-floor-data-gas (transaction)
+  "EIP-7623 floor: 21000 + 10 gas per calldata token."
+  (+ +transaction-gas+
+     (* +total-cost-floor-per-token-eip7623+
+        (transaction-calldata-tokens transaction))))
+
+(defun transaction-effective-floor-gas (tx rules)
+  "The EIP-7623 calldata floor when active (Prague+); 0 otherwise."
+  (if (and rules (chain-rules-prague-p rules))
+      (transaction-floor-data-gas tx)
+      0))
+
 (defun transaction-evm-gas-used (tx result &optional rules)
+  ;; Pre-floor execution gas. The EIP-7623 floor is applied after the refund
+  ;; in finalize-transaction-receipt, so the refund cap uses this value.
   (+ (execution-transaction-intrinsic-gas tx rules)
      (evm-result-gas-used result)))
 

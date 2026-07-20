@@ -25,6 +25,13 @@
     (dolist (entry (transaction-access-list tx))
       (prewarm-execution-address accessed-addresses
                                  (access-list-entry-address entry)))
+    ;; EIP-7702: each recoverable authorization authority is warmed, even when
+    ;; the tuple is later found invalid.
+    (when (typep tx 'set-code-transaction)
+      (dolist (authorization (transaction-authorization-list tx))
+        (prewarm-execution-address
+         accessed-addresses
+         (set-code-authorization-authority authorization))))
     accessed-addresses))
 
 (defun transaction-accessed-storage-table (tx)

@@ -206,9 +206,15 @@
               (evm-context-state context)
               (evm-context-address context)
               beneficiary)
-             (unless (and (evm-context-chain-rules context)
-                          (chain-rules-cancun-p
-                           (evm-context-chain-rules context)))
+             ;; EIP-6780 (Cancun+): the account is deleted only when it was
+             ;; created in this transaction; otherwise SELFDESTRUCT merely
+             ;; transfers the balance. Pre-Cancun, deletion always applies.
+             (when (or (not (and (evm-context-chain-rules context)
+                                 (chain-rules-cancun-p
+                                  (evm-context-chain-rules context))))
+                       (account-created-this-transaction-p
+                        context
+                        (evm-context-address context)))
                (mark-selfdestructed-address
                 context
                 (evm-context-address context))))

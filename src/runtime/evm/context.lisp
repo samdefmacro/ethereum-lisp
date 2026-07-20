@@ -30,4 +30,6 @@
    :accessed-storage (evm-context-accessed-storage parent)
    :accessed-addresses (evm-context-accessed-addresses parent)
    :block-hashes (evm-context-block-hashes parent)
+   :created-accounts (evm-context-created-accounts parent)
+   :depth (1+ (evm-context-depth parent))
    :read-only-p read-only-p))

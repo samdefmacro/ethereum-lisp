@@ -275,8 +275,9 @@
       (is (bytes= #(1 96 2 1) (evm-result-return-data copy)))
       (is (= (bytes-to-integer (hash32-bytes (state-db-get-code-hash state target)))
              (first (evm-result-stack hashes))))
-      (is (= (bytes-to-integer (hash32-bytes +empty-code-hash+))
-             (second (evm-result-stack hashes))))
+      ;; EIP-1052: EXTCODEHASH of an existing but EIP-161-empty account is 0,
+      ;; not keccak256("").
+      (is (= 0 (second (evm-result-stack hashes))))
       (is (= 0 (third (evm-result-stack hashes)))))))
 
 (deftest evm-external-code-opcodes-share-warm-account-access

@@ -24,11 +24,19 @@
          (child-logs '())
          (child-refund-counter 0)
          (success-address 0))
-    (when (< (state-account-balance creator-account) value)
-      (fail "Insufficient balance for ~A value" operation-name))
-    (increment-account-nonce state creator)
-    (mark-account-accessed context new-address)
-    (if (contract-address-collision-p state new-address)
+    (cond
+      ;; Depth, balance, and nonce-overflow failures push 0 and return the
+      ;; full child gas to the caller. No nonce increment, no state change.
+      ((>= (evm-context-depth context) +max-call-depth+)
+       nil)
+      ((< (state-account-balance creator-account) value)
+       nil)
+      ((= (state-account-nonce creator-account) +max-account-nonce+)
+       nil)
+      (t
+       (increment-account-nonce state creator)
+       (mark-account-accessed context new-address)
+       (if (contract-address-collision-p state new-address)
         (setf child-gas-used (or child-gas-limit 0))
         (let ((snapshot (capture-execution-snapshot state context)))
           (handler-case
@@ -41,6 +49,7 @@
                    1
                    (state-account-balance created-account)
                    (state-account-code-hash created-account)))
+                (mark-created-account context new-address)
                 (let* ((child-context
                          (make-child-evm-context
                           context
@@ -93,7 +102,7 @@
                     child-refund-counter 0
                     child-gas-used
                     (failed-create-child-gas-used
-                     child-started-p child-gas-limit child-gas-used))))))
+                     child-started-p child-gas-limit child-gas-used))))))))
     (values success-address
             child-return-data
             child-gas-used

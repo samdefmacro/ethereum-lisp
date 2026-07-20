@@ -13,7 +13,9 @@
       (error 'transaction-validation-error :message "Invalid transaction nonce"))
     (when (= (state-account-nonce sender-account) +max-account-nonce+)
       (error 'transaction-validation-error :message "Sender nonce has maximum value"))
-    (when (< gas-limit (execution-transaction-intrinsic-gas tx chain-rules))
+    (when (< gas-limit
+             (max (execution-transaction-intrinsic-gas tx chain-rules)
+                  (transaction-effective-floor-gas tx chain-rules)))
       (error 'transaction-validation-error :message "Gas limit below intrinsic gas"))
     (let* ((gas-price (transaction-effective-gas-price tx :base-fee base-fee))
            (execution-gas-cost (* gas-limit gas-price))
@@ -64,9 +66,25 @@
                       :logs (receipt-logs receipt)))
       receipt))
 
+;; EIP-7623 calldata floor for the transaction currently being finalized.
+;; Bound per transaction by apply-message / apply-contract-creation so the
+;; floor is applied after refunds without threading it through every receipt
+;; construction site. Zero disables the floor (pre-Prague or unbound paths).
+(defvar *transaction-floor-gas* 0)
+
+(defun apply-floor-gas-to-receipt (receipt floor-gas)
+  "EIP-7623: after refunds, a transaction is billed at least FLOOR-GAS."
+  (if (> floor-gas (receipt-cumulative-gas-used receipt))
+      (make-receipt :status (receipt-status receipt)
+                    :cumulative-gas-used floor-gas
+                    :logs (receipt-logs receipt))
+      receipt))
+
 (defun finalize-transaction-receipt
     (state sender coinbase tx receipt base-fee &key (refund-counter 0))
-  (let ((receipt (apply-refund-counter-to-receipt receipt refund-counter)))
+  (let* ((receipt (apply-refund-counter-to-receipt receipt refund-counter))
+         (receipt (apply-floor-gas-to-receipt
+                   receipt *transaction-floor-gas*)))
     (refund-unused-gas state sender tx
                        (receipt-cumulative-gas-used receipt)
                        base-fee)

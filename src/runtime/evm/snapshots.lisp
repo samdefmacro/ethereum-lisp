@@ -3,23 +3,27 @@
 (defstruct (evm-frame-snapshot
             (:constructor make-evm-frame-snapshot
                 (&key transient-storage storage-clears accessed-storage
-                      accessed-addresses selfdestructed-addresses)))
+                      accessed-addresses selfdestructed-addresses
+                      created-accounts)))
   transient-storage
   storage-clears
   accessed-storage
   accessed-addresses
-  selfdestructed-addresses)
+  selfdestructed-addresses
+  created-accounts)
 
 (defstruct (evm-execution-snapshot
             (:constructor make-evm-execution-snapshot
                 (&key state transient-storage storage-clears accessed-storage
-                      accessed-addresses selfdestructed-addresses)))
+                      accessed-addresses selfdestructed-addresses
+                      created-accounts)))
   state
   transient-storage
   storage-clears
   accessed-storage
   accessed-addresses
-  selfdestructed-addresses)
+  selfdestructed-addresses
+  created-accounts)
 
 (defstruct (evm-root-execution-snapshot
             (:constructor make-evm-root-execution-snapshot
@@ -51,7 +55,8 @@
    :storage-clears (copy-storage-clears context)
    :accessed-storage (copy-accessed-storage context)
    :accessed-addresses (copy-accessed-addresses context)
-   :selfdestructed-addresses (copy-selfdestructed-addresses context)))
+   :selfdestructed-addresses (copy-selfdestructed-addresses context)
+   :created-accounts (copy-created-accounts context)))
 
 (defun restore-frame-snapshot (context snapshot)
   (restore-transient-storage
@@ -68,7 +73,10 @@
    (evm-frame-snapshot-accessed-addresses snapshot))
   (restore-selfdestructed-addresses
    context
-   (evm-frame-snapshot-selfdestructed-addresses snapshot)))
+   (evm-frame-snapshot-selfdestructed-addresses snapshot))
+  (restore-created-accounts
+   context
+   (evm-frame-snapshot-created-accounts snapshot)))
 
 (defun capture-execution-snapshot (state context)
   (make-evm-execution-snapshot
@@ -77,7 +85,8 @@
    :storage-clears (copy-storage-clears context)
    :accessed-storage (copy-accessed-storage context)
    :accessed-addresses (copy-accessed-addresses context)
-   :selfdestructed-addresses (copy-selfdestructed-addresses context)))
+   :selfdestructed-addresses (copy-selfdestructed-addresses context)
+   :created-accounts (copy-created-accounts context)))
 
 (defun refresh-execution-snapshot-accessed-addresses (snapshot context)
   (setf (evm-execution-snapshot-accessed-addresses snapshot)
@@ -100,7 +109,10 @@
    (evm-execution-snapshot-accessed-addresses snapshot))
   (restore-selfdestructed-addresses
    context
-   (evm-execution-snapshot-selfdestructed-addresses snapshot)))
+   (evm-execution-snapshot-selfdestructed-addresses snapshot))
+  (restore-created-accounts
+   context
+   (evm-execution-snapshot-created-accounts snapshot)))
 
 (defun capture-root-execution-snapshot (state context)
   "Capture all mutable execution data for a non-protocol host abort."

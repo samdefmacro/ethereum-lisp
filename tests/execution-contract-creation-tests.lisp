@@ -33,59 +33,51 @@
       (is (= 7 (state-account-balance (state-db-get-account state contract))))
       (is (bytes= #(0) (state-db-get-code state contract))))))
 
-(deftest legacy-message-contract-creation-rejects-balance-and-storage-collisions
-  (labels ((contract-address (sender)
-             (make-address
-              (subseq
-               (keccak-256
-                (rlp-encode
-                 (make-rlp-list (address-bytes sender) 0)))
-               12 32)))
-           (run-collision (prepare-target verify-target)
-             (let* ((state (make-state-db))
-                    (sender
-                      (address-from-hex
-                       "0x0000000000000000000000000000000000000001"))
-                    (contract (contract-address sender))
-                    (tx (make-legacy-transaction
-                         :nonce 0
-                         :gas-price 1
-                         :gas-limit 80000
-                         :to nil
-                         :data #(96 0 96 0 83 96 1 96 0 243))))
-               (state-db-set-account state sender
-                                     (make-state-account :balance 100000))
-               (funcall prepare-target state contract)
-               (let ((receipt (apply-legacy-message state sender tx)))
-                 (is (= 0 (receipt-status receipt)))
-                 (is (= 80000 (receipt-cumulative-gas-used receipt)))
-                 (is (= 1 (state-account-nonce
-                           (state-db-get-account state sender))))
-                 (is (= 20000 (state-account-balance
-                               (state-db-get-account state sender))))
-                 (funcall verify-target state contract)))))
-    (run-collision
-     (lambda (state address)
-       (state-db-set-account state address
-                             (make-state-account :balance 1)))
-     (lambda (state address)
-       (is (= 1 (state-account-balance
-                 (state-db-get-account state address))))))
-    (run-collision
-     (lambda (state address)
-       (state-db-set-storage
-        state
-        address
-        (hash32-from-hex
-         "0x0000000000000000000000000000000000000000000000000000000000000001")
-        2))
-     (lambda (state address)
-       (is (= 2
-              (state-db-get-storage
-               state
-               address
-               (hash32-from-hex
-                "0x0000000000000000000000000000000000000000000000000000000000000001"))))))))
+(deftest legacy-message-contract-creation-rejects-storage-not-balance-collisions
+  ;; EIP-7610 / EIP-684: only a nonzero nonce, non-empty code, or non-empty
+  ;; storage at the target is a collision. A pre-funded (balance-only) target
+  ;; is not, so the creating transaction succeeds and retains the balance.
+  (let ((sender (address-from-hex
+                 "0x0000000000000000000000000000000000000001"))
+        (slot (hash32-from-hex
+               "0x0000000000000000000000000000000000000000000000000000000000000001")))
+    (labels ((contract-address ()
+               (make-address
+                (subseq
+                 (keccak-256
+                  (rlp-encode
+                   (make-rlp-list (address-bytes sender) 0)))
+                 12 32)))
+             (creation-tx ()
+               (make-legacy-transaction
+                :nonce 0
+                :gas-price 1
+                :gas-limit 80000
+                :to nil
+                :data #(96 0 96 0 83 96 1 96 0 243))))
+      ;; Balance-only target: the creation succeeds.
+      (let* ((state (make-state-db))
+             (contract (contract-address)))
+        (state-db-set-account state sender (make-state-account :balance 100000))
+        (state-db-set-account state contract (make-state-account :balance 1))
+        (let ((receipt (apply-legacy-message state sender (creation-tx))))
+          (is (= 1 (receipt-status receipt)))
+          (is (= 1 (state-account-nonce
+                    (state-db-get-account state sender))))
+          (is (plusp (length (state-db-get-code state contract))))
+          (is (= 1 (state-account-balance
+                    (state-db-get-account state contract))))))
+      ;; Storage-only target: the creation collides and fails.
+      (let* ((state (make-state-db))
+             (contract (contract-address)))
+        (state-db-set-account state sender (make-state-account :balance 100000))
+        (state-db-set-storage state contract slot 2)
+        (let ((receipt (apply-legacy-message state sender (creation-tx))))
+          (is (= 0 (receipt-status receipt)))
+          (is (= 80000 (receipt-cumulative-gas-used receipt)))
+          (is (= 1 (state-account-nonce
+                    (state-db-get-account state sender))))
+          (is (= 2 (state-db-get-storage state contract slot))))))))
 
 (deftest legacy-message-contract-creation-retains-initcode-logs
   (let* ((state (make-state-db))

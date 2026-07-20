@@ -158,6 +158,7 @@
    #:evm-result-gas-used
    #:evm-result-refund-counter
    #:finalize-evm-selfdestructs
+   #:mark-created-account
    #:execute-bytecode))
 
 (ethereum-lisp.package-tools:define-api-package #:ethereum-lisp.evm
@@ -209,6 +210,7 @@
    #:evm-result-gas-used
    #:evm-result-refund-counter
    #:finalize-evm-selfdestructs
+   #:mark-created-account
    #:execute-bytecode))
 
 (defpackage #:ethereum-lisp.execution
