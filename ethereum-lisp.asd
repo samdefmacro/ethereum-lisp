@@ -55,6 +55,7 @@
        (:file "crypto-kzg" :pathname "crypto/kzg")
        (:file "crypto-math" :pathname "crypto/math")
        (:file "crypto-secp256k1" :pathname "crypto/secp256k1")
+       (:file "crypto-secp256r1" :pathname "crypto/secp256r1")
        (:file "trie-encoding" :pathname "trie/encoding")
        (:file "trie-types" :pathname "trie/types")
        (:file "trie-store" :pathname "trie/store")

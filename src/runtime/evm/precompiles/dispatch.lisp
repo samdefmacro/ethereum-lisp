@@ -24,7 +24,26 @@ BLAKE2F input length); execution will report that input error without rounds."
         (8 (bn254-pairing-gas input rules))
         (9 (blake2f-precompile-required-gas input))
         (10 +kzg-point-evaluation-gas+)
+        (256 +p256verify-gas+)
         (otherwise nil)))))
+
+(defun run-p256verify-precompile (input)
+  "EIP-7951 P256VERIFY. Input is exactly 160 bytes: h||r||s||qx||qy. Returns a
+32-byte 1 for a valid signature and empty bytes otherwise, always at flat cost."
+  (let ((input (ensure-byte-vector input)))
+    (values
+     (if (and (= (length input) 160)
+              (secp256r1-verify
+               (bytes-to-integer (subseq input 0 32))
+               (bytes-to-integer (subseq input 32 64))
+               (bytes-to-integer (subseq input 64 96))
+               (bytes-to-integer (subseq input 96 128))
+               (bytes-to-integer (subseq input 128 160))))
+         (let ((output (make-byte-vector 32)))
+           (setf (aref output 31) 1)
+           output)
+         (make-byte-vector 0))
+     +p256verify-gas+)))
 
 (defun ensure-precompile-upfront-gas (address input rules child-gas-limit)
   (let ((required-gas (precompile-required-gas address input rules)))
@@ -107,6 +126,11 @@ BLAKE2F input length); execution will report that input error without rounds."
                         (* +identity-word-gas+ (precompile-word-count input)))
                      t)
              (values nil 0 nil)))
+      (256 (if (active-precompile-address-number-p 256 rules)
+               (multiple-value-bind (output gas)
+                   (run-p256verify-precompile input)
+                 (values output gas t))
+               (values nil 0 nil)))
       (otherwise (values nil 0 nil)))))
 
 (defun execute-precompile (address input rules gas-limit)

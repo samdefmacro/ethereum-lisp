@@ -164,6 +164,7 @@
    #:secp256k1-recover-public-key
    #:secp256k1-recover-address
    #:secp256k1-valid-signature-values-p
+   #:secp256r1-verify
    #:+kzg-commitment-size+
    #:+kzg-commitment-version+
    #:kzg-commitment-to-versioned-hash
