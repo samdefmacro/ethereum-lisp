@@ -73,7 +73,9 @@
   (validate-set-code-transaction-fields transaction)
   (validate-set-code-authorization-signatures transaction)
   (when (typep transaction 'blob-transaction)
-    (validate-blob-transaction-fields transaction))
+    ;; Restored transactions were already admitted under their fork's blob
+    ;; limit; do not re-impose the default per-transaction cap here.
+    (validate-blob-transaction-fields transaction :max-blobs nil))
   t)
 
 (defun chain-store-import-txpool-transaction-from-kv

@@ -68,13 +68,19 @@
            sum (transaction-blob-count transaction))))
 
 (defun validate-block-transactions-against-config (block config)
-  (let ((header (block-header block)))
+  (let* ((header (block-header block))
+         (number (block-header-number header))
+         (timestamp (block-header-timestamp header))
+         (osaka-p (chain-config-osaka-p config number timestamp)))
     (validate-block-transaction-list-fields (block-transactions block))
     (dolist (transaction (block-transactions block) t)
       (validate-transaction-type-for-config
-       transaction config
-       (block-header-number header)
-       (block-header-timestamp header)))))
+       transaction config number timestamp)
+      (when (and osaka-p
+                 (> (transaction-gas-limit transaction)
+                    +transaction-gas-limit-cap-eip7825+))
+        (block-validation-fail
+         "Transaction gas limit exceeds the EIP-7825 cap")))))
 
 (defun validate-block-body-against-config (block config)
   (let* ((header (block-header block))
@@ -84,6 +90,10 @@
            (if (chain-config-amsterdam-p config number timestamp)
                +block-access-list-amsterdam-max-code-size+
                +block-access-list-max-code-size+)))
+    (when (and (chain-config-osaka-p config number timestamp)
+               (> (length (block-rlp block))
+                  +max-rlp-block-size-eip7934+))
+      (block-validation-fail "Block RLP size exceeds the EIP-7934 cap"))
     (multiple-value-bind (target-blob-gas max-blob-gas update-fraction)
         (chain-config-blob-schedule config number timestamp)
       (declare (ignore target-blob-gas))
@@ -92,6 +102,11 @@
                                  :blob-base-fee-update-fraction
                                  update-fraction
                                  :max-blob-gas max-blob-gas
+                                 :max-blobs-per-transaction
+                                 (if (chain-config-osaka-p config number
+                                                           timestamp)
+                                     +max-blobs-per-transaction-eip7594+
+                                     (floor max-blob-gas +blob-gas-per-blob+))
                                  :block-access-list-max-code-size
                                  block-access-list-max-code-size))))
 

@@ -115,7 +115,9 @@
       (validate-access-list-fields transaction)
       (validate-set-code-transaction-fields transaction)
       (when (typep transaction 'blob-transaction)
-        (validate-blob-transaction-fields transaction))
+        (validate-blob-transaction-fields
+         transaction
+         :max-blobs (chain-rules-max-blobs-per-transaction rules)))
       (engine-payload-store-validate-txpool-blob-fee-cap
        store transaction
        :chain-config config
@@ -133,6 +135,12 @@
                     (block-header-gas-limit (block-header head))))
         (block-validation-fail
          "eth_sendRawTransaction gas limit exceeds block gas limit"))
+      (when (and rules
+                 (chain-rules-osaka-p rules)
+                 (> (transaction-gas-limit transaction)
+                    +transaction-gas-limit-cap-eip7825+))
+        (block-validation-fail
+         "eth_sendRawTransaction gas limit exceeds the EIP-7825 cap"))
       (validate-txpool-sender-state store head sender transaction)
       (validate-txpool-sender-code store head sender)))
   t)
