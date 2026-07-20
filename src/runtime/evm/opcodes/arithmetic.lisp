@@ -93,6 +93,13 @@
                                "Constantinople" "SAR" pc)
          (evm-machine-apply-binary machine #'arithmetic-shift-right-word)
          (incf pc))
+        ((= op #x1e)
+         (require-context-fork context
+                               #'chain-rules-osaka-p
+                               "Osaka" "CLZ" pc)
+         (multiple-value-bind (a rest) (pop1 stack)
+           (setf stack (stack-push rest (- 256 (integer-length a)))))
+         (incf pc))
         ((= op #x20)
          (multiple-value-bind (offset size rest) (pop2 stack)
            (evm-machine-charge-gas machine
