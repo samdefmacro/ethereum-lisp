@@ -581,6 +581,108 @@
       (validate-block-header-against-config
        below-reserve-parent config-child config))))
 
+(deftest eip7918-reserve-price-uses-the-parent-blob-fee-update-fraction
+  ;; At the first block of a fork that changes the update fraction, the parent's
+  ;; blob base fee must be computed with the *parent's* fraction. Using the
+  ;; child's yields a lower fee, which trips the reserve-price branch and
+  ;; produces a different excess blob gas — a one-block chain split.
+  ;;
+  ;; These values are chosen so the two fractions disagree: the reserve price
+  ;; 8192 * 72 = 589824 sits between 131072 * blob_fee(6000000, osaka) = 393216
+  ;; and 131072 * blob_fee(6000000, prague) = 786432.
+  (let* ((osaka-target-gas (* +osaka-target-blobs-per-block+
+                              +blob-gas-per-blob+))
+         (osaka-max-gas (* +osaka-max-blobs-per-block+
+                           +blob-gas-per-blob+))
+         (parent-excess 6000000)
+         (parent-used (* 3 +blob-gas-per-blob+))
+         (parent
+           (make-block-header :base-fee-per-gas 72
+                              :gas-limit 30000000
+                              :gas-used 15000000
+                              :timestamp 9
+                              :blob-gas-used parent-used
+                              :excess-blob-gas parent-excess))
+         (correct-excess (- (+ parent-excess parent-used) osaka-target-gas))
+         (reserve-excess
+           (+ parent-excess
+              (floor (* parent-used (- osaka-max-gas osaka-target-gas))
+                     osaka-max-gas))))
+    ;; The two candidate answers must actually differ, or the test proves nothing.
+    (is (/= correct-excess reserve-excess))
+    (is (= 5606784 correct-excess))
+    (is (= 6131072 reserve-excess))
+    ;; Parent fraction (correct): reserve price does not apply.
+    (is (= correct-excess
+           (expected-excess-blob-gas
+            parent
+            :target-blob-gas osaka-target-gas
+            :max-blob-gas osaka-max-gas
+            :eip7918-p t
+            :update-fraction +osaka-blob-base-fee-update-fraction+
+            :parent-update-fraction +blob-base-fee-update-fraction+)))
+    ;; Child fraction everywhere (the old behavior): reserve price wrongly fires.
+    (is (= reserve-excess
+           (expected-excess-blob-gas
+            parent
+            :target-blob-gas osaka-target-gas
+            :max-blob-gas osaka-max-gas
+            :eip7918-p t
+            :update-fraction +osaka-blob-base-fee-update-fraction+
+            :parent-update-fraction +osaka-blob-base-fee-update-fraction+)))
+    ;; Driven through the config path, at the Osaka -> BPO1 boundary. Prague and
+    ;; Osaka share an update fraction in this model, so BPO1 is the first
+    ;; boundary where parent and child fractions actually differ.
+    (let* ((bpo1-target (* +bpo1-target-blobs-per-block+ +blob-gas-per-blob+))
+           (bpo1-max (* +bpo1-max-blobs-per-block+ +blob-gas-per-blob+))
+           (bpo-parent-excess 4000000)
+           (bpo-parent-used (* 5 +blob-gas-per-blob+))
+           (bpo-parent
+             (make-block-header :base-fee-per-gas 24
+                                :gas-limit 30000000
+                                :gas-used 15000000
+                                :timestamp 9
+                                :blob-gas-used bpo-parent-used
+                                :excess-blob-gas bpo-parent-excess))
+           (bpo-correct (- (+ bpo-parent-excess bpo-parent-used) bpo1-target))
+           (bpo-reserve
+             (+ bpo-parent-excess
+                (floor (* bpo-parent-used (- bpo1-max bpo1-target)) bpo1-max)))
+           (config (make-chain-config :london-block 0
+                                      :cancun-time 0
+                                      :prague-time 0
+                                      :osaka-time 0
+                                      :bpo1-time 10))
+           (child (make-block-header :parent-hash (block-header-hash bpo-parent)
+                                     :number 1
+                                     :timestamp 10
+                                     :gas-limit 30000000
+                                     :base-fee-per-gas 24
+                                     :blob-gas-used 0
+                                     :excess-blob-gas bpo-correct
+                                     :parent-beacon-root (zero-hash32)
+                                     :requests-hash
+                                     (execution-requests-hash '()))))
+      (is (/= bpo-correct bpo-reserve))
+      (is (= 3344640 bpo-correct))
+      (is (= 4218453 bpo-reserve))
+      (is (validate-block-header-against-config bpo-parent child config))
+      (setf (block-header-excess-blob-gas child) bpo-reserve)
+      (signals block-validation-error
+        (validate-block-header-against-config bpo-parent child config)))))
+
+(deftest bpo5-without-parameters-is-an-explicit-boundary
+  ;; BPO5 exists in the config schema but has no canonical parameters. It must
+  ;; refuse rather than silently reuse BPO4's schedule.
+  (let ((config (make-chain-config :london-block 0
+                                   :cancun-time 0
+                                   :prague-time 0
+                                   :osaka-time 0
+                                   :bpo5-time 10)))
+    (signals error (chain-config-blob-schedule config 1 10))
+    ;; Before BPO5 activates the schedule still resolves normally.
+    (is (chain-config-blob-schedule config 1 9))))
+
 (deftest blob-base-fee-fake-exponential-vectors
   (dolist (case '((1 0 1 1)
                   (38493 0 1000 38493)

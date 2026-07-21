@@ -47,6 +47,7 @@
        (:file "database-chain-records" :pathname "database/chain-records")
        (:file "telemetry" :pathname "telemetry")
        (:file "types" :pathname "types")
+       (:file "time" :pathname "time")
        (:file "rlp" :pathname "rlp")
        (:file "crypto-constants" :pathname "crypto/constants")
        (:file "crypto-words" :pathname "crypto/words")

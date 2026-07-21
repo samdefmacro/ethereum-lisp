@@ -555,7 +555,7 @@
                     (rpc-endpoint
                       (fixture-object-field ready-summary "rpcEndpoint"))
                     (jwt-secret (hex-to-bytes +devnet-cli-jwt-secret+))
-                    (token (engine-rpc-make-jwt-token jwt-secret 0))
+                    (token (engine-rpc-make-jwt-token jwt-secret (unix-time)))
                     new-block-filter-response
                     new-log-filter-response
                     new-payload-response

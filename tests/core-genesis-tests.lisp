@@ -221,7 +221,15 @@
                                     :bpo4-time 90
                                     :bpo5-time 100
                                     :amsterdam-time 110
-                                    :ubt-time 120))
+                                    :ubt-time 120
+                                    ;; BPO5 has no canonical parameters, so a
+                                    ;; config activating it must supply them.
+                                    :custom-blob-schedule
+                                    (list (make-blob-schedule-entry
+                                           :timestamp 100
+                                           :target-blobs 14
+                                           :max-blobs 21
+                                           :update-fraction 13739630))))
          (recipient (address-from-hex
                      "0x0000000000000000000000000000000000000001"))
          (access-list (make-access-list-transaction :to recipient))

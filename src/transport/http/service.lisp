@@ -78,7 +78,10 @@
        (store (make-engine-payload-memory-store))
        (config (make-chain-config))
        jwt-secret
-       (now-provider (lambda () 0))
+       ;; JWT freshness is checked against this clock, so it must read Unix
+       ;; seconds like every consensus client's `iat` claim. A fixed zero here
+       ;; silently rejected every real token as "from the future".
+       (now-provider #'unix-time)
        (import-function #'engine-rpc-http-unavailable-import-function)
        new-payload-persistence-function
        forkchoice-persistence-function

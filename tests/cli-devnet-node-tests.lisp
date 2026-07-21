@@ -347,7 +347,7 @@
                          :engine-rpc-prefix "/engine"
                          :public-rpc-prefix "/rpc"))
                   (secret (hex-to-bytes +devnet-cli-jwt-secret+))
-                  (token (engine-rpc-make-jwt-token secret 0))
+                  (token (engine-rpc-make-jwt-token secret (unix-time)))
                   (engine-body
                     (concatenate
                      'string
@@ -495,7 +495,7 @@
                      (block-to-executable-data child-block)))
                   (recipient (fixture-address-field expect "recipient"))
                   (secret (hex-to-bytes +devnet-cli-jwt-secret+))
-                  (token (engine-rpc-make-jwt-token secret 0))
+                  (token (engine-rpc-make-jwt-token secret (unix-time)))
                   (new-payload-output (make-string-output-stream))
                   (forkchoice-output (make-string-output-stream))
                   (block-number-output (make-string-output-stream))

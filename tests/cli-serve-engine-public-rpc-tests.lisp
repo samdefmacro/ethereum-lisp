@@ -86,12 +86,12 @@
                     (rpc-endpoint
                       (fixture-object-field ready-summary "rpcEndpoint"))
                     (jwt-secret (hex-to-bytes +devnet-cli-jwt-secret+))
-                    (token (engine-rpc-make-jwt-token jwt-secret 0))
+                    (token (engine-rpc-make-jwt-token jwt-secret (unix-time)))
                     (wrong-token
                       (engine-rpc-make-jwt-token
                        (hex-to-bytes
                         "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
-                       0))
+                       (unix-time)))
                     (engine-body
                       "{\"jsonrpc\":\"2.0\",\"id\":501,\"method\":\"engine_getClientVersionV1\",\"params\":[{\"code\":\"runner\",\"name\":\"rpc-smoke\",\"version\":\"1\",\"commit\":\"0x00000000\"}]}")
                     (engine-batch-body
