@@ -190,7 +190,8 @@
            :error
            (json-rpc-error-object
             (engine-rpc-error-code condition)
-            (engine-rpc-error-message condition)))))
+            (engine-rpc-error-message condition)
+            (engine-rpc-error-data condition)))))
       (block-validation-error (condition)
         (unless notification-p
           (json-rpc-response

@@ -7,9 +7,15 @@
               (list (cons "error" error))
               (list (cons "result" result)))))
 
-(defun json-rpc-error-object (code message)
-  (list (cons "code" code)
-        (cons "message" message)))
+(defun json-rpc-error-object (code message &optional (data nil data-supplied-p))
+  "Build a JSON-RPC error object.
+
+DATA is emitted only when supplied, so errors that carry no data keep their
+existing two-member shape."
+  (append (list (cons "code" code)
+                (cons "message" message))
+          (when (and data-supplied-p data)
+            (list (cons "data" data)))))
 
 (defun json-rpc-invalid-request-response ()
   (json-rpc-response
