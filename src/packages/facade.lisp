@@ -90,6 +90,7 @@
    #:ripemd160
    #:ripemd160-hex
    #:secp256k1-private-key-address
+   #:secp256k1-private-key-public-key
    #:secp256k1-recover-public-key
    #:secp256k1-recover-address
    #:secp256k1-valid-signature-values-p
@@ -354,6 +355,13 @@
    #:configure-kzg-proof-command-verifiers
    #:+cell-proofs-per-blob+
    #:validate-blob-sidecar-fields)
+  (#:ethereum-lisp.p2p
+   #:+node-id-size+
+   #:node-id-from-private-key
+   #:node-id-to-hex
+   #:node-id-from-hex
+   #:enode-url
+   #:parse-enode-url)
   (#:ethereum-lisp.bls12381
    #:*bls12381-backend*
    #:*bls12381-backend-timeout-seconds*
