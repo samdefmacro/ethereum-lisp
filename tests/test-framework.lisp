@@ -141,6 +141,14 @@
       (error "Missing repo KZG verifier command at ~A"
              *repo-kzg-verifier-command*)))
 
+(defparameter *repo-bls12381-backend-command*
+  (repository-relative-pathname #P"scripts/bls12381-backend.sh"))
+
+(defun repo-bls12381-backend-command ()
+  (or (probe-file *repo-bls12381-backend-command*)
+      (error "Missing repo BLS12-381 backend command at ~A"
+             *repo-bls12381-backend-command*)))
+
 (defparameter +execution-spec-tests-fixture-root-env+
   "ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT")
 

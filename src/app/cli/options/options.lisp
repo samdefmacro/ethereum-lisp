@@ -53,6 +53,8 @@
         (pid-file nil)
         (kzg-verifier-command nil)
         (kzg-verifier-timeout-seconds nil)
+        (bls12381-backend-command nil)
+        (bls12381-backend-timeout-seconds nil)
         (help-p nil))
     (labels ((next-value (option)
                (multiple-value-bind (value rest)
@@ -163,6 +165,13 @@
                ((or (string= option "--kzg-verifier-timeout")
                     (string= option "--kzg.verifier-timeout"))
                 (setf kzg-verifier-timeout-seconds
+                      (next-parsed-value option #'devnet-cli-parse-positive-integer)))
+               ((or (string= option "--bls12381-backend-command")
+                    (string= option "--bls12381.backend-command"))
+                (setf bls12381-backend-command (next-value option)))
+               ((or (string= option "--bls12381-backend-timeout")
+                    (string= option "--bls12381.backend-timeout"))
+                (setf bls12381-backend-timeout-seconds
                       (next-parsed-value option #'devnet-cli-parse-positive-integer)))
                ((string= option "--no-serve")
                 (let ((enabled-p (next-optional-boolean option)))
@@ -284,4 +293,6 @@
           :pid-file pid-file
           :kzg-verifier-command kzg-verifier-command
           :kzg-verifier-timeout-seconds kzg-verifier-timeout-seconds
+          :bls12381-backend-command bls12381-backend-command
+          :bls12381-backend-timeout-seconds bls12381-backend-timeout-seconds
           :help-p help-p))))

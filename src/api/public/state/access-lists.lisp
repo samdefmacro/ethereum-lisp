@@ -1,9 +1,13 @@
 (in-package #:ethereum-lisp.public-api)
 
 (defun eth-rpc-precompile-access-key-p (key)
-  (loop for index from 1 to 10
-        thereis (bytes= key (address-bytes
-                             (ethereum-lisp.evm:precompile-address index)))))
+  "True when KEY is a precompile address.
+
+Passing NIL rules treats every precompile as present, which is what this filter
+wants: an address is omitted from a reported access list because it is a
+precompile, independently of the fork in effect."
+  (and (= (length key) 20)
+       (ethereum-lisp.evm:active-precompile-address-p (make-address key) nil)))
 
 (defun eth-rpc-implicit-access-key-p (key sender recipient coinbase)
   (or (and sender (bytes= key (address-bytes sender)))
