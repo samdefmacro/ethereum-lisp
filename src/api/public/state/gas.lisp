@@ -53,10 +53,17 @@
         (when (> intrinsic-gas high)
           (block-validation-fail
            "eth_estimateGas intrinsic gas exceeds gas cap"))
-        (unless (eth-rpc-estimate-gas-success-p
-                 object block store config high)
-          (block-validation-fail
-           "eth_estimateGas execution reverted or exceeded gas cap"))
+        ;; At the cap the call either succeeds or there is no estimate to
+        ;; give. go-ethereum reports a revert here the same way eth_call does,
+        ;; so callers can decode the reason instead of seeing a bare failure.
+        (multiple-value-bind (status return-data)
+            (eth-rpc-simulate-call-object
+             object block store config "eth_estimateGas" :gas-limit high)
+          (when (eq status :reverted)
+            (eth-rpc-fail-execution-reverted return-data))
+          (unless (eth-rpc-call-status-success-p status)
+            (block-validation-fail
+             "eth_estimateGas execution reverted or exceeded gas cap")))
         (loop with low = intrinsic-gas
               while (< low high)
               for mid = (floor (+ low high) 2)

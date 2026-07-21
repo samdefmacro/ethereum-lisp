@@ -1003,3 +1003,52 @@
     (is (not (funcall eth-only "debug_getRawHeader"))))
   (let ((with-debug (ethereum-lisp.cli::devnet-cli-public-api-method-filter (list "eth" "debug"))))
     (is (funcall with-debug "debug_getRawHeader"))))
+
+(deftest eth-rpc-estimate-gas-reports-revert-like-eth-call
+  ;; A reverting estimate must carry the same error shape as eth_call, so
+  ;; callers can decode the reason rather than seeing an opaque failure.
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1
+                                      :byzantium-block 0
+                                      :london-block 0))
+           (contract
+             (address-from-hex "0x00000000000000000000000000000000000000de"))
+           ;; MSTORE 0 := 9; REVERT mem[0:32].
+           (code #(96 9 96 0 82 96 32 96 0 253))
+           (state (make-state-db))
+           (block
+             (make-block
+              :header (make-block-header
+                       :number 40
+                       :timestamp 400
+                       :gas-limit 100000
+                       :base-fee-per-gas 0
+                       :state-root (state-db-root state)))))
+      (state-db-set-code state contract code)
+      (setf (block-header-state-root (block-header block))
+            (state-db-root state))
+      (chain-store-put-block store block :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash block) state)
+      (let* ((response
+               (engine-rpc-handle-request
+                (list (cons "jsonrpc" "2.0")
+                      (cons "id" 311)
+                      (cons "method" "eth_estimateGas")
+                      (cons "params"
+                            (list (list (cons "to" (address-to-hex contract))
+                                        (cons "gas" (quantity-to-hex 100000))
+                                        (cons "data" "0x"))
+                                  "latest")))
+                store
+                config))
+             (error-object (field response "error")))
+        (is (null (field response "result")))
+        (is error-object)
+        (is (= 3 (field error-object "code")))
+        (is (string= "execution reverted" (field error-object "message")))
+        (let ((expected (let ((bytes (make-byte-vector 32)))
+                          (setf (aref bytes 31) 9)
+                          (bytes-to-hex bytes))))
+          (is (string= expected (field error-object "data"))))))))
