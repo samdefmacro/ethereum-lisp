@@ -1129,3 +1129,27 @@ Content-Type: application/json
     (is (search "eth_chainId" request))
     ;; The rebuilt request must still carry its body.
     (is (search body request))))
+
+(deftest devnet-cli-http-timeouts-configure-the-request-deadline
+  ;; geth-style --http.readtimeout and --http.writetimeout were accepted and
+  ;; then discarded. The server answers within a single deadline spanning the
+  ;; read and the write, so the two budgets add.
+  (is (= 45 (ethereum-lisp.cli::devnet-cli-http-request-timeout-seconds 30 15)))
+  (is (= 30 (ethereum-lisp.cli::devnet-cli-http-request-timeout-seconds 30 nil)))
+  (is (= 15 (ethereum-lisp.cli::devnet-cli-http-request-timeout-seconds nil 15)))
+  (is (null (ethereum-lisp.cli::devnet-cli-http-request-timeout-seconds nil nil)))
+  ;; The parsed options reach the binding, and the default survives when unset.
+  (let ((default *engine-rpc-http-request-timeout-seconds*))
+    (ethereum-lisp.cli::call-with-devnet-cli-http-limits
+     (list :http-read-timeout-seconds 7 :http-write-timeout-seconds 3)
+     (lambda () (is (= 10 *engine-rpc-http-request-timeout-seconds*))))
+    (ethereum-lisp.cli::call-with-devnet-cli-http-limits
+     '()
+     (lambda () (is (eql default *engine-rpc-http-request-timeout-seconds*))))))
+
+(deftest devnet-cli-parses-geth-style-http-timeout-durations
+  (let ((options (ethereum-lisp.cli::devnet-cli-options
+                  (list "--http.readtimeout" "30s"
+                        "--http.writetimeout" "1m"))))
+    (is (= 30 (getf options :http-read-timeout-seconds)))
+    (is (= 60 (getf options :http-write-timeout-seconds)))))

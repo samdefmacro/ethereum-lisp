@@ -363,6 +363,7 @@
        (:file "cli-output" :pathname "cli/output")
        (:file "cli-kzg" :pathname "cli/kzg")
        (:file "cli-bls12381" :pathname "cli/bls12381")
+       (:file "cli-http-limits" :pathname "cli/http-limits")
        (:file "cli-telemetry" :pathname "cli/telemetry/telemetry")
        (:file "cli-telemetry-sinks" :pathname "cli/telemetry/sinks")
        (:file "cli-init" :pathname "cli/init")
