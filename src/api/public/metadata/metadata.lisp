@@ -19,7 +19,8 @@
   (when params
     (block-validation-fail "rpc_modules params must be empty"))
   (loop for (module . probe-method)
-          in '(("eth" . "eth_chainId")
+          in '(("debug" . "debug_getRawHeader")
+               ("eth" . "eth_chainId")
                ("net" . "net_version")
                ("rpc" . "rpc_modules")
                ("txpool" . "txpool_status")
