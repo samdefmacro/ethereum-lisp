@@ -50,4 +50,5 @@
      (engine-rpc-handle-public-block-method context)
      (engine-rpc-handle-public-transaction-method context)
      (engine-rpc-handle-public-filter-method context)
-     (engine-rpc-handle-public-txpool-method context))))
+     (engine-rpc-handle-public-txpool-method context)
+     (engine-rpc-handle-public-debug-method context))))

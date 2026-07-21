@@ -325,6 +325,8 @@
        (:file "public-rpc-dispatch-transactions" :pathname "public/dispatch/transactions")
        (:file "public-rpc-dispatch-filters" :pathname "public/dispatch/filters")
        (:file "public-rpc-dispatch-txpool" :pathname "public/dispatch/txpool")
+       (:file "public-debug-raw" :pathname "public/debug/raw")
+       (:file "public-dispatch-debug" :pathname "public/dispatch/debug")
        (:file "public-api-dispatch" :pathname "public/dispatch/dispatch")
        (:file "rpc-router" :pathname "rpc/router")
        (:file "rpc-json" :pathname "rpc/json")))

@@ -934,3 +934,72 @@
   (is (string= "[]" (json-encode (ethereum-lisp.public-api::eth-rpc-json-array '()))))
   (is (string= "[]" (json-encode (ethereum-lisp.public-api::eth-rpc-json-array nil))))
   (is (string= "null" (json-encode nil))))
+
+(deftest debug-get-raw-methods-return-canonical-encodings
+  ;; debug_getRaw* must return exactly the bytes that were hashed and gossiped,
+  ;; so a decode of the result reproduces the stored object.
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (call (method params store config)
+             (engine-rpc-handle-request
+              (list (cons "jsonrpc" "2.0")
+                    (cons "id" 900)
+                    (cons "method" method)
+                    (cons "params" params))
+              store
+              config)))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1 :london-block 0))
+           (state (make-state-db))
+           (block (make-block
+                   :header (make-block-header
+                            :number 5
+                            :timestamp 50
+                            :gas-limit 30000000
+                            :base-fee-per-gas 7
+                            :state-root (state-db-root state)))))
+      (chain-store-put-block store block :state-available-p t)
+      (let* ((number (quantity-to-hex (block-header-number (block-header block))))
+             (raw-header (field (call "debug_getRawHeader" (list number) store config)
+                                "result"))
+             (raw-block (field (call "debug_getRawBlock" (list number) store config)
+                               "result"))
+             (raw-receipts (field (call "debug_getRawReceipts" (list number) store config)
+                                  "result")))
+        ;; The header encoding decodes back to the same header hash.
+        (is (stringp raw-header))
+        (is (bytes= (block-header-rlp (block-header block))
+                    (hex-to-bytes raw-header)))
+        (is (string= (hash32-to-hex (block-header-hash (block-header block)))
+                     (hash32-to-hex
+                      (block-header-hash
+                       (block-header-from-rlp (hex-to-bytes raw-header))))))
+        ;; The block encoding decodes back to the same block hash.
+        (is (stringp raw-block))
+        (is (string= (hash32-to-hex (block-hash block))
+                     (hash32-to-hex
+                      (block-hash (block-from-rlp (hex-to-bytes raw-block))))))
+        ;; A block with no receipts reports an empty array, never null.
+        (is (zerop (length raw-receipts)))
+        (is (string= "[]" (json-encode raw-receipts))))
+      ;; Addressing the same block by hash agrees with addressing it by number.
+      (let ((by-number (field (call "debug_getRawHeader"
+                                    (list (quantity-to-hex 5)) store config)
+                              "result"))
+            (by-hash (field (call "debug_getRawHeader"
+                                  (list (hash32-to-hex (block-hash block)))
+                                  store config)
+                            "result")))
+        (is (string= by-number by-hash))))))
+
+(deftest debug-namespace-is-advertised-and-gateable
+  ;; rpc_modules must list debug, and --http.api must be able to withhold it.
+  (let ((modules (ethereum-lisp.public-api::engine-rpc-handle-rpc-modules
+                   nil #'ethereum-lisp.engine-api:engine-rpc-public-method-p)))
+    (is (assoc "debug" modules :test #'string=)))
+  (is (ethereum-lisp.engine-api:engine-rpc-public-method-p "debug_getRawHeader"))
+  (let ((eth-only (ethereum-lisp.cli::devnet-cli-public-api-method-filter (list "eth"))))
+    (is (funcall eth-only "eth_chainId"))
+    (is (not (funcall eth-only "debug_getRawHeader"))))
+  (let ((with-debug (ethereum-lisp.cli::devnet-cli-public-api-method-filter (list "eth" "debug"))))
+    (is (funcall with-debug "debug_getRawHeader"))))

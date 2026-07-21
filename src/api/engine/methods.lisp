@@ -67,7 +67,8 @@
            (string-prefix-p "net_" method)
            (string-prefix-p "web3_" method)
            (string-prefix-p "rpc_" method)
-           (string-prefix-p "txpool_" method))))
+           (string-prefix-p "txpool_" method)
+           (string-prefix-p "debug_" method))))
 
 (defun engine-rpc-any-method-p (method)
   (declare (ignore method))
