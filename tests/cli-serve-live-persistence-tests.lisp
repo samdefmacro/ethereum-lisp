@@ -116,7 +116,7 @@
                       (fixture-object-field ready-summary "engineEndpoint"))
                     (token
                       (engine-rpc-make-jwt-token
-                       (hex-to-bytes +devnet-cli-jwt-secret+) 0))
+                       (hex-to-bytes +devnet-cli-jwt-secret+) (unix-time)))
                     new-payload-response
                     forkchoice-response)
                (handler-case
@@ -302,7 +302,7 @@
                          (cons "method" "eth_getTransactionReceipt")
                          (cons "params" (list transaction-hash-hex)))))
                 (jwt-secret (hex-to-bytes +devnet-cli-jwt-secret+))
-                (token (engine-rpc-make-jwt-token jwt-secret 0)))
+                (token (engine-rpc-make-jwt-token jwt-secret (unix-time))))
            (devnet-cli-write-temp-file
             genesis-path
             (json-encode

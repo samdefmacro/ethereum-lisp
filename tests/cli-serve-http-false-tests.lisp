@@ -152,7 +152,7 @@
                     (engine-endpoint
                       (fixture-object-field ready-summary "engineEndpoint"))
                     (jwt-secret (hex-to-bytes +devnet-cli-jwt-secret+))
-                    (token (engine-rpc-make-jwt-token jwt-secret 0))
+                    (token (engine-rpc-make-jwt-token jwt-secret (unix-time)))
                     (configured-public-endpoint
                       (format nil "http://127.0.0.1:~D" public-port))
                     (engine-body

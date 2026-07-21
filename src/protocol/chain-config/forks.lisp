@@ -96,7 +96,8 @@
       (chain-config-bpo1-p config block-number timestamp)
       (chain-config-bpo2-p config block-number timestamp)
       (chain-config-bpo3-p config block-number timestamp)
-      (chain-config-bpo4-p config block-number timestamp)))
+      (chain-config-bpo4-p config block-number timestamp)
+      (chain-config-bpo5-p config block-number timestamp)))
 
 (defun chain-rules-expanded-blob-schedule-p (rules)
   (or (chain-rules-prague-p rules)
@@ -104,4 +105,5 @@
       (chain-rules-bpo1-p rules)
       (chain-rules-bpo2-p rules)
       (chain-rules-bpo3-p rules)
-      (chain-rules-bpo4-p rules)))
+      (chain-rules-bpo4-p rules)
+      (chain-rules-bpo5-p rules)))

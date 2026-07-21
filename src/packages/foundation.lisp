@@ -147,7 +147,11 @@
    #:hash32-from-hex
    #:hash32-to-hex
    #:hash32=
-   #:zero-hash32))
+   #:zero-hash32
+   #:+unix-epoch-universal-time+
+   #:universal-time-to-unix-time
+   #:unix-time-to-universal-time
+   #:unix-time))
 
 (defpackage #:ethereum-lisp.crypto
   (:use #:cl #:ethereum-lisp.bytes #:ethereum-lisp.hex #:ethereum-lisp.types)

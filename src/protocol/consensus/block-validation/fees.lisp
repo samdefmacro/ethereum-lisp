@@ -61,7 +61,13 @@
                             +blob-gas-per-blob+))
                         eip7918-p
                         (update-fraction
-                         +blob-base-fee-update-fraction+))
+                         +blob-base-fee-update-fraction+)
+                        (parent-update-fraction update-fraction))
+  ;; TARGET-BLOB-GAS and MAX-BLOB-GAS come from this block's schedule, but the
+  ;; EIP-7918 reserve price compares against the *parent's* blob base fee, so
+  ;; that term must use the parent's update fraction. The two differ only on the
+  ;; first block of a fork that changes the fraction — where using the child's
+  ;; would compute a different excess than other clients and split the chain.
   (let* ((parent-excess (or (block-header-excess-blob-gas parent-header) 0))
          (parent-used (or (block-header-blob-gas-used parent-header) 0))
          (parent-blob-gas (+ parent-excess parent-used)))
@@ -73,7 +79,7 @@
                   (block-header-base-fee-per-gas parent-header))
                (* +blob-gas-per-blob+
                   (blob-base-fee parent-excess
-                                 :update-fraction update-fraction))))
+                                 :update-fraction parent-update-fraction))))
        (+ parent-excess
           (floor (* parent-used (- max-blob-gas target-blob-gas))
                  max-blob-gas)))
@@ -114,14 +120,16 @@
                                   +blob-gas-per-blob+))
                               eip7918-p
                               (update-fraction
-                               +blob-base-fee-update-fraction+))
+                               +blob-base-fee-update-fraction+)
+                              (parent-update-fraction update-fraction))
   (validate-block-blob-gas-fields header :max-blob-gas max-blob-gas)
   (let ((expected (expected-excess-blob-gas
                    parent-header
                    :target-blob-gas target-blob-gas
                    :max-blob-gas max-blob-gas
                    :eip7918-p eip7918-p
-                   :update-fraction update-fraction)))
+                   :update-fraction update-fraction
+                   :parent-update-fraction parent-update-fraction)))
     (unless (= expected (block-header-excess-blob-gas header))
       (block-validation-fail "Excess blob gas mismatch"))
     t))

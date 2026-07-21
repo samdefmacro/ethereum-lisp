@@ -77,6 +77,7 @@
                          blob-schedule-target-gas
                          blob-schedule-max-gas
                          blob-schedule-update-fraction
+                         blob-schedule-parent-update-fraction
                          (post-merge-p nil post-merge-p-supplied-p))
   (validate-block-header-field-shapes parent-header)
   (validate-block-header-field-shapes header :require-parent-hash-p t)
@@ -153,7 +154,9 @@
            :target-blob-gas target-blob-gas
            :max-blob-gas max-blob-gas
            :eip7918-p osaka-enabled-p
-           :update-fraction update-fraction))
+           :update-fraction update-fraction
+           :parent-update-fraction
+           (or blob-schedule-parent-update-fraction update-fraction)))
         (progn
           (validate-block-cancun-fields header :cancun-enabled-p nil)
           (validate-block-blob-gas-fields header)))
@@ -175,19 +178,27 @@
         (timestamp (block-header-timestamp header)))
     (multiple-value-bind (target-blob-gas max-blob-gas update-fraction)
         (chain-config-blob-schedule config number timestamp)
-      (validate-block-header-basics
-       parent-header header
-       :validate-base-fee-p (chain-config-london-p config number)
-       :london-parent-p (chain-config-london-p
-                         config (block-header-number parent-header))
-       :withdrawals-enabled-p (chain-config-shanghai-p config number timestamp)
-       :cancun-enabled-p (chain-config-cancun-p config number timestamp)
-       :requests-enabled-p (chain-config-prague-p config number timestamp)
-       :amsterdam-enabled-p (chain-config-amsterdam-p config number timestamp)
-       :osaka-enabled-p (chain-config-osaka-p config number timestamp)
-       :expanded-blob-schedule-p
-       (chain-config-expanded-blob-schedule-p config number timestamp)
-       :blob-schedule-target-gas target-blob-gas
-       :blob-schedule-max-gas max-blob-gas
-       :blob-schedule-update-fraction update-fraction
-       :post-merge-p (block-header-post-merge-p header)))))
+      ;; Resolve the parent's own schedule so the EIP-7918 reserve price uses
+      ;; the fraction in force when the parent was produced.
+      (multiple-value-bind (parent-target parent-max parent-update-fraction)
+          (chain-config-blob-schedule config
+                                      (block-header-number parent-header)
+                                      (block-header-timestamp parent-header))
+        (declare (ignore parent-target parent-max))
+        (validate-block-header-basics
+         parent-header header
+         :validate-base-fee-p (chain-config-london-p config number)
+         :london-parent-p (chain-config-london-p
+                           config (block-header-number parent-header))
+         :withdrawals-enabled-p (chain-config-shanghai-p config number timestamp)
+         :cancun-enabled-p (chain-config-cancun-p config number timestamp)
+         :requests-enabled-p (chain-config-prague-p config number timestamp)
+         :amsterdam-enabled-p (chain-config-amsterdam-p config number timestamp)
+         :osaka-enabled-p (chain-config-osaka-p config number timestamp)
+         :expanded-blob-schedule-p
+         (chain-config-expanded-blob-schedule-p config number timestamp)
+         :blob-schedule-target-gas target-blob-gas
+         :blob-schedule-max-gas max-blob-gas
+         :blob-schedule-update-fraction update-fraction
+         :blob-schedule-parent-update-fraction parent-update-fraction
+         :post-merge-p (block-header-post-merge-p header))))))

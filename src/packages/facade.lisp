@@ -75,7 +75,11 @@
    #:make-hash32
    #:hash32-from-hex
    #:hash32-to-hex
-   #:zero-hash32)
+   #:zero-hash32
+   #:+unix-epoch-universal-time+
+   #:universal-time-to-unix-time
+   #:unix-time-to-universal-time
+   #:unix-time)
   (#:ethereum-lisp.crypto
    #:keccak-256
    #:keccak-256-hash

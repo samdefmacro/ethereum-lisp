@@ -167,12 +167,12 @@
                        (string-trim '(#\Space #\Tab #\Newline #\Return)
                                     (devnet-cli-file-string
                                      datadir-jwt-path))))
-                    (token (engine-rpc-make-jwt-token jwt-secret 0))
+                    (token (engine-rpc-make-jwt-token jwt-secret (unix-time)))
                     (wrong-token
                       (engine-rpc-make-jwt-token
                        (hex-to-bytes
                         "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
-                       0))
+                       (unix-time)))
                     (engine-body
                       "{\"jsonrpc\":\"2.0\",\"id\":713,\"method\":\"engine_getClientVersionV1\",\"params\":[{\"code\":\"runner\",\"name\":\"no-command-datadir-engine-only\",\"version\":\"1\",\"commit\":\"0x00000000\"}]}")
                     blocked-engine-response
@@ -559,12 +559,12 @@
                        (string-trim '(#\Space #\Tab #\Newline #\Return)
                                     (devnet-cli-file-string
                                      datadir-jwt-path))))
-                    (token (engine-rpc-make-jwt-token jwt-secret 0))
+                    (token (engine-rpc-make-jwt-token jwt-secret (unix-time)))
                     (wrong-token
                       (engine-rpc-make-jwt-token
                        (hex-to-bytes
                         "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
-                       0))
+                       (unix-time)))
                     unauthenticated-engine-response
                     invalid-auth-engine-response
                     new-payload-response

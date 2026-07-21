@@ -29,7 +29,7 @@
          t)))))
 
 (defun make-devnet-rejournal-state
-    (node interval-seconds &key (now-function #'get-universal-time))
+    (node interval-seconds &key (now-function #'unix-time))
   (unless (typep node 'devnet-node)
     (error "Devnet rejournal state requires a devnet node"))
   (unless (or (null interval-seconds)
@@ -199,7 +199,7 @@
       node :timestamp timestamp))))
 
 (defun make-devnet-dev-period-state
-    (node interval-seconds &key (now-function #'get-universal-time))
+    (node interval-seconds &key (now-function #'unix-time))
   (unless (typep node 'devnet-node)
     (error "Devnet dev-period state requires a devnet node"))
   (unless (or (null interval-seconds)

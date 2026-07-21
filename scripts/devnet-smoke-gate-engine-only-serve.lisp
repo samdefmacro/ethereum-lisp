@@ -99,7 +99,7 @@
                      (block-header-gas-limit
                       (block-header genesis-block))))
                   (jwt-secret (hex-to-bytes +devnet-cli-jwt-secret+))
-                  (token (engine-rpc-make-jwt-token jwt-secret 0))
+                  (token (engine-rpc-make-jwt-token jwt-secret (unix-time)))
                   (engine-body
                     "{\"jsonrpc\":\"2.0\",\"id\":901,\"method\":\"engine_getClientVersionV1\",\"params\":[{\"code\":\"runner\",\"name\":\"engine-only-smoke\",\"version\":\"1\",\"commit\":\"0x00000000\"}]}")
                   (capabilities-body

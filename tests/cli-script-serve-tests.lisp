@@ -126,7 +126,7 @@
                        (string-trim '(#\Space #\Tab #\Newline #\Return)
                                     (devnet-cli-file-string
                                      datadir-jwt-path))))
-                    (token (engine-rpc-make-jwt-token jwt-secret 0))
+                    (token (engine-rpc-make-jwt-token jwt-secret (unix-time)))
                     engine-unauthenticated-response
                     engine-response
                     public-response

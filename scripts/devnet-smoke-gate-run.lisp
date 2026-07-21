@@ -110,11 +110,11 @@
                   (storage-key nil)
                   (expected-storage nil)
                   (secret (hex-to-bytes +devnet-cli-jwt-secret+))
-                  (token (engine-rpc-make-jwt-token secret 0))
+                  (token (engine-rpc-make-jwt-token secret (unix-time)))
                   (invalid-token
                     (engine-rpc-make-jwt-token
                      (make-byte-vector 32 :initial-element #x99)
-                     0))
+                     (unix-time)))
                   (unauthenticated-engine-output (make-string-output-stream))
                   (invalid-auth-engine-output (make-string-output-stream))
                   (duplicate-auth-engine-output (make-string-output-stream))

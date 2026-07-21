@@ -20,7 +20,7 @@
                      :public-port 0
                      :jwt-secret-path (namestring jwt-path)))
                   (secret (hex-to-bytes +devnet-cli-jwt-secret+))
-                  (token (engine-rpc-make-jwt-token secret 0))
+                  (token (engine-rpc-make-jwt-token secret (unix-time)))
                   (primary-balance-target (first balance-targets))
                   (balance-address
                     (getf primary-balance-target :address))

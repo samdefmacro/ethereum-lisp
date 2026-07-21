@@ -161,7 +161,6 @@
             new-payload-persistence-function
             :forkchoice-persistence-function forkchoice-persistence-function
             :request-guard-function store-guard-function
-            :now-provider #'get-universal-time
             :rpc-prefix
             (devnet-endpoint-config-rpc-prefix public-endpoint-config)
             :allowed-method-p

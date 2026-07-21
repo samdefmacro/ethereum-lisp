@@ -329,7 +329,7 @@
                      :engine-cors-origins
                      *devnet-smoke-gate-engine-cors-origins*))
                   (secret (hex-to-bytes +devnet-cli-jwt-secret+))
-                  (token (engine-rpc-make-jwt-token secret 0))
+                  (token (engine-rpc-make-jwt-token secret (unix-time)))
                   (engine-body
                     (devnet-smoke-gate-json-rpc-request
                      451
@@ -511,7 +511,7 @@
                      :public-port 8545
                      :jwt-secret-path (namestring jwt-path)))
                   (secret (hex-to-bytes +devnet-cli-jwt-secret+))
-                  (token (engine-rpc-make-jwt-token secret 0))
+                  (token (engine-rpc-make-jwt-token secret (unix-time)))
                   (engine-body
                     (devnet-smoke-gate-json-rpc-request
                      461
@@ -830,7 +830,7 @@
                      :public-rpc-prefix
                      +devnet-smoke-gate-public-rpc-prefix+))
                   (secret (hex-to-bytes +devnet-cli-jwt-secret+))
-                  (token (engine-rpc-make-jwt-token secret 0))
+                  (token (engine-rpc-make-jwt-token secret (unix-time)))
                   (engine-body
                     (devnet-smoke-gate-json-rpc-request
                      601

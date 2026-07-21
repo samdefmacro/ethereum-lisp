@@ -188,7 +188,7 @@
                     (rpc-endpoint
                       (fixture-object-field ready-summary "rpcEndpoint"))
                     (jwt-secret (hex-to-bytes +devnet-cli-jwt-secret+))
-                    (token (engine-rpc-make-jwt-token jwt-secret 0))
+                    (token (engine-rpc-make-jwt-token jwt-secret (unix-time)))
                     capabilities-response
                     transition-configuration-response
                     transition-configuration-mismatch-response

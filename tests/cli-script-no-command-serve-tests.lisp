@@ -180,12 +180,12 @@
                        (string-trim '(#\Space #\Tab #\Newline #\Return)
                                     (devnet-cli-file-string
                                      datadir-jwt-path))))
-                    (token (engine-rpc-make-jwt-token jwt-secret 0))
+                    (token (engine-rpc-make-jwt-token jwt-secret (unix-time)))
                     (wrong-token
                       (engine-rpc-make-jwt-token
                        (hex-to-bytes
                         "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
-                       0))
+                       (unix-time)))
                     engine-response
                     unauthenticated-engine-response
                     invalid-auth-engine-response
