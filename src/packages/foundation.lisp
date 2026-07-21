@@ -165,6 +165,7 @@
    #:ripemd160
    #:ripemd160-hex
    #:secp256k1-private-key-address
+   #:secp256k1-private-key-public-key
    #:secp256k1-recover-public-key
    #:secp256k1-recover-address
    #:secp256k1-valid-signature-values-p
