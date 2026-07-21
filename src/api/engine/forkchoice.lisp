@@ -21,7 +21,8 @@
 
 (defun engine-rpc-build-prepared-payload
     (store parent-block payload-attributes config transactions)
-  (let* ((block (engine-build-empty-payload parent-block payload-attributes))
+  (let* ((block (engine-build-empty-payload
+                 parent-block payload-attributes config))
          (header (block-header block))
          (block-number (block-header-number header))
          (timestamp (block-header-timestamp header)))
