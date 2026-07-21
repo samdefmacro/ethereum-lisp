@@ -778,6 +778,7 @@
    #:*engine-rpc-http-max-header-bytes*
    #:*engine-rpc-http-max-header-lines*
    #:*engine-rpc-http-request-timeout-seconds*
+   #:*engine-rpc-http-max-concurrent-connections*
    #:+engine-rpc-default-http-host+
    #:+engine-rpc-default-http-port+
    #:+engine-rpc-jwt-expiry-seconds+
