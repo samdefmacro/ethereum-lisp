@@ -14,8 +14,19 @@ than left behind for the lifetime of the image."
       (funcall thunk)
       (multiple-value-bind (function backend)
           (make-bls12381-command-backend command)
-        (let ((*bls12381-backend-timeout-seconds*
-                (or timeout-seconds *bls12381-backend-timeout-seconds*))
-              (*bls12381-backend* function))
-          (unwind-protect (funcall thunk)
+        ;; Assigned rather than dynamically bound: the node serves the Engine
+        ;; endpoint on its own thread, and a LET binding is thread-local in
+        ;; SBCL. Binding here would leave the backend invisible to the very
+        ;; thread that executes payloads, so every BLS precompile would report
+        ;; the backend as unavailable despite the flag being set.
+        (let ((previous-backend *bls12381-backend*)
+              (previous-timeout *bls12381-backend-timeout-seconds*))
+          (unwind-protect
+               (progn
+                 (when timeout-seconds
+                   (setf *bls12381-backend-timeout-seconds* timeout-seconds))
+                 (setf *bls12381-backend* function)
+                 (funcall thunk))
+            (setf *bls12381-backend* previous-backend
+                  *bls12381-backend-timeout-seconds* previous-timeout)
             (shutdown-bls12381-command-backend backend))))))

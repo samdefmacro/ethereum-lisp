@@ -55,6 +55,7 @@
         (kzg-verifier-timeout-seconds nil)
         (bls12381-backend-command nil)
         (bls12381-backend-timeout-seconds nil)
+        (http-max-clients nil)
         (http-read-timeout-seconds nil)
         (http-write-timeout-seconds nil)
         (help-p nil))
@@ -174,6 +175,9 @@
                ((or (string= option "--bls12381-backend-timeout")
                     (string= option "--bls12381.backend-timeout"))
                 (setf bls12381-backend-timeout-seconds
+                      (next-parsed-value option #'devnet-cli-parse-positive-integer)))
+               ((string= option "--http.maxclients")
+                (setf http-max-clients
                       (next-parsed-value option #'devnet-cli-parse-positive-integer)))
                ((string= option "--http.readtimeout")
                 (setf http-read-timeout-seconds
@@ -303,6 +307,7 @@
           :kzg-verifier-timeout-seconds kzg-verifier-timeout-seconds
           :bls12381-backend-command bls12381-backend-command
           :bls12381-backend-timeout-seconds bls12381-backend-timeout-seconds
+          :http-max-clients http-max-clients
           :http-read-timeout-seconds http-read-timeout-seconds
           :http-write-timeout-seconds http-write-timeout-seconds
           :help-p help-p))))

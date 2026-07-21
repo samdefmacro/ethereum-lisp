@@ -1153,3 +1153,91 @@ Content-Type: application/json
                         "--http.writetimeout" "1m"))))
     (is (= 30 (getf options :http-read-timeout-seconds)))
     (is (= 60 (getf options :http-write-timeout-seconds)))))
+
+(deftest engine-rpc-http-serves-connections-concurrently
+  ;; Request handling is serialised by the RPC request guard, so concurrency
+  ;; here is about socket I/O: one silent peer must not starve other callers.
+  ;; A listener whose first connection blocks forever must still serve the rest.
+  (let* ((served (list))
+         (served-lock (sb-thread:make-mutex :name "concurrency-test"))
+         (release (sb-thread:make-semaphore :count 0))
+         (connections 3)
+         (remaining connections)
+         (previous-limit *engine-rpc-http-max-concurrent-connections*)
+         (service (make-engine-rpc-http-service
+                   :store (make-engine-payload-memory-store)
+                   :config (make-chain-config)))
+         (listener
+           (make-engine-rpc-http-listener
+            :endpoint "test:0"
+            :accept-function
+            (lambda ()
+              (if (plusp remaining)
+                  (let ((index (decf remaining)))
+                    (make-engine-rpc-http-connection
+                     :input-stream (make-string-input-stream "")
+                     :output-stream (make-broadcast-stream)
+                     :close-function
+                     (lambda ()
+                       ;; The first connection accepted blocks until released.
+                       (when (= index (1- connections))
+                         (sb-thread:wait-on-semaphore release :timeout 10))
+                       (sb-thread:with-mutex (served-lock)
+                         (push index served)))))
+                  nil))
+            :close-function (lambda () nil))))
+    ;; A LET binding would be invisible to the listener thread.
+    (setf *engine-rpc-http-max-concurrent-connections* 4)
+    (unwind-protect
+    (let ((listener-thread
+            (sb-thread:make-thread
+             (lambda ()
+               (engine-rpc-http-service-serve-listener service listener))
+             :name "concurrency-test-listener")))
+      ;; The two later connections finish while the first is still blocked.
+      (wait-for-test-condition
+       "later connections complete while the first blocks"
+       10
+       (lambda () (= 2 (sb-thread:with-mutex (served-lock) (length served)))))
+      (is (= 2 (sb-thread:with-mutex (served-lock) (length served))))
+      (sb-thread:signal-semaphore release)
+      (sb-thread:join-thread listener-thread :timeout 15)
+      (is (= connections (sb-thread:with-mutex (served-lock) (length served)))))
+      (setf *engine-rpc-http-max-concurrent-connections* previous-limit))))
+
+(deftest devnet-cli-capability-config-reaches-spawned-threads
+  (:layer :integration :module :capability-config :launches-processes t)
+  ;; The node serves the Engine endpoint on its own thread. A LET binding is
+  ;; thread-local in SBCL, so configuration bound that way is invisible to the
+  ;; thread that executes payloads: the flag parses, the binding is in scope,
+  ;; and the backend still reports itself unavailable.
+  (labels ((value-in-new-thread (reader)
+             (let ((result :unset))
+               (sb-thread:join-thread
+                (sb-thread:make-thread
+                 (lambda () (setf result (funcall reader)))
+                 :name "capability-visibility-probe"))
+               result)))
+    ;; BLS12-381 backend.
+    (let ((previous *bls12381-backend*))
+      (unwind-protect
+           (ethereum-lisp.cli::call-with-devnet-cli-bls12381-backend
+            (namestring (repo-bls12381-backend-command))
+            nil
+            (lambda ()
+              (is (bls12381-backend-available-p))
+              (is (value-in-new-thread #'bls12381-backend-available-p))))
+        (setf *bls12381-backend* previous)))
+    ;; KZG verifier.
+    (let ((previous *kzg-verifier*))
+      (unwind-protect
+           (ethereum-lisp.cli::call-with-devnet-cli-kzg-verifier
+            (namestring (repo-kzg-verifier-command))
+            nil
+            (lambda ()
+              (is (kzg-point-proof-verification-available-p))
+              (is (value-in-new-thread
+                   #'kzg-point-proof-verification-available-p))))
+        (setf *kzg-verifier* previous)))
+    ;; Both are restored once the scope exits.
+    (is (not (bls12381-backend-available-p)))))
