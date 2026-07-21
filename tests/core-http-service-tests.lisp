@@ -1057,3 +1057,75 @@ Content-Type: application/json
       (ignore-errors (engine-rpc-http-listener-close listener))
       (when (sb-thread:thread-alive-p accept-thread)
         (sb-thread:terminate-thread accept-thread)))))
+
+(deftest engine-rpc-http-read-rejects-oversized-requests
+  ;; Requests are served one at a time, so an unbounded body or header block
+  ;; lets a single client allocate freely and stall every other caller. These
+  ;; limits live on the stream read path, before anything is allocated.
+  (labels ((read-request (text)
+             (with-input-from-string (stream text)
+               (ethereum-lisp.rpc-http::engine-rpc-read-http-request-string
+                stream)))
+           (framed (headers body)
+             (with-output-to-string (stream)
+               (format stream "POST / HTTP/1.1~C~C" #\Return #\Newline)
+               (dolist (header headers)
+                 (format stream "~A~C~C" header #\Return #\Newline))
+               (format stream "Content-Length: ~D~C~C~C~C"
+                       (length body) #\Return #\Newline #\Return #\Newline)
+               (write-string body stream))))
+    ;; A declared body length beyond the limit is refused before allocating.
+    (let ((*engine-rpc-http-max-body-bytes* 4))
+      (signals block-validation-error
+        (read-request (framed '() "{\"a\":1}"))))
+    ;; The same request is accepted when the limit allows it.
+    (let ((*engine-rpc-http-max-body-bytes* (* 1024 1024)))
+      (is (stringp (read-request (framed '() "{\"a\":1}")))))
+    ;; Too many header lines is refused.
+    (let ((*engine-rpc-http-max-header-lines* 4))
+      (signals block-validation-error
+        (read-request
+         (framed (loop for index below 20
+                       collect (format nil "X-Pad-~D: 1" index))
+                 "{}"))))
+    ;; An oversized header block is refused.
+    (let ((*engine-rpc-http-max-header-bytes* 32))
+      (signals block-validation-error
+        (read-request
+         (framed (loop for index below 20
+                       collect (format nil "X-Pad-~D: aaaaaaaaaaaaaaaaaaaa" index))
+                 "{}"))))))
+
+(deftest engine-rpc-http-request-limits-have-safe-defaults
+  ;; The defaults must be finite; an unset limit is the bug these guard against.
+  (is (integerp *engine-rpc-http-max-body-bytes*))
+  (is (plusp *engine-rpc-http-max-body-bytes*))
+  (is (integerp *engine-rpc-http-max-header-bytes*))
+  (is (plusp *engine-rpc-http-max-header-bytes*))
+  (is (integerp *engine-rpc-http-max-header-lines*))
+  (is (plusp *engine-rpc-http-max-header-lines*))
+  (is (or (null *engine-rpc-http-request-timeout-seconds*)
+          (plusp *engine-rpc-http-request-timeout-seconds*)))
+  ;; go-ethereum caps RPC bodies at 5 MiB; stay at or below that.
+  (is (<= *engine-rpc-http-max-body-bytes* (* 5 1024 1024))))
+
+(deftest engine-rpc-http-read-accepts-crlf-framed-requests
+  ;; Every standards-compliant client sends CRLF. Reading from a socket keeps
+  ;; the carriage return on each line, so the blank separator arrives as a lone
+  ;; CR; treating it as a header rejected every real client with a 400.
+  (let* ((body "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_chainId\",\"params\":[]}")
+         (crlf (format nil "~C~C" #\Return #\Newline))
+         (text (concatenate 'string
+                            "POST / HTTP/1.1" crlf
+                            "Host: localhost" crlf
+                            "Content-Type: application/json" crlf
+                            (format nil "Content-Length: ~D" (length body)) crlf
+                            crlf
+                            body))
+         (request (with-input-from-string (stream text)
+                    (ethereum-lisp.rpc-http::engine-rpc-read-http-request-string
+                     stream))))
+    (is (stringp request))
+    (is (search "eth_chainId" request))
+    ;; The rebuilt request must still carry its body.
+    (is (search body request))))
