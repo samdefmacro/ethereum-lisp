@@ -774,6 +774,10 @@
   (#:ethereum-lisp.rpc-http
    #:+engine-rpc-http-accepted-content-types+
    #:engine-rpc-http-accepted-content-type-p
+   #:*engine-rpc-http-max-body-bytes*
+   #:*engine-rpc-http-max-header-bytes*
+   #:*engine-rpc-http-max-header-lines*
+   #:*engine-rpc-http-request-timeout-seconds*
    #:+engine-rpc-default-http-host+
    #:+engine-rpc-default-http-port+
    #:+engine-rpc-jwt-expiry-seconds+

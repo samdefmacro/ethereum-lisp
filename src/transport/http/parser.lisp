@@ -1,5 +1,37 @@
 (in-package #:ethereum-lisp.rpc-http)
 
+;;;; Request intake limits.
+;;;;
+;;;; Without these a single connection can hold an endpoint open indefinitely or
+;;;; make the node allocate from an attacker-supplied Content-Length. Requests
+;;;; are served one at a time, so an unbounded read stalls every other client.
+
+(defparameter *engine-rpc-http-max-body-bytes* (* 5 1024 1024)
+  "Largest accepted request body. Matches go-ethereum's RPC content limit.")
+
+(defparameter *engine-rpc-http-max-header-bytes* (* 1024 1024)
+  "Largest accepted header block, matching Go's default MaxHeaderBytes.")
+
+(defparameter *engine-rpc-http-max-header-lines* 200
+  "Largest accepted number of header lines, including the request line.")
+
+(defparameter *engine-rpc-http-request-timeout-seconds* 30
+  "Wall-clock seconds allowed for reading and answering one request.
+
+NIL disables the deadline. A peer that connects and then sends nothing would
+otherwise block the listener forever.")
+
+(defmacro engine-rpc-http-with-request-deadline (&body body)
+  "Run BODY under the configured request deadline, when one is set."
+  #+sbcl
+  `(let ((timeout *engine-rpc-http-request-timeout-seconds*))
+     (if timeout
+         (sb-sys:with-deadline (:seconds timeout)
+           ,@body)
+         (progn ,@body)))
+  #-sbcl
+  `(progn ,@body))
+
 (defparameter +engine-rpc-http-accepted-content-types+
   '("application/json" "application/json-rpc" "application/jsonrequest"))
 
@@ -47,17 +79,22 @@
              (char= #\/ (char path (length rpc-prefix)))))))
 
 (defun engine-rpc-http-headers (lines)
+  ;; Lines read from a socket keep their carriage return, so the blank line
+  ;; separating headers from the body arrives as a lone CR rather than an empty
+  ;; string. Comparing untrimmed rejected every CRLF request — that is, every
+  ;; standards-compliant client — as a malformed header.
   (loop for line in lines
-        unless (string= line "")
+        for trimmed = (engine-rpc-http-trim line)
+        unless (string= trimmed "")
           collect
-          (let ((colon (position #\: line)))
+          (let ((colon (position #\: trimmed)))
             (unless colon
               (block-validation-fail "HTTP header is malformed"))
-            (let ((name (engine-rpc-http-trim (subseq line 0 colon))))
+            (let ((name (engine-rpc-http-trim (subseq trimmed 0 colon))))
               (when (string= name "")
                 (block-validation-fail "HTTP header is malformed"))
               (cons (string-downcase name)
-                    (engine-rpc-http-trim (subseq line (1+ colon))))))))
+                    (engine-rpc-http-trim (subseq trimmed (1+ colon))))))))
 
 (defun engine-rpc-http-header (headers name)
   (cdr (assoc (string-downcase name) headers :test #'string=)))
@@ -138,10 +175,18 @@
        (engine-rpc-http-parse-content-length (first content-lengths))))))
 
 (defun engine-rpc-read-http-request-string (input-stream)
-  (let ((lines '()))
+  (let ((lines '())
+        (header-bytes 0)
+        (header-lines 0))
     (loop for line = (read-line input-stream nil nil)
           while line
-          do (push line lines)
+          do (incf header-lines)
+             (incf header-bytes (1+ (length line)))
+             (when (> header-lines *engine-rpc-http-max-header-lines*)
+               (block-validation-fail "HTTP request has too many header lines"))
+             (when (> header-bytes *engine-rpc-http-max-header-bytes*)
+               (block-validation-fail "HTTP request headers are too large"))
+             (push line lines)
              (when (string= "" (engine-rpc-http-trim line))
                (return)))
     (unless (and lines (string= "" (engine-rpc-http-trim (first lines))))
@@ -149,6 +194,11 @@
     (let* ((lines (nreverse lines))
            (headers (engine-rpc-http-headers (rest lines)))
            (content-length (engine-rpc-http-content-length headers))
+           ;; Check the declared length before allocating for it.
+           (content-length
+             (if (> content-length *engine-rpc-http-max-body-bytes*)
+                 (block-validation-fail "HTTP request body is too large")
+                 content-length))
            (body (make-string content-length))
            (read-count (read-sequence body input-stream)))
       (unless (= read-count content-length)

@@ -79,10 +79,14 @@
                ;; treats it as a shutdown request.
                do (handler-case
                       (unwind-protect
-                           (engine-rpc-http-service-handle-stream
-                            service
-                            (engine-rpc-http-connection-input-stream connection)
-                            (engine-rpc-http-connection-output-stream connection))
+                           ;; The deadline covers reading the request and
+                           ;; writing the response, so a peer that stalls at
+                           ;; any point cannot hold the listener.
+                           (engine-rpc-http-with-request-deadline
+                             (engine-rpc-http-service-handle-stream
+                              service
+                              (engine-rpc-http-connection-input-stream connection)
+                              (engine-rpc-http-connection-output-stream connection)))
                         (ignore-errors
                          (engine-rpc-http-connection-close connection)))
                     (error (condition)
