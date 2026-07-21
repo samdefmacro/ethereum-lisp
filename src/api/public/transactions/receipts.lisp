@@ -21,8 +21,9 @@
   (let ((header (block-header block)))
     (list
      (cons "address" (address-to-hex (log-entry-address log)))
-     (cons "topics" (mapcar #'hash32-to-hex
-                            (log-entry-topics log)))
+     (cons "topics" (eth-rpc-json-array
+                     (mapcar #'hash32-to-hex
+                             (log-entry-topics log))))
      (cons "data" (bytes-to-hex (log-entry-data log)))
      (cons "blockHash" (hash32-to-hex (block-hash block)))
      (cons "blockNumber"
@@ -76,7 +77,7 @@
           (cons "contractAddress"
                 (eth-rpc-address-or-null
                  (eth-rpc-contract-creation-address transaction from)))
-          (cons "logs" logs)
+          (cons "logs" (eth-rpc-json-array logs))
           (cons "logsBloom"
                 (bytes-to-hex
                  (bloom-bytes

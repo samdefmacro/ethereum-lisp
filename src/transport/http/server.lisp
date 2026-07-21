@@ -73,12 +73,26 @@
                                         nil
                                         (error condition))))
                while connection
-               do (unwind-protect
-                       (engine-rpc-http-service-handle-stream
-                        service
-                        (engine-rpc-http-connection-input-stream connection)
-                        (engine-rpc-http-connection-output-stream connection))
-                    (engine-rpc-http-connection-close connection))
+               ;; A peer that disappears mid-response signals on the socket
+               ;; write. That must end the connection, not the listener: an
+               ;; escaping error unwinds this loop and the supervising node
+               ;; treats it as a shutdown request.
+               do (handler-case
+                      (unwind-protect
+                           (engine-rpc-http-service-handle-stream
+                            service
+                            (engine-rpc-http-connection-input-stream connection)
+                            (engine-rpc-http-connection-output-stream connection))
+                        (ignore-errors
+                         (engine-rpc-http-connection-close connection)))
+                    (error (condition)
+                      (ethereum-lisp.telemetry:telemetry-log
+                       :warn
+                       "engine.rpc.http.connection.error"
+                       :sink sink
+                       :fields (append fields
+                                       (list (cons "error"
+                                                   (format nil "~A" condition)))))))
                   (incf served))
       (ethereum-lisp.telemetry:telemetry-metric
        "engine.rpc.http.listener.connections"

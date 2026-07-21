@@ -848,3 +848,89 @@
         (request 111 "eth_createAccessList") store config)
        "eth_createAccessList"))))
 
+
+(deftest eth-rpc-call-reports-revert-as-an-error-with-data
+  ;; go-ethereum returns a reverted call as JSON-RPC error code 3 carrying the
+  ;; revert bytes in the data member. Returning them as a successful result
+  ;; makes clients decode revert data as a return value.
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           ;; REVERT is gated on Byzantium, and fork blocks are not implied by
+           ;; later ones, so it must be activated explicitly.
+           (config (make-chain-config :chain-id 1
+                                      :byzantium-block 0
+                                      :london-block 0))
+           (contract
+             (address-from-hex "0x00000000000000000000000000000000000000dd"))
+           ;; MSTORE 0 := 7; REVERT mem[0:32].
+           (code #(96 7 96 0 82 96 32 96 0 253))
+           (state (make-state-db))
+           (block
+             (make-block
+              :header (make-block-header
+                       :number 30
+                       :timestamp 300
+                       :gas-limit 100000
+                       :base-fee-per-gas 0
+                       :state-root (state-db-root state)))))
+      (state-db-set-code state contract code)
+      (setf (block-header-state-root (block-header block))
+            (state-db-root state))
+      (chain-store-put-block store block :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash block) state)
+      (let* ((response
+               (engine-rpc-handle-request
+                (list (cons "jsonrpc" "2.0")
+                      (cons "id" 210)
+                      (cons "method" "eth_call")
+                      (cons "params"
+                            (list
+                             (list (cons "to" (address-to-hex contract))
+                                   (cons "gas" (quantity-to-hex 100000))
+                                   (cons "data" "0x"))
+                             "latest")))
+                store
+                config))
+             (error-object (field response "error")))
+      ;; A revert is an error, never a result.
+      (is (null (field response "result")))
+      (is error-object)
+      (is (= 3 (field error-object "code")))
+      (is (string= "execution reverted" (field error-object "message")))
+      ;; The revert bytes travel in the data member.
+      (let ((expected (let ((bytes (make-byte-vector 32)))
+                        (setf (aref bytes 31) 7)
+                        (bytes-to-hex bytes))))
+        (is (string= expected (field error-object "data"))))))))
+
+(deftest eth-rpc-revert-reason-decoding
+  (let* ((padded-boom (concatenate 'string "626f6f6d" (make-string 56 :initial-element #\0)))
+         (error-string-payload
+           (hex-to-bytes
+            (concatenate
+             'string
+             "0x08c379a0"
+             "0000000000000000000000000000000000000000000000000000000000000020"
+             "0000000000000000000000000000000000000000000000000000000000000004"
+             padded-boom))))
+    ;; A canonical Error(string) payload decodes.
+    (is (string= "boom"
+                 (ethereum-lisp.public-api::eth-rpc-decode-revert-reason
+                  error-string-payload)))
+    ;; Anything else yields NIL rather than a guess.
+    (is (null (ethereum-lisp.public-api::eth-rpc-decode-revert-reason
+               (make-byte-vector 32))))
+    (is (null (ethereum-lisp.public-api::eth-rpc-decode-revert-reason
+               (make-byte-vector 0))))
+    ;; A custom error selector is not Error(string).
+    (is (null (ethereum-lisp.public-api::eth-rpc-decode-revert-reason
+               (hex-to-bytes "0xdeadbeef"))))))
+
+(deftest eth-rpc-empty-collections-encode-as-json-arrays
+  ;; An empty list is NIL in Lisp and would otherwise serialise as null, which
+  ;; breaks clients expecting "logs": [] and "topics": [] on every plain
+  ;; transfer receipt.
+  (is (string= "[]" (json-encode (ethereum-lisp.public-api::eth-rpc-json-array '()))))
+  (is (string= "[]" (json-encode (ethereum-lisp.public-api::eth-rpc-json-array nil))))
+  (is (string= "null" (json-encode nil))))
