@@ -194,19 +194,23 @@
                      (getf options :kzg-verifier-command)
                      (getf options :kzg-verifier-timeout-seconds)
                      (lambda ()
-                       (let ((node
-                               (devnet-cli-make-node
-                                options genesis-path genesis-json
-                                telemetry-sink)))
-                         (when (getf options :pid-file)
-                           (devnet-cli-write-pid-file
-                            (getf options :pid-file)))
-                         (if (getf options :serve-p)
-                             (devnet-cli-run-serve-node
-                              node options output-stream error-stream)
-                             (devnet-cli-run-no-serve-node
-                              node options output-stream))
-                         0))))))))))
+                       (call-with-devnet-cli-bls12381-backend
+                        (getf options :bls12381-backend-command)
+                        (getf options :bls12381-backend-timeout-seconds)
+                        (lambda ()
+                          (let ((node
+                                  (devnet-cli-make-node
+                                   options genesis-path genesis-json
+                                   telemetry-sink)))
+                            (when (getf options :pid-file)
+                              (devnet-cli-write-pid-file
+                               (getf options :pid-file)))
+                            (if (getf options :serve-p)
+                                (devnet-cli-run-serve-node
+                                 node options output-stream error-stream)
+                                (devnet-cli-run-no-serve-node
+                                 node options output-stream))
+                            0))))))))))))
     (error (condition)
       (ignore-errors
        (devnet-cli-log-error-event args condition))

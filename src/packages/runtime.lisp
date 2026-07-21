@@ -109,6 +109,7 @@
         #:ethereum-lisp.receipts
         #:ethereum-lisp.consensus
         #:ethereum-lisp.kzg
+        #:ethereum-lisp.bls12381
         #:ethereum-lisp.state)
   (:export
    #:evm-error

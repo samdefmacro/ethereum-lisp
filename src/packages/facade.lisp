@@ -350,6 +350,14 @@
    #:configure-kzg-proof-command-verifiers
    #:+cell-proofs-per-blob+
    #:validate-blob-sidecar-fields)
+  (#:ethereum-lisp.bls12381
+   #:*bls12381-backend*
+   #:*bls12381-backend-timeout-seconds*
+   #:bls12381-backend-available-p
+   #:run-bls12381-operation
+   #:make-bls12381-command-backend
+   #:configure-bls12381-command-backend
+   #:shutdown-bls12381-command-backend)
   (#:ethereum-lisp.block-access-lists
    #:+block-access-list-max-code-size+
    #:+block-access-list-amsterdam-max-code-size+

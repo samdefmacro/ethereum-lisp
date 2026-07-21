@@ -24,6 +24,10 @@
 ;; so precompile numbers must be encoded across the low two address bytes.
 (defconstant +p256verify-precompile-number+ 256)
 
+;; EIP-2537 BLS12-381 precompiles occupy the contiguous range 0x0b..0x11.
+(defconstant +bls12381-first-precompile-number+ 11)
+(defconstant +bls12381-last-precompile-number+ 17)
+
 (defun precompile-address (number)
   (let ((bytes (make-byte-vector 20)))
     (setf (aref bytes 18) (ldb (byte 8 8) number)
@@ -36,11 +40,18 @@
       (and (<= 5 number 8) (chain-rules-byzantium-p rules))
       (and (= number 9) (chain-rules-istanbul-p rules))
       (and (= number 10) (chain-rules-cancun-p rules))
+      (and (<= +bls12381-first-precompile-number+
+               number
+               +bls12381-last-precompile-number+)
+           (chain-rules-prague-p rules))
       (and (= number +p256verify-precompile-number+)
            (chain-rules-osaka-p rules))))
 
 (defun precompile-number-p (number)
   (or (<= 1 number 10)
+      (<= +bls12381-first-precompile-number+
+          number
+          +bls12381-last-precompile-number+)
       (= number +p256verify-precompile-number+)))
 
 (defun active-precompile-address-p (address rules)
@@ -49,7 +60,8 @@
          (active-precompile-address-number-p number rules))))
 
 (defun prewarm-precompile-addresses (accessed-addresses &optional rules)
-  (dolist (number (append (loop for i from 1 to 10 collect i)
+  (dolist (number (append (loop for i from 1 to +bls12381-last-precompile-number+
+                                collect i)
                           (list +p256verify-precompile-number+))
                   accessed-addresses)
     (when (active-precompile-address-number-p number rules)
@@ -205,6 +217,50 @@
 (defconstant +bls-field-elements-per-blob+ 4096)
 (defconstant +bls-field-modulus+
   #x73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001)
+(defconstant +bls12381-fp-size+ 64)
+(defconstant +bls12381-fp2-size+ 128)
+(defconstant +bls12381-scalar-size+ 32)
+(defconstant +bls12381-g1-point-size+ 128)
+(defconstant +bls12381-g2-point-size+ 256)
+(defconstant +bls12381-g1-add-input-size+ 256)
+(defconstant +bls12381-g2-add-input-size+ 512)
+(defconstant +bls12381-g1-msm-pair-size+ 160)
+(defconstant +bls12381-g2-msm-pair-size+ 288)
+(defconstant +bls12381-pairing-set-size+ 384)
+(defconstant +bls12381-g1-add-gas+ 375)
+(defconstant +bls12381-g2-add-gas+ 600)
+(defconstant +bls12381-map-fp-to-g1-gas+ 5500)
+(defconstant +bls12381-map-fp2-to-g2-gas+ 23800)
+(defconstant +bls12381-g1-msm-multiplication-gas+ 12000)
+(defconstant +bls12381-g2-msm-multiplication-gas+ 22500)
+(defconstant +bls12381-msm-discount-multiplier+ 1000)
+(defconstant +bls12381-pairing-base-gas+ 37700)
+(defconstant +bls12381-pairing-per-pair-gas+ 32600)
+
+(defparameter +bls12381-g1-msm-discounts+
+  #(
+    1000 949 848 797 764 750 738 728 719 712 705 698 692 687 682 677
+    673 669 665 661 658 654 651 648 645 642 640 637 635 632 630 627
+    625 623 621 619 617 615 613 611 609 608 606 604 603 601 599 598
+    596 595 593 592 591 589 588 586 585 584 582 581 580 579 577 576
+    575 574 573 572 570 569 568 567 566 565 564 563 562 561 560 559
+    558 557 556 555 554 553 552 551 550 549 548 547 547 546 545 544
+    543 542 541 540 540 539 538 537 536 536 535 534 533 532 532 531
+    530 529 528 528 527 526 525 525 524 523 522 522 521 520 520 519)
+  "EIP-2537 MSM gas discounts for k = 1..128; k above the table uses 519.")
+
+(defparameter +bls12381-g2-msm-discounts+
+  #(
+    1000 1000 923 884 855 832 812 796 782 770 759 749 740 732 724 717
+    711 704 699 693 688 683 679 674 670 666 663 659 655 652 649 646
+    643 640 637 634 632 629 627 624 622 620 618 615 613 611 609 607
+    606 604 602 600 598 597 595 593 592 590 589 587 586 584 583 582
+    580 579 578 576 575 574 573 571 570 569 568 567 566 565 563 562
+    561 560 559 558 557 556 555 554 553 552 552 551 550 549 548 547
+    546 545 545 544 543 542 541 541 540 539 538 537 537 536 535 535
+    534 533 532 532 531 530 530 529 528 528 527 526 526 525 524 524)
+  "EIP-2537 MSM gas discounts for k = 1..128; k above the table uses 524.")
+
 (defconstant +blake2f-input-size+ 213)
 (defconstant +uint64-modulus+ (expt 2 64))
 (defconstant +uint64-mask+ #xffffffffffffffff)
