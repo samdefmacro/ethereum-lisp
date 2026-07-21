@@ -46,12 +46,36 @@
         (replace payload-id digest :start1 1 :start2 0 :end2 7)
         payload-id)))
 
-(defun engine-build-empty-payload (parent-block attributes)
+(defun build-payload-excess-blob-gas (parent-header config block-number timestamp)
+  "Derive the excess blob gas for a block being built on PARENT-HEADER.
+
+Without a chain config the schedule cannot be resolved, so this falls back to
+zero; that path is only reachable for pre-Cancun attributes, which carry no
+excess blob gas field at all."
+  (if (null config)
+      0
+      (multiple-value-bind (target-blob-gas max-blob-gas update-fraction)
+          (chain-config-blob-schedule config block-number timestamp)
+        (multiple-value-bind (parent-target parent-max parent-update-fraction)
+            (chain-config-blob-schedule config
+                                        (block-header-number parent-header)
+                                        (block-header-timestamp parent-header))
+          (declare (ignore parent-target parent-max))
+          (expected-excess-blob-gas
+           parent-header
+           :target-blob-gas target-blob-gas
+           :max-blob-gas max-blob-gas
+           :eip7918-p (chain-config-osaka-p config block-number timestamp)
+           :update-fraction update-fraction
+           :parent-update-fraction parent-update-fraction)))))
+
+(defun engine-build-empty-payload (parent-block attributes &optional config)
   (unless (typep parent-block 'ethereum-block)
     (block-validation-fail "Payload parent must be a known block"))
   (unless (typep attributes 'payload-attributes-v1)
     (block-validation-fail "Payload attributes must be payload-attributes-v1"))
   (let* ((parent-header (block-header parent-block))
+         (block-number (1+ (block-header-number parent-header)))
          (timestamp (payload-attributes-v1-timestamp attributes)))
     (unless (> timestamp (block-header-timestamp parent-header))
       (block-validation-fail
@@ -64,7 +88,7 @@
              :state-root (or (block-header-state-root parent-header)
                              +empty-trie-hash+)
              :mix-hash (payload-attributes-v1-prev-randao attributes)
-             :number (1+ (block-header-number parent-header))
+             :number block-number
              :gas-limit (block-header-gas-limit parent-header)
              :gas-used 0
              :timestamp timestamp
@@ -80,10 +104,14 @@
              (when (payload-attributes-v1-parent-beacon-root-present-p
                     attributes)
                0)
+             ;; A payload whose excess blob gas is not derived from the parent
+             ;; is rejected by every conforming client, including this node's
+             ;; own header validation.
              :excess-blob-gas
              (when (payload-attributes-v1-parent-beacon-root-present-p
                     attributes)
-               0)
+               (build-payload-excess-blob-gas
+                parent-header config block-number timestamp))
              :slot-number
              (when (payload-attributes-v1-slot-number-present-p attributes)
                (payload-attributes-v1-slot-number attributes)))))

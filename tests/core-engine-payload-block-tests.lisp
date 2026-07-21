@@ -205,3 +205,48 @@
        payload
        :versioned-hashes (list #(1 2))))))
 
+
+(deftest engine-built-payload-excess-blob-gas-is-derived-from-the-parent
+  ;; A built payload must satisfy this node's own header validation. Hardcoding
+  ;; excess blob gas to zero produced payloads the node would reject itself
+  ;; whenever the parent carried non-zero excess.
+  (let* ((config (make-chain-config :chain-id 1
+                                    :london-block 0
+                                    :shanghai-time 0
+                                    :cancun-time 0))
+         (parent-excess (* 10 +blob-gas-per-blob+))
+         (parent-used (* 5 +blob-gas-per-blob+))
+         (parent-header
+           (make-block-header :number 10
+                              :timestamp 100
+                              :gas-limit 30000000
+                              :gas-used 0
+                              :base-fee-per-gas 1000000000
+                              :state-root +empty-trie-hash+
+                              :blob-gas-used parent-used
+                              :excess-blob-gas parent-excess
+                              :parent-beacon-root (zero-hash32)))
+         (parent-block (make-block :header parent-header :withdrawals '()))
+         (attributes
+           (make-payload-attributes-v1
+            :timestamp 112
+            :prev-randao (zero-hash32)
+            :suggested-fee-recipient (zero-address)
+            :withdrawals '()
+            :withdrawals-present-p t
+            :parent-beacon-root (zero-hash32)
+            :parent-beacon-root-present-p t))
+         (built (ethereum-lisp.engine-payloads:engine-build-empty-payload
+                 parent-block attributes config))
+         (header (block-header built)))
+    ;; The parent is above target, so the derived value must be non-zero.
+    (is (plusp (block-header-excess-blob-gas header)))
+    (multiple-value-bind (target-gas max-gas update-fraction)
+        (chain-config-blob-schedule config 11 112)
+      (is (= (expected-excess-blob-gas parent-header
+                                       :target-blob-gas target-gas
+                                       :max-blob-gas max-gas
+                                       :update-fraction update-fraction)
+             (block-header-excess-blob-gas header))))
+    ;; The node's own validator must accept what its builder produced.
+    (is (validate-block-header-against-config parent-header header config))))
