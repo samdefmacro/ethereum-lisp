@@ -170,6 +170,8 @@
    #:secp256k1-recover-address
    #:secp256k1-valid-signature-values-p
    #:secp256r1-verify
+   #:aes-ctr
+   #:aes-encrypt-ecb-block
    #:+kzg-commitment-size+
    #:+kzg-commitment-version+
    #:kzg-commitment-to-versioned-hash
