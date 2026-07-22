@@ -39,13 +39,15 @@ Returns (VALUES CONNECTION SOCKET); the caller closes SOCKET when finished."
     (host port remote-public-key private-key our-status
      &key (client-id "ethereum-lisp")
           (listen-port 0)
+          chain-context
           (capabilities (mapcar (lambda (version)
                                   (make-devp2p-capability "eth" version))
                                 +eth-supported-protocol-versions+)))
   "Dial HOST:PORT and run the full RLPx, devp2p Hello, and eth Status handshake
 as the initiator.
 
-OUR-STATUS is the eth Status to advertise (see eth-build-status). Returns
+OUR-STATUS is the eth Status to advertise (see eth-build-status). CHAIN-CONTEXT,
+when supplied, enables the EIP-2124 fork-id check against the peer. Returns
 (VALUES ETH-PEER SOCKET); the caller closes SOCKET when finished."
   (multiple-value-bind (connection socket)
       (eth-sync-open-connection host port private-key remote-public-key)
@@ -56,7 +58,8 @@ OUR-STATUS is the eth Status to advertise (see eth-build-status). Returns
                                     :capabilities capabilities
                                     :listen-port listen-port
                                     :node-id (node-id-from-private-key private-key))
-                 our-status)
+                 our-status
+                 chain-context)
                 socket)
       (error (condition)
         (ignore-errors (sb-bsd-sockets:socket-close socket))

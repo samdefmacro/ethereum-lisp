@@ -203,4 +203,8 @@
    #:crc32
    #:eth-fork-hash
    #:compute-eth-fork-id
-   #:chain-config-eth-fork-id))
+   #:chain-config-eth-fork-id
+   #:chain-config-fork-hash-series
+   #:validate-peer-fork-id
+   #:eth-fork-id-mismatch
+   #:eth-fork-id-mismatch-reason))
