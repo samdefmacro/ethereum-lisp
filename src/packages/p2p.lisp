@@ -22,4 +22,11 @@
    #:rlpx-auth-message-version
    #:rlpx-open-auth
    #:rlpx-recover-initiator-ephemeral-key
-   #:rlpx-derive-secrets))
+   #:rlpx-derive-secrets
+   #:rlpx-create-auth
+   #:rlpx-create-ack
+   #:rlpx-open-ack
+   #:rlpx-ack-message
+   #:rlpx-ack-message-recipient-ephemeral-public-key
+   #:rlpx-ack-message-recipient-nonce
+   #:rlpx-ack-message-version))

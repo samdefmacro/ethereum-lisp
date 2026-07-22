@@ -50,3 +50,81 @@
                      (bytes-to-hex aes-secret)))
         (is (string= "0x2ea74ec5dae199227dff1af715362700e989d889d7a493cb0639691efb8e5f98"
                      (bytes-to-hex mac-secret)))))))
+
+(deftest rlpx-full-handshake-round-trips-and-agrees-on-secrets
+  ;; Initiator builds auth; recipient opens it, recovers the initiator ephemeral
+  ;; key, and both sides independently derive the same session secrets.
+  (let* ((init-static
+          #x49a7b37aa6f6645917e7b807e9d1c00d4fa71f18343b0d4122a4d2df64dd6fee)
+         (recip-static
+          #xb71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291)
+         (init-eph
+          #x869d6ecf5211f1cc60418a13b9d870b22959d0c16f02bec714c960dd2298a32d)
+         (recip-eph
+          #xe238eb8e04fee6511ab04c6dd3c89ce097b11f25d584863ac2b6d5b35b1847e4)
+         (init-nonce (secure-random-bytes 32))
+         (recip-nonce (secure-random-bytes 32))
+         (recip-static-pub (secp256k1-private-key-public-key recip-static))
+         (init-static-pub (secp256k1-private-key-public-key init-static))
+         (auth-packet (rlpx-create-auth init-static init-eph
+                                        recip-static-pub init-nonce))
+         (auth (rlpx-open-auth recip-static auth-packet)))
+    (is (= 4 (ethereum-lisp.p2p:rlpx-auth-message-version auth)))
+    (is (bytes= init-nonce (ethereum-lisp.p2p:rlpx-auth-message-initiator-nonce auth)))
+    (is (bytes= init-static-pub
+                (ethereum-lisp.p2p:rlpx-auth-message-initiator-public-key auth)))
+    (let ((recovered-eph
+            (rlpx-recover-initiator-ephemeral-key recip-static auth)))
+      ;; The recovered ephemeral key is the initiator's ephemeral public key.
+      (is (bytes= (secp256k1-private-key-public-key init-eph) recovered-eph))
+      ;; Recipient derives from its own ephemeral key and the recovered one;
+      ;; initiator derives from its ephemeral key and the recipient's. Same key.
+      (let ((recip-ephemeral (secp256k1-ecdh recip-eph recovered-eph))
+            (init-ephemeral
+              (secp256k1-ecdh init-eph
+                              (secp256k1-private-key-public-key recip-eph))))
+        (is (bytes= recip-ephemeral init-ephemeral))
+        (multiple-value-bind (aes-r mac-r)
+            (rlpx-derive-secrets recip-ephemeral init-nonce recip-nonce)
+          (multiple-value-bind (aes-i mac-i)
+              (rlpx-derive-secrets init-ephemeral init-nonce recip-nonce)
+            (is (bytes= aes-r aes-i))
+            (is (bytes= mac-r mac-i))))))))
+
+(deftest rlpx-open-ack-matches-eip8-vector-and-round-trips
+  (let* ((key-a #x49a7b37aa6f6645917e7b807e9d1c00d4fa71f18343b0d4122a4d2df64dd6fee)
+         (eph-b #xe238eb8e04fee6511ab04c6dd3c89ce097b11f25d584863ac2b6d5b35b1847e4)
+         (nonce-b (hex-to-bytes
+                   "0x559aead08264d5795d3909718cdd05abd49572e84fe55590eef31a88a08fdffd"))
+         ;; (Ack2) EIP-8 ack ciphertext from go-ethereum, opened by the initiator.
+         (ack-packet
+           (hex-to-bytes
+            (p2p-strip-hex
+             "01ea0451958701280a56482929d3b0757da8f7fbe5286784beead59d95089c217c9b917788989470
+              b0e330cc6e4fb383c0340ed85fab836ec9fb8a49672712aeabbdfd1e837c1ff4cace34311cd7f4de
+              05d59279e3524ab26ef753a0095637ac88f2b499b9914b5f64e143eae548a1066e14cd2f4bd7f814
+              c4652f11b254f8a2d0191e2f5546fae6055694aed14d906df79ad3b407d94692694e259191cde171
+              ad542fc588fa2b7333313d82a9f887332f1dfc36cea03f831cb9a23fea05b33deb999e85489e645f
+              6aab1872475d488d7bd6c7c120caf28dbfc5d6833888155ed69d34dbdc39c1f299be1057810f34fb
+              e754d021bfca14dc989753d61c413d261934e1a9c67ee060a25eefb54e81a4d14baff922180c395d
+              3f998d70f46f6b58306f969627ae364497e73fc27f6d17ae45a413d322cb8814276be6ddd13b885b
+              201b943213656cde498fa0e9ddc8e0b8f8a53824fbd82254f3e2c17e8eaea009c38b4aa0a3f306e8
+              797db43c25d68e86f262e564086f59a2fc60511c42abfb3057c247a8a8fe4fb3ccbadde17514b7ac
+              8000cdb6a912778426260c47f38919a91f25f4b5ffb455d6aaaf150f7e5529c100ce62d6d92826a7
+              1778d809bdf60232ae21ce8a437eca8223f45ac37f6487452ce626f549b3b5fdee26afd2072e4bc7
+              5833c2464c805246155289f4")))
+         (ack (rlpx-open-ack key-a ack-packet)))
+    (is (= 4 (ethereum-lisp.p2p:rlpx-ack-message-version ack)))
+    (is (bytes= nonce-b (ethereum-lisp.p2p:rlpx-ack-message-recipient-nonce ack)))
+    (is (bytes= (secp256k1-private-key-public-key eph-b)
+                (ethereum-lisp.p2p:rlpx-ack-message-recipient-ephemeral-public-key ack)))
+    ;; Our own ack round-trips too.
+    (let* ((init-static #x1111111111111111111111111111111111111111111111111111111111111111)
+           (init-pub (secp256k1-private-key-public-key init-static))
+           (our-nonce (secure-random-bytes 32))
+           (packet (rlpx-create-ack eph-b init-pub our-nonce))
+           (opened (rlpx-open-ack init-static packet)))
+      (is (bytes= our-nonce
+                  (ethereum-lisp.p2p:rlpx-ack-message-recipient-nonce opened)))
+      (is (bytes= (secp256k1-private-key-public-key eph-b)
+                  (ethereum-lisp.p2p:rlpx-ack-message-recipient-ephemeral-public-key opened))))))

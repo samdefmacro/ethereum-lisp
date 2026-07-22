@@ -372,6 +372,10 @@
    #:rlpx-open-auth
    #:rlpx-recover-initiator-ephemeral-key
    #:rlpx-derive-secrets
+   #:rlpx-create-auth
+   #:rlpx-create-ack
+   #:rlpx-open-ack
+   #:rlpx-ack-message
    #:+node-id-size+
    #:node-id-from-private-key
    #:node-id-to-hex

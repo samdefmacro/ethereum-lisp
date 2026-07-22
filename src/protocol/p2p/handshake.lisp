@@ -93,6 +93,92 @@ ephemeral public key."
         (error "RLPx auth signature does not recover an ephemeral key"))
       ephemeral)))
 
+(defconstant +rlpx-ack-version+ 4)
+
+(defstruct (rlpx-ack-message (:constructor %make-rlpx-ack-message))
+  recipient-ephemeral-public-key
+  recipient-nonce
+  version)
+
+(defun rlpx-xor-nonce (a b)
+  (let ((out (make-byte-vector +rlpx-nonce-size+)))
+    (dotimes (i +rlpx-nonce-size+)
+      (setf (aref out i) (logxor (aref a i) (aref b i))))
+    out))
+
+(defun rlpx-uint16-be (value)
+  (let ((out (make-byte-vector 2)))
+    (setf (aref out 0) (ldb (byte 8 8) value)
+          (aref out 1) (ldb (byte 8 0) value))
+    out))
+
+(defun rlpx-seal-message (recipient-public-key body)
+  "ECIES-seal BODY to RECIPIENT-PUBLIC-KEY, prefixed by its big-endian size.
+
+The size prefix is the ciphertext length and is also its authenticated data, so
+it is computed from the known ECIES overhead before encrypting."
+  (let* ((size (+ (length body) +ecies-overhead+))
+         (prefix (rlpx-uint16-be size)))
+    (concat-bytes prefix
+                  (ecies-encrypt recipient-public-key body :shared-data prefix))))
+
+(defun rlpx-create-auth (initiator-private-key initiator-ephemeral-private-key
+                         recipient-public-key initiator-nonce)
+  "Build an EIP-8 auth packet from the initiator to RECIPIENT-PUBLIC-KEY.
+
+The signature is over the static shared secret XORed with INITIATOR-NONCE, made
+with the initiator's ephemeral key, so the recipient can recover that key."
+  (let* ((static-shared
+           (secp256k1-ecdh initiator-private-key recipient-public-key))
+         (nonce (ensure-byte-vector initiator-nonce))
+         (signature (secp256k1-sign (rlpx-xor-nonce static-shared nonce)
+                                    initiator-ephemeral-private-key))
+         (initiator-public-key
+           (secp256k1-private-key-public-key initiator-private-key)))
+    (rlpx-seal-message
+     recipient-public-key
+     (rlp-encode (make-rlp-list signature initiator-public-key nonce
+                                (integer-to-minimal-bytes +rlpx-auth-version+))))))
+
+(defun rlpx-create-ack (recipient-ephemeral-private-key initiator-public-key
+                        recipient-nonce)
+  "Build an EIP-8 ack packet from the recipient to INITIATOR-PUBLIC-KEY."
+  (rlpx-seal-message
+   initiator-public-key
+   (rlp-encode
+    (make-rlp-list
+     (secp256k1-private-key-public-key recipient-ephemeral-private-key)
+     (ensure-byte-vector recipient-nonce)
+     (integer-to-minimal-bytes +rlpx-ack-version+)))))
+
+(defun rlpx-decode-ack-body (plaintext)
+  (let ((decoded (rlp-decode (ensure-byte-vector plaintext) :allow-trailing t)))
+    (unless (rlp-list-p decoded)
+      (error "RLPx ack body must be an RLP list"))
+    (let ((items (rlp-list-items decoded)))
+      (when (< (length items) 3)
+        (error "RLPx ack body must have at least three elements"))
+      (let ((ephemeral (ensure-byte-vector (first items)))
+            (nonce (ensure-byte-vector (second items)))
+            (version (bytes-to-integer (ensure-byte-vector (third items)))))
+        (unless (= (length ephemeral) +rlpx-public-key-size+)
+          (error "RLPx ack ephemeral key must be ~D bytes" +rlpx-public-key-size+))
+        (unless (= (length nonce) +rlpx-nonce-size+)
+          (error "RLPx ack nonce must be ~D bytes" +rlpx-nonce-size+))
+        (%make-rlpx-ack-message
+         :recipient-ephemeral-public-key ephemeral
+         :recipient-nonce nonce
+         :version version)))))
+
+(defun rlpx-open-ack (initiator-private-key ack-packet)
+  "Decrypt and decode an EIP-8 ack PACKET with the initiator's private key."
+  (let ((packet (ensure-byte-vector ack-packet)))
+    (when (< (length packet) 2)
+      (error "RLPx ack packet is too short"))
+    (rlpx-decode-ack-body
+     (ecies-decrypt initiator-private-key (subseq packet 2)
+                    :shared-data (subseq packet 0 2)))))
+
 (defun rlpx-derive-secrets (ephemeral-key initiator-nonce recipient-nonce)
   "Derive the RLPx session secrets from the EPHEMERAL-KEY ECDH result and nonces.
 
