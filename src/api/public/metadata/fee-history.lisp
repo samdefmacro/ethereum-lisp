@@ -105,6 +105,11 @@
       (quantity-to-hex 0)))
 
 (defun eth-rpc-fee-history-next-blob-base-fee (header config)
+  ;; The next block's excess blob gas is derived from this header as its parent.
+  ;; Past Osaka that derivation includes the EIP-7918 reserve price, so it must
+  ;; pass eip7918-p or it reports a stale fee. HEADER's own schedule is the right
+  ;; one here: blob forks are timestamp-gated, so the next block shares HEADER's
+  ;; fork and its parent and child update fractions coincide.
   (if (block-header-excess-blob-gas header)
       (multiple-value-bind (target-blob-gas max-blob-gas update-fraction)
           (eth-rpc-fee-history-blob-schedule header config)
@@ -114,6 +119,10 @@
            header
            :target-blob-gas target-blob-gas
            :max-blob-gas max-blob-gas
+           :eip7918-p (chain-config-osaka-p
+                       config
+                       (block-header-number header)
+                       (block-header-timestamp header))
            :update-fraction update-fraction)
           :update-fraction update-fraction)))
       (quantity-to-hex 0)))
