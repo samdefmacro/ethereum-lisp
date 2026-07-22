@@ -13,6 +13,52 @@
    #:node-id-from-hex
    #:enode-url
    #:parse-enode-url
+   #:+discv4-version+
+   #:+discv4-max-packet-size+
+   #:+discv4-packet-ping+
+   #:+discv4-packet-pong+
+   #:+discv4-packet-find-node+
+   #:+discv4-packet-neighbors+
+   #:encode-discv4-packet
+   #:decode-discv4-packet
+   #:discv4-endpoint
+   #:make-discv4-endpoint
+   #:discv4-endpoint-ip
+   #:discv4-endpoint-udp-port
+   #:discv4-endpoint-tcp-port
+   #:discv4-ping
+   #:make-discv4-ping
+   #:discv4-ping-version
+   #:discv4-ping-from
+   #:discv4-ping-to
+   #:discv4-ping-expiration
+   #:encode-discv4-ping
+   #:decode-discv4-ping
+   #:discv4-pong
+   #:make-discv4-pong
+   #:discv4-pong-to
+   #:discv4-pong-ping-hash
+   #:discv4-pong-expiration
+   #:encode-discv4-pong
+   #:decode-discv4-pong
+   #:discv4-find-node
+   #:make-discv4-find-node
+   #:discv4-find-node-target
+   #:discv4-find-node-expiration
+   #:encode-discv4-find-node
+   #:decode-discv4-find-node
+   #:discv4-node
+   #:make-discv4-node
+   #:discv4-node-ip
+   #:discv4-node-udp-port
+   #:discv4-node-tcp-port
+   #:discv4-node-node-id
+   #:discv4-neighbors
+   #:make-discv4-neighbors
+   #:discv4-neighbors-nodes
+   #:discv4-neighbors-expiration
+   #:encode-discv4-neighbors
+   #:decode-discv4-neighbors
    #:ecies-encrypt
    #:ecies-decrypt
    #:ecies-concat-kdf
