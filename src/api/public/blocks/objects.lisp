@@ -16,15 +16,17 @@
 
 (defun eth-rpc-block-transactions-object
     (block full-transactions-p &key expected-chain-id)
-  (if full-transactions-p
-      (loop for transaction in (block-transactions block)
-            for index from 0
-            collect (eth-rpc-transaction-object
-                     transaction block index
-                     :expected-chain-id expected-chain-id))
-      (mapcar (lambda (transaction)
-                (hash32-to-hex (transaction-hash transaction)))
-              (block-transactions block))))
+  ;; An existing block with no transactions serialises as [], not null.
+  (eth-rpc-json-array
+   (if full-transactions-p
+       (loop for transaction in (block-transactions block)
+             for index from 0
+             collect (eth-rpc-transaction-object
+                      transaction block index
+                      :expected-chain-id expected-chain-id))
+       (mapcar (lambda (transaction)
+                 (hash32-to-hex (transaction-hash transaction)))
+               (block-transactions block)))))
 
 (defun eth-rpc-block-object (block full-transactions-p &key expected-chain-id)
   (unless (typep block 'ethereum-block)
@@ -38,14 +40,16 @@
            block full-transactions-p
            :expected-chain-id expected-chain-id))
     (cons "uncles"
-          (mapcar (lambda (ommer)
-                    (hash32-to-hex (block-header-hash ommer)))
-                  (block-ommers block))))
+          (eth-rpc-json-array
+           (mapcar (lambda (ommer)
+                     (hash32-to-hex (block-header-hash ommer)))
+                   (block-ommers block)))))
    (when (block-withdrawals-present-p block)
      (list
       (cons "withdrawals"
-            (mapcar #'engine-rpc-withdrawal-object
-                    (block-withdrawals block)))))))
+            (eth-rpc-json-array
+             (mapcar #'engine-rpc-withdrawal-object
+                     (block-withdrawals block))))))))
 
 (defun eth-rpc-pending-block-transactions-object
     (transactions full-transactions-p &key expected-chain-id)

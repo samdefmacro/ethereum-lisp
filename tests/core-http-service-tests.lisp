@@ -1302,3 +1302,46 @@ Content-Type: application/json
                                " folded-continuation" crlf
                                "Content-Length: 0" crlf crlf))
         (ethereum-lisp.rpc-http::engine-rpc-read-http-request-string stream)))))
+
+(deftest engine-rpc-http-body-measures-content-length-in-octets
+  ;; engine-rpc-http-body re-parses the reconstructed request, so it must also
+  ;; measure Content-Length in octets. A character measure rejected every
+  ;; non-ASCII body the octet-based reader had just accepted, with a 400.
+  (let* ((body (coerce (list #\{ #\" (code-char #x00e9) #\" #\}) 'string)) ; {"e-acute"}
+         (octets (ethereum-lisp.rpc-http::engine-rpc-http-octet-length body))
+         (headers (list (cons "content-length" (format nil "~D" octets)))))
+    (is (= (1+ (length body)) octets))          ; one multibyte character
+    (is (string= body (ethereum-lisp.rpc-http::engine-rpc-http-body body headers)))))
+
+(deftest engine-rpc-http-non-ascii-body-round-trips-end-to-end
+  ;; The full path (read a request, reconstruct it, re-parse it) must accept a
+  ;; body with a non-ASCII character rather than answering 400.
+  (labels ((field (object name) (cdr (assoc name object :test #'string=)))
+           (http-status (response)
+             (parse-integer response :start 9 :end 12)))
+    (let* ((crlf (format nil "~C~C" #\Return #\Newline))
+           (body (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":41,"
+                  "\"method\":\"engine_getClientVersionV1\","
+                  "\"params\":[{\"code\":\"TT\",\"name\":\""
+                  (coerce (list #\c #\a #\f (code-char #x00e9)) 'string) ; cafe-acute
+                  "\",\"version\":\"1.0.0\",\"commit\":\"0x12345678\"}]}"))
+           (octets (ethereum-lisp.rpc-http::engine-rpc-http-octet-length body))
+           (request (concatenate
+                     'string
+                     "POST / HTTP/1.1" crlf
+                     "Host: localhost" crlf
+                     "Content-Type: application/json" crlf
+                     (format nil "Content-Length: ~D" octets) crlf crlf
+                     body))
+           ;; Drive it through the stream path: read then handle the reconstruction.
+           (reconstructed (with-input-from-string (stream request)
+                            (ethereum-lisp.rpc-http::engine-rpc-read-http-request-string
+                             stream)))
+           (response (engine-rpc-handle-http-request-string
+                      reconstructed
+                      (make-engine-payload-memory-store)
+                      (make-chain-config))))
+      (is (= 200 (http-status response)))
+      (is (search "\"id\":41" response)))))

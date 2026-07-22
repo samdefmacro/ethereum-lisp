@@ -239,3 +239,24 @@
         (is (null (field missing-response "result")))
         (is (= -32602 (field invalid-error "code")))))))
 
+
+(deftest eth-rpc-block-object-empty-collections-serialize-as-arrays
+  ;; An existing block with no transactions, uncles, or withdrawals reports
+  ;; empty arrays, the way go-ethereum does, not null.
+  (let* ((block (make-block
+                 :header (make-block-header
+                          :number 12
+                          :timestamp 120
+                          :gas-limit 30000000
+                          :base-fee-per-gas 7
+                          :state-root +empty-trie-hash+)
+                 ;; Supplying :withdrawals marks them present but empty.
+                 :withdrawals '()))
+         (object (ethereum-lisp.public-api::eth-rpc-block-object block nil)))
+    (labels ((field (name) (cdr (assoc name object :test #'string=))))
+      (is (equalp #() (field "transactions")))
+      (is (equalp #() (field "uncles")))
+      (is (equalp #() (field "withdrawals"))))
+    ;; Full-transaction mode is also an empty array.
+    (let ((full (ethereum-lisp.public-api::eth-rpc-block-object block t)))
+      (is (equalp #() (cdr (assoc "transactions" full :test #'string=)))))))

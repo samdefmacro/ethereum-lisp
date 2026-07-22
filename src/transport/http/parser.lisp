@@ -164,31 +164,6 @@ expiry would tear down the listener instead of the one stalled request."
       (lf-boundary (values lf-boundary 2))
       (t (block-validation-fail "HTTP request is missing header boundary")))))
 
-(defun engine-rpc-http-body (body headers)
-  (let ((content-lengths (engine-rpc-http-header-values headers "content-length")))
-    (cond
-      ((null content-lengths)
-       body)
-      ((rest content-lengths)
-       (block-validation-fail "HTTP content length is duplicated"))
-      (t
-        (let ((length
-                (engine-rpc-http-parse-content-length
-                 (first content-lengths))))
-          (unless (<= length (length body))
-            (block-validation-fail "HTTP content length is invalid"))
-          (subseq body 0 length))))))
-
-(defun engine-rpc-http-content-length (headers)
-  (let ((content-lengths (engine-rpc-http-header-values headers "content-length")))
-    (cond
-      ((null content-lengths)
-       0)
-      ((rest content-lengths)
-       (block-validation-fail "HTTP content length is duplicated"))
-      (t
-       (engine-rpc-http-parse-content-length (first content-lengths))))))
-
 (defun engine-rpc-http-utf8-char-octets (char)
   "Return how many octets CHAR occupies when the stream encodes it as UTF-8.
 
@@ -206,6 +181,47 @@ octets, so lengths must be measured in octets rather than characters."
     (loop for char across string
           do (incf octets (engine-rpc-http-utf8-char-octets char)))
     octets))
+
+(defun engine-rpc-http-take-octets (string octet-count)
+  "Return the prefix of STRING that occupies exactly OCTET-COUNT UTF-8 octets."
+  (let ((octets 0)
+        (chars 0))
+    (loop for char across string
+          while (< octets octet-count)
+          do (incf octets (engine-rpc-http-utf8-char-octets char))
+             (incf chars))
+    (when (/= octets octet-count)
+      (block-validation-fail "HTTP content length splits a multibyte character"))
+    (subseq string 0 chars)))
+
+(defun engine-rpc-http-body (body headers)
+  ;; Content-Length is octets, and BODY is a character string, so both the
+  ;; length check and the trim have to be measured in octets. Character
+  ;; measures here rejected every reconstructed non-ASCII body with a 400 even
+  ;; though the stream reader had already read exactly the right octets.
+  (let ((content-lengths (engine-rpc-http-header-values headers "content-length")))
+    (cond
+      ((null content-lengths)
+       body)
+      ((rest content-lengths)
+       (block-validation-fail "HTTP content length is duplicated"))
+      (t
+        (let ((length
+                (engine-rpc-http-parse-content-length
+                 (first content-lengths))))
+          (unless (<= length (engine-rpc-http-octet-length body))
+            (block-validation-fail "HTTP content length is invalid"))
+          (engine-rpc-http-take-octets body length))))))
+
+(defun engine-rpc-http-content-length (headers)
+  (let ((content-lengths (engine-rpc-http-header-values headers "content-length")))
+    (cond
+      ((null content-lengths)
+       0)
+      ((rest content-lengths)
+       (block-validation-fail "HTTP content length is duplicated"))
+      (t
+       (engine-rpc-http-parse-content-length (first content-lengths))))))
 
 (defun engine-rpc-http-read-header-line (stream max-octets)
   "Read one line from STREAM up to its newline, which is consumed but excluded.
