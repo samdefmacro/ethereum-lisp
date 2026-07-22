@@ -249,7 +249,11 @@ k-buckets and closest-node termination is left for later."
                                         (encode-discv4-ping
                                          (make-discv4-ping :from from :to to
                                                            :expiration (discv4-expiration))))))
-                          (setf (gethash (bytes-to-hex (subseq packet 0 32)) pending) node
+                          ;; Track the outstanding ping with the time it was sent
+                          ;; so an unanswered ping can be pruned rather than
+                          ;; pinning the crawl open forever.
+                          (setf (gethash (bytes-to-hex (subseq packet 0 32)) pending)
+                                (cons node (get-universal-time))
                                 (gethash (idkey (discv4-node-node-id node)) pinged) t)
                           (send-node node packet)))
                       (findnode-node (node target)
@@ -272,7 +276,10 @@ k-buckets and closest-node termination is left for later."
                               when (funcall predicate
                                             (idkey (discv4-node-node-id node)) node)
                                 collect node)))
-               ;; Seed the search from the bootnodes (skip any malformed entry).
+               ;; Seed the search from the bootnodes. make-inet-address is
+               ;; IPv4-only, so a bracketed-IPv6 or DNS bootnode host is skipped
+               ;; here (IPv6 discovery is a TODO); a malformed entry is skipped
+               ;; too rather than aborting the crawl.
                (dolist (enode bootnode-enodes)
                  (ignore-errors
                   (multiple-value-bind (id host tcp disc) (parse-enode-url enode)
@@ -285,6 +292,12 @@ k-buckets and closest-node termination is left for later."
                (loop
                  (let ((now (get-universal-time)))
                    (when (>= now deadline) (return))
+                   ;; Drop pings that never drew a Pong so they do not pin the
+                   ;; crawl open until the deadline.
+                   (dolist (key (loop for k being the hash-keys of pending
+                                        using (hash-value entry)
+                                      when (> now (+ (cdr entry) 2)) collect k))
+                     (remhash key pending))
                    ;; Stop early once nothing is in flight and no bond or query
                    ;; work remains — but only after a grace second for the last
                    ;; query's reply, so we do not quit before Neighbors arrive.
@@ -321,7 +334,8 @@ k-buckets and closest-node termination is left for later."
                                          :key (lambda (node)
                                                 (discv4-node-distance
                                                  (discv4-node-node-id node) target)))))
-                       (dolist (node (subseq* ready alpha))
+                       (dolist (node (subseq* ready (min alpha
+                                                         (- max-queries query-count))))
                          (findnode-node node target)
                          (setf last-query-at now)))))
                  (let ((packet (discv4-receive socket 1)))
@@ -347,19 +361,25 @@ k-buckets and closest-node termination is left for later."
                              ((= type +discv4-packet-pong+)
                               (let* ((pong (decode-discv4-pong data))
                                      (key (bytes-to-hex (discv4-pong-ping-hash pong)))
-                                     (node (gethash key pending)))
-                                (when (and node
-                                           (bytes= sender (discv4-node-node-id node))
-                                           (not (discv4-expired-p
-                                                 (discv4-pong-expiration pong))))
-                                  (setf (gethash (idkey (discv4-node-node-id node)) bonded) t)
-                                  (remhash key pending))))
+                                     (entry (gethash key pending))
+                                     (node (car entry)))
+                                (when (and entry
+                                           (bytes= sender (discv4-node-node-id node)))
+                                  ;; We got our Pong: stop tracking the ping even
+                                  ;; if it is stale, and bond only when fresh.
+                                  (remhash key pending)
+                                  (unless (discv4-expired-p
+                                           (discv4-pong-expiration pong))
+                                    (setf (gethash (idkey (discv4-node-node-id node))
+                                                   bonded)
+                                          t)))))
                              ((= type +discv4-packet-neighbors+)
                               (let ((reply (decode-discv4-neighbors data)))
                                 (unless (discv4-expired-p
                                          (discv4-neighbors-expiration reply))
+                                  ;; One malformed node must not lose the rest.
                                   (dolist (node (discv4-neighbors-nodes reply))
-                                    (add-node node)))))))
+                                    (ignore-errors (add-node node))))))))
                        (error () nil)))))
                (loop for node being the hash-values of seen
                      for key = (idkey (discv4-node-node-id node))

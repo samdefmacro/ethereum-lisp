@@ -1013,6 +1013,13 @@
     (is (null (getf (ethereum-lisp.cli::devnet-cli-options
                      (list "devnet" "--no-serve"))
                     :bootnodes)))
+    ;; A single comma-separated value (go-ethereum syntax) expands to a list.
+    (is (equal (list enode-a enode-b)
+               (getf (ethereum-lisp.cli::devnet-cli-options
+                      (list "devnet" "--bootnodes"
+                            (concatenate 'string enode-a "," enode-b)
+                            "--no-serve"))
+                     :bootnodes)))
     (signals error
       (ethereum-lisp.cli::devnet-cli-options
        (list "devnet" "--bootnodes" "not-an-enode" "--no-serve")))))
