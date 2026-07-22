@@ -38,6 +38,19 @@
    #:rlpx-read-frame
    #:make-rlpx-initiator-session
    #:make-rlpx-recipient-session
+   #:rlpx-read-frame-header
+   #:rlpx-read-frame-body
+   #:rlpx-frame-body-length
+   #:rlpx-write-frame-to-stream
+   #:rlpx-read-frame-from-stream
+   #:rlpx-connect-stream
+   #:rlpx-accept-stream
+   #:rlpx-connection
+   #:rlpx-connection-session
+   #:rlpx-connection-stream
+   #:rlpx-connection-remote-public-key
+   #:rlpx-connection-write-message
+   #:rlpx-connection-read-message
    #:+devp2p-version+
    #:+devp2p-message-hello+
    #:+devp2p-message-disconnect+

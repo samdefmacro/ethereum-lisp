@@ -149,40 +149,63 @@ XORed with the digest itself rather than the ciphertext."
       (concat-bytes header-ciphertext header-mac
                     frame-ciphertext frame-mac))))
 
+(defun rlpx-read-frame-header (session header)
+  "Verify the 32-byte HEADER (ciphertext then MAC) and return the frame size.
+
+Advances the ingress MAC and cipher, so it must be followed by a body read."
+  (let ((header (ensure-byte-vector header)))
+    (unless (= (length header) (* 2 +rlpx-frame-block+))
+      (error "RLPx frame header must be ~D bytes" (* 2 +rlpx-frame-block+)))
+    (let* ((header-ciphertext (subseq header 0 +rlpx-frame-block+))
+           (header-mac (subseq header +rlpx-frame-block+ (* 2 +rlpx-frame-block+))))
+      (unless (constant-time-bytes=
+               header-mac
+               (rlpx-mac-header session (rlpx-session-ingress-mac session)
+                                header-ciphertext))
+        (error "RLPx header MAC does not authenticate the frame"))
+      (let ((plaintext (aes-ctr-stream-apply
+                        (rlpx-session-ingress-cipher session) header-ciphertext)))
+        (logior (ash (aref plaintext 0) 16)
+                (ash (aref plaintext 1) 8)
+                (aref plaintext 2))))))
+
+(defun rlpx-frame-body-length (frame-size)
+  "Bytes on the wire for a frame body of FRAME-SIZE: padded ciphertext plus MAC."
+  (+ (* +rlpx-frame-block+ (ceiling frame-size +rlpx-frame-block+))
+     +rlpx-frame-block+))
+
+(defun rlpx-read-frame-body (session frame-size body)
+  "Verify and decrypt a frame BODY of FRAME-SIZE bytes, returning code and data."
+  (let ((body (ensure-byte-vector body))
+        (padded (* +rlpx-frame-block+ (ceiling frame-size +rlpx-frame-block+))))
+    (unless (= (length body) (+ padded +rlpx-frame-block+))
+      (error "RLPx frame body has the wrong length"))
+    (let* ((frame-ciphertext (subseq body 0 padded))
+           (frame-mac (subseq body padded)))
+      (unless (constant-time-bytes=
+               frame-mac
+               (rlpx-mac-frame session (rlpx-session-ingress-mac session)
+                               frame-ciphertext))
+        (error "RLPx frame MAC does not authenticate the frame"))
+      (let ((frame-data
+              (subseq (aes-ctr-stream-apply
+                       (rlpx-session-ingress-cipher session) frame-ciphertext)
+                      0 frame-size)))
+        (multiple-value-bind (code next)
+            (rlp-decode frame-data :allow-trailing t)
+          (values (bytes-to-integer (ensure-byte-vector code))
+                  (subseq frame-data next)))))))
+
 (defun rlpx-read-frame (session frame)
-  "Verify and decrypt one FRAME, returning (VALUES MESSAGE-CODE MESSAGE-DATA)."
+  "Verify and decrypt a complete FRAME, returning (VALUES MESSAGE-CODE DATA)."
   (let ((frame (ensure-byte-vector frame)))
     (when (< (length frame) (* 2 +rlpx-frame-block+))
       (error "RLPx frame is too short for a header"))
-    (let* ((header-ciphertext (subseq frame 0 +rlpx-frame-block+))
-           (header-mac (subseq frame +rlpx-frame-block+ (* 2 +rlpx-frame-block+)))
-           (expected (rlpx-mac-header session (rlpx-session-ingress-mac session)
-                                      header-ciphertext)))
-      (unless (constant-time-bytes= header-mac expected)
-        (error "RLPx header MAC does not authenticate the frame"))
-      (let* ((header (aes-ctr-stream-apply (rlpx-session-ingress-cipher session)
-                                           header-ciphertext))
-             (frame-size (logior (ash (aref header 0) 16)
-                                 (ash (aref header 1) 8)
-                                 (aref header 2)))
-             (padded (* +rlpx-frame-block+
-                        (ceiling frame-size +rlpx-frame-block+)))
-             (start (* 2 +rlpx-frame-block+))
-             (end (+ start padded)))
-        (when (< (length frame) (+ end +rlpx-frame-block+))
-          (error "RLPx frame is shorter than its declared size"))
-        (let* ((frame-ciphertext (subseq frame start end))
-               (frame-mac (subseq frame end (+ end +rlpx-frame-block+)))
-               (expected-frame-mac
-                 (rlpx-mac-frame session (rlpx-session-ingress-mac session)
-                                 frame-ciphertext)))
-          (unless (constant-time-bytes= frame-mac expected-frame-mac)
-            (error "RLPx frame MAC does not authenticate the frame"))
-          (let ((frame-data
-                  (subseq (aes-ctr-stream-apply
-                           (rlpx-session-ingress-cipher session) frame-ciphertext)
-                          0 frame-size)))
-            (multiple-value-bind (code next)
-                (rlp-decode frame-data :allow-trailing t)
-              (values (bytes-to-integer (ensure-byte-vector code))
-                      (subseq frame-data next)))))))))
+    (let* ((frame-size
+             (rlpx-read-frame-header session (subseq frame 0 (* 2 +rlpx-frame-block+))))
+           (body-length (rlpx-frame-body-length frame-size))
+           (start (* 2 +rlpx-frame-block+)))
+      (when (< (length frame) (+ start body-length))
+        (error "RLPx frame is shorter than its declared size"))
+      (rlpx-read-frame-body session frame-size
+                            (subseq frame start (+ start body-length))))))
