@@ -106,7 +106,9 @@
    #:block-header-block-access-list-hash
    #:block-header-slot-number
    #:block-header-rlp
+   #:block-header-rlp-object
    #:block-header-from-rlp
+   #:block-header-from-rlp-object
    #:block-header-hash
    #:ethereum-block
    #:ethereum-block-p
@@ -128,3 +130,47 @@
    #:ommers-hash
    #:receipts-logs-bloom
    #:validated-block-access-list-commitment))
+
+
+(defpackage #:ethereum-lisp.eth-wire
+  (:use #:cl
+        #:ethereum-lisp.bytes
+        #:ethereum-lisp.hex
+        #:ethereum-lisp.types
+        #:ethereum-lisp.rlp
+        #:ethereum-lisp.blocks)
+  (:export
+   #:+eth-protocol-version+
+   #:+eth-base-protocol-offset+
+   #:+eth-message-status+
+   #:+eth-message-get-block-headers+
+   #:+eth-message-block-headers+
+   #:+eth-message-get-block-bodies+
+   #:+eth-message-block-bodies+
+   #:eth-wire-message-id
+   #:eth-fork-id
+   #:make-eth-fork-id
+   #:eth-fork-id-hash
+   #:eth-fork-id-next
+   #:eth-status
+   #:make-eth-status
+   #:eth-status-version
+   #:eth-status-network-id
+   #:eth-status-total-difficulty
+   #:eth-status-best-hash
+   #:eth-status-genesis-hash
+   #:eth-status-fork-id
+   #:encode-eth-status
+   #:decode-eth-status
+   #:eth-get-block-headers
+   #:make-eth-get-block-headers
+   #:eth-get-block-headers-request-id
+   #:eth-get-block-headers-origin-number
+   #:eth-get-block-headers-origin-hash
+   #:eth-get-block-headers-amount
+   #:eth-get-block-headers-skip
+   #:eth-get-block-headers-reverse
+   #:encode-eth-get-block-headers
+   #:decode-eth-get-block-headers
+   #:encode-eth-block-headers
+   #:decode-eth-block-headers))
