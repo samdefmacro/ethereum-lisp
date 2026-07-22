@@ -389,6 +389,26 @@
    #:rlpx-constant-mac
    #:rlpx-write-frame
    #:rlpx-read-frame
+   #:make-devp2p-hello
+   #:devp2p-hello
+   #:encode-devp2p-hello
+   #:decode-devp2p-hello
+   #:make-devp2p-capability
+   #:encode-devp2p-disconnect
+   #:decode-devp2p-disconnect
+   #:encode-devp2p-ping
+   #:encode-devp2p-pong
+   #:rlpx-write-message
+   #:rlpx-read-message
+   #:+devp2p-message-hello+
+   #:+devp2p-message-ping+
+   #:+devp2p-message-pong+
+   #:+devp2p-message-disconnect+
+   #:devp2p-hello-version
+   #:devp2p-hello-client-id
+   #:devp2p-hello-capabilities
+   #:devp2p-hello-listen-port
+   #:devp2p-hello-node-id
    #:+node-id-size+
    #:node-id-from-private-key
    #:node-id-to-hex
