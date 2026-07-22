@@ -147,12 +147,15 @@
         #:ethereum-lisp.blocks)
   (:export
    #:+eth-protocol-version+
+   #:+eth-protocol-version-69+
+   #:+eth-supported-protocol-versions+
    #:+eth-base-protocol-offset+
    #:+eth-message-status+
    #:+eth-message-get-block-headers+
    #:+eth-message-block-headers+
    #:+eth-message-get-block-bodies+
    #:+eth-message-block-bodies+
+   #:+eth-message-block-range-update+
    #:eth-wire-message-id
    #:eth-fork-id
    #:make-eth-fork-id
@@ -166,8 +169,15 @@
    #:eth-status-best-hash
    #:eth-status-genesis-hash
    #:eth-status-fork-id
+   #:eth-status-earliest-block
+   #:eth-status-latest-block
+   #:eth-status-latest-block-hash
    #:encode-eth-status
    #:decode-eth-status
+   #:encode-eth-status-69
+   #:decode-eth-status-69
+   #:encode-eth-status-for-version
+   #:decode-eth-status-for-version
    #:eth-get-block-headers
    #:make-eth-get-block-headers
    #:eth-get-block-headers-request-id

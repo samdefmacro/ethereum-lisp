@@ -12,6 +12,7 @@
    #:eth-peer
    #:eth-peer-connection
    #:eth-peer-eth-offset
+   #:eth-peer-eth-version
    #:eth-peer-remote-status
    #:eth-peer-remote-public-key
    #:eth-wire-send

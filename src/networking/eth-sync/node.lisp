@@ -39,7 +39,9 @@ Returns (VALUES CONNECTION SOCKET); the caller closes SOCKET when finished."
     (host port remote-public-key private-key our-status
      &key (client-id "ethereum-lisp")
           (listen-port 0)
-          (capabilities (list (make-devp2p-capability "eth" 68))))
+          (capabilities (mapcar (lambda (version)
+                                  (make-devp2p-capability "eth" version))
+                                +eth-supported-protocol-versions+)))
   "Dial HOST:PORT and run the full RLPx, devp2p Hello, and eth Status handshake
 as the initiator.
 
