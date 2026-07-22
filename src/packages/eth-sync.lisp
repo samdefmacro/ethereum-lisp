@@ -27,4 +27,7 @@
    #:eth-peer-get-block-headers
    #:eth-peer-get-block-bodies
    #:eth-sync-assemble-block
-   #:eth-sync-download-blocks))
+   #:eth-sync-download-blocks
+   #:eth-sync-socket-stream
+   #:eth-sync-open-connection
+   #:eth-sync-connect-peer))

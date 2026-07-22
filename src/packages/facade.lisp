@@ -458,7 +458,10 @@
    #:eth-peer-get-block-headers
    #:eth-peer-get-block-bodies
    #:eth-sync-assemble-block
-   #:eth-sync-download-blocks)
+   #:eth-sync-download-blocks
+   #:eth-sync-socket-stream
+   #:eth-sync-open-connection
+   #:eth-sync-connect-peer)
   (#:ethereum-lisp.bls12381
    #:bls12381-error
    #:bls12381-input-error
