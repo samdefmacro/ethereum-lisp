@@ -60,6 +60,7 @@
         (http-write-timeout-seconds nil)
         (peers nil)
         (bootnodes nil)
+        (node-key nil)
         (help-p nil))
     (labels ((next-value (option)
                (multiple-value-bind (value rest)
@@ -251,6 +252,11 @@
                ((string= option "--bootnodes")
                 (dolist (enode (next-parsed-value option #'devnet-cli-parse-enode-list))
                   (push enode bootnodes)))
+               ((string= option "--nodekey")
+                (setf node-key (devnet-cli-read-node-key (next-value option))))
+               ((string= option "--nodekeyhex")
+                (setf node-key
+                      (next-parsed-value option #'devnet-cli-parse-node-key-hex)))
                ((member option *devnet-cli-value-options* :test #'string=)
                 (consume-value-option option))
                ((member option *devnet-cli-optional-boolean-options*
@@ -320,4 +326,5 @@
           :http-write-timeout-seconds http-write-timeout-seconds
           :peers (nreverse peers)
           :bootnodes (nreverse bootnodes)
+          :node-key node-key
           :help-p help-p))))

@@ -73,7 +73,9 @@ key."
                      (bytes-to-integer (subseq signature 32 64)))))
         (unless sender
           (error "discv4 packet signature does not recover a node id"))
-        (values type data sender)))))
+        ;; HASH is returned too, as ENRResponse must echo the ENRRequest packet's
+        ;; hash; existing three-value callers are unaffected.
+        (values type data sender hash)))))
 
 ;;; Endpoints: [ip, udp-port, tcp-port]. IP is 4 or 16 raw bytes; ports are
 ;;; minimal big-endian integers (a zero port encodes as the empty string).
@@ -205,3 +207,40 @@ key."
     (make-discv4-neighbors
      :nodes (mapcar #'discv4-node-from-rlp-object (rlp-list-items (first items)))
      :expiration (bytes-to-integer (ensure-byte-vector (second items))))))
+
+;;; ENRRequest (0x05): [expiration]; ENRResponse (0x06): [request-hash, ENR].
+;;; They let peers exchange full node records (EIP-778) over discv4.
+
+(defstruct (discv4-enr-request (:constructor make-discv4-enr-request (&key expiration)))
+  expiration)
+
+(defun encode-discv4-enr-request (request)
+  (rlp-encode
+   (make-rlp-list (integer-to-minimal-bytes (discv4-enr-request-expiration request)))))
+
+(defun decode-discv4-enr-request (data)
+  (let ((items (rlp-list-items (rlp-decode (ensure-byte-vector data)
+                                           :allow-trailing t))))
+    (make-discv4-enr-request
+     :expiration (bytes-to-integer (ensure-byte-vector (first items))))))
+
+(defstruct (discv4-enr-response
+            (:constructor make-discv4-enr-response (&key request-hash record)))
+  request-hash
+  ;; The peer's ENR as raw record bytes (rlp of [signature, seq, ...]).
+  record)
+
+(defun encode-discv4-enr-response (response)
+  ;; The ENR record is embedded as a nested RLP list, so decode its bytes to an
+  ;; object before re-encoding it inside the response.
+  (rlp-encode
+   (make-rlp-list
+    (ensure-byte-vector (discv4-enr-response-request-hash response))
+    (rlp-decode (ensure-byte-vector (discv4-enr-response-record response))))))
+
+(defun decode-discv4-enr-response (data)
+  (let ((items (rlp-list-items (rlp-decode (ensure-byte-vector data)
+                                           :allow-trailing t))))
+    (make-discv4-enr-response
+     :request-hash (ensure-byte-vector (first items))
+     :record (rlp-encode (second items)))))

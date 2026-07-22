@@ -84,8 +84,9 @@ failure is logged and skipped; only an escaping error is fail-stop."
       (sb-thread:make-thread
        (lambda ()
          (handler-case
-             (let ((private-key (secp256k1-random-private-key))
-                   (dialed (make-hash-table :test 'equal)))
+             ;; Share the node's stable identity, and the node-wide dialed set,
+             ;; so a peer is dialed once across discovery and --peer.
+             (let ((private-key (devnet-node-node-key node)))
                (loop until (devnet-shutdown-requested-p shutdown-controller) do
                  ;; Discovery is best-effort: a failed crawl (socket exhaustion,
                  ;; a bad packet) is logged and retried, never a node-wide
@@ -94,8 +95,8 @@ failure is logged and skipped; only an escaping error is fail-stop."
                      (dolist (enode (discv4-lookup bootnodes private-key))
                        (when (devnet-shutdown-requested-p shutdown-controller)
                          (return))
-                       (unless (gethash enode dialed)
-                         (setf (gethash enode dialed) t)
+                       (when (devnet-node-claim-dial
+                              node (nth-value 0 (parse-enode-url enode)))
                          (handler-case
                              (devnet-peer-sync-one node enode private-key)
                            (error (condition)

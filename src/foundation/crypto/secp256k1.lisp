@@ -158,6 +158,47 @@ parameter only so a test can pin it."
         (error "secp256k1 public key is not on the curve"))
       point)))
 
+(defun secp256k1-compress-public-key (public-key)
+  "Compress a 64-byte uncompressed public-key body (X || Y) to the 33-byte form:
+0x02 or 0x03 (Y parity) followed by X. Node records carry the compressed key."
+  (let* ((bytes (require-sized-byte-vector public-key 64 "secp256k1 public key"))
+         (y (bytes-to-integer (subseq bytes 32 64))))
+    (concat-bytes (make-array 1 :element-type '(unsigned-byte 8)
+                                :initial-element (if (oddp y) 3 2))
+                  (subseq bytes 0 32))))
+
+(defun secp256k1-decompress-public-key (compressed)
+  "Expand a 33-byte compressed public key to the 64-byte X || Y body, or NIL when
+it is not a valid point."
+  (let ((bytes (require-sized-byte-vector compressed 33 "compressed public key")))
+    (let ((prefix (aref bytes 0))
+          (x (bytes-to-integer (subseq bytes 1 33))))
+      (when (or (= prefix 2) (= prefix 3))
+        (let ((point (secp256k1-decompress-point x (= prefix 3))))
+          (when (and point (secp256k1-point-on-curve-p point))
+            (concat-bytes (integer-to-fixed-bytes (secp256k1-point-x point) 32)
+                          (integer-to-fixed-bytes (secp256k1-point-y point) 32))))))))
+
+(defun secp256k1-verify (hash r s public-key)
+  "Verify an ECDSA signature (R, S) over the 32-byte HASH against the known
+64-byte PUBLIC-KEY body. Returns T when the signature is valid. Unlike recovery,
+this needs no recovery id, as node records sign with an r||s signature."
+  (let ((hash (require-sized-byte-vector hash 32 "secp256k1 hash")))
+    (and (< 0 r +secp256k1-n+)
+         (< 0 s +secp256k1-n+)
+         (let ((point (ignore-errors (secp256k1-public-key-point public-key))))
+           (when point
+             (let* ((s-inverse (modular-inverse s +secp256k1-n+))
+                    (z (bytes-to-integer hash))
+                    (u1 (mod (* z s-inverse) +secp256k1-n+))
+                    (u2 (mod (* r s-inverse) +secp256k1-n+))
+                    (generator (secp256k1-point +secp256k1-gx+ +secp256k1-gy+))
+                    (result (secp256k1-point-add
+                             (secp256k1-scalar-multiply u1 generator)
+                             (secp256k1-scalar-multiply u2 point))))
+               (and result
+                    (= r (mod (secp256k1-point-x result) +secp256k1-n+)))))))))
+
 (defun secp256k1-ecdh (private-key public-key)
   "Return the 32-byte ECDH shared secret for PRIVATE-KEY and PUBLIC-KEY.
 

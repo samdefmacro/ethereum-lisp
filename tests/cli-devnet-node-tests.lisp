@@ -1023,3 +1023,42 @@
     (signals error
       (ethereum-lisp.cli::devnet-cli-options
        (list "devnet" "--bootnodes" "not-an-enode" "--no-serve")))))
+
+(deftest devnet-cli-nodekeyhex-yields-a-stable-identity
+  (let* ((hex "0000000000000000000000000000000000000000000000000000000000000001")
+         (options-a (ethereum-lisp.cli::devnet-cli-options
+                     (list "devnet" "--nodekeyhex" hex "--no-serve")))
+         (options-b (ethereum-lisp.cli::devnet-cli-options
+                     (list "devnet" "--nodekeyhex" hex "--no-serve"))))
+    ;; The key parses to the scalar and is stable across parses.
+    (is (= 1 (getf options-a :node-key)))
+    (is (= (getf options-a :node-key) (getf options-b :node-key)))
+    ;; Its node id is the public key of scalar 1.
+    (is (bytes= (node-id-from-private-key 1)
+                (secp256k1-private-key-public-key (getf options-a :node-key))))
+    ;; No key given => nil; make-devnet-node then generates one.
+    (is (null (getf (ethereum-lisp.cli::devnet-cli-options
+                     (list "devnet" "--no-serve"))
+                    :node-key)))
+    ;; A malformed key is rejected.
+    (signals error
+      (ethereum-lisp.cli::devnet-cli-options
+       (list "devnet" "--nodekeyhex" "not-hex" "--no-serve")))))
+
+(deftest devnet-node-claim-dial-deduplicates-by-identity
+  (let ((node (ethereum-lisp.cli:make-devnet-node
+               :genesis-path +devnet-cli-genesis-fixture+ :port 0
+               :node-key #x0102030405060708090a0b0c0d0e0f101112131415161718))
+        (id-a (node-id-from-private-key #xaa))
+        (id-b (node-id-from-private-key #xbb)))
+    ;; The configured key is adopted.
+    (is (= #x0102030405060708090a0b0c0d0e0f101112131415161718
+           (ethereum-lisp.cli::devnet-node-node-key node)))
+    ;; An identity is claimable exactly once; a distinct one independently.
+    (is (ethereum-lisp.cli::devnet-node-claim-dial node id-a))
+    (is (not (ethereum-lisp.cli::devnet-node-claim-dial node id-a)))
+    (is (ethereum-lisp.cli::devnet-node-claim-dial node id-b))
+    ;; A node with no configured key still gets a usable identity.
+    (is (integerp (ethereum-lisp.cli::devnet-node-node-key
+                   (ethereum-lisp.cli:make-devnet-node
+                    :genesis-path +devnet-cli-genesis-fixture+ :port 0))))))

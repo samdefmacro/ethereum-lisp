@@ -59,6 +59,19 @@
    #:discv4-neighbors-expiration
    #:encode-discv4-neighbors
    #:decode-discv4-neighbors
+   #:+discv4-packet-enr-request+
+   #:+discv4-packet-enr-response+
+   #:discv4-enr-request
+   #:make-discv4-enr-request
+   #:discv4-enr-request-expiration
+   #:encode-discv4-enr-request
+   #:decode-discv4-enr-request
+   #:discv4-enr-response
+   #:make-discv4-enr-response
+   #:discv4-enr-response-request-hash
+   #:discv4-enr-response-record
+   #:encode-discv4-enr-response
+   #:decode-discv4-enr-response
    #:discv4-unix-time
    #:discv4-expiration
    #:discv4-expired-p
@@ -70,6 +83,16 @@
    #:discv4-receive
    #:discv4-find-peers
    #:discv4-lookup
+   #:+enr-max-size+
+   #:enr
+   #:make-enr
+   #:enr-signature
+   #:enr-seq
+   #:enr-pairs
+   #:enr-value
+   #:enr-public-key
+   #:encode-enr
+   #:decode-enr
    #:ecies-encrypt
    #:ecies-decrypt
    #:ecies-concat-kdf

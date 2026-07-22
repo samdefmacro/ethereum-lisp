@@ -85,7 +85,10 @@
                       txpool-rejournal-seconds
                       dev-period-seconds
                       peers
-                      bootnodes)))
+                      bootnodes
+                      node-key
+                      dialed
+                      dial-guard-function)))
   genesis-path
   store
   config
@@ -112,7 +115,21 @@
   txpool-rejournal-seconds
   dev-period-seconds
   peers
-  bootnodes)
+  bootnodes
+  node-key
+  dialed
+  dial-guard-function)
+
+(defun devnet-node-claim-dial (node node-id)
+  "Return T exactly once per NODE-ID (compared by hex), NIL on later claims, so
+the discovery and peer-sync workers dial each peer identity only once. Guarded by
+the node's dial mutex so the two worker threads do not race."
+  (funcall (devnet-node-dial-guard-function node)
+           (lambda ()
+             (let ((key (node-id-to-hex node-id))
+                   (dialed (devnet-node-dialed node)))
+               (unless (gethash key dialed)
+                 (setf (gethash key dialed) t))))))
 
 (defun make-devnet-store-guard-function ()
   #+sbcl

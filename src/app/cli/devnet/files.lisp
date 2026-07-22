@@ -42,6 +42,39 @@
       (devnet-cli-jwt-secret-file-error path))
     secret))
 
+(defun devnet-cli-node-key-hex (scalar)
+  "Render a secp256k1 private-key SCALAR as 64 lowercase hex characters (no 0x),
+the go-ethereum nodekey file format."
+  (let ((bytes (make-byte-vector 32)))
+    (dotimes (i 32)
+      (setf (aref bytes (- 31 i)) (ldb (byte 8 (* 8 i)) scalar)))
+    (subseq (bytes-to-hex bytes) 2)))
+
+(defun devnet-cli-parse-node-key-hex (value option)
+  "Parse VALUE as a 32-byte secp256k1 private key in hex, returning the scalar.
+The public-key derivation validates the [1, n-1] range."
+  (handler-case
+      (let ((scalar (bytes-to-integer (hex-to-bytes value))))
+        (secp256k1-private-key-public-key scalar)
+        scalar)
+    (error ()
+      (error "~A requires a 32-byte hex secp256k1 private key" option))))
+
+(defun devnet-cli-read-node-key (path)
+  "Load the node's secp256k1 private key from PATH, or generate and persist a
+fresh one when the file does not exist (go-ethereum --nodekey semantics)."
+  (if (probe-file path)
+      (devnet-cli-parse-node-key-hex
+       (string-trim '(#\Space #\Tab #\Newline #\Return)
+                    (devnet-cli-read-file-string path))
+       "--nodekey")
+      (let ((scalar (secp256k1-random-private-key)))
+        (with-open-file (out (devnet-cli-ensure-path-parent-directory path)
+                             :direction :output
+                             :if-does-not-exist :create :if-exists :error)
+          (write-string (devnet-cli-node-key-hex scalar) out))
+        scalar)))
+
 (defun devnet-cli-empty-file-p (path)
   (with-open-file (stream path :direction :input)
     (zerop (file-length stream))))
