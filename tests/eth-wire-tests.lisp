@@ -77,3 +77,45 @@
                ethereum-lisp.eth-wire:+eth-message-get-block-headers+)))
   (is (= #x14 (ethereum-lisp.eth-wire:eth-wire-message-id
                ethereum-lisp.eth-wire:+eth-message-block-headers+))))
+
+(deftest eth-block-bodies-round-trip
+  ;; GetBlockBodies by hash list.
+  (let ((hashes (list (hash32-bytes (zero-hash32))
+                      (hex-to-bytes
+                       "0x1111111111111111111111111111111111111111111111111111111111111111"))))
+    (multiple-value-bind (request-id decoded-hashes)
+        (ethereum-lisp.eth-wire:decode-eth-get-block-bodies
+         (ethereum-lisp.eth-wire:encode-eth-get-block-bodies 55 hashes))
+      (is (= 55 request-id))
+      (is (= 2 (length decoded-hashes)))
+      (is (bytes= (second hashes) (second decoded-hashes)))))
+  ;; BlockBodies: an empty body and a body with a transaction + withdrawal.
+  (let* ((tx (make-legacy-transaction :nonce 0 :gas-limit 21000
+                                      :to (address-from-hex
+                                           "0x0000000000000000000000000000000000000001")
+                                      :value 1000))
+         (empty-body (ethereum-lisp.eth-wire:make-eth-block-body
+                      :transactions '() :ommers '()))
+         (full-body (ethereum-lisp.eth-wire:make-eth-block-body
+                     :transactions (list tx) :ommers '()
+                     :withdrawals (list (make-withdrawal :index 0 :validator-index 1
+                                                         :address (address-from-hex
+                                                                   "0x0000000000000000000000000000000000000002")
+                                                         :amount 42))
+                     :withdrawals-present-p t))
+         (encoded (ethereum-lisp.eth-wire:encode-eth-block-bodies
+                   77 (list empty-body full-body))))
+    (multiple-value-bind (request-id bodies)
+        (ethereum-lisp.eth-wire:decode-eth-block-bodies encoded)
+      (is (= 77 request-id))
+      (is (= 2 (length bodies)))
+      (is (null (ethereum-lisp.eth-wire:eth-block-body-transactions (first bodies))))
+      (let ((decoded-full (second bodies)))
+        (is (= 1 (length (ethereum-lisp.eth-wire:eth-block-body-transactions decoded-full))))
+        (is (ethereum-lisp.eth-wire:eth-block-body-withdrawals-present-p decoded-full))
+        (is (= 1 (length (ethereum-lisp.eth-wire:eth-block-body-withdrawals decoded-full))))
+        ;; The decoded transaction encodes identically to the original.
+        (is (bytes= (transaction-encoding tx)
+                    (transaction-encoding
+                     (first (ethereum-lisp.eth-wire:eth-block-body-transactions
+                             decoded-full)))))))))
