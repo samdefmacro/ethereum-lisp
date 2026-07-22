@@ -99,6 +99,8 @@
    #:secp256k1-valid-signature-values-p
    #:secp256r1-verify
    #:aes-ctr
+   #:make-aes-ctr-stream
+   #:aes-ctr-stream-apply
    #:aes-encrypt-ecb-block
    #:hmac-sha256
    #:constant-time-bytes=
