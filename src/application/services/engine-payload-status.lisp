@@ -186,6 +186,12 @@
                 (values
                  (make-payload-status :status +payload-status-syncing+)
                  block))
+              (ethereum-lisp.bls12381:bls12381-unavailable-error (condition)
+                ;; A precompile backend that could not be consulted is a node
+                ;; capability failure, not an invalid block. Marking the block
+                ;; invalid here would gossip a verdict a node with a working
+                ;; backend would not share, so refuse by propagating instead.
+                (error condition))
               (error (condition)
                 (engine-payload-store-mark-invalid store block)
                 (values

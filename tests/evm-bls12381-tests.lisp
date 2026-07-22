@@ -113,17 +113,21 @@
                        (error (condition) condition))))
       (is condition)
       (is (search "not available" (princ-to-string condition))))
-    ;; A well-formed input still fails, rather than answering incorrectly.
-    (let ((condition (handler-case
-                         (progn (ethereum-lisp.evm.internal::run-bls12381-g1-add-precompile
-                                 (make-byte-vector 256))
-                                nil)
-                       (ethereum-lisp.evm.internal::evm-precompile-error
-                         (condition) condition))))
-      (is condition)
-      (is (= ethereum-lisp.evm.internal::+bls12381-g1-add-gas+
-             (ethereum-lisp.evm.internal::evm-precompile-error-gas-used
-              condition))))))
+    ;; A well-formed input must make the node REFUSE, not fabricate a
+    ;; precompile failure a node with a working backend would not produce.
+    ;; The unavailable condition is not an evm-precompile-error, so it
+    ;; propagates past the EVM's precompile handling to abort validation.
+    (signals bls12381-unavailable-error
+      (ethereum-lisp.evm.internal::run-bls12381-g1-add-precompile
+       (make-byte-vector 256)))
+    (let ((converted-to-precompile-failure nil))
+      (handler-case
+          (ethereum-lisp.evm.internal::run-bls12381-g1-add-precompile
+           (make-byte-vector 256))
+        (ethereum-lisp.evm.internal::evm-precompile-error ()
+          (setf converted-to-precompile-failure t))
+        (bls12381-unavailable-error () nil))
+      (is (not converted-to-precompile-failure)))))
 
 (deftest bls12381-unknown-operations-are-refused
   (let ((*bls12381-backend* (lambda (operation input)
@@ -163,10 +167,39 @@
                (mapcar #'cdr calls)))))
 
 (deftest bls12381-backend-output-size-is-validated
+  ;; A wrong-sized OK reply is a backend defect, not an input verdict, so it
+  ;; must refuse rather than become a deterministic precompile failure.
   (let ((*bls12381-backend* (lambda (operation input)
                               (declare (ignore operation input))
                               (make-byte-vector 7))))
-    (signals ethereum-lisp.evm.internal::evm-precompile-error
+    (signals bls12381-unavailable-error
+      (ethereum-lisp.evm.internal::run-bls12381-g1-add-precompile
+       (make-byte-vector 256)))))
+
+(deftest bls12381-input-verdict-fails-precompile-but-transport-refuses
+  ;; The consensus-critical distinction: a backend verdict that the input is
+  ;; invalid is deterministic and burns gas as a precompile failure; a backend
+  ;; that cannot answer must not be turned into that same deterministic failure.
+  (let ((*bls12381-backend*
+          (lambda (operation input)
+            (declare (ignore operation input))
+            (bls12381-input-error "point is not on the curve"))))
+    (let ((condition (handler-case
+                         (progn
+                           (ethereum-lisp.evm.internal::run-bls12381-g1-add-precompile
+                            (make-byte-vector 256))
+                           nil)
+                       (ethereum-lisp.evm.internal::evm-precompile-error
+                         (condition) condition))))
+      (is condition)
+      (is (= ethereum-lisp.evm.internal::+bls12381-g1-add-gas+
+             (ethereum-lisp.evm.internal::evm-precompile-error-gas-used
+              condition)))))
+  (let ((*bls12381-backend*
+          (lambda (operation input)
+            (declare (ignore operation input))
+            (bls12381-unavailable-error "helper process crashed"))))
+    (signals bls12381-unavailable-error
       (ethereum-lisp.evm.internal::run-bls12381-g1-add-precompile
        (make-byte-vector 256)))))
 
