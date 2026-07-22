@@ -262,10 +262,13 @@
                          (receipt-request 52 transaction-hash)
                          store config)
                         "result")))
-        (is (not (field (engine-rpc-handle-request
-                         (block-receipts-request 53)
-                         store config)
-                        "result")))
+        ;; "latest" is now the empty sibling block, whose receipts are an
+        ;; empty array rather than null; the reorged-away transaction receipt
+        ;; is checked by hash above.
+        (is (equalp #() (field (engine-rpc-handle-request
+                                (block-receipts-request 53)
+                                store config)
+                               "result")))
         (is (string= (quantity-to-hex 0)
                      (field (engine-rpc-handle-request
                              (balance-request 54 recipient)
@@ -625,7 +628,8 @@
                      (receipt-request 67 (transaction-hash second-transaction))
                      store config)
                     "result")))
-        (is (not
+        ;; "latest" is the empty sibling block; its receipts are [].
+        (is (equalp #()
              (field (engine-rpc-handle-request
                      (block-receipts-request 68)
                      store config)

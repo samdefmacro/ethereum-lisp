@@ -93,24 +93,29 @@
                          (quantity-to-hex (receipt-status receipt))))))))))
 
 (defun eth-rpc-block-receipts-object (block &key expected-chain-id)
+  "Return the receipt objects of BLOCK, or NIL when BLOCK is unknown.
+
+An existing block with no transactions has an empty receipt list, which must
+serialise as [] — null is reserved for a block that does not exist."
   (when (and block
              (= (length (block-transactions block))
                 (length (block-receipts block))))
-    (loop with log-index-start = 0
-          for transaction in (block-transactions block)
-          for receipt in (block-receipts block)
-          for index from 0
-          for location = (make-engine-transaction-location
-                          :block block
-                          :index index
-                          :transaction transaction
-                          :receipt receipt
-                          :log-index-start log-index-start)
-          collect (prog1 (eth-rpc-receipt-object
-                          location
-                          :expected-chain-id expected-chain-id)
-                    (incf log-index-start
-                          (length (receipt-logs receipt)))))))
+    (eth-rpc-json-array
+     (loop with log-index-start = 0
+           for transaction in (block-transactions block)
+           for receipt in (block-receipts block)
+           for index from 0
+           for location = (make-engine-transaction-location
+                           :block block
+                           :index index
+                           :transaction transaction
+                           :receipt receipt
+                           :log-index-start log-index-start)
+           collect (prog1 (eth-rpc-receipt-object
+                           location
+                           :expected-chain-id expected-chain-id)
+                     (incf log-index-start
+                           (length (receipt-logs receipt))))))))
 
 (defun engine-rpc-handle-eth-get-transaction-receipt (params store config)
   (let* ((hash (eth-rpc-hash-param
