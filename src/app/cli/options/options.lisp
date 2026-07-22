@@ -246,9 +246,11 @@
                 (setf txpool-rejournal-seconds
                       (next-parsed-value option #'devnet-cli-parse-duration-seconds)))
                ((string= option "--peer")
-                (push (next-parsed-value option #'devnet-cli-parse-enode) peers))
+                (dolist (enode (next-parsed-value option #'devnet-cli-parse-enode-list))
+                  (push enode peers)))
                ((string= option "--bootnodes")
-                (push (next-parsed-value option #'devnet-cli-parse-enode) bootnodes))
+                (dolist (enode (next-parsed-value option #'devnet-cli-parse-enode-list))
+                  (push enode bootnodes)))
                ((member option *devnet-cli-value-options* :test #'string=)
                 (consume-value-option option))
                ((member option *devnet-cli-optional-boolean-options*

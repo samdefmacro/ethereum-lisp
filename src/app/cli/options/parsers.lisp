@@ -123,6 +123,18 @@
     (error ()
       (error "~A requires an enode:// URL" option))))
 
+(defun devnet-cli-parse-enode-list (value option)
+  "Parse VALUE as one or more comma-separated enode:// URLs (go-ethereum syntax),
+returning the list of validated enode strings."
+  (let ((enodes (loop for raw in (uiop:split-string value :separator ",")
+                      for token = (string-trim '(#\Space #\Tab #\Newline #\Return)
+                                               raw)
+                      unless (zerop (length token))
+                        collect (devnet-cli-parse-enode token option))))
+    (unless enodes
+      (error "~A requires at least one enode:// URL" option))
+    enodes))
+
 (defun devnet-cli-parse-http-api-list (value option)
   (let ((modules
           (loop for raw in (uiop:split-string value :separator ",")

@@ -87,19 +87,28 @@ failure is logged and skipped; only an escaping error is fail-stop."
              (let ((private-key (secp256k1-random-private-key))
                    (dialed (make-hash-table :test 'equal)))
                (loop until (devnet-shutdown-requested-p shutdown-controller) do
-                 (dolist (enode (discv4-lookup bootnodes private-key))
-                   (when (devnet-shutdown-requested-p shutdown-controller)
-                     (return))
-                   (unless (gethash enode dialed)
-                     (setf (gethash enode dialed) t)
-                     (handler-case
-                         (devnet-peer-sync-one node enode private-key)
-                       (error (condition)
-                         (telemetry-log
-                          :warning "peer.sync.peer_failed"
-                          :fields (list (cons "enode" enode)
-                                        (cons "error" (princ-to-string condition)))
-                          :sink (devnet-node-telemetry-sink node))))))
+                 ;; Discovery is best-effort: a failed crawl (socket exhaustion,
+                 ;; a bad packet) is logged and retried, never a node-wide
+                 ;; fail-stop.
+                 (handler-case
+                     (dolist (enode (discv4-lookup bootnodes private-key))
+                       (when (devnet-shutdown-requested-p shutdown-controller)
+                         (return))
+                       (unless (gethash enode dialed)
+                         (setf (gethash enode dialed) t)
+                         (handler-case
+                             (devnet-peer-sync-one node enode private-key)
+                           (error (condition)
+                             (telemetry-log
+                              :warning "peer.sync.peer_failed"
+                              :fields (list (cons "enode" enode)
+                                            (cons "error" (princ-to-string condition)))
+                              :sink (devnet-node-telemetry-sink node))))))
+                   (error (condition)
+                     (telemetry-log
+                      :warning "peer.discovery.crawl_failed"
+                      :fields (list (cons "error" (princ-to-string condition)))
+                      :sink (devnet-node-telemetry-sink node))))
                  ;; Re-crawl periodically, waking each second to notice shutdown.
                  (loop repeat 30
                        until (devnet-shutdown-requested-p shutdown-controller)
