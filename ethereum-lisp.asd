@@ -103,6 +103,7 @@
        (:file "blocks-rlp-encode" :pathname "blocks/rlp-encode")
        (:file "blocks-access-list-commitment" :pathname "blocks/access-list-commitment")
        (:file "eth-wire-messages" :pathname "eth-wire/messages")
+       (:file "eth-wire-fork-id" :pathname "eth-wire/fork-id")
        (:file "consensus-validation" :pathname "consensus/validation")
        (:file "consensus-field-validation" :pathname "consensus/field-validation")
        (:file "consensus-transaction-validation" :pathname "consensus/transaction-validation")

@@ -119,3 +119,28 @@
                     (transaction-encoding
                      (first (ethereum-lisp.eth-wire:eth-block-body-transactions
                              decoded-full)))))))))
+
+(deftest eth-fork-id-matches-eip-2124-mainnet-vectors
+  ;; EIP-2124 mainnet fork-hash vectors, over the mainnet genesis hash.
+  (let ((genesis (hex-to-bytes
+                  "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3")))
+    ;; CRC32 of the genesis hash alone is the forkhash before Homestead.
+    (is (string= "0xfc64ec04"
+                 (bytes-to-hex (ethereum-lisp.eth-wire:eth-fork-hash genesis '()))))
+    ;; After Homestead (block 1150000).
+    (is (string= "0x97c2c34c"
+                 (bytes-to-hex (ethereum-lisp.eth-wire:eth-fork-hash genesis '(1150000)))))
+    ;; After Homestead + DAO (1920000).
+    (is (string= "0x91d1f948"
+                 (bytes-to-hex (ethereum-lisp.eth-wire:eth-fork-hash
+                                genesis '(1150000 1920000)))))
+    ;; compute-eth-fork-id assembles the hash and the next-fork value.
+    (let ((fid (ethereum-lisp.eth-wire:compute-eth-fork-id genesis '() 1150000)))
+      (is (string= "0xfc64ec04"
+                   (bytes-to-hex (ethereum-lisp.eth-wire:eth-fork-id-hash fid))))
+      (is (= 1150000 (ethereum-lisp.eth-wire:eth-fork-id-next fid))))))
+
+(deftest crc32-matches-known-vectors
+  ;; The IEEE CRC-32 of "123456789" is the standard 0xCBF43926 check value.
+  (is (= #xcbf43926 (ethereum-lisp.eth-wire:crc32 (ascii-to-bytes "123456789"))))
+  (is (= 0 (ethereum-lisp.eth-wire:crc32 (make-byte-vector 0)))))
