@@ -379,6 +379,7 @@
        (:file "cli-devnet-runtime" :pathname "cli/devnet/runtime")
        (:file "cli-devnet-summary" :pathname "cli/devnet/summary")
        (:file "cli-devnet-background" :pathname "cli/devnet/background")
+       (:file "cli-devnet-peer-sync" :pathname "cli/devnet/peer-sync")
        (:file "cli-devnet-service" :pathname "cli/devnet/service")
        (:file "cli-option-definitions" :pathname "cli/options/definitions")
        (:file "cli-args" :pathname "cli/options/args")

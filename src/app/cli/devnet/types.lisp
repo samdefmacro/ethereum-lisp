@@ -83,7 +83,8 @@
                       canonical-transition-persistence-function
                       txpool-journal-path
                       txpool-rejournal-seconds
-                      dev-period-seconds)))
+                      dev-period-seconds
+                      peers)))
   genesis-path
   store
   config
@@ -108,7 +109,8 @@
   canonical-transition-persistence-function
   txpool-journal-path
   txpool-rejournal-seconds
-  dev-period-seconds)
+  dev-period-seconds
+  peers)
 
 (defun make-devnet-store-guard-function ()
   #+sbcl

@@ -38,7 +38,9 @@
          (rejournal-error nil)
          (rejournal-thread nil)
          (dev-period-error nil)
-         (dev-period-thread nil))
+         (dev-period-thread nil)
+         (peer-sync-error nil)
+         (peer-sync-thread nil))
     (devnet-shutdown-controller-register-listeners
      shutdown-controller engine-listener public-listener)
     (handler-case
@@ -59,6 +61,12 @@
            shutdown-controller
            (lambda (condition)
              (setf dev-period-error condition))))
+    (setf peer-sync-thread
+          (devnet-start-peer-sync-thread
+           node
+           shutdown-controller
+           (lambda (condition)
+             (setf peer-sync-error condition))))
     (let ((result nil))
       (unwind-protect
            (setf result
@@ -125,11 +133,23 @@
           (sb-thread:join-thread rejournal-thread))
         (when dev-period-thread
           (devnet-shutdown-request shutdown-controller)
-          (sb-thread:join-thread dev-period-thread)))
+          (sb-thread:join-thread dev-period-thread))
+        (when peer-sync-thread
+          ;; The peer socket is not a registered listener, so a worker blocked
+          ;; in a peer read will not wake from the shutdown request. Give it a
+          ;; bounded join, then terminate if it is still stuck mid-sync.
+          (devnet-shutdown-request shutdown-controller)
+          (when (eq :timeout
+                    (sb-thread:join-thread peer-sync-thread
+                                           :timeout 5 :default :timeout))
+            (ignore-errors (sb-thread:terminate-thread peer-sync-thread))
+            (ignore-errors (sb-thread:join-thread peer-sync-thread)))))
       (when rejournal-error
         (error rejournal-error))
       (when dev-period-error
         (error dev-period-error))
+      (when peer-sync-error
+        (error peer-sync-error))
       result)))
 
 (defun start-devnet-node
