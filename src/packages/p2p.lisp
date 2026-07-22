@@ -56,6 +56,8 @@
    #:+devp2p-message-disconnect+
    #:+devp2p-message-ping+
    #:+devp2p-message-pong+
+   #:+devp2p-disconnect-requested+
+   #:+devp2p-disconnect-too-many-peers+
    #:devp2p-capability
    #:make-devp2p-capability
    #:devp2p-capability-name
