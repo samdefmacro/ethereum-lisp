@@ -108,3 +108,75 @@
     ;; A packet with no room for a body is rejected.
     (signals error
       (ethereum-lisp.p2p:decode-discv4-packet (make-byte-vector 98)))))
+
+(deftest discv4-find-peers-bonds-and-collects-neighbors-over-udp
+  (:layer :integration :module :p2p :requires-local-sockets t)
+  (let* ((server-priv
+          #xb71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291)
+         (server-id (node-id-from-private-key server-priv))
+         (client-priv
+          #x49a7b37aa6f6645917e7b807e9d1c00d4fa71f18343b0d4122a4d2df64dd6fee)
+         (advertised-id (node-id-from-private-key
+                         #x0102030405060708090a0b0c0d0e0f101112131415161718))
+         (server-error nil))
+    (multiple-value-bind (server-socket server-port)
+        (ethereum-lisp.p2p:discv4-make-socket :host "127.0.0.1" :port 0)
+      (unwind-protect
+           (let ((server-thread
+                   (sb-thread:make-thread
+                    (lambda ()
+                      (handler-case
+                          (loop named serve repeat 4 do
+                            (let ((buffer (make-byte-vector 1280)))
+                              (multiple-value-bind (received size peer-addr peer-port)
+                                  (sb-bsd-sockets:socket-receive server-socket buffer nil)
+                                (declare (ignore received))
+                                (multiple-value-bind (type data sender)
+                                    (ethereum-lisp.p2p:decode-discv4-packet
+                                     (subseq buffer 0 size))
+                                  (declare (ignore sender))
+                                  (flet ((reply (packet)
+                                           (sb-bsd-sockets:socket-send
+                                            server-socket packet (length packet)
+                                            :address (list peer-addr peer-port))))
+                                    (cond
+                                      ((= type ethereum-lisp.p2p:+discv4-packet-ping+)
+                                       (reply
+                                        (ethereum-lisp.p2p:encode-discv4-packet
+                                         server-priv ethereum-lisp.p2p:+discv4-packet-pong+
+                                         (ethereum-lisp.p2p:encode-discv4-pong
+                                          (ethereum-lisp.p2p:make-discv4-pong
+                                           :to (ethereum-lisp.p2p:discv4-ping-from
+                                                (ethereum-lisp.p2p:decode-discv4-ping data))
+                                           :ping-hash (subseq buffer 0 32)
+                                           :expiration (ethereum-lisp.p2p:discv4-expiration))))))
+                                      ((= type ethereum-lisp.p2p:+discv4-packet-find-node+)
+                                       (reply
+                                        (ethereum-lisp.p2p:encode-discv4-packet
+                                         server-priv ethereum-lisp.p2p:+discv4-packet-neighbors+
+                                         (ethereum-lisp.p2p:encode-discv4-neighbors
+                                          (ethereum-lisp.p2p:make-discv4-neighbors
+                                           :nodes (list (ethereum-lisp.p2p:make-discv4-node
+                                                         (hex-to-bytes "0x0a000005")
+                                                         30303 30303 advertised-id))
+                                           :expiration (ethereum-lisp.p2p:discv4-expiration)))))
+                                       (return-from serve))))))))
+                        (error (condition) (setf server-error condition))))
+                    :name "discv4-test-bootnode")))
+             (let* ((enode (enode-url server-id "127.0.0.1" server-port)))
+               (multiple-value-bind (enodes bonded)
+                   (ethereum-lisp.p2p:discv4-find-peers enode client-priv
+                                                        :timeout-seconds 5)
+                 (sb-thread:join-thread server-thread)
+                 (when server-error
+                   (error "discv4 bootnode side failed: ~A" server-error))
+                 ;; The Ping/Pong endpoint proof completed.
+                 (is bonded)
+                 ;; The advertised neighbor came back as a dialable enode.
+                 (is (= 1 (length enodes)))
+                 (multiple-value-bind (id host tcp disc) (parse-enode-url (first enodes))
+                   (declare (ignore disc))
+                   (is (bytes= advertised-id id))
+                   (is (string= "10.0.0.5" host))
+                   (is (= 30303 tcp))))))
+        (ignore-errors (sb-bsd-sockets:socket-close server-socket))))))

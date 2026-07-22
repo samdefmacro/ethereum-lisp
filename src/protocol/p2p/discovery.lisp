@@ -1,0 +1,153 @@
+(in-package #:ethereum-lisp.p2p)
+
+;;;; discv4 discovery over UDP: the transport and a minimal find-peers driver.
+;;;;
+;;;; The driver bonds with a bootnode (Ping/Pong endpoint proof, in both
+;;;; directions), then asks it for neighbors (FindNode/Neighbors) and returns
+;;;; their enode URLs to dial. It is the first datagram user in the tree, so it
+;;;; carries its own contrib require.
+
+#+sbcl
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (require :sb-bsd-sockets))
+
+(defconstant +discv4-unix-epoch-universal-time+ 2208988800
+  "Seconds between the Lisp universal-time epoch (1900) and the Unix epoch.")
+
+(defun discv4-unix-time ()
+  (- (get-universal-time) +discv4-unix-epoch-universal-time+))
+
+(defun discv4-expiration (&optional (seconds-from-now 20))
+  "A discv4 packet expiration: a Unix timestamp SECONDS-FROM-NOW in the future."
+  (+ (discv4-unix-time) seconds-from-now))
+
+(defun discv4-endpoint-for-host (host udp-port tcp-port)
+  "Build a discv4 endpoint from a dotted-quad HOST string and its ports."
+  (make-discv4-endpoint (ensure-byte-vector (sb-bsd-sockets:make-inet-address host))
+                        udp-port tcp-port))
+
+(defun discv4-ip-string (ip-bytes)
+  "Render a 4-byte IPv4 address as a dotted-quad string, or NIL for other sizes."
+  (let ((ip (ensure-byte-vector ip-bytes)))
+    (when (= 4 (length ip))
+      (format nil "~D.~D.~D.~D" (aref ip 0) (aref ip 1) (aref ip 2) (aref ip 3)))))
+
+(defun discv4-make-socket (&key (host "0.0.0.0") (port 0))
+  "Open and bind a UDP datagram socket; return (VALUES SOCKET BOUND-PORT)."
+  (let ((socket (make-instance 'sb-bsd-sockets:inet-socket
+                               :type :datagram :protocol :udp)))
+    (setf (sb-bsd-sockets:sockopt-reuse-address socket) t)
+    (sb-bsd-sockets:socket-bind socket (sb-bsd-sockets:make-inet-address host) port)
+    (multiple-value-bind (address bound-port) (sb-bsd-sockets:socket-name socket)
+      (declare (ignore address))
+      (values socket bound-port))))
+
+(defun discv4-send-to (socket packet host port)
+  "Send PACKET to HOST:PORT over the datagram SOCKET."
+  (let ((packet (ensure-byte-vector packet)))
+    (sb-bsd-sockets:socket-send
+     socket packet (length packet)
+     :address (list (sb-bsd-sockets:make-inet-address host) port))))
+
+(defun discv4-receive (socket timeout-seconds)
+  "Receive one datagram within TIMEOUT-SECONDS, or NIL on timeout.
+Returns the packet bytes."
+  (handler-case
+      (sb-sys:with-deadline (:seconds timeout-seconds)
+        (let ((buffer (make-byte-vector +discv4-max-packet-size+)))
+          (multiple-value-bind (received size)
+              (sb-bsd-sockets:socket-receive socket buffer nil)
+            (declare (ignore received))
+            (and size (subseq buffer 0 size)))))
+    ;; A deadline timeout inherits SERIOUS-CONDITION, not ERROR, so catch it by
+    ;; name; any other receive error just means "no packet this round".
+    (sb-sys:deadline-timeout () nil)
+    (error () nil)))
+
+(defun discv4-find-peers (bootnode-enode private-key
+                          &key (timeout-seconds 5) target
+                               (local-host "0.0.0.0") (local-port 0))
+  "Discover peers via a bootnode. Returns (VALUES ENODE-URLS BONDED-P).
+
+Sends a Ping to BOOTNODE-ENODE and waits for the matching Pong (endpoint
+proof), answering the bootnode's own Ping so the bond is mutual, then sends
+FindNode and collects the Neighbors it returns, converting them to enode URLs.
+BONDED-P reports whether the Ping/Pong endpoint proof completed — true even when
+the bootnode has no neighbors to return."
+  (multiple-value-bind (boot-id boot-host boot-tcp boot-disc)
+      (parse-enode-url bootnode-enode)
+    (declare (ignore boot-id))
+    (multiple-value-bind (socket local-udp) (discv4-make-socket :host local-host
+                                                                :port local-port)
+      (unwind-protect
+           (let* ((our-node-id (node-id-from-private-key private-key))
+                  (from (discv4-endpoint-for-host "127.0.0.1" local-udp local-udp))
+                  (to (discv4-endpoint-for-host boot-host boot-disc boot-tcp))
+                  (ping-packet
+                    (encode-discv4-packet
+                     private-key +discv4-packet-ping+
+                     (encode-discv4-ping
+                      (make-discv4-ping :from from :to to
+                                        :expiration (discv4-expiration)))))
+                  (ping-hash (subseq ping-packet 0 32))
+                  (bonded nil)
+                  (neighbors '())
+                  (deadline (+ (get-universal-time) timeout-seconds)))
+             (discv4-send-to socket ping-packet boot-host boot-disc)
+             (loop
+               (when (or (>= (get-universal-time) deadline)
+                         (and bonded neighbors))
+                 (return))
+               ;; Once bonded, ask for neighbors; resend each round until they
+               ;; arrive, since the bootnode only answers a verified peer.
+               (when bonded
+                 (discv4-send-to
+                  socket
+                  (encode-discv4-packet
+                   private-key +discv4-packet-find-node+
+                   (encode-discv4-find-node
+                    (make-discv4-find-node :target (or target our-node-id)
+                                           :expiration (discv4-expiration))))
+                  boot-host boot-disc))
+               (let ((packet (discv4-receive socket 1)))
+                 (when packet
+                   (handler-case
+                       (multiple-value-bind (type data sender)
+                           (decode-discv4-packet packet)
+                         (declare (ignore sender))
+                         (cond
+                           ;; The bootnode pings us to verify our endpoint; a
+                           ;; Pong lets it consider us bonded and answer FindNode.
+                           ((= type +discv4-packet-ping+)
+                            (let ((their-hash (subseq packet 0 32))
+                                  (their-ping (decode-discv4-ping data)))
+                              (discv4-send-to
+                               socket
+                               (encode-discv4-packet
+                                private-key +discv4-packet-pong+
+                                (encode-discv4-pong
+                                 (make-discv4-pong
+                                  :to (discv4-ping-from their-ping)
+                                  :ping-hash their-hash
+                                  :expiration (discv4-expiration))))
+                               boot-host boot-disc)))
+                           ;; Our Ping is answered: endpoint proof complete.
+                           ((= type +discv4-packet-pong+)
+                            (when (bytes= ping-hash
+                                          (discv4-pong-ping-hash
+                                           (decode-discv4-pong data)))
+                              (setf bonded t)))
+                           ((= type +discv4-packet-neighbors+)
+                            (setf neighbors
+                                  (append neighbors
+                                          (discv4-neighbors-nodes
+                                           (decode-discv4-neighbors data)))))))
+                     (error () nil)))))
+             (values (loop for node in neighbors
+                           for host = (discv4-ip-string (discv4-node-ip node))
+                           when host
+                             collect (enode-url (discv4-node-node-id node)
+                                                host
+                                                (discv4-node-tcp-port node)))
+                     bonded))
+        (ignore-errors (sb-bsd-sockets:socket-close socket))))))
