@@ -31,12 +31,18 @@ constructed without it would run handlers against shared state concurrently.
 Enable this only alongside a request guard.")
 
 (defmacro engine-rpc-http-with-request-deadline (&body body)
-  "Run BODY under the configured request deadline, when one is set."
+  "Run BODY under the configured request deadline, when one is set.
+
+A deadline that expires is re-signalled as a plain error. SBCL's
+DEADLINE-TIMEOUT inherits SERIOUS-CONDITION, not ERROR, so it passes straight
+through every (error (condition) ...) handler containing a connection — the
+expiry would tear down the listener instead of the one stalled request."
   #+sbcl
   `(let ((timeout *engine-rpc-http-request-timeout-seconds*))
      (if timeout
-         (sb-sys:with-deadline (:seconds timeout)
-           ,@body)
+         (handler-case (sb-sys:with-deadline (:seconds timeout) ,@body)
+           (sb-sys:deadline-timeout ()
+             (error "HTTP request exceeded the ~A second deadline" timeout)))
          (progn ,@body)))
   #-sbcl
   `(progn ,@body))

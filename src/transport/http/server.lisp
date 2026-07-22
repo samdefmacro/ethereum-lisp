@@ -63,17 +63,34 @@ the supervising node treats it as a shutdown request."
                        (list (cons "error" (format nil "~A" condition))))))))
 
 (defun engine-rpc-http-drain-connection-workers (semaphore limit)
-  "Wait for in-flight connection workers to finish.
+  "Wait for in-flight connection workers to finish, returning true when drained.
 
 Reacquiring every permit proves no worker still holds one, which avoids keeping
-a thread list that would grow for the lifetime of the listener."
+a thread list that would grow for the lifetime of the listener. The budget has
+to outlast a request that is itself running to its deadline, or the drain would
+report success while a worker still holds a connection."
   #+sbcl
-  (when semaphore
-    (dotimes (index limit)
-      (declare (ignore index))
-      (sb-thread:wait-on-semaphore semaphore :timeout 5)))
+  (if (null semaphore)
+      t
+      (let ((deadline
+              (+ (get-internal-real-time)
+                 (* (+ 5 (or *engine-rpc-http-request-timeout-seconds* 0))
+                    internal-time-units-per-second))))
+        (loop for acquired from 0 below limit
+              do (let ((remaining (/ (- deadline (get-internal-real-time))
+                                     internal-time-units-per-second)))
+                   (unless (and (plusp remaining)
+                                (sb-thread:wait-on-semaphore
+                                 semaphore :timeout remaining))
+                     ;; Give back what was reclaimed so a caller that keeps the
+                     ;; semaphore does not see permits vanish.
+                     (dotimes (index acquired)
+                       (declare (ignore index))
+                       (sb-thread:signal-semaphore semaphore))
+                     (return nil)))
+              finally (return t))))
   #-sbcl
-  (declare (ignore semaphore limit)))
+  (progn (declare (ignore semaphore limit)) t))
 
 (defun engine-rpc-http-service-serve-listener
     (service listener &key max-connections stop-p)
