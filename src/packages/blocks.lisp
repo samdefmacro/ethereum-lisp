@@ -189,4 +189,7 @@
    #:encode-eth-get-block-bodies
    #:decode-eth-get-block-bodies
    #:encode-eth-block-bodies
-   #:decode-eth-block-bodies))
+   #:decode-eth-block-bodies
+   #:crc32
+   #:eth-fork-hash
+   #:compute-eth-fork-id))
