@@ -109,6 +109,12 @@
    #:block-header-rlp-object
    #:block-header-from-rlp
    #:block-header-from-rlp-object
+   #:block-transactions-rlp-object
+   #:block-transactions-from-rlp-object
+   #:block-ommers-rlp-object
+   #:block-ommers-from-rlp-object
+   #:block-withdrawals-rlp-object
+   #:block-withdrawals-from-rlp-object
    #:block-header-hash
    #:ethereum-block
    #:ethereum-block-p
@@ -173,4 +179,14 @@
    #:encode-eth-get-block-headers
    #:decode-eth-get-block-headers
    #:encode-eth-block-headers
-   #:decode-eth-block-headers))
+   #:decode-eth-block-headers
+   #:eth-block-body
+   #:make-eth-block-body
+   #:eth-block-body-transactions
+   #:eth-block-body-ommers
+   #:eth-block-body-withdrawals
+   #:eth-block-body-withdrawals-present-p
+   #:encode-eth-get-block-bodies
+   #:decode-eth-get-block-bodies
+   #:encode-eth-block-bodies
+   #:decode-eth-block-bodies))

@@ -142,3 +142,62 @@ otherwise a block number."
     (values (bytes-to-integer (ensure-byte-vector (first items)))
             (mapcar #'block-header-from-rlp-object
                     (rlp-list-items (second items))))))
+
+;;; GetBlockBodies / BlockBodies. A body is [transactions, uncles, withdrawals],
+;;; withdrawals present for post-Shanghai blocks.
+
+(defstruct (eth-block-body
+            (:constructor make-eth-block-body
+                (&key transactions ommers withdrawals withdrawals-present-p)))
+  transactions
+  ommers
+  withdrawals
+  withdrawals-present-p)
+
+(defun eth-block-body-rlp-object (body)
+  (let ((fields
+          (list (block-transactions-rlp-object (eth-block-body-transactions body))
+                (block-ommers-rlp-object (eth-block-body-ommers body)))))
+    (when (eth-block-body-withdrawals-present-p body)
+      (setf fields
+            (append fields
+                    (list (block-withdrawals-rlp-object
+                           (eth-block-body-withdrawals body))))))
+    (apply #'make-rlp-list fields)))
+
+(defun eth-block-body-from-rlp-object (value)
+  (let* ((items (rlp-list-items value))
+         (has-withdrawals (>= (length items) 3)))
+    (make-eth-block-body
+     :transactions (block-transactions-from-rlp-object (first items))
+     :ommers (block-ommers-from-rlp-object (second items))
+     :withdrawals (when has-withdrawals
+                    (block-withdrawals-from-rlp-object (third items)))
+     :withdrawals-present-p has-withdrawals)))
+
+(defun encode-eth-get-block-bodies (request-id hashes)
+  (rlp-encode
+   (make-rlp-list
+    (integer-to-minimal-bytes request-id)
+    (apply #'make-rlp-list (mapcar #'ensure-byte-vector hashes)))))
+
+(defun decode-eth-get-block-bodies (bytes)
+  "Decode a GetBlockBodies request into (VALUES REQUEST-ID HASHES)."
+  (let ((items (rlp-list-items
+                (rlp-decode (ensure-byte-vector bytes) :allow-trailing t))))
+    (values (bytes-to-integer (ensure-byte-vector (first items)))
+            (mapcar #'ensure-byte-vector (rlp-list-items (second items))))))
+
+(defun encode-eth-block-bodies (request-id bodies)
+  (rlp-encode
+   (make-rlp-list
+    (integer-to-minimal-bytes request-id)
+    (apply #'make-rlp-list (mapcar #'eth-block-body-rlp-object bodies)))))
+
+(defun decode-eth-block-bodies (bytes)
+  "Decode a BlockBodies reply into (VALUES REQUEST-ID BODIES)."
+  (let ((items (rlp-list-items
+                (rlp-decode (ensure-byte-vector bytes) :allow-trailing t))))
+    (values (bytes-to-integer (ensure-byte-vector (first items)))
+            (mapcar #'eth-block-body-from-rlp-object
+                    (rlp-list-items (second items))))))
