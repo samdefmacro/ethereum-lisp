@@ -221,7 +221,9 @@
           :safe (block-hash parent-block)
           :finalized (block-hash parent-block))
          store config)
-        (is (null
+        ;; "latest" is now the empty side block; its receipts are [], and the
+        ;; reorged-away transaction receipts are checked by hash below.
+        (is (equalp #()
              (field (engine-rpc-handle-request
                      (engine-fixture-block-receipts-request 251 "latest")
                      store config)

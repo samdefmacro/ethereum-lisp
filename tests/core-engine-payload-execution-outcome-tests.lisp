@@ -282,3 +282,61 @@
        (bad-child-block parent-block beneficiary
                         :gas-used 1)
        "Gas used mismatch"))))
+
+(deftest engine-new-payload-refuses-when-a-precompile-backend-is-unavailable
+  ;; A precompile backend that cannot be consulted is a node capability
+  ;; failure, not an invalid block. newPayload must refuse (propagate) rather
+  ;; than mark the block invalid, which would gossip a verdict a node with a
+  ;; working backend would not share. A generic import error still marks
+  ;; invalid, to keep the two outcomes distinct.
+  (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (config (make-chain-config :chain-id 1 :london-block 0))
+         (parent-header (make-block-header
+                         :parent-hash (zero-hash32)
+                         :beneficiary address
+                         :state-root +empty-trie-hash+
+                         :mix-hash (zero-hash32)
+                         :number 41
+                         :gas-limit 50000
+                         :gas-used 25000
+                         :timestamp 98
+                         :base-fee-per-gas 100))
+         (parent-block (make-block :header parent-header))
+         (child-header (make-block-header
+                        :parent-hash (block-hash parent-block)
+                        :beneficiary address
+                        :state-root +empty-trie-hash+
+                        :mix-hash (zero-hash32)
+                        :number 42
+                        :gas-limit 50000
+                        :gas-used 0
+                        :timestamp 99
+                        :base-fee-per-gas 100))
+         (child-block (make-block :header child-header))
+         (payload (execution-payload-envelope-execution-payload
+                   (block-to-executable-data child-block))))
+    ;; Unavailable backend: the status call refuses, and the block is not
+    ;; recorded as invalid.
+    (let ((store (make-engine-payload-memory-store)))
+      (engine-payload-store-put-block store parent-block :state-available-p t)
+      (signals bls12381-unavailable-error
+        (engine-new-payload-memory-status
+         store 1 payload config
+         :import-function
+         (lambda (store block config)
+           (declare (ignore store block config))
+           (bls12381-unavailable-error "helper process crashed"))))
+      (is (not (engine-payload-store-invalid-block
+                store (block-hash child-block)))))
+    ;; A generic import failure is still marked invalid.
+    (let ((store (make-engine-payload-memory-store)))
+      (engine-payload-store-put-block store parent-block :state-available-p t)
+      (multiple-value-bind (status block)
+          (engine-new-payload-memory-status
+           store 1 payload config
+           :import-function
+           (lambda (store block config)
+             (declare (ignore store block config))
+             (error "some internal execution fault")))
+        (declare (ignore block))
+        (is (string= +payload-status-invalid+ (payload-status-status status)))))))

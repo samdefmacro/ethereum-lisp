@@ -51,16 +51,19 @@ matching how the BN254 pairing precompile reports its failures."
 (defun call-bls12381-backend (operation input gas output-size)
   "Run OPERATION over INPUT, returning (VALUES OUTPUT GAS).
 
-Every backend failure — a rejected input, an unavailable backend, or a
-transport fault — becomes an EVM precompile error, which burns the call's gas."
+Only a definite verdict that the input is invalid becomes a precompile failure
+that burns the call's gas — that outcome is deterministic and every node agrees.
+A backend that cannot be consulted signals BLS12381-UNAVAILABLE-ERROR, which is
+NOT caught here: converting it into a precompile failure would fabricate a
+verdict a node with a working backend would not share, so it propagates and the
+node refuses to validate instead."
   (let ((output (handler-case (run-bls12381-operation operation input)
-                  (error (condition)
+                  (bls12381-input-error (condition)
                     (fail-precompile gas "~A" condition)))))
     (unless (= (length output) output-size)
-      (fail-precompile gas
-                       "BLS12-381 backend returned ~D bytes, expected ~D"
-                       (length output)
-                       output-size))
+      (bls12381-unavailable-error
+       "BLS12-381 backend returned ~D bytes, expected ~D"
+       (length output) output-size))
     (values output gas)))
 
 (defun run-bls12381-fixed-length-precompile

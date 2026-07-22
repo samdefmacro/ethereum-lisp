@@ -70,19 +70,22 @@
 (defun read-bls12381-response-line (stream deadline)
   "Read one newline-terminated response from STREAM, honouring DEADLINE.
 
-Polls rather than blocking so a wedged backend surfaces as a timeout instead of
-stalling the calling thread forever."
+Uses READ-CHAR-NO-HANG so a closed stream is detected immediately as EOF rather
+than masquerading as \"no data yet\" until the deadline — a helper that dies
+mid-request then errors at once instead of costing a full timeout."
   (let ((line (make-string-output-stream)))
     (loop
-      (loop until (listen stream)
-            do (when (>= (get-internal-real-time) deadline)
-                 (error "BLS12-381 backend timed out after ~D seconds"
-                        *bls12381-backend-timeout-seconds*))
-               (sleep 0.001))
-      (let ((char (read-char stream nil nil)))
+      (let ((char (read-char-no-hang stream nil :eof)))
         (cond
+          ((eq char :eof)
+           (bls12381-unavailable-error
+            "BLS12-381 backend closed its output stream"))
           ((null char)
-           (error "BLS12-381 backend closed its output stream"))
+           (when (>= (get-internal-real-time) deadline)
+             (bls12381-unavailable-error
+              "BLS12-381 backend timed out after ~D seconds"
+              *bls12381-backend-timeout-seconds*))
+           (sleep 0.001))
           ((char= char #\Newline)
            (return (get-output-stream-string line)))
           ((char= char #\Return))
@@ -96,11 +99,16 @@ stalling the calling thread forever."
          (payload (if space (string-trim '(#\Space) (subseq trimmed space)) "")))
     (cond
       ((string= status "ok")
-       (hex-to-bytes (if (zerop (length payload)) "0x" payload)))
+       ;; A non-hex OK body is a backend defect, not an input verdict.
+       (handler-case (hex-to-bytes (if (zerop (length payload)) "0x" payload))
+         (error ()
+           (bls12381-unavailable-error
+            "BLS12-381 backend returned a non-hex output"))))
       ((string= status "err")
-       (error "BLS12-381 backend rejected the input: ~A" payload))
+       (bls12381-input-error "BLS12-381 backend rejected the input: ~A" payload))
       (t
-       (error "Malformed BLS12-381 backend response: ~A" trimmed)))))
+       (bls12381-unavailable-error
+        "Malformed BLS12-381 backend response: ~A" trimmed)))))
 
 (defun start-bls12381-backend-process (backend)
   "Launch the helper and confirm it speaks the expected protocol."
@@ -110,7 +118,8 @@ stalling the calling thread forever."
                                           :output :stream
                                           :error-output nil)
                    (error (condition)
-                     (error "BLS12-381 backend failed to start: ~A" condition)))))
+                     (bls12381-unavailable-error
+                      "BLS12-381 backend failed to start: ~A" condition)))))
     (setf (bls12381-command-backend-process backend) process)
     (handler-case
         (let ((input (uiop:process-info-input process))
@@ -120,10 +129,11 @@ stalling the calling thread forever."
           (finish-output input)
           (let ((line (read-bls12381-response-line output (bls12381-backend-deadline))))
             (unless (and (>= (length line) 2) (string= "ok" (subseq line 0 2)))
-              (error "BLS12-381 backend did not answer the handshake: ~A" line))))
+              (bls12381-unavailable-error
+               "BLS12-381 backend did not answer the handshake: ~A" line))))
       (error (condition)
         (stop-bls12381-backend-process backend)
-        (error "~A" condition)))
+        (error condition)))
     process))
 
 (defun ensure-bls12381-backend-process (backend)
@@ -134,36 +144,43 @@ stalling the calling thread forever."
         (start-bls12381-backend-process backend))))
 
 (defun bls12381-backend-exchange (backend operation input)
-  "Send one request and return the response bytes, without retrying."
-  (let* ((process (ensure-bls12381-backend-process backend))
-         (stdin (uiop:process-info-input process))
-         (stdout (uiop:process-info-output process)))
-    (write-string (bls12381-operation-name operation) stdin)
-    (write-char #\Space stdin)
-    (write-string (bytes-to-hex input) stdin)
-    (write-char #\Newline stdin)
-    (finish-output stdin)
-    (parse-bls12381-response
-     (read-bls12381-response-line stdout (bls12381-backend-deadline)))))
+  "Send one request and return the response bytes, without retrying.
 
-(defun bls12381-input-rejected-p (condition)
-  "True when CONDITION reports an input the backend refused, not a transport fault."
-  (let ((text (princ-to-string condition)))
-    (search "rejected the input" text)))
+Any failure to complete the send-and-receive kills the helper, because a
+half-read response would desynchronise every later request and there is no way
+to resynchronise a shared pipe. This holds for a non-ERROR unwind too — a
+deadline reached in the caller, say — so the guard is UNWIND-PROTECT, not a
+handler. The response is parsed AFTER the exchange, so a clean rejection reply
+does not kill a healthy helper."
+  (let ((line nil)
+        (received nil))
+    (unwind-protect
+         (let* ((process (ensure-bls12381-backend-process backend))
+                (stdin (uiop:process-info-input process))
+                (stdout (uiop:process-info-output process)))
+           (write-string (bls12381-operation-name operation) stdin)
+           (write-char #\Space stdin)
+           (write-string (bytes-to-hex input) stdin)
+           (write-char #\Newline stdin)
+           (finish-output stdin)
+           (setf line (read-bls12381-response-line stdout
+                                                   (bls12381-backend-deadline)))
+           (setf received t))
+      (unless received
+        (stop-bls12381-backend-process backend)))
+    (parse-bls12381-response line)))
 
 (defun bls12381-command-request (backend operation input)
   "Evaluate OPERATION over INPUT, restarting the helper once if it has died.
 
 The operations are pure functions of their input, so replaying a request that
-failed in transport cannot double-apply an effect. A rejection by the backend
-is a verdict about the input and is never retried."
+failed in transport cannot double-apply an effect. An input verdict is never
+retried; a transport fault is retried once against a fresh helper, which the
+exchange has already restarted by killing the dead one."
   (sb-thread:with-mutex ((bls12381-command-backend-lock backend))
     (handler-case
         (bls12381-backend-exchange backend operation input)
-      (error (condition)
-        (when (bls12381-input-rejected-p condition)
-          (error "~A" condition))
-        (stop-bls12381-backend-process backend)
+      (bls12381-unavailable-error ()
         (bls12381-backend-exchange backend operation input)))))
 
 (defun make-bls12381-command-backend (command)

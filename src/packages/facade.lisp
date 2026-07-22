@@ -363,6 +363,9 @@
    #:enode-url
    #:parse-enode-url)
   (#:ethereum-lisp.bls12381
+   #:bls12381-error
+   #:bls12381-input-error
+   #:bls12381-unavailable-error
    #:*bls12381-backend*
    #:*bls12381-backend-timeout-seconds*
    #:bls12381-backend-available-p
