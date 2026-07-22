@@ -26,6 +26,7 @@
        (:file "packages-txpool" :pathname "txpool")
        (:file "packages-store" :pathname "store")
        (:file "packages-services" :pathname "services")
+       (:file "packages-eth-sync" :pathname "eth-sync")
        (:file "packages-persistence" :pathname "persistence")
        (:file "packages-runtime" :pathname "runtime")
        (:file "packages-api" :pathname "api")
@@ -261,6 +262,12 @@
        (:file "execution-service" :pathname "execution")
        (:file "txpool-admission-service" :pathname "txpool-admission")
        (:file "engine-payload-status" :pathname "engine-payload-status")))
+     (:module "networking"
+      :pathname "networking/"
+      :depends-on ("application-services")
+      :serial t
+      :components
+      ((:file "eth-sync-peer" :pathname "eth-sync/peer")))
      (:module "persistence-adapters"
       :pathname "storage/node-store/persistence/"
       :depends-on ("application-services")
@@ -412,6 +419,7 @@
      (:file "p2p-connection-tests")
      (:file "p2p-session-tests")
      (:file "eth-wire-tests")
+     (:file "eth-sync-tests")
      (:file "p2p-identity-tests")
      (:file "trie-encoding-tests")
      (:file "trie-tests")

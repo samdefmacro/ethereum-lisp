@@ -439,6 +439,20 @@
    #:rlpx-send-ping
    #:rlpx-send-pong
    #:rlpx-send-disconnect)
+  (#:ethereum-lisp.eth-sync
+   #:eth-peer
+   #:eth-peer-connection
+   #:eth-peer-eth-offset
+   #:eth-peer-remote-status
+   #:eth-peer-remote-public-key
+   #:eth-wire-send
+   #:eth-wire-read
+   #:eth-peer-send
+   #:eth-peer-read
+   #:eth-build-status
+   #:eth-validate-peer-status
+   #:eth-peer-handshake
+   #:eth-peer-connect)
   (#:ethereum-lisp.bls12381
    #:bls12381-error
    #:bls12381-input-error
