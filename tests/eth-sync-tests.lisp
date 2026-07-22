@@ -384,3 +384,67 @@ the encoder substitutes its zero/empty defaults."
                    (when server-error
                      (error "eth sync server side failed: ~A" server-error))))))
         (ignore-errors (sb-bsd-sockets:socket-close listener))))))
+
+(deftest eth-sync-connect-peer-dials-and-handshakes-over-a-socket
+  (:layer :integration :module :p2p :requires-local-sockets t)
+  (let* ((config (eth-sync-test-config))
+         (server-static
+          #xb71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291)
+         (client-static
+          #x49a7b37aa6f6645917e7b807e9d1c00d4fa71f18343b0d4122a4d2df64dd6fee)
+         (server-static-pub (secp256k1-private-key-public-key server-static))
+         (server-best
+          (hex-to-bytes
+           "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"))
+         (listener (make-instance 'sb-bsd-sockets:inet-socket
+                                  :type :stream :protocol :tcp)))
+    (setf (sb-bsd-sockets:sockopt-reuse-address listener) t)
+    (unwind-protect
+         (progn
+           (sb-bsd-sockets:socket-bind
+            listener (sb-bsd-sockets:make-inet-address "127.0.0.1") 0)
+           (sb-bsd-sockets:socket-listen listener 1)
+           (multiple-value-bind (address port)
+               (sb-bsd-sockets:socket-name listener)
+             (declare (ignore address))
+             (let ((server-error nil))
+               (let ((server-thread
+                       (sb-thread:make-thread
+                        (lambda ()
+                          (handler-case
+                              (let* ((client-socket
+                                       (sb-bsd-sockets:socket-accept listener))
+                                     (stream (p2p-binary-socket-stream client-socket))
+                                     (connection (rlpx-accept-stream stream server-static)))
+                                ;; The Status exchange completes inside
+                                ;; eth-peer-connect on both sides, so the server
+                                ;; needs nothing further.
+                                (eth-peer-connect
+                                 connection
+                                 (make-devp2p-hello
+                                  :client-id "srv"
+                                  :capabilities (list (make-devp2p-capability "eth" 68))
+                                  :node-id server-static-pub)
+                                 (eth-build-status config *eth-sync-test-genesis*
+                                                   7 0 server-best 0)))
+                            (error (condition) (setf server-error condition))))
+                        :name "eth-sync-dial-test-server")))
+                 (multiple-value-bind (peer socket)
+                     (eth-sync-connect-peer
+                      "127.0.0.1" port server-static-pub client-static
+                      (eth-build-status config *eth-sync-test-genesis* 3 0
+                                        *eth-sync-test-best* 0)
+                      :client-id "cli")
+                   (unwind-protect
+                        (progn
+                          (is (= 16 (eth-peer-eth-offset peer)))
+                          (is (bytes= server-static-pub
+                                      (eth-peer-remote-public-key peer)))
+                          (is (bytes= server-best
+                                      (ethereum-lisp.eth-wire:eth-status-best-hash
+                                       (eth-peer-remote-status peer)))))
+                     (ignore-errors (sb-bsd-sockets:socket-close socket))))
+                 (sb-thread:join-thread server-thread)
+                 (when server-error
+                   (error "eth sync dial server side failed: ~A" server-error))))))
+      (ignore-errors (sb-bsd-sockets:socket-close listener)))))
