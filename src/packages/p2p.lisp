@@ -4,7 +4,8 @@
         #:ethereum-lisp.hex
         #:ethereum-lisp.types
         #:ethereum-lisp.crypto
-        #:ethereum-lisp.rlp)
+        #:ethereum-lisp.rlp
+        #:ethereum-lisp.snappy)
   (:export
    #:+node-id-size+
    #:node-id-from-private-key
@@ -34,4 +35,28 @@
    #:rlpx-keccak-mac
    #:rlpx-constant-mac
    #:rlpx-write-frame
-   #:rlpx-read-frame))
+   #:rlpx-read-frame
+   #:+devp2p-version+
+   #:+devp2p-message-hello+
+   #:+devp2p-message-disconnect+
+   #:+devp2p-message-ping+
+   #:+devp2p-message-pong+
+   #:devp2p-capability
+   #:make-devp2p-capability
+   #:devp2p-capability-name
+   #:devp2p-capability-version
+   #:devp2p-hello
+   #:make-devp2p-hello
+   #:devp2p-hello-version
+   #:devp2p-hello-client-id
+   #:devp2p-hello-capabilities
+   #:devp2p-hello-listen-port
+   #:devp2p-hello-node-id
+   #:encode-devp2p-hello
+   #:decode-devp2p-hello
+   #:encode-devp2p-disconnect
+   #:decode-devp2p-disconnect
+   #:encode-devp2p-ping
+   #:encode-devp2p-pong
+   #:rlpx-write-message
+   #:rlpx-read-message))
