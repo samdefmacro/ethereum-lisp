@@ -192,4 +192,5 @@
    #:decode-eth-block-bodies
    #:crc32
    #:eth-fork-hash
-   #:compute-eth-fork-id))
+   #:compute-eth-fork-id
+   #:chain-config-eth-fork-id))

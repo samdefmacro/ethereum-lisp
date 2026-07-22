@@ -144,3 +144,53 @@
   ;; The IEEE CRC-32 of "123456789" is the standard 0xCBF43926 check value.
   (is (= #xcbf43926 (ethereum-lisp.eth-wire:crc32 (ascii-to-bytes "123456789"))))
   (is (= 0 (ethereum-lisp.eth-wire:crc32 (make-byte-vector 0)))))
+
+(deftest chain-config-fork-id-matches-geth-mainnet-progression
+  ;; A mainnet chain-config, checked against go-ethereum's forkid_test.go: the
+  ;; fork hash and the next-fork field at a series of chain heights. Block forks
+  ;; that share an activation (Constantinople/Petersburg, the Spurious Dragon
+  ;; EIPs) must collapse to one fold input, and the time forks must fold after
+  ;; every block fork.
+  (let ((genesis (hex-to-bytes
+                  "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3"))
+        (config (make-chain-config
+                 :chain-id 1
+                 :homestead-block 1150000
+                 :dao-fork-block 1920000
+                 :eip150-block 2463000
+                 :eip155-block 2675000
+                 :eip158-block 2675000
+                 :byzantium-block 4370000
+                 :constantinople-block 7280000
+                 :petersburg-block 7280000
+                 :istanbul-block 9069000
+                 :muir-glacier-block 9200000
+                 :berlin-block 12244000
+                 :london-block 12965000
+                 :arrow-glacier-block 13773000
+                 :gray-glacier-block 15050000
+                 :shanghai-time 1681338455
+                 :cancun-time 1710338135)))
+    (flet ((fork-id-at (number time)
+             (let ((fid (ethereum-lisp.eth-wire:chain-config-eth-fork-id
+                         config genesis number time)))
+               (list (bytes-to-hex (ethereum-lisp.eth-wire:eth-fork-id-hash fid))
+                     (ethereum-lisp.eth-wire:eth-fork-id-next fid)))))
+      ;; Genesis (Frontier): CRC over the genesis hash alone, next Homestead.
+      (is (equal '("0xfc64ec04" 1150000) (fork-id-at 0 0)))
+      ;; Homestead, next DAO.
+      (is (equal '("0x97c2c34c" 1920000) (fork-id-at 1150000 0)))
+      ;; DAO, next Tangerine Whistle.
+      (is (equal '("0x91d1f948" 2463000) (fork-id-at 1920000 0)))
+      ;; Byzantium, next Constantinople.
+      (is (equal '("0xa00bc324" 7280000) (fork-id-at 4370000 0)))
+      ;; Constantinople and Petersburg share block 7280000: one fold input.
+      (is (equal '("0x668db0af" 9069000) (fork-id-at 7280000 0)))
+      ;; London, next Arrow Glacier.
+      (is (equal '("0xb715077d" 13773000) (fork-id-at 12965000 0)))
+      ;; Gray Glacier, next fork is a timestamp (Shanghai).
+      (is (equal '("0xf0afd0e3" 1681338455) (fork-id-at 15050000 0)))
+      ;; Shanghai, folded after every block fork, next Cancun.
+      (is (equal '("0xdce96c2d" 1710338135) (fork-id-at 20000000 1681338455)))
+      ;; Cancun, no further scheduled fork.
+      (is (equal '("0x9f3d2254" 0) (fork-id-at 20000000 1710338135))))))

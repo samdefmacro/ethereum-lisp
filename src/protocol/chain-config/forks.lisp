@@ -90,6 +90,58 @@
 (defun chain-config-ubt-genesis-p (config)
   (chain-config-enable-ubt-at-genesis-p config))
 
+(defun chain-config-sorted-fork-points (values)
+  "Return VALUES sorted ascending with nils, zeros, and duplicates removed.
+
+Forks that share an activation point (Constantinople and Petersburg on mainnet,
+or the several Spurious Dragon EIPs) collapse to a single fold input, and a
+fork at block 0 belongs to the genesis ruleset rather than a transition."
+  (sort (remove-duplicates
+         (remove-if (lambda (v) (or (null v) (zerop v))) values))
+        #'<))
+
+(defun chain-config-block-fork-schedule (config)
+  "Return the ascending, de-duplicated block numbers at which CONFIG's
+block-number forks activate. This is the block-height half of the EIP-2124
+fork-id fold, in canonical order and dropping unset forks and the genesis."
+  (chain-config-sorted-fork-points
+   (list (chain-config-homestead-block config)
+         (chain-config-dao-fork-block config)
+         (chain-config-eip150-block config)
+         (chain-config-eip155-block config)
+         (chain-config-eip158-block config)
+         (chain-config-byzantium-block config)
+         (chain-config-constantinople-block config)
+         (chain-config-petersburg-block config)
+         (chain-config-istanbul-block config)
+         (chain-config-muir-glacier-block config)
+         (chain-config-berlin-block config)
+         (chain-config-london-block config)
+         (chain-config-arrow-glacier-block config)
+         (chain-config-gray-glacier-block config))))
+
+(defun chain-config-time-fork-schedule (config &optional (genesis-timestamp 0))
+  "Return the ascending, de-duplicated timestamps at which CONFIG's time-based
+forks activate, ordered after all block forks in the EIP-2124 fold.
+
+A fork whose timestamp equals GENESIS-TIMESTAMP is part of the genesis ruleset,
+not a transition, so it is dropped."
+  (let ((points (chain-config-sorted-fork-points
+                 (list (chain-config-shanghai-time config)
+                       (chain-config-cancun-time config)
+                       (chain-config-prague-time config)
+                       (chain-config-osaka-time config)
+                       (chain-config-bpo1-time config)
+                       (chain-config-bpo2-time config)
+                       (chain-config-bpo3-time config)
+                       (chain-config-bpo4-time config)
+                       (chain-config-bpo5-time config)
+                       (chain-config-amsterdam-time config)
+                       (chain-config-ubt-time config)))))
+    (if (and points (= (first points) genesis-timestamp))
+        (rest points)
+        points)))
+
 (defun chain-config-expanded-blob-schedule-p (config block-number timestamp)
   (or (chain-config-prague-p config block-number timestamp)
       (chain-config-osaka-p config block-number timestamp)
