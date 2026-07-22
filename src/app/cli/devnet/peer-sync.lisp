@@ -25,24 +25,35 @@ guard, so a downloaded block is immediately visible to the RPC services."
 (defun devnet-peer-sync-status (node)
   "Return (VALUES STATUS HEAD-NUMBER): our eth Status built from NODE's current
 head, and that head number. Store hashes are hash32 objects; the Status wants
-raw bytes, so genesis and best hashes are converted with hash32-bytes."
+raw bytes, so genesis and best hashes are converted with hash32-bytes. The head
+reads run under the store guard, since the store is shared with the RPC and
+dev-period workers and its hash tables are not internally synchronized."
   (let* ((store (devnet-node-store node))
          (config (devnet-node-config node))
          (genesis-block (devnet-node-genesis-block node))
-         (genesis-timestamp (block-header-timestamp (block-header genesis-block)))
-         (head-number (chain-store-head-number store))
-         ;; The canonical block at the head number (genesis before any sync);
-         ;; chain-store-head-block is the forkchoice head, unset until a
-         ;; consensus client drives forkchoiceUpdated.
-         (head-block (chain-store-latest-block store))
-         (head-timestamp (block-header-timestamp (block-header head-block)))
-         (genesis-hash (hash32-bytes (chain-store-canonical-hash store 0)))
-         (best-hash (hash32-bytes (chain-store-canonical-hash store head-number))))
-    (values (eth-build-status config genesis-hash head-number head-timestamp
-                              best-hash
-                              (or (chain-config-terminal-total-difficulty config) 0)
-                              :genesis-timestamp genesis-timestamp)
-            head-number)))
+         (genesis-timestamp (block-header-timestamp (block-header genesis-block))))
+    (multiple-value-bind (head-number head-timestamp genesis-hash best-hash)
+        (call-with-devnet-node-store-guard
+         node
+         (lambda ()
+           (let ((head-number (chain-store-head-number store)))
+             ;; chain-store-latest-block is the canonical block at the head
+             ;; number (genesis before any sync); chain-store-head-block is the
+             ;; forkchoice head, unset until a consensus client drives
+             ;; forkchoiceUpdated.
+             (values head-number
+                     (block-header-timestamp
+                      (block-header (chain-store-latest-block store)))
+                     (hash32-bytes (chain-store-canonical-hash store 0))
+                     (hash32-bytes (chain-store-canonical-hash store head-number))))))
+      (values (eth-build-status config genesis-hash head-number head-timestamp
+                                best-hash
+                                (or (chain-config-terminal-total-difficulty config) 0)
+                                ;; Advertise the operator's network id (which may
+                                ;; differ from the chain id via --networkid).
+                                :network-id (devnet-node-network-id node)
+                                :genesis-timestamp genesis-timestamp)
+              head-number))))
 
 (defun devnet-peer-sync-one (node enode private-key)
   "Dial ENODE, complete the handshake, and download its chain into NODE's store
@@ -68,10 +79,11 @@ starting just past our current head. Returns the number of blocks imported."
                               :sink (devnet-node-telemetry-sink node))
                count)
           ;; Tell the peer we are done before dropping the connection, then
-          ;; close the socket the dialer handed us.
+          ;; close the socket the dialer handed us. The argument is a devp2p
+          ;; disconnect REASON, not a message id.
           (ignore-errors
            (rlpx-send-disconnect (eth-peer-connection peer)
-                                 +devp2p-message-disconnect+))
+                                 +devp2p-disconnect-requested+))
           (ignore-errors (sb-bsd-sockets:socket-close socket)))))))
 
 (defun devnet-start-peer-sync-thread (node shutdown-controller error-callback)

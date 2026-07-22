@@ -412,6 +412,8 @@
    #:+devp2p-message-ping+
    #:+devp2p-message-pong+
    #:+devp2p-message-disconnect+
+   #:+devp2p-disconnect-requested+
+   #:+devp2p-disconnect-too-many-peers+
    #:devp2p-hello-version
    #:devp2p-hello-client-id
    #:devp2p-hello-capabilities

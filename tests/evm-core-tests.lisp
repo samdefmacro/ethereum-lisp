@@ -182,7 +182,7 @@
            ("persistence-adapters" "application-services")
            ("api" "application-services")
            ("transport" "api")
-           ("app" "transport" "persistence-adapters"))))))
+           ("app" "transport" "persistence-adapters" "networking"))))))
 
 (deftest project-package-dependency-graph-includes-source-references
   (let ((validation (find-package '#:ethereum-lisp.validation))

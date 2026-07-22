@@ -369,7 +369,7 @@
        (:file "server" :pathname "http/server")))
      (:module "app"
       :pathname "app/"
-      :depends-on ("transport" "persistence-adapters")
+      :depends-on ("transport" "persistence-adapters" "networking")
       :serial t
       :components
       ((:file "cli-types" :pathname "cli/devnet/types")
