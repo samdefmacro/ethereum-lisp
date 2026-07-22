@@ -22,11 +22,21 @@
     (bytes-to-hex (block-rlp block))))
 
 (defun engine-rpc-handle-debug-get-raw-receipts (params store)
-  "Return the consensus-encoded receipts of a block, in block order."
-  (let ((block (eth-rpc-debug-block-param params store "debug_getRawReceipts")))
+  "Return the consensus-encoded receipts of a block, in block order.
+
+A receipt for an EIP-2718 typed transaction is encoded as type || rlp, so the
+type prefix has to come from the paired transaction; the bare RLP body would not
+match what other clients hash and serve."
+  (let* ((block (eth-rpc-debug-block-param params store "debug_getRawReceipts"))
+         (transactions (block-transactions block))
+         (receipts (block-receipts block)))
+    (unless (= (length transactions) (length receipts))
+      (block-validation-fail "debug_getRawReceipts block receipts are unavailable"))
     (eth-rpc-json-array
-     (loop for receipt in (block-receipts block)
-           collect (bytes-to-hex (receipt-rlp receipt))))))
+     (loop for transaction in transactions
+           for receipt in receipts
+           collect (bytes-to-hex
+                    (transaction-receipt-encoding transaction receipt))))))
 
 (defun engine-rpc-handle-debug-get-raw-transaction (params store config)
   "Return the consensus encoding of a transaction by hash.

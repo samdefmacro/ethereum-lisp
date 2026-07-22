@@ -1,19 +1,20 @@
 (in-package #:ethereum-lisp.public-api)
 
-(defun eth-rpc-precompile-access-key-p (key)
-  "True when KEY is a precompile address.
+(defun eth-rpc-precompile-access-key-p (key rules)
+  "True when KEY is a precompile that is active under RULES.
 
-Passing NIL rules treats every precompile as present, which is what this filter
-wants: an address is omitted from a reported access list because it is a
-precompile, independently of the fork in effect."
+RULES must describe the fork the call was simulated against. Treating every
+precompile address as always present would omit addresses that are ordinary
+accounts before their precompile activates — 0x0b..0x11 before Prague and 0x100
+before Osaka — and those touches belong in a reported access list."
   (and (= (length key) 20)
-       (ethereum-lisp.evm:active-precompile-address-p (make-address key) nil)))
+       (ethereum-lisp.evm:active-precompile-address-p (make-address key) rules)))
 
-(defun eth-rpc-implicit-access-key-p (key sender recipient coinbase)
+(defun eth-rpc-implicit-access-key-p (key sender recipient coinbase rules)
   (or (and sender (bytes= key (address-bytes sender)))
       (and recipient (bytes= key (address-bytes recipient)))
       (and coinbase (bytes= key (address-bytes coinbase)))
-      (eth-rpc-precompile-access-key-p key)))
+      (eth-rpc-precompile-access-key-p key rules)))
 
 (defun eth-rpc-access-list-groups (accessed-addresses accessed-storage)
   (let ((groups (make-hash-table :test 'equalp)))
@@ -39,28 +40,33 @@ precompile, independently of the fork in effect."
     groups))
 
 (defun eth-rpc-created-access-list-object
-    (accessed-addresses accessed-storage sender recipient coinbase)
+    (accessed-addresses accessed-storage sender recipient coinbase rules)
   (let ((groups (eth-rpc-access-list-groups
                  accessed-addresses accessed-storage)))
     (loop for address-hex being the hash-keys of groups
           using (hash-value slots)
           unless (and (zerop (hash-table-count slots))
                       (eth-rpc-implicit-access-key-p
-                       (hex-to-bytes address-hex) sender recipient coinbase))
+                       (hex-to-bytes address-hex)
+                       sender recipient coinbase rules))
             collect
             (list
              (cons "address" address-hex)
              (cons "storageKeys"
-                   (sort
-                    (loop for slot being the hash-keys of slots collect slot)
-                    #'string<)))
+                   (eth-rpc-json-array
+                    (sort
+                     (loop for slot being the hash-keys of slots collect slot)
+                     #'string<))))
               into entries
           finally
              (return
-               (sort entries
-                     #'string<
-                     :key (lambda (entry)
-                            (cdr (assoc "address" entry :test #'string=))))))))
+               ;; An access list with every entry filtered out is empty, not
+               ;; absent, so it must serialise as [] rather than null.
+               (eth-rpc-json-array
+                (sort entries
+                      #'string<
+                      :key (lambda (entry)
+                             (cdr (assoc "address" entry :test #'string=)))))))))
 
 (defun engine-rpc-handle-eth-create-access-list (params store config)
   (unless (or (= 1 (length params)) (= 2 (length params)))
@@ -90,5 +96,10 @@ precompile, independently of the fork in effect."
                 sender
                 (transaction-to tx)
                 (or (block-header-beneficiary (block-header block))
-                    (zero-address))))
+                    (zero-address))
+                (and config
+                     (chain-config-rules
+                      config
+                      (block-header-number (block-header block))
+                      (block-header-timestamp (block-header block))))))
          (cons "gasUsed" (quantity-to-hex gas-used)))))))

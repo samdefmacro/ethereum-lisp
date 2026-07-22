@@ -807,7 +807,9 @@
         (is (= 2 (length access-list)))
         (is (string= (hash32-to-hex slot)
                      (first (field contract-entry "storageKeys"))))
-        (is (null (field target-entry "storageKeys")))))))
+        ;; A touched account with no accessed slots reports an empty array,
+        ;; the way go-ethereum does, not null.
+        (is (equalp #() (field target-entry "storageKeys")))))))
 
 (deftest eth-rpc-simulation-methods-require-retained-state
   (labels ((field (object name)
