@@ -133,6 +133,7 @@
        (:file "p2p-protocol" :pathname "p2p/protocol")
        (:file "p2p-connection" :pathname "p2p/connection")
        (:file "p2p-session" :pathname "p2p/session")
+       (:file "p2p-discovery" :pathname "p2p/discovery")
        (:file "engine-payload-types" :pathname "engine-payloads/types")
        (:file "engine-payload-codecs" :pathname "engine-payloads/codecs")
        (:file "engine-payload-block-fields" :pathname "engine-payloads/block-fields")
