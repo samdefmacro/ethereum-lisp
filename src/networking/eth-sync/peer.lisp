@@ -83,12 +83,25 @@ config at (HEAD-NUMBER, HEAD-TIMESTAMP)."
      :latest-block head-number
      :latest-block-hash best)))
 
-(defun eth-validate-peer-status (ours theirs)
+(defstruct (eth-chain-context
+            (:constructor make-eth-chain-context
+                (config genesis-hash head-number head-timestamp
+                 &optional (genesis-timestamp 0))))
+  "The local chain context needed to validate a peer's fork id during the eth
+handshake."
+  config
+  genesis-hash
+  head-number
+  head-timestamp
+  genesis-timestamp)
+
+(defun eth-validate-peer-status (ours theirs &optional chain-context)
   "Signal an error unless the peer's Status THEIRS is compatible with OURS.
 
 Requires the protocol version, network id, and genesis hash to match; genesis
-plus network identify the chain. A fuller EIP-2124 fork-id compatibility check
-is left to a later pass. Returns THEIRS on success."
+plus network identify the chain. When CHAIN-CONTEXT is supplied, the peer's fork
+id is additionally checked against our chain per EIP-2124. Returns THEIRS on
+success."
   (unless (= (eth-status-version ours) (eth-status-version theirs))
     (error "eth version mismatch: ours ~D, peer ~D"
            (eth-status-version ours) (eth-status-version theirs)))
@@ -97,15 +110,24 @@ is left to a later pass. Returns THEIRS on success."
            (eth-status-network-id ours) (eth-status-network-id theirs)))
   (unless (bytes= (eth-status-genesis-hash ours) (eth-status-genesis-hash theirs))
     (error "eth genesis mismatch: peer is on a different chain"))
+  (when chain-context
+    (validate-peer-fork-id (eth-chain-context-config chain-context)
+                           (eth-chain-context-genesis-hash chain-context)
+                           (eth-chain-context-head-number chain-context)
+                           (eth-chain-context-head-timestamp chain-context)
+                           (eth-status-fork-id theirs)
+                           (eth-chain-context-genesis-timestamp chain-context)))
   theirs)
 
-(defun eth-peer-handshake (connection eth-offset eth-version our-status)
+(defun eth-peer-handshake (connection eth-offset eth-version our-status
+                           &optional chain-context)
   "Exchange eth Status over CONNECTION and return a validated ETH-PEER.
 
 Encodes OUR-STATUS in the negotiated ETH-VERSION's wire format (eth/68 carries
 total difficulty; eth/69 carries a block range instead), reads the peer's, and
-validates version, network, and genesis before returning the peer. Both sides
-send before reading, so there is no deadlock."
+validates version, network, genesis, and — when CHAIN-CONTEXT is given — the
+EIP-2124 fork id before returning the peer. Both sides send before reading, so
+there is no deadlock."
   (setf (eth-status-version our-status) eth-version)
   (eth-wire-send connection eth-offset +eth-message-status+
                  (encode-eth-status-for-version our-status eth-version))
@@ -113,17 +135,18 @@ send before reading, so there is no deadlock."
     (unless (= eth-id +eth-message-status+)
       (error "expected eth Status (0x00) but got eth message id ~D" eth-id))
     (let ((peer-status (decode-eth-status-for-version payload eth-version)))
-      (eth-validate-peer-status our-status peer-status)
+      (eth-validate-peer-status our-status peer-status chain-context)
       (%make-eth-peer :connection connection
                       :eth-offset eth-offset
                       :eth-version eth-version
                       :remote-status peer-status))))
 
-(defun eth-peer-connect (connection hello our-status)
+(defun eth-peer-connect (connection hello our-status &optional chain-context)
   "Run the devp2p Hello exchange then the eth Status handshake over CONNECTION.
 
 HELLO is our devp2p Hello, which must advertise the eth capability. The eth
-version is whichever the negotiation settled on. Returns the ETH-PEER, or errors
+version is whichever the negotiation settled on. CHAIN-CONTEXT, when supplied,
+enables the EIP-2124 fork-id compatibility check. Returns the ETH-PEER, or errors
 if the peer does not share eth."
   (multiple-value-bind (peer-hello shared) (rlpx-exchange-hello connection hello)
     (declare (ignore peer-hello))
@@ -133,4 +156,5 @@ if the peer does not share eth."
       (eth-peer-handshake connection
                           (rlpx-shared-capability-offset eth)
                           (rlpx-shared-capability-version eth)
-                          our-status))))
+                          our-status
+                          chain-context))))

@@ -20,6 +20,8 @@
    #:eth-peer-send
    #:eth-peer-read
    #:eth-build-status
+   #:eth-chain-context
+   #:make-eth-chain-context
    #:eth-validate-peer-status
    #:eth-peer-handshake
    #:eth-peer-connect

@@ -223,3 +223,51 @@
     ;; The version dispatcher picks the eth/68 format below 69.
     (is (string= (bytes-to-hex encoded)
                  (bytes-to-hex (ethereum-lisp.eth-wire:encode-eth-status-for-version status 69))))))
+
+(defun eth-wire-mainnet-config ()
+  (make-chain-config
+   :chain-id 1 :homestead-block 1150000 :dao-fork-block 1920000
+   :eip150-block 2463000 :eip155-block 2675000 :eip158-block 2675000
+   :byzantium-block 4370000 :constantinople-block 7280000 :petersburg-block 7280000
+   :istanbul-block 9069000 :muir-glacier-block 9200000 :berlin-block 12244000
+   :london-block 12965000 :arrow-glacier-block 13773000 :gray-glacier-block 15050000
+   :shanghai-time 1681338455 :cancun-time 1710338135))
+
+(deftest validate-peer-fork-id-follows-eip-2124-rules
+  (let ((genesis (hex-to-bytes
+                  "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3"))
+        (config (eth-wire-mainnet-config)))
+    (flet ((fid (number time)
+             (ethereum-lisp.eth-wire:chain-config-eth-fork-id config genesis number time))
+           (valid (number time peer-fid)
+             (ethereum-lisp.eth-wire:validate-peer-fork-id config genesis number time peer-fid))
+           (raw-fid (hash next)
+             (ethereum-lisp.eth-wire:make-eth-fork-id (hex-to-bytes hash) next)))
+      ;; Rule 1b — a peer with our exact current fork id connects.
+      (is (valid 15050000 0 (fid 15050000 0)))
+      ;; Rule 2 — a peer behind us (at DAO) with the correct next fork connects.
+      (is (valid 15050000 0 (fid 1920000 0)))
+      ;; Rule 3 — a peer ahead of us (at Cancun) connects; we are the stale one.
+      (is (valid 15050000 0 (fid 20000000 1710338135)))
+      ;; Rule 2 — same past hash but the WRONG next fork is remote-stale.
+      (signals ethereum-lisp.eth-wire:eth-fork-id-mismatch
+        (valid 15050000 0 (raw-fid "0x91d1f948" 9999999)))
+      (handler-case (valid 15050000 0 (raw-fid "0x91d1f948" 9999999))
+        (ethereum-lisp.eth-wire:eth-fork-id-mismatch (condition)
+          (is (eq :remote-stale
+                  (ethereum-lisp.eth-wire:eth-fork-id-mismatch-reason condition)))))
+      ;; Rule 4 — an unrecognized fork hash is a different chain.
+      (signals ethereum-lisp.eth-wire:eth-fork-id-mismatch
+        (valid 15050000 0 (raw-fid "0xdeadbeef" 0)))
+      (handler-case (valid 15050000 0 (raw-fid "0xdeadbeef" 0))
+        (ethereum-lisp.eth-wire:eth-fork-id-mismatch (condition)
+          (is (eq :local-incompatible-or-stale
+                  (ethereum-lisp.eth-wire:eth-fork-id-mismatch-reason condition)))))
+      ;; Rule 1a — at Cancun, a peer announcing Cancun as its NEXT fork (which we
+      ;; have already crossed) means our software is stale.
+      (signals ethereum-lisp.eth-wire:eth-fork-id-mismatch
+        (valid 20000000 1710338135 (raw-fid "0x9f3d2254" 1710338135)))
+      (handler-case (valid 20000000 1710338135 (raw-fid "0x9f3d2254" 1710338135))
+        (ethereum-lisp.eth-wire:eth-fork-id-mismatch (condition)
+          (is (eq :local-incompatible-or-stale
+                  (ethereum-lisp.eth-wire:eth-fork-id-mismatch-reason condition))))))))

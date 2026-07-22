@@ -53,7 +53,9 @@ dev-period workers and its hash tables are not internally synchronized."
                                 ;; differ from the chain id via --networkid).
                                 :network-id (devnet-node-network-id node)
                                 :genesis-timestamp genesis-timestamp)
-              head-number))))
+              head-number
+              (make-eth-chain-context config genesis-hash head-number
+                                      head-timestamp genesis-timestamp)))))
 
 (defun devnet-peer-sync-one (node enode private-key)
   "Dial ENODE, complete the handshake, and download its chain into NODE's store
@@ -61,12 +63,14 @@ starting just past our current head. Returns the number of blocks imported."
   (multiple-value-bind (node-id host tcp-port discovery-port)
       (parse-enode-url enode)
     (declare (ignore discovery-port))
-    (multiple-value-bind (status head-number) (devnet-peer-sync-status node)
+    (multiple-value-bind (status head-number chain-context)
+        (devnet-peer-sync-status node)
       (telemetry-log :info "peer.sync.dialing"
                      :fields (list (cons "enode" enode) (cons "host" host))
                      :sink (devnet-node-telemetry-sink node))
       (multiple-value-bind (peer socket)
-          (eth-sync-connect-peer host tcp-port node-id private-key status)
+          (eth-sync-connect-peer host tcp-port node-id private-key status
+                                 :chain-context chain-context)
         (unwind-protect
              (let ((count (eth-sync-download-blocks
                            peer
