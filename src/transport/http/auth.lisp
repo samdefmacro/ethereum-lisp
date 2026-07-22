@@ -55,34 +55,10 @@
     (ensure-byte-vector (nreverse bytes))))
 
 (defun engine-rpc-hmac-sha256 (key message)
-  (let* ((block-size 64)
-         (key (ensure-byte-vector key))
-         (message (ensure-byte-vector message))
-         (short-key (if (> (length key) block-size)
-                        (sha256 key)
-                        key))
-         (padded-key (make-byte-vector block-size)))
-    (replace padded-key short-key)
-    (let ((inner-pad (make-byte-vector block-size))
-          (outer-pad (make-byte-vector block-size)))
-      (loop for index below block-size
-            for byte = (aref padded-key index)
-            do (setf (aref inner-pad index) (logxor byte #x36)
-                     (aref outer-pad index) (logxor byte #x5c)))
-      (sha256 outer-pad (sha256 inner-pad message)))))
+  (hmac-sha256 key message))
 
 (defun engine-rpc-constant-time-bytes= (left right)
-  (let ((left (ensure-byte-vector left))
-        (right (ensure-byte-vector right)))
-    (and (= (length left) (length right))
-         (zerop
-          (loop for index below (length left)
-                for difference = (logxor (aref left index)
-                                         (aref right index))
-                then (logior difference
-                             (logxor (aref left index)
-                                     (aref right index)))
-                finally (return (or difference 0)))))))
+  (constant-time-bytes= left right))
 
 (defun engine-rpc-jwt-signature (secret signing-input)
   (engine-rpc-base64url-encode
