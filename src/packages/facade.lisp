@@ -422,7 +422,23 @@
    #:node-id-to-hex
    #:node-id-from-hex
    #:enode-url
-   #:parse-enode-url)
+   #:parse-enode-url
+   #:devp2p-capability-name
+   #:devp2p-capability-version
+   #:rlpx-disconnect
+   #:rlpx-disconnect-reason
+   #:rlpx-shared-capability
+   #:rlpx-shared-capability-name
+   #:rlpx-shared-capability-version
+   #:rlpx-shared-capability-offset
+   #:rlpx-negotiate-capabilities
+   #:rlpx-shared-capability-named
+   #:rlpx-send-hello
+   #:rlpx-receive-hello
+   #:rlpx-exchange-hello
+   #:rlpx-send-ping
+   #:rlpx-send-pong
+   #:rlpx-send-disconnect)
   (#:ethereum-lisp.bls12381
    #:bls12381-error
    #:bls12381-input-error
