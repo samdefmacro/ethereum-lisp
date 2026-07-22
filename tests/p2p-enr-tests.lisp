@@ -89,3 +89,10 @@
             (is (= 3 (ethereum-lisp.p2p:enr-seq
                       (ethereum-lisp.p2p:decode-enr
                        (ethereum-lisp.p2p:discv4-enr-response-record decoded)))))))))))
+
+(deftest enr-rejects-trailing-bytes-and-unsorted-keys
+  (:layer :unit :module :p2p)
+  ;; A record is exactly its RLP: appending a byte must be rejected.
+  (let ((padded (make-byte-vector (1+ (length *eip778-golden-enr*)))))
+    (replace padded *eip778-golden-enr*)
+    (signals error (ethereum-lisp.p2p:decode-enr padded))))

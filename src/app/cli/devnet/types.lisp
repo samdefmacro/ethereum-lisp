@@ -122,14 +122,21 @@
 
 (defun devnet-node-claim-dial (node node-id)
   "Return T exactly once per NODE-ID (compared by hex), NIL on later claims, so
-the discovery and peer-sync workers dial each peer identity only once. Guarded by
-the node's dial mutex so the two worker threads do not race."
+the discovery and peer-sync workers do not dial the same peer at the same time.
+Guarded by the node's dial mutex so the two worker threads do not race."
   (funcall (devnet-node-dial-guard-function node)
            (lambda ()
              (let ((key (node-id-to-hex node-id))
                    (dialed (devnet-node-dialed node)))
                (unless (gethash key dialed)
                  (setf (gethash key dialed) t))))))
+
+(defun devnet-node-release-dial (node node-id)
+  "Release NODE-ID's dial claim so a failed dial can be retried on a later crawl.
+A successful dial keeps its claim, so a synced peer is not redialed."
+  (funcall (devnet-node-dial-guard-function node)
+           (lambda ()
+             (remhash (node-id-to-hex node-id) (devnet-node-dialed node)))))
 
 (defun make-devnet-store-guard-function ()
   #+sbcl

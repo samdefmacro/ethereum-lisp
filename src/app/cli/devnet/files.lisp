@@ -54,9 +54,12 @@ the go-ethereum nodekey file format."
   "Parse VALUE as a 32-byte secp256k1 private key in hex, returning the scalar.
 The public-key derivation validates the [1, n-1] range."
   (handler-case
-      (let ((scalar (bytes-to-integer (hex-to-bytes value))))
-        (secp256k1-private-key-public-key scalar)
-        scalar)
+      (let ((bytes (hex-to-bytes value)))
+        (unless (= 32 (length bytes))
+          (error "node key must be 32 bytes"))
+        (let ((scalar (bytes-to-integer bytes)))
+          (secp256k1-private-key-public-key scalar)
+          scalar))
     (error ()
       (error "~A requires a 32-byte hex secp256k1 private key" option))))
 

@@ -80,7 +80,8 @@ those raw items so a list-valued entry re-encodes exactly."
   (let ((bytes (ensure-byte-vector bytes)))
     (when (> (length bytes) +enr-max-size+)
       (error "ENR exceeds ~D bytes" +enr-max-size+))
-    (let* ((items (rlp-list-items (rlp-decode bytes :allow-trailing t)))
+    ;; A record is exactly rlp([signature, seq, ...]) — reject trailing bytes.
+    (let* ((items (rlp-list-items (rlp-decode bytes)))
            (signature (ensure-byte-vector (first items)))
            (seq (bytes-to-integer (ensure-byte-vector (second items))))
            ;; content = rlp([seq, k1, v1, ...]) rebuilt from the raw items.
@@ -88,6 +89,11 @@ those raw items so a list-valued entry re-encodes exactly."
            (pairs (loop for (key value) on (cddr items) by #'cddr
                         collect (cons (bytes-to-ascii (ensure-byte-vector key))
                                       value))))
+      ;; EIP-778 requires keys byte-sorted and unique.
+      (loop for (a b) on pairs
+            while b
+            when (string>= (car a) (car b))
+              do (error "ENR keys must be sorted and unique"))
       (let ((id (cdr (assoc "id" pairs :test #'string=))))
         (unless (and id (string= (bytes-to-ascii (ensure-byte-vector id)) "v4"))
           (error "unsupported ENR identity scheme")))

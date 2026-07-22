@@ -155,6 +155,7 @@
         (config-path (devnet-cli-temp-path "ethereum-lisp-devnet-geth" "toml"))
         (ready-path (devnet-cli-temp-path "ethereum-lisp-devnet-ready" "json"))
         (log-path (devnet-cli-temp-path "ethereum-lisp-devnet" "log"))
+        (nodekey-path (devnet-cli-temp-path "ethereum-lisp-devnet-nodekey" "hex"))
         (output (make-string-output-stream))
         (errors (make-string-output-stream)))
     (unwind-protect
@@ -215,8 +216,9 @@
                          "--nat=none"
                          "--netrestrict=127.0.0.0/8"
                          "--identity=ethereum-lisp-devnet"
-                         "--nodekey=/tmp/ethereum-lisp-nodekey"
-                         "--nodekeyhex=010203"
+                         (format nil "--nodekey=~A" (namestring nodekey-path))
+                         (concatenate 'string "--nodekeyhex="
+                          "0101010101010101010101010101010101010101010101010101010101010101")
                          "--discovery.port=30303"
                          "--discovery.dns="
                          "--ipcpath=/tmp/ethereum-lisp.ipc"
@@ -302,4 +304,6 @@
       (when (probe-file log-path)
         (delete-file log-path))
       (when (probe-file config-path)
-        (delete-file config-path)))))
+        (delete-file config-path))
+      (when (probe-file nodekey-path)
+        (delete-file nodekey-path)))))
