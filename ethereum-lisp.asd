@@ -267,7 +267,9 @@
       :depends-on ("application-services")
       :serial t
       :components
-      ((:file "eth-sync-peer" :pathname "eth-sync/peer")))
+      ((:file "eth-sync-peer" :pathname "eth-sync/peer")
+       (:file "eth-sync-fetch" :pathname "eth-sync/fetch")
+       (:file "eth-sync-sync" :pathname "eth-sync/sync")))
      (:module "persistence-adapters"
       :pathname "storage/node-store/persistence/"
       :depends-on ("application-services")

@@ -452,7 +452,13 @@
    #:eth-build-status
    #:eth-validate-peer-status
    #:eth-peer-handshake
-   #:eth-peer-connect)
+   #:eth-peer-connect
+   #:eth-peer-next-request-id
+   #:eth-peer-await
+   #:eth-peer-get-block-headers
+   #:eth-peer-get-block-bodies
+   #:eth-sync-assemble-block
+   #:eth-sync-download-blocks)
   (#:ethereum-lisp.bls12381
    #:bls12381-error
    #:bls12381-input-error

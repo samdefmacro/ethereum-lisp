@@ -11,7 +11,13 @@
 (defstruct (eth-peer (:constructor %make-eth-peer))
   connection
   eth-offset
-  remote-status)
+  remote-status
+  (request-counter 0))
+
+(defun eth-peer-next-request-id (peer)
+  "Return a fresh eth request id for PEER (a per-session ascending counter)."
+  (setf (eth-peer-request-counter peer)
+        (logand (1+ (eth-peer-request-counter peer)) #xffffffffffffffff)))
 
 (defun eth-peer-remote-public-key (peer)
   "The peer's 64-byte static public key, learned during the RLPx handshake."
