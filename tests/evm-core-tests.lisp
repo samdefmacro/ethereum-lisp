@@ -178,6 +178,7 @@
            ("runtime-core" "protocol")
            ("storage-core" "protocol")
            ("application-services" "runtime-core" "storage-core")
+           ("networking" "application-services")
            ("persistence-adapters" "application-services")
            ("api" "application-services")
            ("transport" "api")
