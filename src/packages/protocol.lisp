@@ -94,6 +94,8 @@
    #:chain-config-amsterdam-p
    #:chain-config-ubt-p
    #:chain-config-ubt-genesis-p
+   #:chain-config-block-fork-schedule
+   #:chain-config-time-fork-schedule
    #:chain-config-expanded-blob-schedule-p
    #:chain-config-blob-schedule
    #:chain-config-rules

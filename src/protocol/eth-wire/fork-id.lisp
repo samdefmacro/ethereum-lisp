@@ -51,3 +51,26 @@ equals the incremental fold reference implementations use."
 NEXT-FORK is the block or timestamp of the next upcoming fork, or 0 when none is
 scheduled."
   (make-eth-fork-id (eth-fork-hash genesis-hash passed-forks) next-fork))
+
+(defun chain-config-eth-fork-id
+    (config genesis-hash head-number head-timestamp
+     &optional (genesis-timestamp 0))
+  "Derive the EIP-2124 fork id for CONFIG at the chain head.
+
+Folds in every block fork already active at HEAD-NUMBER, then every time fork
+already active at HEAD-TIMESTAMP, and records the next scheduled fork: the next
+upcoming block fork if one remains, otherwise the next upcoming time fork,
+otherwise 0. GENESIS-TIMESTAMP identifies time forks that coincide with genesis
+so they are excluded from the fold."
+  (let* ((block-forks
+           (ethereum-lisp.chain-config:chain-config-block-fork-schedule config))
+         (time-forks
+           (ethereum-lisp.chain-config:chain-config-time-fork-schedule
+            config genesis-timestamp))
+         (passed (append (remove-if-not (lambda (v) (<= v head-number)) block-forks)
+                         (remove-if-not (lambda (v) (<= v head-timestamp))
+                                        time-forks)))
+         (next (or (find-if (lambda (v) (> v head-number)) block-forks)
+                   (find-if (lambda (v) (> v head-timestamp)) time-forks)
+                   0)))
+    (compute-eth-fork-id genesis-hash passed next)))
