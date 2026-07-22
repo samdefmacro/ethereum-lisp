@@ -367,6 +367,10 @@
    #:ecies-encrypt
    #:ecies-decrypt
    #:ecies-concat-kdf
+   #:rlpx-auth-message
+   #:rlpx-open-auth
+   #:rlpx-recover-initiator-ephemeral-key
+   #:rlpx-derive-secrets
    #:+node-id-size+
    #:node-id-from-private-key
    #:node-id-to-hex

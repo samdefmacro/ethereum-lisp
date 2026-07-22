@@ -3,7 +3,8 @@
         #:ethereum-lisp.bytes
         #:ethereum-lisp.hex
         #:ethereum-lisp.types
-        #:ethereum-lisp.crypto)
+        #:ethereum-lisp.crypto
+        #:ethereum-lisp.rlp)
   (:export
    #:+node-id-size+
    #:node-id-from-private-key
@@ -13,4 +14,12 @@
    #:parse-enode-url
    #:ecies-encrypt
    #:ecies-decrypt
-   #:ecies-concat-kdf))
+   #:ecies-concat-kdf
+   #:rlpx-auth-message
+   #:rlpx-auth-message-signature
+   #:rlpx-auth-message-initiator-public-key
+   #:rlpx-auth-message-initiator-nonce
+   #:rlpx-auth-message-version
+   #:rlpx-open-auth
+   #:rlpx-recover-initiator-ephemeral-key
+   #:rlpx-derive-secrets))
