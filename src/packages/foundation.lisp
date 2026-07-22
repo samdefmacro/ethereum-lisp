@@ -25,6 +25,13 @@
   (:export
    #:string-prefix-p))
 
+(defpackage #:ethereum-lisp.snappy
+  (:use #:cl #:ethereum-lisp.bytes)
+  (:export
+   #:snappy-compress
+   #:snappy-decompress
+   #:+snappy-max-decoded-length+))
+
 (defpackage #:ethereum-lisp.database
   (:use #:cl #:ethereum-lisp.bytes #:ethereum-lisp.hex)
   (:export

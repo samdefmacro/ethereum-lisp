@@ -50,6 +50,9 @@
    #:kv-batch-put-chain-checkpoint
    #:kv-batch-delete-chain-checkpoint
    #:kv-chain-checkpoints)
+  (#:ethereum-lisp.snappy
+   #:snappy-compress
+   #:snappy-decompress)
   (#:ethereum-lisp.rlp
    #:rlp-error
    #:rlp-list
