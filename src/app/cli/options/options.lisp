@@ -59,6 +59,7 @@
         (http-read-timeout-seconds nil)
         (http-write-timeout-seconds nil)
         (peers nil)
+        (bootnodes nil)
         (help-p nil))
     (labels ((next-value (option)
                (multiple-value-bind (value rest)
@@ -246,6 +247,8 @@
                       (next-parsed-value option #'devnet-cli-parse-duration-seconds)))
                ((string= option "--peer")
                 (push (next-parsed-value option #'devnet-cli-parse-enode) peers))
+               ((string= option "--bootnodes")
+                (push (next-parsed-value option #'devnet-cli-parse-enode) bootnodes))
                ((member option *devnet-cli-value-options* :test #'string=)
                 (consume-value-option option))
                ((member option *devnet-cli-optional-boolean-options*
@@ -314,4 +317,5 @@
           :http-read-timeout-seconds http-read-timeout-seconds
           :http-write-timeout-seconds http-write-timeout-seconds
           :peers (nreverse peers)
+          :bootnodes (nreverse bootnodes)
           :help-p help-p))))

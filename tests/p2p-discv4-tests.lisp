@@ -202,3 +202,89 @@
              ;; Returned in a bounded time rather than blocking forever.
              (is (<= (- (get-universal-time) start) 20))))
       (ignore-errors (sb-bsd-sockets:socket-close silent-socket)))))
+
+(deftest discv4-expired-p-drops-past-timestamps
+  (:layer :unit :module :p2p)
+  ;; A stamp far in the past is expired; a fresh future stamp is not.
+  (is (ethereum-lisp.p2p:discv4-expired-p 1000000000))
+  (is (not (ethereum-lisp.p2p:discv4-expired-p (ethereum-lisp.p2p:discv4-expiration))))
+  ;; grace-seconds tolerates a slightly-past stamp.
+  (let ((just-past (- (ethereum-lisp.p2p:discv4-unix-time) 1)))
+    (is (not (ethereum-lisp.p2p:discv4-expired-p just-past :grace-seconds 5)))
+    (is (ethereum-lisp.p2p:discv4-expired-p just-past :grace-seconds 0))))
+
+(deftest discv4-node-distance-is-symmetric-and-zero-to-self
+  (:layer :unit :module :p2p)
+  (let ((a (node-id-from-private-key (secp256k1-random-private-key)))
+        (b (node-id-from-private-key (secp256k1-random-private-key))))
+    (is (= 0 (ethereum-lisp.p2p:discv4-node-distance a a)))
+    (is (= (ethereum-lisp.p2p:discv4-node-distance a b)
+           (ethereum-lisp.p2p:discv4-node-distance b a)))
+    (is (plusp (ethereum-lisp.p2p:discv4-node-distance a b)))))
+
+(deftest discv4-lookup-crawls-a-bootnode-and-discovers-a-peer
+  (:layer :integration :module :p2p :requires-local-sockets t)
+  (let* ((boot-priv
+          #xb71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291)
+         (boot-id (node-id-from-private-key boot-priv))
+         (client-priv
+          #x49a7b37aa6f6645917e7b807e9d1c00d4fa71f18343b0d4122a4d2df64dd6fee)
+         (discovered-id (node-id-from-private-key
+                         #x0102030405060708090a0b0c0d0e0f101112131415161718))
+         (server-error nil))
+    (multiple-value-bind (boot-socket boot-port)
+        (ethereum-lisp.p2p:discv4-make-socket :host "127.0.0.1" :port 0)
+      (unwind-protect
+           (let ((server-thread
+                   (sb-thread:make-thread
+                    (lambda ()
+                      (handler-case
+                          (loop named serve repeat 4 do
+                            (let ((buffer (make-byte-vector 1280)))
+                              (multiple-value-bind (received size peer-addr peer-port)
+                                  (sb-bsd-sockets:socket-receive boot-socket buffer nil)
+                                (declare (ignore received))
+                                (multiple-value-bind (type data sender)
+                                    (ethereum-lisp.p2p:decode-discv4-packet
+                                     (subseq buffer 0 size))
+                                  (declare (ignore sender))
+                                  (flet ((reply (packet)
+                                           (sb-bsd-sockets:socket-send
+                                            boot-socket packet (length packet)
+                                            :address (list peer-addr peer-port))))
+                                    (cond
+                                      ((= type ethereum-lisp.p2p:+discv4-packet-ping+)
+                                       (reply
+                                        (ethereum-lisp.p2p:encode-discv4-packet
+                                         boot-priv ethereum-lisp.p2p:+discv4-packet-pong+
+                                         (ethereum-lisp.p2p:encode-discv4-pong
+                                          (ethereum-lisp.p2p:make-discv4-pong
+                                           :to (ethereum-lisp.p2p:discv4-ping-from
+                                                (ethereum-lisp.p2p:decode-discv4-ping data))
+                                           :ping-hash (subseq buffer 0 32)
+                                           :expiration (ethereum-lisp.p2p:discv4-expiration))))))
+                                      ((= type ethereum-lisp.p2p:+discv4-packet-find-node+)
+                                       (reply
+                                        (ethereum-lisp.p2p:encode-discv4-packet
+                                         boot-priv ethereum-lisp.p2p:+discv4-packet-neighbors+
+                                         (ethereum-lisp.p2p:encode-discv4-neighbors
+                                          (ethereum-lisp.p2p:make-discv4-neighbors
+                                           :nodes (list (ethereum-lisp.p2p:make-discv4-node
+                                                         (hex-to-bytes "0x0a000007")
+                                                         30303 30303 discovered-id))
+                                           :expiration (ethereum-lisp.p2p:discv4-expiration)))))
+                                       (return-from serve))))))))
+                        (error (condition) (setf server-error condition))))
+                    :name "discv4-lookup-test-bootnode")))
+             (let* ((enode (enode-url boot-id "127.0.0.1" boot-port))
+                    (enodes (ethereum-lisp.p2p:discv4-lookup
+                             (list enode) client-priv :timeout-seconds 3))
+                    (ids (mapcar (lambda (e) (nth-value 0 (parse-enode-url e))) enodes)))
+               (sb-thread:join-thread server-thread)
+               (when server-error
+                 (error "discv4-lookup bootnode side failed: ~A" server-error))
+               ;; The peer beyond the bootnode was discovered and returned.
+               (is (find discovered-id ids :test #'bytes=))
+               ;; The seed bootnode itself is excluded from the discovered set.
+               (is (not (find boot-id ids :test #'bytes=)))))
+        (ignore-errors (sb-bsd-sockets:socket-close boot-socket))))))

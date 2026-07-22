@@ -996,3 +996,23 @@
                  (is (not (null (chain-store-known-block
                                  store (block-hash (aref produced 2))))))))))
       (ignore-errors (sb-bsd-sockets:socket-close listener)))))
+
+(deftest devnet-cli-bootnodes-option-accumulates-enodes
+  (let* ((enode-a (concatenate 'string "enode://"
+                               (make-string 128 :initial-element #\a)
+                               "@127.0.0.1:30303"))
+         (enode-b (concatenate 'string "enode://"
+                               (make-string 128 :initial-element #\c)
+                               "@10.0.0.2:30304"))
+         (options (ethereum-lisp.cli::devnet-cli-options
+                   (list "devnet" "--bootnodes" enode-a "--bootnodes" enode-b
+                         "--no-serve"))))
+    ;; Repeated --bootnodes flags accumulate in command-line order and land on
+    ;; the node as devnet-node-bootnodes.
+    (is (equal (list enode-a enode-b) (getf options :bootnodes)))
+    (is (null (getf (ethereum-lisp.cli::devnet-cli-options
+                     (list "devnet" "--no-serve"))
+                    :bootnodes)))
+    (signals error
+      (ethereum-lisp.cli::devnet-cli-options
+       (list "devnet" "--bootnodes" "not-an-enode" "--no-serve")))))

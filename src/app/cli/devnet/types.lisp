@@ -84,7 +84,8 @@
                       txpool-journal-path
                       txpool-rejournal-seconds
                       dev-period-seconds
-                      peers)))
+                      peers
+                      bootnodes)))
   genesis-path
   store
   config
@@ -110,7 +111,8 @@
   txpool-journal-path
   txpool-rejournal-seconds
   dev-period-seconds
-  peers)
+  peers
+  bootnodes)
 
 (defun make-devnet-store-guard-function ()
   #+sbcl
