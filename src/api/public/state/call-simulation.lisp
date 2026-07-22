@@ -21,7 +21,9 @@
 Anything that is not exactly a well-formed Error(string) payload — a custom
 error, truncated data, an out-of-range offset — yields NIL rather than a guess."
   (let ((bytes (ensure-byte-vector return-data)))
-    (when (and (>= (length bytes) 100)
+    ;; The shortest well-formed Error(string) payload is revert(""), which is
+    ;; exactly 68 bytes: selector + 32-byte offset + 32-byte length of zero.
+    (when (and (>= (length bytes) 68)
                (bytes= +eth-rpc-error-string-selector+ (subseq bytes 0 4)))
       (let ((offset (bytes-to-integer (subseq bytes 4 36)))
             (length (bytes-to-integer (subseq bytes 36 68))))

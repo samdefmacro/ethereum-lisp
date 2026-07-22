@@ -927,7 +927,60 @@
                (make-byte-vector 0))))
     ;; A custom error selector is not Error(string).
     (is (null (ethereum-lisp.public-api::eth-rpc-decode-revert-reason
-               (hex-to-bytes "0xdeadbeef"))))))
+               (hex-to-bytes "0xdeadbeef"))))
+    ;; revert("") is a well-formed 68-byte payload and decodes to the empty
+    ;; string, matching go-ethereum's "execution reverted: ".
+    (let ((empty-reason
+            (hex-to-bytes
+             (concatenate
+              'string
+              "0x08c379a0"
+              "0000000000000000000000000000000000000000000000000000000000000020"
+              "0000000000000000000000000000000000000000000000000000000000000000"))))
+      (is (= 68 (length empty-reason)))
+      (is (string= ""
+                   (ethereum-lisp.public-api::eth-rpc-decode-revert-reason
+                    empty-reason))))))
+
+(deftest eth-rpc-fee-history-next-blob-base-fee-applies-eip7918
+  ;; The next block's blob base fee is derived from this header as parent, so
+  ;; past Osaka it must include the EIP-7918 reserve price. Omitting it reported
+  ;; a lower, stale fee. Values chosen so the reserve price actually fires.
+  (let* ((config (make-chain-config :chain-id 1
+                                    :london-block 0
+                                    :cancun-time 0
+                                    :prague-time 0
+                                    :osaka-time 0))
+         (header (make-block-header
+                  :number 100
+                  :timestamp 1000
+                  :gas-limit 30000000
+                  :base-fee-per-gas 81
+                  :blob-gas-used +blob-gas-per-blob+
+                  :excess-blob-gas 8250000)))
+    (multiple-value-bind (target max update-fraction)
+        (ethereum-lisp.public-api::eth-rpc-fee-history-blob-schedule header config)
+      (let ((with-7918
+              (blob-base-fee
+               (expected-excess-blob-gas header
+                                         :target-blob-gas target
+                                         :max-blob-gas max
+                                         :eip7918-p t
+                                         :update-fraction update-fraction)
+               :update-fraction update-fraction))
+            (without-7918
+              (blob-base-fee
+               (expected-excess-blob-gas header
+                                         :target-blob-gas target
+                                         :max-blob-gas max
+                                         :eip7918-p nil
+                                         :update-fraction update-fraction)
+               :update-fraction update-fraction)))
+        ;; The reserve price must actually change the answer, or the test is empty.
+        (is (/= with-7918 without-7918))
+        (is (string= (quantity-to-hex with-7918)
+                     (ethereum-lisp.public-api::eth-rpc-fee-history-next-blob-base-fee
+                      header config)))))))
 
 (deftest eth-rpc-empty-collections-encode-as-json-arrays
   ;; An empty list is NIL in Lisp and would otherwise serialise as null, which
