@@ -58,6 +58,7 @@
         (http-max-clients nil)
         (http-read-timeout-seconds nil)
         (http-write-timeout-seconds nil)
+        (peers nil)
         (help-p nil))
     (labels ((next-value (option)
                (multiple-value-bind (value rest)
@@ -243,6 +244,8 @@
                ((string= option "--txpool.rejournal")
                 (setf txpool-rejournal-seconds
                       (next-parsed-value option #'devnet-cli-parse-duration-seconds)))
+               ((string= option "--peer")
+                (push (next-parsed-value option #'devnet-cli-parse-enode) peers))
                ((member option *devnet-cli-value-options* :test #'string=)
                 (consume-value-option option))
                ((member option *devnet-cli-optional-boolean-options*
@@ -310,4 +313,5 @@
           :http-max-clients http-max-clients
           :http-read-timeout-seconds http-read-timeout-seconds
           :http-write-timeout-seconds http-write-timeout-seconds
+          :peers (nreverse peers)
           :help-p help-p))))

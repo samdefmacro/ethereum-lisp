@@ -40,6 +40,7 @@
        txpool-journal-path
        txpool-rejournal-seconds
        dev-period-seconds
+       peers
        kzg-verifier-command
        kzg-verifier-timeout-seconds
        (public-allowed-method-p #'engine-rpc-public-method-p)
@@ -226,7 +227,8 @@
      forkchoice-persistence-function
      :txpool-journal-path txpool-journal-path
      :txpool-rejournal-seconds txpool-rejournal-seconds
-     :dev-period-seconds dev-period-seconds)))
+     :dev-period-seconds dev-period-seconds
+     :peers (and peers (copy-list peers)))))
 
 (defun devnet-cli-apply-merge-overrides
     (config &key terminal-total-difficulty

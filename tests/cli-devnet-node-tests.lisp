@@ -913,3 +913,86 @@
              (is (= 32 (length (engine-rpc-http-service-jwt-secret service))))))
       (when (probe-file path)
         (delete-file path)))))
+
+(deftest devnet-cli-peer-option-accumulates-and-validates-enodes
+  (let* ((enode-a (concatenate 'string "enode://"
+                               (make-string 128 :initial-element #\a)
+                               "@127.0.0.1:30303"))
+         (enode-b (concatenate 'string "enode://"
+                               (make-string 128 :initial-element #\b)
+                               "@10.0.0.2:30304"))
+         (options (ethereum-lisp.cli::devnet-cli-options
+                   (list "devnet" "--peer" enode-a "--peer" enode-b "--no-serve"))))
+    ;; Repeated --peer flags accumulate in command-line order.
+    (is (equal (list enode-a enode-b) (getf options :peers)))
+    ;; No peers means an empty list.
+    (is (null (getf (ethereum-lisp.cli::devnet-cli-options (list "devnet" "--no-serve"))
+                    :peers)))
+    ;; A malformed enode is rejected at parse time.
+    (signals error
+      (ethereum-lisp.cli::devnet-cli-options
+       (list "devnet" "--peer" "not-an-enode" "--no-serve")))))
+
+(deftest devnet-peer-sync-worker-syncs-into-a-node-store-over-a-socket
+  (:requires-local-sockets t)
+  ;; Drive the actual CLI peer-sync worker: it dials a loopback peer serving a
+  ;; produced chain and imports it into a real devnet node's store, advancing
+  ;; the node's canonical head. Helpers and the Paris genesis come from
+  ;; eth-sync-tests.lisp, which loads earlier.
+  (let* ((node (ethereum-lisp.cli:make-devnet-node
+                :genesis-json *eth-sync-paris-genesis-json*
+                :port 0 :public-port 0))
+         (config (ethereum-lisp.cli::devnet-node-config node))
+         (genesis-block (ethereum-lisp.cli::devnet-node-genesis-block node))
+         (store (ethereum-lisp.cli::devnet-node-store node))
+         (produced (coerce (eth-sync-produce-empty-blocks genesis-block config 3)
+                           'vector))
+         (genesis-hash (hash32-bytes (block-hash genesis-block)))
+         (server-static
+          #xb71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291)
+         (client-static
+          #x49a7b37aa6f6645917e7b807e9d1c00d4fa71f18343b0d4122a4d2df64dd6fee)
+         (server-static-pub (secp256k1-private-key-public-key server-static))
+         (listener (make-instance 'sb-bsd-sockets:inet-socket
+                                  :type :stream :protocol :tcp)))
+    (setf (sb-bsd-sockets:sockopt-reuse-address listener) t)
+    (unwind-protect
+         (progn
+           (sb-bsd-sockets:socket-bind
+            listener (sb-bsd-sockets:make-inet-address "127.0.0.1") 0)
+           (sb-bsd-sockets:socket-listen listener 1)
+           (multiple-value-bind (address port)
+               (sb-bsd-sockets:socket-name listener)
+             (declare (ignore address))
+             (let ((server-error nil))
+               (let ((server-thread
+                       (sb-thread:make-thread
+                        (lambda ()
+                          (handler-case
+                              (let* ((cs (sb-bsd-sockets:socket-accept listener))
+                                     (stream (p2p-binary-socket-stream cs))
+                                     (connection (rlpx-accept-stream stream server-static))
+                                     (peer (eth-peer-connect
+                                            connection
+                                            (make-devp2p-hello
+                                             :client-id "srv"
+                                             :capabilities
+                                             (list (make-devp2p-capability "eth" 68))
+                                             :node-id server-static-pub)
+                                            (eth-build-status config genesis-hash
+                                                              3 0 genesis-hash 0))))
+                                (eth-sync-serve-block-list peer produced))
+                            (error (condition) (setf server-error condition))))
+                        :name "devnet-peer-sync-test-server")))
+                 ;; The worker dials the enode and imports into the node store.
+                 (let ((enode (enode-url (node-id-from-private-key server-static)
+                                         "127.0.0.1" port)))
+                   (ethereum-lisp.cli::devnet-peer-sync-one node enode client-static))
+                 (sb-thread:join-thread server-thread)
+                 (when server-error
+                   (error "peer-sync server side failed: ~A" server-error))
+                 ;; The node's canonical head advanced to the synced tip.
+                 (is (= 3 (chain-store-head-number store)))
+                 (is (not (null (chain-store-known-block
+                                 store (block-hash (aref produced 2))))))))))
+      (ignore-errors (sb-bsd-sockets:socket-close listener)))))

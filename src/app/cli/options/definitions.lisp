@@ -19,7 +19,7 @@
     "--cache.database" "--cache.gc" "--cache.trie" "--state.scheme" "--db.engine"
     "--datadir.ancient" "--ipcpath" "--netrestrict" "--nodekey"
     "--nodekeyhex" "--discovery.port" "--discovery.dns"
-    "--txlookuplimit" "--history.transactions" "--bootnodes"
+    "--txlookuplimit" "--history.transactions" "--bootnodes" "--peer"
     "--rpc.gascap" "--rpc.evmtimeout" "--rpc.txfeecap"
     "--rpc.batch-request-limit" "--rpc.batch-response-max-size"
     "--override.terminaltotaldifficulty" "--override.terminalblockhash"

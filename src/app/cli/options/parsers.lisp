@@ -116,6 +116,13 @@
       (error "~A requires at least one 20-byte hex address" option))
     addresses))
 
+(defun devnet-cli-parse-enode (value option)
+  "Validate VALUE as an enode:// URL and keep it as a string for later dialing."
+  (handler-case
+      (progn (parse-enode-url value) value)
+    (error ()
+      (error "~A requires an enode:// URL" option))))
+
 (defun devnet-cli-parse-http-api-list (value option)
   (let ((modules
           (loop for raw in (uiop:split-string value :separator ",")
