@@ -36,6 +36,8 @@
    #:rlpx-constant-mac
    #:rlpx-write-frame
    #:rlpx-read-frame
+   #:make-rlpx-initiator-session
+   #:make-rlpx-recipient-session
    #:+devp2p-version+
    #:+devp2p-message-hello+
    #:+devp2p-message-disconnect+
