@@ -157,6 +157,9 @@
   (:use #:cl #:ethereum-lisp.bytes #:ethereum-lisp.hex #:ethereum-lisp.types)
   (:export
    #:keccak-256
+   #:make-keccak-256
+   #:keccak-256-update
+   #:keccak-256-digest
    #:keccak-256-hash
    #:keccak-256-hex
    #:sha256

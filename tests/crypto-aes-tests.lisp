@@ -142,3 +142,27 @@
          (a (ethereum-lisp.crypto:secp256k1-sign hash 42 :k 12345))
          (b (ethereum-lisp.crypto:secp256k1-sign hash 42 :k 12345)))
     (is (bytes= a b))))
+
+(deftest keccak-256-incremental-matches-one-shot
+  (let ((data (ascii-to-bytes "the quick brown fox jumps over the lazy dog")))
+    ;; Absorbing in arbitrary pieces equals hashing the whole input at once.
+    (let ((sponge (ethereum-lisp.crypto:make-keccak-256)))
+      (ethereum-lisp.crypto:keccak-256-update sponge (subseq data 0 5))
+      (ethereum-lisp.crypto:keccak-256-update sponge (subseq data 5 6))
+      (ethereum-lisp.crypto:keccak-256-update sponge (subseq data 6))
+      (is (bytes= (keccak-256 data)
+                  (ethereum-lisp.crypto:keccak-256-digest sponge)))
+      ;; Digesting does not consume the sponge: more data can still be absorbed.
+      (ethereum-lisp.crypto:keccak-256-update sponge (ascii-to-bytes "!"))
+      (is (bytes= (keccak-256 (ascii-to-bytes
+                               (concatenate 'string
+                                            "the quick brown fox jumps over the lazy dog"
+                                            "!")))
+                  (ethereum-lisp.crypto:keccak-256-digest sponge))))
+    ;; An input spanning several sponge blocks (> 136 bytes) still matches.
+    (let ((big (make-byte-vector 300 :initial-element #xab))
+          (sponge (ethereum-lisp.crypto:make-keccak-256)))
+      (ethereum-lisp.crypto:keccak-256-update sponge (subseq big 0 137))
+      (ethereum-lisp.crypto:keccak-256-update sponge (subseq big 137))
+      (is (bytes= (keccak-256 big)
+                  (ethereum-lisp.crypto:keccak-256-digest sponge))))))
