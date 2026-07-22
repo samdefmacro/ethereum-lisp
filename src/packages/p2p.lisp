@@ -74,4 +74,20 @@
    #:encode-devp2p-ping
    #:encode-devp2p-pong
    #:rlpx-write-message
-   #:rlpx-read-message))
+   #:rlpx-read-message
+   #:+devp2p-base-protocol-length+
+   #:devp2p-capability-message-count
+   #:rlpx-disconnect
+   #:rlpx-disconnect-reason
+   #:rlpx-shared-capability
+   #:rlpx-shared-capability-name
+   #:rlpx-shared-capability-version
+   #:rlpx-shared-capability-offset
+   #:rlpx-negotiate-capabilities
+   #:rlpx-shared-capability-named
+   #:rlpx-send-hello
+   #:rlpx-receive-hello
+   #:rlpx-exchange-hello
+   #:rlpx-send-ping
+   #:rlpx-send-pong
+   #:rlpx-send-disconnect))
