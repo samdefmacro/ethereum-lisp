@@ -67,3 +67,44 @@
              (funcall error-callback condition)
              (devnet-shutdown-request shutdown-controller))))
        :name "ethereum-lisp-devnet-dev-period"))))
+
+(defun devnet-start-discovery-thread
+    (node shutdown-controller error-callback)
+  "Start the discv4 discovery worker, or return NIL when no bootnodes are
+configured (or off SBCL). It crawls the bootnodes for peers and dials each new
+one into the node via the peer-sync path, re-crawling periodically. A per-peer
+failure is logged and skipped; only an escaping error is fail-stop."
+  #-sbcl
+  (declare (ignore node shutdown-controller error-callback))
+  #-sbcl
+  nil
+  #+sbcl
+  (let ((bootnodes (devnet-node-bootnodes node)))
+    (when bootnodes
+      (sb-thread:make-thread
+       (lambda ()
+         (handler-case
+             (let ((private-key (secp256k1-random-private-key))
+                   (dialed (make-hash-table :test 'equal)))
+               (loop until (devnet-shutdown-requested-p shutdown-controller) do
+                 (dolist (enode (discv4-lookup bootnodes private-key))
+                   (when (devnet-shutdown-requested-p shutdown-controller)
+                     (return))
+                   (unless (gethash enode dialed)
+                     (setf (gethash enode dialed) t)
+                     (handler-case
+                         (devnet-peer-sync-one node enode private-key)
+                       (error (condition)
+                         (telemetry-log
+                          :warning "peer.sync.peer_failed"
+                          :fields (list (cons "enode" enode)
+                                        (cons "error" (princ-to-string condition)))
+                          :sink (devnet-node-telemetry-sink node))))))
+                 ;; Re-crawl periodically, waking each second to notice shutdown.
+                 (loop repeat 30
+                       until (devnet-shutdown-requested-p shutdown-controller)
+                       do (sleep 1))))
+           (error (condition)
+             (funcall error-callback condition)
+             (devnet-shutdown-request shutdown-controller))))
+       :name "ethereum-lisp-devnet-discovery"))))

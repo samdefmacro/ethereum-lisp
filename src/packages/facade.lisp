@@ -425,6 +425,8 @@
    #:node-id-from-hex
    #:enode-url
    #:parse-enode-url
+   #:discv4-find-peers
+   #:discv4-lookup
    #:devp2p-capability-name
    #:devp2p-capability-version
    #:rlpx-disconnect

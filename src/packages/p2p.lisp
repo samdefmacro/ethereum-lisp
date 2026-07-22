@@ -61,12 +61,15 @@
    #:decode-discv4-neighbors
    #:discv4-unix-time
    #:discv4-expiration
+   #:discv4-expired-p
+   #:discv4-node-distance
    #:discv4-endpoint-for-host
    #:discv4-ip-string
    #:discv4-make-socket
    #:discv4-send-to
    #:discv4-receive
    #:discv4-find-peers
+   #:discv4-lookup
    #:ecies-encrypt
    #:ecies-decrypt
    #:ecies-concat-kdf

@@ -66,6 +66,7 @@
    :kzg-verifier-command (getf options :kzg-verifier-command)
    :kzg-verifier-timeout-seconds (getf options :kzg-verifier-timeout-seconds)
    :peers (getf options :peers)
+   :bootnodes (getf options :bootnodes)
    :public-allowed-method-p
    (devnet-cli-public-api-method-filter (getf options :http-api-modules))
    :telemetry-sink telemetry-sink))

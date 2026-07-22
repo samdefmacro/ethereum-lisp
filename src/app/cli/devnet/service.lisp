@@ -40,7 +40,9 @@
          (dev-period-error nil)
          (dev-period-thread nil)
          (peer-sync-error nil)
-         (peer-sync-thread nil))
+         (peer-sync-thread nil)
+         (discovery-error nil)
+         (discovery-thread nil))
     (devnet-shutdown-controller-register-listeners
      shutdown-controller engine-listener public-listener)
     (handler-case
@@ -67,6 +69,12 @@
            shutdown-controller
            (lambda (condition)
              (setf peer-sync-error condition))))
+    (setf discovery-thread
+          (devnet-start-discovery-thread
+           node
+           shutdown-controller
+           (lambda (condition)
+             (setf discovery-error condition))))
     (let ((result nil))
       (unwind-protect
            (setf result
@@ -143,13 +151,24 @@
                     (sb-thread:join-thread peer-sync-thread
                                            :timeout 5 :default :timeout))
             (ignore-errors (sb-thread:terminate-thread peer-sync-thread))
-            (ignore-errors (sb-thread:join-thread peer-sync-thread)))))
+            (ignore-errors (sb-thread:join-thread peer-sync-thread))))
+        (when discovery-thread
+          ;; Same as peer-sync: a worker blocked in a UDP receive or a dial will
+          ;; not wake from the shutdown request, so bound the join then terminate.
+          (devnet-shutdown-request shutdown-controller)
+          (when (eq :timeout
+                    (sb-thread:join-thread discovery-thread
+                                           :timeout 5 :default :timeout))
+            (ignore-errors (sb-thread:terminate-thread discovery-thread))
+            (ignore-errors (sb-thread:join-thread discovery-thread)))))
       (when rejournal-error
         (error rejournal-error))
       (when dev-period-error
         (error dev-period-error))
       (when peer-sync-error
         (error peer-sync-error))
+      (when discovery-error
+        (error discovery-error))
       result)))
 
 (defun start-devnet-node

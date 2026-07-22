@@ -41,6 +41,7 @@
        txpool-rejournal-seconds
        dev-period-seconds
        peers
+       bootnodes
        kzg-verifier-command
        kzg-verifier-timeout-seconds
        (public-allowed-method-p #'engine-rpc-public-method-p)
@@ -228,7 +229,8 @@
      :txpool-journal-path txpool-journal-path
      :txpool-rejournal-seconds txpool-rejournal-seconds
      :dev-period-seconds dev-period-seconds
-     :peers (and peers (copy-list peers)))))
+     :peers (and peers (copy-list peers))
+     :bootnodes (and bootnodes (copy-list bootnodes)))))
 
 (defun devnet-cli-apply-merge-overrides
     (config &key terminal-total-difficulty
