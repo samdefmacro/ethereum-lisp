@@ -381,6 +381,11 @@
    #:rlpx-create-ack
    #:rlpx-open-ack
    #:rlpx-ack-message
+   #:make-rlpx-session
+   #:rlpx-keccak-mac
+   #:rlpx-constant-mac
+   #:rlpx-write-frame
+   #:rlpx-read-frame
    #:+node-id-size+
    #:node-id-from-private-key
    #:node-id-to-hex

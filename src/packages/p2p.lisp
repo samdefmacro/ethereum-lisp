@@ -29,4 +29,9 @@
    #:rlpx-ack-message
    #:rlpx-ack-message-recipient-ephemeral-public-key
    #:rlpx-ack-message-recipient-nonce
-   #:rlpx-ack-message-version))
+   #:rlpx-ack-message-version
+   #:make-rlpx-session
+   #:rlpx-keccak-mac
+   #:rlpx-constant-mac
+   #:rlpx-write-frame
+   #:rlpx-read-frame))
