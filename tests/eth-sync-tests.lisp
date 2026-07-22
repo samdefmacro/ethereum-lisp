@@ -448,3 +448,151 @@ the encoder substitutes its zero/empty defaults."
                  (when server-error
                    (error "eth sync dial server side failed: ~A" server-error))))))
       (ignore-errors (sb-bsd-sockets:socket-close listener)))))
+
+;;;; End-to-end initial block download: produce real valid blocks on one store
+;;;; and sync them into another store's state over a socket.
+
+(defparameter *eth-sync-paris-genesis-json*
+  ;; Post-merge (TTD 0), London active for base fee, pre-Shanghai so v1 empty
+  ;; blocks (no withdrawals) validate. stateRoot omitted so it is derived from
+  ;; the alloc consistently on both sides.
+  "{\"config\":{\"chainId\":1337,\"terminalTotalDifficulty\":0,\"londonBlock\":0},\"nonce\":\"0x0\",\"timestamp\":\"0x0\",\"extraData\":\"0x\",\"gasLimit\":\"0x1c9c380\",\"difficulty\":\"0x0\",\"mixHash\":\"0x0000000000000000000000000000000000000000000000000000000000000000\",\"coinbase\":\"0x0000000000000000000000000000000000000000\",\"alloc\":{\"0x0000000000000000000000000000000000001001\":{\"balance\":\"0xde0b6b3a7640000\",\"nonce\":\"0x1\"}}}")
+
+(defun eth-sync-make-seeded-store (genesis-json)
+  "Return (VALUES STORE CONFIG GENESIS-BLOCK) for a fresh memory store seeded
+with the genesis of GENESIS-JSON and its state available."
+  (let* ((config (chain-config-from-genesis-json-string genesis-json))
+         (state (state-db-from-genesis-json-string genesis-json))
+         (genesis-block (genesis-block-from-state-genesis-json-string
+                         genesis-json :config config))
+         (store (make-engine-payload-memory-store)))
+    (chain-store-put-block store genesis-block :state-available-p t)
+    (commit-state-db-to-chain-store store (block-hash genesis-block) state)
+    (values store config genesis-block)))
+
+(defun eth-sync-produce-empty-blocks (genesis-block config count)
+  "Chain COUNT valid empty post-merge blocks on top of GENESIS-BLOCK."
+  (let ((parent genesis-block)
+        (produced '()))
+    (dotimes (i count (nreverse produced))
+      (let* ((attrs (make-payload-attributes-v1
+                     :timestamp (+ (block-header-timestamp (block-header parent)) 12)
+                     :prev-randao (zero-hash32)
+                     :suggested-fee-recipient (zero-address)))
+             (block (ethereum-lisp.engine-payloads:engine-build-empty-payload
+                     parent attrs config)))
+        (push block produced)
+        (setf parent block)))))
+
+(defun eth-sync-serve-block-list (peer blocks)
+  "Answer header and body requests for BLOCKS (a vector, block N at index N-1)
+until the peer disconnects."
+  (handler-case
+      (loop
+        (multiple-value-bind (eth-id payload) (eth-peer-read peer)
+          (cond
+            ((= eth-id ethereum-lisp.eth-wire:+eth-message-get-block-headers+)
+             (let* ((req (ethereum-lisp.eth-wire:decode-eth-get-block-headers payload))
+                    (origin (ethereum-lisp.eth-wire:eth-get-block-headers-origin-number req))
+                    (amount (ethereum-lisp.eth-wire:eth-get-block-headers-amount req))
+                    (rid (ethereum-lisp.eth-wire:eth-get-block-headers-request-id req))
+                    (headers (loop for n from origin below (+ origin amount)
+                                   when (<= 1 n (length blocks))
+                                     collect (block-header (aref blocks (1- n))))))
+               (eth-peer-send peer
+                              ethereum-lisp.eth-wire:+eth-message-block-headers+
+                              (ethereum-lisp.eth-wire:encode-eth-block-headers rid headers))))
+            ((= eth-id ethereum-lisp.eth-wire:+eth-message-get-block-bodies+)
+             (multiple-value-bind (rid hashes)
+                 (ethereum-lisp.eth-wire:decode-eth-get-block-bodies payload)
+               (eth-peer-send
+                peer ethereum-lisp.eth-wire:+eth-message-block-bodies+
+                (ethereum-lisp.eth-wire:encode-eth-block-bodies
+                 rid (mapcar
+                      (lambda (h)
+                        (let ((block (find-if
+                                      (lambda (b)
+                                        (bytes= h (hash32-bytes (block-hash b))))
+                                      blocks)))
+                          (ethereum-lisp.eth-wire:make-eth-block-body
+                           :transactions (block-transactions block)
+                           :ommers (block-ommers block)
+                           :withdrawals (block-withdrawals block)
+                           :withdrawals-present-p (block-withdrawals-present-p block))))
+                      hashes))))))))
+    (rlpx-disconnect () nil)))
+
+(deftest eth-sync-imports-produced-blocks-into-a-store-over-a-socket
+  (:layer :integration :module :p2p :requires-local-sockets t)
+  (multiple-value-bind (client-store config genesis-block)
+      (eth-sync-make-seeded-store *eth-sync-paris-genesis-json*)
+    (let* ((produced (coerce (eth-sync-produce-empty-blocks genesis-block config 3)
+                             'vector))
+           (genesis-hash (hash32-bytes (block-hash genesis-block)))
+           ;; Store lookups key on hash32 objects; Status wants raw bytes.
+           (tip-hash (block-hash (aref produced 2)))
+           (server-static
+            #xb71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291)
+           (client-static
+            #x49a7b37aa6f6645917e7b807e9d1c00d4fa71f18343b0d4122a4d2df64dd6fee)
+           (server-static-pub (secp256k1-private-key-public-key server-static))
+           (listener (make-instance 'sb-bsd-sockets:inet-socket
+                                    :type :stream :protocol :tcp)))
+      (flet ((hello (id)
+               (make-devp2p-hello
+                :client-id id
+                :capabilities (list (make-devp2p-capability "eth" 68))
+                :node-id server-static-pub))
+             (status (head)
+               (eth-build-status config genesis-hash head 0 genesis-hash 0)))
+        (setf (sb-bsd-sockets:sockopt-reuse-address listener) t)
+        (unwind-protect
+             (progn
+               (sb-bsd-sockets:socket-bind
+                listener (sb-bsd-sockets:make-inet-address "127.0.0.1") 0)
+               (sb-bsd-sockets:socket-listen listener 1)
+               (multiple-value-bind (address port)
+                   (sb-bsd-sockets:socket-name listener)
+                 (declare (ignore address))
+                 (let ((server-error nil))
+                   (let ((server-thread
+                           (sb-thread:make-thread
+                            (lambda ()
+                              (handler-case
+                                  (let* ((client-socket
+                                           (sb-bsd-sockets:socket-accept listener))
+                                         (stream (p2p-binary-socket-stream client-socket))
+                                         (connection (rlpx-accept-stream stream server-static))
+                                         (peer (eth-peer-connect connection (hello "srv")
+                                                                 (status 3))))
+                                    (eth-sync-serve-block-list peer produced))
+                                (error (condition) (setf server-error condition))))
+                            :name "eth-sync-ibd-test-server")))
+                     (let ((client-socket (make-instance 'sb-bsd-sockets:inet-socket
+                                                         :type :stream :protocol :tcp)))
+                       (sb-bsd-sockets:socket-connect
+                        client-socket (sb-bsd-sockets:make-inet-address "127.0.0.1") port)
+                       (let* ((stream (p2p-binary-socket-stream client-socket))
+                              (connection (rlpx-connect-stream stream client-static
+                                                               server-static-pub))
+                              (peer (eth-peer-connect connection (hello "cli") (status 0)))
+                              (count (eth-sync-download-blocks
+                                      peer
+                                      (lambda (block)
+                                        (execute-and-commit-engine-payload
+                                         client-store block config))
+                                      :start-number 1 :batch-size 2)))
+                         (rlpx-send-disconnect connection +devp2p-message-disconnect+)
+                         ;; All three produced blocks were downloaded and imported.
+                         (is (= 3 count))
+                         (is (not (null (chain-store-known-block client-store tip-hash))))
+                         ;; Making the tip canonical advances the visible head to 3.
+                         (chain-store-set-canonical-head
+                          client-store tip-hash
+                          :expected-chain-id (chain-config-chain-id config)
+                          :chain-config config)
+                         (is (= 3 (chain-store-head-number client-store)))))
+                     (sb-thread:join-thread server-thread)
+                     (when server-error
+                       (error "eth sync IBD server side failed: ~A" server-error))))))
+          (ignore-errors (sb-bsd-sockets:socket-close listener)))))))
