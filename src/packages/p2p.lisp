@@ -10,4 +10,7 @@
    #:node-id-to-hex
    #:node-id-from-hex
    #:enode-url
-   #:parse-enode-url))
+   #:parse-enode-url
+   #:ecies-encrypt
+   #:ecies-decrypt
+   #:ecies-concat-kdf))
