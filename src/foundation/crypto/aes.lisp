@@ -138,6 +138,50 @@ vector holding round-count+1 sixteen-byte round keys."
     (aes-add-round-key state schedule rounds)
     state))
 
+;;; Stateful AES-CTR stream. RLPx encrypts every frame in a direction with one
+;;; continuous CTR keystream rather than restarting the counter per frame, so
+;;; the cipher must carry its counter and partial keystream block across calls.
+
+(defstruct (aes-ctr-stream (:constructor %make-aes-ctr-stream))
+  schedule
+  rounds
+  counter
+  keystream
+  (position +aes-block-size+ :type fixnum))
+
+(defun make-aes-ctr-stream (key &optional iv)
+  "Return an AES-CTR stream over KEY starting at the 16-byte IV (default zero)."
+  (let ((iv (if iv (ensure-byte-vector iv) (make-byte-vector +aes-block-size+))))
+    (unless (= (length iv) +aes-block-size+)
+      (error "AES-CTR IV must be ~D bytes" +aes-block-size+))
+    (multiple-value-bind (schedule rounds) (aes-expand-key key)
+      (%make-aes-ctr-stream :schedule schedule
+                            :rounds rounds
+                            :counter (copy-seq iv)
+                            :keystream (make-byte-vector +aes-block-size+)))))
+
+(defun aes-ctr-stream-apply (stream data)
+  "XOR DATA against STREAM's continuing keystream, advancing STREAM.
+
+Successive calls share one keystream, so applying it in pieces equals one CTR
+pass over the concatenation."
+  (let* ((data (ensure-byte-vector data))
+         (output (make-byte-vector (length data))))
+    (dotimes (i (length data))
+      (when (= (aes-ctr-stream-position stream) +aes-block-size+)
+        (setf (aes-ctr-stream-keystream stream)
+              (aes-encrypt-block (aes-ctr-stream-schedule stream)
+                                 (aes-ctr-stream-rounds stream)
+                                 (aes-ctr-stream-counter stream)))
+        (aes-increment-counter (aes-ctr-stream-counter stream))
+        (setf (aes-ctr-stream-position stream) 0))
+      (setf (aref output i)
+            (logxor (aref data i)
+                    (aref (aes-ctr-stream-keystream stream)
+                          (aes-ctr-stream-position stream))))
+      (incf (aes-ctr-stream-position stream)))
+    output))
+
 (defun aes-encrypt-ecb-block (key block)
   "Return the single-block AES encryption of BLOCK under KEY.
 

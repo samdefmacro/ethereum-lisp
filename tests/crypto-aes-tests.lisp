@@ -166,3 +166,28 @@
       (ethereum-lisp.crypto:keccak-256-update sponge (subseq big 137))
       (is (bytes= (keccak-256 big)
                   (ethereum-lisp.crypto:keccak-256-digest sponge))))))
+
+(deftest aes-ctr-stream-continues-one-keystream
+  ;; Applying the stream in pieces equals one CTR pass over the whole input.
+  (let ((key (hex-to-bytes
+              "0x603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4"))
+        (iv (hex-to-bytes "0xf0f1f2f3f4f5f6f7f8f9fafbfcfdfeff"))
+        (data (hex-to-bytes
+               (concatenate 'string
+                            "0x6bc1bee22e409f96e93d7e117393172a"
+                            "ae2d8a571e03ac9c9eb76fac45af8e51"
+                            "30c81c46a35ce411e5fbc1191a0a52ef"))))
+    (let ((stream (ethereum-lisp.crypto:make-aes-ctr-stream key iv))
+          (pieces '()))
+      (dolist (bounds '((0 . 5) (5 . 16) (16 . 40) (40 . 48)))
+        (push (ethereum-lisp.crypto:aes-ctr-stream-apply
+               stream (subseq data (car bounds) (cdr bounds)))
+              pieces))
+      (is (bytes= (ethereum-lisp.crypto:aes-ctr key iv data)
+                  (apply #'concat-bytes (nreverse pieces)))))
+    ;; Two independent streams over the same key/IV agree, so a writer's egress
+    ;; stream and a reader's matching stream produce the same keystream.
+    (let ((a (ethereum-lisp.crypto:make-aes-ctr-stream key iv))
+          (b (ethereum-lisp.crypto:make-aes-ctr-stream key iv)))
+      (let ((ct (ethereum-lisp.crypto:aes-ctr-stream-apply a data)))
+        (is (bytes= data (ethereum-lisp.crypto:aes-ctr-stream-apply b ct)))))))
