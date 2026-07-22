@@ -391,6 +391,12 @@
    #:rlpx-read-frame
    #:make-rlpx-initiator-session
    #:make-rlpx-recipient-session
+   #:rlpx-connect-stream
+   #:rlpx-accept-stream
+   #:rlpx-connection
+   #:rlpx-connection-remote-public-key
+   #:rlpx-connection-write-message
+   #:rlpx-connection-read-message
    #:make-devp2p-hello
    #:devp2p-hello
    #:encode-devp2p-hello
