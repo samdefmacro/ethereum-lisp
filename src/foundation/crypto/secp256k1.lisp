@@ -106,6 +106,43 @@ address derivation and devp2p node identities."
      (integer-to-fixed-bytes (secp256k1-point-x public-point) 32)
      (integer-to-fixed-bytes (secp256k1-point-y public-point) 32))))
 
+(defun secp256k1-sign (hash private-key &key k)
+  "Sign the 32-byte HASH with the PRIVATE-KEY scalar.
+
+Returns a 65-byte r || s || v signature, where s is normalised to the lower half
+of the curve order and v is the recovery id 0 or 1 — the form Ethereum and RLPx
+use. K, the per-signature nonce, defaults to fresh secure randomness and is a
+parameter only so a test can pin it."
+  (unless (and (integerp private-key) (< 0 private-key +secp256k1-n+))
+    (error "secp256k1 private key must be in [1, n-1]"))
+  (let ((z (bytes-to-integer (require-sized-byte-vector hash 32 "secp256k1 hash")))
+        (generator (secp256k1-point +secp256k1-gx+ +secp256k1-gy+))
+        (half-order (floor +secp256k1-n+ 2))
+        (fixed-k k))
+    (loop
+      (let* ((k (or fixed-k (secp256k1-random-private-key)))
+             (point (secp256k1-scalar-multiply k generator))
+             (r (mod (secp256k1-point-x point) +secp256k1-n+)))
+        (unless (zerop r)
+          (let ((s (mod (* (modular-inverse k +secp256k1-n+)
+                           (+ z (* r private-key)))
+                        +secp256k1-n+)))
+            (unless (zerop s)
+              (let ((recovery (if (oddp (secp256k1-point-y point)) 1 0)))
+                ;; Canonical low-s: negating s reflects the point, flipping the
+                ;; recovered y's parity, so the recovery id flips with it.
+                (when (> s half-order)
+                  (setf s (- +secp256k1-n+ s)
+                        recovery (logxor recovery 1)))
+                (return-from secp256k1-sign
+                  (concat-bytes (integer-to-fixed-bytes r 32)
+                                (integer-to-fixed-bytes s 32)
+                                (integer-to-fixed-bytes recovery 1)))))))
+        ;; A pinned nonce that yields a degenerate signature is an error, not a
+        ;; reason to loop forever on the same value.
+        (when fixed-k
+          (error "secp256k1 signing failed for the supplied nonce"))))))
+
 (defun secp256k1-random-private-key ()
   "Return a cryptographically random secp256k1 private key scalar in [1, n-1]."
   (loop for candidate = (mod (bytes-to-integer (secure-random-bytes 32))
