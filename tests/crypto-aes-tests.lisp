@@ -113,3 +113,32 @@
                      (ethereum-lisp.crypto::secp256k1-point-x shared-point) 32))))))
   ;; A point off the curve is rejected.
   (signals error (ethereum-lisp.crypto:secp256k1-ecdh 5 (make-byte-vector 64))))
+
+(deftest secp256k1-sign-round-trips-through-recovery
+  ;; Signing then recovering must return the signer's public key, for several
+  ;; keys and messages, which fully checks the signature math and recovery id.
+  (dolist (private-key (list 1
+                             #x1111111111111111111111111111111111111111111111111111111111111111
+                             #xabcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789))
+    (let ((public-key (secp256k1-private-key-public-key private-key)))
+      (dotimes (i 4)
+        (let* ((hash (sha256 (ascii-to-bytes (format nil "message ~D" i))))
+               (signature (ethereum-lisp.crypto:secp256k1-sign hash private-key)))
+          (is (= 65 (length signature)))
+          ;; s is canonical (in the lower half of the curve order).
+          (is (<= (bytes-to-integer (subseq signature 32 64))
+                  (floor ethereum-lisp.crypto::+secp256k1-n+ 2)))
+          ;; v is a recovery id.
+          (is (member (aref signature 64) '(0 1)))
+          (let ((recovered
+                  (secp256k1-recover-public-key
+                   hash
+                   (aref signature 64)
+                   (bytes-to-integer (subseq signature 0 32))
+                   (bytes-to-integer (subseq signature 32 64)))))
+            (is (bytes= public-key recovered)))))))
+  ;; A pinned nonce is deterministic.
+  (let* ((hash (sha256 (ascii-to-bytes "fixed")))
+         (a (ethereum-lisp.crypto:secp256k1-sign hash 42 :k 12345))
+         (b (ethereum-lisp.crypto:secp256k1-sign hash 42 :k 12345)))
+    (is (bytes= a b))))
