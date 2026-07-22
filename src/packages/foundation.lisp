@@ -172,6 +172,10 @@
    #:secp256r1-verify
    #:aes-ctr
    #:aes-encrypt-ecb-block
+   #:hmac-sha256
+   #:constant-time-bytes=
+   #:secp256k1-ecdh
+   #:secp256k1-public-key-point
    #:+kzg-commitment-size+
    #:+kzg-commitment-version+
    #:kzg-commitment-to-versioned-hash

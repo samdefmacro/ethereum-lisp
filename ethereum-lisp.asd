@@ -54,6 +54,7 @@
        (:file "crypto-words" :pathname "crypto/words")
        (:file "crypto-keccak" :pathname "crypto/keccak")
        (:file "crypto-sha256" :pathname "crypto/sha256")
+       (:file "crypto-hmac" :pathname "crypto/hmac")
        (:file "crypto-ripemd160" :pathname "crypto/ripemd160")
        (:file "crypto-kzg" :pathname "crypto/kzg")
        (:file "crypto-math" :pathname "crypto/math")

@@ -106,6 +106,28 @@ address derivation and devp2p node identities."
      (integer-to-fixed-bytes (secp256k1-point-x public-point) 32)
      (integer-to-fixed-bytes (secp256k1-point-y public-point) 32))))
 
+(defun secp256k1-public-key-point (public-key)
+  "Parse a 64-byte uncompressed public key body into a curve point."
+  (let ((bytes (require-sized-byte-vector public-key 64 "secp256k1 public key")))
+    (let ((point (secp256k1-point (bytes-to-integer (subseq bytes 0 32))
+                                  (bytes-to-integer (subseq bytes 32 64)))))
+      (unless (secp256k1-point-on-curve-p point)
+        (error "secp256k1 public key is not on the curve"))
+      point)))
+
+(defun secp256k1-ecdh (private-key public-key)
+  "Return the 32-byte ECDH shared secret for PRIVATE-KEY and PUBLIC-KEY.
+
+The secret is the big-endian X coordinate of PRIVATE-KEY times the point named
+by the 64-byte uncompressed PUBLIC-KEY body — the agreement devp2p ECIES uses."
+  (unless (and (integerp private-key) (< 0 private-key +secp256k1-n+))
+    (error "secp256k1 private key must be in [1, n-1]"))
+  (let ((shared (secp256k1-scalar-multiply
+                 private-key (secp256k1-public-key-point public-key))))
+    (when (null shared)
+      (error "secp256k1 ECDH produced the point at infinity"))
+    (integer-to-fixed-bytes (secp256k1-point-x shared) 32)))
+
 (defun secp256k1-private-key-address (private-key)
   "Derive the Ethereum address for a secp256k1 private key scalar."
   (secp256k1-public-key-address
