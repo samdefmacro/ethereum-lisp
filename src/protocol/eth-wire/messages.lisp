@@ -10,6 +10,12 @@
 ;;;; caller.
 
 (defconstant +eth-protocol-version+ 68)
+(defconstant +eth-protocol-version-69+ 69)
+
+(defparameter +eth-supported-protocol-versions+ '(69 68)
+  "eth wire versions we speak, highest first. eth/69 (EIP-7642) drops total
+difficulty from Status and adds a block range; the header/body messages are
+unchanged, so download works across both.")
 
 ;; Message ids within the eth capability, before the base-protocol offset.
 (defconstant +eth-message-status+ #x00)
@@ -21,6 +27,8 @@
 (defconstant +eth-message-block-bodies+ #x06)
 (defconstant +eth-message-get-receipts+ #x0f)
 (defconstant +eth-message-receipts+ #x10)
+;; eth/69 adds a block-range announcement past the eth/68 id space.
+(defconstant +eth-message-block-range-update+ #x11)
 
 ;; The base "p2p" protocol reserves ids 0x00-0x0f, so a capability's ids are
 ;; offset past it.
@@ -52,15 +60,21 @@
 (defstruct (eth-status
             (:constructor make-eth-status
                 (&key (version +eth-protocol-version+) network-id
-                      total-difficulty best-hash genesis-hash fork-id)))
+                      total-difficulty best-hash genesis-hash fork-id
+                      (earliest-block 0) latest-block latest-block-hash)))
   version
   network-id
   total-difficulty
   best-hash
   genesis-hash
-  fork-id)
+  fork-id
+  ;; eth/69 fields: the range of blocks we can serve and our head.
+  earliest-block
+  latest-block
+  latest-block-hash)
 
 (defun encode-eth-status (status)
+  "Encode an eth/68 Status: [version, networkid, td, bestHash, genesis, forkid]."
   (rlp-encode
    (make-rlp-list
     (integer-to-minimal-bytes (eth-status-version status))
@@ -82,6 +96,47 @@
      :best-hash (ensure-byte-vector (fourth items))
      :genesis-hash (ensure-byte-vector (fifth items))
      :fork-id (eth-fork-id-from-rlp-object (sixth items)))))
+
+(defun encode-eth-status-69 (status)
+  "Encode an eth/69 Status (EIP-7642): total difficulty and best hash are gone;
+the message carries the served block range and our head instead —
+[version, networkid, genesis, forkid, earliestBlock, latestBlock, latestBlockHash]."
+  (rlp-encode
+   (make-rlp-list
+    (integer-to-minimal-bytes (eth-status-version status))
+    (integer-to-minimal-bytes (eth-status-network-id status))
+    (ensure-byte-vector (eth-status-genesis-hash status))
+    (eth-fork-id-rlp-object (eth-status-fork-id status))
+    (integer-to-minimal-bytes (or (eth-status-earliest-block status) 0))
+    (integer-to-minimal-bytes (or (eth-status-latest-block status) 0))
+    (ensure-byte-vector (or (eth-status-latest-block-hash status)
+                            (eth-status-genesis-hash status))))))
+
+(defun decode-eth-status-69 (bytes)
+  (let ((items (rlp-list-items
+                (rlp-decode (ensure-byte-vector bytes) :allow-trailing t))))
+    (when (< (length items) 7)
+      (error "eth/69 Status must have at least seven fields"))
+    (make-eth-status
+     :version (bytes-to-integer (ensure-byte-vector (first items)))
+     :network-id (bytes-to-integer (ensure-byte-vector (second items)))
+     :genesis-hash (ensure-byte-vector (third items))
+     :fork-id (eth-fork-id-from-rlp-object (fourth items))
+     :earliest-block (bytes-to-integer (ensure-byte-vector (fifth items)))
+     :latest-block (bytes-to-integer (ensure-byte-vector (sixth items)))
+     :latest-block-hash (ensure-byte-vector (seventh items)))))
+
+(defun encode-eth-status-for-version (status version)
+  "Encode STATUS in the wire format for the negotiated eth VERSION."
+  (if (>= version +eth-protocol-version-69+)
+      (encode-eth-status-69 status)
+      (encode-eth-status status)))
+
+(defun decode-eth-status-for-version (bytes version)
+  "Decode a Status message in the wire format for the negotiated eth VERSION."
+  (if (>= version +eth-protocol-version-69+)
+      (decode-eth-status-69 bytes)
+      (decode-eth-status bytes)))
 
 ;;; GetBlockHeaders / BlockHeaders. eth/66 wraps every request and response in a
 ;;; request id so replies can be matched to requests.

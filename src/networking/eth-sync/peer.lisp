@@ -11,6 +11,7 @@
 (defstruct (eth-peer (:constructor %make-eth-peer))
   connection
   eth-offset
+  eth-version
   remote-status
   (request-counter 0))
 
@@ -67,14 +68,20 @@ Only subprotocol messages are returned to the caller."
 
 NETWORK-ID defaults to the config's chain id. The fork id is derived from the
 config at (HEAD-NUMBER, HEAD-TIMESTAMP)."
-  (make-eth-status
-   :version +eth-protocol-version+
-   :network-id (or network-id (chain-config-chain-id config))
-   :total-difficulty total-difficulty
-   :best-hash (ensure-byte-vector best-hash)
-   :genesis-hash (ensure-byte-vector genesis-hash)
-   :fork-id (chain-config-eth-fork-id config genesis-hash head-number
-                                      head-timestamp genesis-timestamp)))
+  (let ((best (ensure-byte-vector best-hash)))
+    (make-eth-status
+     :version +eth-protocol-version+
+     :network-id (or network-id (chain-config-chain-id config))
+     :total-difficulty total-difficulty
+     :best-hash best
+     :genesis-hash (ensure-byte-vector genesis-hash)
+     :fork-id (chain-config-eth-fork-id config genesis-hash head-number
+                                        head-timestamp genesis-timestamp)
+     ;; eth/69 carries our served range and head instead of the total
+     ;; difficulty; the head hash is the best hash and we serve from genesis.
+     :earliest-block 0
+     :latest-block head-number
+     :latest-block-hash best)))
 
 (defun eth-validate-peer-status (ours theirs)
   "Signal an error unless the peer's Status THEIRS is compatible with OURS.
@@ -92,32 +99,38 @@ is left to a later pass. Returns THEIRS on success."
     (error "eth genesis mismatch: peer is on a different chain"))
   theirs)
 
-(defun eth-peer-handshake (connection eth-offset our-status)
+(defun eth-peer-handshake (connection eth-offset eth-version our-status)
   "Exchange eth Status over CONNECTION and return a validated ETH-PEER.
 
-Sends OUR-STATUS, reads the peer's, and validates version, network, and genesis
-before returning the peer. Both sides send before reading, so there is no
-deadlock."
+Encodes OUR-STATUS in the negotiated ETH-VERSION's wire format (eth/68 carries
+total difficulty; eth/69 carries a block range instead), reads the peer's, and
+validates version, network, and genesis before returning the peer. Both sides
+send before reading, so there is no deadlock."
+  (setf (eth-status-version our-status) eth-version)
   (eth-wire-send connection eth-offset +eth-message-status+
-                 (encode-eth-status our-status))
+                 (encode-eth-status-for-version our-status eth-version))
   (multiple-value-bind (eth-id payload) (eth-wire-read connection eth-offset)
     (unless (= eth-id +eth-message-status+)
       (error "expected eth Status (0x00) but got eth message id ~D" eth-id))
-    (let ((peer-status (decode-eth-status payload)))
+    (let ((peer-status (decode-eth-status-for-version payload eth-version)))
       (eth-validate-peer-status our-status peer-status)
       (%make-eth-peer :connection connection
                       :eth-offset eth-offset
+                      :eth-version eth-version
                       :remote-status peer-status))))
 
 (defun eth-peer-connect (connection hello our-status)
   "Run the devp2p Hello exchange then the eth Status handshake over CONNECTION.
 
-HELLO is our devp2p Hello, which must advertise the eth capability. Returns the
-ETH-PEER, or errors if the peer does not share eth."
+HELLO is our devp2p Hello, which must advertise the eth capability. The eth
+version is whichever the negotiation settled on. Returns the ETH-PEER, or errors
+if the peer does not share eth."
   (multiple-value-bind (peer-hello shared) (rlpx-exchange-hello connection hello)
     (declare (ignore peer-hello))
     (let ((eth (rlpx-shared-capability-named shared "eth")))
       (unless eth
         (error "peer does not support the eth capability"))
-      (eth-peer-handshake connection (rlpx-shared-capability-offset eth)
+      (eth-peer-handshake connection
+                          (rlpx-shared-capability-offset eth)
+                          (rlpx-shared-capability-version eth)
                           our-status))))

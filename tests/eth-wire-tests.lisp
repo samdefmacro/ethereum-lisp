@@ -194,3 +194,32 @@
       (is (equal '("0xdce96c2d" 1710338135) (fork-id-at 20000000 1681338455)))
       ;; Cancun, no further scheduled fork.
       (is (equal '("0x9f3d2254" 0) (fork-id-at 20000000 1710338135))))))
+
+(deftest eth-status-69-matches-geth-live-wire-bytes
+  ;; Byte-exact against a real geth v1.17.4 eth/69 Status captured live on the
+  ;; testnet box: [version, networkid, genesis, forkid, earliest, latest,
+  ;; latestHash]. Total difficulty and best hash are gone in eth/69.
+  (let* ((genesis (hex-to-bytes
+                   "0xdd4db8010834be306d0386cbddf2fc91d5778b05a410d22e7bbbf2f2629e5822"))
+         (status (ethereum-lisp.eth-wire:make-eth-status
+                  :version 69 :network-id 1337 :genesis-hash genesis
+                  :fork-id (ethereum-lisp.eth-wire:make-eth-fork-id
+                            (hex-to-bytes "0xd59b4e01") 0)
+                  :earliest-block 0 :latest-block 0 :latest-block-hash genesis))
+         (encoded (ethereum-lisp.eth-wire:encode-eth-status-69 status)))
+    (is (string=
+         "0xf84f45820539a0dd4db8010834be306d0386cbddf2fc91d5778b05a410d22e7bbbf2f2629e5822c684d59b4e01808080a0dd4db8010834be306d0386cbddf2fc91d5778b05a410d22e7bbbf2f2629e5822"
+         (bytes-to-hex encoded)))
+    ;; Version-dispatched decode round-trips.
+    (let ((decoded (ethereum-lisp.eth-wire:decode-eth-status-for-version encoded 69)))
+      (is (= 69 (ethereum-lisp.eth-wire:eth-status-version decoded)))
+      (is (= 1337 (ethereum-lisp.eth-wire:eth-status-network-id decoded)))
+      (is (= 0 (ethereum-lisp.eth-wire:eth-status-latest-block decoded)))
+      (is (bytes= genesis (ethereum-lisp.eth-wire:eth-status-genesis-hash decoded)))
+      (is (bytes= genesis (ethereum-lisp.eth-wire:eth-status-latest-block-hash decoded)))
+      (is (string= "0xd59b4e01"
+                   (bytes-to-hex (ethereum-lisp.eth-wire:eth-fork-id-hash
+                                  (ethereum-lisp.eth-wire:eth-status-fork-id decoded))))))
+    ;; The version dispatcher picks the eth/68 format below 69.
+    (is (string= (bytes-to-hex encoded)
+                 (bytes-to-hex (ethereum-lisp.eth-wire:encode-eth-status-for-version status 69))))))
