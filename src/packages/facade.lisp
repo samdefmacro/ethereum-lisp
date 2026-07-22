@@ -82,6 +82,9 @@
    #:unix-time)
   (#:ethereum-lisp.crypto
    #:keccak-256
+   #:make-keccak-256
+   #:keccak-256-update
+   #:keccak-256-digest
    #:keccak-256-hash
    #:keccak-256-hex
    #:sha256
