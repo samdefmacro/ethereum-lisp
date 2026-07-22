@@ -42,6 +42,7 @@
        dev-period-seconds
        peers
        bootnodes
+       node-key
        kzg-verifier-command
        kzg-verifier-timeout-seconds
        (public-allowed-method-p #'engine-rpc-public-method-p)
@@ -230,7 +231,13 @@
      :txpool-rejournal-seconds txpool-rejournal-seconds
      :dev-period-seconds dev-period-seconds
      :peers (and peers (copy-list peers))
-     :bootnodes (and bootnodes (copy-list bootnodes)))))
+     :bootnodes (and bootnodes (copy-list bootnodes))
+     ;; One stable node identity per node, shared by the discovery and peer-sync
+     ;; workers; a fresh key when none is configured.
+     :node-key (or node-key (secp256k1-random-private-key))
+     ;; Shared set so discovery and peer-sync dial each peer identity once.
+     :dialed (make-hash-table :test 'equal)
+     :dial-guard-function (make-devnet-store-guard-function))))
 
 (defun devnet-cli-apply-merge-overrides
     (config &key terminal-total-difficulty

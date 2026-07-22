@@ -188,6 +188,9 @@
    #:constant-time-bytes=
    #:secp256k1-ecdh
    #:secp256k1-public-key-point
+   #:secp256k1-compress-public-key
+   #:secp256k1-decompress-public-key
+   #:secp256k1-verify
    #:secp256k1-sign
    #:secp256k1-random-private-key
    #:secure-random-bytes

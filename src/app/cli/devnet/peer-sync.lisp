@@ -104,18 +104,22 @@ is logged and skipped, and only an error escaping that is fail-stop."
       (sb-thread:make-thread
        (lambda ()
          (handler-case
-             (let ((private-key (secp256k1-random-private-key)))
+             ;; Use the node's stable identity, not a throwaway key, and claim
+             ;; each peer so it is not also dialed by the discovery worker.
+             (let ((private-key (devnet-node-node-key node)))
                (dolist (enode peers)
                  (when (devnet-shutdown-requested-p shutdown-controller)
                    (return))
-                 (handler-case
-                     (devnet-peer-sync-one node enode private-key)
-                   (error (condition)
-                     (telemetry-log
-                      :warning "peer.sync.peer_failed"
-                      :fields (list (cons "enode" enode)
-                                    (cons "error" (princ-to-string condition)))
-                      :sink (devnet-node-telemetry-sink node))))))
+                 (when (devnet-node-claim-dial
+                        node (nth-value 0 (parse-enode-url enode)))
+                   (handler-case
+                       (devnet-peer-sync-one node enode private-key)
+                     (error (condition)
+                       (telemetry-log
+                        :warning "peer.sync.peer_failed"
+                        :fields (list (cons "enode" enode)
+                                      (cons "error" (princ-to-string condition)))
+                        :sink (devnet-node-telemetry-sink node)))))))
            (error (condition)
              (funcall error-callback condition)
              (devnet-shutdown-request shutdown-controller))))
