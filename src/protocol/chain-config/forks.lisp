@@ -124,8 +124,8 @@ fork-id fold, in canonical order and dropping unset forks and the genesis."
   "Return the ascending, de-duplicated timestamps at which CONFIG's time-based
 forks activate, ordered after all block forks in the EIP-2124 fold.
 
-A fork whose timestamp equals GENESIS-TIMESTAMP is part of the genesis ruleset,
-not a transition, so it is dropped."
+A fork whose timestamp is at or before GENESIS-TIMESTAMP is part of the genesis
+ruleset, not a transition, so it is dropped (matching go-ethereum gatherForks)."
   (let ((points (chain-config-sorted-fork-points
                  (list (chain-config-shanghai-time config)
                        (chain-config-cancun-time config)
@@ -138,9 +138,7 @@ not a transition, so it is dropped."
                        (chain-config-bpo5-time config)
                        (chain-config-amsterdam-time config)
                        (chain-config-ubt-time config)))))
-    (if (and points (= (first points) genesis-timestamp))
-        (rest points)
-        points)))
+    (remove-if (lambda (point) (<= point genesis-timestamp)) points)))
 
 (defun chain-config-expanded-blob-schedule-p (config block-number timestamp)
   (or (chain-config-prague-p config block-number timestamp)
