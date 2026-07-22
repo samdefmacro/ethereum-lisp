@@ -1043,7 +1043,11 @@
     ;; A malformed key is rejected.
     (signals error
       (ethereum-lisp.cli::devnet-cli-options
-       (list "devnet" "--nodekeyhex" "not-hex" "--no-serve")))))
+       (list "devnet" "--nodekeyhex" "not-hex" "--no-serve")))
+    ;; A key that is not 32 bytes is rejected.
+    (signals error
+      (ethereum-lisp.cli::devnet-cli-options
+       (list "devnet" "--nodekeyhex" "0xdeadbeef" "--no-serve")))))
 
 (deftest devnet-node-claim-dial-deduplicates-by-identity
   (let ((node (ethereum-lisp.cli:make-devnet-node
@@ -1061,4 +1065,7 @@
     ;; A node with no configured key still gets a usable identity.
     (is (integerp (ethereum-lisp.cli::devnet-node-node-key
                    (ethereum-lisp.cli:make-devnet-node
-                    :genesis-path +devnet-cli-genesis-fixture+ :port 0))))))
+                    :genesis-path +devnet-cli-genesis-fixture+ :port 0))))
+    ;; Releasing a claim (as on a failed dial) lets the peer be retried.
+    (ethereum-lisp.cli::devnet-node-release-dial node id-a)
+    (is (ethereum-lisp.cli::devnet-node-claim-dial node id-a))))

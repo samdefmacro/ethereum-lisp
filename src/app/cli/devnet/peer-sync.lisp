@@ -110,16 +110,18 @@ is logged and skipped, and only an error escaping that is fail-stop."
                (dolist (enode peers)
                  (when (devnet-shutdown-requested-p shutdown-controller)
                    (return))
-                 (when (devnet-node-claim-dial
-                        node (nth-value 0 (parse-enode-url enode)))
-                   (handler-case
-                       (devnet-peer-sync-one node enode private-key)
-                     (error (condition)
-                       (telemetry-log
-                        :warning "peer.sync.peer_failed"
-                        :fields (list (cons "enode" enode)
-                                      (cons "error" (princ-to-string condition)))
-                        :sink (devnet-node-telemetry-sink node)))))))
+                 (let ((node-id (nth-value 0 (parse-enode-url enode))))
+                   (when (devnet-node-claim-dial node node-id)
+                     (handler-case
+                         (devnet-peer-sync-one node enode private-key)
+                       (error (condition)
+                         ;; Release so a transiently-failed peer can be retried.
+                         (devnet-node-release-dial node node-id)
+                         (telemetry-log
+                          :warning "peer.sync.peer_failed"
+                          :fields (list (cons "enode" enode)
+                                        (cons "error" (princ-to-string condition)))
+                          :sink (devnet-node-telemetry-sink node))))))))
            (error (condition)
              (funcall error-callback condition)
              (devnet-shutdown-request shutdown-controller))))
