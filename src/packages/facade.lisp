@@ -101,6 +101,8 @@
    #:constant-time-bytes=
    #:secp256k1-ecdh
    #:secp256k1-public-key-point
+   #:secp256k1-random-private-key
+   #:secure-random-bytes
    #:+kzg-commitment-size+
    #:+kzg-commitment-version+
    #:kzg-commitment-to-versioned-hash
@@ -362,6 +364,9 @@
    #:+cell-proofs-per-blob+
    #:validate-blob-sidecar-fields)
   (#:ethereum-lisp.p2p
+   #:ecies-encrypt
+   #:ecies-decrypt
+   #:ecies-concat-kdf
    #:+node-id-size+
    #:node-id-from-private-key
    #:node-id-to-hex

@@ -106,6 +106,12 @@ address derivation and devp2p node identities."
      (integer-to-fixed-bytes (secp256k1-point-x public-point) 32)
      (integer-to-fixed-bytes (secp256k1-point-y public-point) 32))))
 
+(defun secp256k1-random-private-key ()
+  "Return a cryptographically random secp256k1 private key scalar in [1, n-1]."
+  (loop for candidate = (mod (bytes-to-integer (secure-random-bytes 32))
+                             +secp256k1-n+)
+        when (plusp candidate) return candidate))
+
 (defun secp256k1-public-key-point (public-key)
   "Parse a 64-byte uncompressed public key body into a curve point."
   (let ((bytes (require-sized-byte-vector public-key 64 "secp256k1 public key")))
