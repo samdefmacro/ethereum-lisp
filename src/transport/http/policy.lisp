@@ -71,8 +71,11 @@
               (cdr header)
               #\Return #\Newline))
     (format stream "Connection: close~C~C" #\Return #\Newline)
+    ;; Content-Length counts octets, and the socket stream encodes the body as
+    ;; UTF-8, so a body with any non-ASCII character (a revert reason, say) has
+    ;; more octets than characters and a character count would truncate it.
     (format stream "Content-Length: ~D~C~C"
-            (length body) #\Return #\Newline)
+            (engine-rpc-http-octet-length body) #\Return #\Newline)
     (format stream "~C~C" #\Return #\Newline)
     (write-string body stream)))
 

@@ -1241,3 +1241,64 @@ Content-Type: application/json
         (setf *kzg-verifier* previous)))
     ;; Both are restored once the scope exits.
     (is (not (bls12381-backend-available-p)))))
+
+;;;; Transport encoding and intake-limit regression tests.
+
+(deftest engine-rpc-http-response-content-length-counts-octets
+  ;; Content-Length is octets; the socket stream encodes the body as UTF-8, so a
+  ;; non-ASCII body has more octets than characters. A character count truncates.
+  (let* ((body (coerce (list #\r #\e (code-char #x00e7) #\u) 'string)) ; "recu", c-cedilla
+         (response (ethereum-lisp.rpc-http::engine-rpc-http-response-string
+                    200 "OK" body)))
+    (is (= 4 (length body)))
+    (is (= 5 (ethereum-lisp.rpc-http::engine-rpc-http-octet-length body)))
+    (is (search (format nil "Content-Length: 5~C~C" #\Return #\Newline) response))
+    (is (not (search (format nil "Content-Length: 4~C~C" #\Return #\Newline)
+                     response)))))
+
+(deftest engine-rpc-http-read-body-counts-octets
+  ;; The reader must consume Content-Length octets, not characters. Modelled with
+  ;; a character input stream whose synthetic octet accounting matches what a real
+  ;; UTF-8 socket would deliver.
+  (let* ((crlf (format nil "~C~C" #\Return #\Newline))
+         (body (coerce (list #\{ #\" #\r #\" #\: #\" (code-char #x00e9) #\" #\})
+                       'string)) ; {"r":"e-acute"}
+         (content-length (ethereum-lisp.rpc-http::engine-rpc-http-octet-length body))
+         (text (concatenate 'string
+                            "POST / HTTP/1.1" crlf
+                            "Content-Type: application/json" crlf
+                            (format nil "Content-Length: ~D" content-length) crlf
+                            crlf
+                            body))
+         (parsed (with-input-from-string (stream text)
+                   (ethereum-lisp.rpc-http::engine-rpc-read-http-request-string
+                    stream))))
+    ;; The reconstructed request carries the whole body, undamaged.
+    (is (search body parsed))
+    (is (= (1+ (length body))
+           (ethereum-lisp.rpc-http::engine-rpc-http-octet-length body)))))
+
+(deftest engine-rpc-http-rejects-an-unbounded-header-line
+  ;; A single header line with no newline must be bounded before it is fully
+  ;; materialised, not measured only after read-line already allocated it.
+  (let ((*engine-rpc-http-max-header-bytes* 64)
+        (crlf (format nil "~C~C" #\Return #\Newline)))
+    (signals block-validation-error
+      (with-input-from-string
+          (stream (concatenate 'string
+                               "POST / HTTP/1.1" crlf
+                               "X-Big: " (make-string 300 :initial-element #\a)))
+        (ethereum-lisp.rpc-http::engine-rpc-read-http-request-string stream)))))
+
+(deftest engine-rpc-http-rejects-obsolete-line-folding
+  ;; A header line beginning with whitespace is an obs-fold continuation, which
+  ;; RFC 7230 requires be rejected rather than reassembled.
+  (let ((crlf (format nil "~C~C" #\Return #\Newline)))
+    (signals block-validation-error
+      (with-input-from-string
+          (stream (concatenate 'string
+                               "POST / HTTP/1.1" crlf
+                               "Host: localhost" crlf
+                               " folded-continuation" crlf
+                               "Content-Length: 0" crlf crlf))
+        (ethereum-lisp.rpc-http::engine-rpc-read-http-request-string stream)))))

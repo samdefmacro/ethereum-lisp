@@ -189,38 +189,106 @@ expiry would tear down the listener instead of the one stalled request."
       (t
        (engine-rpc-http-parse-content-length (first content-lengths))))))
 
+(defun engine-rpc-http-utf8-char-octets (char)
+  "Return how many octets CHAR occupies when the stream encodes it as UTF-8.
+
+The socket stream is a UTF-8 character stream, but HTTP Content-Length counts
+octets, so lengths must be measured in octets rather than characters."
+  (let ((code (char-code char)))
+    (cond ((< code #x80) 1)
+          ((< code #x800) 2)
+          ((< code #x10000) 3)
+          (t 4))))
+
+(defun engine-rpc-http-octet-length (string)
+  "Return the number of UTF-8 octets STRING occupies on the wire."
+  (let ((octets 0))
+    (loop for char across string
+          do (incf octets (engine-rpc-http-utf8-char-octets char)))
+    octets))
+
+(defun engine-rpc-http-read-header-line (stream max-octets)
+  "Read one line from STREAM up to its newline, which is consumed but excluded.
+
+Returns (values line octets) or (values NIL 0) at end of stream. Reads octet by
+octet so a single line without a newline cannot allocate past MAX-OCTETS — the
+read-line it replaces materialised the whole line before any bound was checked."
+  (let ((line (make-string-output-stream))
+        (octets 0)
+        (saw-any nil))
+    (loop for char = (read-char stream nil nil)
+          do (cond
+               ((null char)
+                (return (if saw-any
+                            (values (get-output-stream-string line) octets)
+                            (values nil 0))))
+               ((char= char #\Newline)
+                (return (values (get-output-stream-string line) octets)))
+               (t
+                (setf saw-any t)
+                (incf octets (engine-rpc-http-utf8-char-octets char))
+                (when (> octets max-octets)
+                  (block-validation-fail "HTTP request headers are too large"))
+                (write-char char line))))))
+
+(defun engine-rpc-http-read-body (stream content-length)
+  "Read CONTENT-LENGTH octets of body from the UTF-8 character STREAM.
+
+Reads by octet count, not character count: a body with any multibyte character
+has more octets than characters, so reading CONTENT-LENGTH characters would over-
+read into the next request or block waiting for octets that were never sent."
+  (if (zerop content-length)
+      ""
+      (let ((body (make-string-output-stream))
+            (octets 0))
+        (loop for char = (read-char stream nil nil)
+              do (when (null char)
+                   (block-validation-fail
+                    "HTTP request body is shorter than content length"))
+                 (incf octets (engine-rpc-http-utf8-char-octets char))
+                 (when (> octets content-length)
+                   (block-validation-fail
+                    "HTTP request body splits a multibyte character"))
+                 (write-char char body)
+                 (when (= octets content-length)
+                   (return (get-output-stream-string body)))))))
+
 (defun engine-rpc-read-http-request-string (input-stream)
   (let ((lines '())
-        (header-bytes 0)
+        (header-octets 0)
         (header-lines 0))
-    (loop for line = (read-line input-stream nil nil)
-          while line
-          do (incf header-lines)
-             (incf header-bytes (1+ (length line)))
-             (when (> header-lines *engine-rpc-http-max-header-lines*)
-               (block-validation-fail "HTTP request has too many header lines"))
-             (when (> header-bytes *engine-rpc-http-max-header-bytes*)
-               (block-validation-fail "HTTP request headers are too large"))
-             (push line lines)
-             (when (string= "" (engine-rpc-http-trim line))
-               (return)))
+    (loop
+      (multiple-value-bind (line line-octets)
+          (engine-rpc-http-read-header-line
+           input-stream *engine-rpc-http-max-header-bytes*)
+        (when (null line)
+          (return))
+        (incf header-lines)
+        (incf header-octets line-octets)
+        (when (> header-lines *engine-rpc-http-max-header-lines*)
+          (block-validation-fail "HTTP request has too many header lines"))
+        (when (> header-octets *engine-rpc-http-max-header-bytes*)
+          (block-validation-fail "HTTP request headers are too large"))
+        ;; A header line beginning with whitespace is an obsolete line fold,
+        ;; which RFC 7230 requires a server to reject rather than reassemble.
+        (when (and lines
+                   (plusp (length line))
+                   (member (char line 0) '(#\Space #\Tab)))
+          (block-validation-fail "HTTP request uses obsolete line folding"))
+        (push line lines)
+        (when (string= "" (engine-rpc-http-trim line))
+          (return))))
     (unless (and lines (string= "" (engine-rpc-http-trim (first lines))))
       (block-validation-fail "HTTP request is missing header boundary"))
     (let* ((lines (nreverse lines))
            (headers (engine-rpc-http-headers (rest lines)))
-           (content-length (engine-rpc-http-content-length headers))
-           ;; Check the declared length before allocating for it.
-           (content-length
-             (if (> content-length *engine-rpc-http-max-body-bytes*)
-                 (block-validation-fail "HTTP request body is too large")
-                 content-length))
-           (body (make-string content-length))
-           (read-count (read-sequence body input-stream)))
-      (unless (= read-count content-length)
-        (block-validation-fail
-         "HTTP request body is shorter than content length"))
-      (with-output-to-string (request)
-        (dolist (line lines)
-          (write-string (engine-rpc-http-trim line) request)
-          (format request "~C~C" #\Return #\Newline))
-        (write-string body request)))))
+           (content-length (engine-rpc-http-content-length headers)))
+      ;; Check the declared length before allocating for it.
+      (when (> content-length *engine-rpc-http-max-body-bytes*)
+        (block-validation-fail "HTTP request body is too large"))
+      (let ((body (engine-rpc-http-read-body input-stream content-length)))
+        (with-output-to-string (request)
+          (dolist (line lines)
+            (write-string (engine-rpc-http-trim line) request)
+            (format request "~C~C" #\Return #\Newline))
+          (write-string body request))))))
