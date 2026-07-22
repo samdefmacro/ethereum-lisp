@@ -55,6 +55,40 @@ Exists to reproduce go-ethereum's frame test vector, whose MAC is a stub."
   (hex-to-bytes "0xc28080")
   "RLP of the header's [capability-id, context-id], both always zero.")
 
+(defun rlpx-init-mac (mac-secret nonce handshake-message)
+  "Return a Keccak sponge seeded with (MAC-SECRET XOR NONCE) then HANDSHAKE-MESSAGE.
+
+This is how the RLPx spec initialises each direction's running MAC after the
+handshake: the seed is the MAC secret masked by the peer's nonce, followed by
+the raw handshake message for that direction."
+  (let ((sponge (make-keccak-256))
+        (masked (make-byte-vector 32))
+        (mac-secret (ensure-byte-vector mac-secret))
+        (nonce (ensure-byte-vector nonce)))
+    (dotimes (i 32)
+      (setf (aref masked i) (logxor (aref mac-secret i) (aref nonce i))))
+    (keccak-256-update sponge masked)
+    (keccak-256-update sponge (ensure-byte-vector handshake-message))
+    sponge))
+
+(defun make-rlpx-initiator-session
+    (aes-secret mac-secret initiator-nonce recipient-nonce auth ack)
+  "Build the initiator's frame session with its MACs initialised from the
+handshake, per the RLPx initiator MAC table."
+  (make-rlpx-session
+   aes-secret mac-secret
+   (rlpx-keccak-mac (rlpx-init-mac mac-secret recipient-nonce auth))
+   (rlpx-keccak-mac (rlpx-init-mac mac-secret initiator-nonce ack))))
+
+(defun make-rlpx-recipient-session
+    (aes-secret mac-secret initiator-nonce recipient-nonce auth ack)
+  "Build the recipient's frame session with its MACs initialised from the
+handshake, per the RLPx recipient MAC table."
+  (make-rlpx-session
+   aes-secret mac-secret
+   (rlpx-keccak-mac (rlpx-init-mac mac-secret initiator-nonce ack))
+   (rlpx-keccak-mac (rlpx-init-mac mac-secret recipient-nonce auth))))
+
 (defun rlpx-mac-header (session mac header-ciphertext)
   "Advance MAC with a header ciphertext and return the 16-byte header MAC.
 

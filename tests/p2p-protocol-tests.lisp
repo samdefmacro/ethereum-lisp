@@ -71,3 +71,59 @@ state, as the handshake initialises them."
           (rlpx-read-message reader pong-frame)
         (is (= +devp2p-message-pong+ code))
         (is (bytes= (encode-devp2p-pong) payload))))))
+
+(deftest rlpx-full-protocol-runs-offline-end-to-end
+  ;; The complete devp2p protocol without a socket: handshake, secret agreement,
+  ;; MAC-initialised sessions, then framed messages in BOTH directions. If the
+  ;; initiator/recipient MAC tables were wrong, the frames would not authenticate.
+  (let* ((init-static #x49a7b37aa6f6645917e7b807e9d1c00d4fa71f18343b0d4122a4d2df64dd6fee)
+         (recip-static #xb71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291)
+         (init-eph #x869d6ecf5211f1cc60418a13b9d870b22959d0c16f02bec714c960dd2298a32d)
+         (recip-eph #xe238eb8e04fee6511ab04c6dd3c89ce097b11f25d584863ac2b6d5b35b1847e4)
+         (init-nonce (secure-random-bytes 32))
+         (recip-nonce (secure-random-bytes 32))
+         (recip-static-pub (secp256k1-private-key-public-key recip-static))
+         (init-static-pub (secp256k1-private-key-public-key init-static))
+         ;; --- handshake message exchange ---
+         (auth (rlpx-create-auth init-static init-eph recip-static-pub init-nonce))
+         (auth-msg (rlpx-open-auth recip-static auth))
+         (recovered-init-eph (rlpx-recover-initiator-ephemeral-key recip-static auth-msg))
+         (ack (rlpx-create-ack recip-eph init-static-pub recip-nonce))
+         (ack-msg (rlpx-open-ack init-static ack)))
+    ;; --- secret agreement ---
+    (multiple-value-bind (r-aes r-mac)
+        (rlpx-derive-secrets (secp256k1-ecdh recip-eph recovered-init-eph)
+                             init-nonce recip-nonce)
+      (multiple-value-bind (i-aes i-mac)
+          (rlpx-derive-secrets
+           (secp256k1-ecdh init-eph
+                           (ethereum-lisp.p2p:rlpx-ack-message-recipient-ephemeral-public-key
+                            ack-msg))
+           init-nonce recip-nonce)
+        (is (bytes= r-aes i-aes))
+        (is (bytes= r-mac i-mac))
+        ;; --- MAC-initialised sessions ---
+        (let ((initiator (make-rlpx-initiator-session i-aes i-mac init-nonce
+                                                      recip-nonce auth ack))
+              (recipient (make-rlpx-recipient-session r-aes r-mac init-nonce
+                                                      recip-nonce auth ack)))
+          ;; Initiator -> recipient: uncompressed Hello.
+          (let* ((hello (make-devp2p-hello :client-id "ethereum-lisp" :capabilities '()
+                                           :node-id init-static-pub))
+                 (frame (rlpx-write-message initiator +devp2p-message-hello+
+                                            (encode-devp2p-hello hello) :compressed nil)))
+            (multiple-value-bind (code payload)
+                (rlpx-read-message recipient frame :compressed nil)
+              (is (= +devp2p-message-hello+ code))
+              (is (string= "ethereum-lisp"
+                           (devp2p-hello-client-id (decode-devp2p-hello payload))))))
+          ;; Recipient -> initiator: compressed Ping, then initiator's Pong back.
+          (let ((ping (rlpx-write-message recipient +devp2p-message-ping+
+                                          (encode-devp2p-ping))))
+            (multiple-value-bind (code payload) (rlpx-read-message initiator ping)
+              (is (= +devp2p-message-ping+ code))
+              (is (bytes= (encode-devp2p-ping) payload))))
+          (let ((pong (rlpx-write-message initiator +devp2p-message-pong+
+                                          (encode-devp2p-pong))))
+            (multiple-value-bind (code payload) (rlpx-read-message recipient pong)
+              (is (= +devp2p-message-pong+ code)))))))))

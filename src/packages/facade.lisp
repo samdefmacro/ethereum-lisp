@@ -389,6 +389,8 @@
    #:rlpx-constant-mac
    #:rlpx-write-frame
    #:rlpx-read-frame
+   #:make-rlpx-initiator-session
+   #:make-rlpx-recipient-session
    #:make-devp2p-hello
    #:devp2p-hello
    #:encode-devp2p-hello
