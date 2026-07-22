@@ -27,7 +27,8 @@
   "Return the 64-byte uncompressed public key of RECORD, or NIL when the
 compressed key is absent or invalid."
   (let ((compressed (enr-value record "secp256k1")))
-    (and compressed (secp256k1-decompress-public-key compressed))))
+    (and compressed
+         (secp256k1-decompress-public-key (ensure-byte-vector compressed)))))
 
 (defun enr-content-rlp (seq pairs)
   "The RLP of [seq, k1, v1, ...] — the record content that is signed."
@@ -71,23 +72,29 @@ secp256k1 keys are supplied from PRIVATE-KEY. Signals if the record exceeds
 
 (defun decode-enr (bytes)
   "Decode and verify an ENR. Returns an ENR struct, or signals on an oversize
-record, an unsupported identity scheme, or a signature that does not verify."
+record, an unsupported identity scheme, or a signature that does not verify.
+
+Values keep their raw RLP object (a byte string or a nested list, e.g. the empty
+list go-ethereum uses for the snap key), and the signed content is rebuilt from
+those raw items so a list-valued entry re-encodes exactly."
   (let ((bytes (ensure-byte-vector bytes)))
     (when (> (length bytes) +enr-max-size+)
       (error "ENR exceeds ~D bytes" +enr-max-size+))
     (let* ((items (rlp-list-items (rlp-decode bytes :allow-trailing t)))
            (signature (ensure-byte-vector (first items)))
            (seq (bytes-to-integer (ensure-byte-vector (second items))))
+           ;; content = rlp([seq, k1, v1, ...]) rebuilt from the raw items.
+           (content (rlp-encode (apply #'make-rlp-list (rest items))))
            (pairs (loop for (key value) on (cddr items) by #'cddr
                         collect (cons (bytes-to-ascii (ensure-byte-vector key))
-                                      (ensure-byte-vector value)))))
+                                      value))))
       (let ((id (cdr (assoc "id" pairs :test #'string=))))
-        (unless (and id (string= (bytes-to-ascii id) "v4"))
+        (unless (and id (string= (bytes-to-ascii (ensure-byte-vector id)) "v4"))
           (error "unsupported ENR identity scheme")))
       (let ((public-key (enr-public-key (%make-enr signature seq pairs))))
         (unless (and public-key
                      (= 64 (length signature))
-                     (secp256k1-verify (keccak-256 (enr-content-rlp seq pairs))
+                     (secp256k1-verify (keccak-256 content)
                                        (bytes-to-integer (subseq signature 0 32))
                                        (bytes-to-integer (subseq signature 32 64))
                                        public-key))
