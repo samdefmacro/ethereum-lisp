@@ -180,3 +180,25 @@
                    (is (string= "10.0.0.5" host))
                    (is (= 30303 tcp))))))
         (ignore-errors (sb-bsd-sockets:socket-close server-socket))))))
+
+(deftest discv4-find-peers-times-out-on-a-silent-bootnode
+  (:layer :integration :module :p2p :requires-local-sockets t)
+  ;; A bootnode that never answers must not hang the driver: with-deadline
+  ;; cannot interrupt a blocking recv, so discv4-receive waits on the fd instead.
+  (multiple-value-bind (silent-socket silent-port)
+      (ethereum-lisp.p2p:discv4-make-socket :host "127.0.0.1" :port 0)
+    (unwind-protect
+         (let* ((boot-id (node-id-from-private-key
+                          #xb71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291))
+                (enode (enode-url boot-id "127.0.0.1" silent-port))
+                (start (get-universal-time)))
+           (multiple-value-bind (enodes bonded)
+               (ethereum-lisp.p2p:discv4-find-peers
+                enode
+                #x49a7b37aa6f6645917e7b807e9d1c00d4fa71f18343b0d4122a4d2df64dd6fee
+                :timeout-seconds 2)
+             (is (null bonded))
+             (is (null enodes))
+             ;; Returned in a bounded time rather than blocking forever.
+             (is (<= (- (get-universal-time) start) 20))))
+      (ignore-errors (sb-bsd-sockets:socket-close silent-socket)))))
