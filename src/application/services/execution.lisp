@@ -48,17 +48,18 @@ so execution only fails if EVM code actually queries unavailable history."
     block-hashes))
 
 (defun commit-state-db-to-chain-store (store block-hash state)
-  (state-db-for-each-account
-   state
-   (lambda (address account code storage-entries)
-     (chain-store-put-account-balance
-      store block-hash address (state-account-balance account))
-     (chain-store-put-account-nonce
-      store block-hash address (state-account-nonce account))
-     (chain-store-put-account-code store block-hash address code)
-     (dolist (entry storage-entries)
-       (chain-store-put-account-storage
-        store block-hash address (car entry) (cdr entry)))))
+  (chain-store-commit-post-state
+   store block-hash
+   (lambda (visit)
+     (state-db-for-each-account
+      state
+      (lambda (address account code storage-entries)
+        (funcall visit
+                 address
+                 (state-account-balance account)
+                 (state-account-nonce account)
+                 code
+                 storage-entries)))))
   store)
 
 (defun chain-store-state-db (store block-hash)

@@ -31,6 +31,13 @@
    :state-blocks
    (engine-payload-store-copy-table
     (memory-chain-store-state-blocks store))
+   ;; Diff structs are immutable once installed, so sharing them across
+   ;; copies is safe; only the table itself needs copying.
+   :state-diffs
+   (engine-payload-store-copy-table
+    (memory-chain-store-state-diffs store))
+   :state-baseline-interval
+   (memory-chain-store-state-baseline-interval store)
    :remote-blocks
    (engine-payload-store-copy-table
     (memory-chain-store-remote-blocks store))

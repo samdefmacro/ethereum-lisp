@@ -26,14 +26,17 @@
           balance
           (gethash (engine-payload-store-key block-hash)
                    (memory-chain-store-state-blocks store))
-          t)
+          :baseline)
     balance))
 
 (defun engine-payload-store-account-balance (store block-hash address)
   (setf store (chain-store-require-memory-store store))
-  (gethash (engine-payload-store-account-key block-hash address)
-           (memory-chain-store-account-balances store)
-           0))
+  (engine-payload-store-resolve-state-value
+   store block-hash
+   #'chain-state-diff-balances
+   (address-to-hex address)
+   (memory-chain-store-account-balances store)
+   0))
 
 (defun engine-payload-store-put-account-nonce
     (store block-hash address nonce)
@@ -51,14 +54,17 @@
           nonce
           (gethash (engine-payload-store-key block-hash)
                    (memory-chain-store-state-blocks store))
-          t)
+          :baseline)
     nonce))
 
 (defun engine-payload-store-account-nonce (store block-hash address)
   (setf store (chain-store-require-memory-store store))
-  (gethash (engine-payload-store-account-key block-hash address)
-           (memory-chain-store-account-nonces store)
-           0))
+  (engine-payload-store-resolve-state-value
+   store block-hash
+   #'chain-state-diff-nonces
+   (address-to-hex address)
+   (memory-chain-store-account-nonces store)
+   0))
 
 (defun engine-payload-store-put-account-code
     (store block-hash address code)
@@ -75,14 +81,18 @@
           (copy-seq code)
           (gethash (engine-payload-store-key block-hash)
                    (memory-chain-store-state-blocks store))
-          t)
+          :baseline)
     code))
 
 (defun engine-payload-store-account-code (store block-hash address)
   (setf store (chain-store-require-memory-store store))
   (let ((code
-          (gethash (engine-payload-store-account-key block-hash address)
-                   (memory-chain-store-account-codes store))))
+          (engine-payload-store-resolve-state-value
+           store block-hash
+           #'chain-state-diff-codes
+           (address-to-hex address)
+           (memory-chain-store-account-codes store)
+           nil)))
     (if code
         (copy-seq code)
         (make-byte-vector 0))))
@@ -106,14 +116,17 @@
           value
           (gethash (engine-payload-store-key block-hash)
                    (memory-chain-store-state-blocks store))
-          t)
+          :baseline)
     value))
 
 (defun engine-payload-store-account-storage (store block-hash address slot)
   (setf store (chain-store-require-memory-store store))
-  (gethash (engine-payload-store-account-storage-key block-hash address slot)
-           (memory-chain-store-account-storage store)
-           0))
+  (engine-payload-store-resolve-state-value
+   store block-hash
+   #'chain-state-diff-storage
+   (format nil "~A:~A" (address-to-hex address) (hash32-to-hex slot))
+   (memory-chain-store-account-storage store)
+   0))
 
 (defun chain-store-put-account-balance
     (store block-hash address balance)

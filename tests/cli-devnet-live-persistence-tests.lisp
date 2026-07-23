@@ -1,5 +1,11 @@
 (in-package #:ethereum-lisp.test)
 
+(defun devnet-live-state-record-present-p (database identifier)
+  "A block's state persists as :STATE for a baseline or :STATE-DIFF for a
+diff; either satisfies a state-persisted assertion."
+  (or (nth-value 1 (kv-get-chain-record database :state identifier))
+      (nth-value 1 (kv-get-chain-record database :state-diff identifier))))
+
 (deftest devnet-live-persistence-migrates-headless-chain-baseline
   (let ((database-path
           (devnet-cli-temp-path
@@ -316,7 +322,7 @@
              ;; locations before consensus selects it.
              (let ((database
                      (make-file-key-value-database database-path)))
-               (dolist (kind '(:block :header :receipt :state))
+               (dolist (kind '(:block :header :receipt))
                  (multiple-value-bind (value present-p)
                      (kv-get-chain-record
                       database kind (hash32-bytes parent-hash))
@@ -327,6 +333,10 @@
                       database kind (hash32-bytes child-hash))
                    (declare (ignore value))
                    (is present-p)))
+               (is (devnet-live-state-record-present-p
+                    database (hash32-bytes parent-hash)))
+               (is (devnet-live-state-record-present-p
+                    database (hash32-bytes child-hash)))
                (multiple-value-bind (value present-p)
                    (kv-get-chain-canonical-hash database parent-number)
                  (is present-p)
@@ -612,11 +622,12 @@
                  (kv-get-chain-canonical-hash database sealed-number)
                (is present-p)
                (is (bytes= sealed-id value)))
-             (dolist (kind '(:block :header :receipt :state))
+             (dolist (kind '(:block :header :receipt))
                (multiple-value-bind (value present-p)
                    (kv-get-chain-record database kind sealed-id)
                  (declare (ignore value))
                  (is present-p)))
+             (is (devnet-live-state-record-present-p database sealed-id))
              (multiple-value-bind (value present-p)
                  (kv-get-chain-checkpoint database :head)
                (is present-p)
@@ -844,7 +855,7 @@
                    (kv-get-chain-canonical-hash database 1 :missing)
                  (is (eq :missing value))
                  (is (not present-p)))
-               (dolist (kind '(:block :header :receipt :state))
+               (dolist (kind '(:block :header :receipt :state :state-diff))
                  (multiple-value-bind (value present-p)
                      (kv-get-chain-record
                       database kind (hash32-bytes tentative-hash) :missing)
@@ -1266,7 +1277,7 @@
                  (kv-get-chain-canonical-hash database child-number)
                (is present-p)
                (is (bytes= (hash32-bytes side-hash) value)))
-             (dolist (kind '(:block :header :receipt :state))
+             (dolist (kind '(:block :header :receipt))
                (multiple-value-bind (value present-p)
                    (kv-get-chain-record
                     database kind (hash32-bytes child-hash))
@@ -1277,6 +1288,10 @@
                     database kind (hash32-bytes side-hash))
                  (declare (ignore value))
                  (is present-p)))
+             (is (devnet-live-state-record-present-p
+                  database (hash32-bytes child-hash)))
+             (is (devnet-live-state-record-present-p
+                  database (hash32-bytes side-hash)))
              (multiple-value-bind (value present-p)
                  (kv-get-chain-record
                   database :transaction-location transaction-id :missing)

@@ -268,12 +268,20 @@ not assign implementation-layer ownership. Key source responsibilities are:
   forkchoice checkpoint updates.
 - `src/storage/chain-store/service/memory.lisp`: public chain-store queries and commands around the
   memory-store implementation.
-- `src/storage/chain-store/service/state-availability.lisp`: retained state availability checks
-  and state snapshot pruning.
+- `src/storage/chain-store/service/state-availability.lisp`: retained state availability checks.
+- `src/storage/chain-store/service/state-diffs.lisp`: per-block state storage. A
+  block's state is either a full BASELINE snapshot in the block-prefixed flat
+  tables or a hash-addressed DIFF against its parent, resolved by walking the
+  diff chain to the nearest baseline; stored defaults and :ABSENT markers
+  tombstone zeroed slots and destroyed accounts. Also state pruning, which
+  promotes a kept diff to a baseline before its ancestors drop.
 - `src/storage/chain-store/service/account-state.lisp`: retained account balance, nonce, code, and
-  storage read/write helpers.
+  storage read/write helpers; reads resolve through the diff chain.
+- `src/storage/chain-store/service/state-commit.lisp`: post-state commit policy — a
+  diff against the parent while the chain stays under the store's baseline
+  interval (default 128), otherwise a fresh baseline.
 - `src/storage/chain-store/service/state-iteration.lisp`: retained account and storage iteration
-  helpers for export and state projection.
+  helpers for export and state projection, reconstructed from the diff chain.
 - `src/storage/chain-store/service/canonical-indexes.lisp`: canonical hash, block number, parent,
   block-membership, and ancestor checks.
 - `src/storage/chain-store/service/transaction-locations.lisp`: canonical transaction location
@@ -308,7 +316,9 @@ not assign implementation-layer ownership. Key source responsibilities are:
 - `src/storage/node-store/persistence/export/blocks.lisp`: block and receipt KV export records.
 - `src/storage/node-store/persistence/export/transactions.lisp`: transaction location KV export
   records.
-- `src/storage/node-store/persistence/export/state.lisp`: state snapshot KV export records.
+- `src/storage/node-store/persistence/export/state.lisp`: state KV export records —
+  full `:state` snapshots for baseline blocks and `:state-diff` records
+  (parent hash + tagged field changes) for diff blocks.
 - `src/storage/node-store/persistence/export/txpool.lisp`: txpool KV export records.
 - `src/storage/node-store/persistence/export/invalid-tipsets.lisp`: invalid tipset KV export records.
 - `src/storage/node-store/persistence/export/remote-blocks.lisp`: remote block KV export records.
@@ -321,8 +331,9 @@ not assign implementation-layer ownership. Key source responsibilities are:
   block/header indexes, canonical chain indexes, and checkpoints.
 - `src/storage/node-store/persistence/import/receipts.lisp`: receipt/log RLP decoding and
   receipt record validation.
-- `src/storage/node-store/persistence/import/state.lisp`: state snapshot import, trie-root
-  reconstruction, and state-root validation.
+- `src/storage/node-store/persistence/import/state.lisp`: state snapshot and
+  state-diff import, trie-root reconstruction, and state-root validation
+  (diff records validate after all diffs install, since order is arbitrary).
 - `src/storage/node-store/persistence/import/locations.lisp`: transaction-location record import
   and log-index consistency checks.
 - `src/storage/node-store/persistence/import/txpool.lisp`: txpool record import, static/fork

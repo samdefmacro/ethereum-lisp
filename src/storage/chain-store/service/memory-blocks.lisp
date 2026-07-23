@@ -43,8 +43,14 @@
              (when receipt
                (incf log-index-start (length (receipt-logs receipt)))))
     (if state-available-p
-        (setf (gethash key (memory-chain-store-state-blocks store)) t)
-        (remhash key (memory-chain-store-state-blocks store)))
+        ;; Availability without committed entries denotes an empty baseline;
+        ;; a following state commit refines the kind.
+        (unless (gethash key (memory-chain-store-state-blocks store))
+          (setf (gethash key (memory-chain-store-state-blocks store))
+                :baseline))
+        (progn
+          (remhash key (memory-chain-store-state-blocks store))
+          (remhash key (memory-chain-store-state-diffs store))))
     (when notify-head-p
       (engine-payload-store-notify-block-filters store stored-block))
     block))
