@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/scripts/paren-hook.sh\"",
+            "timeout": 15,
+            "statusMessage": "Checking Lisp delimiters..."
+          }
+        ]
+      }
+    ]
+  }
+}
