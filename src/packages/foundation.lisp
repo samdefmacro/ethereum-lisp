@@ -10,7 +10,8 @@
    #:integer-to-minimal-bytes
    #:bytes-to-integer
    #:ascii-to-bytes
-   #:bytes-to-ascii))
+   #:bytes-to-ascii
+   #:crc32))
 
 (defpackage #:ethereum-lisp.hex
   (:use #:cl #:ethereum-lisp.bytes)
@@ -40,6 +41,9 @@
    #:file-key-value-database
    #:make-memory-key-value-database
    #:make-file-key-value-database
+   #:kv-log-corruption-error
+   #:kv-log-corruption-error-path
+   #:kv-log-corruption-error-detail
    #:kv-get
    #:kv-put
    #:kv-delete

@@ -142,8 +142,11 @@
 
 (deftest crc32-matches-known-vectors
   ;; The IEEE CRC-32 of "123456789" is the standard 0xCBF43926 check value.
-  (is (= #xcbf43926 (ethereum-lisp.eth-wire:crc32 (ascii-to-bytes "123456789"))))
-  (is (= 0 (ethereum-lisp.eth-wire:crc32 (make-byte-vector 0)))))
+  (is (= #xcbf43926 (ethereum-lisp.bytes:crc32 (ascii-to-bytes "123456789"))))
+  (is (= 0 (ethereum-lisp.bytes:crc32 (make-byte-vector 0))))
+  (is (= #xcbf43926
+         (ethereum-lisp.bytes:crc32 (ascii-to-bytes "xx123456789yy")
+                                    :start 2 :end 11))))
 
 (deftest chain-config-fork-id-matches-geth-mainnet-progression
   ;; A mainnet chain-config, checked against go-ethereum's forkid_test.go: the

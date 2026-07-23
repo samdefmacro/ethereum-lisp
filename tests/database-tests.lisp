@@ -432,3 +432,482 @@
                (is (bytes= block-hash-b (cdadr entries))))))
       (when (probe-file path)
         (delete-file path)))))
+
+(defun kv-log-test-path (prefix)
+  (merge-pathnames
+   (make-pathname
+    :name (format nil "~A-~A" prefix (gensym))
+    :type "sexp")
+   #P"/private/tmp/"))
+
+(defun kv-log-test-file-size (path)
+  (with-open-file (stream path :element-type '(unsigned-byte 8))
+    (file-length stream)))
+
+(defun kv-log-test-file-bytes (path)
+  (with-open-file (stream path :element-type '(unsigned-byte 8))
+    (let ((buffer (make-byte-vector (file-length stream))))
+      (read-sequence buffer stream)
+      buffer)))
+
+(defun kv-log-test-file-starts-with-magic-p (path)
+  (with-open-file (stream path :element-type '(unsigned-byte 8))
+    (let ((header (make-byte-vector 8)))
+      (and (= 8 (read-sequence header stream))
+           (bytes= header (ascii-to-bytes "ELKVLOG2"))))))
+
+(defun kv-log-test-append-raw-bytes (path bytes)
+  (with-open-file (stream path
+                          :direction :output
+                          :element-type '(unsigned-byte 8)
+                          :if-exists :append)
+    (write-sequence bytes stream)))
+
+(defun kv-log-test-overwrite-byte (path offset function)
+  (let ((buffer (kv-log-test-file-bytes path)))
+    (setf (aref buffer offset) (funcall function (aref buffer offset)))
+    (with-open-file (stream path
+                            :direction :output
+                            :element-type '(unsigned-byte 8)
+                            :if-exists :supersede)
+      (write-sequence buffer stream))))
+
+(defun kv-log-test-leaked-temp-files (path)
+  (let ((prefix (format nil ".~A." (pathname-name path))))
+    (remove-if-not
+     (lambda (candidate)
+       (let ((name (pathname-name candidate)))
+         (and (stringp name)
+              (>= (length name) (length prefix))
+              (string= prefix name :end2 (length prefix)))))
+     (directory #P"/private/tmp/*.sexp"))))
+
+(defun kv-log-test-write-v1-file (path records &key leading-whitespace)
+  (with-open-file (stream path
+                          :direction :output
+                          :if-exists :supersede
+                          :if-does-not-exist :create)
+    (when leading-whitespace
+      (write-string leading-whitespace stream))
+    (let ((*print-readably* t)
+          (*print-pretty* nil))
+      (write (list :ethereum-lisp-kv-v1 records) :stream stream)
+      (terpri stream))))
+
+(deftest log-file-key-value-database-appends-frames-under-magic-header
+  (:layer :integration :module :database)
+  (let ((path (kv-log-test-path "ethereum-lisp-kv-log-append")))
+    (unwind-protect
+         (progn
+           (let ((database (make-file-key-value-database path)))
+             (kv-put database #(1) #(10)))
+           (is (kv-log-test-file-starts-with-magic-p path))
+           (let ((bytes-after-first (kv-log-test-file-bytes path)))
+             (let ((database (make-file-key-value-database path)))
+               (kv-put database #(2) #(20 21)))
+             ;; The second write appends: the first write's bytes remain a
+             ;; byte-identical prefix of the file.
+             (let ((bytes-after-second (kv-log-test-file-bytes path)))
+               (is (> (length bytes-after-second)
+                      (length bytes-after-first)))
+               (is (bytes= bytes-after-first
+                           (subseq bytes-after-second
+                                   0 (length bytes-after-first))))))
+           (let ((database (make-file-key-value-database path)))
+             (multiple-value-bind (value present-p)
+                 (kv-get database #(1))
+               (is present-p)
+               (is (bytes= #(10) value)))
+             (multiple-value-bind (value present-p)
+                 (kv-get database #(2))
+               (is present-p)
+               (is (bytes= #(20 21) value)))))
+      (when (probe-file path)
+        (delete-file path)))))
+
+(deftest log-file-key-value-database-recovers-from-a-torn-tail
+  (:layer :integration :module :database)
+  (let ((path (kv-log-test-path "ethereum-lisp-kv-log-torn")))
+    (unwind-protect
+         (progn
+           (let ((database (make-file-key-value-database path)))
+             (kv-put database #(1) #(10))
+             (kv-put database #(2) #(20)))
+           (let ((durable-size (kv-log-test-file-size path)))
+             ;; A crashed append leaves a partial frame header.
+             (kv-log-test-append-raw-bytes path #(0 0))
+             (let ((database
+                     (handler-bind ((warning #'muffle-warning))
+                       (make-file-key-value-database path))))
+               (multiple-value-bind (value present-p)
+                   (kv-get database #(1))
+                 (is present-p)
+                 (is (bytes= #(10) value)))
+               (multiple-value-bind (value present-p)
+                   (kv-get database #(2))
+                 (is present-p)
+                 (is (bytes= #(20) value)))
+               ;; Opening is a pure read: the torn bytes are still there.
+               (is (= (+ durable-size 2) (kv-log-test-file-size path)))
+               ;; The first write truncates them before appending.
+               (kv-put database #(3) #(30))))
+           ;; The log is whole again: reopening neither warns nor errors.
+           (let ((warned nil))
+             (handler-bind ((warning (lambda (condition)
+                                       (setf warned t)
+                                       (muffle-warning condition))))
+               (let ((database (make-file-key-value-database path)))
+                 (multiple-value-bind (value present-p)
+                     (kv-get database #(3))
+                   (is present-p)
+                   (is (bytes= #(30) value)))))
+             (is (not warned)))
+           ;; A crashed append can also leave a frame that claims more
+           ;; payload than reached the disk.
+           (kv-log-test-append-raw-bytes
+            path #(0 0 4 0 1 2 3 4 9 9 9))
+           (let ((database
+                   (handler-bind ((warning #'muffle-warning))
+                     (make-file-key-value-database path))))
+             (multiple-value-bind (value present-p)
+                 (kv-get database #(3))
+               (is present-p)
+               (is (bytes= #(30) value)))
+             (multiple-value-bind (value present-p)
+                 (kv-get database #(1))
+               (is present-p)
+               (is (bytes= #(10) value)))))
+      (when (probe-file path)
+        (delete-file path)))))
+
+(deftest log-file-key-value-database-recovers-from-a-zero-filled-torn-tail
+  (:layer :integration :module :database)
+  ;; Filesystems that commit the size before the data read a torn append
+  ;; back as zeros; a zero pseudo-frame must never pass the checksum.
+  (let ((path (kv-log-test-path "ethereum-lisp-kv-log-zero-tail")))
+    (unwind-protect
+         (progn
+           (let ((database (make-file-key-value-database path)))
+             (kv-put database #(1) #(10))
+             (kv-put database #(2) #(20)))
+           (kv-log-test-append-raw-bytes path (make-byte-vector 64))
+           (let ((database
+                   (handler-bind ((warning #'muffle-warning))
+                     (make-file-key-value-database path))))
+             (multiple-value-bind (value present-p)
+                 (kv-get database #(1))
+               (is present-p)
+               (is (bytes= #(10) value)))
+             (multiple-value-bind (value present-p)
+                 (kv-get database #(2))
+               (is present-p)
+               (is (bytes= #(20) value)))
+             (kv-put database #(3) #(30)))
+           (let ((database (make-file-key-value-database path)))
+             (multiple-value-bind (value present-p)
+                 (kv-get database #(3))
+               (is present-p)
+               (is (bytes= #(30) value)))))
+      (when (probe-file path)
+        (delete-file path)))))
+
+(deftest log-file-key-value-database-treats-a-zero-filled-file-as-empty
+  (:layer :integration :module :database)
+  ;; A crash during the very first append can leave only zeros or a prefix
+  ;; of the magic header; both mean "no record was ever durable".
+  (let ((path (kv-log-test-path "ethereum-lisp-kv-log-zero-file")))
+    (unwind-protect
+         (dolist (content (list (make-byte-vector 24)
+                                (ascii-to-bytes "ELKVL")))
+           (with-open-file (stream path
+                                   :direction :output
+                                   :element-type '(unsigned-byte 8)
+                                   :if-exists :supersede)
+             (write-sequence content stream))
+           (let ((database
+                   (handler-bind ((warning #'muffle-warning))
+                     (make-file-key-value-database path))))
+             (multiple-value-bind (value present-p)
+                 (kv-get database #(1) :missing)
+               (is (eq :missing value))
+               (is (not present-p)))
+             (kv-put database #(1) #(10)))
+           (is (kv-log-test-file-starts-with-magic-p path))
+           (let ((database (make-file-key-value-database path)))
+             (multiple-value-bind (value present-p)
+                 (kv-get database #(1))
+               (is present-p)
+               (is (bytes= #(10) value)))))
+      (when (probe-file path)
+        (delete-file path)))))
+
+(deftest log-file-key-value-database-fail-stops-on-mid-log-corruption
+  (:layer :integration :module :database)
+  (let ((path (kv-log-test-path "ethereum-lisp-kv-log-corrupt")))
+    (unwind-protect
+         (progn
+           (let ((database (make-file-key-value-database path)))
+             (kv-put database #(1) #(10))
+             (kv-put database #(2) #(20)))
+           ;; Flip a payload byte of the FIRST frame: its checksum fails
+           ;; while a valid record follows, which a torn write cannot cause.
+           (kv-log-test-overwrite-byte
+            path 17 (lambda (byte) (logxor byte #xff)))
+           (signals ethereum-lisp.database:kv-log-corruption-error
+             (make-file-key-value-database path)))
+      (when (probe-file path)
+        (delete-file path)))))
+
+(deftest log-file-key-value-database-fail-stops-on-corrupted-record-length
+  (:layer :integration :module :database)
+  ;; A corrupted length field must not masquerade as a torn tail and
+  ;; silently truncate the acknowledged records after it.
+  (let ((path (kv-log-test-path "ethereum-lisp-kv-log-length")))
+    (unwind-protect
+         (progn
+           (let ((database (make-file-key-value-database path)))
+             (kv-put database #(1) #(10))
+             (kv-put database #(2) #(20)))
+           ;; Byte 12 is the high byte of the first frame's size field.
+           (kv-log-test-overwrite-byte
+            path 12 (lambda (byte) (logxor byte #xff)))
+           (signals ethereum-lisp.database:kv-log-corruption-error
+             (make-file-key-value-database path)))
+      (when (probe-file path)
+        (delete-file path)))))
+
+(deftest log-file-key-value-database-rejects-an-unrecognized-header
+  (:layer :integration :module :database)
+  (let ((path (kv-log-test-path "ethereum-lisp-kv-log-header")))
+    (unwind-protect
+         (progn
+           (with-open-file (stream path :direction :output)
+             (write-string "not a database" stream))
+           (signals ethereum-lisp.database:kv-log-corruption-error
+             (make-file-key-value-database path)))
+      (when (probe-file path)
+        (delete-file path)))))
+
+(deftest log-file-key-value-database-write-batches-are-atomic-on-disk
+  (:layer :integration :module :database)
+  (let ((path (kv-log-test-path "ethereum-lisp-kv-log-atomic")))
+    (unwind-protect
+         (progn
+           (let ((database (make-file-key-value-database path))
+                 (batch (make-kv-write-batch)))
+             (kv-put database #(1) #(10))
+             (kv-batch-put batch #(2) #(20))
+             (kv-batch-put batch #(3) #(30))
+             (kv-batch-delete batch #(1))
+             (kv-apply-batch database batch))
+           ;; Chop bytes off the batch frame, as a crash mid-append would.
+           (let ((size (kv-log-test-file-size path)))
+             (ethereum-lisp.database::kv-log-truncate-file path (- size 3)))
+           (let ((database
+                   (handler-bind ((warning #'muffle-warning))
+                     (make-file-key-value-database path))))
+             ;; The whole batch is gone: no partial write set survives.
+             (multiple-value-bind (value present-p)
+                 (kv-get database #(1))
+               (is present-p)
+               (is (bytes= #(10) value)))
+             (multiple-value-bind (value present-p)
+                 (kv-get database #(2))
+               (declare (ignore value))
+               (is (not present-p)))
+             (multiple-value-bind (value present-p)
+                 (kv-get database #(3))
+               (declare (ignore value))
+               (is (not present-p)))))
+      (when (probe-file path)
+        (delete-file path)))))
+
+(deftest log-file-key-value-database-compacts-a-bloated-log
+  (:layer :integration :module :database)
+  (let ((path (kv-log-test-path "ethereum-lisp-kv-log-compact")))
+    (unwind-protect
+         (progn
+           (let ((database (make-file-key-value-database
+                            path
+                            :compaction-min-bytes 1
+                            :compaction-ratio 2))
+                 (value (make-byte-vector 32 :initial-element 7)))
+             (dotimes (round 50)
+               (kv-put database #(1) value))
+             (kv-put database #(2) #(20)))
+           ;; Fifty overwrites appended fifty records; compaction keeps the
+           ;; file near the live size instead.
+           (is (< (kv-log-test-file-size path) 300))
+           (is (kv-log-test-file-starts-with-magic-p path))
+           ;; Prove the leak detector can see leak-shaped files, then that
+           ;; there are none.
+           (let ((decoy
+                   (merge-pathnames
+                    (make-pathname
+                     :name (format nil ".~A.DECOY" (pathname-name path))
+                     :type "sexp")
+                    #P"/private/tmp/")))
+             (with-open-file (stream decoy :direction :output)
+               (write-string "decoy" stream))
+             (is (not (null (kv-log-test-leaked-temp-files path))))
+             (delete-file decoy))
+           (is (null (kv-log-test-leaked-temp-files path)))
+           (let ((database (make-file-key-value-database path)))
+             (multiple-value-bind (value present-p)
+                 (kv-get database #(1))
+               (is present-p)
+               (is (bytes= (make-byte-vector 32 :initial-element 7) value)))
+             (multiple-value-bind (value present-p)
+                 (kv-get database #(2))
+               (is present-p)
+               (is (bytes= #(20) value)))))
+      (when (probe-file path)
+        (delete-file path)))))
+
+(deftest log-file-key-value-database-migrates-v1-files-on-first-write
+  (:layer :integration :module :database)
+  (let ((path (kv-log-test-path "ethereum-lisp-kv-log-migrate")))
+    (unwind-protect
+         (progn
+           (kv-log-test-write-v1-file path '(("01" "0a0b") ("0203" "0c")))
+           (let ((v1-bytes (kv-log-test-file-bytes path)))
+             (let ((database (make-file-key-value-database path)))
+               (multiple-value-bind (value present-p)
+                   (kv-get database #(1))
+                 (is present-p)
+                 (is (bytes= #(10 11) value)))
+               (multiple-value-bind (value present-p)
+                   (kv-get database #(2 3))
+                 (is present-p)
+                 (is (bytes= #(12) value))))
+             ;; A read-only open leaves the v1 artifact byte-identical.
+             (is (bytes= v1-bytes (kv-log-test-file-bytes path))))
+           (let ((database (make-file-key-value-database path)))
+             (kv-put database #(4) #(40)))
+           ;; The first write migrated the file to the log format.
+           (is (kv-log-test-file-starts-with-magic-p path))
+           (let ((database (make-file-key-value-database path)))
+             (multiple-value-bind (value present-p)
+                 (kv-get database #(1))
+               (is present-p)
+               (is (bytes= #(10 11) value)))
+             (multiple-value-bind (value present-p)
+                 (kv-get database #(4))
+               (is present-p)
+               (is (bytes= #(40) value)))))
+      (when (probe-file path)
+        (delete-file path)))))
+
+(deftest log-file-key-value-database-migrates-v1-files-with-leading-whitespace
+  (:layer :integration :module :database)
+  (let ((path (kv-log-test-path "ethereum-lisp-kv-log-migrate-ws")))
+    (unwind-protect
+         (progn
+           (kv-log-test-write-v1-file path '(("01" "0a"))
+                                      :leading-whitespace (format nil "~% "))
+           (let ((database (make-file-key-value-database path)))
+             (multiple-value-bind (value present-p)
+                 (kv-get database #(1))
+               (is present-p)
+               (is (bytes= #(10) value)))
+             (kv-put database #(2) #(20)))
+           (is (kv-log-test-file-starts-with-magic-p path))
+           (let ((database (make-file-key-value-database path)))
+             (multiple-value-bind (value present-p)
+                 (kv-get database #(2))
+               (is present-p)
+               (is (bytes= #(20) value)))))
+      (when (probe-file path)
+        (delete-file path)))))
+
+(deftest log-file-key-value-database-fsyncs-before-the-table-changes
+  (:layer :integration :module :database)
+  (let ((path (kv-log-test-path "ethereum-lisp-kv-log-fsync"))
+        (sync-calls 0)
+        (key-visible-at-first-sync :never-synced)
+        (original (fdefinition 'ethereum-lisp.database::kv-log-sync-stream)))
+    (unwind-protect
+         (let ((database (make-file-key-value-database path))
+               (batch (make-kv-write-batch)))
+           (setf (fdefinition 'ethereum-lisp.database::kv-log-sync-stream)
+                 (lambda (stream)
+                   (incf sync-calls)
+                   (when (= 1 sync-calls)
+                     (setf key-visible-at-first-sync
+                           (nth-value 1 (kv-get database #(1)))))
+                   (funcall original stream)))
+           (kv-put database #(1) #(10))
+           (is (= 1 sync-calls))
+           ;; The record is synced BEFORE the in-memory table mutates.
+           (is (null key-visible-at-first-sync))
+           (kv-batch-put batch #(2) #(20))
+           (kv-batch-put batch #(3) #(30))
+           (kv-apply-batch database batch)
+           (is (= 2 sync-calls))
+           (kv-delete database #(1))
+           (is (= 3 sync-calls))
+           ;; Deleting an absent key writes nothing, so it syncs nothing.
+           (kv-delete database #(9))
+           (is (= 3 sync-calls)))
+      (setf (fdefinition 'ethereum-lisp.database::kv-log-sync-stream)
+            original)
+      (when (probe-file path)
+        (delete-file path)))))
+
+(deftest log-file-key-value-database-poisons-the-handle-after-a-failed-append
+  (:layer :integration :module :database)
+  (let ((path (kv-log-test-path "ethereum-lisp-kv-log-poison"))
+        (original (fdefinition 'ethereum-lisp.database::kv-log-sync-stream)))
+    (unwind-protect
+         (let ((database (make-file-key-value-database path)))
+           (kv-put database #(1) #(10))
+           (setf (fdefinition 'ethereum-lisp.database::kv-log-sync-stream)
+                 (lambda (stream)
+                   (declare (ignore stream))
+                   (error "simulated sync failure")))
+           (signals error
+             (kv-put database #(2) #(20)))
+           (setf (fdefinition 'ethereum-lisp.database::kv-log-sync-stream)
+                 original)
+           ;; The failed append poisons the handle even though the sync
+           ;; works again: the on-disk tail is no longer trusted.
+           (signals ethereum-lisp.database:kv-log-corruption-error
+             (kv-put database #(3) #(30)))
+           ;; The failed write set never reached the in-memory view.
+           (multiple-value-bind (value present-p)
+               (kv-get database #(2) :missing)
+             (is (eq :missing value))
+             (is (not present-p)))
+           ;; A fresh handle recovers the durable state.
+           (let ((reopened
+                   (handler-bind ((warning #'muffle-warning))
+                     (make-file-key-value-database path))))
+             (multiple-value-bind (value present-p)
+                 (kv-get reopened #(1))
+               (is present-p)
+               (is (bytes= #(10) value)))))
+      (setf (fdefinition 'ethereum-lisp.database::kv-log-sync-stream)
+            original)
+      (when (probe-file path)
+        (delete-file path)))))
+
+(deftest log-file-key-value-database-fail-stops-when-the-file-changes-underneath
+  (:layer :integration :module :database)
+  (let ((path (kv-log-test-path "ethereum-lisp-kv-log-underneath")))
+    (unwind-protect
+         (progn
+           (let ((database (make-file-key-value-database path)))
+             (kv-put database #(1) #(10))
+             ;; Another writer appends behind this handle's back.
+             (kv-log-test-append-raw-bytes path #(1 2 3))
+             (signals ethereum-lisp.database:kv-log-corruption-error
+               (kv-put database #(2) #(20))))
+           (let ((database
+                   (handler-bind ((warning #'muffle-warning))
+                     (make-file-key-value-database path))))
+             ;; The file vanishes underneath the handle.
+             (delete-file path)
+             (signals ethereum-lisp.database:kv-log-corruption-error
+               (kv-put database #(3) #(30)))))
+      (when (probe-file path)
+        (delete-file path)))))
