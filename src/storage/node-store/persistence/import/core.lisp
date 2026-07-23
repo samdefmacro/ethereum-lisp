@@ -20,6 +20,8 @@
         (make-hash-table :test 'equalp)
         (memory-chain-store-state-blocks store)
         (make-hash-table :test 'equalp)
+        (memory-chain-store-state-diffs store)
+        (make-hash-table :test 'equalp)
         (memory-chain-store-head-number store)
         0
         (memory-chain-store-head-checkpoint store)
@@ -55,6 +57,8 @@
           (memory-chain-store-account-storage source-chain)
           (memory-chain-store-state-blocks target-chain)
           (memory-chain-store-state-blocks source-chain)
+          (memory-chain-store-state-diffs target-chain)
+          (memory-chain-store-state-diffs source-chain)
           (memory-chain-store-head-number target-chain)
           (memory-chain-store-head-number source-chain)
           (memory-chain-store-head-checkpoint target-chain)

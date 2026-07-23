@@ -88,7 +88,7 @@ fresh one when the file does not exist (go-ethereum --nodekey semantics)."
      (not (null
            (ethereum-lisp.database:kv-chain-record-entries database kind))))
    '(:block :header :receipt :canonical-hash :checkpoint :state
-     :transaction-location)))
+     :state-diff :transaction-location)))
 
 (defun devnet-cli-kv-records-present-p (database)
   (multiple-value-bind (key value present-p)

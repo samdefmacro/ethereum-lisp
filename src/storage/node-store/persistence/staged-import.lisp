@@ -1573,6 +1573,7 @@ When STAGE is NIL, the persisted control state selects the next legal stage."
             (memory-chain-store-account-codes chain-store)
             (memory-chain-store-account-storage chain-store)
             (memory-chain-store-state-blocks chain-store)
+            (memory-chain-store-state-diffs chain-store)
             (memory-chain-store-remote-blocks chain-store)
             (memory-chain-store-invalid-tipsets chain-store)
             (memory-chain-store-prepared-payloads chain-store)

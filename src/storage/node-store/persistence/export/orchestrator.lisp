@@ -1,5 +1,34 @@
 (in-package #:ethereum-lisp.node-store.persistence)
 
+(defun node-store-put-state-record
+    (chain-store database batch hash identifier record-label)
+  "Write HASH's state under its stored kind — a full :STATE snapshot for a
+baseline, a :STATE-DIFF record for a diff — and drop the other kind's stale
+record. Returns T when the batch changed."
+  (let ((changed-p nil))
+    (ecase (chain-store-state-record-kind
+            chain-store (bytes-to-hex identifier))
+      (:baseline
+       (when (node-store-put-immutable-record
+              database batch :state identifier
+              (chain-store-state-record-rlp chain-store hash)
+              record-label)
+         (setf changed-p t))
+       (when (node-store-sync-chain-record
+              database batch :state-diff identifier nil)
+         (setf changed-p t)))
+      (:diff
+       (when (node-store-put-immutable-record
+              database batch :state-diff identifier
+              (chain-store-state-diff-record-rlp
+               chain-store (bytes-to-hex identifier))
+              record-label)
+         (setf changed-p t))
+       (when (node-store-sync-chain-record
+              database batch :state identifier nil)
+         (setf changed-p t))))
+    changed-p))
+
 (defun node-store-put-immutable-record
     (database batch kind identifier value record-label)
   (multiple-value-bind (existing-value present-p)
@@ -278,9 +307,8 @@ same-head forkchoice call without reintroducing a full-store scan."
                    database batch current "Payload candidate")
               (setf changed-p t))
             (when (chain-store-state-available-p chain-store hash)
-              (when (node-store-put-immutable-record
-                     database batch :state identifier
-                     (chain-store-state-record-rlp chain-store hash)
+              (when (node-store-put-state-record
+                     chain-store database batch hash identifier
                      "Payload candidate")
                 (setf changed-p t)))
             (when (or (zerop number)
@@ -366,9 +394,8 @@ same-head forkchoice call without reintroducing a full-store scan."
                    database batch block "Forkchoice transition")
               (setf changed-p t))
             (when (chain-store-state-available-p chain-store hash)
-              (when (node-store-put-immutable-record
-                     database batch :state identifier
-                     (chain-store-state-record-rlp chain-store hash)
+              (when (node-store-put-state-record
+                     chain-store database batch hash identifier
                      "Forkchoice transition")
                 (setf changed-p t)))))
         (dolist (transaction-hash transaction-hashes)

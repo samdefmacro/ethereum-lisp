@@ -69,6 +69,16 @@
    #:memory-chain-store-account-storage
    #:memory-chain-store-head-number
    #:memory-chain-store-state-blocks
+   #:memory-chain-store-state-diffs
+   #:memory-chain-store-state-baseline-interval
+   #:chain-state-diff
+   #:chain-state-diff-p
+   #:make-chain-state-diff
+   #:chain-state-diff-parent-key
+   #:chain-state-diff-balances
+   #:chain-state-diff-nonces
+   #:chain-state-diff-codes
+   #:chain-state-diff-storage
    #:memory-chain-store-remote-blocks
    #:memory-chain-store-invalid-tipsets
    #:memory-chain-store-prepared-payloads
@@ -162,6 +172,9 @@
    #:chain-store-state-available-p
    #:engine-payload-store-prune-state-snapshot
    #:chain-store-prune-state-before
+   #:chain-store-state-kind
+   #:chain-store-put-state-diff
+   #:chain-store-commit-post-state
    #:engine-payload-store-account-key
    #:engine-payload-store-account-storage-key
    #:engine-payload-store-put-account-balance
