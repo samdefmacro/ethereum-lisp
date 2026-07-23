@@ -70,3 +70,27 @@
   (coerce (loop for byte across (ensure-byte-vector bytes)
                 collect (code-char byte))
           'string))
+
+(defparameter +crc32-table+
+  (let ((table (make-array 256 :element-type '(unsigned-byte 32))))
+    (dotimes (n 256 table)
+      (let ((c n))
+        (dotimes (k 8)
+          (setf c (if (logtest c 1)
+                      (logxor #xedb88320 (ash c -1))
+                      (ash c -1))))
+        (setf (aref table n) c))))
+  "IEEE 802.3 CRC-32 lookup table, reflected, polynomial 0xEDB88320.")
+
+(defun crc32 (bytes &key (start 0) end)
+  "Return the IEEE CRC-32 of BYTES, or of its [START, END) range, as an
+\(unsigned-byte 32)."
+  (let* ((octets (ensure-byte-vector bytes))
+         (end (or end (length octets)))
+         (crc #xffffffff))
+    (loop for index from start below end
+          do (setf crc (logxor (ash crc -8)
+                               (aref +crc32-table+
+                                     (logand (logxor crc (aref octets index))
+                                             #xff)))))
+    (logand (logxor crc #xffffffff) #xffffffff)))

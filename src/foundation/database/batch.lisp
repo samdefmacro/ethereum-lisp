@@ -30,12 +30,10 @@
 
 (defmethod kv-apply-batch ((database file-key-value-database)
                            (batch kv-write-batch))
-  (let ((shadow
-          (make-instance
-           'file-key-value-database
-           :path (file-key-value-database-path database))))
-    (kv-apply-batch-to-memory-shadow database shadow batch)
-    (kv-persist-file-database shadow)
-    (setf (memory-key-value-database-entries database)
-          (memory-key-value-database-entries shadow))
-    database))
+  ;; The whole batch becomes one CRC-framed log record: encoding validates
+  ;; every operation before any disk or table mutation, and the record is
+  ;; fsynced before the in-memory table changes, so neither an invalid batch
+  ;; nor a crash can expose a partial write set.
+  (kv-log-write-durable-set
+   database
+   (reverse (kv-write-batch-operations batch))))

@@ -200,7 +200,6 @@
    #:decode-eth-get-block-bodies
    #:encode-eth-block-bodies
    #:decode-eth-block-bodies
-   #:crc32
    #:eth-fork-hash
    #:compute-eth-fork-id
    #:chain-config-eth-fork-id

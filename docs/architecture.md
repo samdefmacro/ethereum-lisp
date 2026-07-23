@@ -66,6 +66,12 @@ not assign implementation-layer ownership. Key source responsibilities are:
   needed for node assembly; it does not depend on `ethereum-lisp.core`.
 - `src/foundation/database/`: key-value database protocol, chain-record key
   encoding, memory/file backends, write batches, and chain-record access helpers.
+  The file backend is a log-structured store: an append-only file of CRC-framed
+  records replayed into the in-memory table on open, with fsync-per-write
+  durability, torn-tail recovery, threshold-triggered compaction through a
+  temp-file rename, and migration of v1 whole-file s-expression databases.
+  Opens are pure reads; torn-tail truncation and v1 migration happen on the
+  first durable write, so a rejected or read-only artifact is never modified.
 - `src/foundation/crypto/constants.lisp`: hash, KZG, secp256k1, SHA-256,
   Keccak, and RIPEMD-160 constants and round tables.
 - `src/foundation/crypto/words.lisp`: 32-bit/64-bit rotation and endian
@@ -330,10 +336,12 @@ not assign implementation-layer ownership. Key source responsibilities are:
 - `src/storage/node-store/persistence/import/orchestrator.lisp`: top-level chain-store KV import
   orchestration.
 - `src/foundation/database/batch.lisp` / `src/foundation/database/memory.lisp`: write-batch application is
-  atomic from the active handle's perspective. Memory applies to a shadow table
-  and swaps on success; the file backend restores its in-memory table when
-  durable replacement fails. This is logical batch atomicity, not an fsync or
-  multi-handle serialization guarantee.
+  atomic. Memory applies to a shadow table and swaps on success; the file
+  backend appends the whole batch as one CRC-framed, fsynced log record before
+  the in-memory table changes, so neither an invalid batch nor a crash exposes
+  a partial write set. An empty batch writes nothing and creates no file, and
+  a handle whose append fails refuses further writes until reopened.
+  Concurrent handles on one path are still not serialized.
 - `src/protocol/consensus/block-validation/fees.lisp`: base-fee, gas-limit, blob-gas, and blob base
   fee validation.
 - `src/protocol/consensus/block-validation/forks.lisp`: fork-specific header field presence and Merge

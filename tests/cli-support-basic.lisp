@@ -113,6 +113,14 @@
       (read-sequence string stream)
       string)))
 
+(defun devnet-cli-file-octets (path)
+  (with-open-file (stream path :direction :input
+                               :element-type '(unsigned-byte 8))
+    (let ((octets (make-array (file-length stream)
+                              :element-type '(unsigned-byte 8))))
+      (read-sequence octets stream)
+      octets)))
+
 (defun devnet-cli-funded-txpool-genesis-json
     (&key config-fields gas-limit
        (code-accounts '())

@@ -7,26 +7,6 @@
 ;;;; CRC32 over the genesis hash and every fork point that has already passed,
 ;;;; plus the block or timestamp of the next upcoming fork.
 
-(defparameter +crc32-table+
-  (let ((table (make-array 256 :element-type '(unsigned-byte 32))))
-    (dotimes (n 256 table)
-      (let ((c n))
-        (dotimes (k 8)
-          (setf c (if (logtest c 1)
-                      (logxor #xedb88320 (ash c -1))
-                      (ash c -1))))
-        (setf (aref table n) c))))
-  "IEEE 802.3 CRC-32 lookup table, reflected, polynomial 0xEDB88320.")
-
-(defun crc32 (bytes)
-  "Return the IEEE CRC-32 of BYTES as an (unsigned-byte 32)."
-  (let ((crc #xffffffff))
-    (loop for byte across (ensure-byte-vector bytes)
-          do (setf crc (logxor (ash crc -8)
-                               (aref +crc32-table+
-                                     (logand (logxor crc byte) #xff)))))
-    (logand (logxor crc #xffffffff) #xffffffff)))
-
 (defun eth-fixed-big-endian (value size)
   "Encode VALUE as SIZE big-endian bytes."
   (let ((out (make-byte-vector size)))

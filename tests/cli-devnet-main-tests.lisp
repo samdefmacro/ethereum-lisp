@@ -380,7 +380,8 @@
     (unwind-protect
          (let* ((database (make-file-key-value-database database-path)))
            (kv-put database raw-key raw-value)
-           (let ((before (devnet-cli-file-string database-path)))
+           ;; The database file is binary; compare octets, not characters.
+           (let ((before (devnet-cli-file-octets database-path)))
              (is (= 1
                     (ethereum-lisp.cli:main
                      (list "devnet"
@@ -394,7 +395,7 @@
              (is (string= "" (get-output-stream-string output)))
              (is (search "Devnet database contains records without a chain baseline"
                          (get-output-stream-string errors)))
-             (is (string= before (devnet-cli-file-string database-path)))
+             (is (bytes= before (devnet-cli-file-octets database-path)))
              (let ((reopened (make-file-key-value-database database-path)))
                (multiple-value-bind (value present-p)
                    (kv-get reopened raw-key)
