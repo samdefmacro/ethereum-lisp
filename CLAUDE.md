@@ -13,6 +13,7 @@ scripts/dev.sh start                     # loads project + tests, Swank on :4006
 scripts/dev.sh eval '(+ 1 2)'            # ~0.1s per eval against the warm image
 scripts/dev.sh test trie-fixture-vectors # one test by name
 scripts/dev.sh test-all                  # full suite in the warm image
+scripts/dev.sh docs-check                # verify PAX doc transcripts
 make test-unit / test-integration / test-e2e   # cold layered runs — final verification
 ```
 
@@ -39,6 +40,19 @@ is the agent-productivity metric stream.
 
 A PostToolUse hook (scripts/paren-hook.sh) checks delimiter balance on every
 .lisp/.asd edit and feeds errors straight back — fix them in the same turn.
+
+## Documentation is verified (PAX transcripts)
+
+docs/*.lisp hold MGL-PAX sections whose ```cl-transcript examples are
+re-executed and compared by `dev.sh docs-check` — a drifted example is a red
+build. When you change behavior a transcript shows, update the transcript in
+the same change; when adding a manual, add its section to *CHECKED-SECTIONS*
+in scripts/docs-check.lisp. Authoring rules are in the header of
+docs/rlp-manual.lisp (package-qualify transcript symbols; prefer `=>`/`..`
+over `==>`; COPY-TREE around macroexpansions). The deliberately broken
+@DOCS-CHECK-SELFTEST section must stay broken — it proves checking is on.
+Per PROJECT.md, this workflow-infrastructure work is a legitimate standalone
+objective; keep it additive and out of consensus paths.
 
 ## Conventions that bite
 

@@ -22,9 +22,18 @@ interoperable client, not by how easy it is to test or document.
 The current code and Git history describe completed work. The repository does
 not maintain an active-objective, phase-status, roadmap, or test-baseline file.
 Tests are verification tools; adding tests, widening fixtures, refactoring, or
-editing documentation is not a standalone development objective unless the
-user requests it or it directly unblocks a product capability or correctness
-fix.
+editing prose documentation is not a standalone development objective unless
+the user requests it or it directly unblocks a product capability or
+correctness fix.
+
+Exception: work that improves the Common Lisp + AI development workflow of
+this repository IS a legitimate standalone objective — the warm-image dev
+loop (scripts/dev.sh), eval hardening and metrics, the delimiter guard,
+agent-facing indexes (CLAUDE.md), and mechanically verified documentation
+(MGL-PAX transcripts checked by scripts/docs-check.lisp, which double as
+test vectors and as in-context teaching corpus for agents). Such docs are
+verification artifacts, not prose: a transcript that drifts from the code is
+a red build. Keep this work additive and out of consensus paths.
 
 ## Invariants
 
