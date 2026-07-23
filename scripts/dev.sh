@@ -25,6 +25,7 @@ Commands:
   eval FORM          Evaluate FORM in the warm image through Swank
   test NAME          Run one test: eval (run-ethereum-lisp-test "NAME")
   test-all           Run the full suite in the warm image (long timeout)
+  docs-check         Verify PAX documentation transcripts (docs/*.lisp)
   help               Show this help
 
 Environment:
@@ -155,6 +156,10 @@ test_all() {
     eval_form '(cl-user::run-ethereum-lisp-tests)'
 }
 
+docs_check() {
+  (cd "$ROOT" && sbcl --non-interactive --load scripts/docs-check.lisp)
+}
+
 cmd="${1:-help}"
 shift || true
 case "$cmd" in
@@ -164,6 +169,7 @@ case "$cmd" in
   eval) eval_form "$@" ;;
   test) test_one "$@" ;;
   test-all) test_all ;;
+  docs-check) docs_check ;;
   help|-h|--help) usage ;;
   *) echo "Unknown command: $cmd" >&2; usage >&2; exit 2 ;;
 esac
