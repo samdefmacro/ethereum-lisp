@@ -124,14 +124,18 @@
       (error "~A requires an enode:// URL" option))))
 
 (defun devnet-cli-parse-enode-list (value option)
-  "Parse VALUE as one or more comma-separated enode:// URLs (go-ethereum syntax),
-returning the list of validated enode strings."
+  "Parse VALUE as comma-separated enode:// URLs (go-ethereum syntax),
+returning the list of validated enode strings. An empty VALUE clears the
+list, as go-ethereum's --bootnodes \"\" does; a non-empty VALUE must hold at
+least one valid enode."
   (let ((enodes (loop for raw in (uiop:split-string value :separator ",")
                       for token = (string-trim '(#\Space #\Tab #\Newline #\Return)
                                                raw)
                       unless (zerop (length token))
                         collect (devnet-cli-parse-enode token option))))
-    (unless enodes
+    (when (and (null enodes)
+               (plusp (length (string-trim '(#\Space #\Tab #\Newline #\Return)
+                                           value))))
       (error "~A requires at least one enode:// URL" option))
     enodes))
 

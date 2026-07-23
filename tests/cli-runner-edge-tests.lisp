@@ -454,7 +454,7 @@
                           "--netrestrict=127.0.0.0/8"
                           "--nodekey=/tmp/ethereum-lisp-nodekey"
                           "--nodekeyhex"
-                          "010203"
+                          "0101010101010101010101010101010101010101010101010101010101010101"
                           "--discovery.port=30303"
                           "--discovery.dns="
                           "--ipcpath=/tmp/ethereum-lisp.ipc"
