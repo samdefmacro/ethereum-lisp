@@ -128,6 +128,7 @@
        (:file "kzg-validation" :pathname "kzg/validation")
        (:file "bls12381-backend-hooks" :pathname "bls12381/backend-hooks")
        (:file "bls12381-command-backend" :pathname "bls12381/command-backend")
+       (:file "bls12381-cffi-backend" :pathname "bls12381/cffi-backend")
        (:file "p2p-identity" :pathname "p2p/identity")
        (:file "p2p-enr" :pathname "p2p/enr")
        (:file "p2p-discv4" :pathname "p2p/discv4")

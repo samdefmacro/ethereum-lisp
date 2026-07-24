@@ -11,7 +11,20 @@ than left behind for the lifetime of the image."
   (unless (functionp thunk)
     (error "Devnet BLS12-381 backend thunk must be a function"))
   (if (null command)
-      (funcall thunk)
+      ;; No explicit --bls12381-backend-command: use the in-process blst CFFI
+      ;; backend when the library is available, so EIP-2537 works by default
+      ;; without an external helper. It is stateless, so there is nothing to
+      ;; shut down. Assigned rather than LET-bound for the thread-visibility
+      ;; reason spelled out below.
+      (let ((cffi-function (make-bls12381-cffi-backend)))
+        (if cffi-function
+            (let ((previous-backend *bls12381-backend*))
+              (unwind-protect
+                   (progn
+                     (setf *bls12381-backend* cffi-function)
+                     (funcall thunk))
+                (setf *bls12381-backend* previous-backend)))
+            (funcall thunk)))
       (multiple-value-bind (function backend)
           (make-bls12381-command-backend command)
         ;; Assigned rather than dynamically bound: the node serves the Engine
