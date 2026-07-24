@@ -5,7 +5,19 @@
 (defstruct state-object
   account
   (code (make-byte-vector 0) :type byte-vector)
-  (storage (make-hash-table :test #'equal)))
+  (storage (make-hash-table :test #'equal))
+  ;; Memoized STORAGE-ROOT, or NIL when it must be recomputed.
+  ;;
+  ;; Rebuilding a storage trie is most of the cost of a state root, and the
+  ;; root is taken over every account even though a block touches a handful.
+  ;;
+  ;; INVARIANT: this must be NIL whenever STORAGE could have changed since it
+  ;; was filled. STATE-DB-SET-STORAGE is the only writer of STORAGE and is
+  ;; responsible for clearing it; deleting an account drops the whole object,
+  ;; so no stale entry survives. A missed invalidation is a wrong state root,
+  ;; i.e. a consensus divergence -- keep the write path down to that one
+  ;; function.
+  (cached-storage-root nil))
 
 (defstruct (state-db (:constructor make-state-db ()))
   (objects (make-hash-table :test #'equal)))
