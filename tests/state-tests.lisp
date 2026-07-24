@@ -14,6 +14,7 @@
            "tests/state-proof-layout-tests.lisp"
            "tests/state-mutation-tests.lisp"
            "tests/state-storage-root-cache-tests.lisp"
+           "tests/state-account-trie-cache-tests.lisp"
            "tests/state-genesis-json-tests.lisp"
            "tests/state-genesis-shape-tests.lisp"
            "tests/state-transaction-execution-tests.lisp"))

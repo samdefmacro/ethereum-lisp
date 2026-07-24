@@ -149,11 +149,14 @@
                           actual-blob-gas-used)
                     (unless (block-header-excess-blob-gas header)
                       (setf (block-header-excess-blob-gas header) 0)))
-                  (validate-supplied-block-execution-roots
-                   header transactions receipts (state-db-root state)
-                   :expected-block-hash expected-block-hash)
-                  (setf (block-header-state-root header) (state-db-root state)
-                        (block-header-gas-used header) gas-used)
+                  ;; One root: nothing mutates STATE between validation and the
+                  ;; header write, so the two calls are provably equal.
+                  (let ((computed-state-root (state-db-root state)))
+                    (validate-supplied-block-execution-roots
+                     header transactions receipts computed-state-root
+                     :expected-block-hash expected-block-hash)
+                    (setf (block-header-state-root header) computed-state-root
+                          (block-header-gas-used header) gas-used))
                   (let ((executed-block
                           (apply #'make-block
                                  (append
