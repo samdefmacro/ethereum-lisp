@@ -3,7 +3,7 @@
   :author "ethereum-lisp contributors"
   :license "MIT"
   :version "0.1.0"
-  :depends-on (#:ironclad)
+  :depends-on (#:ironclad #:cffi)
   :in-order-to ((asdf:test-op (asdf:test-op #:ethereum-lisp/test)))
   :components
   ((:module "src"
@@ -62,6 +62,7 @@
        (:file "crypto-ripemd160" :pathname "crypto/ripemd160")
        (:file "crypto-kzg" :pathname "crypto/kzg")
        (:file "crypto-math" :pathname "crypto/math")
+       (:file "crypto-secp256k1-ffi" :pathname "crypto/secp256k1-ffi")
        (:file "crypto-secp256k1" :pathname "crypto/secp256k1")
        (:file "crypto-secp256r1" :pathname "crypto/secp256r1")
        (:file "crypto-aes" :pathname "crypto/aes")

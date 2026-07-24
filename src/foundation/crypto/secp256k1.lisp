@@ -1,27 +1,24 @@
 (in-package #:ethereum-lisp.crypto)
 
-(defun secp256k1-point (x y)
-  (cons x y))
+;;;; secp256k1 public API.
+;;;;
+;;;; The elliptic-curve operations delegate to libsecp256k1 (see
+;;;; secp256k1-ffi.lisp). This file keeps the package's existing API and the
+;;;; small pure-Lisp pieces that need no curve arithmetic: signature-value
+;;;; validation, address derivation, key generation, and compressed-key
+;;;; framing. Ethereum uses the 64-byte uncompressed public-key body (X||Y,
+;;;; no 0x04 prefix) for address derivation and devp2p identities.
 
-(defun secp256k1-point-x (point)
-  (car point))
+;;; A curve point as a cons, retained because SECP256K1-PUBLIC-KEY-POINT is
+;;; part of the public API and returns one.
+(defun secp256k1-point (x y) (cons x y))
+(defun secp256k1-point-x (point) (car point))
+(defun secp256k1-point-y (point) (cdr point))
 
-(defun secp256k1-point-y (point)
-  (cdr point))
-
-(defun secp256k1-point-on-curve-p (point)
-  (or (null point)
-      (let ((x (secp256k1-point-x point))
-            (y (secp256k1-point-y point)))
-        (= (mod (* y y) +secp256k1-p+)
-           (mod (+ (* x x x) 7) +secp256k1-p+)))))
-
-(defun secp256k1-point-negate (point)
-  (and point
-       (secp256k1-point
-        (secp256k1-point-x point)
-        (mod (- (secp256k1-point-y point)) +secp256k1-p+))))
-
+;;; Affine point addition and double-and-add scalar multiplication. These are
+;;; NOT on any production cryptographic path — recovery, signing, verification,
+;;; ECDH, and key derivation all go through libsecp256k1 below. They remain as
+;;; pure helpers for constructing signature test vectors (computing k*G).
 (defun secp256k1-point-add (a b)
   (cond
     ((null a) b)
@@ -38,18 +35,15 @@
           (let* ((slope
                    (if (and (= x1 x2) (= y1 y2))
                        (let ((denominator (modular-inverse
-                                           (* 2 y1)
-                                           +secp256k1-p+)))
+                                           (* 2 y1) +secp256k1-p+)))
                          (unless denominator
                            (return-from secp256k1-point-add nil))
                          (mod (* 3 x1 x1 denominator) +secp256k1-p+))
                        (let ((denominator (modular-inverse
-                                           (- x2 x1)
-                                           +secp256k1-p+)))
+                                           (- x2 x1) +secp256k1-p+)))
                          (unless denominator
                            (return-from secp256k1-point-add nil))
-                         (mod (* (- y2 y1) denominator)
-                              +secp256k1-p+))))
+                         (mod (* (- y2 y1) denominator) +secp256k1-p+))))
                  (x3 (mod (- (* slope slope) x1 x2) +secp256k1-p+))
                  (y3 (mod (- (* slope (- x1 x3)) y1) +secp256k1-p+)))
             (secp256k1-point x3 y3))))))))
@@ -63,18 +57,6 @@
              (setf result (secp256k1-point-add result addend)))
            (setf addend (secp256k1-point-add addend addend))
         finally (return result)))
-
-(defun secp256k1-decompress-point (x odd-y-p)
-  (when (< x +secp256k1-p+)
-    (let* ((alpha (mod (+ (* x x x) 7) +secp256k1-p+))
-           (beta (modular-expt alpha
-                               (floor (1+ +secp256k1-p+) 4)
-                               +secp256k1-p+)))
-      (when (= (mod (* beta beta) +secp256k1-p+) alpha)
-        (let ((y (if (eql (oddp beta) odd-y-p)
-                     beta
-                     (- +secp256k1-p+ beta))))
-          (secp256k1-point x y))))))
 
 (defun secp256k1-valid-signature-values-p (v r s &key low-s-p)
   (and (or (= v 0) (= v 1))
@@ -100,48 +82,28 @@ address derivation and devp2p node identities."
                (< 0 private-key)
                (< private-key +secp256k1-n+))
     (error "secp256k1 private key must be in [1, n-1]"))
-  (let* ((generator (secp256k1-point +secp256k1-gx+ +secp256k1-gy+))
-         (public-point (secp256k1-scalar-multiply private-key generator)))
-    (concat-bytes
-     (integer-to-fixed-bytes (secp256k1-point-x public-point) 32)
-     (integer-to-fixed-bytes (secp256k1-point-y public-point) 32))))
+  (or (secp256k1-ffi-derive-public-key private-key)
+      (error "secp256k1 public key derivation failed")))
 
 (defun secp256k1-sign (hash private-key &key k)
   "Sign the 32-byte HASH with the PRIVATE-KEY scalar.
 
 Returns a 65-byte r || s || v signature, where s is normalised to the lower half
 of the curve order and v is the recovery id 0 or 1 — the form Ethereum and RLPx
-use. K, the per-signature nonce, defaults to fresh secure randomness and is a
-parameter only so a test can pin it."
+use. Without K the nonce is RFC 6979 deterministic; K pins it and exists so a
+test can fix the signature."
   (unless (and (integerp private-key) (< 0 private-key +secp256k1-n+))
     (error "secp256k1 private key must be in [1, n-1]"))
-  (let ((z (bytes-to-integer (require-sized-byte-vector hash 32 "secp256k1 hash")))
-        (generator (secp256k1-point +secp256k1-gx+ +secp256k1-gy+))
-        (half-order (floor +secp256k1-n+ 2))
-        (fixed-k k))
-    (loop
-      (let* ((k (or fixed-k (secp256k1-random-private-key)))
-             (point (secp256k1-scalar-multiply k generator))
-             (r (mod (secp256k1-point-x point) +secp256k1-n+)))
-        (unless (zerop r)
-          (let ((s (mod (* (modular-inverse k +secp256k1-n+)
-                           (+ z (* r private-key)))
-                        +secp256k1-n+)))
-            (unless (zerop s)
-              (let ((recovery (if (oddp (secp256k1-point-y point)) 1 0)))
-                ;; Canonical low-s: negating s reflects the point, flipping the
-                ;; recovered y's parity, so the recovery id flips with it.
-                (when (> s half-order)
-                  (setf s (- +secp256k1-n+ s)
-                        recovery (logxor recovery 1)))
-                (return-from secp256k1-sign
-                  (concat-bytes (integer-to-fixed-bytes r 32)
-                                (integer-to-fixed-bytes s 32)
-                                (integer-to-fixed-bytes recovery 1)))))))
+  (let* ((hash (require-sized-byte-vector hash 32 "secp256k1 hash"))
+         (signature
+           (secp256k1-ffi-sign hash private-key
+                               :pinned-nonce (and k (integer-to-fixed-bytes k 32)))))
+    (or signature
         ;; A pinned nonce that yields a degenerate signature is an error, not a
-        ;; reason to loop forever on the same value.
-        (when fixed-k
-          (error "secp256k1 signing failed for the supplied nonce"))))))
+        ;; reason to retry — the caller asked for that specific k.
+        (if k
+            (error "secp256k1 signing failed for the supplied nonce")
+            (error "secp256k1 signing failed")))))
 
 (defun secp256k1-random-private-key ()
   "Return a cryptographically random secp256k1 private key scalar in [1, n-1]."
@@ -152,11 +114,10 @@ parameter only so a test can pin it."
 (defun secp256k1-public-key-point (public-key)
   "Parse a 64-byte uncompressed public key body into a curve point."
   (let ((bytes (require-sized-byte-vector public-key 64 "secp256k1 public key")))
-    (let ((point (secp256k1-point (bytes-to-integer (subseq bytes 0 32))
-                                  (bytes-to-integer (subseq bytes 32 64)))))
-      (unless (secp256k1-point-on-curve-p point)
-        (error "secp256k1 public key is not on the curve"))
-      point)))
+    (unless (secp256k1-ffi-parse-public-key-valid-p bytes)
+      (error "secp256k1 public key is not on the curve"))
+    (secp256k1-point (bytes-to-integer (subseq bytes 0 32))
+                     (bytes-to-integer (subseq bytes 32 64)))))
 
 (defun secp256k1-compress-public-key (public-key)
   "Compress a 64-byte uncompressed public-key body (X || Y) to the 33-byte form:
@@ -171,13 +132,8 @@ parameter only so a test can pin it."
   "Expand a 33-byte compressed public key to the 64-byte X || Y body, or NIL when
 it is not a valid point."
   (let ((bytes (require-sized-byte-vector compressed 33 "compressed public key")))
-    (let ((prefix (aref bytes 0))
-          (x (bytes-to-integer (subseq bytes 1 33))))
-      (when (or (= prefix 2) (= prefix 3))
-        (let ((point (secp256k1-decompress-point x (= prefix 3))))
-          (when (and point (secp256k1-point-on-curve-p point))
-            (concat-bytes (integer-to-fixed-bytes (secp256k1-point-x point) 32)
-                          (integer-to-fixed-bytes (secp256k1-point-y point) 32))))))))
+    (when (member (aref bytes 0) '(2 3))
+      (secp256k1-ffi-decompress bytes))))
 
 (defun secp256k1-verify (hash r s public-key)
   "Verify an ECDSA signature (R, S) over the 32-byte HASH against the known
@@ -186,18 +142,7 @@ this needs no recovery id, as node records sign with an r||s signature."
   (let ((hash (require-sized-byte-vector hash 32 "secp256k1 hash")))
     (and (< 0 r +secp256k1-n+)
          (< 0 s +secp256k1-n+)
-         (let ((point (ignore-errors (secp256k1-public-key-point public-key))))
-           (when point
-             (let* ((s-inverse (modular-inverse s +secp256k1-n+))
-                    (z (bytes-to-integer hash))
-                    (u1 (mod (* z s-inverse) +secp256k1-n+))
-                    (u2 (mod (* r s-inverse) +secp256k1-n+))
-                    (generator (secp256k1-point +secp256k1-gx+ +secp256k1-gy+))
-                    (result (secp256k1-point-add
-                             (secp256k1-scalar-multiply u1 generator)
-                             (secp256k1-scalar-multiply u2 point))))
-               (and result
-                    (= r (mod (secp256k1-point-x result) +secp256k1-n+)))))))))
+         (secp256k1-ffi-verify hash r s public-key))))
 
 (defun secp256k1-ecdh (private-key public-key)
   "Return the 32-byte ECDH shared secret for PRIVATE-KEY and PUBLIC-KEY.
@@ -206,11 +151,10 @@ The secret is the big-endian X coordinate of PRIVATE-KEY times the point named
 by the 64-byte uncompressed PUBLIC-KEY body — the agreement devp2p ECIES uses."
   (unless (and (integerp private-key) (< 0 private-key +secp256k1-n+))
     (error "secp256k1 private key must be in [1, n-1]"))
-  (let ((shared (secp256k1-scalar-multiply
-                 private-key (secp256k1-public-key-point public-key))))
-    (when (null shared)
-      (error "secp256k1 ECDH produced the point at infinity"))
-    (integer-to-fixed-bytes (secp256k1-point-x shared) 32)))
+  (or (secp256k1-ffi-ecdh private-key
+                          (require-sized-byte-vector public-key 64
+                                                     "secp256k1 public key"))
+      (error "secp256k1 ECDH produced the point at infinity")))
 
 (defun secp256k1-private-key-address (private-key)
   "Derive the Ethereum address for a secp256k1 private key scalar."
@@ -222,24 +166,7 @@ by the 64-byte uncompressed PUBLIC-KEY body — the agreement devp2p ECIES uses.
 Returns NIL when the signature is invalid or unrecoverable."
   (let ((hash (require-sized-byte-vector hash 32 "secp256k1 hash")))
     (when (secp256k1-valid-signature-values-p v r s)
-      (let* ((r-point (secp256k1-decompress-point r (= v 1)))
-             (generator (secp256k1-point +secp256k1-gx+ +secp256k1-gy+)))
-        (when (and r-point
-                   (secp256k1-point-on-curve-p r-point)
-                   (null (secp256k1-scalar-multiply +secp256k1-n+ r-point)))
-          (let* ((r-inverse (modular-inverse r +secp256k1-n+))
-                 (message (bytes-to-integer hash))
-                 (u1 (mod (* (- message) r-inverse) +secp256k1-n+))
-                 (u2 (mod (* s r-inverse) +secp256k1-n+))
-                 (public-point
-                   (secp256k1-point-add
-                    (secp256k1-scalar-multiply u1 generator)
-                    (secp256k1-scalar-multiply u2 r-point))))
-            (when (secp256k1-point-on-curve-p public-point)
-              (concat-bytes
-               (integer-to-fixed-bytes (secp256k1-point-x public-point) 32)
-               (integer-to-fixed-bytes (secp256k1-point-y public-point)
-                                       32)))))))))
+      (secp256k1-ffi-recover hash v r s))))
 
 (defun secp256k1-recover-address (hash v r s)
   "Recover the Ethereum address for HASH/V/R/S, or NIL if unrecoverable."

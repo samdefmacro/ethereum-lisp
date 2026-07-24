@@ -11,13 +11,15 @@ RUN apt-get update \
         sbcl \
         cl-swank \
         curl \
+        libsecp256k1-dev \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /private/tmp \
     && chmod 1777 /private/tmp
 
-# Quicklisp, for two build-time dependencies fetched here so that everything
+# Quicklisp, for build-time Lisp dependencies fetched here so that everything
 # still runs in a container with --network none:
-#   - ironclad: the runtime crypto backend (Keccak etc.), a project dependency;
+#   - ironclad: the runtime crypto backend (Keccak/SHA-256/RIPEMD-160);
+#   - cffi: the FFI layer for the libsecp256k1 binding;
 #   - mgl-pax/full: used only by scripts/docs-check.lisp.
 # A recent Ironclad from Quicklisp is markedly faster than Debian's cl-ironclad
 # (0.57), so the Debian package is deliberately NOT installed.
@@ -27,6 +29,7 @@ RUN curl -fsSL https://beta.quicklisp.org/quicklisp.lisp -o /tmp/quicklisp.lisp 
             --eval '(quicklisp-quickstart:install)' \
             --eval '(ql-dist:install-dist "http://beta.quicklisp.org/dist/quicklisp/2026-01-01/distinfo.txt" :replace t :prompt nil)' \
             --eval '(ql:quickload :ironclad :silent t)' \
+            --eval '(ql:quickload :cffi :silent t)' \
             --eval '(ql:quickload "mgl-pax/full" :silent t)' \
     && rm -f /tmp/quicklisp.lisp
 
