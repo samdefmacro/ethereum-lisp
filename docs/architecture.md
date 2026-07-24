@@ -76,8 +76,11 @@ not assign implementation-layer ownership. Key source responsibilities are:
   Keccak, and RIPEMD-160 constants and round tables.
 - `src/foundation/crypto/words.lisp`: 32-bit/64-bit rotation and endian
   load/store helpers.
-- `src/foundation/crypto/keccak.lisp`: Ethereum legacy Keccak-256 sponge
-  implementation and its canonical empty code/trie hashes.
+- `src/foundation/crypto/keccak.lisp`: Ethereum legacy Keccak-256, a thin
+  adapter over Ironclad's `:keccak/256` (original 0x01 padding, not NIST
+  SHA3), keeping the crypto package's one-shot and incremental-sponge API and
+  the canonical empty code/trie hashes. The incremental digest peeks on a copy
+  so the RLPx running MAC can be read between frames.
 - `src/foundation/crypto/sha256.lisp`: SHA-256 compression and digest helpers.
 - `src/foundation/crypto/ripemd160.lisp`: RIPEMD-160 compression and digest helpers.
 - `src/foundation/crypto/kzg.lisp`: KZG commitment versioned-hash conversion.
