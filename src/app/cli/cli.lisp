@@ -63,8 +63,6 @@
    :txpool-lifetime-seconds (getf options :txpool-lifetime-seconds)
    :txpool-journal-path (getf options :txpool-journal-path)
    :txpool-rejournal-seconds (getf options :txpool-rejournal-seconds)
-   :kzg-verifier-command (getf options :kzg-verifier-command)
-   :kzg-verifier-timeout-seconds (getf options :kzg-verifier-timeout-seconds)
    :peers (getf options :peers)
    :bootnodes (getf options :bootnodes)
    :node-key (getf options :node-key)
@@ -194,12 +192,8 @@
                   output-stream
                   (lambda (telemetry-sink)
                     (call-with-devnet-cli-kzg-verifier
-                     (getf options :kzg-verifier-command)
-                     (getf options :kzg-verifier-timeout-seconds)
                      (lambda ()
                        (call-with-devnet-cli-bls12381-backend
-                        (getf options :bls12381-backend-command)
-                        (getf options :bls12381-backend-timeout-seconds)
                         (lambda ()
                           (call-with-devnet-cli-http-limits
                            options

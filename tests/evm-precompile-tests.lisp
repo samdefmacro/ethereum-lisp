@@ -862,8 +862,10 @@
         (is (null called))))))
 
 (deftest evm-call-kzg-point-evaluation-replays-real-kzg-vector
-  (:layer :integration :module :kzg :launches-processes t)
-  (let ((script (repo-kzg-verifier-command)))
+  (:layer :integration :module :kzg)
+  (let ((verifier (make-kzg-cffi-verifier)))
+    (unless verifier
+      (skip-test "c-kzg CFFI verifier (libethckzg) is unavailable"))
     (labels ((point-input (commitment z y proof)
                (let* ((versioned-hash
                         (hash32-bytes
@@ -896,23 +898,17 @@
                (point-input valid-commitment valid-z valid-y valid-proof))
              (invalid-input
                (point-input valid-commitment valid-z valid-y invalid-proof))
-             (old-point-verifier *kzg-point-proof-verifier*)
-             (old-blob-verifier *kzg-blob-proof-verifier*))
-        (unwind-protect
-             (progn
-               (configure-kzg-proof-command-verifiers (namestring script))
-               (multiple-value-bind (output gas)
-                   (ethereum-lisp.evm.internal::run-kzg-point-evaluation-precompile
-                    valid-input)
-                 (is (= ethereum-lisp.evm.internal::+kzg-point-evaluation-gas+ gas))
-                 (is (bytes=
-                      (ethereum-lisp.evm.internal::kzg-point-evaluation-return-value)
-                      output)))
-               (signals ethereum-lisp.evm.internal::evm-precompile-error
-                 (ethereum-lisp.evm.internal::run-kzg-point-evaluation-precompile
-                  invalid-input)))
-          (setf *kzg-point-proof-verifier* old-point-verifier
-                *kzg-blob-proof-verifier* old-blob-verifier))))))
+             (*kzg-verifier* verifier))
+        (multiple-value-bind (output gas)
+            (ethereum-lisp.evm.internal::run-kzg-point-evaluation-precompile
+             valid-input)
+          (is (= ethereum-lisp.evm.internal::+kzg-point-evaluation-gas+ gas))
+          (is (bytes=
+               (ethereum-lisp.evm.internal::kzg-point-evaluation-return-value)
+               output)))
+        (signals ethereum-lisp.evm.internal::evm-precompile-error
+          (ethereum-lisp.evm.internal::run-kzg-point-evaluation-precompile
+           invalid-input))))))
 
 (deftest evm-call-blake2f-precompile
   (let* ((state (make-state-db))

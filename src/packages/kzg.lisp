@@ -22,16 +22,11 @@
    #:make-kzg-verifier
    #:kzg-verifier-point-proof-function
    #:kzg-verifier-blob-proof-function
-   #:*kzg-verifier-command-timeout-seconds*
    #:kzg-point-proof-verification-available-p
    #:kzg-blob-proof-verification-available-p
    #:kzg-proof-verification-available-p
    #:verify-kzg-point-proof
    #:verify-kzg-blob-proof
-   #:make-kzg-point-proof-command-verifier
-   #:make-kzg-blob-proof-command-verifier
-   #:make-kzg-command-verifier
-   #:configure-kzg-proof-command-verifiers
    #:make-kzg-cffi-verifier
    #:kzg-cffi-verifier-available-p
    #:validate-blob-sidecar-fields))

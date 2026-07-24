@@ -2,44 +2,21 @@
 
 ;;;; CLI-scoped EIP-2537 backend configuration.
 
-(defun call-with-devnet-cli-bls12381-backend
-    (command timeout-seconds thunk)
-  "Run THUNK with a COMMAND-backed EIP-2537 backend installed.
+(defun call-with-devnet-cli-bls12381-backend (thunk)
+  "Run THUNK with the in-process blst CFFI backend installed when available.
 
-The helper process is persistent, so it is shut down when THUNK returns rather
-than left behind for the lifetime of the image."
+EIP-2537 runs in-process (see ethereum-lisp.bls12381); a host without the
+library keeps BLS capability-gated, exactly as before there was any backend."
   (unless (functionp thunk)
     (error "Devnet BLS12-381 backend thunk must be a function"))
-  (if (null command)
-      ;; No explicit --bls12381-backend-command: use the in-process blst CFFI
-      ;; backend when the library is available, so EIP-2537 works by default
-      ;; without an external helper. It is stateless, so there is nothing to
-      ;; shut down. Assigned rather than LET-bound for the thread-visibility
-      ;; reason spelled out below.
-      (let ((cffi-function (make-bls12381-cffi-backend)))
-        (if cffi-function
-            (let ((previous-backend *bls12381-backend*))
-              (unwind-protect
-                   (progn
-                     (setf *bls12381-backend* cffi-function)
-                     (funcall thunk))
-                (setf *bls12381-backend* previous-backend)))
-            (funcall thunk)))
-      (multiple-value-bind (function backend)
-          (make-bls12381-command-backend command)
-        ;; Assigned rather than dynamically bound: the node serves the Engine
-        ;; endpoint on its own thread, and a LET binding is thread-local in
-        ;; SBCL. Binding here would leave the backend invisible to the very
-        ;; thread that executes payloads, so every BLS precompile would report
-        ;; the backend as unavailable despite the flag being set.
-        (let ((previous-backend *bls12381-backend*)
-              (previous-timeout *bls12381-backend-timeout-seconds*))
-          (unwind-protect
-               (progn
-                 (when timeout-seconds
-                   (setf *bls12381-backend-timeout-seconds* timeout-seconds))
-                 (setf *bls12381-backend* function)
-                 (funcall thunk))
-            (setf *bls12381-backend* previous-backend
-                  *bls12381-backend-timeout-seconds* previous-timeout)
-            (shutdown-bls12381-command-backend backend))))))
+  ;; Assigned rather than dynamically bound for the thread-visibility reason
+  ;; spelled out in CALL-WITH-DEVNET-CLI-KZG-VERIFIER: the node executes
+  ;; payloads on its listener threads, and a LET binding is thread-local.
+  (let ((previous-backend *bls12381-backend*))
+    (unwind-protect
+         (progn
+           (let ((cffi-function (make-bls12381-cffi-backend)))
+             (when cffi-function
+               (setf *bls12381-backend* cffi-function)))
+           (funcall thunk))
+      (setf *bls12381-backend* previous-backend))))

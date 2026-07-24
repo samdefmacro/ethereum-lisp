@@ -282,16 +282,15 @@
               cases)))))
 
 (defun call-with-bls12381-repo-backend (thunk)
-  "Run THUNK with the repository helper installed as the backend."
-  (multiple-value-bind (function backend)
-      (make-bls12381-command-backend
-       (namestring (repo-bls12381-backend-command)))
-    (let ((*bls12381-backend* function))
-      (unwind-protect (funcall thunk)
-        (shutdown-bls12381-command-backend backend)))))
+  "Run THUNK with the in-process blst CFFI backend installed."
+  (let ((backend (make-bls12381-cffi-backend)))
+    (unless backend
+      (skip-test "blst CFFI backend (libethbls) is unavailable"))
+    (let ((*bls12381-backend* backend))
+      (funcall thunk))))
 
 (deftest bls12381-reference-fixture-vectors
-  (:layer :integration :module :bls12381 :launches-processes t)
+  (:layer :integration :module :bls12381)
   (let ((cases (bls12381-fixture-success-cases (load-bls12381-vector-fixture))))
     (is (plusp (length cases)))
     (call-with-bls12381-repo-backend
@@ -305,7 +304,7 @@
            (is (bytes= (getf case :expected) output))))))))
 
 (deftest bls12381-reference-fixture-failures-are-rejected
-  (:layer :integration :module :bls12381 :launches-processes t)
+  (:layer :integration :module :bls12381)
   (let ((cases (bls12381-fixture-failure-cases (load-bls12381-vector-fixture))))
     (is (plusp (length cases)))
     (call-with-bls12381-repo-backend
@@ -321,16 +320,3 @@
              (error "BLS12-381 failure vector ~A was accepted"
                     (getf case :name)))
            (is (not accepted))))))))
-
-(deftest bls12381-backend-serves-many-requests-from-one-process
-  (:layer :integration :module :bls12381 :launches-processes t)
-  ;; The backend is persistent: a single process must answer repeated calls.
-  (let ((cases (bls12381-fixture-success-cases (load-bls12381-vector-fixture))))
-    (call-with-bls12381-repo-backend
-     (lambda ()
-       (dotimes (round 3)
-         (declare (ignore round))
-         (dolist (case cases)
-           (is (bytes= (getf case :expected)
-                       (run-bls12381-operation (getf case :operation)
-                                               (getf case :input))))))))))

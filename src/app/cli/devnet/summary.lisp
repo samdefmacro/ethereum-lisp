@@ -72,9 +72,6 @@
           :txpool-rejournal-seconds
           (devnet-node-txpool-rejournal-seconds node)
           :dev-period-seconds (devnet-node-dev-period-seconds node)
-          :kzg-verifier-command (devnet-node-kzg-verifier-command node)
-          :kzg-verifier-timeout-seconds
-          (devnet-node-kzg-verifier-timeout-seconds node)
           :kzg-proof-verification-available-p
           (kzg-proof-verification-available-p)
           :chain-id (chain-config-chain-id (devnet-node-config node))
@@ -144,10 +141,6 @@
       ("publicCorsOrigins" . ,(getf summary :public-cors-origins))
       ("engineVhosts" . ,(getf summary :engine-vhosts))
       ("publicVhosts" . ,(getf summary :public-vhosts))
-      ("kzgVerifierCommand" . ,(or (getf summary :kzg-verifier-command)
-                                   :false))
-      ("kzgVerifierTimeoutSeconds" .
-       ,(or (getf summary :kzg-verifier-timeout-seconds) :false))
       ("kzgProofVerificationAvailable" .
        ,(if (getf summary :kzg-proof-verification-available-p) t :false))
       ("chainId" . ,(getf summary :chain-id))

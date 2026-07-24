@@ -60,8 +60,6 @@
     (is (search "--http.readtimeout DURATION" stdout))
     (is (search "--http.writetimeout DURATION" stdout))
     (is (search "--http.idletimeout DURATION" stdout))
-    (is (search "--kzg.verifier-command PATH" stdout))
-    (is (search "--kzg.verifier-timeout SECONDS" stdout))
     (is (search "--authrpc.vhosts HOSTS" stdout))))
 
 (deftest ethereum-lisp-script-dispatches-top-level-help-and-version

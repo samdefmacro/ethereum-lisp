@@ -316,14 +316,6 @@
                   "--no-serve")
             "--jwt-secret/--authrpc.jwtsecret must name a readable file containing a 32-byte hex secret")
            (devnet-cli-assert-script-error-telemetry
-            (list "devnet"
-                  "--genesis"
-                  genesis
-                  "--kzg.verifier-command"
-                  (namestring non-executable-kzg-command)
-                  "--no-serve")
-            "KZG verifier command is not executable")
-           (devnet-cli-assert-script-error-telemetry
             (list "init" "--json")
             "init requires a genesis file"
             :event-name "init.error"
@@ -623,16 +615,6 @@
                 (run-error (list "devnet"
                                  "--max-connections"
                                  "-1"
-                                 "--no-serve"))))
-    (is (search "--kzg.verifier-timeout requires an integer value"
-                (run-error (list "devnet"
-                                 "--kzg.verifier-timeout"
-                                 "abc"
-                                 "--no-serve"))))
-    (is (search "--kzg-verifier-timeout must be positive"
-                (run-error (list "devnet"
-                                 "--kzg-verifier-timeout"
-                                 "0"
                                  "--no-serve"))))
     (is (search "--prune-state-before requires an integer value"
                 (run-error (list "devnet"

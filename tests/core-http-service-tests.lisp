@@ -1206,7 +1206,7 @@ Content-Type: application/json
       (setf *engine-rpc-http-max-concurrent-connections* previous-limit))))
 
 (deftest devnet-cli-capability-config-reaches-spawned-threads
-  (:layer :integration :module :capability-config :launches-processes t)
+  (:layer :integration :module :capability-config)
   ;; The node serves the Engine endpoint on its own thread. A LET binding is
   ;; thread-local in SBCL, so configuration bound that way is invisible to the
   ;; thread that executes payloads: the flag parses, the binding is in scope,
@@ -1222,8 +1222,6 @@ Content-Type: application/json
     (let ((previous *bls12381-backend*))
       (unwind-protect
            (ethereum-lisp.cli::call-with-devnet-cli-bls12381-backend
-            (namestring (repo-bls12381-backend-command))
-            nil
             (lambda ()
               (is (bls12381-backend-available-p))
               (is (value-in-new-thread #'bls12381-backend-available-p))))
@@ -1232,8 +1230,6 @@ Content-Type: application/json
     (let ((previous *kzg-verifier*))
       (unwind-protect
            (ethereum-lisp.cli::call-with-devnet-cli-kzg-verifier
-            (namestring (repo-kzg-verifier-command))
-            nil
             (lambda ()
               (is (kzg-point-proof-verification-available-p))
               (is (value-in-new-thread

@@ -51,10 +51,6 @@
         (ready-file nil)
         (log-file nil)
         (pid-file nil)
-        (kzg-verifier-command nil)
-        (kzg-verifier-timeout-seconds nil)
-        (bls12381-backend-command nil)
-        (bls12381-backend-timeout-seconds nil)
         (http-max-clients nil)
         (http-read-timeout-seconds nil)
         (http-write-timeout-seconds nil)
@@ -165,20 +161,6 @@
                 (setf log-file (next-value option)))
                ((string= option "--pid-file")
                 (setf pid-file (next-value option)))
-               ((or (string= option "--kzg-verifier-command")
-                    (string= option "--kzg.verifier-command"))
-                (setf kzg-verifier-command (next-value option)))
-               ((or (string= option "--kzg-verifier-timeout")
-                    (string= option "--kzg.verifier-timeout"))
-                (setf kzg-verifier-timeout-seconds
-                      (next-parsed-value option #'devnet-cli-parse-positive-integer)))
-               ((or (string= option "--bls12381-backend-command")
-                    (string= option "--bls12381.backend-command"))
-                (setf bls12381-backend-command (next-value option)))
-               ((or (string= option "--bls12381-backend-timeout")
-                    (string= option "--bls12381.backend-timeout"))
-                (setf bls12381-backend-timeout-seconds
-                      (next-parsed-value option #'devnet-cli-parse-positive-integer)))
                ((string= option "--http.maxclients")
                 (setf http-max-clients
                       (next-parsed-value option #'devnet-cli-parse-positive-integer)))
@@ -317,10 +299,6 @@
           :ready-file ready-file
           :log-file log-file
           :pid-file pid-file
-          :kzg-verifier-command kzg-verifier-command
-          :kzg-verifier-timeout-seconds kzg-verifier-timeout-seconds
-          :bls12381-backend-command bls12381-backend-command
-          :bls12381-backend-timeout-seconds bls12381-backend-timeout-seconds
           :http-max-clients http-max-clients
           :http-read-timeout-seconds http-read-timeout-seconds
           :http-write-timeout-seconds http-write-timeout-seconds

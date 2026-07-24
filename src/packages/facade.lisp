@@ -360,16 +360,11 @@
    #:*kzg-point-proof-verifier*
    #:*kzg-blob-proof-verifier*
    #:*kzg-verifier*
-   #:*kzg-verifier-command-timeout-seconds*
    #:kzg-point-proof-verification-available-p
    #:kzg-blob-proof-verification-available-p
    #:kzg-proof-verification-available-p
    #:verify-kzg-point-proof
    #:verify-kzg-blob-proof
-   #:make-kzg-point-proof-command-verifier
-   #:make-kzg-blob-proof-command-verifier
-   #:make-kzg-command-verifier
-   #:configure-kzg-proof-command-verifiers
    #:make-kzg-cffi-verifier
    #:kzg-cffi-verifier-available-p
    #:+cell-proofs-per-blob+
@@ -476,12 +471,8 @@
    #:bls12381-input-error
    #:bls12381-unavailable-error
    #:*bls12381-backend*
-   #:*bls12381-backend-timeout-seconds*
    #:bls12381-backend-available-p
    #:run-bls12381-operation
-   #:make-bls12381-command-backend
-   #:configure-bls12381-command-backend
-   #:shutdown-bls12381-command-backend
    #:make-bls12381-cffi-backend
    #:bls12381-cffi-backend-available-p)
   (#:ethereum-lisp.block-access-lists

@@ -32,10 +32,6 @@
     "--txpool.lifetime"
     "--txpool.blobpool.datacap" "--txpool.blobpool.pricebump"
     "--dev.period" "--dev.gaslimit"
-    "--kzg-verifier-command" "--kzg.verifier-command"
-    "--kzg-verifier-timeout" "--kzg.verifier-timeout"
-    "--bls12381-backend-command" "--bls12381.backend-command"
-    "--bls12381-backend-timeout" "--bls12381.backend-timeout"
     "--ready-file" "--log-file" "--pid-file"))
 
 (defparameter *devnet-cli-optional-boolean-options*
