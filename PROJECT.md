@@ -1,6 +1,6 @@
 # Project Contract
 
-Last updated: 2026-07-14
+Last updated: 2026-07-24
 
 ## Goal
 
@@ -60,6 +60,25 @@ The Phase A fixture pin remains EEST release `v5.4.0`, tag target `88e9fb8`,
 archive `fixtures_stable.tar.gz`, archive SHA-256
 `92cf1b47ad12fb27163261fc3c1cea5df72439cab507983d06b56c94f8741909`.
 
+## Dependencies and Cryptography
+
+The tree is not required to be dependency-free. External Common Lisp libraries
+(via Quicklisp/ASDF) are permitted.
+
+Cryptographic primitives prefer robustness over bespoke code. Choose, in order:
+(1) a mature, well-reviewed Lisp implementation; (2) failing that, a mature C
+library bound through CFFI. A hand-written implementation is a last resort,
+justified only where it is small, fully covered by official vectors, and no
+maintained alternative fits. This supersedes the earlier de-facto preference
+for hand-rolled Lisp and for native helper subprocesses over FFI; safety and
+robustness come first.
+
+Any added dependency must keep the build reproducible and offline. The Docker
+test image runs `--network none`, so Quicklisp systems are pre-fetched and
+native libraries installed at build time, and versions are pinned. The existing
+BLS and KZG native helper binaries keep working and are not removed for their
+own sake; new native crypto may use CFFI instead.
+
 ## Development Method
 
 Feature implementation is the default use of development time:
@@ -87,5 +106,7 @@ The agent may autonomously implement the requested feature and adjacent enabling
 work while preserving this contract. Completing a task is a terminal condition:
 do not invent another development round from repository documents. User
 direction is required before changing the project target, supported baseline
-fork, consensus invariants, public compatibility commitment, or adopting a
-major external runtime or storage dependency.
+fork, consensus invariants, or public compatibility commitment. Adding libraries
+under *Dependencies and Cryptography* is pre-authorized; a major external
+runtime or storage substrate — for example replacing the storage engine —
+still needs direction.
