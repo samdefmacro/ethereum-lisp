@@ -1,8 +1,8 @@
 # CLAUDE.md — ethereum-lisp
 
 A Common Lisp Ethereum execution-layer client. **PROJECT.md is the working
-contract and the authority** on goals, invariants, development method, and
-decision boundaries — read it before substantive work. Style rules live in
+contract and the authority** on goals, correctness principles, and how to work
+in this repo — read it before substantive work. Style rules live in
 docs/style.md; layering and package ownership in docs/architecture.md;
 validation policy in docs/validation.md.
 
