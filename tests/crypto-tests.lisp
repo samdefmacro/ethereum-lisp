@@ -8,6 +8,48 @@
   (is (string= "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
                (hash32-to-hex +empty-trie-hash+))))
 
+(deftest keccak-256-absorbs-across-block-boundaries
+  ;; The sponge absorbs a rate-sized block at a time (136 bytes) and the update
+  ;; path copies whole spans rather than single bytes, so the sizes that can
+  ;; break it are the ones straddling a block edge. Feeding one byte at a time
+  ;; drives the boundary logic through every intermediate offset.
+  (dolist (size '(0 1 135 136 137 271 272 273 400))
+    (let ((input (make-byte-vector size :initial-element #x5a))
+          (sponge (ethereum-lisp.crypto:make-keccak-256)))
+      (dotimes (index size)
+        (ethereum-lisp.crypto:keccak-256-update
+         sponge (make-byte-vector 1 :initial-element #x5a)))
+      (is (bytes= (keccak-256 input)
+                  (ethereum-lisp.crypto:keccak-256-digest sponge)))))
+  ;; Irregular chunk sizes, including one larger than the rate, must agree with
+  ;; the one-shot digest too.
+  (let ((input (make-byte-vector 500 :initial-element #x3c))
+        (sponge (ethereum-lisp.crypto:make-keccak-256))
+        (offset 0))
+    (dolist (chunk '(1 7 128 136 200 28))
+      (ethereum-lisp.crypto:keccak-256-update
+       sponge (subseq input offset (+ offset chunk)))
+      (incf offset chunk))
+    (is (= 500 offset))
+    (is (bytes= (keccak-256 input)
+                (ethereum-lisp.crypto:keccak-256-digest sponge)))))
+
+(deftest keccak-256-digest-peeks-without-consuming
+  ;; RLPx keeps a running MAC sponge and reads it between frames, so digesting
+  ;; must be repeatable and must not disturb the absorbed state.
+  (let ((sponge (ethereum-lisp.crypto:make-keccak-256))
+        (first-part (ascii-to-bytes "hello "))
+        (second-part (ascii-to-bytes "world")))
+    (ethereum-lisp.crypto:keccak-256-update sponge first-part)
+    (let ((peek (ethereum-lisp.crypto:keccak-256-digest sponge)))
+      (is (bytes= (keccak-256 first-part) peek))
+      ;; Peeking again gives the same answer ...
+      (is (bytes= peek (ethereum-lisp.crypto:keccak-256-digest sponge)))
+      ;; ... and absorbing afterwards continues from the same state.
+      (ethereum-lisp.crypto:keccak-256-update sponge second-part)
+      (is (bytes= (keccak-256 first-part second-part)
+                  (ethereum-lisp.crypto:keccak-256-digest sponge))))))
+
 (deftest sha256-known-vectors
   (is (string= "0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
                (sha256-hex #())))
