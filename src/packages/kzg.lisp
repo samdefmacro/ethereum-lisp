@@ -32,4 +32,6 @@
    #:make-kzg-blob-proof-command-verifier
    #:make-kzg-command-verifier
    #:configure-kzg-proof-command-verifiers
+   #:make-kzg-cffi-verifier
+   #:kzg-cffi-verifier-available-p
    #:validate-blob-sidecar-fields))
