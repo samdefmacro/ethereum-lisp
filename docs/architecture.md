@@ -570,7 +570,15 @@ not assign implementation-layer ownership. Key source responsibilities are:
 - `src/app/cli/devnet/types.lisp`: devnet CLI records, defaults, embedded dev genesis,
   canonical-transition persistence port, and shutdown signal helpers.
 - `src/app/cli/devnet/files.lisp`: CLI file, datadir, JWT secret, and KV database path
-  helpers.
+  helpers, plus the node-lifetime cache of open key-value database handles.
+  Opening a log-structured database replays the whole file, so reopening one
+  per write made each persist O(file) and a run O(blocks^2) in bytes replayed;
+  the cache keeps one handle per canonical output path for as long as the node
+  runs. It is scoped by `call-with-devnet-cli-kv-database-cache` and defaults
+  to off, so anything building databases outside a node lifetime keeps the
+  open-per-write behaviour. A poisoned handle is dropped so the next caller
+  reopens, as the store requires. Checks that must prove bytes reached the
+  disk use `devnet-cli-reread-kv-database` to bypass the cache deliberately.
 - `src/app/cli/devnet/persistence.lisp`: devnet persisted chain and txpool import
   helpers.
 - `src/app/cli/devnet/node.lisp`: devnet node construction, genesis import, service

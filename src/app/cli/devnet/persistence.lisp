@@ -101,11 +101,17 @@
 
 (defun devnet-cli-existing-persistence-database (path)
   (when path
-    (let ((existing-path (probe-file path)))
-      (when (and existing-path
-                 (not (devnet-cli-empty-file-p existing-path)))
-        (ethereum-lisp.database:make-file-key-value-database
-         existing-path)))))
+    (or (devnet-cli-cached-kv-database path)
+        (let ((existing-path (probe-file path)))
+          (when (and existing-path
+                     (not (devnet-cli-empty-file-p existing-path)))
+            ;; Cached under PATH, not EXISTING-PATH: the file exists, so both
+            ;; canonicalize to the same truename, and the import's read handle
+            ;; is then the very handle the rewrite below writes through.
+            (devnet-cli-cache-kv-database
+             path
+             (ethereum-lisp.database:make-file-key-value-database
+              existing-path)))))))
 
 (defun devnet-cli-validated-persistence-metadata
     (database expected-role persistence-state path)
@@ -375,7 +381,10 @@
                   (nth-value
                    1
                    (kv-get-chain-checkpoint
-                    (devnet-cli-make-output-kv-database database-path)
+                    ;; Deliberately re-read from disk rather than reuse the
+                    ;; handle that just wrote: this asserts the export is
+                    ;; genuinely restartable, and it runs once at startup.
+                    (devnet-cli-reread-kv-database database-path)
                     :head))
                 (error
                  "Devnet database has no restartable head checkpoint: ~A"

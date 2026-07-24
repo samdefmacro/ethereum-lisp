@@ -41,6 +41,7 @@
    #:file-key-value-database
    #:make-memory-key-value-database
    #:make-file-key-value-database
+   #:kv-database-reopen-required-p
    #:kv-log-corruption-error
    #:kv-log-corruption-error-path
    #:kv-log-corruption-error-detail
