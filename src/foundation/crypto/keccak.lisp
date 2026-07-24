@@ -12,8 +12,9 @@
 
 (defconstant +keccak-256-digest+ :keccak/256)
 
-(defun keccak-input (chunk)
-  "Coerce CHUNK to the simple octet vector Ironclad's digest functions expect."
+(defun ironclad-digest-input (chunk)
+  "Coerce CHUNK to the simple octet vector Ironclad's digest functions expect.
+Shared by the Ironclad-backed digests in this package (keccak, sha256, ripemd)."
   (let ((bytes (ensure-byte-vector chunk)))
     (if (typep bytes '(simple-array (unsigned-byte 8) (*)))
         bytes
@@ -30,7 +31,7 @@
 
 (defun keccak-256-update (sponge chunk)
   "Absorb CHUNK into SPONGE and return SPONGE."
-  (ironclad:update-digest sponge (keccak-input chunk))
+  (ironclad:update-digest sponge (ironclad-digest-input chunk))
   sponge)
 
 (defun keccak-256-digest (sponge)
@@ -45,7 +46,7 @@ peeked between frames."
   "Return Ethereum legacy Keccak-256 of all byte CHUNKS concatenated."
   (let ((digest (ironclad:make-digest +keccak-256-digest+)))
     (dolist (chunk chunks)
-      (ironclad:update-digest digest (keccak-input chunk)))
+      (ironclad:update-digest digest (ironclad-digest-input chunk)))
     (ironclad:produce-digest digest)))
 
 (defun keccak-256-hash (&rest chunks)
