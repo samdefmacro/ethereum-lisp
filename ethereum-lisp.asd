@@ -3,6 +3,7 @@
   :author "ethereum-lisp contributors"
   :license "MIT"
   :version "0.1.0"
+  :depends-on (#:ironclad)
   :in-order-to ((asdf:test-op (asdf:test-op #:ethereum-lisp/test)))
   :components
   ((:module "src"

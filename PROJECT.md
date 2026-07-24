@@ -65,13 +65,15 @@ archive `fixtures_stable.tar.gz`, archive SHA-256
 The tree is not required to be dependency-free. External Common Lisp libraries
 (via Quicklisp/ASDF) are permitted.
 
-Cryptographic primitives prefer robustness over bespoke code. Choose, in order:
-(1) a mature, well-reviewed Lisp implementation; (2) failing that, a mature C
-library bound through CFFI. A hand-written implementation is a last resort,
-justified only where it is small, fully covered by official vectors, and no
-maintained alternative fits. This supersedes the earlier de-facto preference
-for hand-rolled Lisp and for native helper subprocesses over FFI; safety and
-robustness come first.
+Cryptographic primitives are chosen for maturity, robustness, and speed
+together. Choose, in order: (1) a mature, well-reviewed Lisp implementation;
+(2) failing that, a mature C library bound through CFFI. Among maintained
+options, prefer the faster one, and prefer a current release over a distro's
+older package when the speed difference is material (crypto sits on the hottest
+paths — Keccak runs per trie node). A hand-written implementation is a last
+resort, justified only where it is small, fully covered by official vectors,
+and no maintained alternative fits. This supersedes the earlier de-facto
+preference for hand-rolled Lisp and for native helper subprocesses over FFI.
 
 Any added dependency must keep the build reproducible and offline. The Docker
 test image runs `--network none`, so Quicklisp systems are pre-fetched and
