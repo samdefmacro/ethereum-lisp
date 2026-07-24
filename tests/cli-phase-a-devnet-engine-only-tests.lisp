@@ -79,8 +79,6 @@
                             "engineRpcPrefixBlockedStatus")))
                (devnet-cli-assert-engine-only-http-shaping-report report)
                (devnet-cli-assert-engine-capability-report report)
-               (devnet-cli-assert-kzg-opt-in-smoke-report
-                (fixture-object-field report "kzgOptIn"))
                (devnet-cli-assert-engine-client-version report)
                (devnet-cli-assert-engine-transition-configuration report)
                (devnet-cli-assert-engine-only-payload-report report)

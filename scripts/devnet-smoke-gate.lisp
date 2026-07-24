@@ -121,16 +121,11 @@ references/ checkouts.~%")
                    (when (devnet-smoke-gate-fixture-case-specified-p args)
                      (error "~A cannot be combined with a fixture case"
                             +devnet-smoke-gate-engine-only-serve-flag+))
-                   (append
-                    (devnet-smoke-gate-verify-engine-only-serve
-                     :ready-file ready-file
-                     :log-file log-file
-                     :pid-file pid-file
-                     :database-file database-file)
-                    (list
-                     (cons
-                      "kzgOptIn"
-                      (devnet-smoke-gate-verify-engine-only-kzg-opt-in)))))
+                   (devnet-smoke-gate-verify-engine-only-serve
+                    :ready-file ready-file
+                    :log-file log-file
+                    :pid-file pid-file
+                    :database-file database-file))
                   (all-fixtures-p
                    (when (devnet-smoke-gate-fixture-case-specified-p args)
                      (error "~A cannot be combined with a fixture case"

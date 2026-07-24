@@ -43,8 +43,6 @@
        peers
        bootnodes
        node-key
-       kzg-verifier-command
-       kzg-verifier-timeout-seconds
        (public-allowed-method-p #'engine-rpc-public-method-p)
        (telemetry-sink ethereum-lisp.telemetry:*telemetry-sink*))
   (unless (or (and genesis-path (stringp genesis-path))
@@ -82,13 +80,6 @@
             :local-addresses txpool-local-addresses
             :no-local-exemptions-p txpool-no-local-exemptions-p
             :lifetime-seconds txpool-lifetime-seconds))
-         (kzg-config
-           (make-devnet-kzg-config
-            :command kzg-verifier-command
-            :timeout-seconds
-            (and kzg-verifier-command
-                 (or kzg-verifier-timeout-seconds
-                     *kzg-verifier-command-timeout-seconds*))))
          (genesis-json (and (null genesis-path) genesis-json))
          (config
            (devnet-cli-apply-merge-overrides
@@ -220,7 +211,6 @@
      :engine-endpoint-config engine-endpoint-config
      :public-endpoint-config public-endpoint-config
      :txpool-policy txpool-policy
-     :kzg-config kzg-config
      :dev-mode-p dev-mode-p
      :coinbase coinbase
      :store-guard-function store-guard-function

@@ -9,6 +9,5 @@
          *ethereum-lisp-devnet-smoke-gate-engine-only-root*)))
 
 (dolist (relative-path
-         '("scripts/devnet-smoke-gate-engine-only-serve.lisp"
-           "scripts/devnet-smoke-gate-engine-only-kzg.lisp"))
+         '("scripts/devnet-smoke-gate-engine-only-serve.lisp"))
   (load-devnet-smoke-gate-engine-only-file relative-path))

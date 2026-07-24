@@ -122,12 +122,6 @@
        ,(if (getf summary :public-vhosts)
             (format nil "~{~A~^,~}" (getf summary :public-vhosts))
             ""))
-      ("kzgVerifierCommand" .
-       ,(or (getf summary :kzg-verifier-command) ""))
-      ("kzgVerifierTimeoutSeconds" .
-       ,(if (getf summary :kzg-verifier-timeout-seconds)
-            (write-to-string (getf summary :kzg-verifier-timeout-seconds))
-            ""))
       ("kzgProofVerificationAvailable" .
        ,(if (getf summary :kzg-proof-verification-available-p)
             "true"

@@ -55,12 +55,6 @@
    :no-local-exemptions-p no-local-exemptions-p
    :lifetime-seconds lifetime-seconds))
 
-(defstruct (devnet-kzg-config
-            (:constructor make-devnet-kzg-config
-                (&key command timeout-seconds)))
-  command
-  timeout-seconds)
-
 (defstruct (devnet-persistence-state
             (:constructor make-devnet-persistence-state
                 (&key (current-generation 0) (chain-generation 0)
@@ -77,7 +71,7 @@
                       public-service telemetry-sink jwt-secret-path log-path
                       database-path pid-file-path network-id
                       public-api-modules engine-endpoint-config
-                      public-endpoint-config txpool-policy kzg-config
+                      public-endpoint-config txpool-policy
                       dev-mode-p coinbase store-guard-function
                       persistence-state
                       canonical-transition-persistence-function
@@ -105,7 +99,6 @@
   engine-endpoint-config
   public-endpoint-config
   txpool-policy
-  kzg-config
   dev-mode-p
   coinbase
   store-guard-function
@@ -202,12 +195,6 @@ A successful dial keeps its claim, so a synced peer is not redialed."
 
 (defun devnet-node-txpool-lifetime-seconds (node)
   (devnet-txpool-policy-lifetime-seconds (devnet-node-txpool-policy node)))
-
-(defun devnet-node-kzg-verifier-command (node)
-  (devnet-kzg-config-command (devnet-node-kzg-config node)))
-
-(defun devnet-node-kzg-verifier-timeout-seconds (node)
-  (devnet-kzg-config-timeout-seconds (devnet-node-kzg-config node)))
 
 (defstruct devnet-shutdown-controller
   requested-p

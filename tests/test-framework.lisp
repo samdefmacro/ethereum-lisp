@@ -50,8 +50,7 @@
    #:with-execution-spec-tests-blockchain-test-root
    #:with-execution-spec-tests-transaction-test-root
    #:with-execution-spec-tests-state-test-root
-   #:with-execution-spec-tests-trie-test-root
-   #:repo-kzg-verifier-command))
+   #:with-execution-spec-tests-trie-test-root))
 
 (in-package #:ethereum-lisp.test)
 
@@ -132,22 +131,6 @@
 
 (defun repository-relative-pathname (relative)
   (merge-pathnames relative *repository-root*))
-
-(defparameter *repo-kzg-verifier-command*
-  (repository-relative-pathname #P"scripts/kzg-verifier.sh"))
-
-(defun repo-kzg-verifier-command ()
-  (or (probe-file *repo-kzg-verifier-command*)
-      (error "Missing repo KZG verifier command at ~A"
-             *repo-kzg-verifier-command*)))
-
-(defparameter *repo-bls12381-backend-command*
-  (repository-relative-pathname #P"scripts/bls12381-backend.sh"))
-
-(defun repo-bls12381-backend-command ()
-  (or (probe-file *repo-bls12381-backend-command*)
-      (error "Missing repo BLS12-381 backend command at ~A"
-             *repo-bls12381-backend-command*)))
 
 (defparameter +execution-spec-tests-fixture-root-env+
   "ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT")

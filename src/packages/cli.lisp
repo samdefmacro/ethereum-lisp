@@ -36,8 +36,6 @@
    #:make-devnet-endpoint-config
    #:devnet-txpool-policy
    #:make-devnet-txpool-policy
-   #:devnet-kzg-config
-   #:make-devnet-kzg-config
    #:make-devnet-node
    #:devnet-node-genesis-path
    #:devnet-node-store
