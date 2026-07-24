@@ -20,7 +20,22 @@
   (cached-storage-root nil))
 
 (defstruct (state-db (:constructor make-state-db ()))
-  (objects (make-hash-table :test #'equal)))
+  (objects (make-hash-table :test #'equal))
+  ;; Incremental account-root support (wave 3b). DIRTY is the set of address
+  ;; keys whose account changed since the last root flush; CACHED-ROOT is the
+  ;; memoized account state root.
+  ;;
+  ;; INVARIANT: CACHED-ROOT is the true root of OBJECTS if and only if DIRTY is
+  ;; empty. Otherwise it is stale and STATE-DB-ROOT recomputes. Every function
+  ;; that mutates an account -- STATE-DB-SET-ACCOUNT, -CLEAR-ACCOUNT, -SET-CODE,
+  ;; -SET-STORAGE (storage changes the account leaf via its storage root), and
+  ;; PRUNE-EMPTY-STATE-OBJECT -- marks the address in DIRTY. A missed mark is a
+  ;; wrong state root, i.e. a consensus divergence: keep the write path down to
+  ;; those functions (verified: nothing outside src/runtime/state mutates
+  ;; OBJECTS or a STATE-OBJECT slot). *VERIFY-INCREMENTAL-ROOT* cross-checks
+  ;; the memo against a full rebuild.
+  (dirty (make-hash-table :test #'equal))
+  (cached-root nil))
 
 (defstruct (state-storage-proof
             (:constructor make-state-storage-proof

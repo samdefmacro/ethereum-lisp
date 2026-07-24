@@ -18,6 +18,12 @@
        (bytes= (hash32-bytes (state-account-code-hash account))
                (hash32-bytes +empty-code-hash+))))
 
+(defun mark-account-dirty (state key)
+  "Record that the account at address KEY changed, so the next STATE-DB-ROOT
+recomputes. See the STATE-DB DIRTY/CACHED-ROOT invariant."
+  (setf (gethash key (state-db-dirty state)) t)
+  state)
+
 (defun empty-state-object-p (object)
   (and object
        (empty-state-account-p (state-object-account object))
@@ -26,7 +32,8 @@
 
 (defun prune-empty-state-object (state key object)
   (when (empty-state-object-p object)
-    (remhash key (state-db-objects state)))
+    (remhash key (state-db-objects state))
+    (mark-account-dirty state key))
   state)
 
 (defun state-object-code-hash (object account)
@@ -48,6 +55,7 @@
                            (make-state-object)))))
     (setf (state-object-account object)
           (state-account-with-object-commitments object account))
+    (mark-account-dirty state key)
     state))
 
 (defun state-db-account-or-empty (state address)
@@ -92,7 +100,9 @@
   state)
 
 (defun state-db-clear-account (state address)
-  (remhash (address-key address) (state-db-objects state))
+  (let ((key (address-key address)))
+    (remhash key (state-db-objects state))
+    (mark-account-dirty state key))
   state)
 
 (defun state-db-set-code (state address code)
@@ -111,6 +121,7 @@
                :balance (state-account-balance account)
                :storage-root (state-account-storage-root account)
                :code-hash (keccak-256-hash code))))
+      (mark-account-dirty state key)
       (prune-empty-state-object state key object))
     state))
 
@@ -158,6 +169,10 @@
                (setf (gethash address (state-db-objects copy))
                      (clone-state-object object)))
              (state-db-objects state))
+    ;; Carry the account-root memo state so the invariant holds in the copy:
+    ;; if DIRTY was empty, CACHED-ROOT stays valid for the cloned OBJECTS.
+    (setf (state-db-dirty copy) (copy-hash-table (state-db-dirty state))
+          (state-db-cached-root copy) (state-db-cached-root state))
     copy))
 
 (defun state-db-restore (state snapshot)
@@ -166,6 +181,11 @@
              (setf (gethash address (state-db-objects state))
                    (clone-state-object object)))
            (state-db-objects snapshot))
+  ;; Wholesale-reset the memo to the snapshot's: OBJECTS now equals the
+  ;; snapshot's, so its DIRTY/CACHED-ROOT are exactly right for the restored
+  ;; state. (A fold that ran inside the snapshot bracket is undone here.)
+  (setf (state-db-dirty state) (copy-hash-table (state-db-dirty snapshot))
+        (state-db-cached-root state) (state-db-cached-root snapshot))
   state)
 
 (defun state-db-set-storage (state address slot value)
@@ -178,10 +198,14 @@
                                  :account (make-state-account))))))
          (storage-key (storage-key slot))
          (storage (and object (state-object-storage object))))
-    ;; The one place STORAGE changes, and therefore the one place the memoized
-    ;; root has to be dropped. See the STATE-OBJECT invariant.
+    ;; The one place STORAGE changes: drop the object's memoized storage root
+    ;; AND mark the account dirty -- the account leaf embeds the storage root
+    ;; (state-account-with-object-commitments), so a storage-only write changes
+    ;; the ACCOUNT trie even when nonce/balance/code are untouched. Marking the
+    ;; storage root alone (wave 3a) is not enough for the account root.
     (when object
-      (setf (state-object-cached-storage-root object) nil))
+      (setf (state-object-cached-storage-root object) nil)
+      (mark-account-dirty state key))
     (cond
       ((zerop value)
        (when object
