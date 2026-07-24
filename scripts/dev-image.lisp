@@ -3,6 +3,10 @@
 
 (in-package #:ethereum-lisp.dev-image)
 
+;; Required up front so the ASDF package exists when the SWANK loader below is
+;; READ, not merely when it runs.
+(require :asdf)
+
 (defparameter *project-root*
   (merge-pathnames "../" (or *load-truename* *default-pathname-defaults*)))
 
@@ -24,7 +28,10 @@
       (load setup))))
 
 (defun maybe-quickload (system)
-  (let ((quickload (find-symbol "QUICKLOAD" "QL")))
+  ;; FIND-SYMBOL signals when the package is missing, and it is missing
+  ;; whenever Quicklisp was not loaded — the normal case in the Docker image.
+  (let* ((package (find-package "QL"))
+         (quickload (and package (find-symbol "QUICKLOAD" package))))
     (when quickload
       (handler-case
           (funcall quickload system :silent t)
@@ -33,11 +40,22 @@
                   system condition)
           nil)))))
 
+(defun ensure-swank ()
+  "Make the SWANK package available, or return NIL.
+
+Quicklisp supplies it on a workstation; the Docker dev image has no Quicklisp
+and installs Debian's cl-swank instead, which registers an ASDF system. REQUIRE
+is the last resort for implementations that bundle it."
+  (or (find-package "SWANK")
+      (progn (maybe-quickload :swank) (find-package "SWANK"))
+      (progn (ignore-errors (asdf:load-system :swank)) (find-package "SWANK"))
+      (progn (ignore-errors (require :swank)) (find-package "SWANK"))))
+
 (defun maybe-start-swank ()
   (let ((port (parse-integer (or (getenv "ETHEREUM_LISP_SWANK_PORT") "")
                              :junk-allowed t)))
     (when port
-      (unless (maybe-quickload :swank)
+      (unless (ensure-swank)
         (error "ETHEREUM_LISP_SWANK_PORT was set, but SWANK could not be loaded."))
       (let ((create-server (find-symbol "CREATE-SERVER" "SWANK")))
         (unless create-server
