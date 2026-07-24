@@ -16,4 +16,6 @@
    #:bls12381-command-backend
    #:make-bls12381-command-backend
    #:configure-bls12381-command-backend
-   #:shutdown-bls12381-command-backend))
+   #:shutdown-bls12381-command-backend
+   #:make-bls12381-cffi-backend
+   #:bls12381-cffi-backend-available-p))

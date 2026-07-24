@@ -3,3 +3,5 @@
 !tools
 !tools/ckzg-ffi
 !tools/ckzg-ffi/shim.c
+!tools/bls-ffi
+!tools/bls-ffi/shim.c

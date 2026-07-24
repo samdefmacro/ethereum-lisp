@@ -21,17 +21,22 @@ RUN apt-get update \
 # binding, and stage its trusted setup. Pinned to a tag; the build has network,
 # the runtime (--network none) only dlopens the result. shim.c wraps c-kzg in a
 # stable byte-pointer ABI (see tools/ckzg-ffi/shim.c).
+# c-kzg-4844 bundles blst as a submodule, so one clone provides both the KZG
+# library and blst for the EIP-2537 BLS12-381 binding (tools/bls-ffi/shim.c).
 COPY tools/ckzg-ffi/shim.c /opt/ckzg-shim.c
+COPY tools/bls-ffi/shim.c /opt/bls-shim.c
 RUN git clone --depth 1 --branch v2.1.1 --recurse-submodules \
         https://github.com/ethereum/c-kzg-4844.git /opt/c-kzg \
     && cd /opt/c-kzg/blst && ./build.sh -fPIC \
     && cd /opt/c-kzg \
     && gcc -shared -fPIC -O2 -o /usr/local/lib/libethckzg.so \
         /opt/ckzg-shim.c src/ckzg.c -Isrc -Iblst/bindings blst/libblst.a \
+    && gcc -shared -fPIC -O2 -o /usr/local/lib/libethbls.so \
+        /opt/bls-shim.c -Iblst/bindings blst/libblst.a \
     && ldconfig \
     && mkdir -p /usr/local/share/eth-kzg \
     && cp src/trusted_setup.txt /usr/local/share/eth-kzg/trusted_setup.txt \
-    && rm -rf /opt/c-kzg /opt/ckzg-shim.c
+    && rm -rf /opt/c-kzg /opt/ckzg-shim.c /opt/bls-shim.c
 
 # Quicklisp, for build-time Lisp dependencies fetched here so that everything
 # still runs in a container with --network none:
