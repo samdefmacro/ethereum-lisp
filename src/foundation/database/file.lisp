@@ -265,6 +265,18 @@ rewrite a v1-format file as a log. Both retry cleanly on failure."
     (setf (file-key-value-database-needs-migration-p database) nil))
   database)
 
+(defun kv-database-reopen-required-p (database)
+  "True when DATABASE is poisoned and only a fresh open can write again.
+
+A handle poisons itself when an append fails partway through, because the
+on-disk tail is then untrusted; every later write signals
+KV-LOG-CORRUPTION-ERROR. Callers that hold a handle open across many writes
+must consult this and reopen, which replays the log and either recovers the
+torn tail or fail-stops on real corruption."
+  (and (typep database 'file-key-value-database)
+       (file-key-value-database-write-failed-p database)
+       t))
+
 (defun kv-log-write-durable-set (database operations)
   "Make OPERATIONS durable as one atomic record, then apply them to the
 in-memory table and compact the log if it has bloated."

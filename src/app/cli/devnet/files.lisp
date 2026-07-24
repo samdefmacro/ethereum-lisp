@@ -104,11 +104,15 @@ fresh one when the file does not exist (go-ethereum --nodekey semantics)."
   (not (null (engine-payload-store-pooled-transactions store))))
 
 (defun devnet-cli-make-output-kv-database (path)
-  (ensure-directories-exist (pathname path))
-  (let ((existing-path (probe-file path)))
-    (when (and existing-path (devnet-cli-empty-file-p existing-path))
-      (delete-file existing-path)))
-  (ethereum-lisp.database:make-file-key-value-database path))
+  (or (devnet-cli-cached-kv-database path)
+      (progn
+        (ensure-directories-exist (pathname path))
+        (let ((existing-path (probe-file path)))
+          (when (and existing-path (devnet-cli-empty-file-p existing-path))
+            (delete-file existing-path)))
+        (devnet-cli-cache-kv-database
+         path
+         (ethereum-lisp.database:make-file-key-value-database path)))))
 
 (defun devnet-cli-normalize-absolute-directory-components (components)
   (let ((normalized (list (first components))))
@@ -162,6 +166,77 @@ fresh one when the file does not exist (go-ethereum --nodekey semantics)."
         when (string= (namestring current) (namestring canonical))
           return canonical
         do (setf current canonical)))
+
+;;; Node-lifetime key-value database handles.
+;;;
+;;; Opening a log-structured database replays the whole file, so reopening one
+;;; per write made every forkchoice and every payload candidate O(file). The
+;;; cache below keeps one handle per output path for as long as the node runs.
+;;;
+;;; This is behaviour-preserving rather than merely faster: a reopen
+;;; reconstructs exactly the map the live handle already holds, because the
+;;; devnet is the single writer of these paths and every write path runs under
+;;; the node store guard (rpc-handle-request funnels all requests through it).
+;;;
+;;; One accepted difference, in the conservative direction: if the file is
+;;; deleted or replaced underneath a running node, the held handle fail-stops
+;;; on the store's size check, where reopening every write would silently have
+;;; started over. Nothing in the devnet does that, and losing the artifact
+;;; mid-run is worth a loud failure.
+
+(defvar *devnet-cli-kv-database-cache* nil
+  "Open key-value database handles keyed by canonical output path, or NIL when
+handle caching is disabled. NIL is the default so anything constructing
+databases outside a node's lifetime keeps the old open-per-write behaviour.")
+
+(defun devnet-cli-kv-database-cache-key (path)
+  (namestring (devnet-cli-canonical-output-pathname path)))
+
+(defun devnet-cli-cached-kv-database (path)
+  "Return the live cached handle for PATH, or NIL.
+
+A poisoned handle is dropped rather than returned: reopening is exactly what
+it demands, and doing it here preserves the recovery behaviour that fell out
+of reopening on every write."
+  (let ((cache *devnet-cli-kv-database-cache*))
+    (when cache
+      (let* ((key (devnet-cli-kv-database-cache-key path))
+             (database (gethash key cache)))
+        (cond
+          ((null database) nil)
+          ((ethereum-lisp.database:kv-database-reopen-required-p database)
+           (remhash key cache)
+           nil)
+          (t database))))))
+
+(defun devnet-cli-cache-kv-database (path database)
+  (let ((cache *devnet-cli-kv-database-cache*))
+    (when (and cache database)
+      (setf (gethash (devnet-cli-kv-database-cache-key path) cache) database)))
+  database)
+
+(defun devnet-cli-reread-kv-database (path)
+  "Open PATH fresh, bypassing the node-lifetime handle cache.
+
+For the checks whose whole point is that the bytes reached the disk. A cached
+handle would answer out of the table it just wrote, which is a weaker claim
+than replaying the log, so those callers must not share the live handle."
+  (ethereum-lisp.database:make-file-key-value-database path))
+
+(defun call-with-devnet-cli-kv-database-cache (thunk)
+  "Run THUNK with node-lifetime caching of open key-value database handles."
+  (unless (functionp thunk)
+    (error "Devnet key-value database cache thunk must be a function"))
+  ;; Assigned rather than dynamically bound, for the reason spelled out in
+  ;; CALL-WITH-DEVNET-CLI-HTTP-LIMITS: the node persists from its listener
+  ;; threads, and a LET binding is thread-local in SBCL, so those threads would
+  ;; read the global NIL and silently reopen the log on every write. The
+  ;; previous value is restored so callers stay scoped.
+  (let ((previous *devnet-cli-kv-database-cache*))
+    (setf *devnet-cli-kv-database-cache* (make-hash-table :test 'equal))
+    (unwind-protect
+         (funcall thunk)
+      (setf *devnet-cli-kv-database-cache* previous))))
 
 (defun devnet-cli-same-output-path-p (left right)
   ;; Conservatively reject case-only differences as well: the usual macOS
