@@ -145,7 +145,12 @@
   (make-state-object
    :account (copy-state-account (state-object-account object))
    :code (subseq (state-object-code object) 0)
-   :storage (copy-hash-table (state-object-storage object))))
+   :storage (copy-hash-table (state-object-storage object))
+   ;; The clone's storage is EQUAL to the original's, so a root already proved
+   ;; for those contents is equally true here. Carrying it matters: snapshots
+   ;; are taken per call frame, and dropping it would re-hash the world after
+   ;; every one.
+   :cached-storage-root (state-object-cached-storage-root object)))
 
 (defun state-db-copy (state)
   (let ((copy (make-state-db)))
@@ -173,6 +178,10 @@
                                  :account (make-state-account))))))
          (storage-key (storage-key slot))
          (storage (and object (state-object-storage object))))
+    ;; The one place STORAGE changes, and therefore the one place the memoized
+    ;; root has to be dropped. See the STATE-OBJECT invariant.
+    (when object
+      (setf (state-object-cached-storage-root object) nil))
     (cond
       ((zerop value)
        (when object
@@ -208,7 +217,11 @@
     trie))
 
 (defun storage-root (object)
-  (make-hash32 (mpt-root-hash (state-object-storage-trie object))))
+  (or (and object (state-object-cached-storage-root object))
+      (let ((root (make-hash32 (mpt-root-hash (state-object-storage-trie object)))))
+        (when object
+          (setf (state-object-cached-storage-root object) root))
+        root)))
 
 (defun state-db-get-storage-root (state address)
   (storage-root (state-db-get-object state address)))

@@ -448,7 +448,16 @@ not assign implementation-layer ownership. Key source responsibilities are:
 - `src/runtime/state/types.lisp`: state units, mutable state records, proof records,
   range records, and state key coercion helpers.
 - `src/runtime/state/db.lisp`: mutable account/code/storage access, copy/restore helpers,
-  and storage trie proof primitives.
+  and storage trie proof primitives. Each `state-object` memoizes its storage
+  root: a state root is taken over every account, but a block touches a
+  handful, and rebuilding the untouched accounts' storage tries was ~93% of
+  the cost (measured 1769ms -> 149ms per block at 400 accounts x 16 slots).
+  `state-db-set-storage` is the only writer of a storage table and is
+  therefore the only place the memo is dropped; deleting an account drops the
+  whole object, and a clone carries the memo because its storage is `equal`.
+  A stale memo would be a wrong state root, so that invariant is stated on the
+  `state-object` defstruct and guarded by differential tests that compare the
+  memoized root against a cold recomputation rather than fixed hashes.
 - `src/runtime/state/roots.lisp`: account trie construction, account proofs, and state
   root rendering.
 - `src/runtime/state/proofs.lisp`: proof result construction and verification.
