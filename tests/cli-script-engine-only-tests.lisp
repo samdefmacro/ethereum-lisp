@@ -294,7 +294,7 @@
                         (fixture-object-field
                          transition-configuration-mismatch-rpc "error")))
                  (is (= 714 (fixture-object-field capabilities-rpc "id")))
-                 (devnet-cli-assert-engine-capability-list
+                 (devnet-cli-assert-kzg-backed-engine-capability-list
                   capabilities-result)
                  (is (= 715
                         (fixture-object-field

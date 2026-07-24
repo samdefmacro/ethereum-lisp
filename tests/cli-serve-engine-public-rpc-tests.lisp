@@ -570,7 +570,7 @@
                  (is (= 514
                         (fixture-object-field
                          engine-batch-capabilities-json "id")))
-                 (devnet-cli-assert-engine-capability-list
+                 (devnet-cli-assert-kzg-backed-engine-capability-list
                   (fixture-object-field
                    engine-batch-capabilities-json "result"))
                  (is (string= ""

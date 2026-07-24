@@ -15,8 +15,16 @@
          (progn
            (when timeout-seconds
              (setf *kzg-verifier-command-timeout-seconds* timeout-seconds))
-           (when command
-             (setf *kzg-verifier* (make-kzg-command-verifier command)))
+           ;; An explicit --kzg-verifier-command wins; otherwise use the
+           ;; in-process c-kzg CFFI verifier when the library is available, so
+           ;; blob verification works by default without an external helper.
+           (cond
+             (command
+              (setf *kzg-verifier* (make-kzg-command-verifier command)))
+             (t
+              (let ((cffi-verifier (make-kzg-cffi-verifier)))
+                (when cffi-verifier
+                  (setf *kzg-verifier* cffi-verifier)))))
            (funcall thunk))
       (setf *kzg-verifier* previous-verifier
             *kzg-verifier-command-timeout-seconds* previous-timeout))))

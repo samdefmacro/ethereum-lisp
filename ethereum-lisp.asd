@@ -124,6 +124,7 @@
        (:file "genesis-block" :pathname "genesis/block")
        (:file "kzg-verifier-hooks" :pathname "kzg/verifier-hooks")
        (:file "kzg-command-verifier" :pathname "kzg/command-verifier")
+       (:file "kzg-cffi-verifier" :pathname "kzg/cffi-verifier")
        (:file "kzg-validation" :pathname "kzg/validation")
        (:file "bls12381-backend-hooks" :pathname "bls12381/backend-hooks")
        (:file "bls12381-command-backend" :pathname "bls12381/command-backend")

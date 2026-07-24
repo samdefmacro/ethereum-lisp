@@ -365,7 +365,7 @@
                       (public-engine-error
                         (fixture-object-field public-engine-rpc "error")))
                  (is (= 713 (fixture-object-field capabilities-rpc "id")))
-                 (devnet-cli-assert-engine-capability-list
+                 (devnet-cli-assert-kzg-backed-engine-capability-list
                   capabilities-result)
                  (is (= 714
                         (fixture-object-field
