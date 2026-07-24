@@ -8,14 +8,27 @@ validation policy in docs/validation.md.
 
 ## The development loop (warm image, not cold sbcl runs)
 
+**SBCL never runs on the macOS host** (PROJECT.md; the machine is shared with
+other agents). `scripts/dev.sh` runs the warm image inside a container and
+`docker exec`s each eval, so the Swank port is never published to the host.
+
 ```
-scripts/dev.sh start                     # loads project + tests, Swank on :4006 (once)
-scripts/dev.sh eval '(+ 1 2)'            # ~0.1s per eval against the warm image
+scripts/dev.sh start                     # container w/ project + tests loaded, Swank inside (once)
+scripts/dev.sh eval '(+ 1 2)'            # ~0.2s per eval against the warm image
 scripts/dev.sh test trie-fixture-vectors # one test by name
 scripts/dev.sh test-all                  # full suite in the warm image
 scripts/dev.sh docs-check                # verify PAX doc transcripts
-make test-unit / test-integration / test-e2e   # cold layered runs — final verification
+scripts/dev.sh logs / shell / status     # container output, a shell inside, state
+make docker-test-unit / docker-test-integration / docker-test-e2e
+                                         # cold layered runs — final verification
 ```
+
+The dev image is tagged `ethereum-lisp-dev:go1.24-bookworm`, deliberately
+separate from `DOCKER_TEST_IMAGE`, so rebuilding it never disturbs another
+agent's `make docker-test-*`. Set `ETHEREUM_LISP_DEV_CONTAINER` to run two
+warm images side by side. The workspace is mounted read-only with the same
+tmpfs shape as the cold gates — edits land on the host and are visible
+immediately; nothing in the container can write to your working tree.
 
 Workflow discipline (in order):
 1. **Ground before writing**: check that symbols/APIs actually exist —
@@ -27,8 +40,8 @@ Workflow discipline (in order):
    Reload is YOUR job — the image does not watch files.
 4. `defstruct`/`defconstant` layout changes cannot be hot-patched: restart
    (`dev.sh stop && dev.sh start`).
-5. Finish with the cold Makefile layer runs — the warm image is a development
-   convenience, not the verification of record.
+5. Finish with the cold `make docker-test-*` layer runs — the warm image is a
+   development convenience, not the verification of record.
 
 Eval contract (scripts/dev-swank-eval.lisp): exit 0 ok / 1 lisp error (with
 backtrace frames) / 2 connection error (image down — NOT your code; run
