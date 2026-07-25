@@ -14,6 +14,7 @@
    #:eth-peer-eth-offset
    #:eth-peer-eth-version
    #:eth-peer-remote-status
+   #:eth-peer-serve-backend
    #:eth-peer-remote-public-key
    #:eth-wire-send
    #:eth-wire-read
@@ -29,6 +30,21 @@
    #:eth-peer-await
    #:eth-peer-get-block-headers
    #:eth-peer-get-block-bodies
+   #:+eth-max-headers-serve+
+   #:+eth-max-bodies-serve+
+   #:+eth-max-receipts-serve+
+   #:+eth-soft-response-limit+
+   #:eth-serve-backend
+   #:make-eth-serve-backend
+   #:eth-serve-backend-block-by-number
+   #:eth-serve-backend-block-by-hash
+   #:eth-serve-ancestor-hash
+   #:eth-serve-headers
+   #:eth-serve-bodies
+   #:eth-serve-receipt-blocks
+   #:eth-peer-serve-message
+   #:eth-peer-handle-message
+   #:eth-peer-serve-loop
    #:eth-sync-assemble-block
    #:eth-sync-download-blocks
    #:eth-sync-socket-stream

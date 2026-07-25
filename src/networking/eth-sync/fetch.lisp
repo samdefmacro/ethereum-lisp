@@ -5,28 +5,33 @@
 ;;;; eth/66 wraps every request and its reply in a request id, so a reply can be
 ;;;; matched to the request that asked for it. These helpers send a request and
 ;;;; then read eth messages until the reply with the matching id arrives,
-;;;; skipping unsolicited announcements (and, thanks to the transport, answering
-;;;; base-protocol keepalives) in between.
+;;;; handling whatever else the peer sends (and, thanks to the transport,
+;;;; answering base-protocol keepalives) in between.
 
 (defconstant +eth-max-skipped-messages+ 256
-  "How many unrelated eth messages to skip while awaiting a matching reply
-before giving up.")
+  "How many unrelated eth messages to handle while awaiting a matching reply
+before giving up. Requests we answer count against this too, so a peer that
+floods us with requests eventually costs us our own reply rather than pinning
+the connection open.")
 
 (defun eth-peer-await (peer expected-eth-id request-id decoder)
   "Read eth messages from PEER until one of EXPECTED-ETH-ID whose DECODER result
 matches REQUEST-ID, and return the decoded payload.
 
 DECODER is applied to the message payload and must return (VALUES ID RESULT);
-RESULT is returned once ID equals REQUEST-ID. Messages of other kinds, and
-replies to other requests, are skipped up to a bound."
+RESULT is returned once ID equals REQUEST-ID. Anything else the peer sends is
+passed to ETH-PEER-HANDLE-MESSAGE first, so the peer's own requests are answered
+while we wait rather than dropped — a connection is full duplex, and a peer that
+gets nothing back stops talking to us."
   (dotimes (i +eth-max-skipped-messages+
               (error "no reply of eth id ~D for request id ~D after ~D messages"
                      expected-eth-id request-id +eth-max-skipped-messages+))
     (multiple-value-bind (eth-id payload) (eth-peer-read peer)
-      (when (= eth-id expected-eth-id)
-        (multiple-value-bind (id result) (funcall decoder payload)
-          (when (= id request-id)
-            (return result)))))))
+      (if (= eth-id expected-eth-id)
+          (multiple-value-bind (id result) (funcall decoder payload)
+            (when (= id request-id)
+              (return result)))
+          (eth-peer-handle-message peer eth-id payload)))))
 
 (defun eth-peer-get-block-headers
     (peer &key origin-number origin-hash (amount 1) (skip 0) reverse

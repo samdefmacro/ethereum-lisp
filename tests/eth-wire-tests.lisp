@@ -28,6 +28,120 @@
                   (ethereum-lisp.eth-wire:eth-fork-id-hash fid)))
       (is (= 1150000 (ethereum-lisp.eth-wire:eth-fork-id-next fid))))))
 
+(deftest eth-get-receipts-round-trips
+  (:layer :unit :module :p2p)
+  (let* ((hashes (list (hex-to-bytes
+                        "0xaabbccddeeff00112233445566778899aabbccddeeff00112233445566778899")
+                       (hex-to-bytes
+                        "0x1111111111111111111111111111111111111111111111111111111111111111"))))
+    (multiple-value-bind (request-id decoded)
+        (ethereum-lisp.eth-wire:decode-eth-get-receipts
+         (ethereum-lisp.eth-wire:encode-eth-get-receipts 77 hashes))
+      (is (= 77 request-id))
+      (is (= 2 (length decoded)))
+      (is (bytes= (first hashes) (first decoded)))
+      (is (bytes= (second hashes) (second decoded))))))
+
+(deftest eth-receipts-encode-per-negotiated-protocol-version
+  (:layer :unit :module :p2p)
+  ;; eth/68 carries the consensus receipt encoding; eth/69 (EIP-7642) drops the
+  ;; bloom and hoists the transaction type into a flat list. Both are checked
+  ;; against the consensus encoding rather than against a round trip, so an
+  ;; encoder that is self-consistently wrong still fails.
+  (let* ((legacy (make-legacy-transaction :nonce 1 :gas-price 2 :gas-limit 21000
+                                          :value 3 :data #(1) :v 27 :r 4 :s 5))
+         (typed (make-dynamic-fee-transaction :chain-id 1 :nonce 2
+                                              :max-fee-per-gas 10
+                                              :max-priority-fee-per-gas 1
+                                              :gas-limit 21000 :value 4
+                                              :y-parity 1 :r 6 :s 7))
+         (log (make-log-entry
+               :address (address-from-hex
+                         "0x00000000000000000000000000000000000000aa")
+               :topics (list (hex-to-bytes
+                              "0x1111111111111111111111111111111111111111111111111111111111111111"))
+               :data #(9 9)))
+         (legacy-receipt (make-receipt :status 1 :cumulative-gas-used 21000
+                                       :logs (list log)))
+         (typed-receipt (make-receipt :status 0 :cumulative-gas-used 42000)))
+    ;; eth/68: byte-identical to the consensus encoding of each receipt. A
+    ;; legacy receipt rides as the RLP list itself and a typed one as an opaque
+    ;; byte string, so the comparison follows that split rather than encoding
+    ;; both — encoding the typed one would add the string's own length prefix.
+    (dolist (pair (list (cons legacy legacy-receipt) (cons typed typed-receipt)))
+      (let ((object (ethereum-lisp.eth-wire:eth-receipt-rlp-object
+                     (car pair) (cdr pair) 68)))
+        (is (bytes= (transaction-receipt-encoding (car pair) (cdr pair))
+                    (if (rlp-list-p object)
+                        (rlp-encode object)
+                        (ensure-byte-vector object))))))
+    (is (rlp-list-p (ethereum-lisp.eth-wire:eth-receipt-rlp-object
+                     legacy legacy-receipt 68)))
+    (is (not (rlp-list-p (ethereum-lisp.eth-wire:eth-receipt-rlp-object
+                          typed typed-receipt 68))))
+    ;; eth/69: [type, status, cumulative-gas, logs], with no bloom. Inspected
+    ;; after an encode/decode round trip, so this reads what goes on the wire.
+    (flet ((wire-fields (transaction receipt)
+             (rlp-list-items
+              (rlp-decode
+               (rlp-encode (ethereum-lisp.eth-wire:eth-receipt-rlp-object
+                            transaction receipt 69))))))
+      (let ((items (wire-fields legacy legacy-receipt)))
+        (is (= 4 (length items)))
+        (is (= 0 (bytes-to-integer (ensure-byte-vector (first items)))))
+        (is (= 1 (bytes-to-integer (ensure-byte-vector (second items)))))
+        (is (= 21000 (bytes-to-integer (ensure-byte-vector (third items)))))
+        (is (= 1 (length (rlp-list-items (fourth items))))))
+      (let ((items (wire-fields typed typed-receipt)))
+        (is (= 4 (length items)))
+        (is (= 2 (bytes-to-integer (ensure-byte-vector (first items)))))
+        ;; A failed receipt's status is the empty string, not a zero byte.
+        (is (zerop (length (ensure-byte-vector (second items)))))
+        (is (= 42000 (bytes-to-integer (ensure-byte-vector (third items)))))
+        (is (null (rlp-list-items (fourth items))))))
+    ;; The eth/69 encoding is strictly smaller: 256 bloom bytes are gone.
+    (is (< (length (rlp-encode (ethereum-lisp.eth-wire:eth-receipt-rlp-object
+                                legacy legacy-receipt 69)))
+           (- (length (rlp-encode (ethereum-lisp.eth-wire:eth-receipt-rlp-object
+                                   legacy legacy-receipt 68)))
+              256)))))
+
+(deftest eth-receipts-reply-groups-receipts-by-block
+  (:layer :unit :module :p2p)
+  (let* ((transaction (make-legacy-transaction :nonce 1 :gas-price 2
+                                               :gas-limit 21000 :value 3
+                                               :data #(1) :v 27 :r 4 :s 5))
+         (receipt (make-receipt :status 1 :cumulative-gas-used 21000))
+         (with-receipts (ethereum-lisp.blocks:make-block-from-parts
+                         :header (make-block-header :number 1 :difficulty 0
+                                                    :gas-limit 30000000
+                                                    :extra-data (make-byte-vector 0))
+                         :transactions (list transaction)
+                         :receipts (list receipt)))
+         (empty (ethereum-lisp.blocks:make-block-from-parts
+                 :header (make-block-header :number 2 :difficulty 0
+                                            :gas-limit 30000000
+                                            :extra-data (make-byte-vector 0))))
+         (items (rlp-list-items
+                 (rlp-decode (ethereum-lisp.eth-wire:encode-eth-receipts
+                              5 (list with-receipts empty) 68)))))
+    (is (= 5 (bytes-to-integer (ensure-byte-vector (first items)))))
+    (let ((blocks (rlp-list-items (second items))))
+      (is (= 2 (length blocks)))
+      (is (= 1 (length (rlp-list-items (first blocks)))))
+      ;; A block with no transactions still gets an entry, an empty one.
+      (is (null (rlp-list-items (second blocks)))))
+    ;; A block whose receipts were never stored cannot be encoded at all.
+    (signals error
+      (ethereum-lisp.eth-wire:encode-eth-receipts
+       5
+       (list (ethereum-lisp.blocks:make-block-from-parts
+              :header (make-block-header :number 3 :difficulty 0
+                                         :gas-limit 30000000
+                                         :extra-data (make-byte-vector 0))
+              :transactions (list transaction)))
+       68))))
+
 (deftest eth-get-block-headers-round-trips
   ;; By number.
   (let* ((request (ethereum-lisp.eth-wire:make-eth-get-block-headers

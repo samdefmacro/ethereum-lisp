@@ -40,6 +40,7 @@ Returns (VALUES CONNECTION SOCKET); the caller closes SOCKET when finished."
      &key (client-id "ethereum-lisp")
           (listen-port 0)
           chain-context
+          serve-backend
           (capabilities (mapcar (lambda (version)
                                   (make-devp2p-capability "eth" version))
                                 +eth-supported-protocol-versions+)))
@@ -47,8 +48,9 @@ Returns (VALUES CONNECTION SOCKET); the caller closes SOCKET when finished."
 as the initiator.
 
 OUR-STATUS is the eth Status to advertise (see eth-build-status). CHAIN-CONTEXT,
-when supplied, enables the EIP-2124 fork-id check against the peer. Returns
-(VALUES ETH-PEER SOCKET); the caller closes SOCKET when finished."
+when supplied, enables the EIP-2124 fork-id check against the peer, and
+SERVE-BACKEND lets us answer the peer's own requests over the same connection.
+Returns (VALUES ETH-PEER SOCKET); the caller closes SOCKET when finished."
   (multiple-value-bind (connection socket)
       (eth-sync-open-connection host port private-key remote-public-key)
     (handler-case
@@ -59,7 +61,8 @@ when supplied, enables the EIP-2124 fork-id check against the peer. Returns
                                     :listen-port listen-port
                                     :node-id (node-id-from-private-key private-key))
                  our-status
-                 chain-context)
+                 :chain-context chain-context
+                 :serve-backend serve-backend)
                 socket)
       (error (condition)
         (ignore-errors (sb-bsd-sockets:socket-close socket))

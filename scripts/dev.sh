@@ -167,6 +167,9 @@ exec_eval_client() {
               --env DEV_SWANK_PORT="$PORT")
   [[ -n "${DEV_EVAL_TIMEOUT:-}" ]] && args+=(--env DEV_EVAL_TIMEOUT="$DEV_EVAL_TIMEOUT")
   [[ -n "${DEV_EVAL_MAX_OUTPUT:-}" ]] && args+=(--env DEV_EVAL_MAX_OUTPUT="$DEV_EVAL_MAX_OUTPUT")
+  # Read and evaluate in a domain package, so a form can use unqualified
+  # symbols the way the sources do (e.g. DEV_SWANK_PACKAGE=ETHEREUM-LISP.TEST).
+  [[ -n "${DEV_SWANK_PACKAGE:-}" ]] && args+=(--env DEV_SWANK_PACKAGE="$DEV_SWANK_PACKAGE")
   $DOCKER exec "${args[@]}" "$CONTAINER" \
     sbcl --script scripts/dev-swank-eval.lisp "$@"
 }

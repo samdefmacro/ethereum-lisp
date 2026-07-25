@@ -249,6 +249,14 @@ otherwise a block number."
     (integer-to-minimal-bytes request-id)
     (apply #'make-rlp-list (mapcar #'eth-block-body-rlp-object bodies)))))
 
+(defun block-eth-body (block)
+  "The wire body of BLOCK: its transactions, ommers, and withdrawals."
+  (make-eth-block-body
+   :transactions (block-transactions block)
+   :ommers (block-ommers block)
+   :withdrawals (block-withdrawals block)
+   :withdrawals-present-p (block-withdrawals-present-p block)))
+
 (defun decode-eth-block-bodies (bytes)
   "Decode a BlockBodies reply into (VALUES REQUEST-ID BODIES)."
   (let ((items (rlp-list-items
@@ -256,3 +264,69 @@ otherwise a block number."
     (values (bytes-to-integer (ensure-byte-vector (first items)))
             (mapcar #'eth-block-body-from-rlp-object
                     (rlp-list-items (second items))))))
+
+;;; GetReceipts / Receipts. The reply carries one list of receipts per block
+;;; whose hash was asked for; a block we do not have is left out rather than
+;;; held a place, so the reply is not positional.
+;;;
+;;; The receipt encoding depends on the negotiated version. eth/68 sends the
+;;; consensus encoding, so a legacy receipt rides as the RLP list
+;;; [status, cumulative-gas, bloom, logs] and a typed one as the opaque byte
+;;; string type‖rlp(that list) — the same split block bodies use for
+;;; transactions. eth/69 (EIP-7642) drops the bloom, which the receiver
+;;; recomputes from the logs, and hoists the transaction type into a flat list:
+;;; [type, status, cumulative-gas, logs], with legacy receipts carrying type 0.
+
+(defun encode-eth-get-receipts (request-id hashes)
+  (rlp-encode
+   (make-rlp-list
+    (integer-to-minimal-bytes request-id)
+    (apply #'make-rlp-list (mapcar #'ensure-byte-vector hashes)))))
+
+(defun decode-eth-get-receipts (bytes)
+  "Decode a GetReceipts request into (VALUES REQUEST-ID HASHES)."
+  (let ((items (rlp-list-items
+                (rlp-decode (ensure-byte-vector bytes) :allow-trailing t))))
+    (values (bytes-to-integer (ensure-byte-vector (first items)))
+            (mapcar #'ensure-byte-vector (rlp-list-items (second items))))))
+
+(defun eth-receipt-rlp-object (transaction receipt version)
+  "RLP object for RECEIPT in the wire format of the negotiated eth VERSION.
+
+TRANSACTION supplies the type, which the consensus encoding carries as a
+prefix byte and eth/69 carries as the first field."
+  (if (>= version +eth-protocol-version-69+)
+      (make-rlp-list
+       (integer-to-minimal-bytes (transaction-type transaction))
+       (receipt-status-bytes receipt)
+       (integer-to-minimal-bytes (receipt-cumulative-gas-used receipt))
+       (mapcar #'log-entry-rlp-object (receipt-logs receipt)))
+      (let ((encoded (transaction-receipt-encoding transaction receipt)))
+        ;; A legacy receipt encodes as an RLP list, whose first byte is a list
+        ;; header above #x7f; a typed one begins with its low type byte and
+        ;; stays an opaque string.
+        (if (> (aref encoded 0) #x7f)
+            (rlp-decode-one encoded)
+            encoded))))
+
+(defun eth-block-receipts-rlp-object (block version)
+  "RLP object for every receipt of BLOCK, in the negotiated VERSION's format."
+  (let ((transactions (block-transactions block))
+        (receipts (block-receipts block)))
+    (unless (= (length transactions) (length receipts))
+      (error "block has ~D transactions but ~D receipts, so its receipts ~
+              cannot be served"
+             (length transactions) (length receipts)))
+    (apply #'make-rlp-list
+           (mapcar (lambda (transaction receipt)
+                     (eth-receipt-rlp-object transaction receipt version))
+                   transactions receipts))))
+
+(defun encode-eth-receipts (request-id blocks version)
+  "Encode a Receipts reply carrying the receipts of each block in BLOCKS."
+  (rlp-encode
+   (make-rlp-list
+    (integer-to-minimal-bytes request-id)
+    (apply #'make-rlp-list
+           (mapcar (lambda (block) (eth-block-receipts-rlp-object block version))
+                   blocks)))))

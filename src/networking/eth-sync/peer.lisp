@@ -13,6 +13,9 @@
   eth-offset
   eth-version
   remote-status
+  ;; The chain this peer's requests are answered from; NIL means we answer
+  ;; nothing (see serve.lisp).
+  serve-backend
   (request-counter 0))
 
 (defun eth-peer-next-request-id (peer)
@@ -120,14 +123,15 @@ success."
   theirs)
 
 (defun eth-peer-handshake (connection eth-offset eth-version our-status
-                           &optional chain-context)
+                           &key chain-context serve-backend)
   "Exchange eth Status over CONNECTION and return a validated ETH-PEER.
 
 Encodes OUR-STATUS in the negotiated ETH-VERSION's wire format (eth/68 carries
 total difficulty; eth/69 carries a block range instead), reads the peer's, and
 validates version, network, genesis, and — when CHAIN-CONTEXT is given — the
 EIP-2124 fork id before returning the peer. Both sides send before reading, so
-there is no deadlock."
+there is no deadlock. SERVE-BACKEND, when given, is installed before the peer is
+returned, so the peer can never send a request we drop for want of a backend."
   (setf (eth-status-version our-status) eth-version)
   (eth-wire-send connection eth-offset +eth-message-status+
                  (encode-eth-status-for-version our-status eth-version))
@@ -139,15 +143,18 @@ there is no deadlock."
       (%make-eth-peer :connection connection
                       :eth-offset eth-offset
                       :eth-version eth-version
-                      :remote-status peer-status))))
+                      :remote-status peer-status
+                      :serve-backend serve-backend))))
 
-(defun eth-peer-connect (connection hello our-status &optional chain-context)
+(defun eth-peer-connect (connection hello our-status
+                         &key chain-context serve-backend)
   "Run the devp2p Hello exchange then the eth Status handshake over CONNECTION.
 
 HELLO is our devp2p Hello, which must advertise the eth capability. The eth
 version is whichever the negotiation settled on. CHAIN-CONTEXT, when supplied,
-enables the EIP-2124 fork-id compatibility check. Returns the ETH-PEER, or errors
-if the peer does not share eth."
+enables the EIP-2124 fork-id compatibility check, and SERVE-BACKEND the serving
+of the peer's own requests. Returns the ETH-PEER, or errors if the peer does not
+share eth."
   (multiple-value-bind (peer-hello shared) (rlpx-exchange-hello connection hello)
     (declare (ignore peer-hello))
     (let ((eth (rlpx-shared-capability-named shared "eth")))
@@ -157,4 +164,5 @@ if the peer does not share eth."
                           (rlpx-shared-capability-offset eth)
                           (rlpx-shared-capability-version eth)
                           our-status
-                          chain-context))))
+                          :chain-context chain-context
+                          :serve-backend serve-backend))))

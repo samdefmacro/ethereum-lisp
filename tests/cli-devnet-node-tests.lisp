@@ -997,6 +997,139 @@
                                  store (block-hash (aref produced 2))))))))))
       (ignore-errors (sb-bsd-sockets:socket-close listener)))))
 
+(defun devnet-peer-sync-serve-and-ask (peer blocks request-id)
+  "Serve the syncing peer's header and body requests from BLOCKS while awaiting
+our own BlockHeaders reply for REQUEST-ID, and return that reply.
+
+The interleaving is the point: both sides have a request outstanding at once, so
+this only terminates if the node under test answers ours while it waits for its
+own. Exactly three messages arrive — its two requests and its one reply — so the
+loop cannot block on a message that never comes."
+  (let ((reply nil)
+        (answered-headers nil)
+        (answered-bodies nil))
+    (loop
+      (when (and reply answered-headers answered-bodies)
+        (return reply))
+      (multiple-value-bind (eth-id payload) (eth-peer-read peer)
+        (cond
+          ((= eth-id ethereum-lisp.eth-wire:+eth-message-get-block-headers+)
+           (let* ((request (ethereum-lisp.eth-wire:decode-eth-get-block-headers
+                            payload))
+                  (origin (ethereum-lisp.eth-wire:eth-get-block-headers-origin-number
+                           request))
+                  (amount (ethereum-lisp.eth-wire:eth-get-block-headers-amount
+                           request))
+                  (headers (loop for n from origin below (+ origin amount)
+                                 when (<= 1 n (length blocks))
+                                   collect (block-header (aref blocks (1- n))))))
+             (eth-peer-send
+              peer ethereum-lisp.eth-wire:+eth-message-block-headers+
+              (ethereum-lisp.eth-wire:encode-eth-block-headers
+               (ethereum-lisp.eth-wire:eth-get-block-headers-request-id request)
+               headers))
+             (setf answered-headers t)))
+          ((= eth-id ethereum-lisp.eth-wire:+eth-message-get-block-bodies+)
+           (multiple-value-bind (rid hashes)
+               (ethereum-lisp.eth-wire:decode-eth-get-block-bodies payload)
+             (eth-peer-send
+              peer ethereum-lisp.eth-wire:+eth-message-block-bodies+
+              (ethereum-lisp.eth-wire:encode-eth-block-bodies
+               rid (mapcar (lambda (hash)
+                             (ethereum-lisp.eth-wire:block-eth-body
+                              (find-if (lambda (block)
+                                         (bytes= hash (hash32-bytes
+                                                       (block-hash block))))
+                                       blocks)))
+                           hashes)))
+             (setf answered-bodies t)))
+          ((= eth-id ethereum-lisp.eth-wire:+eth-message-block-headers+)
+           (multiple-value-bind (id headers)
+               (ethereum-lisp.eth-wire:decode-eth-block-headers payload)
+             (when (= id request-id)
+               (setf reply (list headers))))))))))
+
+(deftest devnet-peer-sync-worker-answers-the-peer-while-it-syncs
+  (:requires-local-sockets t)
+  ;; The CLI worker's connection is not one-way: while it downloads, it answers
+  ;; the remote's own requests out of the node's store. Here the remote asks for
+  ;; genesis, which is all the node has when the session opens.
+  (let* ((node (ethereum-lisp.cli:make-devnet-node
+                :genesis-json *eth-sync-paris-genesis-json*
+                :port 0 :public-port 0))
+         (config (ethereum-lisp.cli::devnet-node-config node))
+         (genesis-block (ethereum-lisp.cli::devnet-node-genesis-block node))
+         (store (ethereum-lisp.cli::devnet-node-store node))
+         (produced (coerce (eth-sync-produce-empty-blocks genesis-block config 3)
+                           'vector))
+         (genesis-hash (hash32-bytes (block-hash genesis-block)))
+         (server-static
+          #xb71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291)
+         (client-static
+          #x49a7b37aa6f6645917e7b807e9d1c00d4fa71f18343b0d4122a4d2df64dd6fee)
+         (server-static-pub (secp256k1-private-key-public-key server-static))
+         (served nil)
+         (listener (make-instance 'sb-bsd-sockets:inet-socket
+                                  :type :stream :protocol :tcp)))
+    (setf (sb-bsd-sockets:sockopt-reuse-address listener) t)
+    (unwind-protect
+         (progn
+           (sb-bsd-sockets:socket-bind
+            listener (sb-bsd-sockets:make-inet-address "127.0.0.1") 0)
+           (sb-bsd-sockets:socket-listen listener 1)
+           (multiple-value-bind (address port)
+               (sb-bsd-sockets:socket-name listener)
+             (declare (ignore address))
+             (let ((server-error nil))
+               (let ((server-thread
+                       (sb-thread:make-thread
+                        (lambda ()
+                          (handler-case
+                              (let* ((cs (sb-bsd-sockets:socket-accept listener))
+                                     (stream (p2p-binary-socket-stream cs))
+                                     (connection (rlpx-accept-stream stream
+                                                                     server-static))
+                                     (peer (eth-peer-connect
+                                            connection
+                                            (make-devp2p-hello
+                                             :client-id "srv"
+                                             :capabilities
+                                             (list (make-devp2p-capability "eth" 68))
+                                             :node-id server-static-pub)
+                                            (eth-build-status config genesis-hash
+                                                              3 0 genesis-hash 0)))
+                                     (request-id (eth-peer-next-request-id peer)))
+                                ;; Ask before serving, so both sides are waiting.
+                                (eth-peer-send
+                                 peer
+                                 ethereum-lisp.eth-wire:+eth-message-get-block-headers+
+                                 (ethereum-lisp.eth-wire:encode-eth-get-block-headers
+                                  (ethereum-lisp.eth-wire:make-eth-get-block-headers
+                                   :request-id request-id :origin-number 0
+                                   :amount 1)))
+                                (setf served
+                                      (devnet-peer-sync-serve-and-ask
+                                       peer produced request-id)))
+                            (error (condition) (setf server-error condition))))
+                        :name "devnet-peer-serve-test-server")))
+                 (let ((enode (enode-url (node-id-from-private-key server-static)
+                                         "127.0.0.1" port)))
+                   (ethereum-lisp.cli::devnet-peer-sync-one node enode client-static))
+                 (sb-thread:join-thread server-thread)
+                 (when server-error
+                   (error "peer-serve server side failed: ~A" server-error))
+                 ;; The node answered from its store: one header, the genesis it
+                 ;; was started with.
+                 (is (not (null served)))
+                 (let ((headers (first served)))
+                   (is (= 1 (length headers)))
+                   (is (= 0 (block-header-number (first headers))))
+                   (is (bytes= genesis-hash
+                               (hash32-bytes (block-header-hash (first headers))))))
+                 ;; And its own download still completed.
+                 (is (= 3 (chain-store-head-number store)))))))
+      (ignore-errors (sb-bsd-sockets:socket-close listener)))))
+
 (deftest devnet-cli-bootnodes-option-accumulates-enodes
   (let* ((enode-a (concatenate 'string "enode://"
                                (make-string 128 :initial-element #\a)

@@ -144,6 +144,8 @@
         #:ethereum-lisp.hex
         #:ethereum-lisp.types
         #:ethereum-lisp.rlp
+        #:ethereum-lisp.transactions
+        #:ethereum-lisp.receipts
         #:ethereum-lisp.blocks)
   (:export
    #:+eth-protocol-version+
@@ -151,10 +153,14 @@
    #:+eth-supported-protocol-versions+
    #:+eth-base-protocol-offset+
    #:+eth-message-status+
+   #:+eth-message-new-block-hashes+
+   #:+eth-message-transactions+
    #:+eth-message-get-block-headers+
    #:+eth-message-block-headers+
    #:+eth-message-get-block-bodies+
    #:+eth-message-block-bodies+
+   #:+eth-message-get-receipts+
+   #:+eth-message-receipts+
    #:+eth-message-block-range-update+
    #:eth-wire-message-id
    #:eth-fork-id
@@ -196,10 +202,18 @@
    #:eth-block-body-ommers
    #:eth-block-body-withdrawals
    #:eth-block-body-withdrawals-present-p
+   #:eth-block-body-rlp-object
+   #:eth-block-body-from-rlp-object
    #:encode-eth-get-block-bodies
    #:decode-eth-get-block-bodies
    #:encode-eth-block-bodies
    #:decode-eth-block-bodies
+   #:block-eth-body
+   #:encode-eth-get-receipts
+   #:decode-eth-get-receipts
+   #:eth-receipt-rlp-object
+   #:eth-block-receipts-rlp-object
+   #:encode-eth-receipts
    #:eth-fork-hash
    #:compute-eth-fork-id
    #:chain-config-eth-fork-id

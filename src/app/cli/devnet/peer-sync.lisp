@@ -5,10 +5,32 @@
 ;;;; When the node is started with one or more --peer enode://… URLs, a
 ;;;; background worker dials each in turn, completes the RLPx + eth handshake,
 ;;;; and downloads the peer's chain into the node's store over the eth wire
-;;;; protocol. Imports run under the node's store guard so they do not race the
-;;;; RPC and dev-period workers that share the single store. A peer that is
-;;;; unreachable or incompatible is logged and skipped rather than taking the
-;;;; node down.
+;;;; protocol. The connection is not one-way: the peer's own header, body, and
+;;;; receipt requests are answered from our store over the same session. Imports
+;;;; and reads run under the node's store guard so they do not race the RPC and
+;;;; dev-period workers that share the single store. A peer that is unreachable
+;;;; or incompatible is logged and skipped rather than taking the node down.
+
+(defun devnet-peer-serve-backend (node)
+  "A serve backend answering a peer's requests from NODE's store.
+
+Each lookup takes the store guard on its own rather than holding it across a
+whole query, so a peer asking for a thousand headers cannot stall the RPC
+services. A query may then span a store that moved underneath it, which is
+harmless: every block it returns was a real block of ours, and the peer
+validates what it receives regardless."
+  (let ((store (devnet-node-store node)))
+    (flet ((guarded (thunk)
+             (call-with-devnet-node-store-guard node thunk)))
+      (make-eth-serve-backend
+       :block-by-number
+       (lambda (number)
+         (guarded (lambda () (chain-store-block-by-number store number))))
+       :block-by-hash
+       (lambda (hash)
+         (guarded (lambda ()
+                    ;; The store keys blocks by hash32; the wire carries bytes.
+                    (chain-store-known-block store (make-hash32 hash)))))))))
 
 (defun devnet-peer-sync-import-block (node block)
   "Execute, commit, and canonicalize BLOCK into NODE's store under the store
@@ -70,7 +92,8 @@ starting just past our current head. Returns the number of blocks imported."
                      :sink (devnet-node-telemetry-sink node))
       (multiple-value-bind (peer socket)
           (eth-sync-connect-peer host tcp-port node-id private-key status
-                                 :chain-context chain-context)
+                                 :chain-context chain-context
+                                 :serve-backend (devnet-peer-serve-backend node))
         (unwind-protect
              (let ((count (eth-sync-download-blocks
                            peer

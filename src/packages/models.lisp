@@ -58,6 +58,7 @@
    #:receipt-status
    #:receipt-cumulative-gas-used
    #:receipt-logs
+   #:receipt-status-bytes
    #:receipt-rlp
    #:transaction-receipt-encoding
    #:receipt-bloom
