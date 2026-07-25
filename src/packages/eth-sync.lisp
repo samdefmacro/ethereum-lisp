@@ -15,12 +15,18 @@
    #:eth-peer-eth-offset
    #:eth-peer-eth-version
    #:eth-peer-remote-status
+   #:eth-peer-remote-hello
+   #:eth-peer-remote-client-id
+   #:eth-peer-remote-capabilities
+   #:eth-peer-remote-listen-port
    #:eth-peer-serve-backend
    #:eth-peer-remote-public-key
    #:eth-wire-send
    #:eth-wire-read
+   #:eth-wire-read-once
    #:eth-peer-send
    #:eth-peer-read
+   #:eth-peer-read-once
    #:eth-build-status
    #:eth-chain-context
    #:make-eth-chain-context

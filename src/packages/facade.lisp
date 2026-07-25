@@ -410,7 +410,18 @@
    #:+devp2p-message-pong+
    #:+devp2p-message-disconnect+
    #:+devp2p-disconnect-requested+
+   #:+devp2p-disconnect-tcp-error+
+   #:+devp2p-disconnect-protocol-error+
+   #:+devp2p-disconnect-useless-peer+
    #:+devp2p-disconnect-too-many-peers+
+   #:+devp2p-disconnect-already-connected+
+   #:+devp2p-disconnect-incompatible-version+
+   #:+devp2p-disconnect-invalid-identity+
+   #:+devp2p-disconnect-client-quitting+
+   #:+devp2p-disconnect-unexpected-identity+
+   #:+devp2p-disconnect-self+
+   #:+devp2p-disconnect-read-timeout+
+   #:+devp2p-disconnect-subprotocol-error+
    #:devp2p-hello-version
    #:devp2p-hello-client-id
    #:devp2p-hello-capabilities
@@ -446,12 +457,18 @@
    #:eth-peer-eth-offset
    #:eth-peer-eth-version
    #:eth-peer-remote-status
+   #:eth-peer-remote-hello
+   #:eth-peer-remote-client-id
+   #:eth-peer-remote-capabilities
+   #:eth-peer-remote-listen-port
    #:eth-peer-serve-backend
    #:eth-peer-remote-public-key
    #:eth-wire-send
    #:eth-wire-read
+   #:eth-wire-read-once
    #:eth-peer-send
    #:eth-peer-read
+   #:eth-peer-read-once
    #:eth-build-status
    #:eth-chain-context
    #:make-eth-chain-context

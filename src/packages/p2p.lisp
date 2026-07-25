@@ -137,7 +137,18 @@
    #:+devp2p-message-ping+
    #:+devp2p-message-pong+
    #:+devp2p-disconnect-requested+
+   #:+devp2p-disconnect-tcp-error+
+   #:+devp2p-disconnect-protocol-error+
+   #:+devp2p-disconnect-useless-peer+
    #:+devp2p-disconnect-too-many-peers+
+   #:+devp2p-disconnect-already-connected+
+   #:+devp2p-disconnect-incompatible-version+
+   #:+devp2p-disconnect-invalid-identity+
+   #:+devp2p-disconnect-client-quitting+
+   #:+devp2p-disconnect-unexpected-identity+
+   #:+devp2p-disconnect-self+
+   #:+devp2p-disconnect-read-timeout+
+   #:+devp2p-disconnect-subprotocol-error+
    #:devp2p-capability
    #:make-devp2p-capability
    #:devp2p-capability-name

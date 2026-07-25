@@ -13,6 +13,10 @@
   eth-offset
   eth-version
   remote-status
+  ;; The peer's devp2p Hello: its client id, advertised capabilities, and the
+  ;; TCP port it listens on. Kept because a peer manager reports it and because
+  ;; the listen port is what makes a peer dialable back.
+  remote-hello
   ;; The chain this peer's requests are answered from; NIL means we answer
   ;; nothing (see serve.lisp).
   serve-backend
@@ -30,6 +34,26 @@
   "The peer's 64-byte static public key, learned during the RLPx handshake."
   (rlpx-connection-remote-public-key (eth-peer-connection peer)))
 
+(defun eth-peer-remote-client-id (peer)
+  "The peer's self-reported client id string, or NIL before the Hello is known."
+  (let ((hello (eth-peer-remote-hello peer)))
+    (when hello (devp2p-hello-client-id hello))))
+
+(defun eth-peer-remote-capabilities (peer)
+  "The capabilities the peer advertised, or NIL before the Hello is known."
+  (let ((hello (eth-peer-remote-hello peer)))
+    (when hello (devp2p-hello-capabilities hello))))
+
+(defun eth-peer-remote-listen-port (peer)
+  "The TCP port the peer says it listens on, or NIL if it advertised none.
+
+A peer that reports 0 is telling us not to dial it back, so that reads as NIL
+rather than as port zero."
+  (let ((hello (eth-peer-remote-hello peer)))
+    (when hello
+      (let ((port (devp2p-hello-listen-port hello)))
+        (when (and port (plusp port)) port)))))
+
 ;;; Message transport: eth message ids ride the wire at OFFSET+id, and the base
 ;;; protocol's own traffic is handled transparently.
 
@@ -37,24 +61,52 @@
   "Send an eth message over CONNECTION at the negotiated OFFSET (compressed)."
   (rlpx-connection-write-message connection (+ offset eth-message-id) payload))
 
+(defun eth-wire-read-once (connection offset)
+  "Read exactly ONE devp2p message, returning (VALUES KIND ID PAYLOAD).
+
+KIND is :ETH for a subprotocol message, whose ID has the offset already removed,
+or :BASE for base-protocol traffic, whose ID is the raw devp2p id — leaving the
+caller to answer a Ping and to decide what a Pong means. A Disconnect still
+signals RLPX-DISCONNECT, since that ends the session either way.
+
+This exists because ETH-WIRE-READ loops until a subprotocol message arrives, and
+a session that is merely being kept alive never produces one. A caller that must
+stay responsive between frames — to notice a shutdown, to time out an idle peer,
+to send its own keepalive — has to see the Ping and Pong traffic, not block
+inside a loop that swallows it."
+  (multiple-value-bind (code payload)
+      (rlpx-connection-read-message connection)
+    (cond
+      ((= code +devp2p-message-disconnect+)
+       (error 'rlpx-disconnect :reason (decode-devp2p-disconnect payload)))
+      ((< code offset)
+       ;; Ping and Pong are the only base traffic a live session may carry; a
+       ;; second Hello is a protocol error, and erroring on it is the behavior
+       ;; ETH-WIRE-READ has always had.
+       (unless (or (= code +devp2p-message-ping+)
+                   (= code +devp2p-message-pong+))
+         (error "unexpected base-protocol message id ~D below eth offset ~D"
+                code offset))
+       (values :base code payload))
+      (t (values :eth (- code offset) payload)))))
+
 (defun eth-wire-read (connection offset)
   "Read the next eth message from CONNECTION, returning (VALUES ETH-ID PAYLOAD).
 
 Base-protocol traffic is handled inline: a Ping is answered with a Pong and the
 read continues, a Pong is ignored, and a Disconnect signals RLPX-DISCONNECT.
-Only subprotocol messages are returned to the caller."
+Only subprotocol messages are returned to the caller.
+
+Because it loops, this BLOCKS between frames for as long as the peer sends only
+keepalives. That is right for a caller waiting on a reply it has already asked
+for, and wrong for a long-lived session loop, which should use
+ETH-WIRE-READ-ONCE and handle the base traffic itself."
   (loop
-    (multiple-value-bind (code payload)
-        (rlpx-connection-read-message connection)
-      (cond
-        ((= code +devp2p-message-ping+) (rlpx-send-pong connection))
-        ((= code +devp2p-message-pong+) nil)
-        ((= code +devp2p-message-disconnect+)
-         (error 'rlpx-disconnect :reason (decode-devp2p-disconnect payload)))
-        ((< code offset)
-         (error "unexpected base-protocol message id ~D below eth offset ~D"
-                code offset))
-        (t (return (values (- code offset) payload)))))))
+    (multiple-value-bind (kind id payload) (eth-wire-read-once connection offset)
+      (if (eq kind :eth)
+          (return (values id payload))
+          (when (= id +devp2p-message-ping+)
+            (rlpx-send-pong connection))))))
 
 (defun eth-peer-send (peer eth-message-id payload)
   "Send an eth message to PEER."
@@ -64,6 +116,13 @@ Only subprotocol messages are returned to the caller."
 (defun eth-peer-read (peer)
   "Read the next eth message from PEER, returning (VALUES ETH-ID PAYLOAD)."
   (eth-wire-read (eth-peer-connection peer) (eth-peer-eth-offset peer)))
+
+(defun eth-peer-read-once (peer)
+  "Read exactly one message from PEER, returning (VALUES KIND ID PAYLOAD).
+
+See ETH-WIRE-READ-ONCE: this is the read a session loop uses, so that keepalive
+traffic reaches the loop instead of being absorbed below it."
+  (eth-wire-read-once (eth-peer-connection peer) (eth-peer-eth-offset peer)))
 
 ;;; The eth Status handshake.
 
@@ -126,7 +185,7 @@ success."
   theirs)
 
 (defun eth-peer-handshake (connection eth-offset eth-version our-status
-                           &key chain-context serve-backend)
+                           &key chain-context serve-backend remote-hello)
   "Exchange eth Status over CONNECTION and return a validated ETH-PEER.
 
 Encodes OUR-STATUS in the negotiated ETH-VERSION's wire format (eth/68 carries
@@ -147,6 +206,7 @@ returned, so the peer can never send a request we drop for want of a backend."
                       :eth-offset eth-offset
                       :eth-version eth-version
                       :remote-status peer-status
+                      :remote-hello remote-hello
                       :serve-backend serve-backend))))
 
 (defun eth-peer-connect (connection hello our-status
@@ -159,7 +219,6 @@ enables the EIP-2124 fork-id compatibility check, and SERVE-BACKEND the serving
 of the peer's own requests. Returns the ETH-PEER, or errors if the peer does not
 share eth."
   (multiple-value-bind (peer-hello shared) (rlpx-exchange-hello connection hello)
-    (declare (ignore peer-hello))
     (let ((eth (rlpx-shared-capability-named shared "eth")))
       (unless eth
         (error "peer does not support the eth capability"))
@@ -168,4 +227,5 @@ share eth."
                           (rlpx-shared-capability-version eth)
                           our-status
                           :chain-context chain-context
-                          :serve-backend serve-backend))))
+                          :serve-backend serve-backend
+                          :remote-hello peer-hello))))

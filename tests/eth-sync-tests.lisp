@@ -596,3 +596,99 @@ until the peer disconnects."
                      (when server-error
                        (error "eth sync IBD server side failed: ~A" server-error))))))
           (ignore-errors (sb-bsd-sockets:socket-close listener)))))))
+
+(deftest eth-wire-read-once-surfaces-keepalives-instead-of-swallowing-them
+  (:layer :integration :module :p2p :requires-local-sockets t)
+  ;; ETH-WIRE-READ loops until a subprotocol message arrives, answering Ping and
+  ;; discarding Pong below the caller. A session that is only being kept alive
+  ;; therefore never returns from it — which is fine for a caller awaiting a
+  ;; reply and fatal for a loop that must also notice a shutdown. READ-ONCE is
+  ;; the version that hands base traffic back, and this is its proof.
+  (let* ((config (eth-sync-test-config))
+         (server-static
+          #xb71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291)
+         (client-static
+          #x49a7b37aa6f6645917e7b807e9d1c00d4fa71f18343b0d4122a4d2df64dd6fee)
+         (server-static-pub (secp256k1-private-key-public-key server-static))
+         (transaction (make-legacy-transaction :nonce 1 :gas-price 2
+                                               :gas-limit 21000 :value 3
+                                               :data #(1) :v 27 :r 4 :s 5))
+         (listener (make-instance 'sb-bsd-sockets:inet-socket
+                                  :type :stream :protocol :tcp)))
+    (flet ((hello (client-id)
+             (make-devp2p-hello
+              :client-id client-id
+              :capabilities (list (make-devp2p-capability "eth" 68))
+              :listen-port 30399
+              :node-id server-static-pub))
+           (status ()
+             (eth-build-status config *eth-sync-test-genesis* 0 0
+                               *eth-sync-test-best* 0)))
+      (setf (sb-bsd-sockets:sockopt-reuse-address listener) t)
+      (unwind-protect
+           (progn
+             (sb-bsd-sockets:socket-bind
+              listener (sb-bsd-sockets:make-inet-address "127.0.0.1") 0)
+             (sb-bsd-sockets:socket-listen listener 1)
+             (multiple-value-bind (address port)
+                 (sb-bsd-sockets:socket-name listener)
+               (declare (ignore address))
+               (let ((server-error nil)
+                     (server-thread nil))
+                 (setf server-thread
+                       (sb-thread:make-thread
+                        (lambda ()
+                          (handler-case
+                              (let* ((accepted (sb-bsd-sockets:socket-accept listener))
+                                     (stream (p2p-binary-socket-stream accepted))
+                                     (connection (rlpx-accept-stream stream
+                                                                     server-static))
+                                     (peer (eth-peer-connect connection
+                                                             (hello "srv") (status))))
+                                ;; A keepalive, then real work.
+                                (rlpx-send-ping (eth-peer-connection peer))
+                                (eth-peer-send
+                                 peer
+                                 ethereum-lisp.eth-wire:+eth-message-transactions+
+                                 (ethereum-lisp.eth-wire:encode-eth-transactions
+                                  (list transaction))))
+                            (error (condition) (setf server-error condition))))
+                        :name "eth-read-once-test-server"))
+                 (let ((client-socket (make-instance 'sb-bsd-sockets:inet-socket
+                                                     :type :stream :protocol :tcp)))
+                   (unwind-protect
+                        (progn
+                          (sb-bsd-sockets:socket-connect
+                           client-socket
+                           (sb-bsd-sockets:make-inet-address "127.0.0.1") port)
+                          (let* ((stream (p2p-binary-socket-stream client-socket))
+                                 (connection (rlpx-connect-stream stream client-static
+                                                                  server-static-pub))
+                                 (peer (eth-peer-connect connection (hello "cli")
+                                                         (status))))
+                            ;; The Hello is kept now, not discarded.
+                            (is (string= "srv" (eth-peer-remote-client-id peer)))
+                            (is (= 30399 (eth-peer-remote-listen-port peer)))
+                            ;; The keepalive reaches us instead of being absorbed.
+                            (multiple-value-bind (kind id payload)
+                                (eth-peer-read-once peer)
+                              (declare (ignore payload))
+                              (is (eq :base kind))
+                              (is (= +devp2p-message-ping+ id)))
+                            ;; And the next read is the subprotocol message.
+                            (multiple-value-bind (kind id payload)
+                                (eth-peer-read-once peer)
+                              (is (eq :eth kind))
+                              (is (= ethereum-lisp.eth-wire:+eth-message-transactions+
+                                     id))
+                              (is (= 1 (length
+                                        (ethereum-lisp.eth-wire:decode-eth-transactions
+                                         payload)))))))
+                     (ignore-errors (sb-bsd-sockets:socket-close client-socket))))
+                 (is (not (eq :timeout
+                              (sb-thread:join-thread server-thread
+                                                     :timeout 10
+                                                     :default :timeout))))
+                 (when server-error
+                   (error "read-once server side failed: ~A" server-error)))))
+        (ignore-errors (sb-bsd-sockets:socket-close listener))))))

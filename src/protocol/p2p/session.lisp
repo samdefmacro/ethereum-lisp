@@ -116,7 +116,15 @@ message-id offsets. Both sides send before reading, so there is no deadlock."
   (rlpx-connection-write-message connection +devp2p-message-pong+
                                  (encode-devp2p-pong)))
 
-(defun rlpx-send-disconnect (connection reason)
-  "Tell the peer we are closing the connection for REASON."
+(defun rlpx-send-disconnect (connection reason &key (compressed t))
+  "Tell the peer we are closing the connection for REASON.
+
+Pass :COMPRESSED NIL for a Disconnect sent BEFORE the Hello exchange — refusing
+a connection on sight, for instance. Snappy only starts once each side has the
+peer's Hello (see RLPX-SEND-HELLO), so a compressed frame sent before then is
+undecodable at the other end, which is exactly the case where the reason is the
+only thing the peer has to go on. Our own reader has always known this:
+RLPX-RECEIVE-HELLO reads a pre-Hello Disconnect with :COMPRESSED NIL."
   (rlpx-connection-write-message connection +devp2p-message-disconnect+
-                                 (encode-devp2p-disconnect reason)))
+                                 (encode-devp2p-disconnect reason)
+                                 :compressed compressed))

@@ -124,3 +124,78 @@
                               (getf server-result :client-id)))
                  (is (= 16 (getf server-result :eth-offset)))))))
       (ignore-errors (sb-bsd-sockets:socket-close listener)))))
+
+(deftest rlpx-refuses-a-connection-with-an-uncompressed-disconnect
+  (:layer :integration :module :p2p :requires-local-sockets t)
+  ;; A node refusing a connection on sight sends a Disconnect BEFORE any Hello.
+  ;; Snappy only starts once each side has the peer's Hello, so that frame must
+  ;; go out uncompressed or the peer cannot read the reason — which is the only
+  ;; thing it has to go on. Both directions are exercised here: the uncompressed
+  ;; form arrives as RLPX-DISCONNECT, the compressed one does not.
+  (dolist (compressed '(nil t))
+    (let* ((server-static
+            #xb71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291)
+           (client-static
+            #x49a7b37aa6f6645917e7b807e9d1c00d4fa71f18343b0d4122a4d2df64dd6fee)
+           (server-static-pub (secp256k1-private-key-public-key server-static))
+           (listener (make-instance 'sb-bsd-sockets:inet-socket
+                                    :type :stream :protocol :tcp)))
+      (setf (sb-bsd-sockets:sockopt-reuse-address listener) t)
+      (unwind-protect
+           (progn
+             (sb-bsd-sockets:socket-bind
+              listener (sb-bsd-sockets:make-inet-address "127.0.0.1") 0)
+             (sb-bsd-sockets:socket-listen listener 1)
+             (multiple-value-bind (address port)
+                 (sb-bsd-sockets:socket-name listener)
+               (declare (ignore address))
+               (let ((server-error nil)
+                     (server-thread nil))
+                 (setf server-thread
+                       (sb-thread:make-thread
+                        (lambda ()
+                          (handler-case
+                              (let* ((accepted (sb-bsd-sockets:socket-accept listener))
+                                     (stream (p2p-binary-socket-stream accepted))
+                                     (connection (rlpx-accept-stream stream
+                                                                     server-static)))
+                                ;; Refuse before sending any Hello of our own.
+                                (rlpx-send-disconnect
+                                 connection +devp2p-disconnect-too-many-peers+
+                                 :compressed compressed)
+                                (ignore-errors
+                                 (sb-bsd-sockets:socket-close accepted)))
+                            (error (condition) (setf server-error condition))))
+                        :name "rlpx-refusal-test-server"))
+                 (let ((client-socket (make-instance 'sb-bsd-sockets:inet-socket
+                                                     :type :stream :protocol :tcp)))
+                   (unwind-protect
+                        (progn
+                          (sb-bsd-sockets:socket-connect
+                           client-socket
+                           (sb-bsd-sockets:make-inet-address "127.0.0.1") port)
+                          (let* ((stream (p2p-binary-socket-stream client-socket))
+                                 (connection (rlpx-connect-stream stream client-static
+                                                                  server-static-pub))
+                                 (condition
+                                   (handler-case (progn (rlpx-receive-hello connection)
+                                                        nil)
+                                     (error (c) c))))
+                            (is (not (null condition)))
+                            (if compressed
+                                ;; The bug this guards: a compressed pre-Hello
+                                ;; Disconnect is unreadable, so the peer learns
+                                ;; nothing about why it was refused.
+                                (is (not (typep condition 'rlpx-disconnect)))
+                                (progn
+                                  (is (typep condition 'rlpx-disconnect))
+                                  (is (= +devp2p-disconnect-too-many-peers+
+                                         (rlpx-disconnect-reason condition)))))))
+                     (ignore-errors (sb-bsd-sockets:socket-close client-socket))))
+                 (is (not (eq :timeout
+                              (sb-thread:join-thread server-thread
+                                                     :timeout 10
+                                                     :default :timeout))))
+                 (when server-error
+                   (error "refusal server side failed: ~A" server-error)))))
+        (ignore-errors (sb-bsd-sockets:socket-close listener))))))

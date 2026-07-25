@@ -14,12 +14,23 @@
 (defconstant +devp2p-message-ping+ #x02)
 (defconstant +devp2p-message-pong+ #x03)
 
-;; A subset of the EIP-706 disconnect reasons, enough to speak the protocol.
+;; The EIP-706 disconnect reasons. A peer that refuses a connection says why,
+;; and the reason is the only diagnostic the other end gets, so the ones an
+;; inbound listener needs to send — already-connected, self, too-many-peers —
+;; are all here. Note that the numbering is not contiguous: 0x10 follows 0x0b.
 (defconstant +devp2p-disconnect-requested+ #x00)
 (defconstant +devp2p-disconnect-tcp-error+ #x01)
+(defconstant +devp2p-disconnect-protocol-error+ #x02)
 (defconstant +devp2p-disconnect-useless-peer+ #x03)
 (defconstant +devp2p-disconnect-too-many-peers+ #x04)
+(defconstant +devp2p-disconnect-already-connected+ #x05)
 (defconstant +devp2p-disconnect-incompatible-version+ #x06)
+(defconstant +devp2p-disconnect-invalid-identity+ #x07)
+(defconstant +devp2p-disconnect-client-quitting+ #x08)
+(defconstant +devp2p-disconnect-unexpected-identity+ #x09)
+(defconstant +devp2p-disconnect-self+ #x0a)
+(defconstant +devp2p-disconnect-read-timeout+ #x0b)
+(defconstant +devp2p-disconnect-subprotocol-error+ #x10)
 
 (defstruct (devp2p-capability
             (:constructor make-devp2p-capability (name version)))
