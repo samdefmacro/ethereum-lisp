@@ -73,6 +73,7 @@
    #:eth-sync-socket-stream
    #:eth-sync-open-connection
    #:eth-sync-connect-peer
+   #:+eth-sync-client-id+
    #:eth-sync-make-hello
    #:eth-sync-accept-peer
    #:eth-sync-reject-connection

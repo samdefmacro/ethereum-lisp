@@ -12,6 +12,10 @@
                 #:engine-payload-store-pooled-transaction
                 #:engine-payload-store-pooled-transactions
                 #:engine-select-mining-transactions)
+  ;; The admin RPC namespace reads peering state through a backend of closures
+  ;; the node builds; the struct itself belongs to the API layer.
+  (:import-from #:ethereum-lisp.public-api
+                #:make-admin-backend)
   ;; Gossiped transactions go through the same admission the public RPC uses.
   (:import-from #:ethereum-lisp.txpool.application
                 #:make-txpool-admission-policy

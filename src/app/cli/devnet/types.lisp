@@ -170,6 +170,14 @@ A successful dial keeps its claim, so a synced peer is not redialed."
     (error "Devnet store guard requires a function"))
   (funcall (devnet-node-store-guard-function node) thunk))
 
+(defun call-with-devnet-peer-table (node thunk)
+  "Run THUNK with exclusive access to NODE's peer table.
+
+Uses the node's dial guard, a mutex independent of the store guard, so peer
+bookkeeping never blocks behind block import or an RPC call. Holding the store
+guard here would be a deadlock risk, not just a slow path."
+  (funcall (devnet-node-dial-guard-function node) thunk))
+
 (defun devnet-node-enode (node)
   "Our own enode URL, or NIL when we are not listening.
 

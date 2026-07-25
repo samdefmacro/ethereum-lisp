@@ -28,13 +28,6 @@ nothing would hold a thread and a descriptor indefinitely.")
 (defconstant +devnet-peer-accept-tick-seconds+ 1
   "How long one accept waits before returning to check for shutdown. Our policy.")
 
-(defun call-with-devnet-peer-table (node thunk)
-  "Run THUNK with exclusive access to NODE's peer table.
-
-Uses the node's dial guard, a mutex independent of the store guard, so peer
-bookkeeping never blocks behind block import or an RPC call."
-  (funcall (devnet-node-dial-guard-function node) thunk))
-
 (defun devnet-peer-manager-log (node event &rest fields)
   (telemetry-log :info event
                  :fields (loop for (key value) on fields by #'cddr

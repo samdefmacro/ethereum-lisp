@@ -431,6 +431,7 @@
    #:+node-id-size+
    #:node-id-from-private-key
    #:node-id-to-hex
+   #:node-id-to-enode-id-hex
    #:node-id-from-hex
    #:enode-url
    #:parse-enode-url
@@ -452,6 +453,15 @@
    #:rlpx-send-ping
    #:rlpx-send-pong
    #:rlpx-send-disconnect)
+  (#:ethereum-lisp.public-api
+   #:admin-backend
+   #:admin-backend-p
+   #:make-admin-backend
+   #:admin-backend-node-info
+   #:admin-backend-peers
+   #:admin-backend-add-peer
+   #:admin-backend-peer-count
+   #:admin-backend-listening-p)
   (#:ethereum-lisp.eth-sync
    #:eth-peer
    #:eth-peer-connection
@@ -516,6 +526,7 @@
    #:eth-sync-socket-stream
    #:eth-sync-open-connection
    #:eth-sync-connect-peer
+   #:+eth-sync-client-id+
    #:eth-sync-make-hello
    #:eth-sync-accept-peer
    #:eth-sync-reject-connection
@@ -960,6 +971,7 @@
    #:engine-rpc-handle-forkchoice-updated-v1
    #:engine-rpc-engine-method-p
    #:engine-rpc-public-method-p
+   #:engine-rpc-admin-method-p
    #:engine-rpc-any-method-p)
   (#:ethereum-lisp.rpc
    #:engine-rpc-handle-request

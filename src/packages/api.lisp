@@ -68,6 +68,7 @@
    #:engine-rpc-handle-forkchoice-updated-v1
    #:engine-rpc-engine-method-p
    #:engine-rpc-public-method-p
+   #:engine-rpc-admin-method-p
    #:engine-rpc-any-method-p
    #:engine-rpc-error
    #:engine-rpc-error-code
@@ -109,9 +110,18 @@
         #:ethereum-lisp.execution
         #:ethereum-lisp.execution-service
         #:ethereum-lisp.txpool.application
+        #:ethereum-lisp.p2p
         #:ethereum-lisp.engine-api)
   (:export
-   #:engine-rpc-handle-public-method))
+   #:engine-rpc-handle-public-method
+   #:admin-backend
+   #:admin-backend-p
+   #:make-admin-backend
+   #:admin-backend-node-info
+   #:admin-backend-peers
+   #:admin-backend-add-peer
+   #:admin-backend-peer-count
+   #:admin-backend-listening-p))
 
 (defpackage #:ethereum-lisp.rpc
   (:use #:cl

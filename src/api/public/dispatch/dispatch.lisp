@@ -14,6 +14,7 @@
           txpool-local-addresses
           txpool-no-local-exemptions-p
           txpool-lifetime-seconds
+          admin-backend
           (txpool-now 0))
   (eth-rpc-remove-expired-txpool-transactions
    store
@@ -43,6 +44,7 @@
            :txpool-local-addresses txpool-local-addresses
            :txpool-no-local-exemptions-p txpool-no-local-exemptions-p
            :txpool-lifetime-seconds txpool-lifetime-seconds
+           :admin-backend admin-backend
            :txpool-now txpool-now)))
     (or
      (engine-rpc-handle-public-metadata-method context)
@@ -51,4 +53,5 @@
      (engine-rpc-handle-public-transaction-method context)
      (engine-rpc-handle-public-filter-method context)
      (engine-rpc-handle-public-txpool-method context)
-     (engine-rpc-handle-public-debug-method context))))
+     (engine-rpc-handle-public-debug-method context)
+     (engine-rpc-handle-public-admin-method context))))

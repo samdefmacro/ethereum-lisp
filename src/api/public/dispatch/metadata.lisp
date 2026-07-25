@@ -31,11 +31,13 @@
       ((public-rpc-dispatch-method-p context "net_listening")
        (public-rpc-dispatch-response
         context
-        (engine-rpc-handle-net-listening params)))
+        (engine-rpc-handle-net-listening
+         params (public-rpc-dispatch-context-admin-backend context))))
       ((public-rpc-dispatch-method-p context "net_peerCount")
        (public-rpc-dispatch-response
         context
-        (engine-rpc-handle-net-peer-count params)))
+        (engine-rpc-handle-net-peer-count
+         params (public-rpc-dispatch-context-admin-backend context))))
       ((public-rpc-dispatch-method-p context "eth_chainId")
        (public-rpc-dispatch-response
         context

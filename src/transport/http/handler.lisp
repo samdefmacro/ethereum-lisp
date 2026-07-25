@@ -103,7 +103,8 @@
                                txpool-global-queue-limit
                                txpool-local-addresses
                                txpool-no-local-exemptions-p
-                               txpool-lifetime-seconds)
+                               txpool-lifetime-seconds
+                               admin-backend)
   (unless (functionp import-function)
     (block-validation-fail
      "Engine RPC HTTP import function must be a function"))
@@ -127,7 +128,8 @@
     :txpool-global-queue-limit txpool-global-queue-limit
     :txpool-local-addresses txpool-local-addresses
     :txpool-no-local-exemptions-p txpool-no-local-exemptions-p
-    :txpool-lifetime-seconds txpool-lifetime-seconds)
+    :txpool-lifetime-seconds txpool-lifetime-seconds
+    :admin-backend admin-backend)
    :jwt-secret jwt-secret
    :now now
    :rpc-prefix rpc-prefix
@@ -198,6 +200,7 @@
           txpool-local-addresses
           txpool-no-local-exemptions-p
           txpool-lifetime-seconds
+          admin-backend
           telemetry-sink
           telemetry-fields)
   (unless (functionp import-function)
@@ -224,7 +227,8 @@
     :txpool-global-queue-limit txpool-global-queue-limit
     :txpool-local-addresses txpool-local-addresses
     :txpool-no-local-exemptions-p txpool-no-local-exemptions-p
-    :txpool-lifetime-seconds txpool-lifetime-seconds)
+    :txpool-lifetime-seconds txpool-lifetime-seconds
+    :admin-backend admin-backend)
    :jwt-secret jwt-secret
    :now now
    :rpc-prefix rpc-prefix

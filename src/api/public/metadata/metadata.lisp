@@ -19,7 +19,8 @@
   (when params
     (block-validation-fail "rpc_modules params must be empty"))
   (loop for (module . probe-method)
-          in '(("debug" . "debug_getRawHeader")
+          in '(("admin" . "admin_nodeInfo")
+               ("debug" . "debug_getRawHeader")
                ("eth" . "eth_chainId")
                ("net" . "net_version")
                ("rpc" . "rpc_modules")
@@ -33,15 +34,20 @@
     (block-validation-fail "net_version params must be empty"))
   (write-to-string (or network-id (chain-config-chain-id config)) :base 10))
 
-(defun engine-rpc-handle-net-listening (params)
+(defun engine-rpc-handle-net-listening (params &optional admin-backend)
+  "Whether this node accepts inbound connections.
+
+Answered from the peering backend rather than hardcoded: a node reporting three
+peers from admin_peers and 'not listening' here is worse than one that answers
+neither."
   (when params
     (block-validation-fail "net_listening params must be empty"))
-  :false)
+  (if (admin-backend-listening admin-backend) t :false))
 
-(defun engine-rpc-handle-net-peer-count (params)
+(defun engine-rpc-handle-net-peer-count (params &optional admin-backend)
   (when params
     (block-validation-fail "net_peerCount params must be empty"))
-  (quantity-to-hex 0))
+  (quantity-to-hex (admin-backend-peer-total admin-backend)))
 
 (defun engine-rpc-handle-eth-chain-id (params config)
   (when params

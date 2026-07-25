@@ -35,7 +35,11 @@ Returns (VALUES CONNECTION SOCKET); the caller closes SOCKET when finished."
         (ignore-errors (sb-bsd-sockets:socket-close socket))
         (error condition)))))
 
-(defun eth-sync-make-hello (private-key &key (client-id "ethereum-lisp")
+(defparameter +eth-sync-client-id+ "ethereum-lisp"
+  "How we name ourselves to peers in the devp2p Hello, and to operators in
+admin_nodeInfo. One name for the node, in both places.")
+
+(defun eth-sync-make-hello (private-key &key (client-id +eth-sync-client-id+)
                                              (listen-port 0)
                                              (capabilities
                                               (mapcar (lambda (version)
@@ -53,7 +57,7 @@ not to dial us back, which is the right answer when we are not listening."
 
 (defun eth-sync-accept-peer
     (socket private-key our-status
-     &key (client-id "ethereum-lisp")
+     &key (client-id +eth-sync-client-id+)
           (listen-port 0)
           chain-context
           serve-backend
@@ -99,7 +103,7 @@ socket either way, and the peer learns the same thing from the close."
 
 (defun eth-sync-connect-peer
     (host port remote-public-key private-key our-status
-     &key (client-id "ethereum-lisp")
+     &key (client-id +eth-sync-client-id+)
           (listen-port 0)
           chain-context
           serve-backend

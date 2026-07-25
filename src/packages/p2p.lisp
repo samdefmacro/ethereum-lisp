@@ -10,6 +10,7 @@
    #:+node-id-size+
    #:node-id-from-private-key
    #:node-id-to-hex
+   #:node-id-to-enode-id-hex
    #:node-id-from-hex
    #:enode-url
    #:parse-enode-url

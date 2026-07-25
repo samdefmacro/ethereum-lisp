@@ -70,6 +70,15 @@
            (string-prefix-p "txpool_" method)
            (string-prefix-p "debug_" method))))
 
+(defun engine-rpc-admin-method-p (method)
+  "Whether METHOD is in the admin namespace.
+
+Deliberately NOT part of ENGINE-RPC-PUBLIC-METHOD-P. With no --http.api the
+method filter falls back to that predicate unfiltered, so folding admin_ into it
+would publish admin_addPeer on a default-open HTTP port. Admin is reachable only
+by being named explicitly."
+  (and (stringp method) (string-prefix-p "admin_" method)))
+
 (defun engine-rpc-any-method-p (method)
   (declare (ignore method))
   t)

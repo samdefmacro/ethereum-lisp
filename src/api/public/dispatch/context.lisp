@@ -18,7 +18,8 @@
                       txpool-local-addresses
                       txpool-no-local-exemptions-p
                       txpool-lifetime-seconds
-                      txpool-now)))
+                      txpool-now
+                      admin-backend)))
   id
   method
   params
@@ -37,7 +38,8 @@
   txpool-local-addresses
   txpool-no-local-exemptions-p
   txpool-lifetime-seconds
-  txpool-now)
+  txpool-now
+  admin-backend)
 
 (defun public-rpc-dispatch-method-p (context name)
   (string= (public-rpc-dispatch-context-method context) name))

@@ -138,3 +138,84 @@ mutation."
                   :client-id (devnet-peer-entry-client-id entry)
                   :connected-at (devnet-peer-entry-connected-at entry)))
           (reverse (devnet-peer-table-entries table))))
+
+;;; What the admin RPC namespace is allowed to see.
+
+(defun devnet-node-admin-backend (node-box)
+  "How the admin RPC namespace reaches this node's peering state.
+
+Closures, not the node itself, so the RPC layer goes on knowing nothing about
+sockets or listeners. Takes a BOX rather than a node because the RPC service is
+built before the node struct exists and needs the backend at construction time;
+the box is filled immediately after, and every closure reads it at call time, so
+none can capture a half-built node.
+
+Peer reads take the peer-table mutex, never the store guard."
+  (flet ((node () (first node-box)))
+    (make-admin-backend
+     :listening-p
+     (lambda () (and (node) (devnet-node-p2p-port (node)) t))
+     :peer-count
+     (lambda ()
+       (if (node)
+           (call-with-devnet-peer-table
+            (node)
+            (lambda ()
+              (devnet-peer-table-count (devnet-node-peer-table (node)))))
+           0))
+     :node-info
+     (lambda ()
+       (let* ((node (node))
+              (port (devnet-node-p2p-port node))
+              (host (or (devnet-node-p2p-host node) "0.0.0.0"))
+              (head-number (call-with-devnet-node-store-guard
+                            node
+                            (lambda ()
+                              (chain-store-head-number
+                               (devnet-node-store node))))))
+         (list :enode-id (node-id-to-enode-id-hex
+                          (node-id-from-private-key (devnet-node-node-key node)))
+               ;; The same name we give peers in our devp2p Hello.
+               :client-id +eth-sync-client-id+
+               :enode (devnet-node-enode node)
+               :ip (eth-sync-socket-endpoint-host host)
+               :listener-port (or port 0)
+               :listen-address (when port (format nil "~A:~D" host port))
+               :eth (list :network-id (devnet-node-network-id node)
+                          :genesis (hash32-to-hex
+                                    (block-hash
+                                     (devnet-node-genesis-block node)))
+                          :head (hash32-to-hex
+                                 (chain-store-canonical-hash
+                                  (devnet-node-store node) head-number))))))
+     :peers
+     (lambda ()
+       (let ((node (node)))
+         (mapcar
+          (lambda (peer)
+            (let* ((id-hex (getf peer :id))
+                   (node-id (ignore-errors (node-id-from-hex id-hex)))
+                   (host (getf peer :remote-host))
+                   (port (or (getf peer :remote-port) 0)))
+              (list :enode-id (when node-id (node-id-to-enode-id-hex node-id))
+                    :client-id (getf peer :client-id)
+                    :enode (when node-id (enode-url node-id host port))
+                    :remote-address (format nil "~A:~D" host port)
+                    :direction (getf peer :direction)
+                    :eth-version (getf peer :eth-version))))
+          (call-with-devnet-peer-table
+           node
+           (lambda ()
+             (devnet-peer-table-snapshot (devnet-node-peer-table node)))))))
+     ;; admin_addPeer records a static peer for the dialer to pick up rather
+     ;; than dialing here: an RPC call must not block on a network round trip.
+     ;; Since the outbound dialer is still one-shot per run, a peer added now is
+     ;; dialed on the next pass -- say so rather than implying it connects.
+     :add-peer
+     (lambda (enode)
+       (let ((node (node)))
+         (call-with-devnet-peer-table
+          node
+          (lambda ()
+            (pushnew enode (devnet-node-peers node) :test #'string=)
+            t)))))))

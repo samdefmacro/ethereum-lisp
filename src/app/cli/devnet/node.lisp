@@ -63,7 +63,12 @@
     (error
      "--database and --txpool.journal must name different files: ~A"
      database-path))
-  (let* (;; One identity per node, minted once: the peer table's notion of self
+  (let* (;; The admin RPC backend must exist before the public service is built,
+         ;; but it reads the node, which is built last. The box is filled the
+         ;; moment the node exists; nothing reads it before then.
+         (node-box (list nil))
+         (admin-backend (devnet-node-admin-backend node-box))
+         ;; One identity per node, minted once: the peer table's notion of self
          ;; must be the SAME key the workers dial with, or we would fail to
          ;; recognise our own connection.
          (node-key (or node-key (secp256k1-random-private-key)))
@@ -193,6 +198,7 @@
             (devnet-txpool-policy-no-local-exemptions-p txpool-policy)
             :txpool-lifetime-seconds
             (devnet-txpool-policy-lifetime-seconds txpool-policy)
+            :admin-backend admin-backend
             :telemetry-sink telemetry-sink)))
     (chain-store-put-block store genesis-block :state-available-p t)
     (commit-state-db-to-chain-store store (block-hash genesis-block) state)
@@ -203,47 +209,49 @@
      config
      genesis-block
      persistence-state)
-    (%make-devnet-node
-     :genesis-path genesis-path
-     :store store
-     :config config
-     :genesis-block genesis-block
-     :service service
-     :public-service public-service
-     :telemetry-sink telemetry-sink
-     :jwt-secret-path jwt-secret-path
-     :log-path log-path
-     :database-path database-path
-     :pid-file-path pid-file-path
-     :network-id effective-network-id
-     :public-api-modules (and public-api-modules
-                              (copy-list public-api-modules))
-     :engine-endpoint-config engine-endpoint-config
-     :public-endpoint-config public-endpoint-config
-     :txpool-policy txpool-policy
-     :dev-mode-p dev-mode-p
-     :coinbase coinbase
-     :store-guard-function store-guard-function
-     :persistence-state persistence-state
-     :canonical-transition-persistence-function
-     forkchoice-persistence-function
-     :txpool-journal-path txpool-journal-path
-     :txpool-rejournal-seconds txpool-rejournal-seconds
-     :dev-period-seconds dev-period-seconds
-     :peers (and peers (copy-list peers))
-     :bootnodes (and bootnodes (copy-list bootnodes))
-     ;; One stable node identity per node, shared by the discovery and peer-sync
-     ;; workers; a fresh key when none is configured.
-     :node-key node-key
-     ;; Shared set so discovery and peer-sync dial each peer identity once.
-     :dialed (make-hash-table :test 'equal)
-     :dial-guard-function (make-devnet-store-guard-function)
-     :p2p-host p2p-host
-     :p2p-port p2p-port
-     :peer-table
-     (make-devnet-peer-table
-      :self-id-hex (node-id-to-hex (node-id-from-private-key node-key))
-      :max-peers (or max-peers +devnet-default-max-peers+)))))
+    (setf (first node-box)
+          (%make-devnet-node
+       :genesis-path genesis-path
+       :store store
+       :config config
+       :genesis-block genesis-block
+       :service service
+       :public-service public-service
+       :telemetry-sink telemetry-sink
+       :jwt-secret-path jwt-secret-path
+       :log-path log-path
+       :database-path database-path
+       :pid-file-path pid-file-path
+       :network-id effective-network-id
+       :public-api-modules (and public-api-modules
+                                (copy-list public-api-modules))
+       :engine-endpoint-config engine-endpoint-config
+       :public-endpoint-config public-endpoint-config
+       :txpool-policy txpool-policy
+       :dev-mode-p dev-mode-p
+       :coinbase coinbase
+       :store-guard-function store-guard-function
+       :persistence-state persistence-state
+       :canonical-transition-persistence-function
+       forkchoice-persistence-function
+       :txpool-journal-path txpool-journal-path
+       :txpool-rejournal-seconds txpool-rejournal-seconds
+       :dev-period-seconds dev-period-seconds
+       :peers (and peers (copy-list peers))
+       :bootnodes (and bootnodes (copy-list bootnodes))
+       ;; One stable node identity per node, shared by the discovery and peer-sync
+       ;; workers; a fresh key when none is configured.
+       :node-key node-key
+       ;; Shared set so discovery and peer-sync dial each peer identity once.
+       :dialed (make-hash-table :test 'equal)
+       :dial-guard-function (make-devnet-store-guard-function)
+       :p2p-host p2p-host
+       :p2p-port p2p-port
+       :peer-table
+       (make-devnet-peer-table
+        :self-id-hex (node-id-to-hex (node-id-from-private-key node-key))
+        :max-peers (or max-peers +devnet-default-max-peers+))))
+    (first node-box)))
 
 (defun devnet-cli-apply-merge-overrides
     (config &key terminal-total-difficulty

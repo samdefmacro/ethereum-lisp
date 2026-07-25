@@ -27,6 +27,18 @@ JSON-RPC surface."
       (error "Node identity must be ~D bytes" +node-id-size+))
     (subseq (bytes-to-hex bytes) 2)))
 
+(defun node-id-to-enode-id-hex (node-id)
+  "Return the 64-hex-character enode id: keccak-256 of the 64-byte public key.
+
+This is NOT NODE-ID-TO-HEX, which returns the 128-hex public key itself and
+belongs inside an enode URL. The short form is what go-ethereum reports as a
+node's and a peer's `id`, and confusing the two is invisible until another
+client rejects the value."
+  (let ((bytes (ensure-byte-vector node-id)))
+    (unless (= +node-id-size+ (length bytes))
+      (error "Node identity must be ~D bytes" +node-id-size+))
+    (subseq (bytes-to-hex (hash32-bytes (keccak-256-hash bytes))) 2)))
+
 (defun node-id-from-hex (text)
   "Parse 128 hex characters, with or without a 0x prefix, into a node identity."
   (unless (stringp text)

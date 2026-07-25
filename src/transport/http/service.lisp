@@ -102,6 +102,7 @@
        txpool-local-addresses
        txpool-no-local-exemptions-p
        txpool-lifetime-seconds
+       admin-backend
        (telemetry-sink ethereum-lisp.telemetry:*telemetry-sink*))
   (unless (stringp host)
     (block-validation-fail "Engine RPC HTTP host must be a string"))
@@ -186,7 +187,8 @@
     :txpool-global-queue-limit txpool-global-queue-limit
     :txpool-local-addresses txpool-local-addresses
     :txpool-no-local-exemptions-p txpool-no-local-exemptions-p
-    :txpool-lifetime-seconds txpool-lifetime-seconds)
+    :txpool-lifetime-seconds txpool-lifetime-seconds
+    :admin-backend admin-backend)
    :jwt-secret jwt-secret
    :now-provider now-provider
    :telemetry-sink telemetry-sink

@@ -11,7 +11,7 @@
                       txpool-account-slot-limit txpool-global-slot-limit
                       txpool-account-queue-limit txpool-global-queue-limit
                       txpool-local-addresses txpool-no-local-exemptions-p
-                      txpool-lifetime-seconds txpool-now)))
+                      txpool-lifetime-seconds txpool-now admin-backend)))
   store
   config
   import-function
@@ -31,6 +31,7 @@
   txpool-local-addresses
   txpool-no-local-exemptions-p
   txpool-lifetime-seconds
+  admin-backend
   txpool-now)
 
 (defun make-rpc-context
@@ -51,6 +52,7 @@
                        txpool-local-addresses
                        txpool-no-local-exemptions-p
                        txpool-lifetime-seconds
+                       admin-backend
                        txpool-now)
   (unless (functionp allowed-method-p)
     (block-validation-fail "JSON-RPC method filter must be a function"))
@@ -86,6 +88,7 @@
    :txpool-local-addresses txpool-local-addresses
    :txpool-no-local-exemptions-p txpool-no-local-exemptions-p
    :txpool-lifetime-seconds txpool-lifetime-seconds
+   :admin-backend admin-backend
    :txpool-now txpool-now))
 
 (defun rpc-context-with-txpool-now (context txpool-now)
@@ -141,6 +144,7 @@
    (rpc-context-txpool-no-local-exemptions-p context)
    :txpool-lifetime-seconds
    (rpc-context-txpool-lifetime-seconds context)
+   :admin-backend (rpc-context-admin-backend context)
    :txpool-now (rpc-context-txpool-now context)))
 
 (defun rpc-dispatch-method (id method params context)
