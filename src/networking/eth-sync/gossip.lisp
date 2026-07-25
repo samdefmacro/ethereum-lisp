@@ -135,6 +135,26 @@ does not leave the same hashes to be asked for again on every later fetch."
         (remhash hash table)))
     (nreverse taken)))
 
+(defun eth-peer-request-announced-transactions
+    (peer &key (limit +eth-max-pooled-transactions-serve+))
+  "Ask PEER for up to LIMIT of the transactions it announced, WITHOUT waiting.
+
+Returns how many hashes were asked for. The reply is not awaited: it arrives as
+an ordinary PooledTransactions message and is absorbed by the unsolicited branch
+of ETH-PEER-GOSSIP-MESSAGE, which pools it like any other.
+
+This is the version a session loop uses. Waiting here instead would hand a peer
+the ability to pin the loop indefinitely by announcing one hash and going quiet,
+which is a completely ordinary thing for a peer to do. The waiting version,
+ETH-PEER-FETCH-ANNOUNCED-TRANSACTIONS, remains correct for a one-shot exchange
+that has nothing else to do."
+  (let ((wanted (eth-peer-take-announced-hashes peer limit)))
+    (when wanted
+      (eth-peer-send peer +eth-message-get-pooled-transactions+
+                     (encode-eth-get-pooled-transactions
+                      (eth-peer-next-request-id peer) wanted)))
+    (length wanted)))
+
 ;;; Dispatch, reached from ETH-PEER-HANDLE-MESSAGE.
 
 (defun eth-peer-gossip-message (peer eth-id payload)

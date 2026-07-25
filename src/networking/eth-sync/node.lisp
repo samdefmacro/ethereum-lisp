@@ -35,6 +35,68 @@ Returns (VALUES CONNECTION SOCKET); the caller closes SOCKET when finished."
         (ignore-errors (sb-bsd-sockets:socket-close socket))
         (error condition)))))
 
+(defun eth-sync-make-hello (private-key &key (client-id "ethereum-lisp")
+                                             (listen-port 0)
+                                             (capabilities
+                                              (mapcar (lambda (version)
+                                                        (make-devp2p-capability
+                                                         "eth" version))
+                                                      +eth-supported-protocol-versions+)))
+  "Our devp2p Hello, for either side of a connection.
+
+LISTEN-PORT is the TCP port we accept inbound connections on; 0 tells the peer
+not to dial us back, which is the right answer when we are not listening."
+  (make-devp2p-hello :client-id client-id
+                     :capabilities capabilities
+                     :listen-port listen-port
+                     :node-id (node-id-from-private-key private-key)))
+
+(defun eth-sync-accept-peer
+    (socket private-key our-status
+     &key (client-id "ethereum-lisp")
+          (listen-port 0)
+          chain-context
+          serve-backend
+          capabilities)
+  "Run the recipient side of the RLPx, Hello, and eth Status handshake on an
+already-accepted SOCKET, returning the ETH-PEER.
+
+Unlike ETH-SYNC-CONNECT-PEER this does NOT close SOCKET on failure: the caller
+accepted it and owns its lifetime, and it usually has cleanup of its own to run
+in the same place. The peer's static key is learned from the handshake, so
+nothing about the remote identity is known before this returns."
+  (let ((connection (rlpx-accept-stream (eth-sync-socket-stream socket)
+                                        private-key)))
+    (eth-peer-connect connection
+                      (apply #'eth-sync-make-hello private-key
+                             :client-id client-id
+                             :listen-port listen-port
+                             (when capabilities (list :capabilities capabilities)))
+                      our-status
+                      :chain-context chain-context
+                      :serve-backend serve-backend)))
+
+(defun eth-sync-reject-connection (connection reason)
+  "Tell a peer we are refusing it, without blocking if it will not read.
+
+The Disconnect goes out uncompressed because it may precede the Hello exchange,
+and is gated on the socket being writable: a peer that has stopped reading would
+otherwise block us in FORCE-OUTPUT, and IGNORE-ERRORS catches errors, not
+blocking. A refusal that cannot be delivered is dropped — the caller closes the
+socket either way, and the peer learns the same thing from the close."
+  #-sbcl
+  (declare (ignore connection reason))
+  #-sbcl
+  nil
+  #+sbcl
+  (ignore-errors
+   (let ((stream (rlpx-connection-stream connection)))
+     (when (or (not (sb-sys:fd-stream-p stream))
+               (sb-sys:wait-until-fd-usable (sb-sys:fd-stream-fd stream)
+                                            :output 1 nil))
+       (rlpx-send-disconnect connection reason :compressed nil))))
+  t)
+
 (defun eth-sync-connect-peer
     (host port remote-public-key private-key our-status
      &key (client-id "ethereum-lisp")
@@ -56,10 +118,10 @@ Returns (VALUES ETH-PEER SOCKET); the caller closes SOCKET when finished."
     (handler-case
         (values (eth-peer-connect
                  connection
-                 (make-devp2p-hello :client-id client-id
-                                    :capabilities capabilities
-                                    :listen-port listen-port
-                                    :node-id (node-id-from-private-key private-key))
+                 (eth-sync-make-hello private-key
+                                      :client-id client-id
+                                      :listen-port listen-port
+                                      :capabilities capabilities)
                  our-status
                  :chain-context chain-context
                  :serve-backend serve-backend)

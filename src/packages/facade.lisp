@@ -392,6 +392,7 @@
    #:rlpx-accept-stream
    #:rlpx-connection
    #:rlpx-connection-remote-public-key
+   #:rlpx-connection-stream
    #:rlpx-connection-write-message
    #:rlpx-connection-read-message
    #:make-devp2p-hello
@@ -514,7 +515,39 @@
    #:eth-sync-download-blocks
    #:eth-sync-socket-stream
    #:eth-sync-open-connection
-   #:eth-sync-connect-peer)
+   #:eth-sync-connect-peer
+   #:eth-sync-make-hello
+   #:eth-sync-accept-peer
+   #:eth-sync-reject-connection
+   #:eth-sync-listener
+   #:eth-sync-listener-p
+   #:make-eth-sync-socket-listener
+   #:eth-sync-listener-socket
+   #:eth-sync-listener-host
+   #:eth-sync-listener-port
+   #:eth-sync-listener-closed-p
+   #:eth-sync-listener-endpoint-host
+   #:eth-sync-listener-accept
+   #:eth-sync-listener-close
+   #:eth-sync-socket-endpoint-host
+   #:+eth-pump-read-tick-seconds+
+   #:+eth-pump-ping-interval-seconds+
+   #:+eth-pump-idle-timeout-seconds+
+   #:+eth-pump-drain-interval-seconds+
+   #:eth-pump-policy
+   #:make-eth-pump-policy
+   #:eth-pump-policy-read-tick-seconds
+   #:eth-pump-policy-ping-interval-seconds
+   #:eth-pump-policy-idle-timeout-seconds
+   #:eth-pump-policy-drain-interval-seconds
+   #:eth-pump-state
+   #:make-eth-pump-state
+   #:eth-pump-state-last-read-at
+   #:eth-pump-state-last-ping-at
+   #:eth-pump-state-last-drain-at
+   #:eth-pump-next-action
+   #:eth-peer-run-session
+   #:eth-peer-request-announced-transactions)
   (#:ethereum-lisp.bls12381
    #:bls12381-error
    #:bls12381-input-error
