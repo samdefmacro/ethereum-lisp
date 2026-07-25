@@ -66,6 +66,8 @@
    :peers (getf options :peers)
    :bootnodes (getf options :bootnodes)
    :node-key (getf options :node-key)
+   :p2p-port (getf options :p2p-port)
+   :max-peers (getf options :max-peers)
    :public-allowed-method-p
    (devnet-cli-public-api-method-filter (getf options :http-api-modules))
    :telemetry-sink telemetry-sink))

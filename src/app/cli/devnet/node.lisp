@@ -16,6 +16,12 @@
        database-path
        pid-file-path
        network-id
+       ;; Inbound peering. P2P-PORT NIL means no listener: a devnet that binds a
+       ;; fixed port by default is a devnet that collides with the next one.
+       ;; P2P-HOST is not a CLI flag, so a test can force loopback.
+       (p2p-host "0.0.0.0")
+       p2p-port
+       max-peers
        public-api-modules
        engine-cors-origins
        public-cors-origins
@@ -57,7 +63,11 @@
     (error
      "--database and --txpool.journal must name different files: ~A"
      database-path))
-  (let* ((engine-endpoint-config
+  (let* (;; One identity per node, minted once: the peer table's notion of self
+         ;; must be the SAME key the workers dial with, or we would fail to
+         ;; recognise our own connection.
+         (node-key (or node-key (secp256k1-random-private-key)))
+         (engine-endpoint-config
            (make-devnet-endpoint-config
             :host host :port port :rpc-prefix engine-rpc-prefix
             :cors-origins engine-cors-origins :allowed-hosts engine-vhosts
@@ -224,10 +234,16 @@
      :bootnodes (and bootnodes (copy-list bootnodes))
      ;; One stable node identity per node, shared by the discovery and peer-sync
      ;; workers; a fresh key when none is configured.
-     :node-key (or node-key (secp256k1-random-private-key))
+     :node-key node-key
      ;; Shared set so discovery and peer-sync dial each peer identity once.
      :dialed (make-hash-table :test 'equal)
-     :dial-guard-function (make-devnet-store-guard-function))))
+     :dial-guard-function (make-devnet-store-guard-function)
+     :p2p-host p2p-host
+     :p2p-port p2p-port
+     :peer-table
+     (make-devnet-peer-table
+      :self-id-hex (node-id-to-hex (node-id-from-private-key node-key))
+      :max-peers (or max-peers +devnet-default-max-peers+)))))
 
 (defun devnet-cli-apply-merge-overrides
     (config &key terminal-total-difficulty

@@ -82,7 +82,10 @@
                       bootnodes
                       node-key
                       dialed
-                      dial-guard-function)))
+                      dial-guard-function
+                      p2p-host
+                      p2p-port
+                      peer-table)))
   genesis-path
   store
   config
@@ -111,7 +114,13 @@
   bootnodes
   node-key
   dialed
-  dial-guard-function)
+  dial-guard-function
+  ;; Inbound peering. P2P-PORT NIL means no listener at all, which is the
+  ;; default: binding a fixed port by habit is how two nodes on one machine
+  ;; collide. The peer table carries the peer limit and our own identity.
+  p2p-host
+  p2p-port
+  peer-table)
 
 (defun devnet-node-claim-dial (node node-id)
   "Return T exactly once per NODE-ID (compared by hex), NIL on later claims, so
@@ -131,6 +140,19 @@ A successful dial keeps its claim, so a synced peer is not redialed."
            (lambda ()
              (remhash (node-id-to-hex node-id) (devnet-node-dialed node)))))
 
+(defun devnet-make-mutex (name)
+  "A mutex on SBCL, NIL elsewhere. CALL-WITH-DEVNET-MUTEX degrades accordingly."
+  #+sbcl (sb-thread:make-mutex :name name)
+  #-sbcl (progn name nil))
+
+(defun call-with-devnet-mutex (mutex thunk)
+  #+sbcl
+  (if mutex
+      (sb-thread:with-mutex (mutex) (funcall thunk))
+      (funcall thunk))
+  #-sbcl
+  (progn mutex (funcall thunk)))
+
 (defun make-devnet-store-guard-function ()
   #+sbcl
   (let ((mutex (sb-thread:make-mutex :name "ethereum-lisp-node-store")))
@@ -147,6 +169,18 @@ A successful dial keeps its claim, so a synced peer is not redialed."
   (unless (functionp thunk)
     (error "Devnet store guard requires a function"))
   (funcall (devnet-node-store-guard-function node) thunk))
+
+(defun devnet-node-enode (node)
+  "Our own enode URL, or NIL when we are not listening.
+
+The address is the one a peer could actually dial: a wildcard bind reports as
+loopback rather than advertising 0.0.0.0, which is not an address."
+  (let ((port (devnet-node-p2p-port node)))
+    (when port
+      (enode-url (node-id-from-private-key (devnet-node-node-key node))
+                 (eth-sync-socket-endpoint-host
+                  (or (devnet-node-p2p-host node) "0.0.0.0"))
+                 port))))
 
 (defun devnet-node-engine-cors-origins (node)
   (devnet-endpoint-config-cors-origins
@@ -199,7 +233,14 @@ A successful dial keeps its claim, so a synced peer is not redialed."
 (defstruct devnet-shutdown-controller
   requested-p
   engine-listener
-  public-listener)
+  public-listener
+  ;; Anything else that must be closed to wake a thread blocked on it, as an
+  ;; alist of (token . thunk) under CLOSEABLE-LOCK. The two listener slots above
+  ;; predate this and stay as they are; peer sockets, which come and go, ride
+  ;; here. See DEVNET-SHUTDOWN-CONTROLLER-ADD-CLOSEABLE.
+  (closeables '())
+  (closeable-counter 0)
+  (closeable-lock (devnet-make-mutex "ethereum-lisp-devnet-closeables")))
 
 (defstruct (devnet-rejournal-state
             (:constructor %make-devnet-rejournal-state
@@ -267,6 +308,43 @@ A successful dial keeps its claim, so a synced peer is not redialed."
         (devnet-shutdown-controller-public-listener controller) public-listener)
   controller)
 
+(defun devnet-shutdown-controller-add-closeable (controller thunk)
+  "Register THUNK to be run when shutdown is requested, and return a token for
+DEVNET-SHUTDOWN-CONTROLLER-REMOVE-CLOSEABLE.
+
+If shutdown has ALREADY been requested the thunk is run immediately and NIL is
+returned. Without that, a thread registering its socket a moment after the sweep
+would never be closed and would block on a read forever, which is precisely the
+shutdown a caller was trying to perform."
+  (unless (typep controller 'devnet-shutdown-controller)
+    (error "Devnet shutdown controller must be devnet-shutdown-controller"))
+  (let ((token
+          (call-with-devnet-mutex
+           (devnet-shutdown-controller-closeable-lock controller)
+           (lambda ()
+             (unless (devnet-shutdown-controller-requested-p controller)
+               (let ((token (incf (devnet-shutdown-controller-closeable-counter
+                                   controller))))
+                 (push (cons token thunk)
+                       (devnet-shutdown-controller-closeables controller))
+                 token))))))
+    (unless token
+      (ignore-errors (funcall thunk)))
+    token))
+
+(defun devnet-shutdown-controller-remove-closeable (controller token)
+  "Forget the closeable registered under TOKEN, without running it."
+  (unless (typep controller 'devnet-shutdown-controller)
+    (error "Devnet shutdown controller must be devnet-shutdown-controller"))
+  (when token
+    (call-with-devnet-mutex
+     (devnet-shutdown-controller-closeable-lock controller)
+     (lambda ()
+       (setf (devnet-shutdown-controller-closeables controller)
+             (remove token (devnet-shutdown-controller-closeables controller)
+                     :key #'car)))))
+  t)
+
 (defun devnet-shutdown-request (controller)
   (unless (typep controller 'devnet-shutdown-controller)
     (error "Devnet shutdown controller must be devnet-shutdown-controller"))
@@ -281,6 +359,17 @@ A successful dial keeps its claim, so a synced peer is not redialed."
     (when public-listener
       (ignore-errors
        (engine-rpc-http-listener-close public-listener))))
+  ;; Snapshot under the lock, then close OUTSIDE it. Closing while holding it
+  ;; would block every session thread trying to deregister — and those threads
+  ;; are exactly what the caller is about to wait for.
+  (let ((closeables
+          (call-with-devnet-mutex
+           (devnet-shutdown-controller-closeable-lock controller)
+           (lambda ()
+             (prog1 (devnet-shutdown-controller-closeables controller)
+               (setf (devnet-shutdown-controller-closeables controller) '()))))))
+    (dolist (entry closeables)
+      (ignore-errors (funcall (cdr entry)))))
   t)
 
 (defun devnet-signal-number (name)

@@ -74,14 +74,30 @@ them by their physical location instead reintroduces dependency cycles:
 - **`txpool.application`** is transaction preflight and admission policy, not
   txpool storage; `eth_sendRawTransaction` delegates to it.
 - **`eth-sync`** (the networking layer) drives the eth wire protocol over a live
-  RLPx connection, in both directions: downloading blocks from a peer, answering
-  that peer's header, body, and receipt requests, and gossiping transactions
-  both ways. It depends on application services and the `p2p`/`eth-wire`
-  protocol, and stays independent of the chain store at every end — blocks are
-  imported through a caller-supplied callback, and requests, pool lookups, and
-  transaction admission all go through a caller-supplied `eth-serve-backend` of
-  closures. Blob transactions are deliberately not gossiped; see the header of
-  `eth-sync/gossip.lisp`.
+  RLPx connection, in both directions: accepting inbound connections as well as
+  dialing out, downloading blocks, answering a peer's header, body, and receipt
+  requests, and gossiping transactions both ways. It depends on application
+  services and the `p2p`/`eth-wire` protocol, and stays independent of the chain
+  store at every end — blocks are imported through a caller-supplied callback,
+  and requests, pool lookups, and transaction admission all go through a
+  caller-supplied `eth-serve-backend` of closures. Blob transactions are
+  deliberately not gossiped; see the header of `eth-sync/gossip.lisp`.
+
+  Two properties of this layer are load-bearing and easy to break:
+
+  - **It contains no threads.** Every thread belongs to the CLI layer
+    (`devnet/peer-manager.lisp`). `eth-sync/pump.lisp` supplies a session loop
+    whose readiness gate and clock are both injected, so the caller decides how
+    concurrency happens.
+  - **A session is single-threaded by construction.** `rlpx-write-frame`
+    advances a per-connection cipher and running MAC with no lock, so a second
+    thread writing the same connection desynchronizes it. Outbound work reaches
+    a session as data, through a closure the loop calls — never by another
+    thread sending on the peer.
+
+  Peer admission policy (`devnet/peer-table.lisp`) lives in the CLI rather than
+  here, because a peer limit is an operator setting; it is pure, taking `now` as
+  an argument, so its decisions are testable as a table.
 - **persistence adapters** live physically under
   `src/storage/node-store/persistence/` but depend on application services:
   `staged-import` calls `execution-service` to validate payloads before

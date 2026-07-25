@@ -4,7 +4,8 @@
 
 (defun start-devnet-node-listeners
     (node engine-listener public-listener
-     &key max-connections stop-p shutdown-controller on-listeners-ready)
+     &key max-connections stop-p shutdown-controller on-listeners-ready
+          p2p-listener)
   (unless (typep node 'devnet-node)
     (error "Devnet node must be devnet-node"))
   (unless (typep engine-listener 'engine-rpc-http-listener)
@@ -19,6 +20,8 @@
     (error "Devnet shutdown controller must be devnet-shutdown-controller"))
   (when (and on-listeners-ready (not (functionp on-listeners-ready)))
     (error "Devnet listener-ready callback must be a function"))
+  (when (and p2p-listener (not (typep p2p-listener 'eth-sync-listener)))
+    (error "Devnet p2p listener must be eth-sync-listener"))
   #-sbcl
   (declare (ignore node engine-listener public-listener max-connections stop-p
                    shutdown-controller on-listeners-ready))
@@ -42,7 +45,10 @@
          (peer-sync-error nil)
          (peer-sync-thread nil)
          (discovery-error nil)
-         (discovery-thread nil))
+         (discovery-thread nil)
+         (p2p-error nil)
+         (p2p-thread nil)
+         (p2p-sessions nil))
     (devnet-shutdown-controller-register-listeners
      shutdown-controller engine-listener public-listener)
     (handler-case
@@ -75,6 +81,13 @@
            shutdown-controller
            (lambda (condition)
              (setf discovery-error condition))))
+    (multiple-value-setq (p2p-thread p2p-sessions)
+      (devnet-start-p2p-listener-thread
+       node
+       p2p-listener
+       shutdown-controller
+       (lambda (condition)
+         (setf p2p-error condition))))
     (let ((result nil))
       (unwind-protect
            (setf result
@@ -151,7 +164,11 @@
                     (sb-thread:join-thread peer-sync-thread
                                            :timeout 5 :default :timeout))
             (ignore-errors (sb-thread:terminate-thread peer-sync-thread))
-            (ignore-errors (sb-thread:join-thread peer-sync-thread))))
+            ;; Bounded: an unbounded join on a thread that will not die turns a
+            ;; shutdown into a hang with no diagnostic at all.
+            (ignore-errors (sb-thread:join-thread peer-sync-thread
+                                                  :timeout 5
+                                                  :default :timeout))))
         (when discovery-thread
           ;; Same as peer-sync: a worker blocked in a UDP receive or a dial will
           ;; not wake from the shutdown request, so bound the join then terminate.
@@ -160,7 +177,25 @@
                     (sb-thread:join-thread discovery-thread
                                            :timeout 5 :default :timeout))
             (ignore-errors (sb-thread:terminate-thread discovery-thread))
-            (ignore-errors (sb-thread:join-thread discovery-thread)))))
+            (ignore-errors (sb-thread:join-thread discovery-thread
+                                                  :timeout 5
+                                                  :default :timeout))))
+        (when p2p-thread
+          ;; The shutdown request closed the listener and every registered peer
+          ;; socket, so both the accept loop and the sessions unblock on their
+          ;; own; the bounds are for the case where one does not.
+          (devnet-shutdown-request shutdown-controller)
+          (when (eq :timeout
+                    (sb-thread:join-thread p2p-thread
+                                           :timeout 5 :default :timeout))
+            (ignore-errors (sb-thread:terminate-thread p2p-thread))
+            (ignore-errors (sb-thread:join-thread p2p-thread
+                                                  :timeout 5
+                                                  :default :timeout)))
+          (when p2p-sessions
+            (devnet-join-peer-sessions p2p-sessions))))
+      (when p2p-error
+        (error p2p-error))
       (when rejournal-error
         (error rejournal-error))
       (when dev-period-error
@@ -186,6 +221,7 @@
           (or shutdown-controller (make-devnet-shutdown-controller)))
         (engine-listener nil)
         (public-listener nil)
+        (p2p-listener nil)
         (served-p nil))
     (unwind-protect
          (progn
@@ -200,6 +236,19 @@
                     (devnet-node-public-service node))))
            (devnet-shutdown-controller-register-listeners
             shutdown-controller engine-listener public-listener)
+           ;; Bound before the ready callback fires, so whatever reports the
+           ;; node's endpoints can report a real p2p port rather than a promise.
+           ;; No --port means no listener, which is the default.
+           (when (devnet-node-p2p-port node)
+             (setf p2p-listener
+                   (make-eth-sync-socket-listener
+                    :host (or (devnet-node-p2p-host node) "0.0.0.0")
+                    :port (devnet-node-p2p-port node)))
+             (setf (devnet-node-p2p-port node)
+                   (eth-sync-listener-port p2p-listener))
+             (devnet-shutdown-controller-add-closeable
+              shutdown-controller
+              (lambda () (eth-sync-listener-close p2p-listener))))
            (prog1
                (flet ((serve ()
                         (start-devnet-node-listeners
@@ -209,7 +258,8 @@
                          :max-connections max-connections
                          :stop-p stop-p
                          :shutdown-controller shutdown-controller
-                         :on-listeners-ready on-listeners-ready)))
+                         :on-listeners-ready on-listeners-ready
+                         :p2p-listener p2p-listener)))
                  (if install-signal-handlers-p
                      (call-with-devnet-shutdown-signal-handlers
                       shutdown-controller

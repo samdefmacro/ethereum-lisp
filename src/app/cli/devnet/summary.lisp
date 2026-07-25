@@ -41,6 +41,12 @@
           :database-path (devnet-node-database-path node)
           :pid-file-path (devnet-node-pid-file-path node)
           :network-id (devnet-node-network-id node)
+          ;; Inbound peering. Nothing else in the tree ever computed our OWN
+          ;; enode; without it there is no way to tell a peer how to reach us.
+          :p2p-enabled-p (and (devnet-node-p2p-port node) t)
+          :p2p-port (devnet-node-p2p-port node)
+          :max-peers (devnet-peer-table-max-peers (devnet-node-peer-table node))
+          :enode (devnet-node-enode node)
           :public-api-modules (devnet-node-public-api-modules node)
           :engine-cors-origins (devnet-node-engine-cors-origins node)
           :public-cors-origins (devnet-node-public-cors-origins node)
@@ -109,6 +115,10 @@
       ("logPath" . ,(getf summary :log-path))
       ("databasePath" . ,(getf summary :database-path))
       ("pidFilePath" . ,(getf summary :pid-file-path))
+      ("p2pEnabled" . ,(if (getf summary :p2p-enabled-p) t :false))
+      ("p2pPort" . ,(or (getf summary :p2p-port) :false))
+      ("maxPeers" . ,(or (getf summary :max-peers) :false))
+      ("enode" . ,(or (getf summary :enode) :false))
       ("devMode" . ,(if (getf summary :dev-mode-p) t :false))
       ("coinbase" . ,(getf summary :coinbase))
       ("allowUnprotectedTransactions" .

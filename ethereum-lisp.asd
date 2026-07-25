@@ -384,6 +384,7 @@
       :serial t
       :components
       ((:file "cli-types" :pathname "cli/devnet/types")
+       (:file "cli-devnet-peer-table" :pathname "cli/devnet/peer-table")
        (:file "cli-files" :pathname "cli/devnet/files")
        (:file "cli-devnet-persistence" :pathname "cli/devnet/persistence")
        (:file "cli-devnet-node" :pathname "cli/devnet/node")
@@ -391,6 +392,7 @@
        (:file "cli-devnet-summary" :pathname "cli/devnet/summary")
        (:file "cli-devnet-background" :pathname "cli/devnet/background")
        (:file "cli-devnet-peer-sync" :pathname "cli/devnet/peer-sync")
+       (:file "cli-devnet-peer-manager" :pathname "cli/devnet/peer-manager")
        (:file "cli-devnet-service" :pathname "cli/devnet/service")
        (:file "cli-option-definitions" :pathname "cli/options/definitions")
        (:file "cli-args" :pathname "cli/options/args")
@@ -441,6 +443,7 @@
      (:file "eth-gossip-tests")
      (:file "eth-sync-listener-tests")
      (:file "eth-pump-tests")
+     (:file "cli-devnet-peer-manager-tests")
      (:file "p2p-identity-tests")
      (:file "trie-encoding-tests")
      (:file "trie-tests")

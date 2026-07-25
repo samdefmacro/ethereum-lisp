@@ -57,6 +57,8 @@
         (peers nil)
         (bootnodes nil)
         (node-key nil)
+        (p2p-port nil)
+        (max-peers nil)
         (help-p nil))
     (labels ((next-value (option)
                (multiple-value-bind (value rest)
@@ -92,7 +94,13 @@
                     (string= option "--authrpc.addr"))
                 (setf host (next-value option)))
                ((string= option "--port")
-                (next-parsed-value option #'devnet-cli-parse-port))
+                ;; The devp2p listening port, NOT the Engine RPC port, which is
+                ;; --engine-port/--authrpc.port and rides the :port key.
+                (setf p2p-port (next-parsed-value option #'devnet-cli-parse-port)))
+               ((string= option "--maxpeers")
+                (setf max-peers
+                      (next-parsed-value option
+                                         #'devnet-cli-parse-non-negative-integer)))
                ((or (string= option "--engine-port")
                     (string= option "--authrpc.port"))
                 (setf port (next-parsed-value option #'devnet-cli-parse-port)))
@@ -304,5 +312,7 @@
           :http-write-timeout-seconds http-write-timeout-seconds
           :peers (nreverse peers)
           :bootnodes (nreverse bootnodes)
+          :p2p-port p2p-port
+          :max-peers max-peers
           :node-key node-key
           :help-p help-p))))

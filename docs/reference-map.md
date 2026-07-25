@@ -55,6 +55,22 @@ absent; the paths below are useful when it is available.
 - Transaction pool: `references/reth/crates/transaction-pool`
 - Networking and sync architecture: `references/reth/crates/net`
 
+## devp2p and peering
+
+- Peer lifecycle, inbound slots, and dial scheduling: `go-ethereum/p2p/server.go`,
+  `p2p/dial.go`, `p2p/peer.go`
+- eth protocol handlers and gossip propagation: `go-ethereum/eth/handler.go`,
+  `eth/protocols/eth/handlers.go`
+- `admin_*` RPC shapes: `go-ethereum/node/api.go`
+
+**No `references/` checkout exists on this machine.** The peering work therefore
+makes NO parity claim: every constant it introduces — the peer limit, the accept
+tick, the handshake budget, the keepalive interval, the idle timeout — is
+documented in its own docstring as our policy, not as matching another client.
+Under the project contract a parity claim must name an exact version or commit
+and the code path exercised, so checking these against a pinned clone is
+separate work that must come before any such wording.
+
 ## Using the map
 
 Consult reference clients when protocol behavior is ambiguous, consensus

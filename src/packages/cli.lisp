@@ -36,6 +36,39 @@
                 #:storage-error
                 #:storage-fail)
   (:export
+   #:make-devnet-peer-table
+   #:devnet-peer-table
+   #:devnet-peer-table-count
+   #:devnet-peer-table-entry
+   #:devnet-peer-table-entries
+   #:devnet-peer-table-max-peers
+   #:devnet-peer-table-pending
+   #:devnet-peer-table-self-id-hex
+   #:devnet-peer-table-slot-verdict
+   #:devnet-peer-table-reserve-slot
+   #:devnet-peer-table-release-slot
+   #:devnet-peer-table-inbound-verdict
+   #:devnet-peer-table-admit
+   #:devnet-peer-table-remove
+   #:devnet-peer-table-snapshot
+   #:devnet-peer-entry
+   #:make-devnet-peer-entry
+   #:devnet-peer-entry-id-hex
+   #:devnet-peer-entry-direction
+   #:devnet-peer-entry-remote-host
+   #:devnet-peer-entry-remote-port
+   #:devnet-peer-entry-eth-version
+   #:devnet-peer-entry-client-id
+   #:devnet-peer-entry-connected-at
+   #:+devnet-default-max-peers+
+   #:devnet-node-peer-table
+   #:devnet-node-p2p-host
+   #:devnet-node-p2p-port
+   #:devnet-node-enode
+   #:devnet-shutdown-controller-add-closeable
+   #:devnet-shutdown-controller-remove-closeable
+   #:devnet-start-p2p-listener-thread
+   #:devnet-join-peer-sessions
    #:devnet-node
    #:devnet-endpoint-config
    #:make-devnet-endpoint-config
