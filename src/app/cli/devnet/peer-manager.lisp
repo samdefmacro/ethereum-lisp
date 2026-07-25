@@ -200,9 +200,25 @@ Only an error escaping the loop itself is fail-stop."
                             (let ((thread
                                     (sb-thread:make-thread
                                      (lambda ()
-                                       (devnet-peer-run-session
-                                        node socket remote-host remote-port
-                                        shutdown-controller))
+                                       ;; A session must NEVER let a condition
+                                       ;; escape its thread. Under `sbcl
+                                       ;; --script`, which is how the node and
+                                       ;; the whole test suite run, the disabled
+                                       ;; debugger turns an unhandled condition
+                                       ;; in ANY thread into (exit 1) for the
+                                       ;; entire process -- so one peer sending
+                                       ;; garbage, closing mid-handshake, or
+                                       ;; failing the fork-id check would take
+                                       ;; the node down. Measured, not assumed.
+                                       (handler-case
+                                           (devnet-peer-run-session
+                                            node socket remote-host remote-port
+                                            shutdown-controller)
+                                         (error (condition)
+                                           (devnet-peer-manager-log
+                                            node "p2p.peer.session_failed"
+                                            "host" remote-host
+                                            "error" condition))))
                                      :name "ethereum-lisp-devnet-peer-session")))
                               (call-with-devnet-mutex
                                sessions-lock

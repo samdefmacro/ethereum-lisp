@@ -201,3 +201,61 @@
          (summary (ethereum-lisp.cli:devnet-node-summary node)))
     (is (null (getf summary :p2p-enabled-p)))
     (is (null (getf summary :enode)))))
+
+(deftest devnet-peer-session-failure-does-not-take-the-node-down
+  (:layer :integration :module :devnet :requires-local-sockets t)
+  ;; A peer that connects and sends garbage fails its handshake. That failure
+  ;; MUST stay inside its session thread: under `sbcl --script` -- how the node
+  ;; and this very test suite run -- the disabled debugger turns an unhandled
+  ;; condition in ANY thread into (exit 1) for the whole process. So without the
+  ;; handler this test does not fail, it kills the run. Measured, not assumed.
+  (let* ((node (ethereum-lisp.cli:make-devnet-node
+                :genesis-json *eth-sync-paris-genesis-json*
+                :port 0 :public-port 0
+                :p2p-host "127.0.0.1" :p2p-port 0 :max-peers 4))
+         (controller (ethereum-lisp.cli::make-devnet-shutdown-controller))
+         (listener (make-eth-sync-socket-listener :host "127.0.0.1" :port 0))
+         (rude (make-instance 'sb-bsd-sockets:inet-socket
+                              :type :stream :protocol :tcp))
+         (listener-error nil))
+    (setf (ethereum-lisp.cli::devnet-node-p2p-port node)
+          (eth-sync-listener-port listener))
+    (unwind-protect
+         (multiple-value-bind (accept-thread sessions)
+             (ethereum-lisp.cli:devnet-start-p2p-listener-thread
+              node listener controller
+              (lambda (condition) (setf listener-error condition)))
+           (is (not (null accept-thread)))
+           (sb-bsd-sockets:socket-connect
+            rude (sb-bsd-sockets:make-inet-address "127.0.0.1")
+            (eth-sync-listener-port listener))
+           ;; A well-formed length prefix followed by garbage: the read
+           ;; completes, so nothing times out, and then ECIES rejects it.
+           (let ((stream (sb-bsd-sockets:socket-make-stream
+                          rude :input t :output t
+                               :element-type '(unsigned-byte 8))))
+             (write-sequence (concat-bytes (vector 1 0) (make-array 256
+                                                                   :initial-element 7))
+                             stream)
+             (force-output stream))
+           (loop repeat 50 until (funcall sessions) do (sleep 0.1))
+           (is (not (null (funcall sessions))))
+           ;; The session ends on its own, without the accept loop noticing.
+           (ethereum-lisp.cli:devnet-join-peer-sessions sessions :timeout 10)
+           (dolist (thread (funcall sessions))
+             (is (not (sb-thread:thread-alive-p thread))))
+           ;; The listener is still up and still accepting: one bad peer is not
+           ;; a reason to stop peering.
+           (is (not (eth-sync-listener-closed-p listener)))
+           (is (sb-thread:thread-alive-p accept-thread))
+           (is (null listener-error))
+           ;; It never became a peer, and its reservation was given back.
+           (let ((table (ethereum-lisp.cli:devnet-node-peer-table node)))
+             (is (= 0 (ethereum-lisp.cli:devnet-peer-table-count table)))
+             (is (= 0 (ethereum-lisp.cli::devnet-peer-table-pending table))))
+           (ethereum-lisp.cli:devnet-shutdown-request controller)
+           (is (not (eq :timeout (sb-thread:join-thread accept-thread
+                                                        :timeout 15
+                                                        :default :timeout)))))
+      (ignore-errors (sb-bsd-sockets:socket-close rude))
+      (eth-sync-listener-close listener))))
