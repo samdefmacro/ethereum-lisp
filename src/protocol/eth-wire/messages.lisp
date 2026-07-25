@@ -25,6 +25,9 @@ unchanged, so download works across both.")
 (defconstant +eth-message-block-headers+ #x04)
 (defconstant +eth-message-get-block-bodies+ #x05)
 (defconstant +eth-message-block-bodies+ #x06)
+(defconstant +eth-message-new-pooled-transaction-hashes+ #x08)
+(defconstant +eth-message-get-pooled-transactions+ #x09)
+(defconstant +eth-message-pooled-transactions+ #x0a)
 (defconstant +eth-message-get-receipts+ #x0f)
 (defconstant +eth-message-receipts+ #x10)
 ;; eth/69 adds a block-range announcement past the eth/68 id space.
@@ -264,6 +267,87 @@ otherwise a block number."
     (values (bytes-to-integer (ensure-byte-vector (first items)))
             (mapcar #'eth-block-body-from-rlp-object
                     (rlp-list-items (second items))))))
+
+;;; Transaction gossip.
+;;;
+;;; Two paths carry a transaction between peers. Small ones are pushed whole in
+;;; Transactions; everything else is announced by hash in
+;;; NewPooledTransactionHashes and pulled with GetPooledTransactions, so a peer
+;;; never receives the same large transaction from every neighbour at once. A
+;;; transaction rides in its consensus encoding, the same split block bodies
+;;; use: a legacy one as an RLP list, a typed one as an opaque byte string.
+
+(defun encode-eth-transactions (transactions)
+  "Encode a Transactions message: the full transactions, with no request id."
+  (rlp-encode (block-transactions-rlp-object transactions)))
+
+(defun decode-eth-transactions (bytes)
+  (block-transactions-from-rlp-object
+   (rlp-decode (ensure-byte-vector bytes) :allow-trailing t)))
+
+(defun encode-eth-new-pooled-transaction-hashes (transactions)
+  "Encode an eth/68 announcement of TRANSACTIONS as three equal-length columns:
+the types packed into one byte string, the consensus encoding sizes, and the
+hashes. (eth/72 adds a fourth column of blob cell custody; we speak 68 and 69,
+which do not have it.)"
+  (rlp-encode
+   (make-rlp-list
+    (map 'byte-vector #'transaction-type transactions)
+    (apply #'make-rlp-list
+           (mapcar (lambda (transaction)
+                     (integer-to-minimal-bytes
+                      (length (transaction-encoding transaction))))
+                   transactions))
+    (apply #'make-rlp-list
+           (mapcar (lambda (transaction)
+                     (hash32-bytes (transaction-hash transaction)))
+                   transactions)))))
+
+(defun decode-eth-new-pooled-transaction-hashes (bytes)
+  "Decode an announcement into (VALUES TYPES SIZES HASHES), three equal-length
+lists. A message whose columns disagree is malformed and is rejected here rather
+than leaving the caller to pair up mismatched columns."
+  (let* ((items (rlp-list-items
+                 (rlp-decode (ensure-byte-vector bytes) :allow-trailing t)))
+         (types (coerce (ensure-byte-vector (first items)) 'list))
+         (sizes (mapcar (lambda (size)
+                          (bytes-to-integer (ensure-byte-vector size)))
+                        (rlp-list-items (second items))))
+         (hashes (mapcar #'ensure-byte-vector (rlp-list-items (third items)))))
+    (unless (= (length types) (length sizes) (length hashes))
+      (error "eth NewPooledTransactionHashes has ~D types, ~D sizes, and ~D ~
+              hashes, which must be equal"
+             (length types) (length sizes) (length hashes)))
+    (values types sizes hashes)))
+
+(defun encode-eth-get-pooled-transactions (request-id hashes)
+  (rlp-encode
+   (make-rlp-list
+    (integer-to-minimal-bytes request-id)
+    (apply #'make-rlp-list (mapcar #'ensure-byte-vector hashes)))))
+
+(defun decode-eth-get-pooled-transactions (bytes)
+  "Decode a GetPooledTransactions request into (VALUES REQUEST-ID HASHES)."
+  (let ((items (rlp-list-items
+                (rlp-decode (ensure-byte-vector bytes) :allow-trailing t))))
+    (values (bytes-to-integer (ensure-byte-vector (first items)))
+            (mapcar #'ensure-byte-vector (rlp-list-items (second items))))))
+
+(defun encode-eth-pooled-transactions (request-id transactions)
+  (rlp-encode
+   (make-rlp-list
+    (integer-to-minimal-bytes request-id)
+    (block-transactions-rlp-object transactions))))
+
+(defun decode-eth-pooled-transactions (bytes)
+  "Decode a PooledTransactions reply into (VALUES REQUEST-ID TRANSACTIONS).
+
+The reply may be shorter than the request and in any order: a gap means the peer
+no longer had that transaction, so the caller matches by hash, not by position."
+  (let ((items (rlp-list-items
+                (rlp-decode (ensure-byte-vector bytes) :allow-trailing t))))
+    (values (bytes-to-integer (ensure-byte-vector (first items)))
+            (block-transactions-from-rlp-object (second items)))))
 
 ;;; GetReceipts / Receipts. The reply carries one list of receipts per block
 ;;; whose hash was asked for; a block we do not have is left out rather than

@@ -204,6 +204,17 @@
    #:eth-block-body-withdrawals-present-p
    #:eth-block-body-rlp-object
    #:eth-block-body-from-rlp-object
+   #:+eth-message-new-pooled-transaction-hashes+
+   #:+eth-message-get-pooled-transactions+
+   #:+eth-message-pooled-transactions+
+   #:encode-eth-transactions
+   #:decode-eth-transactions
+   #:encode-eth-new-pooled-transaction-hashes
+   #:decode-eth-new-pooled-transaction-hashes
+   #:encode-eth-get-pooled-transactions
+   #:decode-eth-get-pooled-transactions
+   #:encode-eth-pooled-transactions
+   #:decode-eth-pooled-transactions
    #:encode-eth-get-block-bodies
    #:decode-eth-get-block-bodies
    #:encode-eth-block-bodies

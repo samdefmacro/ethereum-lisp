@@ -276,6 +276,7 @@
       :components
       ((:file "eth-sync-peer" :pathname "eth-sync/peer")
        (:file "eth-sync-serve" :pathname "eth-sync/serve")
+       (:file "eth-sync-gossip" :pathname "eth-sync/gossip")
        (:file "eth-sync-fetch" :pathname "eth-sync/fetch")
        (:file "eth-sync-sync" :pathname "eth-sync/sync")
        (:file "eth-sync-node" :pathname "eth-sync/node")))
@@ -435,6 +436,7 @@
      (:file "eth-wire-tests")
      (:file "eth-sync-tests")
      (:file "eth-serve-tests")
+     (:file "eth-gossip-tests")
      (:file "p2p-identity-tests")
      (:file "trie-encoding-tests")
      (:file "trie-tests")

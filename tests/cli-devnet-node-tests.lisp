@@ -1130,6 +1130,110 @@ loop cannot block on a message that never comes."
                  (is (= 3 (chain-store-head-number store)))))))
       (ignore-errors (sb-bsd-sockets:socket-close listener)))))
 
+(deftest devnet-peer-sync-worker-pools-a-gossiped-transaction
+  (:requires-local-sockets t)
+  ;; A transaction pushed by a peer goes through the node's real admission path
+  ;; into its real pool, under the store guard, while the worker is syncing.
+  ;; The peer serves no blocks, so the download ends at once and only the
+  ;; gossip is under test.
+  (let ((genesis-path
+          (devnet-cli-temp-path "ethereum-lisp-devnet-gossip-genesis" "json")))
+    (unwind-protect
+         (progn
+           (devnet-cli-write-temp-file
+            genesis-path (devnet-cli-funded-txpool-genesis-json))
+           (let* ((node (ethereum-lisp.cli:make-devnet-node
+                         :genesis-path (namestring genesis-path)
+                         :port 0 :public-port 0))
+                  (config (ethereum-lisp.cli::devnet-node-config node))
+                  (store (ethereum-lisp.cli::devnet-node-store node))
+                  (genesis-block (ethereum-lisp.cli::devnet-node-genesis-block node))
+                  (genesis-hash (hash32-bytes (block-hash genesis-block)))
+                  (transaction (devnet-cli-txpool-transaction
+                                config 0 +devnet-cli-txpool-pending-gas-price+))
+                  (server-static
+                   #xb71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291)
+                  (client-static
+                   #x49a7b37aa6f6645917e7b807e9d1c00d4fa71f18343b0d4122a4d2df64dd6fee)
+                  (server-static-pub (secp256k1-private-key-public-key
+                                      server-static))
+                  (listener (make-instance 'sb-bsd-sockets:inet-socket
+                                           :type :stream :protocol :tcp)))
+             ;; Not in the pool before the peer offers it.
+             (is (null (ethereum-lisp.txpool:engine-payload-store-pooled-transaction
+                        store (transaction-hash transaction))))
+             (setf (sb-bsd-sockets:sockopt-reuse-address listener) t)
+             (unwind-protect
+                  (progn
+                    (sb-bsd-sockets:socket-bind
+                     listener (sb-bsd-sockets:make-inet-address "127.0.0.1") 0)
+                    (sb-bsd-sockets:socket-listen listener 1)
+                    (multiple-value-bind (address port)
+                        (sb-bsd-sockets:socket-name listener)
+                      (declare (ignore address))
+                      (let ((server-error nil))
+                        (let ((server-thread
+                                (sb-thread:make-thread
+                                 (lambda ()
+                                   (handler-case
+                                       (let* ((cs (sb-bsd-sockets:socket-accept
+                                                   listener))
+                                              (stream (p2p-binary-socket-stream cs))
+                                              (connection (rlpx-accept-stream
+                                                           stream server-static))
+                                              (peer (eth-peer-connect
+                                                     connection
+                                                     (make-devp2p-hello
+                                                      :client-id "srv"
+                                                      :capabilities
+                                                      (list (make-devp2p-capability
+                                                             "eth" 68))
+                                                      :node-id server-static-pub)
+                                                     (eth-build-status
+                                                      config genesis-hash 0 0
+                                                      genesis-hash 0))))
+                                         ;; Push the transaction, then end the
+                                         ;; node's download with no headers.
+                                         (eth-peer-send
+                                          peer
+                                          ethereum-lisp.eth-wire:+eth-message-transactions+
+                                          (ethereum-lisp.eth-wire:encode-eth-transactions
+                                           (list transaction)))
+                                         (multiple-value-bind (eth-id payload)
+                                             (eth-peer-read peer)
+                                           (declare (ignore eth-id))
+                                           (let ((request
+                                                   (ethereum-lisp.eth-wire:decode-eth-get-block-headers
+                                                    payload)))
+                                             (eth-peer-send
+                                              peer
+                                              ethereum-lisp.eth-wire:+eth-message-block-headers+
+                                              (ethereum-lisp.eth-wire:encode-eth-block-headers
+                                               (ethereum-lisp.eth-wire:eth-get-block-headers-request-id
+                                                request)
+                                               '())))))
+                                     (error (condition)
+                                       (setf server-error condition))))
+                                 :name "devnet-gossip-test-server")))
+                          (let ((enode (enode-url
+                                        (node-id-from-private-key server-static)
+                                        "127.0.0.1" port)))
+                            (ethereum-lisp.cli::devnet-peer-sync-one
+                             node enode client-static))
+                          (sb-thread:join-thread server-thread)
+                          (when server-error
+                            (error "gossip server side failed: ~A" server-error))
+                          ;; The pool took it, by its real hash.
+                          (let ((pooled
+                                  (ethereum-lisp.txpool:engine-payload-store-pooled-transaction
+                                   store (transaction-hash transaction))))
+                            (is (not (null pooled)))
+                            (is (bytes= (transaction-encoding transaction)
+                                        (transaction-encoding pooled))))))))
+               (ignore-errors (sb-bsd-sockets:socket-close listener)))))
+      (when (probe-file genesis-path)
+        (delete-file genesis-path)))))
+
 (deftest devnet-cli-bootnodes-option-accumulates-enodes
   (let* ((enode-a (concatenate 'string "enode://"
                                (make-string 128 :initial-element #\a)

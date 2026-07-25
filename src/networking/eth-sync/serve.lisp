@@ -25,14 +25,24 @@
 
 (defstruct (eth-serve-backend
             (:constructor make-eth-serve-backend
-                (&key block-by-number block-by-hash)))
-  "Read-only access to the chain a peer's requests are answered from.
+                (&key block-by-number block-by-hash pooled-transaction
+                      known-transaction-p accept-transaction)))
+  "What a peer's messages are answered from, as closures rather than a store.
 
 BLOCK-BY-NUMBER returns the canonical block at a block number; BLOCK-BY-HASH
 returns any known block, canonical or not, by its 32-byte hash. Both return NIL
-for a block we do not have."
+for a block we do not have.
+
+The remaining three serve transaction gossip (see gossip.lisp).
+POOLED-TRANSACTION returns a pooled transaction by hash, KNOWN-TRANSACTION-P
+answers whether a hash is one we already hold anywhere, and
+ACCEPT-TRANSACTION offers a received transaction to the pool and may reject it
+by signalling. Any of them may be NIL, which turns off just that part."
   block-by-number
-  block-by-hash)
+  block-by-hash
+  pooled-transaction
+  known-transaction-p
+  accept-transaction)
 
 (defun eth-serve-block-by-number (backend number)
   (let ((reader (eth-serve-backend-block-by-number backend)))
@@ -209,23 +219,7 @@ serve backend — so the caller can handle it."
          t)
         (t nil)))))
 
-(defun eth-peer-handle-message (peer eth-id payload)
-  "Handle one inbound eth message that we did not ask for, returning T if it
-was handled. This is the single entry point shared by the message pump and by
-the request/reply helpers, which serve while they wait for their own reply."
-  (eth-peer-serve-message peer eth-id payload))
-
-(defun eth-peer-serve-loop (peer &key max-messages continue-p)
-  "Read messages from PEER and handle them, returning the number handled.
-
-Runs until the connection ends, until MAX-MESSAGES have been read, or until
-CONTINUE-P returns false. CONTINUE-P is consulted between messages, so a
-blocked read is interrupted by closing the socket rather than by this loop."
-  (let ((handled 0))
-    (loop
-      (when (or (and max-messages (>= handled max-messages))
-                (and continue-p (not (funcall continue-p))))
-        (return handled))
-      (multiple-value-bind (eth-id payload) (eth-peer-read peer)
-        (eth-peer-handle-message peer eth-id payload)
-        (incf handled)))))
+;;; Dispatching an inbound message across the request handlers here and the
+;;; gossip handlers in gossip.lisp is ETH-PEER-HANDLE-MESSAGE, which lives with
+;;; the session loop in fetch.lisp so that neither of these two files has to
+;;; know about the other.

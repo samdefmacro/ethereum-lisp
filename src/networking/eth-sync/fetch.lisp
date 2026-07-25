@@ -1,12 +1,41 @@
 (in-package #:ethereum-lisp.eth-sync)
 
-;;;; Block download over an eth peer.
+;;;; Driving a session: waiting for a reply, dispatching what else arrives, and
+;;;; downloading blocks.
+;;;;
+;;;; Everything that sends a request and waits for its reply lives here,
+;;;; together with the dispatcher that decides what to do with the messages
+;;;; arriving in between — the request handlers in serve.lisp and the gossip
+;;;; handlers in gossip.lisp — so that neither of those files depends on the
+;;;; other or on the loop that drives them.
 ;;;;
 ;;;; eth/66 wraps every request and its reply in a request id, so a reply can be
 ;;;; matched to the request that asked for it. These helpers send a request and
 ;;;; then read eth messages until the reply with the matching id arrives,
 ;;;; handling whatever else the peer sends (and, thanks to the transport,
 ;;;; answering base-protocol keepalives) in between.
+
+(defun eth-peer-handle-message (peer eth-id payload)
+  "Handle one inbound eth message we did not ask for, returning T if it was
+handled. The single entry point shared by the session loop and by every
+request/reply helper, which serve and gossip while they wait for their reply."
+  (or (eth-peer-serve-message peer eth-id payload)
+      (eth-peer-gossip-message peer eth-id payload)))
+
+(defun eth-peer-serve-loop (peer &key max-messages continue-p)
+  "Read messages from PEER and handle them, returning the number handled.
+
+Runs until the connection ends, until MAX-MESSAGES have been read, or until
+CONTINUE-P returns false. CONTINUE-P is consulted between messages, so a read
+already blocked is ended by closing the socket, not by this loop."
+  (let ((handled 0))
+    (loop
+      (when (or (and max-messages (>= handled max-messages))
+                (and continue-p (not (funcall continue-p))))
+        (return handled))
+      (multiple-value-bind (eth-id payload) (eth-peer-read peer)
+        (eth-peer-handle-message peer eth-id payload)
+        (incf handled)))))
 
 (defconstant +eth-max-skipped-messages+ 256
   "How many unrelated eth messages to handle while awaiting a matching reply
@@ -58,3 +87,23 @@ semantics."
                  (encode-eth-get-block-bodies request-id hashes))
   (eth-peer-await peer +eth-message-block-bodies+ request-id
                   #'decode-eth-block-bodies))
+
+(defun eth-peer-fetch-announced-transactions (peer &key (limit 256))
+  "Ask PEER for up to LIMIT of the transactions it announced and offer them to
+the pool, returning how many the pool accepted.
+
+Because this waits for a reply it must be called between messages, never from
+inside a message handler: a handler can itself be running inside another
+request's wait, and this nested wait would swallow that outer reply. That is why
+announcements are queued as they arrive and drained only from here."
+  (let ((backend (eth-peer-serve-backend peer))
+        (wanted (eth-peer-take-announced-hashes peer limit)))
+    (if (or (null backend) (null wanted))
+        0
+        (let ((request-id (eth-peer-next-request-id peer)))
+          (eth-peer-send peer +eth-message-get-pooled-transactions+
+                         (encode-eth-get-pooled-transactions request-id wanted))
+          (eth-accept-transactions
+           backend
+           (eth-peer-await peer +eth-message-pooled-transactions+ request-id
+                           #'decode-eth-pooled-transactions))))))

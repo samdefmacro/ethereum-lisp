@@ -16,6 +16,9 @@
   ;; The chain this peer's requests are answered from; NIL means we answer
   ;; nothing (see serve.lisp).
   serve-backend
+  ;; Transaction hashes this peer announced that we have not fetched yet, as a
+  ;; set (see gossip.lisp). NIL until the peer announces something.
+  announced-hashes
   (request-counter 0))
 
 (defun eth-peer-next-request-id (peer)

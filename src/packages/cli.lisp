@@ -9,8 +9,13 @@
                 #:engine-payload-store-txpool-database-change-tracking-enabled-p
                 #:engine-payload-store-clear-txpool-database-dirty-transaction-hashes
                 #:engine-payload-store-pending-mining-transactions
+                #:engine-payload-store-pooled-transaction
                 #:engine-payload-store-pooled-transactions
                 #:engine-select-mining-transactions)
+  ;; Gossiped transactions go through the same admission the public RPC uses.
+  (:import-from #:ethereum-lisp.txpool.application
+                #:make-txpool-admission-policy
+                #:txpool-admit-transaction)
   (:import-from #:ethereum-lisp.node-store.persistence
                 #:make-node-store-persistence-metadata
                 #:node-store-persistence-metadata-role

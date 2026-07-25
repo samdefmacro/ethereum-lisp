@@ -1,0 +1,172 @@
+(in-package #:ethereum-lisp.eth-sync)
+
+;;;; Transaction gossip.
+;;;;
+;;;; A transaction reaches a block because peers pass it around before anyone
+;;;; builds on it. Without this a node only ever sees transactions submitted to
+;;;; its own RPC: its pool cannot fill from the network, and nothing it accepts
+;;;; ever reaches anyone else.
+;;;;
+;;;; Two paths carry one. Small transactions arrive whole in Transactions;
+;;;; larger ones are announced by hash and pulled with GetPooledTransactions, so
+;;;; the same payload does not arrive from every neighbour at once. Both ends
+;;;; reach the pool through the same backend the request handlers use.
+;;;;
+;;;; BLOB TRANSACTIONS ARE NOT GOSSIPED, in either direction. Their pooled form
+;;;; carries the sidecar, whose wire representation has moved across recent
+;;;; protocol versions, and we build no blob payloads yet in any case.
+;;;; Announcing one would promise a transaction we could not then serve, so blob
+;;;; transactions are filtered out of every announcement, broadcast, and reply.
+;;;; Receiving one still works: it decodes and is offered to the pool like any
+;;;; other transaction.
+
+(defconstant +eth-max-pooled-transactions-serve+ 256
+  "How many hashes one GetPooledTransactions request is answered for, from
+go-ethereum's soft limit on the asking side.")
+
+(defconstant +eth-max-announced-transaction-hashes+ 4096
+  "How many announced hashes stay queued for one peer. Past this the peer is
+announcing faster than we fetch, and the excess is dropped rather than left to
+grow without bound.")
+
+(defun eth-gossipable-transaction-p (transaction)
+  "Whether TRANSACTION may be announced or pushed to a peer."
+  (not (typep transaction 'blob-transaction)))
+
+;;; Sending.
+
+(defun eth-peer-broadcast-transactions (peer transactions)
+  "Push TRANSACTIONS to PEER in full, and return how many were sent.
+
+Sends nothing when none qualify: an empty Transactions message is wasted
+bandwidth, and the protocol asks that it carry at least one transaction."
+  (let ((sendable (remove-if-not #'eth-gossipable-transaction-p transactions)))
+    (when sendable
+      (eth-peer-send peer +eth-message-transactions+
+                     (encode-eth-transactions sendable)))
+    (length sendable)))
+
+(defun eth-peer-announce-transactions (peer transactions)
+  "Announce TRANSACTIONS to PEER by hash, and return how many were announced."
+  (let ((sendable (remove-if-not #'eth-gossipable-transaction-p transactions)))
+    (when sendable
+      (eth-peer-send peer +eth-message-new-pooled-transaction-hashes+
+                     (encode-eth-new-pooled-transaction-hashes sendable)))
+    (length sendable)))
+
+;;; Receiving.
+
+(defun eth-accept-transactions (backend transactions)
+  "Offer TRANSACTIONS to the backend's pool, and return how many it took.
+
+A transaction the pool turns down — badly signed, underpriced, a nonce too far
+ahead — is skipped rather than raised as a session error. Peers relay freely and
+do not pre-filter for us, so one unusable transaction in a batch must not cost
+us the connection."
+  (let ((accept (eth-serve-backend-accept-transaction backend))
+        (accepted 0))
+    (when accept
+      (dolist (transaction transactions)
+        (when (ignore-errors (funcall accept transaction) t)
+          (incf accepted))))
+    accepted))
+
+(defun eth-peer-announced-hash-table (peer)
+  (or (eth-peer-announced-hashes peer)
+      (setf (eth-peer-announced-hashes peer)
+            (make-hash-table :test #'equalp))))
+
+(defun eth-peer-announced-hash-count (peer)
+  "How many announced hashes are queued for PEER."
+  (let ((table (eth-peer-announced-hashes peer)))
+    (if table (hash-table-count table) 0)))
+
+(defun eth-peer-queue-announced-hashes (peer backend hashes)
+  "Queue the announced HASHES worth asking PEER for, and return how many.
+
+A hash we already hold is dropped here rather than at fetch time, so a peer
+re-announcing what we have costs nothing."
+  (let ((known (eth-serve-backend-known-transaction-p backend))
+        (table (eth-peer-announced-hash-table peer))
+        (added 0))
+    (dolist (hash hashes added)
+      (when (>= (hash-table-count table) +eth-max-announced-transaction-hashes+)
+        (return added))
+      (when (and (= (length hash) 32)
+                 (not (gethash hash table))
+                 (not (and known (funcall known hash))))
+        (setf (gethash hash table) t)
+        (incf added)))))
+
+(defun eth-serve-pooled-transactions (backend hashes)
+  "The transactions from HASHES that we still hold, in request order.
+
+Hashes we cannot serve are left out: the reply may be short and reordered, and
+the peer matches it up by hash rather than by position."
+  (let ((pooled (eth-serve-backend-pooled-transaction backend))
+        (found '())
+        (examined 0))
+    (when pooled
+      (dolist (hash hashes)
+        (when (>= examined +eth-max-pooled-transactions-serve+)
+          (return))
+        (incf examined)
+        (let ((transaction (when (= (length hash) 32) (funcall pooled hash))))
+          (when (and transaction (eth-gossipable-transaction-p transaction))
+            (push transaction found)))))
+    (nreverse found)))
+
+(defun eth-peer-take-announced-hashes (peer limit)
+  "Remove and return up to LIMIT of PEER's queued announced hashes.
+
+They leave the queue before the request goes out, so a peer that never answers
+does not leave the same hashes to be asked for again on every later fetch."
+  (let ((table (eth-peer-announced-hashes peer))
+        (taken '())
+        (count 0))
+    (when table
+      (block collect
+        (loop for hash being the hash-keys of table
+              do (push hash taken)
+                 (incf count)
+                 (when (>= count limit)
+                   (return-from collect))))
+      (dolist (hash taken)
+        (remhash hash table)))
+    (nreverse taken)))
+
+;;; Dispatch, reached from ETH-PEER-HANDLE-MESSAGE.
+
+(defun eth-peer-gossip-message (peer eth-id payload)
+  "Handle one gossip message from PEER, returning T if it was one."
+  (let ((backend (eth-peer-serve-backend peer)))
+    (when backend
+      (cond
+        ((= eth-id +eth-message-transactions+)
+         (eth-accept-transactions backend (decode-eth-transactions payload))
+         t)
+        ((= eth-id +eth-message-new-pooled-transaction-hashes+)
+         (multiple-value-bind (types sizes hashes)
+             (decode-eth-new-pooled-transaction-hashes payload)
+           ;; The type and size columns only help a fetcher decide what to ask
+           ;; for first; we fetch in announcement order and ignore them.
+           (declare (ignore types sizes))
+           (eth-peer-queue-announced-hashes peer backend hashes))
+         t)
+        ((= eth-id +eth-message-get-pooled-transactions+)
+         (multiple-value-bind (request-id hashes)
+             (decode-eth-get-pooled-transactions payload)
+           (eth-peer-send peer +eth-message-pooled-transactions+
+                          (encode-eth-pooled-transactions
+                           request-id
+                           (eth-serve-pooled-transactions backend hashes))))
+         t)
+        ((= eth-id +eth-message-pooled-transactions+)
+         ;; A reply nobody is waiting for, because the requester gave up or the
+         ;; peer sent it unasked. The transactions are still good, so take them.
+         (multiple-value-bind (request-id transactions)
+             (decode-eth-pooled-transactions payload)
+           (declare (ignore request-id))
+           (eth-accept-transactions backend transactions))
+         t)
+        (t nil)))))

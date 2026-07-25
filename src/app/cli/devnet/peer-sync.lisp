@@ -11,15 +11,35 @@
 ;;;; dev-period workers that share the single store. A peer that is unreachable
 ;;;; or incompatible is logged and skipped rather than taking the node down.
 
+(defun devnet-peer-txpool-policy (node)
+  "The admission policy gossiped transactions face, which is the one
+eth_sendRawTransaction applies. A transaction from a peer is remote, so it earns
+the local exemptions only if its sender is one of the configured local
+addresses — the same rule go-ethereum's --txpool.locals uses."
+  (make-txpool-admission-policy
+   :allow-unprotected-transactions-p
+   (devnet-node-allow-unprotected-transactions-p node)
+   :price-limit (devnet-node-txpool-price-limit node)
+   :price-bump-percent (devnet-node-txpool-price-bump-percent node)
+   :account-slot-limit (devnet-node-txpool-account-slot-limit node)
+   :global-slot-limit (devnet-node-txpool-global-slot-limit node)
+   :account-queue-limit (devnet-node-txpool-account-queue-limit node)
+   :global-queue-limit (devnet-node-txpool-global-queue-limit node)
+   :local-addresses (devnet-node-txpool-local-addresses node)
+   :no-local-exemptions-p (devnet-node-txpool-no-local-exemptions-p node)))
+
 (defun devnet-peer-serve-backend (node)
-  "A serve backend answering a peer's requests from NODE's store.
+  "A serve backend answering a peer's requests and gossip from NODE's store.
 
 Each lookup takes the store guard on its own rather than holding it across a
 whole query, so a peer asking for a thousand headers cannot stall the RPC
 services. A query may then span a store that moved underneath it, which is
 harmless: every block it returns was a real block of ours, and the peer
-validates what it receives regardless."
-  (let ((store (devnet-node-store node)))
+validates what it receives regardless. Admitting a gossiped transaction does
+take the guard for the whole admission, since that mutates the pool."
+  (let ((store (devnet-node-store node))
+        (config (devnet-node-config node))
+        (policy (devnet-peer-txpool-policy node)))
     (flet ((guarded (thunk)
              (call-with-devnet-node-store-guard node thunk)))
       (make-eth-serve-backend
@@ -30,7 +50,26 @@ validates what it receives regardless."
        (lambda (hash)
          (guarded (lambda ()
                     ;; The store keys blocks by hash32; the wire carries bytes.
-                    (chain-store-known-block store (make-hash32 hash)))))))))
+                    (chain-store-known-block store (make-hash32 hash)))))
+       :pooled-transaction
+       (lambda (hash)
+         (guarded (lambda ()
+                    (engine-payload-store-pooled-transaction
+                     store (make-hash32 hash)))))
+       :known-transaction-p
+       (lambda (hash)
+         (guarded (lambda ()
+                    (let ((key (make-hash32 hash)))
+                      ;; Already pooled, or already mined into our chain.
+                      (or (and (engine-payload-store-pooled-transaction store key)
+                               t)
+                          (and (chain-store-transaction-location store key) t))))))
+       :accept-transaction
+       (lambda (transaction)
+         (guarded (lambda ()
+                    (txpool-admit-transaction
+                     transaction store config policy
+                     :admitted-at (unix-time)))))))))
 
 (defun devnet-peer-sync-import-block (node block)
   "Execute, commit, and canonicalize BLOCK into NODE's store under the store
@@ -79,6 +118,19 @@ dev-period workers and its hash tables are not internally synchronized."
               (make-eth-chain-context config genesis-hash head-number
                                       head-timestamp genesis-timestamp)))))
 
+(defun devnet-peer-fetch-gossiped-transactions (node peer enode)
+  "Fetch what PEER announced during the sync, and return how many the pool took.
+
+A peer that announces and then will not deliver is a peer problem, not ours, so
+a failure here is logged and the sync still counts as completed."
+  (handler-case (eth-peer-fetch-announced-transactions peer)
+    (error (condition)
+      (telemetry-log :warning "peer.gossip.fetch_failed"
+                     :fields (list (cons "enode" enode)
+                                   (cons "error" (princ-to-string condition)))
+                     :sink (devnet-node-telemetry-sink node))
+      0)))
+
 (defun devnet-peer-sync-one (node enode private-key)
   "Dial ENODE, complete the handshake, and download its chain into NODE's store
 starting just past our current head. Returns the number of blocks imported."
@@ -100,10 +152,17 @@ starting just past our current head. Returns the number of blocks imported."
                            (lambda (block)
                              (devnet-peer-sync-import-block node block))
                            :start-number (1+ head-number))))
-               (telemetry-log :info "peer.sync.completed"
-                              :fields (list (cons "enode" enode)
-                                            (cons "blocks" (princ-to-string count)))
-                              :sink (devnet-node-telemetry-sink node))
+               ;; Transactions the peer pushed whole were admitted as they
+               ;; arrived; ones it only announced are fetched now, since that
+               ;; waits for a reply and so cannot run inside the download.
+               (let ((gossiped (devnet-peer-fetch-gossiped-transactions
+                                node peer enode)))
+                 (telemetry-log
+                  :info "peer.sync.completed"
+                  :fields (list (cons "enode" enode)
+                                (cons "blocks" (princ-to-string count))
+                                (cons "transactions" (princ-to-string gossiped)))
+                  :sink (devnet-node-telemetry-sink node)))
                count)
           ;; Tell the peer we are done before dropping the connection, then
           ;; close the socket the dialer handed us. The argument is a devp2p

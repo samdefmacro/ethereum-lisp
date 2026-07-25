@@ -74,12 +74,14 @@ them by their physical location instead reintroduces dependency cycles:
 - **`txpool.application`** is transaction preflight and admission policy, not
   txpool storage; `eth_sendRawTransaction` delegates to it.
 - **`eth-sync`** (the networking layer) drives the eth wire protocol over a live
-  RLPx connection, in both directions: downloading blocks from a peer, and
-  answering that peer's own header, body, and receipt requests. It depends on
-  application services and the `p2p`/`eth-wire` protocol, and stays independent
-  of the chain store at both ends — blocks are imported through a
-  caller-supplied callback, and requests are answered through a
-  caller-supplied `eth-serve-backend` of read closures.
+  RLPx connection, in both directions: downloading blocks from a peer, answering
+  that peer's header, body, and receipt requests, and gossiping transactions
+  both ways. It depends on application services and the `p2p`/`eth-wire`
+  protocol, and stays independent of the chain store at every end — blocks are
+  imported through a caller-supplied callback, and requests, pool lookups, and
+  transaction admission all go through a caller-supplied `eth-serve-backend` of
+  closures. Blob transactions are deliberately not gossiped; see the header of
+  `eth-sync/gossip.lisp`.
 - **persistence adapters** live physically under
   `src/storage/node-store/persistence/` but depend on application services:
   `staged-import` calls `execution-service` to validate payloads before
