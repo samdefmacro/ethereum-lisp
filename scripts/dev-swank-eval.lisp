@@ -1,4 +1,4 @@
-;;;; Swank eval helper for ethereum-lisp development.
+;;;; agent-eval.lisp — hardened Swank eval client (cl-agent-repl canonical).
 ;;;;
 ;;;; Usage:
 ;;;;   sbcl --script scripts/dev-swank-eval.lisp '(+ 1 2)'
