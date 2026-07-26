@@ -16,7 +16,32 @@
   ;; The admin RPC namespace reads peering state through a backend of closures
   ;; the node builds; the struct itself belongs to the API layer.
   (:import-from #:ethereum-lisp.public-api
-                #:make-admin-backend)
+                #:make-admin-backend
+                ;; eth_subscribe is answered per connection, so the registry
+                ;; lives on the WebSocket session rather than in the router.
+                #:make-eth-rpc-subscription-registry
+                #:eth-rpc-handle-eth-subscribe
+                #:eth-rpc-handle-eth-unsubscribe
+                #:eth-rpc-subscription-poll)
+  ;; The WebSocket endpoint drives a transport that knows nothing about
+  ;; Ethereum: it is handed a request handler and a notification source.
+  (:import-from #:ethereum-lisp.websocket
+                #:websocket-handshake-response
+                #:make-websocket-connection
+                #:websocket-pump)
+  ;; The WebSocket endpoint answers ordinary methods through the same router
+  ;; the HTTP listener uses, so it needs the service's context directly.
+  (:import-from #:ethereum-lisp.rpc-http
+                #:engine-rpc-http-service-rpc-context)
+  (:import-from #:ethereum-lisp.rpc
+                ;; The -JSON variant: string in, string out. The -STRING one
+                ;; returns a parsed object, which a frame cannot carry.
+                #:rpc-handle-request-json)
+  (:import-from #:ethereum-lisp.json
+                #:json-array-values
+                #:json-object-p
+                #:json-object-field
+                #:+json-false+)
   ;; Gossiped transactions go through the same admission the public RPC uses.
   (:import-from #:ethereum-lisp.txpool.application
                 #:make-txpool-admission-policy
@@ -112,6 +137,16 @@
    #:devnet-node-metrics-endpoint
    #:devnet-metrics-http-response
    #:devnet-start-metrics-server-thread
+   #:devnet-node-ws-enabled-p
+   #:devnet-node-ws-host
+   #:devnet-node-ws-port
+   #:devnet-node-ws-origins
+   #:devnet-node-ws-rpc-prefix
+   #:devnet-node-ws-endpoint
+   #:devnet-ws-parse-handshake
+   #:devnet-ws-message-handler
+   #:devnet-ws-notification-source
+   #:devnet-start-ws-server-thread
    #:devnet-shutdown-controller-add-closeable
    #:devnet-shutdown-controller-remove-closeable
    #:devnet-start-p2p-listener-thread

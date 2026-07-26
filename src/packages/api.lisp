@@ -123,7 +123,20 @@
    #:admin-backend-peers
    #:admin-backend-add-peer
    #:admin-backend-peer-count
-   #:admin-backend-listening-p))
+   #:admin-backend-listening-p
+   #:eth-rpc-subscription
+   #:eth-rpc-subscription-id
+   #:eth-rpc-subscription-kind
+   #:eth-rpc-subscription-registry
+   #:make-eth-rpc-subscription-registry
+   #:eth-rpc-subscription-registry-subscriptions
+   #:eth-rpc-subscription-count
+   #:eth-rpc-handle-eth-subscribe
+   #:eth-rpc-handle-eth-unsubscribe
+   #:eth-rpc-subscription-notification-json
+   #:eth-rpc-subscription-new-heads
+   #:eth-rpc-subscription-pending-hashes
+   #:eth-rpc-subscription-poll))
 
 (defpackage #:ethereum-lisp.rpc
   (:use #:cl
@@ -215,3 +228,53 @@
    #:engine-rpc-handle-http-stream
    #:engine-rpc-http-service-handle-stream
    #:engine-rpc-http-service-serve-listener))
+
+(defpackage #:ethereum-lisp.websocket
+  ;; TRANSPORT ONLY, and the short use-list is the point: nothing here knows
+  ;; what a block is. The session is handed functions by the layer above.
+  (:use #:cl
+        #:ethereum-lisp.bytes
+        #:ethereum-lisp.strings)
+  (:export
+   #:+websocket-opcode-continuation+
+   #:+websocket-opcode-text+
+   #:+websocket-opcode-binary+
+   #:+websocket-opcode-close+
+   #:+websocket-opcode-ping+
+   #:+websocket-opcode-pong+
+   #:+websocket-default-max-message-bytes+
+   #:websocket-protocol-error
+   #:websocket-protocol-error-message
+   #:websocket-protocol-error-status
+   #:websocket-frame
+   #:make-websocket-frame
+   #:websocket-frame-fin-p
+   #:websocket-frame-opcode
+   #:websocket-frame-payload
+   #:websocket-decode-frame
+   #:websocket-encode-frame
+   #:websocket-text-frame
+   #:websocket-close-frame
+   #:websocket-pong-frame
+   #:websocket-unmask
+   #:string-to-utf8-bytes
+   #:utf8-bytes-to-string
+   #:websocket-base64-encode
+   #:websocket-accept-token
+   #:websocket-header-value
+   #:websocket-header-contains-token-p
+   #:websocket-upgrade-request-p
+   #:websocket-origin-allowed-p
+   #:websocket-handshake-response
+   #:websocket-request-path
+   #:websocket-http-error
+   #:websocket-connection
+   #:make-websocket-connection
+   #:websocket-connection-stream
+   #:websocket-connection-closed-p
+   #:websocket-send-text
+   #:websocket-send-close
+   #:websocket-handle-frame
+   #:websocket-assemble-message
+   #:websocket-take-frame
+   #:websocket-pump))

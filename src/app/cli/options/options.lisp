@@ -62,6 +62,11 @@
         (metrics nil)
         (metrics-host nil)
         (metrics-port nil)
+        (ws-enabled-p nil)
+        (ws-host nil)
+        (ws-port nil)
+        (ws-origins nil)
+        (ws-rpc-prefix nil)
         (help-p nil))
     (labels ((next-value (option)
                (multiple-value-bind (value rest)
@@ -105,6 +110,19 @@
                 ;; so --metrics=false must turn it OFF rather than being read as
                 ;; on with a stray argument left over.
                 (setf metrics (next-optional-boolean option)))
+               ((string= option "--ws")
+                (setf ws-enabled-p (next-optional-boolean option)))
+               ((string= option "--ws.addr")
+                (setf ws-host (next-value option)))
+               ((string= option "--ws.port")
+                (setf ws-port (next-parsed-value option #'devnet-cli-parse-port)))
+               ((string= option "--ws.origins")
+                (setf ws-origins
+                      (next-transformed-value option
+                                              #'devnet-cli-parse-cors-origin-list)))
+               ((string= option "--ws.rpcprefix")
+                (setf ws-rpc-prefix
+                      (next-parsed-value option #'devnet-cli-parse-rpc-prefix)))
                ((string= option "--metrics.addr")
                 (setf metrics-host (next-value option)))
                ((string= option "--metrics.port")
@@ -330,5 +348,10 @@
           :metrics metrics
           :metrics-host metrics-host
           :metrics-port metrics-port
+          :ws-enabled-p ws-enabled-p
+          :ws-host ws-host
+          :ws-port ws-port
+          :ws-origins ws-origins
+          :ws-rpc-prefix ws-rpc-prefix
           :node-key node-key
           :help-p help-p))))

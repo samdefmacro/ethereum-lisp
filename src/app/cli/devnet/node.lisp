@@ -57,7 +57,12 @@
        metrics
        ;; Where to publish those counts. Ignored unless METRICS is on.
        metrics-host
-       metrics-port)
+       metrics-port
+       ws-enabled-p
+       ws-host
+       ws-port
+       ws-origins
+       ws-rpc-prefix)
   (unless (or (and genesis-path (stringp genesis-path))
               (and genesis-json (stringp genesis-json)))
     (error "Devnet node requires a genesis JSON path or source"))
@@ -265,7 +270,12 @@
      :discovery-table
      (make-discv4-node-table (node-id-from-private-key node-key))
      :metrics-host metrics-host
-     :metrics-port metrics-port))
+     :metrics-port metrics-port
+     :ws-enabled-p ws-enabled-p
+     :ws-host ws-host
+     :ws-port ws-port
+     :ws-origins (and ws-origins (copy-list ws-origins))
+     :ws-rpc-prefix ws-rpc-prefix))
     ;; Seed the operator's --peer values as static candidates. They are already
     ;; validated at parse time; ignore-errors is for a peer supplied
     ;; programmatically by a test, which must not break node construction.

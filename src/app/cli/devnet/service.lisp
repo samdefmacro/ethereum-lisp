@@ -53,7 +53,10 @@
          (p2p-thread nil)
          (p2p-sessions nil)
          (metrics-error nil)
-         (metrics-thread nil))
+         (metrics-thread nil)
+         (ws-error nil)
+         (ws-thread nil)
+         (ws-sessions nil))
     (devnet-shutdown-controller-register-listeners
      shutdown-controller engine-listener public-listener)
     ;; First, because it is the only worker here that BINDS a port. A metrics
@@ -66,6 +69,15 @@
            shutdown-controller
            (lambda (condition)
              (setf metrics-error condition))))
+    ;; Also before the ready callback, and for the same reason: it binds a port,
+    ;; and a port already in use must fail the node rather than leave the
+    ;; endpoint quietly missing.
+    (multiple-value-setq (ws-thread ws-sessions)
+      (devnet-start-ws-server-thread
+       node
+       shutdown-controller
+       (lambda (condition)
+         (setf ws-error condition))))
     (handler-case
         (when on-listeners-ready
           (funcall on-listeners-ready engine-listener public-listener))
@@ -240,7 +252,21 @@
             (ignore-errors (sb-thread:terminate-thread metrics-thread))
             (ignore-errors (sb-thread:join-thread metrics-thread
                                                   :timeout 5
-                                                  :default :timeout)))))
+                                                  :default :timeout))))
+        (when ws-thread
+          ;; The listener and every accepted socket are registered closeables,
+          ;; so both the accept loop and each session wake on their own.
+          (devnet-shutdown-request shutdown-controller)
+          (when (eq :timeout
+                    (sb-thread:join-thread ws-thread :timeout 5
+                                                     :default :timeout))
+            (ignore-errors (sb-thread:terminate-thread ws-thread))
+            (ignore-errors (sb-thread:join-thread ws-thread :timeout 5
+                                                            :default :timeout)))
+          (when ws-sessions
+            (devnet-join-peer-sessions ws-sessions))))
+      (when ws-error
+        (error ws-error))
       (when metrics-error
         (error metrics-error))
       (when p2p-error

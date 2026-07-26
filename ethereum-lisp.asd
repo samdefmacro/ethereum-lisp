@@ -365,6 +365,7 @@
        (:file "public-debug-raw" :pathname "public/debug/raw")
        (:file "public-dispatch-debug" :pathname "public/dispatch/debug")
        (:file "public-api-admin" :pathname "public/admin/admin")
+       (:file "public-api-subscriptions" :pathname "public/subscriptions/subscriptions")
        (:file "public-api-dispatch" :pathname "public/dispatch/dispatch")
        (:file "rpc-router" :pathname "rpc/router")
        (:file "rpc-json" :pathname "rpc/json")))
@@ -380,6 +381,9 @@
        (:file "handler" :pathname "http/handler")
        (:file "service" :pathname "http/service")
        (:file "listener" :pathname "http/listener")
+       (:file "websocket-frames" :pathname "websocket/frames")
+       (:file "websocket-handshake" :pathname "websocket/handshake")
+       (:file "websocket-session" :pathname "websocket/session")
        (:file "server" :pathname "http/server")))
      (:module "app"
       :pathname "app/"
@@ -399,6 +403,7 @@
        (:file "cli-devnet-peer-manager" :pathname "cli/devnet/peer-manager")
        (:file "cli-devnet-dialer" :pathname "cli/devnet/dialer")
        (:file "cli-devnet-metrics-server" :pathname "cli/devnet/metrics-server")
+       (:file "cli-devnet-ws-server" :pathname "cli/devnet/ws-server")
        (:file "cli-devnet-service" :pathname "cli/devnet/service")
        (:file "cli-option-definitions" :pathname "cli/options/definitions")
        (:file "cli-args" :pathname "cli/options/args")
@@ -452,6 +457,7 @@
      (:file "eth-pump-tests")
      (:file "cli-devnet-peer-manager-tests")
      (:file "cli-devnet-metrics-tests")
+     (:file "websocket-tests")
      (:file "cli-devnet-dial-tests")
      (:file "admin-rpc-tests")
      (:file "txpool-mining-order-tests")

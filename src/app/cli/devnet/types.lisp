@@ -88,7 +88,12 @@
                       peer-table
                       discovery-table
                       metrics-host
-                      metrics-port)))
+                      metrics-port
+                      ws-enabled-p
+                      ws-host
+                      ws-port
+                      ws-origins
+                      ws-rpc-prefix)))
   genesis-path
   store
   config
@@ -131,6 +136,14 @@
   ;; A port with --metrics off binds nothing; see DEVNET-NODE-METRICS-ENDPOINT.
   metrics-host
   metrics-port
+  ;; The WebSocket endpoint. Off unless --ws; it carries the same public method
+  ;; filter as the HTTP listener plus eth_subscribe, which only means anything
+  ;; on a connection that stays open.
+  ws-enabled-p
+  ws-host
+  ws-port
+  ws-origins
+  ws-rpc-prefix
   ;; Whether a peer session is currently catching up. Guarded by the peer-table
   ;; mutex, and the reason it exists is in DEVNET-NODE-CLAIM-SYNC.
   (syncing-p nil))
