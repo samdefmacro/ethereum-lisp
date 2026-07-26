@@ -142,7 +142,11 @@
             :authority-id (devnet-cli-new-persistence-authority-id)))
          (effective-network-id (or network-id (chain-config-chain-id config)))
          (store (make-engine-payload-memory-store))
-         (store-guard-function (make-devnet-store-guard-function))
+         ;; The blocking guard and its give-up-instead companion share one
+         ;; mutex, so they have to be taken from one call.
+         (store-guard-pair (multiple-value-list (make-devnet-store-guard-function)))
+         (store-guard-function (first store-guard-pair))
+         (store-guard-try-function (second store-guard-pair))
          (new-payload-persistence-function
            (devnet-cli-new-payload-persistence-function database-path))
          (forkchoice-persistence-function
@@ -247,6 +251,7 @@
        :dev-mode-p dev-mode-p
        :coinbase coinbase
        :store-guard-function store-guard-function
+       :store-guard-try-function store-guard-try-function
        :persistence-state persistence-state
        :canonical-transition-persistence-function
        forkchoice-persistence-function

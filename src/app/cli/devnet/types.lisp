@@ -73,6 +73,7 @@
                       public-api-modules engine-endpoint-config
                       public-endpoint-config txpool-policy
                       dev-mode-p coinbase store-guard-function
+                      store-guard-try-function
                       persistence-state
                       canonical-transition-persistence-function
                       txpool-journal-path
@@ -113,6 +114,9 @@
   dev-mode-p
   coinbase
   store-guard-function
+  ;; The same guard, but giving up rather than waiting. See
+  ;; CALL-WITH-DEVNET-NODE-STORE-GUARD-IF-FREE.
+  store-guard-try-function
   persistence-state
   canonical-transition-persistence-function
   txpool-journal-path
@@ -146,7 +150,11 @@
   ws-rpc-prefix
   ;; Whether a peer session is currently catching up. Guarded by the peer-table
   ;; mutex, and the reason it exists is in DEVNET-NODE-CLAIM-SYNC.
-  (syncing-p nil))
+  (syncing-p nil)
+  ;; The last eth chain context discovery managed to read, kept so discovery
+  ;; never has to WAIT for the store guard to learn our fork id. See
+  ;; DEVNET-NODE-CHAIN-CONTEXT for why waiting there is not an option.
+  (chain-context-cache nil))
 
 (defun devnet-make-mutex (name)
   "A mutex on SBCL, NIL elsewhere. CALL-WITH-DEVNET-MUTEX degrades accordingly."
@@ -161,15 +169,34 @@
   #-sbcl
   (progn mutex (funcall thunk)))
 
+(defun make-devnet-store-guard-try-function (mutex)
+  "A companion to a store-guard function that gives up instead of waiting.
+
+Returns a function of a thunk yielding (VALUES RESULT RAN-P): the thunk runs
+under MUTEX when it is free right now, and does not run at all when it is
+held."
+  #+sbcl
+  (lambda (thunk)
+    (if (sb-thread:grab-mutex mutex :waitp nil)
+        (unwind-protect (values (funcall thunk) t)
+          (sb-thread:release-mutex mutex))
+        (values nil nil)))
+  #-sbcl
+  (progn mutex (lambda (thunk) (values (funcall thunk) t))))
+
 (defun make-devnet-store-guard-function ()
+  "Return (VALUES GUARD TRY): the blocking store guard and its give-up-instead
+companion, over the same mutex. Two functions rather than one with a flag so
+that a caller cannot accidentally block by omitting an argument."
   #+sbcl
   (let ((mutex (sb-thread:make-mutex :name "ethereum-lisp-node-store")))
-    (lambda (thunk)
-      (sb-thread:with-mutex (mutex)
-        (funcall thunk))))
+    (values (lambda (thunk)
+              (sb-thread:with-mutex (mutex)
+                (funcall thunk)))
+            (make-devnet-store-guard-try-function mutex)))
   #-sbcl
-  (lambda (thunk)
-    (funcall thunk)))
+  (values (lambda (thunk) (funcall thunk))
+          (lambda (thunk) (values (funcall thunk) t))))
 
 (defun call-with-devnet-node-store-guard (node thunk)
   (unless (typep node 'devnet-node)
@@ -177,6 +204,25 @@
   (unless (functionp thunk)
     (error "Devnet store guard requires a function"))
   (funcall (devnet-node-store-guard-function node) thunk))
+
+(defun call-with-devnet-node-store-guard-if-free (node thunk)
+  "Run THUNK under NODE's store guard only if the guard is free right now.
+
+Returns (VALUES RESULT T) when THUNK ran and (VALUES NIL NIL) when the guard
+was held. For callers that would rather have a stale answer than block: the
+store guard is held for the whole of a block import, so a background thread
+that waits on it does not run slowly, it stops until the node is idle.
+
+Falls back to a blocking acquisition when the node has no try function, which
+is what the non-SBCL build and any node built before this existed will have."
+  (unless (typep node 'devnet-node)
+    (error "Devnet store guard requires a devnet node"))
+  (unless (functionp thunk)
+    (error "Devnet store guard requires a function"))
+  (let ((try (devnet-node-store-guard-try-function node)))
+    (if (functionp try)
+        (funcall try thunk)
+        (values (call-with-devnet-node-store-guard node thunk) t))))
 
 (defun call-with-devnet-peer-table (node thunk)
   "Run THUNK with exclusive access to NODE's peer table AND dial registry.

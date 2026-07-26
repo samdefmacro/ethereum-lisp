@@ -75,11 +75,42 @@ node whose record has not arrived by the deadline is a node the crawl cannot
 return. Our policy.")
 
 (defun devnet-node-chain-context (node)
-  "NODE's eth chain context at the current head, or NIL if it cannot be read.
+  "NODE's eth chain context, refreshed when the store guard happens to be free
+and reused from the last refresh when it is not.
 
-Best-effort on purpose: both callers below are discovery, and discovery that
-cannot describe our chain should degrade rather than take the node down."
-  (ignore-errors (nth-value 2 (devnet-peer-sync-status node))))
+DISCOVERY MUST NEVER WAIT FOR THE STORE GUARD, and this is the whole reason
+the function exists rather than the obvious call to DEVNET-PEER-SYNC-STATUS.
+The guard is held for the duration of a block import. A discovery thread that
+blocks on it does not merely run slower -- it stops entirely for as long as the
+node is busy, which is exactly when finding peers matters. The peer table is
+kept off this guard for the same reason (CALL-WITH-DEVNET-PEER-TABLE); this is
+that rule applied to the fork id. It was learned the expensive way: taking the
+guard here cost a live node every single crawl for half an hour.
+
+Staleness is cheap by comparison. The only thing read out of the context is our
+fork id, which changes when the head crosses a fork -- so a context minutes old
+still answers correctly, and a fresh one is no better. NIL until the first
+refresh succeeds, which turns filtering off rather than rejecting everybody."
+  (let* ((store (devnet-node-store node))
+         (genesis-timestamp
+           (block-header-timestamp
+            (block-header (devnet-node-genesis-block node)))))
+    (multiple-value-bind (head ran-p)
+        (call-with-devnet-node-store-guard-if-free
+         node
+         (lambda ()
+           (ignore-errors
+            (let ((head-number (chain-store-head-number store)))
+              (list head-number
+                    (block-header-timestamp
+                     (block-header (chain-store-latest-block store)))
+                    (hash32-bytes (chain-store-canonical-hash store 0)))))))
+      (when (and ran-p head)
+        (setf (devnet-node-chain-context-cache node)
+              (make-eth-chain-context (devnet-node-config node)
+                                      (third head) (first head) (second head)
+                                      genesis-timestamp)))
+      (devnet-node-chain-context-cache node))))
 
 (defun devnet-node-record-pairs (node)
   "The chain-specific ENR entries this node advertises.
@@ -138,11 +169,12 @@ crawl is logged and retried; only an escaping error is fail-stop."
                      ;; one slow peer stalled every later dial on the same
                      ;; thread, and the fixed crawl interval was the only
                      ;; backoff there was.
-                     (multiple-value-bind (found stats)
+                     (let ((record-filter (devnet-discovery-record-filter node)))
+                      (multiple-value-bind (found stats)
                          (discv4-lookup
                           bootnodes private-key
                           :timeout-seconds +devnet-discovery-crawl-seconds+
-                          :record-filter (devnet-discovery-record-filter node))
+                          :record-filter record-filter)
                        ;; Log the crawl's shape every time, not just when it
                        ;; goes wrong. A filtered crawl legitimately returns far
                        ;; fewer nodes than an unfiltered one, so without the
@@ -154,7 +186,9 @@ crawl is logged and retried; only an escaping error is fail-stop."
                                  (loop for (name . count) in stats
                                        collect (cons name
                                                      (princ-to-string count)))
-                                 (list (cons "offered"
+                                 (list (cons "filtered"
+                                             (if record-filter "true" "false"))
+                                       (cons "offered"
                                              (princ-to-string (length found)))))
                         :sink (devnet-node-telemetry-sink node))
                        (call-with-devnet-peer-table
@@ -166,7 +200,7 @@ crawl is logged and retried; only an escaping error is fail-stop."
                               (devnet-node-dial-registry node)
                               (node-id-to-hex
                                (nth-value 0 (parse-enode-url enode)))
-                              enode))))))
+                              enode)))))))
                    (error (condition)
                      (telemetry-log
                       :warning "peer.discovery.crawl_failed"
