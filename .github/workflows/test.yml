@@ -51,7 +51,14 @@ jobs:
         run: |
           root="$(make eest-fixtures)"
           echo "ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT=$root" >> "$GITHUB_ENV"
+      # THE ROOT ALONE RUNS NOTHING. The replay cases need a selector list as
+      # well, and without one they report themselves skipped exactly as they do
+      # with no corpus at all -- so the job would download 4.2 GB, execute zero
+      # vectors, and go green. `auto` means "every case the classifier finds".
       - name: Run conformance layers
+        env:
+          ETHEREUM_LISP_PHASE_A_STATE_TEST_SELECTORS: auto
+          ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_SELECTORS: auto
         run: |
           make test-unit
           make test-integration
