@@ -184,3 +184,34 @@
       (when thread
         (ignore-errors (sb-thread:join-thread thread :timeout 5
                                                      :default :timeout))))))
+
+(deftest devnet-sync-claim-admits-one-session-at-a-time
+  ;; Live regression, found on Hoodi. Three peers connected and each started an
+  ;; unbounded from-genesis import, so the node re-downloaded and re-executed
+  ;; the same blocks three times over while holding the store guard almost
+  ;; continuously. Peers are interchangeable for catching up; one is enough.
+  (let ((node (ethereum-lisp.cli:make-devnet-node
+               :genesis-json *eth-sync-paris-genesis-json*
+               :port 0 :public-port 0)))
+    (is (ethereum-lisp.cli:devnet-node-claim-sync node))
+    (is (null (ethereum-lisp.cli:devnet-node-claim-sync node)))
+    (ethereum-lisp.cli:devnet-node-release-sync node)
+    (is (ethereum-lisp.cli:devnet-node-claim-sync node))
+    (ethereum-lisp.cli:devnet-node-release-sync node)
+    ;; The claim is released even when the body dies, or one failed catch-up
+    ;; would stop the node ever syncing again.
+    (let ((ran nil))
+      (is (null (ignore-errors
+                 (ethereum-lisp.cli:call-with-devnet-sync-claim
+                  node (lambda () (setf ran t) (error "boom"))))))
+      (is ran))
+    (is (ethereum-lisp.cli:devnet-node-claim-sync node))
+    (ethereum-lisp.cli:devnet-node-release-sync node)
+    ;; A second caller gets NIL rather than an error: another session already
+    ;; doing the work is an ordinary outcome, not a failure.
+    (ethereum-lisp.cli:devnet-node-claim-sync node)
+    (is (null (ethereum-lisp.cli:call-with-devnet-sync-claim
+               node (lambda () :ran))))
+    (ethereum-lisp.cli:devnet-node-release-sync node)
+    (is (eq :ran (ethereum-lisp.cli:call-with-devnet-sync-claim
+                  node (lambda () :ran))))))

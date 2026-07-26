@@ -120,6 +120,10 @@
    #:devnet-node-sync-targets
    #:devnet-peer-fill-sync-gaps
    #:devnet-peer-pending-broadcast
+   #:devnet-node-claim-sync
+   #:devnet-node-release-sync
+   #:call-with-devnet-sync-claim
+   #:+devnet-session-catchup-block-limit+
    #:+devnet-broadcast-batch-limit+
    #:+devnet-peer-known-transaction-limit+
    #:devnet-dial-scheduler-pass

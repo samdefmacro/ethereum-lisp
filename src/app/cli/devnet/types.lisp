@@ -130,7 +130,10 @@
   ;; Where --metrics.addr/--metrics.port asked the metrics endpoint to bind.
   ;; A port with --metrics off binds nothing; see DEVNET-NODE-METRICS-ENDPOINT.
   metrics-host
-  metrics-port)
+  metrics-port
+  ;; Whether a peer session is currently catching up. Guarded by the peer-table
+  ;; mutex, and the reason it exists is in DEVNET-NODE-CLAIM-SYNC.
+  (syncing-p nil))
 
 (defun devnet-make-mutex (name)
   "A mutex on SBCL, NIL elsewhere. CALL-WITH-DEVNET-MUTEX degrades accordingly."

@@ -219,3 +219,47 @@ starting just past our current head. Returns the number of blocks imported."
            (rlpx-send-disconnect (eth-peer-connection peer)
                                  +devp2p-disconnect-requested+))
           (ignore-errors (sb-bsd-sockets:socket-close socket)))))))
+
+(defconstant +devnet-session-catchup-block-limit+ 2048
+  "How many blocks ONE session's initial catch-up imports before giving the
+node back. Our policy, and a bound rather than a target.
+
+Without it the catch-up runs until it reaches the peer's tip, which on a chain
+we are far behind is not a pass but the entire initial sync -- and it takes the
+store guard once per block for the whole way. Everything else that needs that
+guard, the Engine API included, is then competing with an import loop that never
+pauses.
+
+Observed on Hoodi: three peers connected, each began an unbounded import from
+block 1, and the node sat at 100% CPU while a consensus client's requests waited
+long enough in the queue that their JWTs went stale and came back 401.")
+
+(defun devnet-node-claim-sync (node)
+  "Claim the right to catch up, or NIL if another session already has it.
+
+ONE SESSION SYNCS AT A TIME. Peers are interchangeable for this purpose -- they
+all serve the same canonical chain -- so a second session catching up in
+parallel re-downloads and re-executes blocks the first is already importing,
+while doubling the contention on the store guard. The claim is taken under the
+peer-table mutex because it is the same kind of decision the admission verdicts
+are: read a shared fact and act on it in one step."
+  (call-with-devnet-peer-table
+   node
+   (lambda ()
+     (unless (devnet-node-syncing-p node)
+       (setf (devnet-node-syncing-p node) t)))))
+
+(defun devnet-node-release-sync (node)
+  "Give the catch-up claim back. Safe to call without holding it."
+  (call-with-devnet-peer-table
+   node
+   (lambda () (setf (devnet-node-syncing-p node) nil))))
+
+(defun call-with-devnet-sync-claim (node thunk)
+  "Run THUNK if no other session is catching up, and always release afterwards.
+
+Returns NIL when the claim was not available, which is not an error: it means
+another session is already doing the work."
+  (when (devnet-node-claim-sync node)
+    (unwind-protect (funcall thunk)
+      (devnet-node-release-sync node))))

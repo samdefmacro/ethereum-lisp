@@ -188,17 +188,24 @@ for one that failed."
                 :pending-broadcast (devnet-peer-pending-broadcast node)
                 :on-session-start
                 (lambda (peer)
-                  ;; Catch up to the peer's tip once. Cheap when we are already
-                  ;; there: one short header batch and the loop returns.
-                  (eth-sync-download-blocks
-                   peer
-                   (lambda (block) (devnet-peer-sync-import-block node block))
-                   :start-number (1+ head-number))
-                  ;; Then fill anything the consensus client asked for that we
-                  ;; could not execute. Forward download only helps when the
-                  ;; missing blocks extend OUR head; a reorged target needs the
-                  ;; backwards walk.
-                  (devnet-peer-fill-sync-gaps node peer))))))
+                  ;; Bounded, and only one session at a time. Cheap when we are
+                  ;; already at the tip: one short header batch and the loop
+                  ;; returns. Expensive exactly when we are far behind, which
+                  ;; is when the rest of the node most needs the store guard
+                  ;; back -- see +DEVNET-SESSION-CATCHUP-BLOCK-LIMIT+.
+                  (call-with-devnet-sync-claim
+                   node
+                   (lambda ()
+                     (eth-sync-download-blocks
+                      peer
+                      (lambda (block) (devnet-peer-sync-import-block node block))
+                      :start-number (1+ head-number)
+                      :max-blocks +devnet-session-catchup-block-limit+)
+                     ;; Then fill anything the consensus client asked for that
+                     ;; we could not execute. Forward download only helps when
+                     ;; the missing blocks extend OUR head; a reorged target
+                     ;; needs the backwards walk.
+                     (devnet-peer-fill-sync-gaps node peer))))))))
       (call-with-devnet-peer-table
        node
        (lambda ()
