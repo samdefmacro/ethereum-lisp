@@ -63,12 +63,16 @@
         (setf (devnet-rejournal-state-last-run-time state) now)
         (devnet-node-rejournal (devnet-rejournal-state-node state))))))
 
-(defun devnet-node-pending-mining-transactions (node)
+(defun devnet-node-pending-mining-transactions (node &key base-fee)
+  "The pending transactions in the order a block should try to include them.
+
+BASE-FEE orders senders by what they actually pay at that base fee; without it
+the deterministic address order is kept."
   (let* ((store (devnet-node-store node))
          (expected-chain-id
            (chain-config-chain-id (devnet-node-config node))))
     (engine-payload-store-pending-mining-transactions
-     store expected-chain-id)))
+     store expected-chain-id :base-fee base-fee)))
 
 (defun devnet-node-persist-canonical-transition (node transition)
   (let ((persistence-function
@@ -93,7 +97,15 @@
          ;; it never reads the same-height side-candidate cache.
          (parent (chain-store-latest-block store))
          (pending-transactions
-           (devnet-node-pending-mining-transactions node)))
+           (devnet-node-pending-mining-transactions
+            node
+            ;; NIL when there is no base fee to compute a tip against, which
+            ;; keeps the deterministic address order rather than failing.
+            :base-fee (let ((parent (chain-store-latest-block store)))
+                        (and parent
+                             (ignore-errors
+                              (expected-base-fee-per-gas
+                               (block-header parent))))))))
     (when (and parent pending-transactions)
       (let* ((parent-header (block-header parent))
              (parent-hash (block-hash parent))

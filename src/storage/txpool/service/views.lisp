@@ -58,17 +58,81 @@
        (string< (hash32-to-hex (transaction-hash left))
                 (hash32-to-hex (transaction-hash right)))))))
 
+(defun transaction-effective-tip (transaction base-fee)
+  "What the builder actually earns per unit of gas from TRANSACTION.
+
+The fee cap is what a sender is willing to pay in total; the base fee is burned,
+so the builder receives the priority fee, capped by whatever room the fee cap
+leaves above the base fee. A transaction advertising a huge priority fee it
+cannot afford at this base fee is worth exactly that remaining room, which is why
+this is a MIN rather than the priority fee alone."
+  (let ((cap (transaction-max-fee-per-gas transaction))
+        (tip (transaction-max-priority-fee-per-gas transaction)))
+    (max 0 (min tip (- cap (or base-fee 0))))))
+
+(defun engine-mining-sender-groups (transactions expected-chain-id)
+  "TRANSACTIONS grouped by sender, each group in nonce order.
+
+Nonce order within a sender is not a preference, it is a requirement: a
+sender's nonce N+1 cannot execute before N, so no ordering may separate or
+reorder them."
+  (let ((groups (make-hash-table :test #'equal)))
+    (dolist (transaction transactions)
+      (let* ((sender (transaction-sender transaction
+                                         :expected-chain-id expected-chain-id))
+             (key (and sender (address-to-hex sender))))
+        (when key
+          (push transaction (gethash key groups)))))
+    (let ((result '()))
+      (maphash (lambda (key group)
+                 (push (cons key (sort (nreverse group) #'<
+                                       :key #'transaction-nonce))
+                       result))
+               groups)
+      result)))
+
 (defun engine-payload-store-pending-mining-transactions
-    (store expected-chain-id)
-  (sort
-   (copy-list
-    (remove-if-not
-     (lambda (transaction)
-       (transaction-sender transaction
-                           :expected-chain-id expected-chain-id))
-     (engine-payload-store-pending-transactions store)))
-   (lambda (left right)
-     (engine-mining-transaction< left right expected-chain-id))))
+    (store expected-chain-id &key base-fee)
+  "The pending transactions in the order a block should try to include them.
+
+With a BASE-FEE, senders are ordered by what their next transaction actually
+pays -- most profitable first -- rather than by address, which was arbitrary.
+Ordering by address meant a block filled with whoever happened to sort first and
+left better-paying transactions out whenever the gas limit bound.
+
+Each sender's transactions stay contiguous and in nonce order, so the ordering
+is over SENDERS, keyed by the tip of their lowest-nonce transaction. That is
+what makes profitability and nonce ordering compatible: the only transaction of
+a sender that can be included next is its lowest, so its tip is the one that
+decides where the sender belongs.
+
+Without a BASE-FEE the old address/nonce/hash order is kept, so a caller that
+does not know the base fee is unaffected."
+  (let ((transactions
+          (remove-if-not
+           (lambda (transaction)
+             (transaction-sender transaction
+                                 :expected-chain-id expected-chain-id))
+           (engine-payload-store-pending-transactions store))))
+    (if (null base-fee)
+        (sort (copy-list transactions)
+              (lambda (left right)
+                (engine-mining-transaction< left right expected-chain-id)))
+        (let ((groups (engine-mining-sender-groups transactions
+                                                   expected-chain-id)))
+          (mapcan #'cdr
+                  (sort groups
+                        (lambda (left right)
+                          (let ((left-tip (transaction-effective-tip
+                                           (first (cdr left)) base-fee))
+                                (right-tip (transaction-effective-tip
+                                            (first (cdr right)) base-fee)))
+                            (cond
+                              ((> left-tip right-tip) t)
+                              ((> right-tip left-tip) nil)
+                              ;; Equal pay: fall back to the address so the
+                              ;; order stays deterministic across runs.
+                              (t (string< (car left) (car right))))))))))))
 
 (defun engine-select-mining-transactions
     (transactions gas-limit expected-chain-id)

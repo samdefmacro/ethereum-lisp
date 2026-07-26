@@ -162,7 +162,14 @@
                (transactions
                  (engine-select-mining-transactions
                   (engine-payload-store-pending-mining-transactions
-                   store (chain-config-chain-id config))
+                   store (chain-config-chain-id config)
+                   ;; Order by what each sender actually pays at THIS block's
+                   ;; base fee, which is the only point the tip is knowable.
+                   ;; A chain without a base fee (pre-London, or a parent that
+                   ;; carries none) has no tip to order by, and NIL falls back
+                   ;; to the deterministic address order rather than failing.
+                   :base-fee (ignore-errors
+                              (expected-base-fee-per-gas parent-header)))
                   (block-header-gas-limit parent-header)
                   (chain-config-chain-id config)))
                (candidate-id

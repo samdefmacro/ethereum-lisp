@@ -41,6 +41,8 @@
    #:engine-payload-store-basefee-transaction-count
    #:engine-payload-store-blob-transaction-count
    #:engine-payload-store-pending-mining-transactions
+   #:transaction-effective-tip
+   #:engine-mining-sender-groups
    #:engine-select-mining-transactions
    #:engine-payload-store-txpool-upfront-cost
    #:engine-payload-store-sender-admission-expenditure

@@ -452,6 +452,7 @@
      (:file "cli-devnet-peer-manager-tests")
      (:file "cli-devnet-dial-tests")
      (:file "admin-rpc-tests")
+     (:file "txpool-mining-order-tests")
      (:file "p2p-identity-tests")
      (:file "trie-encoding-tests")
      (:file "trie-tests")

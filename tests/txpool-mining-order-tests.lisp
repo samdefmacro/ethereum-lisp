@@ -1,0 +1,99 @@
+(in-package #:ethereum-lisp.test)
+
+;;;; Which transactions a block tries to include, and in what order.
+
+(defun mining-order-test-transaction (private-key nonce gas-price)
+  "A signed legacy transaction, whose gas price IS its offer: for a legacy
+transaction the effective tip is simply the gas price less the base fee."
+  (fixture-sign-legacy-transaction
+   (make-legacy-transaction
+    :nonce nonce :gas-price gas-price :gas-limit 21000
+    :to (address-from-hex "0x0000000000000000000000000000000000003001")
+    :value 1)
+   private-key
+   1))
+
+(deftest transaction-effective-tip-is-what-the-builder-earns
+  (:layer :unit :module :txpool)
+  ;; The base fee is burned, so a builder earns the priority fee -- but only as
+  ;; far as the fee cap leaves room above the base fee. A transaction promising
+  ;; a large tip it cannot afford is worth only that remaining room.
+  (let ((base-fee 30))
+    ;; A legacy gas price is both the cap and the offer.
+    (is (= 70 (ethereum-lisp.txpool:transaction-effective-tip
+               (make-legacy-transaction :gas-price 100) base-fee)))
+    ;; Capped by the fee cap, not by the promise.
+    (is (= 20 (ethereum-lisp.txpool:transaction-effective-tip
+               (make-dynamic-fee-transaction :max-fee-per-gas 50
+                                             :max-priority-fee-per-gas 40)
+               base-fee)))
+    ;; Room to spare: the promise is what is earned.
+    (is (= 40 (ethereum-lisp.txpool:transaction-effective-tip
+               (make-dynamic-fee-transaction :max-fee-per-gas 500
+                                             :max-priority-fee-per-gas 40)
+               base-fee)))
+    ;; A cap below the base fee earns nothing, and must never go negative.
+    (is (= 0 (ethereum-lisp.txpool:transaction-effective-tip
+              (make-dynamic-fee-transaction :max-fee-per-gas 10
+                                            :max-priority-fee-per-gas 40)
+              base-fee)))
+    ;; No base fee given: the whole promise, rather than an error.
+    (is (= 40 (ethereum-lisp.txpool:transaction-effective-tip
+               (make-dynamic-fee-transaction :max-fee-per-gas 500
+                                             :max-priority-fee-per-gas 40)
+               nil)))))
+
+(deftest mining-order-prefers-payment-while-keeping-nonce-order
+  (:layer :unit :module :txpool)
+  ;; Ordering used to be by sender ADDRESS, so a block filled with whoever
+  ;; sorted first and left better-paying transactions out whenever the gas limit
+  ;; bound. Now senders are ordered by what their next transaction pays -- but a
+  ;; sender's own nonces must still be contiguous and ascending, because nonce
+  ;; N+1 cannot execute before N.
+  (let* ((poor-key 1)
+         (rich-key 2)
+         (base-fee 100)
+         ;; The richer sender's FIRST transaction is what places it.
+         (poor (list (mining-order-test-transaction poor-key 0 150)
+                     (mining-order-test-transaction poor-key 1 9000)))
+         (rich (list (mining-order-test-transaction rich-key 0 5000)
+                     (mining-order-test-transaction rich-key 1 120)))
+         (store (make-engine-payload-memory-store)))
+    (dolist (transaction (append poor rich))
+      (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
+       store transaction))
+    (let* ((ordered (ethereum-lisp.txpool:engine-payload-store-pending-mining-transactions
+                     store 1 :base-fee base-fee))
+           (senders (mapcar (lambda (transaction)
+                              (address-to-hex
+                               (transaction-sender transaction
+                                                   :expected-chain-id 1)))
+                            ordered))
+           (rich-address (address-to-hex (fixture-private-key-address rich-key)))
+           (poor-address (address-to-hex (fixture-private-key-address poor-key))))
+      (is (= 4 (length ordered)))
+      ;; The better-paying sender goes first, whatever the addresses sort like.
+      (is (string= rich-address (first senders)))
+      (is (string= rich-address (second senders)))
+      (is (string= poor-address (third senders)))
+      ;; Each sender's nonces stay contiguous and ascending.
+      (is (equal '(0 1 0 1) (mapcar #'transaction-nonce ordered)))
+      ;; And the poor sender's high-paying SECOND transaction did not jump the
+      ;; queue: it cannot execute before its own nonce 0.
+      (is (= 9000 (transaction-max-fee-per-gas (fourth ordered)))))
+    ;; Without a base fee the deterministic address order is kept, so a caller
+    ;; that does not know the base fee is unaffected.
+    (let ((ordered (ethereum-lisp.txpool:engine-payload-store-pending-mining-transactions
+                    store 1)))
+      (is (= 4 (length ordered)))
+      (is (equal (sort (mapcar (lambda (transaction)
+                                 (address-to-hex
+                                  (transaction-sender transaction
+                                                      :expected-chain-id 1)))
+                               ordered)
+                       #'string<)
+                 (mapcar (lambda (transaction)
+                           (address-to-hex
+                            (transaction-sender transaction
+                                                :expected-chain-id 1)))
+                         ordered))))))
