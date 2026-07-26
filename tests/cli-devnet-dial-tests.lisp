@@ -410,3 +410,46 @@
                (when server-error
                  (error "backfill server side failed: ~A" server-error)))
           (eth-sync-listener-close listener))))))
+
+(deftest devnet-chain-context-never-waits-for-the-store-guard
+  (:layer :unit :module :devnet)
+  ;; Discovery reads our fork id -- for the candidate filter, and for the record
+  ;; we serve -- and it must never BLOCK to do it. The store guard is held for
+  ;; the whole of a block import, so a background thread that waits on it does
+  ;; not run slowly, it stops for as long as the node is busy, which is exactly
+  ;; when peers matter.
+  ;;
+  ;; A regression test in the literal sense. The first version of the fork-id
+  ;; filter took the guard here, and a live node under load then logged not one
+  ;; crawl in half an hour: no error, no telemetry, just a parked thread. The
+  ;; whole suite stayed green, because a test node's guard is never held long
+  ;; enough for anyone to notice -- so the holder below is the test.
+  (let ((node (ethereum-lisp.cli:make-devnet-node
+               :genesis-json *eth-sync-paris-genesis-json*
+               :port 0 :public-port 0)))
+    ;; Warm the cache while the guard is free.
+    (is (ethereum-lisp.cli::devnet-node-chain-context node))
+    (let ((entered nil) (release nil) (elapsed nil))
+      (let ((holder (sb-thread:make-thread
+                     (lambda ()
+                       ;; An unhandled condition in ANY thread takes the whole
+                       ;; run down under `sbcl --script'.
+                       (handler-case
+                           (ethereum-lisp.cli::call-with-devnet-node-store-guard
+                            node
+                            (lambda ()
+                              (setf entered t)
+                              (loop until release do (sleep 0.01))))
+                         (error () nil)))
+                     :name "devnet-store-guard-holder")))
+        (loop until entered do (sleep 0.01))
+        (let ((start (get-internal-real-time)))
+          ;; Still answers, from the cache, with the guard held against it.
+          (is (ethereum-lisp.cli::devnet-node-chain-context node))
+          (setf elapsed (/ (float (- (get-internal-real-time) start))
+                           internal-time-units-per-second)))
+        (setf release t)
+        (sb-thread:join-thread holder))
+      ;; Three orders of magnitude of slack: the claim is "did not wait for the
+      ;; holder", not any particular speed.
+      (is (< elapsed 1)))))
