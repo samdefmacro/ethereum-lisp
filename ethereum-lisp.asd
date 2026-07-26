@@ -282,6 +282,7 @@
        (:file "eth-sync-fetch" :pathname "eth-sync/fetch")
        (:file "eth-sync-pump" :pathname "eth-sync/pump")
        (:file "eth-sync-sync" :pathname "eth-sync/sync")
+       (:file "eth-sync-backfill" :pathname "eth-sync/backfill")
        (:file "eth-sync-node" :pathname "eth-sync/node")))
      (:module "persistence-adapters"
       :pathname "storage/node-store/persistence/"

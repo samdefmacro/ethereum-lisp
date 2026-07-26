@@ -307,3 +307,106 @@
       (ethereum-lisp.cli:devnet-shutdown-request controller)
       (is (not (eq :timeout (sb-thread:join-thread thread :timeout 15
                                                           :default :timeout)))))))
+
+(deftest eth-sync-backfill-walks-back-to-common-ground
+  (:layer :integration :module :p2p :requires-local-sockets t)
+  ;; Consensus-driven sync. The client hands us a block whose parent we do not
+  ;; have, so it is buffered and nothing can execute it. The gap-fill walks
+  ;; BACKWARDS from that parent by hash -- the only direction that works when
+  ;; all we know is a hash somewhere ahead -- until it reaches a block we hold,
+  ;; then executes forward.
+  (multiple-value-bind (store config genesis-block)
+      (eth-sync-make-seeded-store *eth-sync-paris-genesis-json*)
+    (let* ((produced (coerce (eth-sync-produce-empty-blocks genesis-block config 5)
+                             'vector))
+           (genesis-hash (hash32-bytes (block-hash genesis-block)))
+           (target (aref produced 4))
+           (server-static
+            #xb71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291)
+           (client-static
+            #x49a7b37aa6f6645917e7b807e9d1c00d4fa71f18343b0d4122a4d2df64dd6fee)
+           (server-static-pub (secp256k1-private-key-public-key server-static))
+           (listener (make-eth-sync-socket-listener :host "127.0.0.1" :port 0))
+           (server-error nil)
+           (imported '()))
+      (flet ((status ()
+               (eth-build-status config genesis-hash 5 0
+                                 (hash32-bytes (block-hash target)) 0)))
+        (unwind-protect
+             (let ((server-thread
+                     (sb-thread:make-thread
+                      (lambda ()
+                        (handler-case
+                            (multiple-value-bind (socket host port)
+                                (eth-sync-listener-accept listener
+                                                          :timeout-seconds 10)
+                              (declare (ignore host port))
+                              (when socket
+                                (unwind-protect
+                                     (let ((peer (eth-sync-accept-peer
+                                                  socket server-static (status)
+                                                  :serve-backend
+                                                  (eth-serve-test-backend
+                                                   (cons genesis-block
+                                                         (coerce produced 'list))))))
+                                       ;; Answer whatever the backfill asks
+                                       ;; for. The client hangs up when it is
+                                       ;; done, which reaches us as an EOF on
+                                       ;; the next read -- expected, not a
+                                       ;; failure, and the assertions that
+                                       ;; matter are all on the client side.
+                                       (ignore-errors
+                                        (eth-peer-serve-loop peer
+                                                             :max-messages 8)))
+                                  (ignore-errors
+                                   (sb-bsd-sockets:socket-close socket)))))
+                          (error (condition) (setf server-error condition))))
+                      :name "eth-backfill-test-server")))
+               (multiple-value-bind (peer socket)
+                   (eth-sync-connect-peer "127.0.0.1"
+                                          (eth-sync-listener-port listener)
+                                          server-static-pub client-static
+                                          (eth-build-status config genesis-hash 0 0
+                                                            genesis-hash 0))
+                 (unwind-protect
+                      ;; We hold only genesis; the target's PARENT is block 4.
+                      (let ((filled (eth-sync-fill-gap
+                                     peer
+                                     (hash32-bytes
+                                      (block-header-parent-hash
+                                       (block-header target)))
+                                     (lambda (hash)
+                                       (and (chain-store-known-block
+                                             store (make-hash32 hash))
+                                            t))
+                                     (lambda (block) (push block imported)))))
+                        ;; Blocks 1..4: everything between genesis and the
+                        ;; buffered block's parent.
+                        (is (= 4 filled))
+                        (setf imported (nreverse imported))
+                        (is (equal '(1 2 3 4)
+                                   (mapcar (lambda (block)
+                                             (block-header-number
+                                              (block-header block)))
+                                           imported)))
+                        ;; In execution order, each on the last -- which is the
+                        ;; only order that can work.
+                        (is (bytes= genesis-hash
+                                    (hash32-bytes
+                                     (block-header-parent-hash
+                                      (block-header (first imported))))))
+                        ;; And a gap-fill toward something we already hold is a
+                        ;; no-op rather than a re-download.
+                        (is (= 0 (eth-sync-fill-gap
+                                  peer genesis-hash
+                                  (lambda (hash)
+                                    (bytes= hash genesis-hash))
+                                  (lambda (block) (declare (ignore block))
+                                    (error "must not import"))))))
+                   (ignore-errors (sb-bsd-sockets:socket-close socket))))
+               (is (not (eq :timeout (sb-thread:join-thread server-thread
+                                                            :timeout 15
+                                                            :default :timeout))))
+               (when server-error
+                 (error "backfill server side failed: ~A" server-error)))
+          (eth-sync-listener-close listener))))))

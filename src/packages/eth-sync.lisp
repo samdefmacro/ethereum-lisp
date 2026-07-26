@@ -70,6 +70,11 @@
    #:eth-peer-fetch-announced-transactions
    #:eth-sync-assemble-block
    #:eth-sync-download-blocks
+   #:+eth-backfill-batch-size+
+   #:+eth-backfill-max-headers+
+   #:eth-sync-collect-backfill-headers
+   #:eth-sync-import-headers-with-bodies
+   #:eth-sync-fill-gap
    #:eth-sync-socket-stream
    #:eth-sync-open-connection
    #:eth-sync-connect-peer

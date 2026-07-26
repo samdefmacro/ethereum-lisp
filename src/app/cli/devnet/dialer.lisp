@@ -87,6 +87,67 @@ produce frames that authenticate."
                                        "id" id-hex "reason" verdict)
               (values peer nil verdict)))))))
 
+(defun devnet-node-sync-targets (node)
+  "The buffered blocks whose ancestors we are missing, oldest first.
+
+A consensus client handing us a block we cannot execute is what creates one of
+these: the block is kept and the client is told SYNCING, and its PARENT is the
+hash we have to reach. Sorting by number means the shallowest gap is filled
+first, so a long backfill does not starve a short one."
+  (let ((store (devnet-node-store node)))
+    (sort (call-with-devnet-node-store-guard
+           node
+           (lambda ()
+             (let ((blocks '()))
+               (maphash (lambda (key block)
+                          (declare (ignore key))
+                          (push block blocks))
+                        (ethereum-lisp.chain-store.state:memory-chain-store-remote-blocks
+                         (ethereum-lisp.chain-store.state:chain-store-require-memory-store
+                          store)))
+               blocks)))
+          #'<
+          :key (lambda (block) (block-header-number (block-header block))))))
+
+(defun devnet-peer-fill-sync-gaps (node peer)
+  "Fetch what a buffered block needs in order to execute, and return how many
+blocks were imported.
+
+This is the half of consensus-driven sync that was missing: the Engine API
+buffered a block it could not execute, and nothing went to fetch the ancestors
+that would let it. Each gap is filled by walking back from the buffered block's
+PARENT until we reach a block we hold, then executing forward.
+
+A peer that cannot serve the branch is not an error here -- it may simply be on
+a different one -- so a failure is logged and the next target tried."
+  (let ((store (devnet-node-store node))
+        (imported 0))
+    (dolist (target (devnet-node-sync-targets node) imported)
+      (let ((parent (hash32-bytes
+                     (block-header-parent-hash (block-header target)))))
+        (handler-case
+            (let ((filled (eth-sync-fill-gap
+                           peer parent
+                           (lambda (hash)
+                             (call-with-devnet-node-store-guard
+                              node
+                              (lambda ()
+                                (and (chain-store-known-block
+                                      store (make-hash32 hash))
+                                     t))))
+                           (lambda (block)
+                             (devnet-peer-sync-import-block node block)))))
+              (when (plusp filled)
+                (devnet-peer-manager-log node "peer.sync.gap_filled"
+                                         "blocks" filled
+                                         "target" (hash32-to-hex
+                                                   (block-hash target)))
+                (incf imported filled)))
+          (error (condition)
+            (devnet-peer-manager-log node "peer.sync.gap_failed"
+                                     "target" (hash32-to-hex (block-hash target))
+                                     "error" condition)))))))
+
 (defun devnet-peer-dial-session (node candidate shutdown-controller
                                  &key stop-p max-actions)
   "Dial CANDIDATE and hold the session until it ends.
@@ -100,8 +161,7 @@ for one that failed."
   nil
   #+sbcl
   (let ((id-hex (devnet-dial-candidate-id-hex candidate))
-        (outcome :failed)
-        (connected nil))
+        (outcome :failed))
     (unwind-protect
          (multiple-value-bind (node-id host port) (parse-enode-url
                                                    (devnet-dial-candidate-enode
@@ -111,7 +171,6 @@ for one that failed."
                ;; any I/O -- which is why it is safe to call here.
                (devnet-peer-sync-status node)
              (let ((socket (eth-sync-dial-socket host port)))
-               (setf connected t)
                (devnet-peer-run-session
                 node socket shutdown-controller
                 (let ((admit (devnet-dial-outbound-admit-function
@@ -133,8 +192,12 @@ for one that failed."
                   (eth-sync-download-blocks
                    peer
                    (lambda (block) (devnet-peer-sync-import-block node block))
-                   :start-number (1+ head-number)))))))
-      (declare (ignore connected))
+                   :start-number (1+ head-number))
+                  ;; Then fill anything the consensus client asked for that we
+                  ;; could not execute. Forward download only helps when the
+                  ;; missing blocks extend OUR head; a reorged target needs the
+                  ;; backwards walk.
+                  (devnet-peer-fill-sync-gaps node peer))))))
       (call-with-devnet-peer-table
        node
        (lambda ()
@@ -216,11 +279,9 @@ property of how the node is configured, not an assumption about the test corpus.
                              (cons thread
                                    (remove-if-not #'sb-thread:thread-alive-p
                                                   sessions)))))))
-                (dotimes (tick +devnet-dial-tick-seconds+)
-                  (declare (ignore tick))
-                  (when (devnet-shutdown-requested-p shutdown-controller)
-                    (return))
-                  (sleep 1)))
+                (loop repeat +devnet-dial-tick-seconds+
+                      until (devnet-shutdown-requested-p shutdown-controller)
+                      do (sleep 1)))
             (error (condition)
               (funcall error-callback condition)
               (devnet-shutdown-request shutdown-controller))))

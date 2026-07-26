@@ -109,6 +109,8 @@
    #:devnet-start-p2p-listener-thread
    #:devnet-start-dial-scheduler-thread
    #:devnet-peer-dial-session
+   #:devnet-node-sync-targets
+   #:devnet-peer-fill-sync-gaps
    #:devnet-dial-scheduler-pass
    #:+devnet-dial-tick-seconds+
    #:+devnet-session-stream-timeout-seconds+
