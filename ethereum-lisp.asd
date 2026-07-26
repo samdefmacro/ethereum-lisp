@@ -454,6 +454,7 @@
      (:file "admin-rpc-tests")
      (:file "txpool-mining-order-tests")
      (:file "rpc-log-bloom-tests")
+     (:file "engine-invalid-payload-tests")
      (:file "p2p-identity-tests")
      (:file "trie-encoding-tests")
      (:file "trie-tests")
