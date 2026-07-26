@@ -102,8 +102,12 @@
                       "{\"jsonrpc\":\"2.0\",\"id\":515,\"method\":\"engine_exchangeTransitionConfigurationV1\",\"params\":[{\"terminalTotalDifficulty\":\"0x3039\",\"terminalBlockHash\":\"0x3333333333333333333333333333333333333333333333333333333333333333\",\"terminalBlockNumber\":\"0x42\"}]}")
                     (engine-transition-mismatch-body
                       "{\"jsonrpc\":\"2.0\",\"id\":530,\"method\":\"engine_exchangeTransitionConfigurationV1\",\"params\":[{\"terminalTotalDifficulty\":\"0x3038\",\"terminalBlockHash\":\"0x3333333333333333333333333333333333333333333333333333333333333333\",\"terminalBlockNumber\":\"0x42\"}]}")
+                    ;; A public method the Engine API spec does NOT oblige the
+                    ;; endpoint to serve. The nine `eth` methods it does are
+                    ;; answered there deliberately, so probing with one of those
+                    ;; would assert the opposite of what this is checking.
                     (engine-public-body
-                      "{\"jsonrpc\":\"2.0\",\"id\":507,\"method\":\"eth_chainId\",\"params\":[]}")
+                      "{\"jsonrpc\":\"2.0\",\"id\":507,\"method\":\"eth_coinbase\",\"params\":[]}")
                     (engine-capabilities-body
                       "{\"jsonrpc\":\"2.0\",\"id\":508,\"method\":\"engine_exchangeCapabilities\",\"params\":[[]]}")
                     (engine-wrong-path-body
