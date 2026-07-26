@@ -8,6 +8,7 @@ DOCKER ?= docker
 DOCKER_TEST_IMAGE ?= ethereum-lisp-sbcl-test:go1.24-bookworm
 DOCKER_TEST_WORKDIR ?= /workspace
 DOCKER_EEST_ROOT ?= /fixtures/execution-spec-tests
+EEST_FIXTURE_DIR ?= .eest-fixtures
 DOCKER_EEST_ARGS =
 ifneq ($(strip $(ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT)),)
 DOCKER_EEST_ARGS = \
@@ -26,7 +27,7 @@ DOCKER_TEST_RUN = $(DOCKER) run --rm --init --network none \
 
 .PHONY: test-unit test-integration test-e2e test-all \
 	docker-test-image docker-test-unit docker-test-integration \
-	docker-test-e2e docker-test-all docker-sbcl
+	docker-test-e2e docker-test-all docker-sbcl eest-fixtures
 
 test-unit:
 	$(SBCL) --script tests/run-tests.lisp --layer unit
@@ -39,6 +40,12 @@ test-e2e:
 
 test-all:
 	SBCL="$(SBCL)" E2E_JOBS="$(E2E_JOBS)" scripts/run-test-layers.sh
+
+# Fetch the pinned execution-spec-tests corpus and print the root to export as
+# ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT. Idempotent: a corpus already
+# extracted at the pinned release is reused rather than re-downloaded.
+eest-fixtures:
+	@scripts/fetch-eest-fixtures.sh $(EEST_FIXTURE_DIR)
 
 docker-test-image:
 	$(DOCKER) build --file Dockerfile --tag "$(DOCKER_TEST_IMAGE)" .

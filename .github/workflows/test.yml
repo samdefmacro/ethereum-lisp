@@ -26,3 +26,32 @@ jobs:
           else
             make "test-${{ matrix.layer }}"
           fi
+
+  # The layers above run with no fixture corpus, so every execution-spec-tests
+  # case reports itself SKIPPED -- which in a green build reads exactly like
+  # passing. This job is the one that actually measures conformance.
+  conformance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install runtimes
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sbcl golang-go
+          sudo mkdir -p /private/tmp
+          sudo chmod 1777 /private/tmp
+      # Keyed on the pinned release, so a pin bump fetches rather than reusing
+      # the previous corpus. The checksum in the script is what makes reuse safe.
+      - name: Cache fixture corpus
+        uses: actions/cache@v4
+        with:
+          path: .eest-fixtures
+          key: eest-${{ hashFiles('scripts/fetch-eest-fixtures.sh') }}
+      - name: Fetch fixtures
+        run: |
+          root="$(make eest-fixtures)"
+          echo "ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT=$root" >> "$GITHUB_ENV"
+      - name: Run conformance layers
+        run: |
+          make test-unit
+          make test-integration

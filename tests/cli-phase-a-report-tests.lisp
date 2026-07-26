@@ -358,3 +358,17 @@
       (is (search root-string stderr))
       (is (search "contains no JSON files" stderr))
       (is (search "Configured EEST" stderr)))))
+(deftest eest-fixture-pin-is-consistent
+  ;; The suite names the release it expects and the fetch script downloads one.
+  ;; If those two drift, CI measures conformance against a corpus the suite was
+  ;; not written for and nothing says so -- which is worse than not running it.
+  (let ((script (with-open-file (stream (repository-relative-pathname
+                                         "scripts/fetch-eest-fixtures.sh"))
+                  (let ((text (make-string (file-length stream))))
+                    (subseq text 0 (read-sequence text stream))))))
+    (is (search (format nil "EEST_RELEASE=\"~A\"" +phase-a-eest-release+) script))
+    (is (search (format nil "EEST_ARCHIVE=\"~A\"" +phase-a-eest-archive+) script))
+    ;; And the pin is a checksum, not just a tag: a release asset can be
+    ;; replaced, a sha256 cannot.
+    (is (search "EEST_SHA256=\"" script))
+    (is (search "sha256" script))))
