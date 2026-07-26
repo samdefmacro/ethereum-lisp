@@ -55,6 +55,39 @@
    #:devnet-peer-table-admit
    #:devnet-peer-table-remove
    #:devnet-peer-table-snapshot
+   #:devnet-peer-table-count-by-direction
+   #:+devnet-dial-cooldown-seconds+
+   #:+devnet-dial-backoff-ceiling-seconds+
+   #:+devnet-dial-backoff-max-doublings+
+   #:+devnet-max-active-dials+
+   #:+devnet-dial-ratio+
+   #:+devnet-dial-dynamic-candidate-limit+
+   #:+devnet-dial-dynamic-forget-failures+
+   #:devnet-dial-candidate
+   #:make-devnet-dial-candidate
+   #:devnet-dial-candidate-id-hex
+   #:devnet-dial-candidate-enode
+   #:devnet-dial-candidate-kind
+   #:devnet-dial-candidate-state
+   #:devnet-dial-candidate-failures
+   #:devnet-dial-candidate-next-eligible-at
+   #:devnet-dial-registry
+   #:make-devnet-dial-registry
+   #:devnet-dial-registry-candidate
+   #:devnet-dial-registry-count
+   #:devnet-dial-backoff-seconds
+   #:devnet-dial-registry-put-static
+   #:devnet-dial-registry-offer-dynamic
+   #:devnet-dial-registry-dialing-count
+   #:devnet-dial-free-slots
+   #:devnet-dial-verdict
+   #:devnet-dial-registry-plan
+   #:devnet-dial-registry-claim-plan
+   #:devnet-dial-registry-mark-dialing
+   #:devnet-dial-registry-mark-connected
+   #:devnet-dial-registry-mark-done
+   #:devnet-dial-registry-expire
+   #:devnet-dial-registry-snapshot
    #:devnet-peer-entry
    #:make-devnet-peer-entry
    #:devnet-peer-entry-id-hex

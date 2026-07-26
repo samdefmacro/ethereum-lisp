@@ -126,6 +126,12 @@ identity was taken while the handshake was still running."
             (remove entry (devnet-peer-table-entries table))))
     entry))
 
+(defun devnet-peer-table-count-by-direction (table direction)
+  "How many peers we hold in one direction. This is the ONLY authority on the
+outbound peer count; the dial registry's :CONNECTED marker is not a counter."
+  (count direction (devnet-peer-table-entries table)
+         :key #'devnet-peer-entry-direction))
+
 (defun devnet-peer-table-snapshot (table)
   "The connected peers as plists, oldest first — for reporting, never for
 mutation."

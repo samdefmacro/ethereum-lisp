@@ -73,6 +73,9 @@
    #:eth-sync-socket-stream
    #:eth-sync-open-connection
    #:eth-sync-connect-peer
+   #:+eth-sync-dial-timeout-seconds+
+   #:eth-sync-dial-socket
+   #:eth-sync-send-goodbye
    #:+eth-sync-client-id+
    #:eth-sync-make-hello
    #:eth-sync-accept-peer
