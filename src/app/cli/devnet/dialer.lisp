@@ -185,6 +185,7 @@ for one that failed."
                 :reserved-slot-p nil
                 :stop-p stop-p
                 :max-actions max-actions
+                :pending-broadcast (devnet-peer-pending-broadcast node)
                 :on-session-start
                 (lambda (peer)
                   ;; Catch up to the peer's tip once. Cheap when we are already

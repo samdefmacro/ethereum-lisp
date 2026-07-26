@@ -97,3 +97,38 @@ transaction the effective tip is simply the gas price less the base fee."
                             (transaction-sender transaction
                                                 :expected-chain-id 1)))
                          ordered))))))
+
+(deftest devnet-broadcast-offers-each-transaction-to-a-peer-once
+  (:layer :unit :module :devnet)
+  ;; Without this seam a transaction submitted to our RPC reaches nobody: the
+  ;; pool only ever drained into blocks we built ourselves. It polls and diffs
+  ;; rather than consuming the txpool's dirty-key set, which is single-consumer
+  ;; and cleared by the journal exporter -- reading it here would break
+  ;; journaling silently.
+  (let* ((node (ethereum-lisp.cli:make-devnet-node
+                :genesis-json *eth-sync-paris-genesis-json*
+                :port 0 :public-port 0))
+         (store (ethereum-lisp.cli:devnet-node-store node))
+         (pending (ethereum-lisp.cli::devnet-peer-pending-broadcast node))
+         (other-peer (ethereum-lisp.cli::devnet-peer-pending-broadcast node)))
+    ;; Nothing pooled yet, so nothing to say.
+    (is (null (funcall pending)))
+    (let ((first-transaction (mining-order-test-transaction 1 0 500)))
+      (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
+       store first-transaction)
+      (let ((offered (funcall pending)))
+        (is (= 1 (length offered)))
+        (is (bytes= (transaction-encoding first-transaction)
+                    (transaction-encoding (first offered)))))
+      ;; Asked again, the same transaction is NOT re-sent to that peer.
+      (is (null (funcall pending)))
+      ;; But a different peer has not seen it, and each peer tracks its own.
+      (is (= 1 (length (funcall other-peer))))
+      (is (null (funcall other-peer)))
+      ;; A newly pooled transaction is offered to both.
+      (let ((second-transaction (mining-order-test-transaction 2 0 700)))
+        (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
+         store second-transaction)
+        (is (= 1 (length (funcall pending))))
+        (is (= 1 (length (funcall other-peer))))
+        (is (null (funcall pending)))))))

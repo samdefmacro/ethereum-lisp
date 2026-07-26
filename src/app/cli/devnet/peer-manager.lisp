@@ -64,7 +64,7 @@ actively-talking peer idle and drop it."
 
 (defun devnet-peer-run-session (node socket shutdown-controller admit-function
                                 &key on-session-start reserved-slot-p stop-p
-                                     max-actions)
+                                     max-actions pending-broadcast)
   "Turn an open SOCKET into a peer session and serve it until it ends.
 
 Runs on its own thread, and is shared by both directions: everything from
@@ -81,12 +81,16 @@ ON-SESSION-START, when given, runs once with the peer before the message pump.
 It is the one thing the directions do differently afterwards: a dialed session
 downloads the peer's chain to our tip, an accepted one has nothing to do.
 
+PENDING-BROADCAST, when given, returns transactions of ours to push to this
+peer; the session loop calls it and sends what it returns.
+
 RESERVED-SLOT-P says whether teardown must release a handshake reservation.
 Inbound takes one, because at accept time there is no identity to decide on;
 a dial knows who it is calling before it connects and so never reserves."
   #-sbcl
   (declare (ignore node socket shutdown-controller admit-function
-                   on-session-start reserved-slot-p stop-p max-actions))
+                   on-session-start reserved-slot-p stop-p max-actions
+                   pending-broadcast))
   #-sbcl
   nil
   #+sbcl
@@ -114,7 +118,11 @@ a dial knows who it is calling before it connects and so never reserves."
                    :stop-p (or stop-p
                                (lambda ()
                                  (devnet-shutdown-requested-p shutdown-controller)))
-                   :max-actions max-actions))
+                   :max-actions max-actions
+                   ;; Our own pool reaches this peer through here, as DATA the
+                   ;; session loop sends -- never another thread writing to the
+                   ;; connection, which would desynchronize its MAC chain.
+                   :pending-broadcast pending-broadcast))
                  ((and peer refusal)
                   (eth-sync-reject-connection
                    (eth-peer-connection peer)
@@ -258,7 +266,9 @@ Only an error escaping the loop itself is fail-stop."
                                             node socket shutdown-controller
                                             (devnet-peer-inbound-admit-function
                                              node remote-host remote-port)
-                                            :reserved-slot-p t)
+                                            :reserved-slot-p t
+                                            :pending-broadcast
+                                            (devnet-peer-pending-broadcast node))
                                          (error (condition)
                                            (devnet-peer-manager-log
                                             node "p2p.peer.session_failed"

@@ -9,6 +9,7 @@
                 #:engine-payload-store-txpool-database-change-tracking-enabled-p
                 #:engine-payload-store-clear-txpool-database-dirty-transaction-hashes
                 #:engine-payload-store-pending-mining-transactions
+                #:engine-payload-store-pending-transactions
                 #:engine-payload-store-pooled-transaction
                 #:engine-payload-store-pooled-transactions
                 #:engine-select-mining-transactions)
@@ -111,6 +112,9 @@
    #:devnet-peer-dial-session
    #:devnet-node-sync-targets
    #:devnet-peer-fill-sync-gaps
+   #:devnet-peer-pending-broadcast
+   #:+devnet-broadcast-batch-limit+
+   #:+devnet-peer-known-transaction-limit+
    #:devnet-dial-scheduler-pass
    #:+devnet-dial-tick-seconds+
    #:+devnet-session-stream-timeout-seconds+
