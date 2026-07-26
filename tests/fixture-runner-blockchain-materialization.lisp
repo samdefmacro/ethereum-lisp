@@ -288,13 +288,24 @@
            (mapcar #'eest-blockchain-standard-withdrawal
                    (or (block-withdrawals block) '()))))))
 
-(defun eest-blockchain-standard-expect (block)
-  (let ((header (block-header block)))
-    (list (cons "status" "VALID")
-          (cons "stateRoot" (hash32-to-hex (block-header-state-root header)))
-          (cons "receiptsRoot"
-                (hash32-to-hex (block-header-receipts-root header)))
-          (cons "gasUsed" (quantity-to-hex (block-header-gas-used header))))))
+(defun eest-blockchain-standard-expect (block &key exception)
+  "What the node should answer for BLOCK.
+
+With an EXCEPTION -- an EEST expectException, i.e. an invalid-block vector --
+the expectation is a refusal and NOTHING ELSE. A rejected block has no state
+root, no receipts root and no gas used to compare against, because it was never
+executed; carrying the header's claimed values would assert that the node agreed
+with numbers it was supposed to reject."
+  (if exception
+      (list (cons "status" "INVALID")
+            (cons "exception" exception))
+      (let ((header (block-header block)))
+        (list (cons "status" "VALID")
+              (cons "stateRoot" (hash32-to-hex (block-header-state-root header)))
+              (cons "receiptsRoot"
+                    (hash32-to-hex (block-header-receipts-root header)))
+              (cons "gasUsed"
+                    (quantity-to-hex (block-header-gas-used header)))))))
 
 (defun validate-eest-blockchain-standard-newpayload-v2-case (case)
   (let* ((case-name (fixture-required-field case "name"))
@@ -319,9 +330,6 @@
          block-case
          +eest-blockchain-standard-block-fields+
          (format nil "~A block" label))
-        (when (fixture-field-present-p block-case "expectException")
-          (error "~A standard replay materializer expects a valid block"
-                 label))
         (validate-eest-blockchain-hex-string
          (fixture-required-field block-case "rlp")
          (format nil "~A block rlp" label))
@@ -334,9 +342,22 @@
           (validate-eest-blockchain-hash-string
            last-block-hash
            (format nil "~A lastblockhash" label))
-          (unless (string= last-block-hash block-hash)
-            (error "~A lastblockhash does not match decoded block hash"
-                   label))
+          ;; For a VALID vector the chain ends at this block, so lastblockhash
+          ;; is its hash. For an INVALID one it is deliberately NOT: the chain
+          ;; ends at the last block that was accepted, which is the parent.
+          ;; Demanding a match either way is what would make an invalid-block
+          ;; fixture unrepresentable.
+          (if (fixture-field-present-p block-case "expectException")
+              (when (string= last-block-hash block-hash)
+                (error "~A expects an exception but lastblockhash is the ~
+                        rejected block, so nothing was refused"
+                       label))
+              (unless (string= last-block-hash block-hash)
+                (error "~A lastblockhash does not match decoded block hash"
+                       label)))
+          ;; An invalid-block vector still has to DECODE -- the point of it is
+          ;; a well-formed block the node must refuse on its merits, so the rlp
+          ;; and hash checks above apply to it exactly as they do to a valid one.
           (when (fixture-field-present-p block-case "blockHeader")
             (let ((header-hash
                     (fixture-object-field
@@ -351,8 +372,19 @@
                          label)))))
           block)))))
 
+(defun eest-blockchain-case-exception (case)
+  "The EEST expectException of CASE's single block, or NIL when it expects one
+that is valid."
+  (let* ((fixture (fixture-required-field case "fixture"))
+         (blocks (fixture-object-field fixture "blocks"))
+         (block-case (first blocks)))
+    (and block-case
+         (fixture-field-present-p block-case "expectException")
+         (fixture-object-field block-case "expectException"))))
+
 (defun materialize-eest-blockchain-standard-newpayload-v2-case (case)
   (let* ((fixture (fixture-required-field case "fixture"))
+         (exception (eest-blockchain-case-exception case))
          (block (validate-eest-blockchain-standard-newpayload-v2-case case)))
     (list (cons "name" (fixture-required-field case "name"))
           (cons "network" (fixture-required-field fixture "network"))
@@ -367,7 +399,8 @@
                  (format nil "EEST blockchain case ~A"
                          (fixture-required-field case "name"))))
           (cons "payload" (eest-blockchain-standard-payload block))
-          (cons "expect" (eest-blockchain-standard-expect block)))))
+          (cons "expect" (eest-blockchain-standard-expect
+                          block :exception exception)))))
 
 (defun materialize-eest-blockchain-engine-newpayload-v2-case (case)
   (let* ((fixture (fixture-required-field case "fixture")))

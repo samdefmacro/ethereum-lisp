@@ -127,3 +127,81 @@
                      :transactions (block-transactions valid)
                      :receipts '())))
       (assert-payload-refused store config corrupt "mismatched gas used"))))
+
+(deftest eest-materializer-accepts-invalid-block-vectors
+  (:layer :unit :module :engine)
+  ;; The clause that excluded the negative half of the EEST corpus: any fixture
+  ;; carrying expectException was refused outright, so an invalid-block vector
+  ;; could not even be read, let alone run.
+  (multiple-value-bind (store config genesis-block)
+      (eth-sync-make-seeded-store *eth-sync-paris-genesis-json*)
+    (declare (ignore store))
+    (let* ((block (first (eth-sync-produce-empty-blocks genesis-block config 1)))
+           (block-rlp (bytes-to-hex (block-rlp block)))
+           (genesis-hash (hash32-to-hex (block-hash genesis-block)))
+           (case-for (lambda (&key exception last-block-hash)
+                       (list
+                        (cons "name" "invalid-vector")
+                        (cons "fixture"
+                              (append
+                               (list
+                                (cons "network" "Shanghai")
+                                (cons "lastblockhash"
+                                      (or last-block-hash
+                                          (hash32-to-hex (block-hash block))))
+                                (cons "genesisBlockHeader"
+                                      (let ((header (block-header genesis-block)))
+                                        (list
+                                         (cons "number" "0x0")
+                                         (cons "gasLimit"
+                                               (quantity-to-hex
+                                                (block-header-gas-limit header)))
+                                         (cons "gasUsed" "0x0")
+                                         (cons "timestamp"
+                                               (quantity-to-hex
+                                                (block-header-timestamp header)))
+                                         (cons "baseFeePerGas"
+                                               (quantity-to-hex
+                                                (or (block-header-base-fee-per-gas
+                                                     header)
+                                                    0)))
+                                         (cons "coinbase"
+                                               (address-to-hex
+                                                (block-header-beneficiary
+                                                 header))))))
+                                (cons "pre" '())
+                                (cons "postState" '())
+                                (cons "blocks"
+                                      (list
+                                       (append
+                                        (list (cons "rlp" block-rlp))
+                                        (when exception
+                                          (list (cons "expectException"
+                                                      exception))))))))))))
+           (valid-case (funcall case-for))
+           (invalid-case (funcall case-for
+                                  :exception "BlockException.INVALID_STATE_ROOT"
+                                  :last-block-hash genesis-hash)))
+      ;; A valid vector still materializes to a VALID expectation with its roots.
+      (let ((expect (cdr (assoc "expect"
+                                (materialize-eest-blockchain-standard-newpayload-v2-case
+                                 valid-case)
+                                :test #'string=))))
+        (is (string= "VALID" (cdr (assoc "status" expect :test #'string=))))
+        (is (assoc "stateRoot" expect :test #'string=)))
+      ;; An invalid vector now materializes at all -- and to a refusal carrying
+      ;; NO roots, because a block that was never executed has none to compare.
+      (let ((expect (cdr (assoc "expect"
+                                (materialize-eest-blockchain-standard-newpayload-v2-case
+                                 invalid-case)
+                                :test #'string=))))
+        (is (string= "INVALID" (cdr (assoc "status" expect :test #'string=))))
+        (is (string= "BlockException.INVALID_STATE_ROOT"
+                     (cdr (assoc "exception" expect :test #'string=))))
+        (is (null (assoc "stateRoot" expect :test #'string=)))
+        (is (null (assoc "gasUsed" expect :test #'string=))))
+      ;; And a fixture claiming an exception while ending the chain AT the
+      ;; rejected block is contradictory: nothing was actually refused.
+      (signals error
+        (materialize-eest-blockchain-standard-newpayload-v2-case
+         (funcall case-for :exception "BlockException.INVALID_STATE_ROOT"))))))
