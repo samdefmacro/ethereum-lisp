@@ -34,8 +34,17 @@
   ;; those functions (verified: nothing outside src/runtime/state mutates
   ;; OBJECTS or a STATE-OBJECT slot). *VERIFY-INCREMENTAL-ROOT* cross-checks
   ;; the memo against a full rebuild.
+  ;;
+  ;; TRIE is the persistent account trie the root is taken over, kept across
+  ;; flushes so a flush applies only the DIRTY accounts instead of rebuilding a
+  ;; trie over every account. NIL means "no trustworthy trie": the next flush
+  ;; rebuilds from OBJECTS and keeps the result. It is set to NIL by both
+  ;; STATE-DB-COPY and STATE-DB-RESTORE, so a trie can never be shared between
+  ;; two state-dbs or outlive a reverted frame -- correctness by construction
+  ;; rather than by an argument about when flushes happen.
   (dirty (make-hash-table :test #'equal))
-  (cached-root nil))
+  (cached-root nil)
+  (trie nil))
 
 (defstruct (state-storage-proof
             (:constructor make-state-storage-proof

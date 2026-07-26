@@ -173,6 +173,11 @@ recomputes. See the STATE-DB DIRTY/CACHED-ROOT invariant."
     ;; if DIRTY was empty, CACHED-ROOT stays valid for the cloned OBJECTS.
     (setf (state-db-dirty copy) (copy-hash-table (state-db-dirty state))
           (state-db-cached-root copy) (state-db-cached-root state))
+    ;; The copy gets NO trie. Sharing one would let a frame that is later
+    ;; reverted leave its mutations in the parent's trie, which is a wrong state
+    ;; root and so a consensus divergence; copying one on every CALL frame would
+    ;; cost more than the rebuild it saves. The copy rebuilds if it ever flushes.
+    (setf (state-db-trie copy) nil)
     copy))
 
 (defun state-db-restore (state snapshot)
@@ -184,8 +189,11 @@ recomputes. See the STATE-DB DIRTY/CACHED-ROOT invariant."
   ;; Wholesale-reset the memo to the snapshot's: OBJECTS now equals the
   ;; snapshot's, so its DIRTY/CACHED-ROOT are exactly right for the restored
   ;; state. (A fold that ran inside the snapshot bracket is undone here.)
+  ;; The trie is dropped rather than reconciled: whatever it holds now describes
+  ;; the objects we just discarded.
   (setf (state-db-dirty state) (copy-hash-table (state-db-dirty snapshot))
-        (state-db-cached-root state) (state-db-cached-root snapshot))
+        (state-db-cached-root state) (state-db-cached-root snapshot)
+        (state-db-trie state) nil)
   state)
 
 (defun state-db-set-storage (state address slot value)
