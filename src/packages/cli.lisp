@@ -106,6 +106,12 @@
    #:devnet-node-p2p-port
    #:devnet-node-enode
    #:devnet-node-metrics
+   #:devnet-node-metrics-enabled-p
+   #:devnet-node-metrics-host
+   #:devnet-node-metrics-port
+   #:devnet-node-metrics-endpoint
+   #:devnet-metrics-http-response
+   #:devnet-start-metrics-server-thread
    #:devnet-shutdown-controller-add-closeable
    #:devnet-shutdown-controller-remove-closeable
    #:devnet-start-p2p-listener-thread

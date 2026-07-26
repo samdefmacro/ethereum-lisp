@@ -60,6 +60,8 @@
         (p2p-port nil)
         (max-peers nil)
         (metrics nil)
+        (metrics-host nil)
+        (metrics-port nil)
         (help-p nil))
     (labels ((next-value (option)
                (multiple-value-bind (value rest)
@@ -103,6 +105,11 @@
                 ;; so --metrics=false must turn it OFF rather than being read as
                 ;; on with a stray argument left over.
                 (setf metrics (next-optional-boolean option)))
+               ((string= option "--metrics.addr")
+                (setf metrics-host (next-value option)))
+               ((string= option "--metrics.port")
+                (setf metrics-port
+                      (next-parsed-value option #'devnet-cli-parse-port)))
                ((string= option "--maxpeers")
                 (setf max-peers
                       (next-parsed-value option
@@ -321,5 +328,7 @@
           :p2p-port p2p-port
           :max-peers max-peers
           :metrics metrics
+          :metrics-host metrics-host
+          :metrics-port metrics-port
           :node-key node-key
           :help-p help-p))))

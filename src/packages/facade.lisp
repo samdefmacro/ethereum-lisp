@@ -1021,6 +1021,8 @@
    #:engine-rpc-handle-get-payload-v1
    #:engine-rpc-handle-forkchoice-updated-v1
    #:engine-rpc-engine-method-p
+   #:engine-rpc-required-eth-method-p
+   #:+engine-rpc-required-eth-methods+
    #:engine-rpc-public-method-p
    #:engine-rpc-admin-method-p
    #:engine-rpc-any-method-p)

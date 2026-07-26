@@ -141,3 +141,43 @@ being mutated by a worker thread underneath it."
     :name name
     :value value
     :fields (telemetry-event-fields-copy fields))))
+
+(defun telemetry-prometheus-escape (value)
+  "VALUE escaped for use as a Prometheus label value.
+
+None of the event names we emit today contain a backslash, a quote or a
+newline, so this changes nothing -- but one that did would produce a document
+no scraper can parse, and a scrape that silently drops every metric is worse
+than one that never existed."
+  (if (find-if (lambda (char) (member char '(#\\ #\" #\Newline))) value)
+      (with-output-to-string (out)
+        (loop for char across value
+              do (case char
+                   (#\\ (write-string "\\\\" out))
+                   (#\" (write-string "\\\"" out))
+                   (#\Newline (write-string "\\n" out))
+                   (t (write-char char out)))))
+      value))
+
+(defun telemetry-prometheus-text
+    (snapshot &key (metric "ethereum_lisp_events_total"))
+  "SNAPSHOT rendered in the Prometheus text exposition format.
+
+SNAPSHOT is what COUNTING-TELEMETRY-SINK-SNAPSHOT returns: an alist of event
+name to count, sorted by name.
+
+THE EVENT NAME IS A LABEL, NOT PART OF THE METRIC NAME. Our event names contain
+dots -- `peer.dial.connected` -- and a Prometheus metric name cannot, so turning
+each one into its own metric would mean rewriting the dots as underscores. At
+that point `peer.dial.connected` and `peer_dial.connected` are the same metric
+and one silently overwrites the other. A label carries the name exactly as it
+was emitted, and no mangling can collide."
+  (with-output-to-string (out)
+    (format out "# HELP ~A Telemetry events emitted since start, by event name.~%"
+            metric)
+    (format out "# TYPE ~A counter~%" metric)
+    (dolist (entry snapshot)
+      (format out "~A{event=\"~A\"} ~D~%"
+              metric
+              (telemetry-prometheus-escape (princ-to-string (car entry)))
+              (cdr entry)))))

@@ -44,6 +44,19 @@ state, as the handshake initialises them."
   ;; An empty body decodes to "disconnect requested".
   (is (= 0 (decode-devp2p-disconnect (rlp-encode (make-rlp-list))))))
 
+(deftest devp2p-disconnect-accepts-a-bare-reason
+  ;; Live regression, found on Hoodi. The spec says the body is `[reason]`, and
+  ;; that is what we send -- but real peers send the bare reason with no list
+  ;; around it, and demanding the list threw `The value #(16) is not of type
+  ;; RLP-LIST` out of the middle of the read loop. A peer that politely said
+  ;; why it was leaving became indistinguishable from one that broke framing.
+  (is (= 16 (decode-devp2p-disconnect
+             (rlp-encode (integer-to-minimal-bytes 16)))))
+  (is (= 4 (decode-devp2p-disconnect
+            (rlp-encode (integer-to-minimal-bytes 4)))))
+  ;; A bare empty string means the same as an empty list: requested.
+  (is (= 0 (decode-devp2p-disconnect (rlp-encode (make-byte-vector 0))))))
+
 (deftest devp2p-messages-frame-and-unframe
   ;; Hello goes uncompressed; later messages are Snappy-compressed. Both survive
   ;; the frame codec.

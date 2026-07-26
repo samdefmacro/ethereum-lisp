@@ -363,3 +363,24 @@
                (make-chain-config))))
            (error (field response "error")))
       (is (= -32602 (field error "code"))))))
+
+(deftest engine-port-serves-the-required-eth-methods
+  ;; Live regression, found by pairing with Lighthouse on Hoodi. The Engine API
+  ;; endpoint MUST expose a named subset of the `eth` namespace so a consensus
+  ;; client can reach state and logs over the same connection. We exposed none
+  ;; of it, so Lighthouse's execution-layer upcheck -- a plain `eth_syncing` --
+  ;; got -32601 every twelve seconds and it never sent us a payload at all.
+  (dolist (method +engine-rpc-required-eth-methods+)
+    (is (engine-rpc-required-eth-method-p method))
+    (is (engine-rpc-engine-method-p method)))
+  ;; The spec's list, and not the whole namespace: the authenticated surface
+  ;; should be the size of its contract.
+  (is (not (engine-rpc-engine-method-p "eth_accounts")))
+  (is (not (engine-rpc-engine-method-p "eth_getBalance")))
+  (is (not (engine-rpc-engine-method-p "eth_sign")))
+  (is (not (engine-rpc-required-eth-method-p "eth_syncing_")))
+  (is (not (engine-rpc-required-eth-method-p nil)))
+  ;; Nothing was taken away: engine_ still passes.
+  (is (engine-rpc-engine-method-p "engine_newPayloadV1"))
+  ;; And the public port is unchanged -- it was already allowed there.
+  (is (engine-rpc-public-method-p "eth_syncing")))

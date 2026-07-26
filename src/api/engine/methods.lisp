@@ -55,9 +55,42 @@
   (let ((spec (engine-rpc-method-spec method)))
     (and spec (getf (rest spec) :kzg-p))))
 
+(defparameter +engine-rpc-required-eth-methods+
+  '("eth_blockNumber"
+    "eth_call"
+    "eth_chainId"
+    "eth_getCode"
+    "eth_getBlockByHash"
+    "eth_getBlockByNumber"
+    "eth_getLogs"
+    "eth_sendRawTransaction"
+    "eth_syncing")
+  "The `eth` methods the Engine API endpoint MUST also expose.
+
+Verbatim from the Engine API specification (execution-apis, src/engine/common.md):
+a consumer needs to reach state and logs -- proof-of-stake deposits, most of all
+-- over the same connection it drives the payload build on.
+
+NOT the whole `eth` namespace, even though the port is JWT-authenticated and
+geth does expose more there. The list is what the spec obliges us to serve, and
+a consensus client asking for anything else is asking for something it was never
+promised. Same reasoning that keeps `admin_` out of the public predicate: the
+authenticated surface should be the size of its contract, not the size of what
+happens to be implemented.
+
+A live Lighthouse found this gap: it calls `eth_syncing` on the Engine port for
+its execution-layer upcheck, got -32601 every time, and so never advanced past
+`Error during execution engine upcheck`.")
+
+(defun engine-rpc-required-eth-method-p (method)
+  (and (stringp method)
+       (member method +engine-rpc-required-eth-methods+ :test #'string=)
+       t))
+
 (defun engine-rpc-engine-method-p (method)
   (and (stringp method)
        (or (engine-rpc-enabled-method-p method)
+           (engine-rpc-required-eth-method-p method)
            (and (engine-rpc-kzg-backed-method-p method)
                 (kzg-proof-verification-available-p)))))
 

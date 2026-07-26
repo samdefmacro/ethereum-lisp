@@ -54,7 +54,10 @@
        ;; --metrics counts every telemetry event by name. Counting what the node
        ;; already emits means the metrics cannot drift from what it actually
        ;; does, which a parallel set of hand-placed counters eventually would.
-       metrics)
+       metrics
+       ;; Where to publish those counts. Ignored unless METRICS is on.
+       metrics-host
+       metrics-port)
   (unless (or (and genesis-path (stringp genesis-path))
               (and genesis-json (stringp genesis-json)))
     (error "Devnet node requires a genesis JSON path or source"))
@@ -260,7 +263,9 @@
         :self-id-hex (node-id-to-hex (node-id-from-private-key node-key))
         :max-peers (or max-peers +devnet-default-max-peers+))
      :discovery-table
-     (make-discv4-node-table (node-id-from-private-key node-key))))
+     (make-discv4-node-table (node-id-from-private-key node-key))
+     :metrics-host metrics-host
+     :metrics-port metrics-port))
     ;; Seed the operator's --peer values as static candidates. They are already
     ;; validated at parse time; ignore-errors is for a peer supplied
     ;; programmatically by a test, which must not break node construction.

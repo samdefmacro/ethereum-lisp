@@ -86,7 +86,9 @@
                       p2p-host
                       p2p-port
                       peer-table
-                      discovery-table)))
+                      discovery-table
+                      metrics-host
+                      metrics-port)))
   genesis-path
   store
   config
@@ -124,7 +126,11 @@
   peer-table
   ;; Who discovery knows about, bucketed by distance. Guarded by the same mutex
   ;; as the peer table and the dial registry.
-  discovery-table)
+  discovery-table
+  ;; Where --metrics.addr/--metrics.port asked the metrics endpoint to bind.
+  ;; A port with --metrics off binds nothing; see DEVNET-NODE-METRICS-ENDPOINT.
+  metrics-host
+  metrics-port)
 
 (defun devnet-make-mutex (name)
   "A mutex on SBCL, NIL elsewhere. CALL-WITH-DEVNET-MUTEX degrades accordingly."
@@ -167,6 +173,14 @@ bookkeeping never blocks behind block import or an RPC call.
 The mutex is NOT recursive. Nothing called from inside THUNK may take it again --
 which is why the peer table and the dial registry lock nothing themselves."
   (funcall (devnet-node-dial-guard-function node) thunk))
+
+(defun devnet-node-metrics-enabled-p (node)
+  "Whether --metrics is on.
+
+Distinct from DEVNET-NODE-METRICS having a value: a node that has just started
+with metrics on has counted nothing yet, so its snapshot is legitimately empty.
+Anything deciding whether to publish metrics must ask this, not the counts."
+  (counting-telemetry-sink-p (devnet-node-telemetry-sink node)))
 
 (defun devnet-node-metrics (node)
   "Event counts collected since start, or NIL when --metrics is off.

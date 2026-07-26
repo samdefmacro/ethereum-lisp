@@ -86,12 +86,29 @@
   (rlp-encode (make-rlp-list (integer-to-minimal-bytes reason))))
 
 (defun decode-devp2p-disconnect (bytes)
-  "Return the disconnect reason, defaulting to 0 for an empty body."
-  (let ((items (rlp-list-items
-                (rlp-decode (ensure-byte-vector bytes) :allow-trailing t))))
-    (if items
-        (bytes-to-integer (ensure-byte-vector (first items)))
-        +devp2p-disconnect-requested+)))
+  "Return the disconnect reason, defaulting to 0 for an empty body.
+
+BOTH ENCODINGS ARE ACCEPTED, AND THEY HAVE TO BE. devp2p says the body is
+`[reason]`, and that is what we send -- but a substantial share of the nodes on
+a live network send the bare reason instead, with no list around it. Insisting
+on the list means a type error escaping from the middle of the read loop, so a
+peer that politely said `too many peers` is indistinguishable from a peer that
+broke the protocol, and the reason it gave is lost. Reference clients are
+lenient here for exactly this reason.
+
+Found on Hoodi: four peers in the first three minutes sent a bare 0x10 (`some
+other reason`), and each one surfaced as `The value #(16) is not of type
+RLP-LIST`."
+  (let ((decoded (rlp-decode (ensure-byte-vector bytes) :allow-trailing t)))
+    (if (rlp-list-p decoded)
+        (let ((items (rlp-list-items decoded)))
+          (if items
+              (bytes-to-integer (ensure-byte-vector (first items)))
+              +devp2p-disconnect-requested+))
+        (let ((reason (ensure-byte-vector decoded)))
+          (if (plusp (length reason))
+              (bytes-to-integer reason)
+              +devp2p-disconnect-requested+)))))
 
 (defun encode-devp2p-ping ()
   (rlp-encode (make-rlp-list)))

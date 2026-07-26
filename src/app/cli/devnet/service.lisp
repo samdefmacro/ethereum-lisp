@@ -51,9 +51,21 @@
          (discovery-server-thread nil)
          (p2p-error nil)
          (p2p-thread nil)
-         (p2p-sessions nil))
+         (p2p-sessions nil)
+         (metrics-error nil)
+         (metrics-thread nil))
     (devnet-shutdown-controller-register-listeners
      shutdown-controller engine-listener public-listener)
+    ;; First, because it is the only worker here that BINDS a port. A metrics
+    ;; port already in use must fail the node before any other thread exists,
+    ;; rather than after -- there is no unwind-protect covering them yet, so a
+    ;; failure further down this sequence would leave them running.
+    (setf metrics-thread
+          (devnet-start-metrics-server-thread
+           node
+           shutdown-controller
+           (lambda (condition)
+             (setf metrics-error condition))))
     (handler-case
         (when on-listeners-ready
           (funcall on-listeners-ready engine-listener public-listener))
@@ -216,7 +228,21 @@
                                                   :timeout 5
                                                   :default :timeout)))
           (when p2p-sessions
-            (devnet-join-peer-sessions p2p-sessions))))
+            (devnet-join-peer-sessions p2p-sessions)))
+        (when metrics-thread
+          ;; Its socket is a registered closeable and its accept is readiness
+          ;; gated, so it wakes on its own; the bound is for the case where a
+          ;; scrape is mid-flight.
+          (devnet-shutdown-request shutdown-controller)
+          (when (eq :timeout
+                    (sb-thread:join-thread metrics-thread
+                                           :timeout 5 :default :timeout))
+            (ignore-errors (sb-thread:terminate-thread metrics-thread))
+            (ignore-errors (sb-thread:join-thread metrics-thread
+                                                  :timeout 5
+                                                  :default :timeout)))))
+      (when metrics-error
+        (error metrics-error))
       (when p2p-error
         (error p2p-error))
       (when dialer-error

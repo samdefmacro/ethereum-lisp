@@ -98,7 +98,9 @@
    #:telemetry-events
    #:telemetry-emit
    #:telemetry-log
-   #:telemetry-metric))
+   #:telemetry-metric
+   #:telemetry-prometheus-escape
+   #:telemetry-prometheus-text))
 
 (defpackage #:ethereum-lisp.validation
   (:use #:cl #:ethereum-lisp.bytes)
