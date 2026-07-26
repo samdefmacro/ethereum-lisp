@@ -85,7 +85,8 @@
                       dial-guard-function
                       p2p-host
                       p2p-port
-                      peer-table)))
+                      peer-table
+                      discovery-table)))
   genesis-path
   store
   config
@@ -120,7 +121,10 @@
   ;; collide. The peer table carries the peer limit and our own identity.
   p2p-host
   p2p-port
-  peer-table)
+  peer-table
+  ;; Who discovery knows about, bucketed by distance. Guarded by the same mutex
+  ;; as the peer table and the dial registry.
+  discovery-table)
 
 (defun devnet-make-mutex (name)
   "A mutex on SBCL, NIL elsewhere. CALL-WITH-DEVNET-MUTEX degrades accordingly."

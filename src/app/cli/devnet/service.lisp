@@ -47,6 +47,8 @@
          (dialer-sessions nil)
          (discovery-error nil)
          (discovery-thread nil)
+         (discovery-server-error nil)
+         (discovery-server-thread nil)
          (p2p-error nil)
          (p2p-thread nil)
          (p2p-sessions nil))
@@ -82,6 +84,12 @@
            shutdown-controller
            (lambda (condition)
              (setf discovery-error condition))))
+    (setf discovery-server-thread
+          (devnet-start-discovery-server-thread
+           node
+           shutdown-controller
+           (lambda (condition)
+             (setf discovery-server-error condition))))
     (multiple-value-setq (p2p-thread p2p-sessions)
       (devnet-start-p2p-listener-thread
        node
@@ -184,6 +192,17 @@
             (ignore-errors (sb-thread:join-thread discovery-thread
                                                   :timeout 5
                                                   :default :timeout))))
+        (when discovery-server-thread
+          ;; Its socket is a registered closeable, so the shutdown request wakes
+          ;; a blocked receive; the bound is for the case where it does not.
+          (devnet-shutdown-request shutdown-controller)
+          (when (eq :timeout
+                    (sb-thread:join-thread discovery-server-thread
+                                           :timeout 5 :default :timeout))
+            (ignore-errors (sb-thread:terminate-thread discovery-server-thread))
+            (ignore-errors (sb-thread:join-thread discovery-server-thread
+                                                  :timeout 5
+                                                  :default :timeout))))
         (when p2p-thread
           ;; The shutdown request closed the listener and every registered peer
           ;; socket, so both the accept loop and the sessions unblock on their
@@ -202,6 +221,8 @@
         (error p2p-error))
       (when dialer-error
         (error dialer-error))
+      (when discovery-server-error
+        (error discovery-server-error))
       (when rejournal-error
         (error rejournal-error))
       (when dev-period-error

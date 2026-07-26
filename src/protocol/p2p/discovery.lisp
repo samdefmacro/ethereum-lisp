@@ -71,7 +71,9 @@ address; NIL for any other length."
 
 (defun discv4-receive (socket timeout-seconds)
   "Receive one datagram within TIMEOUT-SECONDS, or NIL on timeout.
-Returns the packet bytes.
+Returns (VALUES PACKET HOST PORT) -- a responder needs the sender's address, and
+that address is the one it actually came from rather than the one the packet
+claims, which is the whole basis of an endpoint proof.
 
 Waits for the socket to become readable first: sb-sys:with-deadline does not
 interrupt a blocking recvfrom, so a bare receive would ignore the timeout and
@@ -82,10 +84,13 @@ immediately."
          (sb-bsd-sockets:socket-file-descriptor socket) :input timeout-seconds)
     (handler-case
         (let ((buffer (make-byte-vector +discv4-max-packet-size+)))
-          (multiple-value-bind (received size)
+          (multiple-value-bind (received size address port)
               (sb-bsd-sockets:socket-receive socket buffer nil)
             (declare (ignore received))
-            (and size (plusp size) (subseq buffer 0 size))))
+            (when (and size (plusp size))
+              (values (subseq buffer 0 size)
+                      (and address (discv4-ip-string address))
+                      port))))
       (error () nil))))
 
 (defun discv4-find-peers (bootnode-enode private-key

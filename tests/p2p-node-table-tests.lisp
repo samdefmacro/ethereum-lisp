@@ -181,3 +181,90 @@
               ;; It verifies, and it is ours.
               (is (bytes= (node-id-from-private-key our-key)
                           (ethereum-lisp.p2p:enr-public-key (ethereum-lisp.p2p:decode-enr record)))))))))))
+
+(deftest devnet-discovery-server-answers-a-real-client
+  (:layer :integration :module :p2p :requires-local-sockets t)
+  ;; The node is findable now, not merely able to find. A real discv4 client
+  ;; pings it over loopback UDP, gets a Pong, and its FindNode is then answered
+  ;; with a node the server knows -- the whole discovery handshake.
+  (let* ((node (ethereum-lisp.cli:make-devnet-node
+                :genesis-json *eth-sync-paris-genesis-json*
+                :port 0 :public-port 0
+                :p2p-host "127.0.0.1" :p2p-port 0 :max-peers 4))
+         (controller (ethereum-lisp.cli::make-devnet-shutdown-controller))
+         (client-key #x49a7b37aa6f6645917e7b807e9d1c00d4fa71f18343b0d4122a4d2df64dd6fee)
+         (server-error nil)
+         (probe (ethereum-lisp.p2p:discv4-make-socket :host "127.0.0.1" :port 0))
+         (port nil)
+         (thread nil))
+    ;; Claim a real ephemeral UDP port for the responder to bind.
+    (let ((bound (ethereum-lisp.p2p:discv4-make-socket :host "127.0.0.1" :port 0)))
+      (setf port (nth-value 1 (sb-bsd-sockets:socket-name bound)))
+      (ignore-errors (sb-bsd-sockets:socket-close bound)))
+    (setf (ethereum-lisp.cli::devnet-node-p2p-port node) port)
+    (unwind-protect
+         (let ((endpoint (ethereum-lisp.p2p:discv4-endpoint-for-host
+                          "127.0.0.1" port port)))
+           (setf thread (ethereum-lisp.cli:devnet-start-discovery-server-thread
+                         node controller
+                         (lambda (condition) (setf server-error condition))))
+           (is (not (null thread)))
+           ;; Ping, and expect a Pong echoing our packet's hash.
+           (let ((ping (ethereum-lisp.p2p:encode-discv4-packet
+                        client-key ethereum-lisp.p2p:+discv4-packet-ping+
+                        (ethereum-lisp.p2p:encode-discv4-ping
+                         (ethereum-lisp.p2p:make-discv4-ping
+                          :from endpoint :to endpoint
+                          :expiration (ethereum-lisp.p2p:discv4-expiration))))))
+             (ethereum-lisp.p2p:discv4-send-to probe ping "127.0.0.1" port)
+             (let ((reply (ethereum-lisp.p2p:discv4-receive probe 10)))
+               (is (not (null reply)))
+               (multiple-value-bind (type data sender)
+                   (ethereum-lisp.p2p:decode-discv4-packet reply)
+                 (is (= ethereum-lisp.p2p:+discv4-packet-pong+ type))
+                 ;; It really is the node answering, with our ping's hash.
+                 (is (bytes= (node-id-from-private-key
+                              (ethereum-lisp.cli::devnet-node-node-key node))
+                             sender))
+                 (is (bytes= (subseq ping 0 32)
+                             (ethereum-lisp.p2p:discv4-pong-ping-hash
+                              (ethereum-lisp.p2p:decode-discv4-pong data)))))))
+           ;; Give the responder a node to hand out, then ask for it. Being
+           ;; bonded by the Ping above is what makes this answerable at all.
+           (ethereum-lisp.cli::call-with-devnet-peer-table
+            node
+            (lambda ()
+              (discv4-table-put (ethereum-lisp.cli:devnet-node-discovery-table node)
+                                (node-table-test-id 42) "10.1.2.3" 30303 30303
+                                (unix-time) :bonded t)))
+           (let ((find-node (ethereum-lisp.p2p:encode-discv4-packet
+                             client-key ethereum-lisp.p2p:+discv4-packet-find-node+
+                             (ethereum-lisp.p2p:encode-discv4-find-node
+                              (ethereum-lisp.p2p:make-discv4-find-node
+                               :target (node-table-test-id 42)
+                               :expiration (ethereum-lisp.p2p:discv4-expiration))))))
+             (ethereum-lisp.p2p:discv4-send-to probe find-node "127.0.0.1" port)
+             (let ((reply (ethereum-lisp.p2p:discv4-receive probe 10)))
+               (is (not (null reply)))
+               (multiple-value-bind (type data)
+                   (ethereum-lisp.p2p:decode-discv4-packet reply)
+                 (is (= ethereum-lisp.p2p:+discv4-packet-neighbors+ type))
+                 (let* ((nodes (ethereum-lisp.p2p:discv4-neighbors-nodes
+                                (ethereum-lisp.p2p:decode-discv4-neighbors data)))
+                        (target (find (node-table-test-id 42) nodes
+                                      :key #'ethereum-lisp.p2p:discv4-node-node-id
+                                      :test #'bytes=)))
+                   ;; The client itself is in the table too, having just bonded
+                   ;; by pinging us -- so assert the target is among the
+                   ;; neighbours rather than that it is the only one.
+                   (is (plusp (length nodes)))
+                   (is (not (null target)))
+                   (is (string= "10.1.2.3"
+                                (ethereum-lisp.p2p:discv4-ip-string
+                                 (ethereum-lisp.p2p:discv4-node-ip target)))))))))
+      (ethereum-lisp.cli:devnet-shutdown-request controller)
+      (when thread
+        (is (not (eq :timeout (sb-thread:join-thread thread :timeout 15
+                                                            :default :timeout)))))
+      (is (null server-error))
+      (ignore-errors (sb-bsd-sockets:socket-close probe)))))

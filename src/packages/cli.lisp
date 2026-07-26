@@ -99,6 +99,8 @@
    #:devnet-peer-entry-connected-at
    #:+devnet-default-max-peers+
    #:devnet-node-peer-table
+   #:devnet-node-discovery-table
+   #:devnet-start-discovery-server-thread
    #:devnet-node-p2p-host
    #:devnet-node-p2p-port
    #:devnet-node-enode

@@ -250,7 +250,9 @@
        :peer-table
        (make-devnet-peer-table
         :self-id-hex (node-id-to-hex (node-id-from-private-key node-key))
-        :max-peers (or max-peers +devnet-default-max-peers+))))
+        :max-peers (or max-peers +devnet-default-max-peers+))
+     :discovery-table
+     (make-discv4-node-table (node-id-from-private-key node-key))))
     ;; Seed the operator's --peer values as static candidates. They are already
     ;; validated at parse time; ignore-errors is for a peer supplied
     ;; programmatically by a test, which must not break node construction.
