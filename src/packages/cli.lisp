@@ -105,6 +105,12 @@
    #:devnet-shutdown-controller-add-closeable
    #:devnet-shutdown-controller-remove-closeable
    #:devnet-start-p2p-listener-thread
+   #:devnet-start-dial-scheduler-thread
+   #:devnet-peer-dial-session
+   #:devnet-dial-scheduler-pass
+   #:+devnet-dial-tick-seconds+
+   #:+devnet-session-stream-timeout-seconds+
+   #:devnet-node-dial-registry
    #:devnet-join-peer-sessions
    #:devnet-node
    #:devnet-endpoint-config

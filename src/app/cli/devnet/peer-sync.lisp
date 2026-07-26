@@ -84,7 +84,8 @@ guard, so a downloaded block is immediately visible to the RPC services."
                                        :chain-config config)))))
 
 (defun devnet-peer-sync-status (node)
-  "Return (VALUES STATUS HEAD-NUMBER): our eth Status built from NODE's current
+  "Return (VALUES STATUS HEAD-NUMBER CHAIN-CONTEXT): our eth Status built from
+NODE's current
 head, and that head number. Store hashes are hash32 objects; the Status wants
 raw bytes, so genesis and best hashes are converted with hash32-bytes. The head
 reads run under the store guard, since the store is shared with the RPC and
@@ -171,40 +172,3 @@ starting just past our current head. Returns the number of blocks imported."
            (rlpx-send-disconnect (eth-peer-connection peer)
                                  +devp2p-disconnect-requested+))
           (ignore-errors (sb-bsd-sockets:socket-close socket)))))))
-
-(defun devnet-start-peer-sync-thread (node shutdown-controller error-callback)
-  "Start the outbound peer-sync worker, or return NIL when no peers are
-configured (or off SBCL). Dials each configured enode once; a per-peer failure
-is logged and skipped, and only an error escaping that is fail-stop."
-  #-sbcl
-  (declare (ignore node shutdown-controller error-callback))
-  #-sbcl
-  nil
-  #+sbcl
-  (let ((peers (devnet-node-peers node)))
-    (when peers
-      (sb-thread:make-thread
-       (lambda ()
-         (handler-case
-             ;; Use the node's stable identity, not a throwaway key, and claim
-             ;; each peer so it is not also dialed by the discovery worker.
-             (let ((private-key (devnet-node-node-key node)))
-               (dolist (enode peers)
-                 (when (devnet-shutdown-requested-p shutdown-controller)
-                   (return))
-                 (let ((node-id (nth-value 0 (parse-enode-url enode))))
-                   (when (devnet-node-claim-dial node node-id)
-                     (handler-case
-                         (devnet-peer-sync-one node enode private-key)
-                       (error (condition)
-                         ;; Release so a transiently-failed peer can be retried.
-                         (devnet-node-release-dial node node-id)
-                         (telemetry-log
-                          :warning "peer.sync.peer_failed"
-                          :fields (list (cons "enode" enode)
-                                        (cons "error" (princ-to-string condition)))
-                          :sink (devnet-node-telemetry-sink node))))))))
-           (error (condition)
-             (funcall error-callback condition)
-             (devnet-shutdown-request shutdown-controller))))
-       :name "ethereum-lisp-devnet-peer-sync"))))

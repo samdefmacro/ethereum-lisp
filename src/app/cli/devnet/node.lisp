@@ -242,8 +242,8 @@
        ;; One stable node identity per node, shared by the discovery and peer-sync
        ;; workers; a fresh key when none is configured.
        :node-key node-key
-       ;; Shared set so discovery and peer-sync dial each peer identity once.
-       :dialed (make-hash-table :test 'equal)
+       ;; Every peer we might dial, with its cooldown and failure history.
+       :dial-registry (make-devnet-dial-registry)
        :dial-guard-function (make-devnet-store-guard-function)
        :p2p-host p2p-host
        :p2p-port p2p-port
@@ -251,7 +251,17 @@
        (make-devnet-peer-table
         :self-id-hex (node-id-to-hex (node-id-from-private-key node-key))
         :max-peers (or max-peers +devnet-default-max-peers+))))
-    (first node-box)))
+    ;; Seed the operator's --peer values as static candidates. They are already
+    ;; validated at parse time; ignore-errors is for a peer supplied
+    ;; programmatically by a test, which must not break node construction.
+    (let ((node (first node-box)))
+      (dolist (enode (devnet-node-peers node))
+        (ignore-errors
+         (devnet-dial-registry-put-static
+          (devnet-node-dial-registry node)
+          (node-id-to-hex (nth-value 0 (parse-enode-url enode)))
+          enode)))
+      node)))
 
 (defun devnet-cli-apply-merge-overrides
     (config &key terminal-total-difficulty

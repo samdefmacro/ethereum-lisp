@@ -81,7 +81,7 @@
                       peers
                       bootnodes
                       node-key
-                      dialed
+                      dial-registry
                       dial-guard-function
                       p2p-host
                       p2p-port
@@ -113,7 +113,7 @@
   peers
   bootnodes
   node-key
-  dialed
+  dial-registry
   dial-guard-function
   ;; Inbound peering. P2P-PORT NIL means no listener at all, which is the
   ;; default: binding a fixed port by habit is how two nodes on one machine
@@ -121,24 +121,6 @@
   p2p-host
   p2p-port
   peer-table)
-
-(defun devnet-node-claim-dial (node node-id)
-  "Return T exactly once per NODE-ID (compared by hex), NIL on later claims, so
-the discovery and peer-sync workers do not dial the same peer at the same time.
-Guarded by the node's dial mutex so the two worker threads do not race."
-  (funcall (devnet-node-dial-guard-function node)
-           (lambda ()
-             (let ((key (node-id-to-hex node-id))
-                   (dialed (devnet-node-dialed node)))
-               (unless (gethash key dialed)
-                 (setf (gethash key dialed) t))))))
-
-(defun devnet-node-release-dial (node node-id)
-  "Release NODE-ID's dial claim so a failed dial can be retried on a later crawl.
-A successful dial keeps its claim, so a synced peer is not redialed."
-  (funcall (devnet-node-dial-guard-function node)
-           (lambda ()
-             (remhash (node-id-to-hex node-id) (devnet-node-dialed node)))))
 
 (defun devnet-make-mutex (name)
   "A mutex on SBCL, NIL elsewhere. CALL-WITH-DEVNET-MUTEX degrades accordingly."
@@ -171,11 +153,15 @@ A successful dial keeps its claim, so a synced peer is not redialed."
   (funcall (devnet-node-store-guard-function node) thunk))
 
 (defun call-with-devnet-peer-table (node thunk)
-  "Run THUNK with exclusive access to NODE's peer table.
+  "Run THUNK with exclusive access to NODE's peer table AND dial registry.
 
-Uses the node's dial guard, a mutex independent of the store guard, so peer
-bookkeeping never blocks behind block import or an RPC call. Holding the store
-guard here would be a deadlock risk, not just a slow path."
+The two share one mutex on purpose: a scheduler decision reads both (is this
+peer already connected? is there a free dial slot?) and then mutates both, and
+that has to be one atomic step. It is independent of the store guard, so peer
+bookkeeping never blocks behind block import or an RPC call.
+
+The mutex is NOT recursive. Nothing called from inside THUNK may take it again --
+which is why the peer table and the dial registry lock nothing themselves."
   (funcall (devnet-node-dial-guard-function node) thunk))
 
 (defun devnet-node-enode (node)

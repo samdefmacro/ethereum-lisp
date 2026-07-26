@@ -85,29 +85,31 @@ failure is logged and skipped; only an escaping error is fail-stop."
        (lambda ()
          (handler-case
              ;; Share the node's stable identity, and the node-wide dialed set,
-             ;; so a peer is dialed once across discovery and --peer.
+             ;; The crawl only produces candidates; the dial scheduler decides
+             ;; which to dial and when.
              (let ((private-key (devnet-node-node-key node)))
                (loop until (devnet-shutdown-requested-p shutdown-controller) do
                  ;; Discovery is best-effort: a failed crawl (socket exhaustion,
                  ;; a bad packet) is logged and retried, never a node-wide
                  ;; fail-stop.
                  (handler-case
-                     (dolist (enode (discv4-lookup bootnodes private-key))
-                       (when (devnet-shutdown-requested-p shutdown-controller)
-                         (return))
-                       (let ((node-id (nth-value 0 (parse-enode-url enode))))
-                         (when (devnet-node-claim-dial node node-id)
-                           (handler-case
-                               (devnet-peer-sync-one node enode private-key)
-                             (error (condition)
-                               ;; Release so a transiently-failed peer is retried
-                               ;; on the next crawl.
-                               (devnet-node-release-dial node node-id)
-                               (telemetry-log
-                                :warning "peer.sync.peer_failed"
-                                :fields (list (cons "enode" enode)
-                                              (cons "error" (princ-to-string condition)))
-                                :sink (devnet-node-telemetry-sink node)))))))
+                     ;; Offer what the crawl found to the dial scheduler and
+                     ;; move on. This thread no longer dials: doing it here meant
+                     ;; one slow peer stalled every later dial on the same
+                     ;; thread, and the fixed crawl interval was the only
+                     ;; backoff there was.
+                     (let ((found (discv4-lookup bootnodes private-key
+                                                 :timeout-seconds 4)))
+                       (call-with-devnet-peer-table
+                        node
+                        (lambda ()
+                          (dolist (enode found)
+                            (ignore-errors
+                             (devnet-dial-registry-offer-dynamic
+                              (devnet-node-dial-registry node)
+                              (node-id-to-hex
+                               (nth-value 0 (parse-enode-url enode)))
+                              enode))))))
                    (error (condition)
                      (telemetry-log
                       :warning "peer.discovery.crawl_failed"

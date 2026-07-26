@@ -62,21 +62,37 @@ actively-talking peer idle and drop it."
                (sb-sys:wait-until-fd-usable (sb-sys:fd-stream-fd stream)
                                             :input timeout nil))))))
 
-(defun devnet-peer-run-session (node socket remote-host remote-port
-                                shutdown-controller)
-  "Handshake with an accepted connection and serve it until it ends.
+(defun devnet-peer-run-session (node socket shutdown-controller admit-function
+                                &key on-session-start reserved-slot-p stop-p
+                                     max-actions)
+  "Turn an open SOCKET into a peer session and serve it until it ends.
 
-Runs on its own thread. Returns when the peer disconnects, when it goes idle,
-when admission refuses it, or when shutdown is requested."
+Runs on its own thread, and is shared by both directions: everything from
+registering the shutdown closeable to the four-step teardown is identical
+whether we accepted the connection or dialed it. Only two things differ, and
+both are injected.
+
+ADMIT-FUNCTION is called with SOCKET and returns (VALUES PEER ENTRY REFUSAL): a
+handshaken peer plus the peer-table entry holding its slot, or a REFUSAL keyword
+to send back as a devp2p reason. (VALUES NIL NIL NIL) means there is nothing to
+do and falls straight through to teardown.
+
+ON-SESSION-START, when given, runs once with the peer before the message pump.
+It is the one thing the directions do differently afterwards: a dialed session
+downloads the peer's chain to our tip, an accepted one has nothing to do.
+
+RESERVED-SLOT-P says whether teardown must release a handshake reservation.
+Inbound takes one, because at accept time there is no identity to decide on;
+a dial knows who it is calling before it connects and so never reserves."
   #-sbcl
-  (declare (ignore node socket remote-host remote-port shutdown-controller))
+  (declare (ignore node socket shutdown-controller admit-function
+                   on-session-start reserved-slot-p stop-p max-actions))
   #-sbcl
   nil
   #+sbcl
   (let ((table (devnet-node-peer-table node))
         (closeable nil)
-        (admitted nil)
-        (peer nil))
+        (admitted nil))
     (unwind-protect
          (progn
            ;; Registered BEFORE the handshake: a shutdown while a peer is still
@@ -85,75 +101,102 @@ when admission refuses it, or when shutdown is requested."
                  (devnet-shutdown-controller-add-closeable
                   shutdown-controller
                   (lambda () (ignore-errors (sb-bsd-sockets:socket-close socket)))))
-           (when (and closeable
-                      ;; Bound the otherwise unbounded handshake read.
-                      (sb-sys:wait-until-fd-usable
-                       (sb-bsd-sockets:socket-file-descriptor socket)
-                       :input +devnet-peer-handshake-timeout-seconds+ nil))
-             (multiple-value-bind (status head-number chain-context)
-                 (devnet-peer-sync-status node)
-               (declare (ignore head-number))
-               (setf peer
-                     (eth-sync-accept-peer
-                      socket (devnet-node-node-key node) status
-                      :chain-context chain-context
-                      :serve-backend (devnet-peer-serve-backend node)
-                      :listen-port (or (devnet-node-p2p-port node) 0)))
-               (let* ((id-hex (node-id-to-hex (eth-peer-remote-public-key peer)))
-                      (verdict
-                        (call-with-devnet-peer-table
-                         node
-                         (lambda ()
-                           (let ((verdict (devnet-peer-table-inbound-verdict
-                                           table id-hex)))
-                             (when (eq verdict :accept)
-                               (setf admitted
-                                     (devnet-peer-table-admit
-                                      table
-                                      (make-devnet-peer-entry
-                                       :id-hex id-hex
-                                       :direction :inbound
-                                       :remote-host remote-host
-                                       :remote-port remote-port
-                                       :socket socket
-                                       :thread sb-thread:*current-thread*
-                                       :eth-version (eth-peer-eth-version peer)
-                                       :client-id (eth-peer-remote-client-id peer))
-                                      (unix-time)))
-                               (unless admitted (setf verdict :already-connected)))
-                             verdict)))))
-                 (if (eq verdict :accept)
-                     (progn
-                       (devnet-peer-manager-log
-                        node "p2p.peer.connected"
-                        "id" id-hex "host" remote-host
-                        "eth" (eth-peer-eth-version peer))
-                       (eth-peer-run-session
-                        peer
-                        :readable-function (devnet-peer-session-readable-function
-                                            peer)
-                        :stop-p (lambda ()
-                                  (devnet-shutdown-requested-p
-                                   shutdown-controller))))
-                     (progn
-                       (devnet-peer-manager-log node "p2p.peer.refused"
-                                                "id" id-hex "reason" verdict)
-                       (eth-sync-reject-connection
-                        (eth-peer-connection peer)
-                        (devnet-peer-disconnect-reason verdict))))))))
-      ;; Close the socket and nothing else. No Disconnect: a peer that has
-      ;; stopped reading would block us here, and this runs on the path
-      ;; shutdown is waiting for.
+           (when closeable
+             (multiple-value-bind (peer entry refusal)
+                 (funcall admit-function socket)
+               (setf admitted entry)
+               (cond
+                 ((and peer entry)
+                  (when on-session-start (funcall on-session-start peer))
+                  (eth-peer-run-session
+                   peer
+                   :readable-function (devnet-peer-session-readable-function peer)
+                   :stop-p (or stop-p
+                               (lambda ()
+                                 (devnet-shutdown-requested-p shutdown-controller)))
+                   :max-actions max-actions))
+                 ((and peer refusal)
+                  (eth-sync-reject-connection
+                   (eth-peer-connection peer)
+                   (devnet-peer-disconnect-reason refusal)))))))
+      ;; Close the socket and nothing else. No farewell Disconnect: a peer that
+      ;; has stopped reading would block us here, and this runs on the path a
+      ;; shutdown is waiting for. The dialer sends its own, gated, from outside.
       (when admitted
         (call-with-devnet-peer-table
          node
          (lambda ()
            (devnet-peer-table-remove table
                                      (devnet-peer-entry-id-hex admitted)))))
-      (call-with-devnet-peer-table
-       node (lambda () (devnet-peer-table-release-slot table)))
+      (when reserved-slot-p
+        (call-with-devnet-peer-table
+         node (lambda () (devnet-peer-table-release-slot table))))
       (devnet-shutdown-controller-remove-closeable shutdown-controller closeable)
       (ignore-errors (sb-bsd-sockets:socket-close socket)))))
+
+(defun devnet-peer-inbound-admit-function (node remote-host remote-port)
+  "The admission half of an INBOUND session: bound the handshake, run the
+recipient side of it, then take the identity-keyed verdict.
+
+This is phase two of the two-phase admission the peer table documents: the
+identity only exists once the handshake has proven it, so this necessarily runs
+on the session thread rather than on the accept loop."
+  #-sbcl
+  (declare (ignore node remote-host remote-port))
+  #-sbcl
+  (lambda (socket) (declare (ignore socket)) (values nil nil nil))
+  #+sbcl
+  (lambda (socket)
+    (let ((table (devnet-node-peer-table node)))
+      ;; Bound the otherwise unbounded handshake read: a peer that connects and
+      ;; says nothing must not hold a thread and a descriptor forever.
+      (if (not (sb-sys:wait-until-fd-usable
+                (sb-bsd-sockets:socket-file-descriptor socket)
+                :input +devnet-peer-handshake-timeout-seconds+ nil))
+          (values nil nil nil)
+          (multiple-value-bind (status head-number chain-context)
+              (devnet-peer-sync-status node)
+            (declare (ignore head-number))
+            (let* ((peer (eth-sync-accept-peer
+                          socket (devnet-node-node-key node) status
+                          :chain-context chain-context
+                          :serve-backend (devnet-peer-serve-backend node)
+                          :listen-port (or (devnet-node-p2p-port node) 0)))
+                   (id-hex (node-id-to-hex (eth-peer-remote-public-key peer)))
+                   (entry nil)
+                   (verdict
+                     (call-with-devnet-peer-table
+                      node
+                      (lambda ()
+                        (let ((verdict (devnet-peer-table-inbound-verdict
+                                        table id-hex)))
+                          (when (eq verdict :accept)
+                            (setf entry
+                                  (devnet-peer-table-admit
+                                   table
+                                   (make-devnet-peer-entry
+                                    :id-hex id-hex
+                                    :direction :inbound
+                                    :remote-host remote-host
+                                    :remote-port remote-port
+                                    :socket socket
+                                    :thread sb-thread:*current-thread*
+                                    :eth-version (eth-peer-eth-version peer)
+                                    :client-id (eth-peer-remote-client-id peer))
+                                   (unix-time)))
+                            (unless entry (setf verdict :already-connected)))
+                          verdict)))))
+              (if (eq verdict :accept)
+                  (progn
+                    (devnet-peer-manager-log
+                     node "p2p.peer.connected"
+                     "id" id-hex "host" remote-host
+                     "eth" (eth-peer-eth-version peer))
+                    (values peer entry nil))
+                  (progn
+                    (devnet-peer-manager-log node "p2p.peer.refused"
+                                             "id" id-hex "reason" verdict)
+                    (values peer nil verdict)))))))))
 
 (defun devnet-start-p2p-listener-thread
     (node listener shutdown-controller error-callback)
@@ -212,8 +255,10 @@ Only an error escaping the loop itself is fail-stop."
                                        ;; the node down. Measured, not assumed.
                                        (handler-case
                                            (devnet-peer-run-session
-                                            node socket remote-host remote-port
-                                            shutdown-controller)
+                                            node socket shutdown-controller
+                                            (devnet-peer-inbound-admit-function
+                                             node remote-host remote-port)
+                                            :reserved-slot-p t)
                                          (error (condition)
                                            (devnet-peer-manager-log
                                             node "p2p.peer.session_failed"

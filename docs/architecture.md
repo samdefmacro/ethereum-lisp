@@ -85,19 +85,26 @@ them by their physical location instead reintroduces dependency cycles:
 
   Two properties of this layer are load-bearing and easy to break:
 
-  - **It contains no threads.** Every thread belongs to the CLI layer
-    (`devnet/peer-manager.lisp`). `eth-sync/pump.lisp` supplies a session loop
-    whose readiness gate and clock are both injected, so the caller decides how
-    concurrency happens.
+  - **It contains no threads.** Every thread belongs to the CLI layer, in
+    `devnet/peer-manager.lisp` (inbound) and `devnet/dialer.lisp` (outbound).
+    `eth-sync/pump.lisp` supplies a session loop whose readiness gate and clock
+    are both injected, so the caller decides how concurrency happens.
   - **A session is single-threaded by construction.** `rlpx-write-frame`
     advances a per-connection cipher and running MAC with no lock, so a second
     thread writing the same connection desynchronizes it. Outbound work reaches
     a session as data, through a closure the loop calls — never by another
     thread sending on the peer.
 
-  Peer admission policy (`devnet/peer-table.lisp`) lives in the CLI rather than
-  here, because a peer limit is an operator setting; it is pure, taking `now` as
-  an argument, so its decisions are testable as a table.
+  A dialed connection becomes a long-lived session on the SAME pump an accepted
+  one gets, so both properties above hold identically in both directions.
+
+  Peer admission policy (`devnet/peer-table.lisp`) and dial scheduling
+  (`devnet/dial-schedule.lisp`) live in the CLI rather than here, because a peer
+  limit and a retry policy are operator settings. Both are pure, taking `now` as
+  an argument, so their decisions are testable as tables — and neither locks
+  anything, because they share one NON-recursive mutex with each other and a
+  caller composes them inside a single acquisition. A lock appearing in either
+  file would turn a composed decision into a signalled error rather than a wait.
 - **persistence adapters** live physically under
   `src/storage/node-store/persistence/` but depend on application services:
   `staged-import` calls `execution-service` to validate payloads before

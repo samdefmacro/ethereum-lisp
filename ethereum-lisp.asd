@@ -395,6 +395,7 @@
        (:file "cli-devnet-background" :pathname "cli/devnet/background")
        (:file "cli-devnet-peer-sync" :pathname "cli/devnet/peer-sync")
        (:file "cli-devnet-peer-manager" :pathname "cli/devnet/peer-manager")
+       (:file "cli-devnet-dialer" :pathname "cli/devnet/dialer")
        (:file "cli-devnet-service" :pathname "cli/devnet/service")
        (:file "cli-option-definitions" :pathname "cli/options/definitions")
        (:file "cli-args" :pathname "cli/options/args")

@@ -1286,23 +1286,16 @@ loop cannot block on a message that never comes."
       (ethereum-lisp.cli::devnet-cli-options
        (list "devnet" "--nodekeyhex" "0xdeadbeef" "--no-serve")))))
 
-(deftest devnet-node-claim-dial-deduplicates-by-identity
+(deftest devnet-node-adopts-its-configured-identity
+  ;; The dial-claim half of this test went with devnet-node-claim-dial, which the
+  ;; dial scheduler replaced: a peer is no longer claimed once and forever, it
+  ;; has a cooldown and a failure count (see cli-devnet-dial-tests.lisp).
   (let ((node (ethereum-lisp.cli:make-devnet-node
                :genesis-path +devnet-cli-genesis-fixture+ :port 0
-               :node-key #x0102030405060708090a0b0c0d0e0f101112131415161718))
-        (id-a (node-id-from-private-key #xaa))
-        (id-b (node-id-from-private-key #xbb)))
-    ;; The configured key is adopted.
+               :node-key #x0102030405060708090a0b0c0d0e0f101112131415161718)))
     (is (= #x0102030405060708090a0b0c0d0e0f101112131415161718
            (ethereum-lisp.cli::devnet-node-node-key node)))
-    ;; An identity is claimable exactly once; a distinct one independently.
-    (is (ethereum-lisp.cli::devnet-node-claim-dial node id-a))
-    (is (not (ethereum-lisp.cli::devnet-node-claim-dial node id-a)))
-    (is (ethereum-lisp.cli::devnet-node-claim-dial node id-b))
     ;; A node with no configured key still gets a usable identity.
     (is (integerp (ethereum-lisp.cli::devnet-node-node-key
                    (ethereum-lisp.cli:make-devnet-node
-                    :genesis-path +devnet-cli-genesis-fixture+ :port 0))))
-    ;; Releasing a claim (as on a failed dial) lets the peer be retried.
-    (ethereum-lisp.cli::devnet-node-release-dial node id-a)
-    (is (ethereum-lisp.cli::devnet-node-claim-dial node id-a))))
+                    :genesis-path +devnet-cli-genesis-fixture+ :port 0))))))

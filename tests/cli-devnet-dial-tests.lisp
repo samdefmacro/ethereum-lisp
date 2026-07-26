@@ -194,3 +194,116 @@
         (is (eq :static (ethereum-lisp.cli:devnet-dial-candidate-kind candidate)))
         (is (= 1 (ethereum-lisp.cli:devnet-dial-candidate-failures candidate)))
         (is (= before (ethereum-lisp.cli:devnet-dial-candidate-next-eligible-at candidate)))))))
+
+;;;; The dialer end to end. Every join below is bounded and asserted on: the
+;;;; unit and integration layers have no per-test timeout, so a test that can
+;;;; block does not fail, it stops the run.
+
+(deftest devnet-dialer-holds-an-outbound-session-and-shuts-down
+  (:layer :integration :module :devnet :requires-local-sockets t)
+  ;; The deliverable of the wave: a dialed peer becomes a LONG-LIVED session on
+  ;; the same pump an accepted one gets, instead of the old dial-download-hangup.
+  ;; Two real nodes, one listening and one dialing, then both told to stop.
+  (let* ((listener-key #xb71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291)
+         (server (ethereum-lisp.cli:make-devnet-node
+                  :genesis-json *eth-sync-paris-genesis-json*
+                  :port 0 :public-port 0
+                  :p2p-host "127.0.0.1" :p2p-port 0
+                  :max-peers 4 :node-key listener-key))
+         (listener (make-eth-sync-socket-listener :host "127.0.0.1" :port 0))
+         (server-controller (ethereum-lisp.cli::make-devnet-shutdown-controller))
+         (client-controller (ethereum-lisp.cli::make-devnet-shutdown-controller))
+         (server-error nil)
+         (client-error nil)
+         (client nil))
+    (setf (ethereum-lisp.cli::devnet-node-p2p-port server)
+          (eth-sync-listener-port listener))
+    (unwind-protect
+         (multiple-value-bind (accept-thread server-sessions)
+             (ethereum-lisp.cli:devnet-start-p2p-listener-thread
+              server listener server-controller
+              (lambda (condition) (setf server-error condition)))
+           ;; The dialer is pointed at the listener's real enode.
+           (setf client
+                 (ethereum-lisp.cli:make-devnet-node
+                  :genesis-json *eth-sync-paris-genesis-json*
+                  :port 0 :public-port 0 :max-peers 4
+                  :peers (list (ethereum-lisp.cli::devnet-node-enode server))))
+           (multiple-value-bind (dial-thread client-sessions)
+               (ethereum-lisp.cli:devnet-start-dial-scheduler-thread
+                client client-controller
+                (lambda (condition) (setf client-error condition)))
+             (is (not (null dial-thread)))
+             (let ((server-table (ethereum-lisp.cli:devnet-node-peer-table server))
+                   (client-table (ethereum-lisp.cli:devnet-node-peer-table client)))
+               ;; Both sides record the peer, in opposite directions.
+               (loop repeat 150
+                     until (and (plusp (ethereum-lisp.cli:devnet-peer-table-count
+                                        server-table))
+                                (plusp (ethereum-lisp.cli:devnet-peer-table-count
+                                        client-table)))
+                     do (sleep 0.1))
+               (is (= 1 (ethereum-lisp.cli:devnet-peer-table-count server-table)))
+               (is (= 1 (ethereum-lisp.cli:devnet-peer-table-count client-table)))
+               (is (= 1 (ethereum-lisp.cli:devnet-peer-table-count-by-direction
+                         client-table :outbound)))
+               (is (= 1 (ethereum-lisp.cli:devnet-peer-table-count-by-direction
+                         server-table :inbound)))
+               ;; THE point: it is still held a moment later. The old one-shot
+               ;; dialer had disconnected by now.
+               (sleep 1.5)
+               (is (= 1 (ethereum-lisp.cli:devnet-peer-table-count client-table)))
+               (is (= 1 (ethereum-lisp.cli:devnet-peer-table-count server-table)))
+               ;; The peer is reported outbound, with a negotiated eth version.
+               (let ((entry (first (ethereum-lisp.cli:devnet-peer-table-snapshot
+                                    client-table))))
+                 (is (eq :outbound (getf entry :direction)))
+                 (is (member (getf entry :eth-version) '(68 69))))
+               ;; And the dial registry knows it owns that connection.
+               (is (eq :connected
+                       (ethereum-lisp.cli:devnet-dial-candidate-state
+                        (first (loop for id being the hash-keys
+                                       of (ethereum-lisp.cli::devnet-dial-registry-candidates
+                                           (ethereum-lisp.cli:devnet-node-dial-registry client))
+                                     using (hash-value candidate)
+                                     collect candidate))))))
+             ;; Now stop both, and assert every thread comes back.
+             (ethereum-lisp.cli:devnet-shutdown-request client-controller)
+             (ethereum-lisp.cli:devnet-shutdown-request server-controller)
+             (is (not (eq :timeout (sb-thread:join-thread dial-thread :timeout 15
+                                                                      :default :timeout))))
+             (ethereum-lisp.cli:devnet-join-peer-sessions client-sessions :timeout 10)
+             (dolist (thread (funcall client-sessions))
+               (is (not (sb-thread:thread-alive-p thread))))
+             (is (not (eq :timeout (sb-thread:join-thread accept-thread :timeout 15
+                                                                       :default :timeout))))
+             (ethereum-lisp.cli:devnet-join-peer-sessions server-sessions :timeout 10)
+             (dolist (thread (funcall server-sessions))
+               (is (not (sb-thread:thread-alive-p thread))))
+             (is (null client-error))
+             (is (null server-error))))
+      (eth-sync-listener-close listener))))
+
+(deftest devnet-dial-scheduler-does-not-start-without-anything-to-dial
+  (:layer :unit :module :devnet)
+  ;; A node with no configured peers, no bootnodes and no listener has nothing
+  ;; to dial and no way to be told about one, so it pays for no thread at all.
+  (let ((node (ethereum-lisp.cli:make-devnet-node
+               :genesis-json *eth-sync-paris-genesis-json*
+               :port 0 :public-port 0)))
+    (is (null (ethereum-lisp.cli:devnet-start-dial-scheduler-thread
+               node (ethereum-lisp.cli::make-devnet-shutdown-controller)
+               (lambda (condition) (declare (ignore condition)))))))
+  ;; A listener alone is reason enough: admin_addPeer can add one at runtime.
+  (let ((node (ethereum-lisp.cli:make-devnet-node
+               :genesis-json *eth-sync-paris-genesis-json*
+               :port 0 :public-port 0 :p2p-host "127.0.0.1" :p2p-port 30399))
+        (controller (ethereum-lisp.cli::make-devnet-shutdown-controller)))
+    (multiple-value-bind (thread sessions)
+        (ethereum-lisp.cli:devnet-start-dial-scheduler-thread
+         node controller (lambda (condition) (declare (ignore condition))))
+      (declare (ignore sessions))
+      (is (not (null thread)))
+      (ethereum-lisp.cli:devnet-shutdown-request controller)
+      (is (not (eq :timeout (sb-thread:join-thread thread :timeout 15
+                                                          :default :timeout)))))))
