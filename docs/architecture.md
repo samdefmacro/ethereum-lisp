@@ -98,6 +98,22 @@ them by their physical location instead reintroduces dependency cycles:
   A dialed connection becomes a long-lived session on the SAME pump an accepted
   one gets, so both properties above hold identically in both directions.
 
+  `eth-sync/backfill.lisp` fills a gap the other direction. Forward download
+  works from a number we hold; a consensus client instead names a HASH somewhere
+  ahead, and the chain may have reorged, so the block at our head plus one is not
+  necessarily an ancestor of it. The walk therefore runs BACKWARDS by parent hash
+  to common ground and only then executes forward, because execution needs its
+  parent's state and so has exactly one possible order. A walk that cannot reach
+  common ground is refused rather than partially imported.
+
+  Discovery is likewise two-directional. `p2p/node-table.lisp` is a Kademlia
+  routing table — 256 buckets by log distance, pure, `now` as an argument — and
+  the responder built on it answers Ping, FindNode and ENRRequest. Two refusals
+  in it are load-bearing: a node is only ever handed to a peer once it has proved
+  its own endpoint by answering us, and FindNode or ENRRequest from an unbonded
+  sender is refused outright, because both replies are far larger than the
+  request and a forged one carries any source address the sender likes.
+
   Peer admission policy (`devnet/peer-table.lisp`) and dial scheduling
   (`devnet/dial-schedule.lisp`) live in the CLI rather than here, because a peer
   limit and a retry policy are operator settings. Both are pure, taking `now` as
