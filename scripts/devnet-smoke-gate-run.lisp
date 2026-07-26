@@ -403,10 +403,14 @@
                                       expected-terminal-block-number))))))
                       transition-configuration-mismatch-output)
                      (cons
+                      ;; A public method the Engine API spec does NOT oblige the
+                      ;; endpoint to serve. The nine `eth` methods it does are
+                      ;; answered there on purpose, so probing with one of those
+                      ;; would test the opposite of what this is for.
                       (json-encode
                        (list (cons "jsonrpc" "2.0")
                              (cons "id" 71)
-                             (cons "method" "eth_chainId")
+                             (cons "method" "eth_coinbase")
                              (cons "params" #())))
                       engine-public-namespace-output)
                      (cons
@@ -2434,7 +2438,7 @@
                        engine-public-namespace-rpc
                        "error")
                       "code"))
-                  "Engine listener exposed public namespace")
+                  "Engine listener exposed a public method it does not owe")
                  (devnet-smoke-gate-require
                   (string= +payload-status-valid+
                            (fixture-object-field new-payload-result "status"))
