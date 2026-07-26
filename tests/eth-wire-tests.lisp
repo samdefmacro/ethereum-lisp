@@ -254,6 +254,43 @@
                    (bytes-to-hex (ethereum-lisp.eth-wire:eth-fork-id-hash fid))))
       (is (= 1150000 (ethereum-lisp.eth-wire:eth-fork-id-next fid))))))
 
+(deftest eth-fork-id-enr-entry-nests-the-eip-2124-vector
+  (:layer :unit :module :eth-wire)
+  ;; EIP-2124's own vector for the fork id (0xdeadbeef, 0xbaddcafe) is
+  ;; ca84deadbeef84baddcafe. go-ethereum's `eth' ENR entry is a STRUCT whose
+  ;; first field is that fork id, so a record carries it one list deeper.
+  ;;
+  ;; That extra level is the whole test. Read one level too shallow and the
+  ;; "fork hash" becomes the entire inner list, which is four bytes long only by
+  ;; coincidence and matches no chain anywhere -- so the filter this feeds would
+  ;; reject every peer on the network while looking like it was working.
+  (let* ((fork-id (ethereum-lisp.eth-wire:make-eth-fork-id
+                   (hex-to-bytes "0xdeadbeef") #xbaddcafe))
+         (inner (ethereum-lisp.eth-wire::eth-fork-id-rlp-object fork-id))
+         (entry (ethereum-lisp.eth-wire:eth-fork-id-enr-entry fork-id)))
+    (is (string= "0xca84deadbeef84baddcafe" (bytes-to-hex (rlp-encode inner))))
+    (is (string= "0xcbca84deadbeef84baddcafe" (bytes-to-hex (rlp-encode entry))))
+    ;; It reads back.
+    (let ((decoded (ethereum-lisp.eth-wire:eth-fork-id-from-enr-entry entry)))
+      (is (bytes= (hex-to-bytes "0xdeadbeef")
+                  (ethereum-lisp.eth-wire:eth-fork-id-hash decoded)))
+      (is (= #xbaddcafe (ethereum-lisp.eth-wire:eth-fork-id-next decoded))))
+    ;; A tail is ignored -- that is what go-ethereum keeps it there for.
+    (is (bytes= (hex-to-bytes "0xdeadbeef")
+                (ethereum-lisp.eth-wire:eth-fork-id-hash
+                 (ethereum-lisp.eth-wire:eth-fork-id-from-enr-entry
+                  (make-rlp-list inner (ascii-to-bytes "later"))))))
+    ;; The UNNESTED fork id is not an entry. A decoder that accepted it would be
+    ;; reading a fork hash out of the layout by luck.
+    (is (null (ethereum-lisp.eth-wire:eth-fork-id-from-enr-entry inner)))
+    ;; Nor is a byte string, an empty list, or an inner list of the wrong size.
+    (is (null (ethereum-lisp.eth-wire:eth-fork-id-from-enr-entry
+               (hex-to-bytes "0xdeadbeef"))))
+    (is (null (ethereum-lisp.eth-wire:eth-fork-id-from-enr-entry
+               (make-rlp-list))))
+    (is (null (ethereum-lisp.eth-wire:eth-fork-id-from-enr-entry
+               (make-rlp-list (make-rlp-list (hex-to-bytes "0xdeadbeef"))))))))
+
 (deftest crc32-matches-known-vectors
   ;; The IEEE CRC-32 of "123456789" is the standard 0xCBF43926 check value.
   (is (= #xcbf43926 (ethereum-lisp.bytes:crc32 (ascii-to-bytes "123456789"))))

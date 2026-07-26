@@ -160,6 +160,46 @@ handshake."
   head-timestamp
   genesis-timestamp)
 
+(defun eth-chain-context-fork-id (chain-context)
+  "Our own EIP-2124 fork id for CHAIN-CONTEXT."
+  (chain-config-eth-fork-id
+   (eth-chain-context-config chain-context)
+   (eth-chain-context-genesis-hash chain-context)
+   (eth-chain-context-head-number chain-context)
+   (eth-chain-context-head-timestamp chain-context)
+   (eth-chain-context-genesis-timestamp chain-context)))
+
+(defun eth-chain-context-record-pairs (chain-context)
+  "The chain-specific ENR entries a node on this chain should advertise.
+
+Only the `eth` fork-id entry today. Kept beside the predicate that reads other
+nodes' entries because the two are one decision seen from both ends: a client
+that filters on an entry it does not itself publish is asking of others exactly
+what it refuses to supply, and would be filtered straight back out."
+  (list (cons "eth" (eth-fork-id-enr-entry
+                     (eth-chain-context-fork-id chain-context)))))
+
+(defun eth-chain-context-record-compatible-p (chain-context record-value)
+  "True when the `eth` ENR entry RECORD-VALUE belongs to a peer on our chain.
+
+The predicate form of the handshake check, for deciding whether a discovered
+node is worth a TCP connection at all. A node with no `eth` entry, or an
+unreadable one, is NOT compatible: discv4 is one shared DHT carrying every
+chain that uses it, so `I cannot tell' has to mean `not mine' or the filter
+admits exactly the nodes it exists to exclude."
+  (let ((fork-id (eth-fork-id-from-enr-entry record-value)))
+    (and fork-id
+         (handler-case
+             (progn (validate-peer-fork-id
+                     (eth-chain-context-config chain-context)
+                     (eth-chain-context-genesis-hash chain-context)
+                     (eth-chain-context-head-number chain-context)
+                     (eth-chain-context-head-timestamp chain-context)
+                     fork-id
+                     (eth-chain-context-genesis-timestamp chain-context))
+                    t)
+           (eth-fork-id-mismatch () nil)))))
+
 (defun eth-validate-peer-status (ours theirs &optional chain-context)
   "Signal an error unless the peer's Status THEIRS is compatible with OURS.
 

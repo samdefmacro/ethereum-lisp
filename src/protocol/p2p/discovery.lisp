@@ -212,15 +212,42 @@ keccak256(id-b) as a big-endian unsigned integer. Smaller means closer."
         (hb (keccak-256 (ensure-byte-vector id-b))))
     (bytes-to-integer (ensure-byte-vector (map 'list #'logxor ha hb)))))
 
+(defconstant +discv4-enr-request-attempts+ 3
+  "How many times the crawl asks one node for its record before giving up.
+
+More than once because the first attempt races the bond. We treat a node as
+bonded the moment its Pong arrives, but IT treats US as bonded only once we
+answer the Ping it sends back, and an ENRRequest arriving before that is
+correctly dropped as unbonded -- by our own responder as much as anyone's. A
+retry costs one small datagram; not retrying costs the node.")
+
+(defconstant +discv4-enr-request-retry-seconds+ 1
+  "Gap between record requests to the same node, and the grace period after the
+last one before the crawl is willing to conclude. Our policy.")
+
 (defun discv4-lookup (bootnode-enodes private-key
                       &key (alpha 3) (max-queries 16) (timeout-seconds 8)
-                           (local-host "0.0.0.0") (local-port 0))
+                           (local-host "0.0.0.0") (local-port 0)
+                           record-filter)
   "Crawl outward from BOOTNODE-ENODES to discover peers over one persistent UDP
 socket. Bonds with known nodes, sends FindNode toward random targets, and folds
 the returned nodes back into the search, up to MAX-QUERIES FindNode requests or
-TIMEOUT-SECONDS. Returns the discovered enode URLs (excluding ourselves and the
-seed bootnodes). This is a bounded crawl; a full Kademlia routing table with
-k-buckets and closest-node termination is left for later."
+TIMEOUT-SECONDS. Returns (VALUES ENODE-URLS STATS) -- the discovered enode URLs
+excluding ourselves and the seed bootnodes, and an alist of crawl counts. This
+is a bounded crawl; a full Kademlia routing table with k-buckets and
+closest-node termination is left for later.
+
+RECORD-FILTER, when supplied, is a predicate on a decoded ENR, and ONLY the
+nodes it accepts are returned. discv4 is a single DHT shared by every chain
+built on it, so an unfiltered crawl yields mostly nodes that will refuse us at
+the eth handshake -- the point of asking each bonded node for its record first
+is that a UDP round trip is orders of magnitude cheaper than the TCP connection
+and ECIES handshake needed to learn the same thing from the peer directly.
+
+Filtering necessarily returns far FEWER nodes, and that is the intent: a node
+must be bonded and must answer ENRRequest to survive it, where an unfiltered
+crawl returns every address anyone ever mentioned. Nodes that stay silent are
+simply re-tried by the next crawl."
   (let ((our-node-id (node-id-from-private-key private-key)))
     (multiple-value-bind (socket local-udp)
         (discv4-make-socket :host local-host :port local-port)
@@ -231,10 +258,14 @@ k-buckets and closest-node termination is left for later."
                  (pinged (make-hash-table :test 'equal))  ; id-hex -> t
                  (queried (make-hash-table :test 'equal)) ; id-hex -> t
                  (pending (make-hash-table :test 'equal)) ; ping-hash-hex -> node
+                 ;; id-hex -> (attempts . last-sent-at), and id-hex -> verdict.
+                 (enr-asked (make-hash-table :test 'equal))
+                 (enr-verdict (make-hash-table :test 'equal))
                  (boot-keys (make-hash-table :test 'equal))
                  (deadline (+ (get-universal-time) timeout-seconds))
                  (query-count 0)
-                 (last-query-at nil))
+                 (last-query-at nil)
+                 (last-enr-at nil))
              (labels ((idkey (id) (node-id-to-hex id))
                       (node-host (node) (discv4-ip-string (discv4-node-ip node)))
                       (send-node (node packet)
@@ -270,6 +301,31 @@ k-buckets and closest-node termination is left for later."
                                                             :expiration (discv4-expiration)))))
                         (setf (gethash (idkey (discv4-node-node-id node)) queried) t)
                         (incf query-count))
+                      (enr-request-node (node)
+                        (let ((key (idkey (discv4-node-node-id node)))
+                              (entry (gethash (idkey (discv4-node-node-id node))
+                                              enr-asked)))
+                          (send-node node
+                                     (encode-discv4-packet
+                                      private-key +discv4-packet-enr-request+
+                                      (encode-discv4-enr-request
+                                       (make-discv4-enr-request
+                                        :expiration (discv4-expiration)))))
+                          (setf (gethash key enr-asked)
+                                (cons (1+ (if entry (car entry) 0))
+                                      (get-universal-time)))))
+                      (enr-due-p (key now)
+                        ;; A bonded node we have no verdict on yet, that is
+                        ;; either unasked or due another attempt.
+                        (and record-filter
+                             (gethash key bonded)
+                             (not (gethash key enr-verdict))
+                             (let ((entry (gethash key enr-asked)))
+                               (or (null entry)
+                                   (and (< (car entry)
+                                           +discv4-enr-request-attempts+)
+                                        (>= now (+ (cdr entry)
+                                                   +discv4-enr-request-retry-seconds+)))))))
                       (add-node (node)
                         (let ((key (idkey (discv4-node-node-id node))))
                           (when (and (not (gethash key seen))
@@ -308,6 +364,9 @@ k-buckets and closest-node termination is left for later."
                    ;; query's reply, so we do not quit before Neighbors arrive.
                    (when (and (zerop (hash-table-count pending))
                               (or (null last-query-at) (>= now (1+ last-query-at)))
+                              (or (null last-enr-at)
+                                  (>= now (+ last-enr-at
+                                             +discv4-enr-request-retry-seconds+)))
                               (null (candidates
                                      (lambda (key node)
                                        (declare (ignore node))
@@ -315,7 +374,8 @@ k-buckets and closest-node termination is left for later."
                                                 (not (gethash key pinged)))
                                            (and (< query-count max-queries)
                                                 (gethash key bonded)
-                                                (not (gethash key queried))))))))
+                                                (not (gethash key queried)))
+                                           (enr-due-p key now))))))
                      (return))
                    ;; Bond with nodes we have not pinged yet.
                    (dolist (node (subseq* (candidates
@@ -342,7 +402,17 @@ k-buckets and closest-node termination is left for later."
                        (dolist (node (subseq* ready (min alpha
                                                          (- max-queries query-count))))
                          (findnode-node node target)
-                         (setf last-query-at now)))))
+                         (setf last-query-at now))))
+                   ;; Ask bonded nodes for their record. Uncapped, unlike the
+                   ;; bond and query fan-outs: this is one small datagram per
+                   ;; bonded node, the bonded set is what the alpha-capped
+                   ;; bonding already limited, and every node left unasked is a
+                   ;; node the crawl cannot return.
+                   (dolist (node (candidates (lambda (key node)
+                                               (declare (ignore node))
+                                               (enr-due-p key now))))
+                     (enr-request-node node)
+                     (setf last-enr-at now)))
                  (let ((packet (discv4-receive socket 1)))
                    (when packet
                      (handler-case
@@ -384,14 +454,58 @@ k-buckets and closest-node termination is left for later."
                                          (discv4-neighbors-expiration reply))
                                   ;; One malformed node must not lose the rest.
                                   (dolist (node (discv4-neighbors-nodes reply))
-                                    (ignore-errors (add-node node))))))))
+                                    (ignore-errors (add-node node))))))
+                             ((and record-filter
+                                   (= type +discv4-packet-enr-response+))
+                              (let ((key (idkey sender)))
+                                ;; Only a record we asked for, and only from the
+                                ;; node it describes. The packet signature says
+                                ;; who sent it and the record's own signature
+                                ;; says whose it is; requiring those to agree is
+                                ;; what stops a node earning a verdict by
+                                ;; forwarding somebody else's record.
+                                (when (gethash key enr-asked)
+                                  (let* ((response
+                                           (decode-discv4-enr-response data))
+                                         (record
+                                           (ignore-errors
+                                            (decode-enr
+                                             (discv4-enr-response-record
+                                              response))))
+                                         (public-key (and record
+                                                          (enr-public-key record))))
+                                    (setf (gethash key enr-verdict)
+                                          (cond
+                                            ((not (and public-key
+                                                       (bytes= public-key sender)))
+                                             :unusable)
+                                            ((funcall record-filter record) :match)
+                                            (t :mismatch)))))))))
                        (error () nil)))))
-               (loop for node being the hash-values of seen
-                     for key = (idkey (discv4-node-node-id node))
-                     for host = (node-host node)
-                     when (and host (not (gethash key boot-keys)))
-                       collect (enode-url (discv4-node-node-id node) host
-                                          (discv4-node-tcp-port node)))))
+               (values
+                (loop for node being the hash-values of seen
+                      for key = (idkey (discv4-node-node-id node))
+                      for host = (node-host node)
+                      when (and host
+                                (not (gethash key boot-keys))
+                                (or (null record-filter)
+                                    (eq :match (gethash key enr-verdict))))
+                        collect (enode-url (discv4-node-node-id node) host
+                                           (discv4-node-tcp-port node)))
+                ;; What the crawl saw, so a filtered crawl that returns nothing
+                ;; can be told apart from one that never got off the ground --
+                ;; no bonds is a broken socket, bonds but no records is a
+                ;; discv4 without EIP-868, records but no matches is a DHT full
+                ;; of other people's chains.
+                (list (cons "seen" (hash-table-count seen))
+                      (cons "bonded" (hash-table-count bonded))
+                      (cons "records" (hash-table-count enr-verdict))
+                      (cons "matched"
+                            (loop for v being the hash-values of enr-verdict
+                                  count (eq v :match)))
+                      (cons "mismatched"
+                            (loop for v being the hash-values of enr-verdict
+                                  count (eq v :mismatch)))))))
         (ignore-errors (sb-bsd-sockets:socket-close socket))))))
 
 
@@ -474,11 +588,18 @@ byte of effort it cost the attacker."
         (when nodes
           (discv4-neighbors-packets private-key nodes))))))
 
-(defun discv4-serve-enr-request (private-key table data sender packet now)
+(defun discv4-serve-enr-request (private-key table data sender packet now
+                                 &key record-pairs)
   "Answer an ENRRequest with our signed record.
 
 Bonded senders only, for the same amplification reason as FindNode: a signed
-record is larger than the request that asks for it."
+record is larger than the request that asks for it.
+
+RECORD-PAIRS are the chain-specific entries to advertise, an alist of
+(key-string . value) — in practice the `eth` fork-id entry. Serving a record
+without them is not harmless: a record is exactly how another node decides
+whether we are worth dialing, and one that says nothing about our chain is
+indistinguishable from a node on somebody else's."
   (let ((request (decode-discv4-enr-request data)))
     (unless (or (discv4-expired-p (discv4-enr-request-expiration request))
                 (not (discv4-table-bonded-p table sender now)))
@@ -486,4 +607,5 @@ record is larger than the request that asks for it."
        private-key +discv4-packet-enr-response+
        (encode-discv4-enr-response
         (make-discv4-enr-response :request-hash (subseq packet 0 32)
-                                  :record (encode-enr private-key 1 nil)))))))
+                                  :record (encode-enr private-key 1
+                                                      record-pairs)))))))

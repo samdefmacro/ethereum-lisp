@@ -230,5 +230,7 @@
    #:chain-config-eth-fork-id
    #:chain-config-fork-hash-series
    #:validate-peer-fork-id
+   #:eth-fork-id-from-enr-entry
+   #:eth-fork-id-enr-entry
    #:eth-fork-id-mismatch
    #:eth-fork-id-mismatch-reason))

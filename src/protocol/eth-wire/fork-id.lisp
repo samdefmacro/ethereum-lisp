@@ -55,6 +55,41 @@ so they are excluded from the fold."
                    0)))
     (compute-eth-fork-id genesis-hash passed next)))
 
+;;; The fork id as a node record carries it, rather than as the eth handshake
+;;; does. This is what lets a node be judged before it is dialed.
+
+(defun eth-fork-id-enr-entry (fork-id)
+  "The `eth` ENR entry value advertising FORK-ID, as an RLP object.
+
+The inverse of ETH-FORK-ID-FROM-ENR-ENTRY, and the reason a record needs one at
+all: a node that serves records without this key is filtered out by everyone who
+reads them, so not advertising it is the same bug as not reading it, pointed the
+other way. The tail go-ethereum leaves room for is simply absent -- we have
+nothing to put in it, and a reader ignores it either way."
+  (make-rlp-list (eth-fork-id-rlp-object fork-id)))
+
+(defun eth-fork-id-from-enr-entry (value)
+  "The fork id in the `eth` entry of an ENR, or NIL when VALUE is not one.
+
+The entry is `[[fork_hash, fork_next], ...]` and NOT `[fork_hash, fork_next]`:
+go-ethereum stores a struct whose first field is the fork id and whose remaining
+fields are an RLP tail held open for later use, and a struct encodes as a list.
+So the nesting is load-bearing -- read one level too shallow and the whole inner
+list is taken for the four-byte fork hash, which then matches nothing. The tail
+is ignored deliberately; being ignorable is its entire purpose.
+
+Returns NIL rather than signalling on anything malformed. This decodes a
+datagram from an unauthenticated stranger, and the only question a caller asks
+is whether to dial the node -- which an undecodable record answers by itself."
+  (ignore-errors
+   (when (rlp-list-p value)
+     (let ((inner (first (rlp-list-items value))))
+       (when (and (rlp-list-p inner)
+                  (= 2 (length (rlp-list-items inner))))
+         (let ((fork-id (eth-fork-id-from-rlp-object inner)))
+           (when (= 4 (length (ensure-byte-vector (eth-fork-id-hash fork-id))))
+             fork-id)))))))
+
 ;;; EIP-2124 validation: check a peer's advertised fork id against our chain.
 
 (define-condition eth-fork-id-mismatch (error)

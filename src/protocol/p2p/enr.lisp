@@ -30,6 +30,16 @@ compressed key is absent or invalid."
     (and compressed
          (secp256k1-decompress-public-key (ensure-byte-vector compressed)))))
 
+(defun enr-value-rlp-object (value)
+  "An ENR value as the RLP item a record stores it as.
+
+EIP-778 lets a value be either a byte string or a structured RLP value, and the
+entries that matter in practice use both: `ip` and `secp256k1` are byte strings,
+while go-ethereum's `eth` fork-id entry is a list. A byte string is normalised;
+anything already structured is passed through untouched, since re-encoding it
+would nest it one level deeper than every other client reads."
+  (if (rlp-list-p value) value (ensure-byte-vector value)))
+
 (defun enr-content-rlp (seq pairs)
   "The RLP of [seq, k1, v1, ...] — the record content that is signed."
   (rlp-encode
@@ -37,7 +47,7 @@ compressed key is absent or invalid."
           (list* (integer-to-minimal-bytes seq)
                  (loop for (key . value) in pairs
                        append (list (ascii-to-bytes key)
-                                    (ensure-byte-vector value)))))))
+                                    (enr-value-rlp-object value)))))))
 
 (defun enr-sort-pairs (pairs)
   "Sort record PAIRS by key in byte order, as EIP-778 requires."
@@ -65,7 +75,7 @@ secp256k1 keys are supplied from PRIVATE-KEY. Signals if the record exceeds
                                 (integer-to-minimal-bytes seq)
                                 (loop for (key . value) in pairs
                                       append (list (ascii-to-bytes key)
-                                                   (ensure-byte-vector value))))))))
+                                                   (enr-value-rlp-object value))))))))
     (when (> (length record) +enr-max-size+)
       (error "ENR exceeds ~D bytes" +enr-max-size+))
     record))

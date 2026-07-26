@@ -17,6 +17,40 @@
                      :london-block 12965000
                      :shanghai-time 1681338455))
 
+(deftest eth-chain-context-judges-a-node-record
+  (:layer :unit :module :p2p)
+  ;; What discovery uses to decide whether a node is worth dialing, and what a
+  ;; node publishes so others can decide the same about it. The two are checked
+  ;; together because they have to agree: a client that filters on an entry it
+  ;; does not itself publish gets filtered straight back out.
+  (let* ((config (eth-sync-test-config))
+         (context (make-eth-chain-context config *eth-sync-test-genesis*
+                                          15000000 1690000000))
+         (ours (cdr (assoc "eth" (eth-chain-context-record-pairs context)
+                           :test #'string=))))
+    ;; Our own advertised entry is one we would accept.
+    (is (eth-chain-context-record-compatible-p context ours))
+    ;; A peer one fork behind us, announcing the fork it has not yet crossed,
+    ;; is compatible -- EIP-2124 rule 2, and the ordinary case of a peer that
+    ;; has not upgraded yet.
+    (is (eth-chain-context-record-compatible-p
+         context
+         (ethereum-lisp.eth-wire:eth-fork-id-enr-entry
+          (ethereum-lisp.eth-wire:chain-config-eth-fork-id
+           config *eth-sync-test-genesis* 12000000 0))))
+    ;; A fork hash from another chain is not.
+    (is (not (eth-chain-context-record-compatible-p
+              context
+              (ethereum-lisp.eth-wire:eth-fork-id-enr-entry
+               (ethereum-lisp.eth-wire:make-eth-fork-id
+                (hex-to-bytes "0xdeadbeef") 0)))))
+    ;; And neither is a node that says nothing about its chain. On a shared DHT
+    ;; `I cannot tell' has to mean `not mine', or the filter admits precisely
+    ;; the nodes it exists to exclude.
+    (is (not (eth-chain-context-record-compatible-p context nil)))
+    (is (not (eth-chain-context-record-compatible-p
+              context (hex-to-bytes "0xdeadbeef"))))))
+
 (deftest eth-build-status-carries-network-genesis-and-fork-id
   (:layer :unit :module :p2p)
   (let* ((config (eth-sync-test-config))

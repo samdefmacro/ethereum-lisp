@@ -478,6 +478,7 @@
    #:discv4-serve-ping
    #:discv4-serve-find-node
    #:discv4-serve-enr-request
+   #:enr-value
    #:discv4-neighbors-packets
    #:discv4-lookup
    #:devp2p-capability-name
@@ -526,6 +527,8 @@
    #:eth-build-status
    #:eth-chain-context
    #:make-eth-chain-context
+   #:eth-chain-context-record-compatible-p
+   #:eth-chain-context-record-pairs
    #:eth-validate-peer-status
    #:eth-peer-handshake
    #:eth-peer-connect

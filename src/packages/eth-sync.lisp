@@ -30,6 +30,9 @@
    #:eth-build-status
    #:eth-chain-context
    #:make-eth-chain-context
+   #:eth-chain-context-fork-id
+   #:eth-chain-context-record-pairs
+   #:eth-chain-context-record-compatible-p
    #:eth-validate-peer-status
    #:eth-peer-handshake
    #:eth-peer-connect

@@ -68,6 +68,45 @@
              (devnet-shutdown-request shutdown-controller))))
        :name "ethereum-lisp-devnet-dev-period"))))
 
+(defconstant +devnet-discovery-crawl-seconds+ 8
+  "Budget for one crawl. Longer than the bare bond-and-ask crawl needed, because
+a filtered crawl adds a request/response round trip per bonded node -- and a
+node whose record has not arrived by the deadline is a node the crawl cannot
+return. Our policy.")
+
+(defun devnet-node-chain-context (node)
+  "NODE's eth chain context at the current head, or NIL if it cannot be read.
+
+Best-effort on purpose: both callers below are discovery, and discovery that
+cannot describe our chain should degrade rather than take the node down."
+  (ignore-errors (nth-value 2 (devnet-peer-sync-status node))))
+
+(defun devnet-node-record-pairs (node)
+  "The chain-specific ENR entries this node advertises.
+
+Recomputed per request rather than cached, because our fork id moves as the head
+crosses a fork and a record still advertising the previous one is precisely the
+stale advertisement that gets a node filtered out."
+  (let ((chain-context (devnet-node-chain-context node)))
+    (when chain-context
+      (eth-chain-context-record-pairs chain-context))))
+
+(defun devnet-discovery-record-filter (node)
+  "A predicate on a discovered node's ENR: is it on our chain?
+
+Rebuilt for each crawl rather than captured once, for the same reason the served
+record is: our own fork id moves with the head, and a filter frozen at startup
+would go on judging peers against a fork we have since crossed.
+
+Returns NIL when our own chain context cannot be read, which turns filtering OFF
+for that crawl rather than rejecting everybody. A node that cannot say what
+chain it is on has no basis to refuse anyone else's."
+  (let ((chain-context (devnet-node-chain-context node)))
+    (when chain-context
+      (lambda (record)
+        (eth-chain-context-record-compatible-p
+         chain-context (enr-value record "eth"))))))
+
 (defun devnet-start-discovery-thread
     (node shutdown-controller error-callback)
   "Start the discv4 crawl worker, or return NIL when no bootnodes are configured
@@ -99,8 +138,25 @@ crawl is logged and retried; only an escaping error is fail-stop."
                      ;; one slow peer stalled every later dial on the same
                      ;; thread, and the fixed crawl interval was the only
                      ;; backoff there was.
-                     (let ((found (discv4-lookup bootnodes private-key
-                                                 :timeout-seconds 4)))
+                     (multiple-value-bind (found stats)
+                         (discv4-lookup
+                          bootnodes private-key
+                          :timeout-seconds +devnet-discovery-crawl-seconds+
+                          :record-filter (devnet-discovery-record-filter node))
+                       ;; Log the crawl's shape every time, not just when it
+                       ;; goes wrong. A filtered crawl legitimately returns far
+                       ;; fewer nodes than an unfiltered one, so without the
+                       ;; counts behind the number there is no way to tell a
+                       ;; working filter from a broken crawl.
+                       (telemetry-log
+                        :info "peer.discovery.crawl"
+                        :fields (append
+                                 (loop for (name . count) in stats
+                                       collect (cons name
+                                                     (princ-to-string count)))
+                                 (list (cons "offered"
+                                             (princ-to-string (length found)))))
+                        :sink (devnet-node-telemetry-sink node))
                        (call-with-devnet-peer-table
                         node
                         (lambda ()
@@ -159,8 +215,9 @@ an unsigned or malformed datagram is not something to answer."
                                       "host" host "packets" (length packets)))
            packets))
         ((= type +discv4-packet-enr-request+)
-         (let ((response (discv4-serve-enr-request private-key table data sender
-                                                   packet now)))
+         (let ((response (discv4-serve-enr-request
+                          private-key table data sender packet now
+                          :record-pairs (devnet-node-record-pairs node))))
            (when response (list response))))
         ((= type +discv4-packet-pong+)
          ;; Somebody answered a Ping of ours: proof enough to keep them.

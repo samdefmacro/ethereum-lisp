@@ -288,3 +288,179 @@
                ;; The seed bootnode itself is excluded from the discovered set.
                (is (not (find boot-id ids :test #'bytes=)))))
         (ignore-errors (sb-bsd-sockets:socket-close boot-socket))))))
+
+(defun discv4-test-receive-datagram (socket timeout-seconds)
+  "Receive one datagram within TIMEOUT-SECONDS, or NIL. (VALUES PACKET ADDRESS PORT).
+
+A test server that blocks forever in SOCKET-RECEIVE takes JOIN-THREAD down with
+it, turning any failure of the code under test into a hung suite rather than a
+red one."
+  (when (sb-sys:wait-until-fd-usable
+         (sb-bsd-sockets:socket-file-descriptor socket) :input timeout-seconds)
+    (let ((buffer (make-byte-vector 1280)))
+      (multiple-value-bind (received size address port)
+          (sb-bsd-sockets:socket-receive socket buffer nil)
+        (declare (ignore received))
+        (when (and size (plusp size))
+          (values (subseq buffer 0 size) address port))))))
+
+(deftest discv4-lookup-filters-discovered-nodes-by-their-record
+  (:layer :integration :module :p2p :requires-local-sockets t)
+  ;; Two nodes are discovered beyond the bootnode. Both bond, both answer
+  ;; ENRRequest with a properly signed record, and they differ in exactly one
+  ;; thing: the fork id inside it.
+  ;;
+  ;; This is the entire reason the crawl asks for records. discv4 is a single
+  ;; DHT shared by every chain built on it, so a crawl returns whatever anyone
+  ;; happens to be running -- and the wrong-chain node has to be dropped before
+  ;; we spend a TCP connection and an ECIES handshake learning from the peer
+  ;; itself what its record would have told us for one datagram.
+  (let* ((boot-priv
+          #xb71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291)
+         (boot-id (node-id-from-private-key boot-priv))
+         (client-priv
+          #x49a7b37aa6f6645917e7b807e9d1c00d4fa71f18343b0d4122a4d2df64dd6fee)
+         (ours-priv #x0102030405060708090a0b0c0d0e0f101112131415161718)
+         (theirs-priv #x1112131415161718191a1b1c1d1e1f202122232425262728)
+         (ours-id (node-id-from-private-key ours-priv))
+         (theirs-id (node-id-from-private-key theirs-priv))
+         (ours-hash (hex-to-bytes "0xaabbccdd"))
+         (theirs-hash (hex-to-bytes "0x11223344"))
+         ;; Written from several threads, read only after they are joined.
+         (server-error nil))
+    (multiple-value-bind (boot-socket boot-port)
+        (ethereum-lisp.p2p:discv4-make-socket :host "127.0.0.1" :port 0)
+      (multiple-value-bind (ours-socket ours-port)
+          (ethereum-lisp.p2p:discv4-make-socket :host "127.0.0.1" :port 0)
+        (multiple-value-bind (theirs-socket theirs-port)
+            (ethereum-lisp.p2p:discv4-make-socket :host "127.0.0.1" :port 0)
+          (unwind-protect
+               (labels
+                   ((pong-for (priv packet data address port socket)
+                      (let ((reply
+                              (ethereum-lisp.p2p:encode-discv4-packet
+                               priv ethereum-lisp.p2p:+discv4-packet-pong+
+                               (ethereum-lisp.p2p:encode-discv4-pong
+                                (ethereum-lisp.p2p:make-discv4-pong
+                                 :to (ethereum-lisp.p2p:discv4-ping-from
+                                      (ethereum-lisp.p2p:decode-discv4-ping data))
+                                 :ping-hash (subseq packet 0 32)
+                                 :expiration (ethereum-lisp.p2p:discv4-expiration))))))
+                        (sb-bsd-sockets:socket-send
+                         socket reply (length reply) :address (list address port))))
+                    (serve-peer (socket priv fork-hash)
+                      ;; Answer pings, then one ENRRequest, then stop. Ending on
+                      ;; the record request rather than a packet count keeps the
+                      ;; thread's lifetime tied to the exchange being tested.
+                      (lambda ()
+                        (handler-case
+                            (loop named serve do
+                              (multiple-value-bind (packet address port)
+                                  (discv4-test-receive-datagram socket 5)
+                                (unless packet (return-from serve))
+                                (multiple-value-bind (type data sender)
+                                    (ethereum-lisp.p2p:decode-discv4-packet packet)
+                                  (declare (ignore sender))
+                                  (cond
+                                    ((= type ethereum-lisp.p2p:+discv4-packet-ping+)
+                                     (pong-for priv packet data address port socket))
+                                    ((= type ethereum-lisp.p2p:+discv4-packet-enr-request+)
+                                     (let ((reply
+                                             (ethereum-lisp.p2p:encode-discv4-packet
+                                              priv
+                                              ethereum-lisp.p2p:+discv4-packet-enr-response+
+                                              (ethereum-lisp.p2p:encode-discv4-enr-response
+                                               (ethereum-lisp.p2p:make-discv4-enr-response
+                                                :request-hash (subseq packet 0 32)
+                                                :record
+                                                (ethereum-lisp.p2p:encode-enr
+                                                 priv 1
+                                                 (list (cons "eth"
+                                                             (ethereum-lisp.eth-wire:eth-fork-id-enr-entry
+                                                              (ethereum-lisp.eth-wire:make-eth-fork-id
+                                                               fork-hash 0))))))))))
+                                       (sb-bsd-sockets:socket-send
+                                        socket reply (length reply)
+                                        :address (list address port)))
+                                     (return-from serve))))))
+                          (error (condition) (setf server-error condition)))))
+                    (serve-bootnode ()
+                      (lambda ()
+                        (handler-case
+                            (loop named serve do
+                              (multiple-value-bind (packet address port)
+                                  (discv4-test-receive-datagram boot-socket 5)
+                                (unless packet (return-from serve))
+                                (multiple-value-bind (type data sender)
+                                    (ethereum-lisp.p2p:decode-discv4-packet packet)
+                                  (declare (ignore sender))
+                                  (cond
+                                    ((= type ethereum-lisp.p2p:+discv4-packet-ping+)
+                                     (pong-for boot-priv packet data address port
+                                               boot-socket))
+                                    ((= type ethereum-lisp.p2p:+discv4-packet-find-node+)
+                                     (let ((reply
+                                             (ethereum-lisp.p2p:encode-discv4-packet
+                                              boot-priv
+                                              ethereum-lisp.p2p:+discv4-packet-neighbors+
+                                              (ethereum-lisp.p2p:encode-discv4-neighbors
+                                               (ethereum-lisp.p2p:make-discv4-neighbors
+                                                :nodes
+                                                (list (ethereum-lisp.p2p:make-discv4-node
+                                                       (hex-to-bytes "0x7f000001")
+                                                       ours-port ours-port ours-id)
+                                                      (ethereum-lisp.p2p:make-discv4-node
+                                                       (hex-to-bytes "0x7f000001")
+                                                       theirs-port theirs-port
+                                                       theirs-id))
+                                                :expiration
+                                                (ethereum-lisp.p2p:discv4-expiration))))))
+                                       (sb-bsd-sockets:socket-send
+                                        boot-socket reply (length reply)
+                                        :address (list address port)))
+                                     (return-from serve))))))
+                          (error (condition) (setf server-error condition))))))
+                 (let ((threads
+                         (list (sb-thread:make-thread (serve-bootnode)
+                                                      :name "discv4-filter-boot")
+                               (sb-thread:make-thread
+                                (serve-peer ours-socket ours-priv ours-hash)
+                                :name "discv4-filter-ours")
+                               (sb-thread:make-thread
+                                (serve-peer theirs-socket theirs-priv theirs-hash)
+                                :name "discv4-filter-theirs"))))
+                   (multiple-value-bind (enodes stats)
+                       (ethereum-lisp.p2p:discv4-lookup
+                        (list (enode-url boot-id "127.0.0.1" boot-port))
+                        client-priv
+                        :timeout-seconds 6
+                        :record-filter
+                        (lambda (record)
+                          (let ((fork-id
+                                  (ethereum-lisp.eth-wire:eth-fork-id-from-enr-entry
+                                   (ethereum-lisp.p2p:enr-value record "eth"))))
+                            (and fork-id
+                                 (bytes= ours-hash
+                                         (ethereum-lisp.eth-wire:eth-fork-id-hash
+                                          fork-id))))))
+                     (mapc #'sb-thread:join-thread threads)
+                     (when server-error
+                       (error "discv4 filter test server side failed: ~A"
+                              server-error))
+                     (let ((ids (mapcar (lambda (e)
+                                          (nth-value 0 (parse-enode-url e)))
+                                        enodes)))
+                       ;; The node on our chain is returned.
+                       (is (find ours-id ids :test #'bytes=))
+                       ;; The node on another chain is not.
+                       (is (not (find theirs-id ids :test #'bytes=))))
+                     ;; And it was JUDGED rather than merely missed: both records
+                     ;; arrived, one matched and one did not. Without this the
+                     ;; test would still pass if the crawl had simply failed to
+                     ;; reach the second node at all.
+                     (is (= 2 (cdr (assoc "records" stats :test #'string=))))
+                     (is (= 1 (cdr (assoc "matched" stats :test #'string=))))
+                     (is (= 1 (cdr (assoc "mismatched" stats :test #'string=)))))))
+            (ignore-errors (sb-bsd-sockets:socket-close boot-socket))
+            (ignore-errors (sb-bsd-sockets:socket-close ours-socket))
+            (ignore-errors (sb-bsd-sockets:socket-close theirs-socket))))))))
