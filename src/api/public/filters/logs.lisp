@@ -24,6 +24,43 @@
                                       (hash32= (nth index topics) topic))
                                     slot)))))))
 
+(defun eth-rpc-bloom-has-any-p (bloom values)
+  "Whether BLOOM might contain any of VALUES, as raw bytes."
+  (some (lambda (value) (bloom-contains-p bloom value)) values))
+
+(defun eth-rpc-block-bloom-may-match-p (block addresses topic-filters)
+  "Whether BLOCK could possibly contain a log matching the filter.
+
+A bloom filter answers one question definitively: a value it does NOT contain is
+definitely not in the block. So this is a cheap NEGATIVE test that lets a whole
+block's receipts be skipped without decoding them -- which is the difference
+between reading one 256-byte header field and walking every receipt of every
+block in the range. A positive answer means only 'maybe', and the caller still
+matches each log properly; false positives cost nothing but the scan we would
+have done anyway.
+
+Returns T when there is nothing to go on -- no bloom on the header, or a filter
+with no constraints -- because refusing to scan on missing information would
+drop real results."
+  (let ((bloom-bytes (block-header-logs-bloom (block-header block))))
+    (if (null bloom-bytes)
+        t
+        (let ((bloom (make-bloom bloom-bytes)))
+          (and
+           ;; Any ONE of the requested addresses may match, so the block is
+           ;; only ruled out when none of them is present.
+           (or (null addresses)
+               (eq addresses :empty-address-set)
+               (eth-rpc-bloom-has-any-p
+                bloom (mapcar #'address-bytes addresses)))
+           ;; Every constrained position must be satisfiable, since a log has to
+           ;; match all of them; a NIL slot is a wildcard and constrains nothing.
+           (loop for slot in topic-filters
+                 always (or (null slot)
+                            (eq slot :empty-topic-set)
+                            (eth-rpc-bloom-has-any-p
+                             bloom (mapcar #'topic-bytes slot)))))))))
+
 (defun eth-rpc-log-filter-object (params method)
   (unless (= 1 (length params))
     (block-validation-fail "~A params must contain exactly one filter"
@@ -133,7 +170,10 @@
     (block addresses topic-filters &key removed-p)
   (when (and block
              (= (length (block-transactions block))
-                (length (block-receipts block))))
+                (length (block-receipts block)))
+             ;; Cheap negative first: the header's bloom rules most blocks out
+             ;; without touching a single receipt.
+             (eth-rpc-block-bloom-may-match-p block addresses topic-filters))
     (loop with log-index-start = 0
           for transaction in (block-transactions block)
           for receipt in (block-receipts block)
