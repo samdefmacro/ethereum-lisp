@@ -77,6 +77,33 @@
    #:discv4-expiration
    #:discv4-expired-p
    #:discv4-node-distance
+   #:+discv4-bucket-size+
+   #:+discv4-bucket-count+
+   #:+discv4-bond-lifetime-seconds+
+   #:discv4-table-entry
+   #:make-discv4-table-entry
+   #:discv4-table-entry-node-id
+   #:discv4-table-entry-host
+   #:discv4-table-entry-udp-port
+   #:discv4-table-entry-tcp-port
+   #:discv4-table-entry-bonded-at
+   #:discv4-table-entry-failures
+   #:discv4-node-table
+   #:make-discv4-node-table
+   #:discv4-node-table-self-id
+   #:discv4-log-distance
+   #:discv4-table-entry
+   #:discv4-table-count
+   #:discv4-table-bonded-p
+   #:discv4-table-put
+   #:discv4-table-note-failure
+   #:discv4-table-remove
+   #:discv4-table-entries
+   #:discv4-table-closest
+   #:discv4-serve-ping
+   #:discv4-serve-find-node
+   #:discv4-serve-enr-request
+   #:discv4-neighbors-packets
    #:discv4-endpoint-for-host
    #:discv4-ip-string
    #:discv4-make-socket

@@ -388,3 +388,97 @@ k-buckets and closest-node termination is left for later."
                        collect (enode-url (discv4-node-node-id node) host
                                           (discv4-node-tcp-port node)))))
         (ignore-errors (sb-bsd-sockets:socket-close socket))))))
+
+
+;;;; Answering discovery, rather than only performing it.
+;;;;
+;;;; A node that crawls but never replies is invisible: nobody can find it, so
+;;;; nobody dials it, so it only ever has the peers it went looking for. These
+;;;; are the replies, kept as pure functions of a packet plus a table so the
+;;;; protocol decisions can be tested without a socket. The loop that owns the
+;;;; socket lives in the CLI layer with the other threads.
+
+(defun discv4-serve-ping (private-key table packet data sender host now)
+  "Answer a Ping: Pong first, and record the sender as bonded.
+
+The Pong echoes the hash of the ping packet, which is what proves to the sender
+that we received THAT ping rather than replaying an old one. Recording the
+sender bonded is the other half of the endpoint proof: it answered from the
+address it claimed, so it can now be handed to other peers."
+  (let ((ping (decode-discv4-ping data)))
+    (unless (discv4-expired-p (discv4-ping-expiration ping))
+      (let ((from (discv4-ping-from ping)))
+        (discv4-table-put table sender host
+                          (discv4-endpoint-udp-port from)
+                          (discv4-endpoint-tcp-port from)
+                          now :bonded t)
+        (encode-discv4-packet
+         private-key +discv4-packet-pong+
+         (encode-discv4-pong
+          (make-discv4-pong :to from
+                            :ping-hash (subseq packet 0 32)
+                            :expiration (discv4-expiration))))))))
+
+(defun discv4-neighbors-packets (private-key nodes)
+  "Encode NODES as Neighbors packets, split to stay inside the datagram limit.
+
+A full bucket of sixteen nodes does not fit in one UDP packet, so the reply is
+split. Sending one oversized datagram would simply be dropped."
+  (let ((packets '())
+        (batch '())
+        (per-packet 4))
+    (dolist (node nodes)
+      (push node batch)
+      (when (>= (length batch) per-packet)
+        (push (encode-discv4-packet
+               private-key +discv4-packet-neighbors+
+               (encode-discv4-neighbors
+                (make-discv4-neighbors :nodes (nreverse batch)
+                                       :expiration (discv4-expiration))))
+              packets)
+        (setf batch '())))
+    (when batch
+      (push (encode-discv4-packet
+             private-key +discv4-packet-neighbors+
+             (encode-discv4-neighbors
+              (make-discv4-neighbors :nodes (nreverse batch)
+                                     :expiration (discv4-expiration))))
+            packets))
+    (nreverse packets)))
+
+(defun discv4-serve-find-node (private-key table data sender now)
+  "Answer a FindNode with the bonded nodes nearest the target, as packets.
+
+REFUSES a sender that has not proved its own endpoint. Without that check we
+would be an amplifier: a forged FindNode carrying a victim's address as its
+source would have us send that victim several packets much larger than the one
+byte of effort it cost the attacker."
+  (let ((request (decode-discv4-find-node data)))
+    (unless (or (discv4-expired-p (discv4-find-node-expiration request))
+                (not (discv4-table-bonded-p table sender now)))
+      (let ((nodes (mapcar (lambda (entry)
+                             (make-discv4-node
+                              (ensure-byte-vector
+                               (sb-bsd-sockets:make-inet-address
+                                (discv4-table-entry-host entry)))
+                              (discv4-table-entry-udp-port entry)
+                              (discv4-table-entry-tcp-port entry)
+                              (discv4-table-entry-node-id entry)))
+                           (discv4-table-closest
+                            table (discv4-find-node-target request)))))
+        (when nodes
+          (discv4-neighbors-packets private-key nodes))))))
+
+(defun discv4-serve-enr-request (private-key table data sender packet now)
+  "Answer an ENRRequest with our signed record.
+
+Bonded senders only, for the same amplification reason as FindNode: a signed
+record is larger than the request that asks for it."
+  (let ((request (decode-discv4-enr-request data)))
+    (unless (or (discv4-expired-p (discv4-enr-request-expiration request))
+                (not (discv4-table-bonded-p table sender now)))
+      (encode-discv4-packet
+       private-key +discv4-packet-enr-response+
+       (encode-discv4-enr-response
+        (make-discv4-enr-response :request-hash (subseq packet 0 32)
+                                  :record (encode-enr private-key 1 nil)))))))
