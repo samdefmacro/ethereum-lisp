@@ -1116,6 +1116,23 @@
    #:receipt-list-root
    #:transaction-receipt-list-root)
   (#:ethereum-lisp.evm
+   #:*evm-call-tracer*
+   #:evm-call-tracer
+   #:make-evm-call-tracer
+   #:evm-call-tracer-enter
+   #:evm-call-tracer-exit
+   #:evm-call-tracer-root
+   #:evm-call-frame
+   #:evm-call-frame-type
+   #:evm-call-frame-from
+   #:evm-call-frame-to
+   #:evm-call-frame-value
+   #:evm-call-frame-gas
+   #:evm-call-frame-gas-used
+   #:evm-call-frame-input
+   #:evm-call-frame-output
+   #:evm-call-frame-error
+   #:evm-call-frame-children
    #:evm-error
    #:evm-step-limit-error
    #:evm-step-limit-error-limit

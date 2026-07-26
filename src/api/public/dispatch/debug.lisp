@@ -22,4 +22,8 @@
       ((public-rpc-dispatch-method-p context "debug_getRawTransaction")
        (public-rpc-dispatch-response
         context
-        (engine-rpc-handle-debug-get-raw-transaction params store config))))))
+        (engine-rpc-handle-debug-get-raw-transaction params store config)))
+      ((public-rpc-dispatch-method-p context "debug_traceCall")
+       (public-rpc-dispatch-response
+        context
+        (engine-rpc-handle-debug-trace-call params store config))))))

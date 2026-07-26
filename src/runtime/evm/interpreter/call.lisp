@@ -167,6 +167,13 @@ merging are deliberately not configurable; those are shared EVM invariants."
   (when (>= (evm-context-depth context) +max-call-depth+)
     (return-from execute-message-call-child
       (values 0 (make-byte-vector 0) 0 '() 0)))
+  ;; Every frame of a call trace is one of these, so the tracer needs no hook
+  ;; anywhere else. FLET with DYNAMIC-EXTENT rather than a fresh closure: this
+  ;; is the hottest path in the EVM, and a heap-allocated closure per call
+  ;; would be a real cost paid by every execution to support a feature almost
+  ;; none of them use. Stack-allocated, and with the tracer unbound, tracing
+  ;; costs one NIL check.
+  (flet ((traced-body ()
   (let ((success 0)
         (child-return-data (make-byte-vector 0))
         (child-logs '())
@@ -247,4 +254,19 @@ merging are deliberately not configurable; those are shared EVM invariants."
             child-return-data
             child-gas-used
             child-logs
-            child-refund-counter)))
+            child-refund-counter))))
+    (declare (dynamic-extent #'traced-body))
+    ;; STATICCALL is derivable here; DELEGATECALL and CALLCODE are not, because
+    ;; what distinguishes them is the caller and address the CALLER chose to
+    ;; pass, and by this point those are just arguments. Reporting CALL for them
+    ;; is a known limitation, named rather than papered over -- as is CREATE,
+    ;; which does not come through this function at all. (CHILD-ADDRESS is NOT
+    ;; the create marker it looks like: an ordinary call passes it too.)
+    (call-with-evm-call-trace
+     #'traced-body
+     :type (if read-only-p "STATICCALL" "CALL")
+     :from child-caller
+     :to code-address
+     :value child-call-value
+     :gas child-gas-limit
+     :input args)))
