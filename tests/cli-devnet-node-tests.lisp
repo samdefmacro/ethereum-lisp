@@ -34,9 +34,16 @@
     (is (funcall (engine-rpc-http-service-allowed-method-p
                   (ethereum-lisp.cli:devnet-node-service node))
                  "engine_exchangeCapabilities"))
+    ;; The Engine port serves the nine `eth` methods the spec obliges it to, so
+    ;; a consensus client can read state and logs over the same connection.
+    (is (funcall (engine-rpc-http-service-allowed-method-p
+                  (ethereum-lisp.cli:devnet-node-service node))
+                 "eth_chainId"))
+    ;; And nothing beyond them: the authenticated surface is the size of its
+    ;; contract, not the size of what happens to be implemented.
     (is (not (funcall (engine-rpc-http-service-allowed-method-p
                        (ethereum-lisp.cli:devnet-node-service node))
-                      "eth_chainId")))
+                      "eth_getBalance")))
     (is (funcall (engine-rpc-http-service-allowed-method-p
                   (ethereum-lisp.cli:devnet-node-public-service node))
                  "eth_chainId"))
@@ -87,9 +94,20 @@
          (engine-filter (engine-rpc-http-service-allowed-method-p
                          engine-service)))
     (let ((engine-response
+            ;; An `eth` method the Engine API spec does NOT oblige the endpoint
+            ;; to serve. The nine it does are allowed there -- a consensus
+            ;; client reads state and logs over the same connection -- but the
+            ;; split still exists, and this is what proves it.
             (parse-json
              (engine-rpc-handle-request-json
-              "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_chainId\",\"params\":[]}"
+              "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_coinbase\",\"params\":[]}"
+              engine-store
+              engine-config
+              :allowed-method-p engine-filter)))
+          (engine-chain-id-response
+            (parse-json
+             (engine-rpc-handle-request-json
+              "{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"eth_chainId\",\"params\":[]}"
               engine-store
               engine-config
               :allowed-method-p engine-filter)))
@@ -185,6 +203,10 @@
         (is (string= "1.0" (fixture-object-field modules "web3"))))
       (is (string= "0x539"
                    (fixture-object-field chain-id-response "result")))
+      ;; And the same method answers on the Engine port, which is the half a
+      ;; live Lighthouse needed and did not get.
+      (is (string= "0x539"
+                   (fixture-object-field engine-chain-id-response "result")))
       (is (string= (address-to-hex coinbase)
                    (fixture-object-field public-coinbase-response
                                          "result")))

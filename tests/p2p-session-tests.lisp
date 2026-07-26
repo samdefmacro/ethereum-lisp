@@ -183,10 +183,21 @@
                                      (error (c) c))))
                             (is (not (null condition)))
                             (if compressed
-                                ;; The bug this guards: a compressed pre-Hello
-                                ;; Disconnect is unreadable, so the peer learns
-                                ;; nothing about why it was refused.
-                                (is (not (typep condition 'rlpx-disconnect)))
+                                ;; The bug this guards, from the SENDING side.
+                                ;; Compressing a pre-Hello Disconnect does not
+                                ;; make it unreadable so much as unreliable: the
+                                ;; frame still decodes, leniently, as a bare
+                                ;; reason -- which is exactly what a live peer's
+                                ;; Disconnect looks like -- but what comes out
+                                ;; is a byte of the Snappy envelope rather than
+                                ;; the reason that was sent. A peer refused for
+                                ;; "too many peers" is told something else. That
+                                ;; the WRONG reason arrives, rather than none,
+                                ;; is why the send side must not compress.
+                                (is (not (and (typep condition 'rlpx-disconnect)
+                                              (= +devp2p-disconnect-too-many-peers+
+                                                 (rlpx-disconnect-reason
+                                                  condition)))))
                                 (progn
                                   (is (typep condition 'rlpx-disconnect))
                                   (is (= +devp2p-disconnect-too-many-peers+
