@@ -87,6 +87,11 @@
    #:telemetry-event-fields
    #:memory-telemetry-sink
    #:make-memory-telemetry-sink
+   #:counting-telemetry-sink
+   #:counting-telemetry-sink-p
+   #:make-counting-telemetry-sink
+   #:counting-telemetry-sink-delegate
+   #:counting-telemetry-sink-snapshot
    #:stream-telemetry-sink
    #:make-stream-telemetry-sink
    #:stream-telemetry-sink-stream

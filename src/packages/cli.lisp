@@ -105,6 +105,7 @@
    #:devnet-node-p2p-host
    #:devnet-node-p2p-port
    #:devnet-node-enode
+   #:devnet-node-metrics
    #:devnet-shutdown-controller-add-closeable
    #:devnet-shutdown-controller-remove-closeable
    #:devnet-start-p2p-listener-thread

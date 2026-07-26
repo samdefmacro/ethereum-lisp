@@ -168,6 +168,16 @@ The mutex is NOT recursive. Nothing called from inside THUNK may take it again -
 which is why the peer table and the dial registry lock nothing themselves."
   (funcall (devnet-node-dial-guard-function node) thunk))
 
+(defun devnet-node-metrics (node)
+  "Event counts collected since start, or NIL when --metrics is off.
+
+These are counts of the telemetry events the node already emits, so they follow
+whatever it really does rather than a separate set of counters that has to be
+kept in step by hand."
+  (let ((sink (devnet-node-telemetry-sink node)))
+    (when (counting-telemetry-sink-p sink)
+      (counting-telemetry-sink-snapshot sink))))
+
 (defun devnet-node-enode (node)
   "Our own enode URL, or NIL when we are not listening.
 

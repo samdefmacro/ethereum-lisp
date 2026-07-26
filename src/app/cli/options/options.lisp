@@ -59,6 +59,7 @@
         (node-key nil)
         (p2p-port nil)
         (max-peers nil)
+        (metrics nil)
         (help-p nil))
     (labels ((next-value (option)
                (multiple-value-bind (value rest)
@@ -97,6 +98,11 @@
                 ;; The devp2p listening port, NOT the Engine RPC port, which is
                 ;; --engine-port/--authrpc.port and rides the :port key.
                 (setf p2p-port (next-parsed-value option #'devnet-cli-parse-port)))
+               ((string= option "--metrics")
+                ;; A geth-style optional boolean: bare, or followed by a value,
+                ;; so --metrics=false must turn it OFF rather than being read as
+                ;; on with a stray argument left over.
+                (setf metrics (next-optional-boolean option)))
                ((string= option "--maxpeers")
                 (setf max-peers
                       (next-parsed-value option
@@ -314,5 +320,6 @@
           :bootnodes (nreverse bootnodes)
           :p2p-port p2p-port
           :max-peers max-peers
+          :metrics metrics
           :node-key node-key
           :help-p help-p))))

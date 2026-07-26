@@ -109,3 +109,35 @@
     (is (= 1 (length (ethereum-lisp.public-api::eth-rpc-block-logs-object
                       blind (list (address-from-hex *bloom-test-address*))
                       nil))))))
+
+(deftest devnet-metrics-count-what-the-node-actually-emits
+  (:layer :unit :module :devnet)
+  ;; --metrics counts the telemetry events the node already emits. Counting
+  ;; those rather than maintaining a separate set of counters is what stops the
+  ;; metrics drifting from what the node really does.
+  (let ((off (ethereum-lisp.cli:make-devnet-node
+              :genesis-json *eth-sync-paris-genesis-json*
+              :port 0 :public-port 0)))
+    ;; Off by default: no counting sink, and nothing to report.
+    (is (null (ethereum-lisp.cli:devnet-node-metrics off))))
+  (let* ((node (ethereum-lisp.cli:make-devnet-node
+                :genesis-json *eth-sync-paris-genesis-json*
+                :port 0 :public-port 0 :metrics t))
+         (sink (ethereum-lisp.cli:devnet-node-telemetry-sink node)))
+    (is (ethereum-lisp.telemetry:counting-telemetry-sink-p sink))
+    ;; Nothing emitted yet.
+    (is (null (ethereum-lisp.cli:devnet-node-metrics node)))
+    (ethereum-lisp.telemetry:telemetry-log :info "peer.dial.connected" :sink sink)
+    (ethereum-lisp.telemetry:telemetry-log :info "peer.dial.connected" :sink sink)
+    (ethereum-lisp.telemetry:telemetry-log :warning "peer.dial.failed" :sink sink)
+    (let ((metrics (ethereum-lisp.cli:devnet-node-metrics node)))
+      (is (= 2 (length metrics)))
+      (is (= 2 (cdr (assoc "peer.dial.connected" metrics :test #'string=))))
+      (is (= 1 (cdr (assoc "peer.dial.failed" metrics :test #'string=))))))
+  ;; --metrics is parsed off the command line.
+  (is (getf (ethereum-lisp.cli::devnet-cli-options
+             (list "devnet" "--metrics" "--no-serve"))
+            :metrics))
+  (is (null (getf (ethereum-lisp.cli::devnet-cli-options
+                   (list "devnet" "--no-serve"))
+                  :metrics))))

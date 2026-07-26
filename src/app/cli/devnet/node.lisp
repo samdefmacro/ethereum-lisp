@@ -50,7 +50,11 @@
        bootnodes
        node-key
        (public-allowed-method-p #'engine-rpc-public-method-p)
-       (telemetry-sink ethereum-lisp.telemetry:*telemetry-sink*))
+       (telemetry-sink ethereum-lisp.telemetry:*telemetry-sink*)
+       ;; --metrics counts every telemetry event by name. Counting what the node
+       ;; already emits means the metrics cannot drift from what it actually
+       ;; does, which a parallel set of hand-placed counters eventually would.
+       metrics)
   (unless (or (and genesis-path (stringp genesis-path))
               (and genesis-json (stringp genesis-json)))
     (error "Devnet node requires a genesis JSON path or source"))
@@ -63,7 +67,11 @@
     (error
      "--database and --txpool.journal must name different files: ~A"
      database-path))
-  (let* (;; The admin RPC backend must exist before the public service is built,
+  (let* ((telemetry-sink
+           (if metrics
+               (make-counting-telemetry-sink :delegate telemetry-sink)
+               telemetry-sink))
+         ;; The admin RPC backend must exist before the public service is built,
          ;; but it reads the node, which is built last. The box is filled the
          ;; moment the node exists; nothing reads it before then.
          (node-box (list nil))
