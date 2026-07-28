@@ -1,0 +1,19 @@
+---
+description: A new public export must land in both its own package file and the facade re-export
+globs: src/packages/**
+alwaysApply: false
+---
+
+# Package exports
+
+A new export goes in BOTH `packages/<pkg>.lisp` AND the `packages/facade.lisp`
+re-export. Miss the facade and CLI-package callers hit an undefined-function at
+RUNTIME, while the unit layer stays green — only devnet-launching tests reach
+that path, so this failure mode survives a clean unit run.
+
+The architecture tests enforce package home-ownership. `facade.lisp` is the one
+sanctioned mirror of the public surface; no other package may re-export a
+symbol it does not own. When a symbol belongs somewhere else, move its home
+rather than adding a re-export.
+
+Before removing an internal symbol, grep `tests/` as well as `src/` for callers.

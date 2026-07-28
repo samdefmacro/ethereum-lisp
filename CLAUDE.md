@@ -6,6 +6,38 @@ in this repo — read it before substantive work. Style rules live in
 docs/style.md; layering and package ownership in docs/architecture.md;
 validation policy in docs/validation.md.
 
+## Operating constraints
+
+**Commit identity.** Author AND committer must be `samdefmacro
+<samnewstart2026@outlook.com>`; `imnisen` / `imnisen@gmail.com` must appear
+nowhere in this repo. History was rewritten on 2026-07-26 to remove it. The
+repo-local git config is correct, but this machine's GLOBAL config still
+carries the old identity, so a fresh clone or a new worktree picks up the wrong
+one. `git log -1 --format='%an <%ae>'` after committing is the cheap guard.
+
+**No tool attribution in commits.** Do not add `Co-Authored-By` or
+generated-with trailers naming Claude, Cursor, or any other agent, and do not
+name a tool in the subject or body. Some earlier commits carry such trailers;
+new ones must not.
+
+**Push and merge are pre-authorized.** Push branches and merge to `main`
+without asking, once the change is verified at the layer it actually touches —
+a CLI/option change means running e2e too, not just unit and integration.
+Prefer fast-forward when the branch is a linear descendant. This does not
+extend to deleting remote branches, force-pushing, or rewriting published
+history; ask for those.
+
+**Get a go-ahead before running Docker, SBCL, or make.** Other agents run their
+own builds and containers on this machine, and concurrent runs race on compiler
+caches, images, CPU and loopback ports. This is on top of the never-kill /
+never-clear rules below: ask before `make docker-test-*` or any container run,
+not only before touching a process someone else started.
+
+**No interpreters on the host, ever.** Not sbcl, not python3, not scratch
+scripting — anything that executes code runs in a container. Plain `git`, `rg`
+and `curl` on the host are fine. This rule outranks any checked-in doc that
+appears to sanction a host path; when one conflicts, fix the doc.
+
 ## The development loop (warm image, not cold sbcl runs)
 
 **SBCL never runs on the macOS host** (PROJECT.md; the machine is shared with
@@ -54,6 +86,32 @@ is the agent-productivity metric stream.
 A PostToolUse hook (scripts/paren-hook.sh) checks delimiter balance on every
 .lisp/.asd edit and feeds errors straight back — fix them in the same turn.
 
+## Verification traps
+
+- **Never edit `src/` while a suite is running in the warm image.** Some tests
+  parse the source tree from disk and compare it against the packages the image
+  loaded at startup (`PROJECT-PACKAGE-DEPENDENCY-GRAPH-IS-ACYCLIC` and
+  `...-INCLUDES-SOURCE-REFERENCES`), so an edited-but-not-reloaded tree fails
+  them spuriously. Finish edits, reload, then run. When a warm-image failure
+  looks surprising, re-check it cold before investigating it as real.
+- **Never pipe a verification run through `tail` or `grep`.** It destroys the
+  record of which tests failed, and it masks the exit code — the pipeline
+  reports `tail`'s status, so a run that exited 2 looks like a 0. Redirect,
+  then grep the file: `make docker-test-all > log 2>&1; echo "EXIT=$?";
+  grep -E "^not ok|tests passed" log`
+- **Every `sb-thread:make-thread` body must wrap its work in a `handler-case`.**
+  The node and the whole suite run as `sbcl --script`, which implies
+  `--disable-debugger`, so an unhandled condition in ANY thread exits the whole
+  process with code 1. It does not fail a test — it kills the run with no
+  result. A regression test for this goes red by killing the run rather than by
+  reporting a failure, so say that in the test comment.
+- **A compile-time STYLE-WARNING is a test failure, not cosmetic noise.**
+  Several tests launch a fresh `sbcl --script` and assert on its stdout — one
+  expects it EMPTY, another parses it as JSON — and warnings emitted while the
+  script loads land in that stdout. Never mix `&optional` and `&key` in one
+  lambda list; use `loop repeat n` rather than a `dotimes` variable declared
+  ignored. Only warnings under a `/workspace/src/...` filename are ours.
+
 ## Documentation is verified (PAX transcripts)
 
 docs/*.lisp hold MGL-PAX sections whose ```cl-transcript examples are
@@ -75,7 +133,10 @@ objective; keep it additive and out of consensus paths.
 - Consensus behavior is validated against pinned EEST fixtures and reference
   clients — see PROJECT.md invariants; parity claims must name exact
   versions/commits.
-- Go helper binaries under tools/ (BLS, KZG) are built by scripts/*-backend
-  scripts; missing binaries capability-gate the corresponding Engine paths.
+- BLS (blst) and KZG (c-kzg-4844) are CFFI bindings, not subprocesses: the
+  Dockerfile builds `tools/bls-ffi/shim.c` and `tools/ckzg-ffi/shim.c` into
+  `libethbls.so` / `libethckzg.so` and the image dlopens them at runtime. Both
+  are the CLI default, and each degrades gracefully when its library is absent.
+  `.dockerignore` must un-ignore every new `shim.c`.
 - Shared-machine rules (multiple agents): never kill sbcl processes you did
   not start; never clear the shared host FASL cache.

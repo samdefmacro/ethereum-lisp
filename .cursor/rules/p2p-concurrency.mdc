@@ -1,0 +1,52 @@
+---
+description: Concurrency rules for the devp2p/RLPx peer layer — breaking any of them fails silently
+globs: src/networking/**,src/protocol/p2p/**
+alwaysApply: false
+---
+
+# Peer-layer concurrency
+
+Each rule below was established by a wave that shipped a defect violating it.
+None of them fail loudly.
+
+- **The session loop is the sole writer on its connection.** `rlpx-write-frame`
+  advances the cipher and MAC with no lock. Outbound work arrives as data
+  through the `pending-broadcast` closure — never a foreign thread calling
+  `eth-peer-send`.
+- **Never hold the node STORE guard across socket I/O.** It is one
+  non-recursive mutex, and the rejournal and dev-period workers join on it, so
+  holding it across I/O hangs shutdown outright. The peer table uses the node's
+  DIAL mutex instead.
+- **Nothing on a background thread may WAIT for the store guard.** It is held
+  for the whole of a block import, so waiting does not slow that thread down,
+  it stops it for as long as the node is busy. Use
+  `call-with-devnet-node-store-guard-if-free` and cache the last value read.
+- **`eth-wire-read` loops until a subprotocol message arrives.** A long-lived
+  loop must use `eth-wire-read-once`, or a keepalive-only peer blocks it
+  forever and `stop-p` is never consulted again.
+- **One request in flight per peer.** `eth-peer-await` drops a reply whose id
+  does not match, without offering it to the handler.
+- **Admission is two-phase.** Identity only exists after the RLPx handshake,
+  and that handshake is a blocking read that must not run on the accept thread.
+- **Queue announcements, never fetch inside the handler.** Fetching waits for a
+  reply, and a handler may already be running inside another wait, where the
+  nested wait eats the outer reply. Drain with
+  `eth-peer-fetch-announced-transactions` between messages only.
+- **`sb-sys:wait-until-fd-usable` is the readiness mechanism everywhere.** Do
+  not use `with-deadline`: it inherits SERIOUS-CONDITION so it slips past
+  `(error (c) ...)` handlers, and it does not interrupt a blocking `recvfrom`.
+- **A readable gate must ask `(listen stream)` before polling the fd.** The
+  peer stream is fully buffered, so a whole frame can sit in the Lisp buffer
+  while the descriptor still looks idle.
+
+Networking defaults are deliberate, not oversights: no `--port` means no
+listener, because a fixed 30303 would collide with other agents on this
+machine; `--port 0` binds ephemeral and reports the real port; `--maxpeers 0`
+disables peering.
+
+When testing a network component, the peer that actively FAILS is a different
+test from the peer that says nothing. A silent peer times out cleanly through
+the handshake budget and never signals, so a suite built only on silent peers
+leaves the failing paths — garbage bytes, mid-handshake close, incompatible eth
+version, failed fork-id check — completely unexercised. On a public port those
+are the common case.

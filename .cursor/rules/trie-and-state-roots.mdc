@@ -1,0 +1,34 @@
+---
+description: The MPT is a flat table rather than a node tree, and what that costs any state-root work
+globs: src/foundation/trie/**,src/runtime/state/**
+alwaysApply: false
+---
+
+# Trie and state roots
+
+**`mpt` is not a node tree.** `foundation/trie/types.lisp` defines it as a flat
+key→value hash table, and `mpt-put` / `mpt-delete` only touch that table. Every
+root call rebuilds the entire node tree from all entries and then recursively
+RLP-encodes the whole thing.
+
+The consequence is that a state root costs O(all accounts) no matter how few
+changed, and no amount of caching at the state-db layer fixes it. Making leaf
+updates incremental bought roughly 27%; the residual is entirely the rebuild
+and re-encode.
+
+So **persistent trie nodes are an XL rewrite of the trie module**, not an
+M-sized optimisation of the state layer. It means turning `mpt` into a real
+node tree whose put and delete mutate nodes along a single path, and whose
+nodes cache their own encoding and hash, invalidated only along the dirty path.
+The trie backs state, storage, transactions, receipts and withdrawals, so the
+blast radius is every root in the system. It also unlocks range proofs, and
+therefore snap sync.
+
+Guard rails if you attempt it: `*verify-incremental-root*` compares every flush
+against a full rebuild and is bound true by the suite, and the EEST fixture
+runs sit in the cold gates.
+
+**Settled — do not re-litigate without new measurements.** `state-db-copy` is
+not a bottleneck, at 0.05–0.75ms, despite deep-cloning the world on every
+CALL/CREATE through snapshots. It has already been suspected once and refuted
+by measurement.
