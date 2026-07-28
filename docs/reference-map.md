@@ -71,6 +71,25 @@ Under the project contract a parity claim must name an exact version or commit
 and the code path exercised, so checking these against a pinned clone is
 separate work that must come before any such wording.
 
+## Upstream versions actually fetched and read
+
+No `references/` checkout exists on this machine, so reference source has been
+fetched over the network into scratch space for the duration of a specific piece
+of work. Scratch space is not durable, so the record of which version a
+comparison read lives in the document that makes the claim, not alongside the
+fetched copies.
+
+The gas-accounting comparison recorded in `docs/gas-parity.md` read
+go-ethereum `v1.17.5` (`9621c6ad10934a01b5514886fb6fbd87640b6c05`), `v1.16.6`
+(`386c3de6c45f3e185279e6760a17f88fb98dc81a`), and `v1.16.3` (tag, commit hash
+not recorded); Nethermind `1.39.2` (`6568910591e4618dc49d54285b6213c3753d7243`),
+`1.34.1` (`c4238a37787abd95cc849aa817ffa9a6eef567dd`), and `master`
+(`e52dc19a56a46f58170a730822580774d403c838`); and `ethereum/execution-specs` at
+`85a36ccae03b0958d9bfb0a6e6d9e08f0e5c79db` and at an unpinned `master` head
+fetched 2026-07-28. Which version backs which finding matters and is tabulated
+per finding in that document — the spread across versions is itself a recorded
+limitation there.
+
 ## Using the map
 
 Consult reference clients when protocol behavior is ambiguous, consensus
