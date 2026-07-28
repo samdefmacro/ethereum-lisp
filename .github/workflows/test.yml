@@ -4,6 +4,16 @@ on:
   push:
   pull_request:
 
+# The layers run in the container, not on the runner. The Dockerfile is the only
+# place that knows how to build this environment: the Quicklisp dependencies the
+# .asd declares (ironclad, cffi) pinned to a dist, CL_SOURCE_REGISTRY so plain
+# ASDF can see them, and the two CFFI shims compiled into libethckzg.so and
+# libethbls.so. A runner with apt sbcl has none of that and dies at
+# MISSING-DEPENDENCY before the first test, which is what it did on every run
+# until now.
+env:
+  TEST_IMAGE: ethereum-lisp-sbcl-test:go1.24-bookworm
+
 jobs:
   layers:
     strategy:
@@ -11,21 +21,31 @@ jobs:
       matrix:
         layer: [unit, integration, e2e]
     runs-on: ubuntu-latest
+    # Only the e2e layer reads this. The container path defaults to 2 workers
+    # because it is also used on a developer machine shared with other work;
+    # a CI runner is ours alone, so keep the 4 this job asked for before.
+    env:
+      DOCKER_E2E_JOBS: 4
     steps:
       - uses: actions/checkout@v4
-      - name: Install runtimes
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y sbcl golang-go
-          sudo mkdir -p /private/tmp
-          sudo chmod 1777 /private/tmp
+      # Built with buildx against a cache shared by every job in the matrix, so
+      # the c-kzg and blst compile happens once per Dockerfile change rather
+      # than once per job. load: true puts it in the daemon under the tag the
+      # Makefile expects, and DOCKER_TEST_IMAGE_PREBUILT stops make from
+      # rebuilding it with the default builder, which would not see this cache.
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          tags: ${{ env.TEST_IMAGE }}
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
       - name: Run layer
-        run: |
-          if [ "${{ matrix.layer }}" = e2e ]; then
-            make test-e2e E2E_JOBS=4
-          else
-            make "test-${{ matrix.layer }}"
-          fi
+        env:
+          DOCKER_TEST_IMAGE_PREBUILT: 1
+        run: make "docker-test-${{ matrix.layer }}"
 
   # The layers above run with no fixture corpus, so every execution-spec-tests
   # case reports itself SKIPPED -- which in a green build reads exactly like
@@ -34,12 +54,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install runtimes
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y sbcl golang-go
-          sudo mkdir -p /private/tmp
-          sudo chmod 1777 /private/tmp
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          tags: ${{ env.TEST_IMAGE }}
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
       # Keyed on the pinned release, so a pin bump fetches rather than reusing
       # the previous corpus. The checksum in the script is what makes reuse safe.
       - name: Cache fixture corpus
@@ -55,10 +78,13 @@ jobs:
       # well, and without one they report themselves skipped exactly as they do
       # with no corpus at all -- so the job would download 4.2 GB, execute zero
       # vectors, and go green. `auto` means "every case the classifier finds".
+      # Both the root and the selectors reach the suite through the Makefile,
+      # which bind-mounts the corpus and forwards these into the container.
       - name: Run conformance layers
         env:
+          DOCKER_TEST_IMAGE_PREBUILT: 1
           ETHEREUM_LISP_PHASE_A_STATE_TEST_SELECTORS: auto
           ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_SELECTORS: auto
         run: |
-          make test-unit
-          make test-integration
+          make docker-test-unit
+          make docker-test-integration
