@@ -33,6 +33,11 @@
    hashes)
   store)
 
+(defun engine-payload-store-txpool-changes-since (store sequence)
+  (engine-pending-txpool-changes-since
+   (engine-payload-store-txpool store)
+   sequence))
+
 (defun engine-payload-store-pending-transaction-table (store)
   (engine-pending-txpool-transactions
    (engine-payload-store-txpool store)))

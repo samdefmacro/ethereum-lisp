@@ -20,6 +20,7 @@
                 #:engine-payload-store-blob-transaction-count
                 #:engine-payload-store-pooled-transaction
                 #:engine-payload-store-pooled-transactions
+                #:engine-payload-store-txpool-changes-since
                 #:engine-payload-store-remove-expired-txpool-queued-view-transactions
                 #:engine-select-mining-transactions)
   ;; The admin RPC namespace reads peering state through a backend of closures

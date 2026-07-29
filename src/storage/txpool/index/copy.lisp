@@ -82,4 +82,11 @@
      (engine-pending-txpool-database-change-tracking-enabled-p txpool)
      :database-dirty-transaction-keys
      (engine-pending-txpool-copy-metadata-table
-      (engine-pending-txpool-database-dirty-transaction-keys txpool)))))
+      (engine-pending-txpool-database-dirty-transaction-keys txpool))
+     :change-sequence
+     (engine-pending-txpool-change-sequence txpool)
+     :change-log
+     (mapcar
+      (lambda (entry)
+        (cons (car entry) (make-hash32 (hash32-bytes (cdr entry)))))
+      (engine-pending-txpool-change-log txpool)))))

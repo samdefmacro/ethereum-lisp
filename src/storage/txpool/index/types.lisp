@@ -26,7 +26,9 @@
                       local-transaction-predicate
                       (database-change-tracking-enabled-p nil)
                       (database-dirty-transaction-keys
-                       (make-hash-table :test 'equalp)))))
+                       (make-hash-table :test 'equalp))
+                      (change-sequence 0)
+                      (change-log '()))))
   transactions
   transactions-by-sender
   queued-transactions
@@ -40,9 +42,13 @@
   global-slot-limit
   local-transaction-predicate
   database-change-tracking-enabled-p
-  database-dirty-transaction-keys)
+  database-dirty-transaction-keys
+  (change-sequence 0 :type (integer 0 *))
+  (change-log '() :type list))
 
 (defvar *engine-pending-txpool-change-recorder* nil)
+
+(defconstant +engine-pending-txpool-change-log-limit+ 8192)
 
 (defun engine-pending-txpool-configure-promotion-policy
     (txpool account-slot-limit global-slot-limit local-transaction-predicate)
@@ -54,6 +60,16 @@
 
 (defun engine-pending-txpool-record-transaction-change (txpool transaction)
   (let ((hash (transaction-hash transaction)))
+    (let ((sequence
+            (incf (engine-pending-txpool-change-sequence txpool))))
+      (push (cons sequence hash)
+            (engine-pending-txpool-change-log txpool))
+      (when (> (length (engine-pending-txpool-change-log txpool))
+               +engine-pending-txpool-change-log-limit+)
+        (setf (engine-pending-txpool-change-log txpool)
+              (subseq
+               (engine-pending-txpool-change-log txpool)
+               0 +engine-pending-txpool-change-log-limit+))))
     (when (engine-pending-txpool-database-change-tracking-enabled-p txpool)
       (setf (gethash (hash32-to-hex hash)
                      (engine-pending-txpool-database-dirty-transaction-keys
@@ -61,6 +77,21 @@
             t))
     (when *engine-pending-txpool-change-recorder*
       (funcall *engine-pending-txpool-change-recorder* hash))))
+
+(defun engine-pending-txpool-changes-since (txpool sequence)
+  "Return hashes recorded after SEQUENCE, the current cursor, and overflow-p."
+  (let* ((current (engine-pending-txpool-change-sequence txpool))
+         (log (engine-pending-txpool-change-log txpool))
+         (oldest (and log (car (car (last log)))))
+         (overflow-p (and oldest (< sequence (1- oldest)))))
+    (values
+     (unless overflow-p
+       (nreverse
+        (loop for (entry-sequence . hash) in log
+              when (> entry-sequence sequence)
+                collect hash)))
+     current
+     overflow-p)))
 
 (defun call-with-engine-pending-txpool-change-tracking (recorder thunk)
   (unless (and (functionp recorder) (functionp thunk))

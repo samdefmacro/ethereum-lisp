@@ -177,10 +177,9 @@ transaction the effective tip is simply the gas price less the base fee."
 (deftest devnet-broadcast-offers-each-transaction-to-a-peer-once
   (:layer :unit :module :devnet)
   ;; Without this seam a transaction submitted to our RPC reaches nobody: the
-  ;; pool only ever drained into blocks we built ourselves. It polls and diffs
-  ;; rather than consuming the txpool's dirty-key set, which is single-consumer
-  ;; and cleared by the journal exporter -- reading it here would break
-  ;; journaling silently.
+  ;; pool only ever drained into blocks we built ourselves. Each peer consumes
+  ;; an independent cursor over the bounded change log, separate from journal
+  ;; dirty keys.
   (let* ((node (ethereum-lisp.cli:make-devnet-node
                 :genesis-json *eth-sync-paris-genesis-json*
                 :port 0 :public-port 0))
@@ -207,4 +206,13 @@ transaction the effective tip is simply the gas price less the base fee."
          store second-transaction)
         (is (= 1 (length (funcall pending))))
         (is (= 1 (length (funcall other-peer))))
-        (is (null (funcall pending)))))))
+        (is (null (funcall pending))))
+      ;; Non-pending subpools are announced too: a peer may have the missing
+      ;; nonce or a lower base fee and can make use of them.
+      (let ((queued-transaction (mining-order-test-transaction 3 4 900)))
+        (ethereum-lisp.txpool:engine-payload-store-put-queued-transaction
+         store queued-transaction)
+        (let ((offered (funcall pending)))
+          (is (= 1 (length offered)))
+          (is (bytes= (transaction-encoding queued-transaction)
+                      (transaction-encoding (first offered)))))))))

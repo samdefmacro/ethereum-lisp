@@ -28,6 +28,7 @@
    #:engine-pending-txpool-enable-database-change-tracking
    #:engine-pending-txpool-database-dirty-transaction-hashes
    #:engine-pending-txpool-clear-database-dirty-transaction-hashes
+   #:engine-pending-txpool-changes-since
    #:call-with-engine-pending-txpool-change-tracking
    #:engine-pending-txpool-sender
    #:engine-pending-txpool-sender-key
