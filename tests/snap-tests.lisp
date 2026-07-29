@@ -139,3 +139,53 @@
        (snap-test-hash 0)
        (snap-test-hash 255)
        (integer-to-minimal-bytes 1024))))))
+
+(deftest snap-backend-serves-and-persists-runtime-state
+  (:layer :integration :module :p2p)
+  (let* ((state (make-state-db))
+         (database (make-memory-key-value-database))
+         (address-a
+           (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (address-b
+           (address-from-hex "0x0000000000000000000000000000000000000002")))
+    (state-db-set-account state address-a
+                          (make-state-account :nonce 1 :balance 100))
+    (state-db-set-account state address-b
+                          (make-state-account :nonce 2 :balance 200))
+    (let* ((root (hash32-bytes (state-db-root state)))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              database state))
+           (request
+             (ethereum-lisp.snap:make-snap-get-account-range
+              77 root (make-byte-vector 32)
+              (make-byte-vector 32 :initial-element #xff) 100000)))
+      (multiple-value-bind (message-id encoded)
+          (ethereum-lisp.snap:snap-serve-request
+           backend ethereum-lisp.snap:+snap-message-get-account-range+
+           (ethereum-lisp.snap:encode-snap-message
+            ethereum-lisp.snap:+snap-message-get-account-range+ request))
+        (let ((response
+                (ethereum-lisp.snap:decode-snap-message message-id encoded)))
+          (is (= 2 (length
+                    (ethereum-lisp.snap:snap-account-range-accounts response))))
+          (is (plusp
+               (length
+                (ethereum-lisp.snap:snap-account-range-proof response))))))
+      (multiple-value-bind (root-node present-p)
+          (ethereum-lisp.trie:trie-node-store-get database root)
+        (is present-p)
+        (is (plusp (length root-node))))
+      (let ((trie-request
+              (ethereum-lisp.snap:make-snap-get-trie-nodes
+               78 root (list (list root)) 100000)))
+        (multiple-value-bind (message-id encoded)
+            (ethereum-lisp.snap:snap-serve-request
+             backend ethereum-lisp.snap:+snap-message-get-trie-nodes+
+             (ethereum-lisp.snap:encode-snap-message
+              ethereum-lisp.snap:+snap-message-get-trie-nodes+ trie-request))
+          (let ((response
+                  (ethereum-lisp.snap:decode-snap-message message-id encoded)))
+            (is (= 1
+                   (length
+                    (ethereum-lisp.snap:snap-trie-nodes-nodes response))))))))))

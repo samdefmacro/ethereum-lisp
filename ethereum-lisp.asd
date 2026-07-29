@@ -286,7 +286,8 @@
        (:file "eth-sync-pump" :pathname "eth-sync/pump")
        (:file "eth-sync-sync" :pathname "eth-sync/sync")
        (:file "eth-sync-backfill" :pathname "eth-sync/backfill")
-       (:file "eth-sync-node" :pathname "eth-sync/node")))
+       (:file "eth-sync-node" :pathname "eth-sync/node")
+       (:file "snap-sync-backend" :pathname "snap-sync/backend")))
      (:module "persistence-adapters"
       :pathname "storage/node-store/persistence/"
       :depends-on ("application-services")
