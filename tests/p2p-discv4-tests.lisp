@@ -1,5 +1,54 @@
 (in-package #:ethereum-lisp.test)
 
+(deftest nat-pmp-and-upnp-scripted-gateways-map-both-protocols
+  (:layer :unit :module :p2p)
+  (let ((calls '()))
+    (flet ((pmp-exchange (host port request)
+             (push (list host port (aref request 1)) calls)
+             (case (aref request 1)
+               (0 (ensure-byte-vector
+                   #(0 128 0 0 0 0 0 1 203 0 113 9)))
+               (1 (ensure-byte-vector
+                   #(0 129 0 0 0 0 0 2 118 95 118 95 0 0 14 16)))
+               (2 (ensure-byte-vector
+                   #(0 130 0 0 0 0 0 3 118 95 118 95 0 0 14 16))))))
+      (multiple-value-bind (address mapped-p)
+          (ethereum-lisp.nat:nat-resolve-and-map
+           (ethereum-lisp.nat:parse-nat-policy "pmp:192.0.2.1")
+           30303 :udp-exchange #'pmp-exchange)
+        (is (string= "203.0.113.9" address))
+        (is mapped-p)
+        (is (= 3 (length calls))))))
+  (let ((posts 0))
+    (flet ((udp (host port request)
+             (declare (ignore host port request))
+             (format nil
+                     "HTTP/1.1 200 OK~C~CLOCATION: http://192.0.2.1/root.xml~C~C~C~C"
+                     #\Return #\Linefeed #\Return #\Linefeed
+                     #\Return #\Linefeed))
+           (http-get-fixture (url)
+             (declare (ignore url))
+             "<root><service><controlURL>/upnp/control</controlURL></service></root>")
+           (post (url request)
+             (is (string= "/upnp/control" url))
+             (is (search "AddPortMapping" request))
+             (incf posts)
+             (format nil "HTTP/1.1 200 OK~C~C~C~C"
+                     #\Return #\Linefeed #\Return #\Linefeed)))
+      (multiple-value-bind (address mapped-p)
+          (ethereum-lisp.nat:nat-resolve-and-map
+           (ethereum-lisp.nat:parse-nat-policy "upnp") 30303
+           :udp-exchange #'udp :http-get #'http-get-fixture :http-post #'post
+           :internal-address "192.168.1.2")
+        (is (null address))
+        (is mapped-p)
+        (is (= 2 posts)))))
+  (multiple-value-bind (address mapped-p)
+      (ethereum-lisp.nat:nat-resolve-and-map
+       (ethereum-lisp.nat:parse-nat-policy "extip:198.51.100.4") 30303)
+    (is (string= "198.51.100.4" address))
+    (is (null mapped-p))))
+
 ;;;; discv4 packet codec: sign/frame/recover and per-packet RLP round-trips.
 
 (deftest discv4-packet-signs-frames-and-recovers-the-sender

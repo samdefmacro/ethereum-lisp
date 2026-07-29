@@ -86,6 +86,7 @@
                       dial-guard-function
                       p2p-host
                       p2p-port
+                      nat-policy
                       peer-table
                       discovery-table
                       metrics-host
@@ -132,6 +133,7 @@
   ;; collide. The peer table carries the peer limit and our own identity.
   p2p-host
   p2p-port
+  nat-policy
   peer-table
   ;; Who discovery knows about, bucketed by distance. Guarded by the same mutex
   ;; as the peer table and the dial registry.
@@ -267,9 +269,15 @@ loopback rather than advertising 0.0.0.0, which is not an address."
   (let ((port (devnet-node-p2p-port node)))
     (when port
       (enode-url (node-id-from-private-key (devnet-node-node-key node))
-                 (eth-sync-socket-endpoint-host
-                  (or (devnet-node-p2p-host node) "0.0.0.0"))
+                 (devnet-node-advertised-host node)
                  port))))
+
+(defun devnet-node-advertised-host (node)
+  (let ((policy (devnet-node-nat-policy node)))
+    (if (and policy (eq :extip (ethereum-lisp.nat:nat-policy-mode policy)))
+        (ethereum-lisp.nat:nat-policy-address policy)
+        (eth-sync-socket-endpoint-host
+         (or (devnet-node-p2p-host node) "0.0.0.0")))))
 
 (defun devnet-node-engine-cors-origins (node)
   (devnet-endpoint-config-cors-origins

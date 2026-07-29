@@ -60,6 +60,7 @@
         (p2p-port nil)
         (max-peers nil)
         (netrestrict nil)
+        (nat-policy nil)
         (metrics nil)
         (metrics-host nil)
         (metrics-port nil)
@@ -137,6 +138,10 @@
                 (setf netrestrict
                       (next-transformed-value
                        option #'devnet-cli-parse-vhost-list)))
+               ((string= option "--nat")
+                (setf nat-policy
+                      (ethereum-lisp.nat:parse-nat-policy
+                       (next-value option))))
                ((or (string= option "--engine-port")
                     (string= option "--authrpc.port"))
                 (setf port (next-parsed-value option #'devnet-cli-parse-port)))
@@ -351,6 +356,7 @@
           :p2p-port p2p-port
           :max-peers max-peers
           :netrestrict netrestrict
+          :nat-policy nat-policy
           :metrics metrics
           :metrics-host metrics-host
           :metrics-port metrics-port

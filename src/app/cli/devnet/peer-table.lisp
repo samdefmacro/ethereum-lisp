@@ -286,7 +286,7 @@ Peer reads take the peer-table mutex, never the store guard."
      (lambda ()
        (let* ((node (node))
               (port (devnet-node-p2p-port node))
-              (host (or (devnet-node-p2p-host node) "0.0.0.0"))
+              (host (devnet-node-advertised-host node))
               (head-number (call-with-devnet-node-store-guard
                             node
                             (lambda ()
@@ -297,7 +297,7 @@ Peer reads take the peer-table mutex, never the store guard."
                ;; The same name we give peers in our devp2p Hello.
                :client-id +eth-sync-client-id+
                :enode (devnet-node-enode node)
-               :ip (eth-sync-socket-endpoint-host host)
+               :ip host
                :listener-port (or port 0)
                :listen-address (when port (format nil "~A:~D" host port))
                :eth (list :network-id (devnet-node-network-id node)

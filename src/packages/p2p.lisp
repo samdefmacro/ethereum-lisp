@@ -297,3 +297,21 @@
    #:snap-state-backend-bytecodes
    #:snap-state-backend-trie-nodes
    #:snap-serve-request))
+
+(defpackage #:ethereum-lisp.nat
+  (:use #:cl #:ethereum-lisp.bytes)
+  (:export
+   #:nat-policy
+   #:parse-nat-policy
+   #:nat-policy-mode
+   #:nat-policy-address
+   #:nat-policy-gateway
+   #:nat-pmp-external-address-request
+   #:nat-pmp-map-request
+   #:decode-nat-pmp-external-address-response
+   #:decode-nat-pmp-map-response
+   #:upnp-ssdp-discovery-request
+   #:upnp-discovery-location
+   #:upnp-control-url
+   #:upnp-add-port-mapping-request
+   #:nat-resolve-and-map))

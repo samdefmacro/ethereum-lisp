@@ -23,6 +23,7 @@
        p2p-port
        max-peers
        netrestrict
+       nat-policy
        public-api-modules
        engine-cors-origins
        public-cors-origins
@@ -269,6 +270,7 @@
        :dial-guard-function (make-devnet-store-guard-function)
        :p2p-host p2p-host
        :p2p-port p2p-port
+       :nat-policy nat-policy
        :peer-table
        (make-devnet-peer-table
         :self-id-hex (node-id-to-hex (node-id-from-private-key node-key))

@@ -119,8 +119,7 @@ Recomputed per request rather than cached, because our fork id moves as the head
 crosses a fork and a record still advertising the previous one is precisely the
 stale advertisement that gets a node filtered out."
   (let* ((chain-context (devnet-node-chain-context node))
-         (host (eth-sync-socket-endpoint-host
-                (or (devnet-node-p2p-host node) "0.0.0.0")))
+         (host (devnet-node-advertised-host node))
          (port (devnet-node-p2p-port node))
          (endpoint-pairs
            (when port
@@ -198,8 +197,7 @@ crawl is logged and retried; only an escaping error is fail-stop."
                           :timeout-seconds +devnet-discovery-crawl-seconds+
                           :local-tcp-port (or (devnet-node-p2p-port node) 0)
                           :advertised-host
-                          (eth-sync-socket-endpoint-host
-                           (or (devnet-node-p2p-host node) "0.0.0.0"))
+                          (devnet-node-advertised-host node)
                           :record-filter record-filter)
                        ;; Log the crawl's shape every time, not just when it
                        ;; goes wrong. A filtered crawl legitimately returns far
@@ -268,8 +266,7 @@ an unsigned or malformed datagram is not something to answer."
               private-key table packet data sender host port now
               :local-endpoint
               (discv4-endpoint-for-host
-               (eth-sync-socket-endpoint-host
-                (or (devnet-node-p2p-host node) "0.0.0.0"))
+               (devnet-node-advertised-host node)
                (devnet-node-p2p-port node)
                (devnet-node-p2p-port node)))
            (when pong
@@ -324,8 +321,7 @@ so a Pong cannot race ahead of PENDING-PING-HASH."
              (udp-port (discv4-table-entry-udp-port entry))
              (from
                (discv4-endpoint-for-host
-                (eth-sync-socket-endpoint-host
-                 (or (devnet-node-p2p-host node) "0.0.0.0"))
+                (devnet-node-advertised-host node)
                 (devnet-node-p2p-port node)
                 (devnet-node-p2p-port node)))
              (to

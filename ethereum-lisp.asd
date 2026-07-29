@@ -138,6 +138,7 @@
        (:file "p2p-connection" :pathname "p2p/connection")
        (:file "p2p-session" :pathname "p2p/session")
        (:file "snap-messages" :pathname "snap/messages")
+       (:file "p2p-nat" :pathname "p2p/nat")
        (:file "p2p-node-table" :pathname "p2p/node-table")
        (:file "p2p-discovery" :pathname "p2p/discovery")
        (:file "engine-payload-types" :pathname "engine-payloads/types")
