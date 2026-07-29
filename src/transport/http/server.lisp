@@ -146,8 +146,22 @@ report success while a worker still holds a connection."
                          (let ((connection connection))
                            (lambda ()
                              (unwind-protect
-                                  (engine-rpc-http-serve-connection
-                                   service connection sink fields)
+                                  (handler-case
+                                      (engine-rpc-http-serve-connection
+                                       service connection sink fields)
+                                    (serious-condition (condition)
+                                      ;; Thread boundary: STORAGE-CONDITION is
+                                      ;; not an ERROR, but must not escape and
+                                      ;; terminate an sbcl --script process.
+                                      (ethereum-lisp.telemetry:telemetry-log
+                                       :warn
+                                       "engine.rpc.http.connection.error"
+                                       :sink sink
+                                       :fields
+                                       (append
+                                        fields
+                                        `(("error" .
+                                           ,(princ-to-string condition)))))))
                                (sb-thread:signal-semaphore worker-slots))))
                          :name "ethereum-lisp-rpc-http-connection"))
                       (engine-rpc-http-serve-connection

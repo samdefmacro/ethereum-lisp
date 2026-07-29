@@ -87,7 +87,11 @@ has received the peer's Hello."
 The first message is uncompressed and must be Hello; a Disconnect instead
 signals RLPX-DISCONNECT, and anything else is a protocol error."
   (multiple-value-bind (code payload)
-      (rlpx-connection-read-message connection :compressed nil)
+      (rlpx-connection-read-message
+       connection
+       :compressed nil
+       :max-frame-size (1+ +devp2p-max-message-size+)
+       :max-message-size +devp2p-max-message-size+)
     (cond
       ((= code +devp2p-message-hello+) (decode-devp2p-hello payload))
       ((= code +devp2p-message-disconnect+)

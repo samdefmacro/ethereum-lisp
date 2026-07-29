@@ -151,6 +151,9 @@
    #:+eth-protocol-version+
    #:+eth-protocol-version-69+
    #:+eth-supported-protocol-versions+
+   #:+eth-max-message-size+
+   #:+eth-max-transaction-announcements+
+   #:+eth-max-transactions-per-message+
    #:+eth-base-protocol-offset+
    #:+eth-message-status+
    #:+eth-message-new-block-hashes+

@@ -22,7 +22,7 @@
                       (unless (devnet-shutdown-requested-p
                                shutdown-controller)
                         (devnet-rejournal-state-tick state)))
-           (error (condition)
+           (serious-condition (condition)
              (funcall error-callback condition)
              (devnet-shutdown-request shutdown-controller))))
        :name "ethereum-lisp-devnet-txpool-rejournal"))))
@@ -63,7 +63,7 @@
                               (cons "error"
                                     (princ-to-string condition)))
                              :sink (devnet-node-telemetry-sink node))))))
-           (error (condition)
+           (serious-condition (condition)
              (funcall error-callback condition)
              (devnet-shutdown-request shutdown-controller))))
        :name "ethereum-lisp-devnet-dev-period"))))
@@ -210,7 +210,7 @@ crawl is logged and retried; only an escaping error is fail-stop."
                  (loop repeat 30
                        until (devnet-shutdown-requested-p shutdown-controller)
                        do (sleep 1))))
-           (error (condition)
+           (serious-condition (condition)
              (funcall error-callback condition)
              (devnet-shutdown-request shutdown-controller))))
        :name "ethereum-lisp-devnet-discovery"))))
@@ -329,7 +329,7 @@ be a liveness bug."
                                   node "p2p.discovery.packet_failed"
                                   "error" condition))))
                  (ignore-errors (sb-bsd-sockets:socket-close socket)))
-             (error (condition)
+             (serious-condition (condition)
                (funcall error-callback condition)
                (devnet-shutdown-request shutdown-controller))))
          :name "ethereum-lisp-devnet-discovery-server")))))

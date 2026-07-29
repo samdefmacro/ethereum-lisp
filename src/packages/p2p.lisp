@@ -164,6 +164,7 @@
    #:+devp2p-message-disconnect+
    #:+devp2p-message-ping+
    #:+devp2p-message-pong+
+   #:+devp2p-max-message-size+
    #:+devp2p-disconnect-requested+
    #:+devp2p-disconnect-tcp-error+
    #:+devp2p-disconnect-protocol-error+

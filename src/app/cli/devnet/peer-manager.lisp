@@ -206,6 +206,20 @@ on the session thread rather than on the accept loop."
                                              "id" id-hex "reason" verdict)
                     (values peer nil verdict)))))))))
 
+(defun devnet-call-with-peer-session-thread-guard (node remote-host thunk)
+  "Run a peer-session THUNK without allowing a serious condition to escape.
+
+This is a process-safety boundary: SBCL's control-stack exhaustion is a
+STORAGE-CONDITION, not an ERROR, and an unhandled condition in any thread
+terminates the whole node under sbcl --script."
+  (handler-case
+      (funcall thunk)
+    (serious-condition (condition)
+      (devnet-peer-manager-log
+       node "p2p.peer.session_failed"
+       "host" remote-host
+       "error" condition))))
+
 (defun devnet-start-p2p-listener-thread
     (node listener shutdown-controller error-callback)
   "Start the inbound accept loop, or return NIL when there is no listener.
@@ -261,19 +275,16 @@ Only an error escaping the loop itself is fail-stop."
                                        ;; garbage, closing mid-handshake, or
                                        ;; failing the fork-id check would take
                                        ;; the node down. Measured, not assumed.
-                                       (handler-case
-                                           (devnet-peer-run-session
-                                            node socket shutdown-controller
-                                            (devnet-peer-inbound-admit-function
-                                             node remote-host remote-port)
-                                            :reserved-slot-p t
-                                            :pending-broadcast
-                                            (devnet-peer-pending-broadcast node))
-                                         (error (condition)
-                                           (devnet-peer-manager-log
-                                            node "p2p.peer.session_failed"
-                                            "host" remote-host
-                                            "error" condition))))
+                                       (devnet-call-with-peer-session-thread-guard
+                                        node remote-host
+                                        (lambda ()
+                                          (devnet-peer-run-session
+                                           node socket shutdown-controller
+                                           (devnet-peer-inbound-admit-function
+                                            node remote-host remote-port)
+                                           :reserved-slot-p t
+                                           :pending-broadcast
+                                           (devnet-peer-pending-broadcast node)))))
                                      :name "ethereum-lisp-devnet-peer-session")))
                               (call-with-devnet-mutex
                                sessions-lock
@@ -292,7 +303,7 @@ Only an error escaping the loop itself is fail-stop."
                   (error (condition)
                     (devnet-peer-manager-log node "p2p.listener.accept_failed"
                                              "error" condition))))
-            (error (condition)
+            (serious-condition (condition)
               (funcall error-callback condition)
               (devnet-shutdown-request shutdown-controller))))
         :name "ethereum-lisp-devnet-p2p-listener")

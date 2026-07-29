@@ -196,8 +196,11 @@ Advances the ingress MAC and cipher, so it must be followed by a body read."
           (values (bytes-to-integer (ensure-byte-vector code))
                   (subseq frame-data next)))))))
 
-(defun rlpx-read-frame (session frame)
-  "Verify and decrypt a complete FRAME, returning (VALUES MESSAGE-CODE DATA)."
+(defun rlpx-read-frame (session frame &key max-frame-size)
+  "Verify and decrypt a complete FRAME, returning (VALUES MESSAGE-CODE DATA).
+
+When MAX-FRAME-SIZE is supplied, reject an oversized authenticated header
+before copying or decrypting its body."
   (let ((frame (ensure-byte-vector frame)))
     (when (< (length frame) (* 2 +rlpx-frame-block+))
       (error "RLPx frame is too short for a header"))
@@ -205,6 +208,9 @@ Advances the ingress MAC and cipher, so it must be followed by a body read."
              (rlpx-read-frame-header session (subseq frame 0 (* 2 +rlpx-frame-block+))))
            (body-length (rlpx-frame-body-length frame-size))
            (start (* 2 +rlpx-frame-block+)))
+      (when (and max-frame-size (> frame-size max-frame-size))
+        (error "RLPx frame declares ~D bytes, exceeding the ~D-byte limit"
+               frame-size max-frame-size))
       (when (< (length frame) (+ start body-length))
         (error "RLPx frame is shorter than its declared size"))
       (rlpx-read-frame-body session frame-size

@@ -250,7 +250,7 @@ does not ask for metrics pays nothing for them."
                              (ignore-errors (close stream))
                              (ignore-errors
                               (sb-bsd-sockets:socket-close socket))))))))
-             (error (condition)
+             (serious-condition (condition)
                (funcall error-callback condition)
                (devnet-shutdown-request shutdown-controller))))
          :name "ethereum-lisp-devnet-metrics")))))

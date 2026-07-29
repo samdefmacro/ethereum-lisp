@@ -274,7 +274,7 @@ property of how the node is configured, not an assumption about the test corpus.
                               (handler-case
                                   (devnet-peer-dial-session
                                    node candidate shutdown-controller)
-                                (error (condition)
+                                (serious-condition (condition)
                                   (devnet-peer-manager-log
                                    node "peer.dial.failed"
                                    "id" (devnet-dial-candidate-id-hex candidate)
@@ -290,7 +290,7 @@ property of how the node is configured, not an assumption about the test corpus.
                 (loop repeat +devnet-dial-tick-seconds+
                       until (devnet-shutdown-requested-p shutdown-controller)
                       do (sleep 1)))
-            (error (condition)
+            (serious-condition (condition)
               (funcall error-callback condition)
               (devnet-shutdown-request shutdown-controller))))
         :name "ethereum-lisp-devnet-dial-scheduler")

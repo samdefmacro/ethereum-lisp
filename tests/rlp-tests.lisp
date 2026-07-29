@@ -49,4 +49,6 @@
 (deftest rlp-rejects-excessive-list-depth
   (:layer :unit :module :rlp)
   (signals rlp-error
-    (rlp-decode-one (rlp-test-deep-list-bytes (1+ +rlp-max-depth+)))))
+    (rlp-decode-one
+     (rlp-test-deep-list-bytes
+      (1+ ethereum-lisp.rlp:+rlp-max-depth+)))))

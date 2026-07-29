@@ -71,6 +71,26 @@ given, is a predicate marking transactions the pool turns down."
           do (is (bytes= (transaction-encoding sent)
                          (transaction-encoding got))))))
 
+(deftest eth-transaction-gossip-item-counts-are-bounded
+  (:layer :unit :module :p2p)
+  ;; The ordinary round-trip above is the positive control. These hostile
+  ;; messages exceed the decoder bounds before transaction/hash materialization.
+  (signals rlp-error
+    (ethereum-lisp.eth-wire:decode-eth-transactions
+     (rlp-encode
+      (apply #'make-rlp-list
+             (loop repeat
+                   (1+ ethereum-lisp.eth-wire:+eth-max-transactions-per-message+)
+                   collect (make-byte-vector 0))))))
+  (signals error
+    (ethereum-lisp.eth-wire:decode-eth-new-pooled-transaction-hashes
+     (rlp-encode
+      (make-rlp-list
+       (make-byte-vector
+        (1+ ethereum-lisp.eth-wire:+eth-max-transaction-announcements+))
+       (make-rlp-list)
+       (make-rlp-list))))))
+
 (deftest eth-new-pooled-transaction-hashes-round-trips
   (:layer :unit :module :p2p)
   (let ((transactions (list (eth-gossip-test-transaction 1)

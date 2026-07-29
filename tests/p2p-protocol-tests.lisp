@@ -85,6 +85,32 @@ state, as the handshake initialises them."
         (is (= +devp2p-message-pong+ code))
         (is (bytes= (encode-devp2p-pong) payload))))))
 
+(deftest devp2p-base-message-size-is-bounded-after-decoding
+  (:layer :unit :module :p2p)
+  ;; The negative case is paired with an exact-bound positive control so this
+  ;; proves the decoder path is reached, rather than merely observing an error.
+  (multiple-value-bind (writer reader) (p2p-test-session-pair)
+    (let ((frame
+            (rlpx-write-message
+             writer +devp2p-message-hello+
+             (make-byte-vector
+              ethereum-lisp.p2p:+devp2p-max-message-size+)
+             :compressed nil)))
+      (multiple-value-bind (code payload)
+          (rlpx-read-message reader frame :compressed nil)
+        (is (= +devp2p-message-hello+ code))
+        (is (= ethereum-lisp.p2p:+devp2p-max-message-size+
+               (length payload))))))
+  (multiple-value-bind (writer reader) (p2p-test-session-pair)
+    (let ((frame
+            (rlpx-write-message
+             writer +devp2p-message-hello+
+             (make-byte-vector
+              (1+ ethereum-lisp.p2p:+devp2p-max-message-size+))
+             :compressed nil)))
+      (signals error
+        (rlpx-read-message reader frame :compressed nil)))))
+
 (deftest rlpx-full-protocol-runs-offline-end-to-end
   ;; The complete devp2p protocol without a socket: handshake, secret agreement,
   ;; MAC-initialised sessions, then framed messages in BOTH directions. If the

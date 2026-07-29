@@ -62,16 +62,23 @@ network input from consuming the Lisp control stack.")
   (require-available bytes payload-start length)
   (subseq bytes payload-start (+ payload-start length)))
 
-(defun decode-list-payload (bytes payload-start payload-end depth max-depth)
+(defun decode-list-payload
+    (bytes payload-start payload-end depth max-depth max-list-items)
   (loop with items = '()
         with position = payload-start
+        with item-count = 0
         while (< position payload-end)
         do (multiple-value-bind (item next-position)
                (rlp-decode bytes
                            :start position
                            :allow-trailing t
                            :depth depth
-                           :max-depth max-depth)
+                           :max-depth max-depth
+                           :max-list-items max-list-items)
+             (incf item-count)
+             (when (and max-list-items (> item-count max-list-items))
+               (fail "RLP list contains more than ~D items at byte ~D"
+                     max-list-items payload-start))
              (push item items)
              (setf position next-position))
         finally
@@ -82,15 +89,20 @@ network input from consuming the Lisp control stack.")
 
 (defun rlp-decode
     (bytes &key (start 0) (allow-trailing nil)
-                (depth 0) (max-depth +rlp-max-depth+))
+                (depth 0) (max-depth +rlp-max-depth+) max-list-items)
   "Decode one RLP item, refusing list nesting deeper than MAX-DEPTH.
 
 DEPTH is carried by recursive calls and is exposed only so decoding an item
-from within a bounded enclosing structure preserves the same budget."
+from within a bounded enclosing structure preserves the same budget.
+MAX-LIST-ITEMS, when supplied, bounds every decoded list before an attacker can
+turn a compact byte string into an unbounded number of Lisp objects."
   (unless (and (integerp depth) (not (minusp depth)))
     (fail "RLP depth must be a non-negative integer"))
   (unless (and (integerp max-depth) (plusp max-depth))
     (fail "RLP maximum depth must be a positive integer"))
+  (unless (or (null max-list-items)
+              (and (integerp max-list-items) (not (minusp max-list-items))))
+    (fail "RLP maximum list item count must be a non-negative integer or NIL"))
   (let* ((bytes (ensure-byte-vector bytes))
          (input-length (length bytes)))
     (when (>= start input-length)
@@ -126,7 +138,7 @@ from within a bounded enclosing structure preserves the same budget."
                  (fail "RLP list nesting exceeds maximum depth ~D at byte ~D"
                        max-depth start))
                (values (decode-list-payload bytes payload-start payload-end
-                                            (1+ depth) max-depth)
+                                            (1+ depth) max-depth max-list-items)
                        payload-end)))
             (t
              (let ((length-of-length (- prefix #xf7)))
@@ -141,7 +153,8 @@ from within a bounded enclosing structure preserves the same budget."
                      (fail "RLP list nesting exceeds maximum depth ~D at byte ~D"
                            max-depth start))
                    (values (decode-list-payload bytes payload-start payload-end
-                                                (1+ depth) max-depth)
+                                                (1+ depth) max-depth
+                                                max-list-items)
                            payload-end))))))
         (unless (or allow-trailing (= next-position input-length))
           (fail "Trailing bytes after RLP item at byte ~D" next-position))

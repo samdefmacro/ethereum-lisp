@@ -290,7 +290,7 @@ Returns NIL when --ws is off, so a node that does not ask for it pays nothing."
                                  (handler-case
                                      (devnet-ws-serve-connection
                                       node socket shutdown-controller)
-                                   (error (condition)
+                                   (serious-condition (condition)
                                      (devnet-ws-log node "ws.session_failed"
                                                     condition))))
                                :name "ethereum-lisp-devnet-ws-session")))
@@ -301,7 +301,7 @@ Returns NIL when --ws is off, so a node that does not ask for it pays nothing."
                                  (cons thread
                                        (remove-if-not #'sb-thread:thread-alive-p
                                                       sessions)))))))))
-              (error (condition)
+              (serious-condition (condition)
                 (funcall error-callback condition)
                 (devnet-shutdown-request shutdown-controller))))
           :name "ethereum-lisp-devnet-ws")

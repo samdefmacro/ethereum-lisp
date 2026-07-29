@@ -3,6 +3,17 @@
 ;;;; RLPx frame codec: go-ethereum's golden frame vector (which uses a stub MAC)
 ;;;; and a real-Keccak-MAC write/read round-trip.
 
+(defun p2p-frame-test-session-pair ()
+  (let ((secret (keccak-256))
+        (stub (make-byte-vector 32 :initial-element 1)))
+    (values
+     (make-rlpx-session secret secret
+                        (rlpx-constant-mac stub)
+                        (rlpx-constant-mac stub))
+     (make-rlpx-session secret secret
+                        (rlpx-constant-mac stub)
+                        (rlpx-constant-mac stub)))))
+
 (deftest rlpx-frame-matches-go-ethereum-golden
   ;; go-ethereum p2p/rlpx TestFrameReadWrite: AES = MAC = Keccak256() and a stub
   ;; MAC that always digests to 0x01*32, writing msg code 8 with rlp([1,2,3,4]).
@@ -66,3 +77,9 @@
              (frame (copy-seq (rlpx-write-frame writer 8 (hex-to-bytes "0xc401020304")))))
         (setf (aref frame 40) (logxor (aref frame 40) 1))
         (signals error (rlpx-read-frame reader frame))))))
+
+(deftest rlpx-frame-size-limit-is-checked-from-the-header
+  (:layer :unit :module :p2p)
+  (multiple-value-bind (writer reader) (p2p-frame-test-session-pair)
+    (let ((frame (rlpx-write-frame writer 0 (make-byte-vector 32))))
+      (signals error (rlpx-read-frame reader frame :max-frame-size 16)))))

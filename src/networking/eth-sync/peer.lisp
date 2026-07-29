@@ -75,11 +75,17 @@ stay responsive between frames — to notice a shutdown, to time out an idle pee
 to send its own keepalive — has to see the Ping and Pong traffic, not block
 inside a loop that swallows it."
   (multiple-value-bind (code payload)
-      (rlpx-connection-read-message connection)
+      (rlpx-connection-read-message
+       connection
+       :max-frame-size (1+ +eth-max-message-size+)
+       :max-message-size +eth-max-message-size+)
     (cond
       ((= code +devp2p-message-disconnect+)
        (error 'rlpx-disconnect :reason (decode-devp2p-disconnect payload)))
       ((< code offset)
+       (when (> (length payload) +devp2p-max-message-size+)
+         (error "devp2p base message contains ~D bytes, exceeding the ~D-byte limit"
+                (length payload) +devp2p-max-message-size+))
        ;; Ping and Pong are the only base traffic a live session may carry; a
        ;; second Hello is a protocol error, and erroring on it is the behavior
        ;; ETH-WIRE-READ has always had.

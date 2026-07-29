@@ -17,6 +17,15 @@
 difficulty from Status and adds a block range; the header/body messages are
 unchanged, so download works across both.")
 
+(defconstant +eth-max-message-size+ (* 10 1024 1024)
+  "Maximum decoded eth message size, matching go-ethereum 1.17.6.")
+
+(defconstant +eth-max-transaction-announcements+ 5000
+  "Maximum hashes accepted in one NewPooledTransactionHashes message.")
+
+(defconstant +eth-max-transactions-per-message+ 5000
+  "Resource bound on full transactions accepted in one gossip message.")
+
 ;; Message ids within the eth capability, before the base-protocol offset.
 (defconstant +eth-message-status+ #x00)
 (defconstant +eth-message-new-block-hashes+ #x01)
@@ -283,7 +292,9 @@ otherwise a block number."
 
 (defun decode-eth-transactions (bytes)
   (block-transactions-from-rlp-object
-   (rlp-decode (ensure-byte-vector bytes) :allow-trailing t)))
+   (rlp-decode (ensure-byte-vector bytes)
+               :allow-trailing t
+               :max-list-items +eth-max-transactions-per-message+)))
 
 (defun encode-eth-new-pooled-transaction-hashes (transactions)
   "Encode an eth/68 announcement of TRANSACTIONS as three equal-length columns:
@@ -308,17 +319,26 @@ which do not have it.)"
 lists. A message whose columns disagree is malformed and is rejected here rather
 than leaving the caller to pair up mismatched columns."
   (let* ((items (rlp-list-items
-                 (rlp-decode (ensure-byte-vector bytes) :allow-trailing t)))
-         (types (coerce (ensure-byte-vector (first items)) 'list))
+                 (rlp-decode
+                  (ensure-byte-vector bytes)
+                  :allow-trailing t
+                  :max-list-items +eth-max-transaction-announcements+)))
+         (type-bytes (ensure-byte-vector (first items))))
+    (when (> (length type-bytes) +eth-max-transaction-announcements+)
+      (error "eth NewPooledTransactionHashes announces ~D transactions, ~
+              exceeding the ~D-item limit"
+             (length type-bytes) +eth-max-transaction-announcements+))
+    (let* ((types (coerce type-bytes 'list))
          (sizes (mapcar (lambda (size)
                           (bytes-to-integer (ensure-byte-vector size)))
                         (rlp-list-items (second items))))
-         (hashes (mapcar #'ensure-byte-vector (rlp-list-items (third items)))))
-    (unless (= (length types) (length sizes) (length hashes))
-      (error "eth NewPooledTransactionHashes has ~D types, ~D sizes, and ~D ~
+           (hashes
+             (mapcar #'ensure-byte-vector (rlp-list-items (third items)))))
+      (unless (= (length types) (length sizes) (length hashes))
+        (error "eth NewPooledTransactionHashes has ~D types, ~D sizes, and ~D ~
               hashes, which must be equal"
-             (length types) (length sizes) (length hashes)))
-    (values types sizes hashes)))
+               (length types) (length sizes) (length hashes)))
+      (values types sizes hashes))))
 
 (defun encode-eth-get-pooled-transactions (request-id hashes)
   (rlp-encode

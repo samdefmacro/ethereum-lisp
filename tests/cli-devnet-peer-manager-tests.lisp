@@ -9,6 +9,8 @@
 ;;;; because the unit and integration layers have no per-test timeout: a test
 ;;;; that can block does not fail, it stops the run.
 
+(define-condition devnet-test-storage-condition (storage-condition) ())
+
 (defun devnet-peer-table-test-entry (id-hex &key (direction :inbound))
   (ethereum-lisp.cli:make-devnet-peer-entry
    :id-hex id-hex :direction direction
@@ -101,6 +103,32 @@
                  controller (funcall note :late))))
       (is (null late))
       (is (equal '(:late :a) closed)))))
+
+(deftest devnet-peer-thread-contains-storage-conditions
+  (:layer :unit :module :devnet)
+  ;; If the production guard regresses to (ERROR ...), this test does not report
+  ;; a normal assertion failure: the unhandled STORAGE-CONDITION kills the
+  ;; sbcl --script test process. That destructive red is the property at stake.
+  (let* ((node (ethereum-lisp.cli:make-devnet-node
+                :genesis-json *eth-sync-paris-genesis-json*
+                :port 0 :public-port 0))
+         (escaped nil)
+         (thread
+           (sb-thread:make-thread
+            (lambda ()
+              ;; The outer ERROR handler satisfies the test-thread safety rule
+              ;; without masking STORAGE-CONDITION. The production guard is
+              ;; what must catch that wider condition family.
+              (handler-case
+                  (ethereum-lisp.cli::devnet-call-with-peer-session-thread-guard
+                   node "hostile-peer"
+                   (lambda () (error 'devnet-test-storage-condition)))
+                (error (condition)
+                  (setf escaped condition))))
+            :name "ethereum-lisp-storage-condition-regression")))
+    (is (not (eq :timeout
+                 (sb-thread:join-thread thread :timeout 5 :default :timeout))))
+    (is (null escaped))))
 
 (deftest devnet-node-shuts-down-with-a-silent-inbound-peer
   (:layer :integration :module :devnet :requires-local-sockets t)

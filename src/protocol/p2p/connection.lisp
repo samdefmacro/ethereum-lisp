@@ -30,13 +30,20 @@
   (write-sequence (rlpx-write-frame session code data) stream)
   (force-output stream))
 
-(defun rlpx-read-frame-from-stream (session stream)
-  "Read one frame from STREAM, returning (VALUES MESSAGE-CODE DATA)."
+(defun rlpx-read-frame-from-stream (session stream &key max-frame-size)
+  "Read one frame from STREAM, returning (VALUES MESSAGE-CODE DATA).
+
+MAX-FRAME-SIZE, when supplied, is checked after authenticating the header and
+before allocating or reading the frame body."
   (let* ((frame-size
            (rlpx-read-frame-header
-            session (rlpx-read-exactly stream (* 2 +rlpx-frame-block+))))
-         (body (rlpx-read-exactly stream (rlpx-frame-body-length frame-size))))
-    (rlpx-read-frame-body session frame-size body)))
+            session (rlpx-read-exactly stream (* 2 +rlpx-frame-block+)))))
+    (when (and max-frame-size (> frame-size max-frame-size))
+      (error "RLPx frame declares ~D bytes, exceeding the ~D-byte limit"
+             frame-size max-frame-size))
+    (let ((body
+            (rlpx-read-exactly stream (rlpx-frame-body-length frame-size))))
+      (rlpx-read-frame-body session frame-size body))))
 
 (defstruct (rlpx-connection (:constructor %make-rlpx-connection))
   session
@@ -103,9 +110,18 @@ The connection's remote public key is the initiator's, taken from its auth."
    (rlpx-connection-stream connection))
   (values))
 
-(defun rlpx-connection-read-message (connection &key (compressed t))
-  "Read one devp2p message from CONNECTION, returning (VALUES CODE PAYLOAD)."
+(defun rlpx-connection-read-message
+    (connection &key (compressed t) max-frame-size max-message-size)
+  "Read one devp2p message from CONNECTION, returning (VALUES CODE PAYLOAD).
+
+MAX-FRAME-SIZE is enforced before the body allocation. MAX-MESSAGE-SIZE is
+enforced after decompression as well, so compression cannot bypass the bound."
   (multiple-value-bind (code data)
       (rlpx-read-frame-from-stream (rlpx-connection-session connection)
-                                   (rlpx-connection-stream connection))
-    (values code (if compressed (snappy-decompress data) data))))
+                                   (rlpx-connection-stream connection)
+                                   :max-frame-size max-frame-size)
+    (let ((payload (if compressed (snappy-decompress data) data)))
+      (when (and max-message-size (> (length payload) max-message-size))
+        (error "devp2p message contains ~D bytes, exceeding the ~D-byte limit"
+               (length payload) max-message-size))
+      (values code payload))))
