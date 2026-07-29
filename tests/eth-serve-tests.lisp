@@ -127,6 +127,34 @@ ones reachable by number."
     (is (equal '(5 4 3) (eth-serve-test-headers backend :origin-hash side-hash
                                                         :amount 3 :reverse t)))))
 
+(deftest eth-serve-canonical-hash-skip-is-constant-time
+  (:layer :unit :module :p2p)
+  (let* ((chain (eth-serve-test-chain 200))
+         (by-hash (make-hash-table :test #'equalp))
+         (by-number (make-hash-table))
+         (hash-lookups 0)
+         (number-lookups 0))
+    (dolist (block chain)
+      (setf (gethash (hash32-bytes (block-hash block)) by-hash) block
+            (gethash (block-header-number (block-header block)) by-number) block))
+    (let* ((backend
+             (make-eth-serve-backend
+              :block-by-hash
+              (lambda (hash)
+                (incf hash-lookups)
+                (gethash hash by-hash))
+              :block-by-number
+              (lambda (number)
+                (incf number-lookups)
+                (gethash number by-number))))
+           (origin (hash32-bytes (block-hash (nth 199 chain))))
+           (expected (hash32-bytes (block-hash (nth 19 chain)))))
+      (is (bytes= expected (eth-serve-ancestor-hash backend origin 180)))
+      ;; One hash lookup identifies the origin; number lookups prove it is
+      ;; canonical and jump directly to the ancestor.
+      (is (= 1 hash-lookups))
+      (is (= 2 number-lookups)))))
+
 (deftest eth-serve-caps-header-queries-at-the-serve-limit
   (:layer :unit :module :p2p)
   (let* ((chain (eth-serve-test-chain 30))
