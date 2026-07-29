@@ -21,6 +21,13 @@
 
 (defstruct (state-db (:constructor make-state-db ()))
   (objects (make-hash-table :test #'equal))
+  ;; Historical states install on-demand readers instead of materialising every
+  ;; account and slot. Loaded sets also cache negative lookups.
+  account-loader
+  storage-loader
+  materializer
+  (loaded-accounts (make-hash-table :test #'equal))
+  (loaded-storage (make-hash-table :test #'equal))
   ;; Per-mutation before-images make snapshots integer marks rather than
   ;; whole-world copies. Entries are replayed backwards on revert.
   (journal (make-array 16 :adjustable t :fill-pointer 0))

@@ -195,6 +195,7 @@
    #:chain-store-account-code
    #:chain-store-put-account-storage
    #:chain-store-account-storage
+   #:chain-store-account-storage-entries
    #:engine-payload-store-account-storage-entries
    #:chain-store-for-each-account
    #:engine-payload-store-canonical-parent-p

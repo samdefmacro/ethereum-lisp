@@ -36,6 +36,8 @@
    #:state-storage-range-entry-slot
    #:state-storage-range-entry-value
    #:state-db-get-account
+   #:make-lazy-state-db
+   #:state-db-account-loaded-p
    #:state-db-set-account
    #:state-db-clear-account
    #:state-db-set-code

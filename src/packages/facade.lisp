@@ -956,6 +956,7 @@
    #:chain-store-account-code
    #:chain-store-put-account-storage
    #:chain-store-account-storage
+   #:chain-store-account-storage-entries
    #:chain-store-for-each-account
    #:chain-store-update-forkchoice-checkpoints
    #:chain-store-head-checkpoint
@@ -1210,6 +1211,8 @@
    #:state-storage-range-entry-slot
    #:state-storage-range-entry-value
    #:state-db-get-account
+   #:make-lazy-state-db
+   #:state-db-account-loaded-p
    #:state-db-set-account
    #:state-db-clear-account
    #:state-db-set-code

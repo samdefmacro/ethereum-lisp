@@ -244,6 +244,24 @@ STORAGE-ENTRIES) — as BLOCK's post-state and return the stored kind."
     (is (= 7 (chain-store-account-balance
               store (block-hash (seventh blocks)) address)))))
 
+(deftest historical-state-db-loads-only-touched-accounts
+  (let* ((store (make-engine-payload-memory-store))
+         (blocks (state-diff-test-chain store 2))
+         (first (state-diff-test-address 1))
+         (second (state-diff-test-address 2)))
+    (state-diff-test-commit
+     store (first blocks)
+     (list (list first 11 0 #() '())
+           (list second 22 0 #() '())))
+    (let ((state (chain-store-state-db store (block-hash (first blocks)))))
+      (is (zerop
+           (hash-table-count
+            (ethereum-lisp.state::state-db-objects state))))
+      (is (= 11 (state-account-balance (state-db-get-account state first))))
+      (is (= 1
+             (hash-table-count
+              (ethereum-lisp.state::state-db-objects state)))))))
+
 (deftest chain-store-diff-and-baseline-roots-agree
   (let* ((diff-store (make-engine-payload-memory-store))
          (baseline-store

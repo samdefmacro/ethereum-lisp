@@ -1,7 +1,41 @@
 (in-package #:ethereum-lisp.state)
 
 (defun state-db-get-object (state address)
-  (gethash (address-key address) (state-db-objects state)))
+  (let ((key (address-key address)))
+    (unless (gethash key (state-db-loaded-accounts state))
+      (setf (gethash key (state-db-loaded-accounts state)) t)
+      (let ((loader (state-db-account-loader state)))
+        (when loader
+          (multiple-value-bind (account code present-p storage-entries)
+              (funcall loader address)
+            (when present-p
+              (let ((storage (make-hash-table :test #'equal)))
+                (dolist (entry storage-entries)
+                  (setf (gethash (storage-key (car entry)) storage) (cdr entry)))
+                (setf (gethash key (state-db-objects state))
+                      (make-state-object :account account :code code
+                                         :storage storage))))))))
+    (gethash key (state-db-objects state))))
+
+(defun state-db-account-loaded-p (state address)
+  (not (null (gethash (address-key address)
+                      (state-db-loaded-accounts state)))))
+
+(defun state-db-materialize (state)
+  "Load the complete backing state only for operations that require iteration."
+  (let ((materializer (state-db-materializer state)))
+    (when materializer
+      (setf (state-db-materializer state) nil)
+      (funcall materializer state)))
+  state)
+
+(defun make-lazy-state-db (account-loader storage-loader materializer)
+  "Create a state whose historical backing is resolved on first access."
+  (let ((state (make-state-db)))
+    (setf (state-db-account-loader state) account-loader
+          (state-db-storage-loader state) storage-loader
+          (state-db-materializer state) materializer)
+    state))
 
 (declaim (ftype (function (t) t) clone-state-object))
 
@@ -114,6 +148,7 @@ revert the transaction."
 
 (defun state-db-set-account (state address account)
   (let ((key (address-key address)))
+    (state-db-get-object state address)
     (state-db-record-change state key)
     (let ((object (or (gethash key (state-db-objects state))
                       (setf (gethash key (state-db-objects state))
@@ -166,6 +201,7 @@ revert the transaction."
 
 (defun state-db-clear-account (state address)
   (let ((key (address-key address)))
+    (state-db-get-object state address)
     (state-db-record-change state key)
     (remhash key (state-db-objects state))
     (mark-account-dirty state key))
@@ -174,6 +210,7 @@ revert the transaction."
 (defun state-db-set-code (state address code)
   (let* ((key (address-key address))
          (code (ensure-byte-vector code)))
+    (state-db-get-object state address)
     (when (or (gethash key (state-db-objects state))
               (plusp (length code)))
       (state-db-record-change state key))
@@ -240,7 +277,14 @@ revert the transaction."
     ;; Carry the account-root memo state so the invariant holds in the copy:
     ;; if DIRTY was empty, CACHED-ROOT stays valid for the cloned OBJECTS.
     (setf (state-db-dirty copy) (copy-hash-table (state-db-dirty state))
-          (state-db-cached-root copy) (state-db-cached-root state))
+          (state-db-cached-root copy) (state-db-cached-root state)
+          (state-db-account-loader copy) (state-db-account-loader state)
+          (state-db-storage-loader copy) (state-db-storage-loader state)
+          (state-db-materializer copy) (state-db-materializer state)
+          (state-db-loaded-accounts copy)
+          (copy-hash-table (state-db-loaded-accounts state))
+          (state-db-loaded-storage copy)
+          (copy-hash-table (state-db-loaded-storage state)))
     ;; The copy gets NO trie. Sharing one would let a frame that is later
     ;; reverted leave its mutations in the parent's trie, which is a wrong state
     ;; root and so a consensus divergence; copying one on every CALL frame would
@@ -261,12 +305,22 @@ revert the transaction."
   ;; the objects we just discarded.
   (setf (state-db-dirty state) (copy-hash-table (state-db-dirty snapshot))
         (state-db-cached-root state) (state-db-cached-root snapshot)
+        (state-db-account-loader state) (state-db-account-loader snapshot)
+        (state-db-storage-loader state) (state-db-storage-loader snapshot)
+        (state-db-materializer state) (state-db-materializer snapshot)
+        (state-db-loaded-accounts state)
+        (copy-hash-table (state-db-loaded-accounts snapshot))
+        (state-db-loaded-storage state)
+        (copy-hash-table (state-db-loaded-storage snapshot))
         (state-db-trie state) nil)
   state)
 
 (defun state-db-set-storage (state address slot value)
   (let* ((key (address-key address))
          (value (ensure-state-uint256 value "Storage value")))
+    (state-db-get-object state address)
+    ;; Preserve a lazily-backed slot's before-image before mutating it.
+    (state-db-get-storage state address slot)
     (when (or (gethash key (state-db-objects state))
               (not (zerop value)))
       (state-db-record-change state key))
@@ -296,7 +350,19 @@ revert the transaction."
 (defun state-db-get-storage (state address slot)
   (let ((object (state-db-get-object state address)))
     (if object
-        (gethash (storage-key slot) (state-object-storage object) 0)
+        (let* ((key (address-key address))
+               (slot-key (storage-key slot))
+               (loaded-key (format nil "~A:~A" key slot-key))
+               (storage (state-object-storage object)))
+          (unless (or (nth-value 1 (gethash slot-key storage))
+                      (gethash loaded-key (state-db-loaded-storage state)))
+            (setf (gethash loaded-key (state-db-loaded-storage state)) t)
+            (let ((loader (state-db-storage-loader state)))
+              (when loader
+                (let ((value (funcall loader address slot)))
+                  (unless (zerop value)
+                    (setf (gethash slot-key storage) value))))))
+          (gethash slot-key storage 0))
         0)))
 
 (defun uint256-to-32-byte-hash (value)
