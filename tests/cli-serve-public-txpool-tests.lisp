@@ -729,9 +729,10 @@
                    (is (string= queued-raw
                                 (fixture-object-field
                                  raw-queued-rpc "result")))
-                   (is (string= "0x1"
-                                (fixture-object-field
-                                 new-pending-filter-rpc "result")))
+                   (is (= 34
+                          (length
+                           (fixture-object-field
+                            new-pending-filter-rpc "result"))))
                    (is (= 1 (length pending-filter-changes)))
                    (is (string= pending-hash
                                 (first pending-filter-changes)))

@@ -64,9 +64,9 @@
                  missing-error-codes)))))
 
 (defun devnet-cli-assert-restored-block-filter (report)
-  (is (string= (quantity-to-hex
-                (1+ (fixture-object-field report "checkedLogFilterCount")))
-               (fixture-object-field report "databaseRpcBlockFilterId")))
+  (is (= 34
+         (length
+          (fixture-object-field report "databaseRpcBlockFilterId"))))
   (is (= 0
          (fixture-object-field
           report "databaseRpcBlockFilterChangeCount")))
@@ -101,8 +101,9 @@
                 report "databaseRpcTxpoolPendingSenderNonce")))
   (is (null (fixture-object-field
              report "databaseRpcTxpoolInspectSummary")))
-  (is (string= "0x1"
-               (fixture-object-field report "txpoolPendingFilterId")))
+  (is (= 34
+         (length
+          (fixture-object-field report "txpoolPendingFilterId"))))
   (is (string= (fixture-object-field report "txpoolPendingTransactionHash")
                (fixture-object-field report "txpoolPendingFilterHash")))
   (let ((filter-changes

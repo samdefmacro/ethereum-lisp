@@ -179,6 +179,8 @@
                     (make-string-output-stream))
                   (new-pending-filter-output
                     (make-string-output-stream))
+                  (saved-new-pending-filter-response nil)
+                  (runtime-pending-filter-id nil)
                   (pending-filter-changes-output
                     (make-string-output-stream))
                   (empty-pending-filter-changes-output
@@ -745,32 +747,16 @@
                                (cons "params" #())))
                         txpool-rejournal-output)
                        (cons
-                       (json-encode
-                        (list (cons "jsonrpc" "2.0")
-                              (cons "id" 67)
-                              (cons "method" "eth_getFilterChanges")
-                              (cons "params" (list "0x1"))))
+                        :pending-filter-changes
                         pending-filter-changes-output)
                        (cons
-                        (json-encode
-                         (list (cons "jsonrpc" "2.0")
-                               (cons "id" 68)
-                               (cons "method" "eth_getFilterChanges")
-                               (cons "params" (list "0x1"))))
+                        :empty-pending-filter-changes
                         empty-pending-filter-changes-output)
                        (cons
-                        (json-encode
-                         (list (cons "jsonrpc" "2.0")
-                               (cons "id" 69)
-                               (cons "method" "eth_uninstallFilter")
-                               (cons "params" (list "0x1"))))
+                        :uninstall-pending-filter
                         uninstall-pending-filter-output)
                        (cons
-                        (json-encode
-                         (list (cons "jsonrpc" "2.0")
-                               (cons "id" 70)
-                               (cons "method" "eth_getFilterChanges")
-                               (cons "params" (list "0x1"))))
+                        :removed-pending-filter-changes
                         removed-pending-filter-changes-output)
                        (cons
                         (json-encode
@@ -1179,13 +1165,50 @@
                                        pending-transaction-raw
                                        5
                                        :expected-record-count 3)))
-                              (make-engine-rpc-http-connection
-                               :input-stream
-                               (make-string-input-stream
-                                (devnet-cli-json-rpc-http-request body))
-                               :output-stream output
-                               :close-function
-                               (lambda () (incf public-served-count)))))
+                              (when
+                                  (member
+                                   body
+                                   '(:pending-filter-changes
+                                     :empty-pending-filter-changes
+                                     :uninstall-pending-filter
+                                     :removed-pending-filter-changes))
+                                (unless runtime-pending-filter-id
+                                  (setf
+                                   saved-new-pending-filter-response
+                                   (get-output-stream-string
+                                    new-pending-filter-output)
+                                   runtime-pending-filter-id
+                                   (fixture-object-field
+                                    (devnet-smoke-gate-rpc-body
+                                     saved-new-pending-filter-response)
+                                    "result"))))
+                              (let ((request-body
+                                      (case body
+                                        (:pending-filter-changes
+                                         (devnet-smoke-gate-json-rpc-request
+                                          67 "eth_getFilterChanges"
+                                          (list runtime-pending-filter-id)))
+                                        (:empty-pending-filter-changes
+                                         (devnet-smoke-gate-json-rpc-request
+                                          68 "eth_getFilterChanges"
+                                          (list runtime-pending-filter-id)))
+                                        (:uninstall-pending-filter
+                                         (devnet-smoke-gate-json-rpc-request
+                                          69 "eth_uninstallFilter"
+                                          (list runtime-pending-filter-id)))
+                                        (:removed-pending-filter-changes
+                                         (devnet-smoke-gate-json-rpc-request
+                                          70 "eth_getFilterChanges"
+                                          (list runtime-pending-filter-id)))
+                                        (otherwise body))))
+                                (make-engine-rpc-http-connection
+                                 :input-stream
+                                 (make-string-input-stream
+                                  (devnet-cli-json-rpc-http-request
+                                   request-body))
+                                 :output-stream output
+                                 :close-function
+                                 (lambda () (incf public-served-count))))))
                            ((not post-prepared-txpool-content-served-p)
                             (setf public-txpool-done-p t)
                             (loop until engine-prepared-txpool-done-p
@@ -1454,7 +1477,7 @@
                         (get-output-stream-string
                          public-root-wrong-path-output))
                       (new-pending-filter-response
-                        (get-output-stream-string new-pending-filter-output))
+                        saved-new-pending-filter-response)
                       (pending-filter-changes-response
                         (get-output-stream-string
                          pending-filter-changes-output))
@@ -2237,7 +2260,9 @@
                       "code"))
                   "Public listener malformed JSON did not return parse error")
                  (devnet-smoke-gate-require
-                  (string= "0x1" pending-filter-id)
+                  (and (stringp pending-filter-id)
+                       (= 34 (length pending-filter-id))
+                       (string= "0x" pending-filter-id :end2 2))
                   "eth_newPendingTransactionFilter id mismatch")
                  (devnet-smoke-gate-require
                   (= 200 (devnet-cli-http-status send-raw-response))
@@ -2773,9 +2798,17 @@
                   (null (fixture-object-field public-net-listening-rpc
                                               "result"))
                   "net_listening mismatch")
-                 (devnet-smoke-gate-require
-                  (null (fixture-object-field public-syncing-rpc "result"))
-                  "eth_syncing mismatch")
+                 (let ((syncing
+                         (fixture-object-field public-syncing-rpc "result")))
+                   (devnet-smoke-gate-require
+                    (and
+                     (string= expected-block-number
+                              (fixture-object-field syncing "startingBlock"))
+                     (string= expected-block-number
+                              (fixture-object-field syncing "currentBlock"))
+                     (string= expected-prepared-block-number
+                              (fixture-object-field syncing "highestBlock")))
+                    "eth_syncing mismatch"))
                  (devnet-smoke-gate-require
                   (string= (quantity-to-hex 0)
                            (fixture-object-field public-net-peer-count-rpc

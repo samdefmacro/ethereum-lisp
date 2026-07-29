@@ -373,7 +373,6 @@
                  "--http=true"
                  "--graphql=0"
                  "--nodiscover=0"
-                 "--ipcdisable=1"
                  "--mine=false"
                  "--dev=false"
                  "--metrics=0"
@@ -449,7 +448,6 @@
                           "0101010101010101010101010101010101010101010101010101010101010101"
                           "--discovery.port=30303"
                           "--discovery.dns="
-                          "--ipcpath=/tmp/ethereum-lisp.ipc"
                           "--mine=true"
                           "--miner.etherbase"
                           "0x0000000000000000000000000000000000000000"
@@ -665,7 +663,7 @@
                 (run-error (list "devnet"
                                  "--ws.rpcprefix"
                                  "--no-serve"))))
-    (is (search "--ipcapi requires a value"
+    (is (search "--ipcapi is not supported"
                 (run-error (list "devnet"
                                  "--ipcapi"
                                  "--no-serve"))))
@@ -677,7 +675,7 @@
                 (run-error (list "devnet"
                                  "--discovery.port"
                                  "--no-serve"))))
-    (is (search "--ipcpath requires a value"
+    (is (search "--ipcpath is not supported"
                 (run-error (list "devnet"
                                  "--ipcpath"
                                  "--no-serve"))))

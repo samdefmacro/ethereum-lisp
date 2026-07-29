@@ -79,12 +79,12 @@ neither."
 (defun engine-rpc-handle-eth-syncing (params store)
   (when params
     (block-validation-fail "eth_syncing params must be empty"))
-  (let ((highest (engine-rpc-sync-highest-block store)))
-    (if highest
-        (let ((current (chain-store-head-number store)))
-          (list (cons "startingBlock" (quantity-to-hex current))
-                (cons "currentBlock" (quantity-to-hex current))
-                (cons "highestBlock" (quantity-to-hex (max current highest)))))
+  (let ((highest (engine-rpc-sync-highest-block store))
+        (current (chain-store-head-number store)))
+    (if (and highest (> highest current))
+        (list (cons "startingBlock" (quantity-to-hex current))
+              (cons "currentBlock" (quantity-to-hex current))
+              (cons "highestBlock" (quantity-to-hex highest)))
         :false)))
 
 (defun engine-rpc-handle-eth-accounts (params)
