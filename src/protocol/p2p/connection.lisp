@@ -25,25 +25,60 @@
   (write-sequence (ensure-byte-vector packet) stream)
   (force-output stream))
 
-(defun rlpx-write-frame-to-stream (session code data stream)
-  "Frame CODE and DATA with SESSION and write the frame to STREAM."
-  (write-sequence (rlpx-write-frame session code data) stream)
+(defun rlpx-write-frame-to-stream
+    (session code data stream &key max-frame-size)
+  "Frame CODE and DATA, splitting a packet when MAX-FRAME-SIZE requires it."
+  (let* ((frame-data
+           (concat-bytes
+            (rlp-encode (integer-to-minimal-bytes code))
+            (ensure-byte-vector data)))
+         (length (length frame-data)))
+    (when (and max-frame-size (not (plusp max-frame-size)))
+      (error "RLPx maximum frame size must be positive"))
+    (if (or (null max-frame-size) (<= length max-frame-size))
+        (write-sequence (rlpx-write-frame-data session frame-data) stream)
+        (loop with context-id = 1
+              for start from 0 below length by max-frame-size
+              for end = (min length (+ start max-frame-size))
+              for first = t then nil
+              do (write-sequence
+                  (rlpx-write-frame-data
+                   session (subseq frame-data start end)
+                   :context-id context-id
+                   :total-packet-size (and first length))
+                  stream))))
   (force-output stream))
+
+(defun rlpx-read-frame-data-from-stream (session stream &key max-frame-size)
+  "Read one frame, returning data, capability, context, and total packet size."
+  (multiple-value-bind (frame-size capability-id context-id total-packet-size)
+      (rlpx-read-frame-header
+       session (rlpx-read-exactly stream (* 2 +rlpx-frame-block+)))
+    (when (and max-frame-size (> frame-size max-frame-size))
+      (error "RLPx frame declares ~D bytes, exceeding the ~D-byte limit"
+             frame-size max-frame-size))
+    (values
+     (rlpx-read-frame-body-data
+      session frame-size
+      (rlpx-read-exactly stream (rlpx-frame-body-length frame-size)))
+     capability-id context-id total-packet-size)))
 
 (defun rlpx-read-frame-from-stream (session stream &key max-frame-size)
   "Read one frame from STREAM, returning (VALUES MESSAGE-CODE DATA).
 
 MAX-FRAME-SIZE, when supplied, is checked after authenticating the header and
-before allocating or reading the frame body."
-  (let* ((frame-size
-           (rlpx-read-frame-header
-            session (rlpx-read-exactly stream (* 2 +rlpx-frame-block+)))))
-    (when (and max-frame-size (> frame-size max-frame-size))
-      (error "RLPx frame declares ~D bytes, exceeding the ~D-byte limit"
-             frame-size max-frame-size))
-    (let ((body
-            (rlpx-read-exactly stream (rlpx-frame-body-length frame-size))))
-      (rlpx-read-frame-body session frame-size body))))
+before allocating or reading the frame body. Chunked packets must be consumed
+through RLPX-CONNECTION-READ-MESSAGE, which reassembles their continuation."
+  (multiple-value-bind (frame-data capability-id context-id total-packet-size)
+      (rlpx-read-frame-data-from-stream session stream
+                                       :max-frame-size max-frame-size)
+    (unless (and (zerop capability-id) (zerop context-id)
+                 (null total-packet-size))
+      (error "RLPx frame belongs to a chunked packet"))
+    (multiple-value-bind (code next)
+        (rlp-decode frame-data :allow-trailing t)
+      (values (bytes-to-integer (ensure-byte-vector code))
+              (subseq frame-data next)))))
 
 (defstruct (rlpx-connection (:constructor %make-rlpx-connection))
   session
@@ -101,13 +136,15 @@ The connection's remote public key is the initiator's, taken from its auth."
          :stream stream
          :remote-public-key initiator-public-key)))))
 
-(defun rlpx-connection-write-message (connection code payload &key (compressed t))
+(defun rlpx-connection-write-message
+    (connection code payload &key (compressed t) max-frame-size)
   "Write a devp2p message over CONNECTION, Snappy-compressing unless told not to."
   (rlpx-write-frame-to-stream
    (rlpx-connection-session connection)
    code
    (if compressed (snappy-compress payload) (ensure-byte-vector payload))
-   (rlpx-connection-stream connection))
+   (rlpx-connection-stream connection)
+   :max-frame-size max-frame-size)
   (values))
 
 (defun rlpx-connection-read-message
@@ -116,12 +153,55 @@ The connection's remote public key is the initiator's, taken from its auth."
 
 MAX-FRAME-SIZE is enforced before the body allocation. MAX-MESSAGE-SIZE is
 enforced after decompression as well, so compression cannot bypass the bound."
-  (multiple-value-bind (code data)
-      (rlpx-read-frame-from-stream (rlpx-connection-session connection)
-                                   (rlpx-connection-stream connection)
-                                   :max-frame-size max-frame-size)
-    (let ((payload (if compressed (snappy-decompress data) data)))
+  (multiple-value-bind (first-data capability-id context-id total-packet-size)
+      (rlpx-read-frame-data-from-stream
+       (rlpx-connection-session connection)
+       (rlpx-connection-stream connection)
+       :max-frame-size max-frame-size)
+    (unless (zerop capability-id)
+      (error "RLPx capability-id ~D is unsupported" capability-id))
+    (let ((frame-data
+            (if total-packet-size
+                (progn
+                  (when (zerop context-id)
+                    (error "RLPx chunked packet has context-id zero"))
+                  (when (and max-message-size
+                             (> total-packet-size (+ max-message-size 64)))
+                    (error "RLPx chunked packet declares ~D bytes, exceeding its limit"
+                           total-packet-size))
+                  (when (> (length first-data) total-packet-size)
+                    (error "RLPx first chunk exceeds total packet size"))
+                  (let ((packet
+                          (make-array total-packet-size
+                                      :element-type '(unsigned-byte 8)))
+                        (filled (length first-data)))
+                    (replace packet first-data)
+                    (loop while (< filled total-packet-size)
+                          do (multiple-value-bind
+                                 (chunk next-capability next-context next-total)
+                                 (rlpx-read-frame-data-from-stream
+                                  (rlpx-connection-session connection)
+                                  (rlpx-connection-stream connection)
+                                  :max-frame-size max-frame-size)
+                               (unless (and (= next-capability capability-id)
+                                            (= next-context context-id)
+                                            (null next-total))
+                                 (error "RLPx chunk continuation metadata mismatch"))
+                               (when (> (+ filled (length chunk))
+                                        total-packet-size)
+                                 (error "RLPx chunks exceed total packet size"))
+                               (replace packet chunk :start1 filled)
+                               (incf filled (length chunk))))
+                    packet))
+                (progn
+                  (unless (zerop context-id)
+                    (error "RLPx continuation arrived without a first chunk"))
+                  first-data))))
+      (multiple-value-bind (code next)
+          (rlp-decode frame-data :allow-trailing t)
+        (let* ((data (subseq frame-data next))
+               (payload (if compressed (snappy-decompress data) data)))
       (when (and max-message-size (> (length payload) max-message-size))
         (error "devp2p message contains ~D bytes, exceeding the ~D-byte limit"
                (length payload) max-message-size))
-      (values code payload))))
+          (values (bytes-to-integer (ensure-byte-vector code)) payload))))))
