@@ -29,3 +29,11 @@
   (signals rlp-error (rlp-decode-one (hex-to-bytes "0x8101")))
   (signals rlp-error (rlp-decode-one (hex-to-bytes "0xb80100")))
   (signals rlp-error (rlp-decode-one (hex-to-bytes "0xf801c0"))))
+
+(deftest rlp-rejects-excessive-nesting-with-rlp-error
+  (let ((nested (make-rlp-list)))
+    (loop repeat 66
+          do (setf nested (make-rlp-list nested)))
+    (let ((encoded (rlp-encode nested)))
+      (signals rlp-error (rlp-decode-one encoded))
+      (is (rlp-list-p (rlp-decode encoded :maximum-depth 66))))))

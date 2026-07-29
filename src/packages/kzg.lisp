@@ -17,16 +17,23 @@
    #:+cell-proofs-per-blob+
    #:*kzg-point-proof-verifier*
    #:*kzg-blob-proof-verifier*
+   #:*kzg-cell-proof-verifier*
    #:*kzg-verifier*
    #:kzg-verifier
    #:make-kzg-verifier
    #:kzg-verifier-point-proof-function
    #:kzg-verifier-blob-proof-function
+   #:kzg-verifier-cell-proof-function
    #:kzg-point-proof-verification-available-p
    #:kzg-blob-proof-verification-available-p
+   #:kzg-cell-proof-verification-available-p
    #:kzg-proof-verification-available-p
+   #:kzg-unavailable-error
+   #:kzg-unavailable-error-message
    #:verify-kzg-point-proof
    #:verify-kzg-blob-proof
+   #:verify-kzg-cell-proofs
    #:make-kzg-cffi-verifier
    #:kzg-cffi-verifier-available-p
+   #:compute-kzg-cell-proofs
    #:validate-blob-sidecar-fields))

@@ -31,6 +31,41 @@
   (topics '() :type list)
   data)
 
+(defun %receipt-integer-to-fixed-bytes (value size)
+  (let ((bytes (make-byte-vector size)))
+    (loop for index downfrom (1- size) to 0
+          for remaining = value then (ash remaining -8)
+          do (setf (aref bytes index) (logand remaining #xff)))
+    bytes))
+
+(defparameter +eth-transfer-system-address+
+  (make-address
+   (%receipt-integer-to-fixed-bytes
+    #xfffffffffffffffffffffffffffffffffffffffe
+    20)))
+
+(defparameter +eth-transfer-log-topic+
+  (make-hash32
+   (%receipt-integer-to-fixed-bytes
+    #xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef
+    32)))
+
+(defun make-eth-transfer-log-entry (sender recipient amount)
+  "Construct the EIP-7708 system log for one nonzero ETH transfer."
+  (make-log-entry
+   :address +eth-transfer-system-address+
+   :topics
+   (list +eth-transfer-log-topic+
+         (make-hash32
+          (%receipt-integer-to-fixed-bytes
+           (bytes-to-integer (address-bytes sender))
+           32))
+         (make-hash32
+          (%receipt-integer-to-fixed-bytes
+           (bytes-to-integer (address-bytes recipient))
+           32)))
+   :data (%receipt-integer-to-fixed-bytes amount 32)))
+
 (defun topic-bytes (topic)
   (etypecase topic
     (hash32 (hash32-bytes topic))
@@ -89,10 +124,12 @@
 
 (defstruct (receipt (:constructor make-receipt
                        (&key post-state
+                             (type 0)
                              (status 1)
                              (cumulative-gas-used 0)
                              (logs '()))))
   post-state
+  (type 0 :type (integer 0 127))
   (status 1 :type (integer 0 1))
   (cumulative-gas-used 0 :type (integer 0 *))
   (logs '() :type list))
@@ -123,6 +160,13 @@
         receipt-rlp
         (concat-bytes (vector type) receipt-rlp))))
 
+(defun receipt-encoding (receipt)
+  (let ((type (receipt-type receipt))
+        (encoded (receipt-rlp receipt)))
+    (if (zerop type)
+        encoded
+        (concat-bytes (vector type) encoded))))
+
 (defun derive-list-root (encoded-items)
   (let ((trie (make-mpt)))
     (loop for item in encoded-items
@@ -134,7 +178,7 @@
   (derive-list-root (mapcar #'transaction-encoding transactions)))
 
 (defun receipt-list-root (receipts)
-  (derive-list-root (mapcar #'receipt-rlp receipts)))
+  (derive-list-root (mapcar #'receipt-encoding receipts)))
 
 (defun transaction-receipt-list-root (transactions receipts)
   (unless (= (length transactions) (length receipts))

@@ -1,5 +1,7 @@
 (in-package #:ethereum-lisp.transactions)
 
+(defconstant +blob-sidecar-cell-proofs-per-blob+ 128)
+
 (defstruct (blob-transaction (:constructor make-blob-transaction
                                (&key (chain-id 0)
                                      (nonce 0)
@@ -98,41 +100,38 @@
 (defun blob-transaction-encoding (transaction)
   (concat-bytes #(3) (rlp-encode (blob-transaction-payload transaction))))
 
+(defun blob-transaction-from-rlp-object (value)
+  (unless (rlp-list-p value)
+    (block-validation-fail
+     "Blob transaction payload must be an RLP list"))
+  (let ((fields (rlp-list-items value)))
+    (unless (= (length fields) 14)
+      (block-validation-fail
+       "Blob transaction payload must contain 14 fields"))
+    (make-blob-transaction
+     :chain-id (rlp-uint-field (first fields) "Transaction chain id")
+     :nonce (rlp-uint-field (second fields) "Transaction nonce")
+     :max-priority-fee-per-gas
+     (rlp-uint-field (third fields) "Transaction max priority fee")
+     :max-fee-per-gas
+     (rlp-uint-field (fourth fields) "Transaction max fee")
+     :gas-limit (rlp-uint-field (fifth fields) "Transaction gas limit")
+     :to (required-transaction-recipient-from-rlp
+          (sixth fields) "Blob transaction recipient")
+     :value (rlp-uint-field (seventh fields) "Transaction value")
+     :data (rlp-bytes-field (eighth fields) "Transaction data")
+     :access-list (access-list-from-rlp-object (ninth fields))
+     :max-fee-per-blob-gas
+     (rlp-uint-field (nth 9 fields) "Transaction max blob fee")
+     :blob-versioned-hashes
+     (blob-versioned-hashes-from-rlp-object (nth 10 fields))
+     :y-parity (rlp-uint-field (nth 11 fields) "Transaction y parity")
+     :r (rlp-uint-field (nth 12 fields) "Transaction r")
+     :s (rlp-uint-field (nth 13 fields) "Transaction s"))))
+
 (defun blob-transaction-from-rlp (bytes)
   (handler-case
-      (let ((value (rlp-decode-one bytes)))
-        (unless (rlp-list-p value)
-          (block-validation-fail
-           "Blob transaction payload must be an RLP list"))
-        (let ((fields (rlp-list-items value)))
-          (unless (= (length fields) 14)
-            (block-validation-fail
-             "Blob transaction payload must contain 14 fields"))
-          (make-blob-transaction
-           :chain-id (rlp-uint-field (first fields)
-                                     "Transaction chain id")
-           :nonce (rlp-uint-field (second fields) "Transaction nonce")
-           :max-priority-fee-per-gas
-           (rlp-uint-field (third fields)
-                           "Transaction max priority fee")
-           :max-fee-per-gas
-           (rlp-uint-field (fourth fields) "Transaction max fee")
-           :gas-limit (rlp-uint-field (fifth fields)
-                                      "Transaction gas limit")
-           :to (required-transaction-recipient-from-rlp
-                (sixth fields)
-                "Blob transaction recipient")
-           :value (rlp-uint-field (seventh fields) "Transaction value")
-           :data (rlp-bytes-field (eighth fields) "Transaction data")
-           :access-list (access-list-from-rlp-object (ninth fields))
-           :max-fee-per-blob-gas
-           (rlp-uint-field (nth 9 fields) "Transaction max blob fee")
-           :blob-versioned-hashes
-           (blob-versioned-hashes-from-rlp-object (nth 10 fields))
-           :y-parity (rlp-uint-field (nth 11 fields)
-                                     "Transaction y parity")
-           :r (rlp-uint-field (nth 12 fields) "Transaction r")
-           :s (rlp-uint-field (nth 13 fields) "Transaction s"))))
+      (blob-transaction-from-rlp-object (rlp-decode-one bytes))
     (block-validation-error (condition)
       (error condition))
     (rlp-error (condition)
@@ -155,6 +154,72 @@
   (blobs '() :type list)
   (commitments '() :type list)
   (proofs '() :type list))
+
+(defstruct (blob-network-transaction
+            (:constructor make-blob-network-transaction
+                (transaction sidecar)))
+  transaction
+  sidecar)
+
+(defun byte-list-rlp-object (values)
+  (apply #'make-rlp-list (mapcar #'ensure-byte-vector values)))
+
+(defun blob-network-transaction-encoding (value)
+  "Encode the EIP-4844/EIP-7594 pooled-transaction wrapper."
+  (let* ((transaction (blob-network-transaction-transaction value))
+         (sidecar (blob-network-transaction-sidecar value))
+         (blobs (blob-sidecar-blobs sidecar))
+         (commitments (blob-sidecar-commitments sidecar))
+         (proofs (blob-sidecar-proofs sidecar))
+         (cell-proof-p
+           (and (plusp (length blobs))
+                (= (length proofs)
+                   (* (length blobs)
+                      +blob-sidecar-cell-proofs-per-blob+)))))
+    (concat-bytes
+     #(3)
+     (rlp-encode
+      (apply #'make-rlp-list
+             (append
+              (list (blob-transaction-payload transaction))
+              (when cell-proof-p (list 1))
+              (list (byte-list-rlp-object blobs)
+                    (byte-list-rlp-object commitments)
+                    (byte-list-rlp-object proofs))))))))
+
+(defun blob-network-transaction-from-rlp (bytes)
+  "Decode a canonical blob transaction or its network sidecar wrapper."
+  (let ((value (rlp-decode-one bytes)))
+    (unless (rlp-list-p value)
+      (block-validation-fail "Blob transaction must be an RLP list"))
+    (let ((fields (rlp-list-items value)))
+      (if (not (rlp-list-p (first fields)))
+          (blob-transaction-from-rlp-object value)
+          (let* ((versioned-p (not (rlp-list-p (second fields))))
+                 (expected-fields (if versioned-p 5 4))
+                 (version (when versioned-p
+                            (rlp-uint-field
+                             (second fields) "Blob sidecar version")))
+                 (offset (if versioned-p 1 0)))
+            (unless (= (length fields) expected-fields)
+              (block-validation-fail
+               "Blob transaction wrapper must contain ~D fields"
+               expected-fields))
+            (when (and versioned-p (/= version 1))
+              (block-validation-fail
+               "Unsupported blob sidecar version ~D" version))
+            (make-blob-network-transaction
+             (blob-transaction-from-rlp-object (first fields))
+             (make-blob-sidecar
+              :blobs
+              (mapcar #'ensure-byte-vector
+                      (rlp-list-items (nth (+ offset 1) fields)))
+              :commitments
+              (mapcar #'ensure-byte-vector
+                      (rlp-list-items (nth (+ offset 2) fields)))
+              :proofs
+              (mapcar #'ensure-byte-vector
+                      (rlp-list-items (nth (+ offset 3) fields))))))))))
 
 (defun blob-sidecar-versioned-hashes (sidecar)
   (mapcar #'kzg-commitment-to-versioned-hash

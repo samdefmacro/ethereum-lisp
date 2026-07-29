@@ -14,6 +14,7 @@
    :coinbase (evm-context-coinbase parent)
    :timestamp (evm-context-timestamp parent)
    :block-number (evm-context-block-number parent)
+   :slot-number (evm-context-slot-number parent)
    :prev-randao (evm-context-prev-randao parent)
    :difficulty (evm-context-difficulty parent)
    :random-p (evm-context-random-p parent)

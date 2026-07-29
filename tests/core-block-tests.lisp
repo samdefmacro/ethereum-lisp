@@ -93,6 +93,159 @@
       (validate-transaction-type-for-config set-code config 10 29))
     (is (validate-transaction-type-for-config set-code config 10 30))))
 
+(deftest configured-post-merge-status-does-not-trust-header-difficulty
+  (let* ((parent (make-block-header :number 7
+                                    :gas-limit 1000000
+                                    :gas-used 500000
+                                    :timestamp 100
+                                    :base-fee-per-gas
+                                    +initial-base-fee+))
+         (parent-hash (block-header-hash parent))
+         (child (make-block-header :parent-hash parent-hash
+                                   :number 8
+                                   :gas-limit 1000000
+                                   :timestamp 101
+                                   :base-fee-per-gas
+                                   +initial-base-fee+))
+         (forged-pow-child
+           (make-block-header :parent-hash parent-hash
+                              :number 8
+                              :difficulty #x20000
+                              :gas-limit 1000000
+                              :timestamp 101
+                              :base-fee-per-gas
+                              +initial-base-fee+))
+         (post-merge-config
+           (make-chain-config :london-block 0
+                              :terminal-total-difficulty-passed t))
+         (pre-merge-config
+           (make-chain-config :london-block 0
+                              :terminal-total-difficulty 100)))
+    (is (chain-config-post-merge-p post-merge-config 8))
+    (is (not (chain-config-post-merge-p pre-merge-config 8)))
+    (is (validate-block-header-against-config
+         parent child post-merge-config))
+    (signals block-validation-error
+      (validate-block-header-against-config
+       parent forged-pow-child post-merge-config))
+    (signals block-validation-error
+      (validate-block-header-against-config
+       parent child pre-merge-config))))
+
+(deftest ethash-difficulty-and-seal-capability-are-enforced
+  (let* ((parent (make-block-header :number 0
+                                    :difficulty #x20000
+                                    :ommers-hash +empty-ommers-hash+
+                                    :gas-limit 100000
+                                    :timestamp 100))
+         (config (make-chain-config :terminal-total-difficulty 100))
+         (difficulty (expected-ethash-difficulty config 105 parent))
+         (child (make-block-header :parent-hash (block-header-hash parent)
+                                   :ommers-hash +empty-ommers-hash+
+                                   :difficulty difficulty
+                                   :number 1
+                                   :gas-limit 100000
+                                   :timestamp 105)))
+    (is (= #x20040 difficulty))
+    (let ((*ethash-seal-verifier* (lambda (header)
+                                    (declare (ignore header))
+                                    t)))
+      (is (validate-block-header-against-config parent child config)))
+    (is (ethash-seal-verification-available-p))
+    (let ((*ethash-seal-verifier* nil))
+      (signals block-validation-error
+        (validate-block-header-against-config parent child config)))
+    (let ((*ethash-seal-verifier* (lambda (header)
+                                    (declare (ignore header))
+                                    t)))
+      (setf (block-header-difficulty child) (1+ difficulty))
+      (signals block-validation-error
+        (validate-block-header-against-config parent child config)))))
+
+(deftest keccak-512-matches-ethash-empty-input-vector
+  (is (string=
+       "0x0eab42de4c3ceb9235fc91acffe746b29c29a8c366b7c60e4e67c466f36a4304c00fa9caf9d87976ba469bcbe06713b435f091ef2769fb160cdab33d3670680e"
+       (bytes-to-hex (keccak-512 #())))))
+
+(deftest ethash-light-hashimoto-matches-official-vector
+  (:layer :integration :module :block-validation :estimated-seconds 10)
+  ;; ethereum/tests c67e485ff8b5be9abc8ad15345ec21aa22e290d9,
+  ;; PoWTests/ethash_tests.json, case "first".
+  (let ((header
+          (block-header-from-rlp
+           (hex-to-bytes
+            "0xf901f3a00000000000000000000000000000000000000000000000000000000000000000a01dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347940000000000000000000000000000000000000000a09178d0f23c965d81f0834a4c72c6253ce6830f4022b1359aaebfc1ecba442d4ea056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421b90100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008302000080830f4240808080a058f759ede17a706c93f13030328bcea40c1d1341fb26f2facd21ceb0dae57017884242424242424242"))))
+    (is (string=
+         "0x2a8de2adf89af77358250bf908bf04ba94a6e8c3ba87775564a41d269a05e4ce"
+         (hash32-to-hex (block-header-seal-hash header))))
+    (let ((legacy-seal-hash (block-header-seal-hash header)))
+      (setf (block-header-base-fee-per-gas header) +initial-base-fee+)
+      (is (not (string=
+                (hash32-to-hex legacy-seal-hash)
+                (hash32-to-hex (block-header-seal-hash header)))))
+      (setf (block-header-base-fee-per-gas header) nil))
+    (multiple-value-bind (mix result)
+        (ethereum-lisp.consensus::ethash-hashimoto-light header)
+      (is (string=
+           "0x58f759ede17a706c93f13030328bcea40c1d1341fb26f2facd21ceb0dae57017"
+           (bytes-to-hex mix)))
+      (is (string=
+           "0xdd47fd2d98db51078356852d7c4014e6a5d6c387c35f40e2875b74a256ed7906"
+           (bytes-to-hex result))))))
+
+(deftest dao-header-extra-data-follows-configured-side
+  (let ((pro (make-chain-config :dao-fork-block 10
+                                :dao-fork-support t))
+        (anti (make-chain-config :dao-fork-block 10
+                                 :dao-fork-support nil))
+        (marker
+          (ethereum-lisp.hex:hex-to-bytes
+           "0x64616f2d686172642d666f726b")))
+    (is (validate-block-dao-extra-data
+         (make-block-header :number 10 :extra-data marker) pro))
+    (signals block-validation-error
+      (validate-block-dao-extra-data
+       (make-block-header :number 10) pro))
+    (signals block-validation-error
+      (validate-block-dao-extra-data
+       (make-block-header :number 19 :extra-data marker) anti))
+    (is (validate-block-dao-extra-data
+         (make-block-header :number 20 :extra-data marker) anti))))
+
+(deftest proof-of-work-ommer-validation-requires-recent-ancestry
+  (let* ((config (make-chain-config :terminal-total-difficulty 100))
+         (grandparent (make-block-header :number 8
+                                         :difficulty #x20000
+                                         :ommers-hash +empty-ommers-hash+
+                                         :gas-limit 100000
+                                         :timestamp 100))
+         (ommer-difficulty
+           (expected-ethash-difficulty config 105 grandparent))
+         (ommer
+           (make-block-header
+            :parent-hash (block-header-hash grandparent)
+            :ommers-hash +empty-ommers-hash+
+            :difficulty ommer-difficulty
+            :number 9
+            :gas-limit 100000
+            :timestamp 105))
+         (parent (make-block-header :number 9
+                                    :difficulty ommer-difficulty
+                                    :ommers-hash +empty-ommers-hash+
+                                    :gas-limit 100000
+                                    :timestamp 106))
+         (block (make-block
+                 :header (make-block-header :number 10)
+                 :ommers (list ommer)))
+         (ancestor (make-block :header grandparent)))
+    (let ((*ethash-seal-verifier* (lambda (header)
+                                    (declare (ignore header))
+                                    t)))
+      (is (validate-block-ommers-against-config
+           block parent config :ancestor-blocks (list ancestor))))
+    (signals block-validation-error
+      (validate-block-ommers-against-config block parent config))))
+
 (deftest block-header-basic-parent-validation
   (let* ((parent (make-block-header :number 7
                                     :gas-limit 1024000
@@ -356,17 +509,18 @@
                   :withdrawals-root (withdrawal-list-root '())
                   :requests-hash (execution-requests-hash '()))
            config))
-      (is (validate-block-header-against-config
-           parent
-           (child :timestamp 400
-                  :blob-gas-used 0
-                  :excess-blob-gas 0
-                  :parent-beacon-root (zero-hash32)
-                  :withdrawals-root (withdrawal-list-root '())
-                  :requests-hash (execution-requests-hash '())
-                  :block-access-list-hash +empty-ommers-hash+
-                  :slot-number 0)
-           config))
+      (is
+        (validate-block-header-against-config
+         parent
+         (child :timestamp 400
+                :blob-gas-used 0
+                :excess-blob-gas 0
+                :parent-beacon-root (zero-hash32)
+                :withdrawals-root (withdrawal-list-root '())
+                :requests-hash (execution-requests-hash '())
+                :block-access-list-hash +empty-ommers-hash+
+                :slot-number 0)
+         config))
       (is (validate-block-header-against-config
            parent
            (child :timestamp 300
@@ -431,7 +585,7 @@
                 :requests-hash (execution-requests-hash '()))
          config)))))
 
-(deftest amsterdam-header-slot-number-must-exceed-parent
+(deftest amsterdam-header-slot-number-must-increase
   (let* ((config (make-chain-config :london-block 0
                                     :shanghai-time 150
                                     :cancun-time 200
@@ -465,7 +619,8 @@
               :requests-hash (execution-requests-hash '())
               :block-access-list-hash +empty-ommers-hash+
               :slot-number slot-number)))
-      (is (validate-block-header-against-config parent (child 11) config))
+      (is
+        (validate-block-header-against-config parent (child 11) config))
       (signals block-validation-error
         (validate-block-header-against-config parent (child 10) config))
       (signals block-validation-error
@@ -581,11 +736,9 @@
       (validate-block-header-against-config
        below-reserve-parent config-child config))))
 
-(deftest eip7918-reserve-price-uses-the-parent-blob-fee-update-fraction
-  ;; At the first block of a fork that changes the update fraction, the parent's
-  ;; blob base fee must be computed with the *parent's* fraction. Using the
-  ;; child's yields a lower fee, which trips the reserve-price branch and
-  ;; produces a different excess blob gas — a one-block chain split.
+(deftest eip7918-reserve-price-uses-the-child-blob-fee-update-fraction
+  ;; At the first block of a fork that changes the update fraction, EIP-7918
+  ;; evaluates the parent excess using the child's schedule.
   ;;
   ;; These values are chosen so the two fractions disagree: the reserve price
   ;; 8192 * 72 = 589824 sits between 131072 * blob_fee(6000000, osaka) = 393216
@@ -603,33 +756,24 @@
                               :timestamp 9
                               :blob-gas-used parent-used
                               :excess-blob-gas parent-excess))
-         (correct-excess (- (+ parent-excess parent-used) osaka-target-gas))
+         (old-schedule-excess
+           (- (+ parent-excess parent-used) osaka-target-gas))
          (reserve-excess
            (+ parent-excess
               (floor (* parent-used (- osaka-max-gas osaka-target-gas))
                      osaka-max-gas))))
     ;; The two candidate answers must actually differ, or the test proves nothing.
-    (is (/= correct-excess reserve-excess))
-    (is (= 5606784 correct-excess))
+    (is (/= old-schedule-excess reserve-excess))
+    (is (= 5606784 old-schedule-excess))
     (is (= 6131072 reserve-excess))
-    ;; Parent fraction (correct): reserve price does not apply.
-    (is (= correct-excess
-           (expected-excess-blob-gas
-            parent
-            :target-blob-gas osaka-target-gas
-            :max-blob-gas osaka-max-gas
-            :eip7918-p t
-            :update-fraction +osaka-blob-base-fee-update-fraction+
-            :parent-update-fraction +blob-base-fee-update-fraction+)))
-    ;; Child fraction everywhere (the old behavior): reserve price wrongly fires.
+    ;; The child fraction makes the reserve-price branch fire.
     (is (= reserve-excess
            (expected-excess-blob-gas
             parent
             :target-blob-gas osaka-target-gas
             :max-blob-gas osaka-max-gas
             :eip7918-p t
-            :update-fraction +osaka-blob-base-fee-update-fraction+
-            :parent-update-fraction +osaka-blob-base-fee-update-fraction+)))
+            :update-fraction +osaka-blob-base-fee-update-fraction+)))
     ;; Driven through the config path, at the Osaka -> BPO1 boundary. Prague and
     ;; Osaka share an update fraction in this model, so BPO1 is the first
     ;; boundary where parent and child fractions actually differ.
@@ -644,7 +788,8 @@
                                 :timestamp 9
                                 :blob-gas-used bpo-parent-used
                                 :excess-blob-gas bpo-parent-excess))
-           (bpo-correct (- (+ bpo-parent-excess bpo-parent-used) bpo1-target))
+           (bpo-old-schedule
+             (- (+ bpo-parent-excess bpo-parent-used) bpo1-target))
            (bpo-reserve
              (+ bpo-parent-excess
                 (floor (* bpo-parent-used (- bpo1-max bpo1-target)) bpo1-max)))
@@ -659,15 +804,15 @@
                                      :gas-limit 30000000
                                      :base-fee-per-gas 24
                                      :blob-gas-used 0
-                                     :excess-blob-gas bpo-correct
+                                     :excess-blob-gas bpo-reserve
                                      :parent-beacon-root (zero-hash32)
                                      :requests-hash
                                      (execution-requests-hash '()))))
-      (is (/= bpo-correct bpo-reserve))
-      (is (= 3344640 bpo-correct))
+      (is (/= bpo-old-schedule bpo-reserve))
+      (is (= 3344640 bpo-old-schedule))
       (is (= 4218453 bpo-reserve))
       (is (validate-block-header-against-config bpo-parent child config))
-      (setf (block-header-excess-blob-gas child) bpo-reserve)
+      (setf (block-header-excess-blob-gas child) bpo-old-schedule)
       (signals block-validation-error
         (validate-block-header-against-config bpo-parent child config)))))
 

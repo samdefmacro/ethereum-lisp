@@ -45,8 +45,43 @@
               collect (parse-genesis-blob-schedule-entry
                        timestamp entry-object fork-name)))))
 
+(defun validate-chain-config-fork-order (config)
+  "Reject impossible post-merge fork combinations at the genesis boundary."
+  (when (and (chain-config-osaka-time config)
+             (null (chain-config-prague-time config)))
+    (block-validation-fail
+     "Unsupported fork ordering: pragueTime is unset but osakaTime is enabled"))
+  (when (and (chain-config-amsterdam-time config)
+             (null (chain-config-osaka-time config)))
+    (block-validation-fail
+     "Unsupported fork ordering: osakaTime is unset but amsterdamTime is enabled"))
+  (let ((last-name nil)
+        (last-time nil))
+    (dolist (fork
+             (list
+              (cons "shanghaiTime" (chain-config-shanghai-time config))
+              (cons "cancunTime" (chain-config-cancun-time config))
+              (cons "pragueTime" (chain-config-prague-time config))
+              (cons "osakaTime" (chain-config-osaka-time config))
+              (cons "ubtTime" (chain-config-ubt-time config))
+              (cons "bpo1Time" (chain-config-bpo1-time config))
+              (cons "bpo2Time" (chain-config-bpo2-time config))
+              (cons "bpo3Time" (chain-config-bpo3-time config))
+              (cons "bpo4Time" (chain-config-bpo4-time config))
+              (cons "bpo5Time" (chain-config-bpo5-time config))
+              (cons "amsterdamTime" (chain-config-amsterdam-time config))))
+      (when (cdr fork)
+        (when (and last-time (> last-time (cdr fork)))
+          (block-validation-fail
+           "Unsupported fork ordering: ~A at ~D follows ~A at ~D"
+           (car fork) (cdr fork) last-name last-time))
+        (setf last-name (car fork)
+              last-time (cdr fork)))))
+  config)
+
 (defun chain-config-from-genesis-config (object)
-  (make-chain-config
+  (let ((config
+          (make-chain-config
    :chain-id (or (parse-json-quantity-field object "chainId") 1)
    :homestead-block (parse-json-quantity-field object "homesteadBlock")
    :dao-fork-block (parse-json-quantity-field object "daoForkBlock")
@@ -93,4 +128,5 @@
    :deposit-contract-address
    (parse-genesis-address-field object "depositContractAddress"
                                 "Genesis deposit contract address")
-   :custom-blob-schedule (parse-genesis-blob-schedule object)))
+   :custom-blob-schedule (parse-genesis-blob-schedule object))))
+    (validate-chain-config-fork-order config)))

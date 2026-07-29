@@ -162,7 +162,8 @@
       (is (string= "Method not found" (field error "message")))
       (is (not (field response "result"))))
     (let ((old-point-verifier ethereum-lisp.core:*kzg-point-proof-verifier*)
-          (old-blob-verifier ethereum-lisp.core:*kzg-blob-proof-verifier*))
+          (old-blob-verifier ethereum-lisp.core:*kzg-blob-proof-verifier*)
+          (old-bls-backend ethereum-lisp.core:*bls12381-backend*))
       (unwind-protect
            (progn
              (setf ethereum-lisp.core:*kzg-point-proof-verifier*
@@ -172,6 +173,10 @@
                    ethereum-lisp.core:*kzg-blob-proof-verifier*
                    (lambda (blob commitment proof)
                      (declare (ignore blob commitment proof))
+                     t)
+                   ethereum-lisp.core:*bls12381-backend*
+                   (lambda (&rest arguments)
+                     (declare (ignore arguments))
                      t))
              (let* ((store (make-engine-payload-memory-store))
                     (config (make-chain-config))
@@ -183,11 +188,18 @@
                         request-json store config)))
                     (capabilities (field response "result")))
                (is (member "engine_newPayloadV3" capabilities :test #'string=))
-               (is (member "engine_newPayloadV5" capabilities :test #'string=))
-               (is (member "engine_forkchoiceUpdatedV4"
-                           capabilities
-                           :test #'string=))
-               (is (member "engine_getPayloadV6" capabilities :test #'string=))
+               (is (member "engine_newPayloadV4" capabilities :test #'string=))
+               (is (not (member "engine_newPayloadV5"
+                                capabilities
+                                :test #'string=)))
+               (is (not (member "engine_forkchoiceUpdatedV4"
+                                capabilities
+                                :test #'string=)))
+               (is (not (member "engine_getPayloadV6"
+                                capabilities
+                                :test #'string=)))
+               (is (not (engine-rpc-engine-method-p
+                         "engine_newPayloadV5")))
                (is (member "engine_getPayloadBodiesByHashV2"
                            capabilities
                            :test #'string=))
@@ -195,10 +207,13 @@
                            capabilities
                            :test #'string=))
                (is (member "engine_getBlobsV1" capabilities :test #'string=))
-               (is (member "engine_getBlobsV2" capabilities :test #'string=))
-               (is (member "engine_getBlobsV3" capabilities :test #'string=))))
+               (is (not (member "engine_getBlobsV2"
+                                capabilities :test #'string=)))
+               (is (not (member "engine_getBlobsV3"
+                                capabilities :test #'string=)))))
         (setf ethereum-lisp.core:*kzg-point-proof-verifier* old-point-verifier
-              ethereum-lisp.core:*kzg-blob-proof-verifier* old-blob-verifier)))
+              ethereum-lisp.core:*kzg-blob-proof-verifier* old-blob-verifier
+              ethereum-lisp.core:*bls12381-backend* old-bls-backend)))
     (let* ((response (parse-json
                       (engine-rpc-handle-request-json
                        "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"engine_exchangeCapabilities\",\"params\":[7]}"
@@ -220,6 +235,28 @@
                        (make-chain-config))))
            (error (field response "error")))
       (is (= -32602 (field error "code"))))))
+
+(deftest engine-rpc-capabilities-require-every-execution-backend
+  (let ((*kzg-point-proof-verifier*
+          (lambda (&rest arguments)
+            (declare (ignore arguments))
+            t))
+        (*kzg-blob-proof-verifier*
+          (lambda (&rest arguments)
+            (declare (ignore arguments))
+            t))
+        (*bls12381-backend* nil))
+    (let ((capabilities (engine-rpc-capabilities)))
+      (is (member "engine_forkchoiceUpdatedV3"
+                  capabilities
+                  :test #'string=))
+      (is (not (member "engine_getPayloadV4"
+                       capabilities
+                       :test #'string=)))
+      (is (not (member "engine_newPayloadV4"
+                       capabilities
+                       :test #'string=)))))
+  (is (not (amsterdam-execution-available-p))))
 
 (deftest engine-rpc-get-client-version-returns-local-identity
   (labels ((field (object name)

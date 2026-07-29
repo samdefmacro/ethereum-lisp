@@ -157,6 +157,55 @@ given, is a predicate marking transactions the pool turns down."
         (is (bytes= (transaction-encoding plain)
                     (transaction-encoding (first served))))))))
 
+(deftest eth-gossip-serves-and-verifies-versioned-blob-wrapper
+  (:layer :unit :module :p2p)
+  (let* ((blob (make-byte-vector +blob-byte-size+))
+         (commitment (make-byte-vector +kzg-commitment-size+))
+         (proofs
+           (loop repeat +cell-proofs-per-blob+
+                 collect (make-byte-vector +kzg-proof-size+)))
+         (transaction
+           (make-blob-transaction
+            :chain-id 1
+            :to (address-from-hex
+                 "0x0000000000000000000000000000000000003001")
+            :blob-versioned-hashes
+            (list (kzg-commitment-to-versioned-hash commitment))))
+         (sidecar
+           (make-blob-sidecar :blobs (list blob)
+                              :commitments (list commitment)
+                              :proofs proofs))
+         (stored-sidecar nil)
+         (accepted nil)
+         (server
+           (make-eth-serve-backend
+            :pooled-transaction (lambda (hash)
+                                  (declare (ignore hash))
+                                  transaction)
+            :pooled-blob-sidecar (lambda (value)
+                                   (declare (ignore value))
+                                   sidecar)))
+         (client
+           (make-eth-serve-backend
+            :accept-blob-sidecar
+            (lambda (value) (setf stored-sidecar value))
+            :accept-transaction
+            (lambda (value) (setf accepted value)))))
+    (let ((served
+            (eth-serve-pooled-transactions
+             server (list (eth-gossip-transaction-hash-bytes transaction)))))
+      (is (= 1 (length served)))
+      (is (typep (first served) 'blob-network-transaction))
+      (let ((*kzg-cell-proof-verifier*
+              (lambda (verified-blob verified-commitment verified-proofs)
+                (and (bytes= blob verified-blob)
+                     (bytes= commitment verified-commitment)
+                     (= +cell-proofs-per-blob+
+                        (length verified-proofs))))))
+        (is (= 1 (eth-accept-transactions client served)))))
+    (is stored-sidecar)
+    (is (eq transaction accepted))))
+
 (deftest eth-gossip-serves-only-the-pooled-transactions-it-has
   (:layer :unit :module :p2p)
   (let* ((held (eth-gossip-test-transaction 1))

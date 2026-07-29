@@ -25,6 +25,12 @@
   (proof :pointer))
 (cffi:defcfun ("eth_ckzg_verify_blob_kzg_proof" %eth-ckzg-verify-blob-kzg-proof) :int
   (settings :pointer) (blob :pointer) (commitment :pointer) (proof :pointer))
+(cffi:defcfun ("eth_ckzg_verify_blob_cell_proofs"
+               %eth-ckzg-verify-blob-cell-proofs) :int
+  (settings :pointer) (blob :pointer) (commitment :pointer) (proofs :pointer))
+(cffi:defcfun ("eth_ckzg_compute_blob_cell_proofs"
+               %eth-ckzg-compute-blob-cell-proofs) :int
+  (settings :pointer) (blob :pointer) (proofs :pointer))
 
 (defparameter *kzg-trusted-setup-path*
   #p"/usr/local/share/eth-kzg/trusted_setup.txt"
@@ -41,7 +47,7 @@
     ((not (probe-file *kzg-trusted-setup-path*)) nil)
     (t
      (let ((settings (%eth-ckzg-load-setup
-                      (namestring *kzg-trusted-setup-path*) 0)))
+                      (namestring *kzg-trusted-setup-path*) 8)))
        (unless (cffi:null-pointer-p settings)
          (setf *kzg-cffi-settings* settings))))))
 
@@ -72,6 +78,32 @@ verify-kzg-blob-proof wrapper."
           (cffi:with-pointer-to-vector-data (pp (kzg-cffi-octets proof))
             (= 1 (%eth-ckzg-verify-blob-kzg-proof settings bp cp pp))))))))
 
+(defun kzg-cffi-cell-proofs (blob commitment proofs)
+  "True when all EIP-7594 cell proofs for BLOB verify."
+  (let ((settings (kzg-cffi-settings))
+        (proofs (apply #'concat-bytes proofs)))
+    (when settings
+      (cffi:with-pointer-to-vector-data (bp (kzg-cffi-octets blob))
+        (cffi:with-pointer-to-vector-data (cp (kzg-cffi-octets commitment))
+          (cffi:with-pointer-to-vector-data (pp (kzg-cffi-octets proofs))
+            (= 1
+               (%eth-ckzg-verify-blob-cell-proofs settings bp cp pp))))))))
+
+(defun compute-kzg-cell-proofs (blob)
+  "Compute the 128 EIP-7594 cell proofs for BLOB with c-kzg."
+  (let ((settings (kzg-cffi-settings))
+        (proof-bytes
+          (make-byte-vector
+           (* +cell-proofs-per-blob+ +kzg-proof-size+))))
+    (unless settings
+      (kzg-unavailable-error "KZG cell proof computation is not available"))
+    (cffi:with-pointer-to-vector-data (bp (kzg-cffi-octets blob))
+      (cffi:with-pointer-to-vector-data (pp proof-bytes)
+        (unless (= 1 (%eth-ckzg-compute-blob-cell-proofs settings bp pp))
+          (error "KZG cell proof computation failed"))))
+    (loop for start below (length proof-bytes) by +kzg-proof-size+
+          collect (subseq proof-bytes start (+ start +kzg-proof-size+)))))
+
 (defun kzg-cffi-verifier-available-p ()
   "True when the CFFI verifier can be built (library and setup both present)."
   (and *libethckzg-loaded-p* (kzg-cffi-settings) t))
@@ -80,4 +112,5 @@ verify-kzg-blob-proof wrapper."
   "Return a KZG-VERIFIER backed by c-kzg-4844, or NIL when unavailable."
   (when (kzg-cffi-verifier-available-p)
     (make-kzg-verifier :point-proof-function #'kzg-cffi-point-proof
-                       :blob-proof-function #'kzg-cffi-blob-proof)))
+                       :blob-proof-function #'kzg-cffi-blob-proof
+                       :cell-proof-function #'kzg-cffi-cell-proofs)))

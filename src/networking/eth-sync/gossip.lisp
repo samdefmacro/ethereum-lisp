@@ -12,13 +12,11 @@
 ;;;; the same payload does not arrive from every neighbour at once. Both ends
 ;;;; reach the pool through the same backend the request handlers use.
 ;;;;
-;;;; BLOB TRANSACTIONS ARE NOT GOSSIPED, in either direction. Their pooled form
-;;;; carries the sidecar, whose wire representation has moved across recent
-;;;; protocol versions, and we build no blob payloads yet in any case.
-;;;; Announcing one would promise a transaction we could not then serve, so blob
-;;;; transactions are filtered out of every announcement, broadcast, and reply.
-;;;; Receiving one still works: it decodes and is offered to the pool like any
-;;;; other transaction.
+;;;; Blob transactions are announced and pulled only when the backend can serve
+;;;; their sidecar. The pooled form carries either the legacy blob proof wrapper
+;;;; or the EIP-7594 version-1 cell-proof wrapper; every received sidecar is
+;;;; cryptographically checked before either it or the transaction reaches live
+;;;; storage.
 
 (defconstant +eth-max-pooled-transactions-serve+ 256
   "How many hashes one GetPooledTransactions request is answered for, from
@@ -48,7 +46,16 @@ bandwidth, and the protocol asks that it carry at least one transaction."
 
 (defun eth-peer-announce-transactions (peer transactions)
   "Announce TRANSACTIONS to PEER by hash, and return how many were announced."
-  (let ((sendable (remove-if-not #'eth-gossipable-transaction-p transactions)))
+  (let* ((backend (eth-peer-serve-backend peer))
+         (sidecar-reader
+           (and backend (eth-serve-backend-pooled-blob-sidecar backend)))
+         (sendable
+           (remove-if-not
+            (lambda (transaction)
+              (or (eth-gossipable-transaction-p transaction)
+                  (and sidecar-reader
+                       (funcall sidecar-reader transaction))))
+            transactions)))
     (when sendable
       (eth-peer-send peer +eth-message-new-pooled-transaction-hashes+
                      (encode-eth-new-pooled-transaction-hashes sendable)))
@@ -64,11 +71,28 @@ ahead — is skipped rather than raised as a session error. Peers relay freely a
 do not pre-filter for us, so one unusable transaction in a batch must not cost
 us the connection."
   (let ((accept (eth-serve-backend-accept-transaction backend))
+        (accept-sidecar
+          (eth-serve-backend-accept-blob-sidecar backend))
         (accepted 0))
     (when accept
-      (dolist (transaction transactions)
-        (when (ignore-errors (funcall accept transaction) t)
-          (incf accepted))))
+      (dolist (entry transactions)
+        (let ((transaction entry))
+          (when (typep entry 'blob-network-transaction)
+            (let ((sidecar (blob-network-transaction-sidecar entry)))
+              (setf transaction
+                    (blob-network-transaction-transaction entry))
+              (validate-blob-sidecar-fields
+               sidecar :transaction transaction
+               :require-proof-verification t)
+              (unless accept-sidecar
+                (error "Received blob transaction but no sidecar store is configured"))
+              (funcall accept-sidecar sidecar)))
+          (when (and (not (typep transaction 'blob-transaction))
+                     (ignore-errors (funcall accept transaction) t))
+            (incf accepted))
+          (when (and (typep entry 'blob-network-transaction)
+                     (ignore-errors (funcall accept transaction) t))
+            (incf accepted)))))
     accepted))
 
 (defun eth-peer-announced-hash-table (peer)
@@ -104,6 +128,8 @@ re-announcing what we have costs nothing."
 Hashes we cannot serve are left out: the reply may be short and reordered, and
 the peer matches it up by hash rather than by position."
   (let ((pooled (eth-serve-backend-pooled-transaction backend))
+        (sidecar-reader
+          (eth-serve-backend-pooled-blob-sidecar backend))
         (found '())
         (examined 0))
     (when pooled
@@ -112,8 +138,14 @@ the peer matches it up by hash rather than by position."
           (return))
         (incf examined)
         (let ((transaction (when (= (length hash) 32) (funcall pooled hash))))
-          (when (and transaction (eth-gossipable-transaction-p transaction))
-            (push transaction found)))))
+          (cond
+            ((and (typep transaction 'blob-transaction) sidecar-reader)
+             (let ((sidecar (funcall sidecar-reader transaction)))
+               (when sidecar
+                 (push (make-blob-network-transaction transaction sidecar)
+                       found))))
+            ((and transaction (eth-gossipable-transaction-p transaction))
+             (push transaction found))))))
     (nreverse found)))
 
 (defun eth-peer-take-announced-hashes (peer limit)

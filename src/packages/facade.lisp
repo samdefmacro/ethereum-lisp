@@ -94,6 +94,7 @@
    #:keccak-256-digest
    #:keccak-256-hash
    #:keccak-256-hex
+   #:keccak-512
    #:sha256
    #:sha256-hash
    #:sha256-hex
@@ -178,6 +179,7 @@
    #:block-header-block-access-list-hash
    #:block-header-slot-number
    #:block-header-rlp
+   #:block-header-seal-hash
    #:block-header-from-rlp
    #:block-header-hash
    #:ethereum-block
@@ -219,6 +221,12 @@
    #:block-header-amsterdam-fields-present-p
    #:validate-block-amsterdam-fields
    #:validate-block-amsterdam-slot-number
+   #:*ethash-seal-verifier*
+   #:ethash-seal-verification-available-p
+   #:verify-ethash-seal
+   #:expected-ethash-difficulty
+   #:validate-ethash-header
+   #:validate-block-dao-extra-data
    #:validate-block-header-basics
    #:validate-block-header-against-config
    #:validate-blob-versioned-hash
@@ -228,6 +236,7 @@
    #:validate-withdrawal-list-fields
    #:validate-block-transactions-against-config
    #:validate-block-body-against-config
+   #:validate-block-ommers-against-config
    #:validate-block-against-config
    #:validate-block-body-roots
    #:blob-gas-used
@@ -306,6 +315,7 @@
    #:fork-time-active-p
    #:chain-config-homestead-p
    #:chain-config-dao-fork-p
+   #:chain-config-post-merge-p
    #:chain-config-eip150-p
    #:chain-config-eip155-p
    #:chain-config-eip158-p
@@ -368,14 +378,20 @@
    #:+kzg-proof-size+
    #:*kzg-point-proof-verifier*
    #:*kzg-blob-proof-verifier*
+   #:*kzg-cell-proof-verifier*
    #:*kzg-verifier*
    #:kzg-point-proof-verification-available-p
    #:kzg-blob-proof-verification-available-p
+   #:kzg-cell-proof-verification-available-p
    #:kzg-proof-verification-available-p
+   #:kzg-unavailable-error
+   #:kzg-unavailable-error-message
    #:verify-kzg-point-proof
    #:verify-kzg-blob-proof
+   #:verify-kzg-cell-proofs
    #:make-kzg-cffi-verifier
    #:kzg-cffi-verifier-available-p
+   #:compute-kzg-cell-proofs
    #:+cell-proofs-per-blob+
    #:validate-blob-sidecar-fields)
   (#:ethereum-lisp.p2p
@@ -554,8 +570,10 @@
    #:eth-serve-backend-block-by-number
    #:eth-serve-backend-block-by-hash
    #:eth-serve-backend-pooled-transaction
+   #:eth-serve-backend-pooled-blob-sidecar
    #:eth-serve-backend-known-transaction-p
    #:eth-serve-backend-accept-transaction
+   #:eth-serve-backend-accept-blob-sidecar
    #:eth-serve-ancestor-hash
    #:eth-serve-headers
    #:eth-serve-bodies
@@ -696,7 +714,20 @@
    #:genesis-block-from-genesis-header
    #:genesis-block-from-genesis-object
    #:genesis-block-from-genesis-json-string
-   #:genesis-block-from-genesis-json-file)
+   #:genesis-block-from-genesis-json-file
+   #:built-in-genesis-preset
+   #:built-in-genesis-preset-name
+   #:built-in-genesis-preset-config
+   #:built-in-genesis-preset-expected-hash
+   #:built-in-genesis-preset-allocation-path
+   #:mainnet-genesis-preset
+   #:sepolia-genesis-preset
+   #:holesky-genesis-preset
+   #:hoodi-genesis-preset
+   #:find-built-in-genesis-preset
+   #:built-in-genesis-alloc
+   #:built-in-genesis-header
+   #:built-in-genesis-block)
   (#:ethereum-lisp.json
    #:parse-json
    #:json-encode)
@@ -792,6 +823,13 @@
    #:blob-sidecar-commitments
    #:blob-sidecar-proofs
    #:blob-sidecar-versioned-hashes
+   #:+blob-sidecar-cell-proofs-per-blob+
+   #:blob-network-transaction
+   #:make-blob-network-transaction
+   #:blob-network-transaction-transaction
+   #:blob-network-transaction-sidecar
+   #:blob-network-transaction-encoding
+   #:blob-network-transaction-from-rlp
    #:set-code-authorization
    #:make-set-code-authorization
    #:set-code-authorization-chain-id
@@ -924,7 +962,10 @@
    #:engine-transaction-location-index
    #:engine-transaction-location-transaction
    #:engine-transaction-location-receipt
-   #:engine-transaction-location-log-index-start)
+   #:engine-transaction-location-log-index-start
+   #:engine-blob-and-proofs-blob
+   #:engine-blob-and-proofs-commitment
+   #:engine-blob-and-proofs-cell-proofs)
   (#:ethereum-lisp.node-state
    #:engine-payload-memory-store
    #:make-engine-payload-memory-store)
@@ -1112,6 +1153,7 @@
    #:log-entry-topics
    #:log-entry-data
    #:log-entry-rlp-object
+   #:make-eth-transfer-log-entry
    #:bloom
    #:make-bloom
    #:bloom-bytes
@@ -1119,10 +1161,12 @@
    #:bloom-contains-p
    #:receipt
    #:make-receipt
+   #:receipt-type
    #:receipt-status
    #:receipt-cumulative-gas-used
    #:receipt-logs
    #:receipt-rlp
+   #:receipt-encoding
    #:transaction-receipt-encoding
    #:receipt-bloom
    #:derive-list-root
@@ -1152,6 +1196,7 @@
    #:evm-step-limit-error-limit
    #:evm-step-limit-error-steps
    #:evm-step-limit-error-pc
+   #:amsterdam-execution-available-p
    #:precompile-address
    #:prewarm-precompile-addresses
    #:execute-precompile
@@ -1168,6 +1213,7 @@
    #:evm-context-coinbase
    #:evm-context-timestamp
    #:evm-context-block-number
+   #:evm-context-slot-number
    #:evm-context-prev-randao
    #:evm-context-gas-limit
    #:evm-context-chain-id
@@ -1222,6 +1268,7 @@
    #:state-db-get-account
    #:make-lazy-state-db
    #:state-db-account-loaded-p
+   #:state-db-account-or-empty
    #:state-db-set-account
    #:state-db-clear-account
    #:state-db-set-code
@@ -1248,7 +1295,8 @@
    #:state-db-root
    #:state-db-root-hex
    #:+wei-per-gwei+
-   #:state-db-add-balance)
+   #:state-db-add-balance
+   #:state-db-transfer-value)
   (#:ethereum-lisp.state-proof-json
    #:state-proof-result-rpc-object
    #:state-proof-result-from-rpc-object)
@@ -1258,9 +1306,11 @@
    #:state-db-from-genesis-alloc
    #:state-db-from-genesis-json-string
    #:state-db-from-genesis-json-file
+   #:state-db-from-built-in-genesis-preset
    #:genesis-state-root-from-genesis-alloc
    #:genesis-state-root-from-genesis-json-string
    #:genesis-state-root-from-genesis-json-file
+   #:genesis-state-root-from-built-in-genesis-preset
    #:validate-genesis-state-root
    #:validate-genesis-json-state-root
    #:genesis-header-from-state-genesis-object
@@ -1268,7 +1318,8 @@
    #:genesis-header-from-state-genesis-json-file
    #:genesis-block-from-state-genesis-object
    #:genesis-block-from-state-genesis-json-string
-   #:genesis-block-from-state-genesis-json-file)
+   #:genesis-block-from-state-genesis-json-file
+   #:genesis-block-from-built-in-genesis-preset)
   (#:ethereum-lisp.execution
    #:execute-message-call
    #:apply-withdrawal
@@ -1290,6 +1341,10 @@
    #:apply-signed-message-list
    #:execute-legacy-messages
    #:execute-signed-messages
+   #:block-reward-for-rules
+   #:apply-block-rewards-for-header
+   #:apply-dao-hard-fork
+   #:apply-dao-hard-fork-if-needed
    #:execute-legacy-block
    #:execute-signed-block)
   (#:ethereum-lisp.execution-service

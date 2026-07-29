@@ -30,6 +30,15 @@
     (signals block-validation-error
       (validate-block-body-roots block))))
 
+(deftest block-body-refuses-validly-encoded-ommers
+  (let* ((ommer (make-block-header :number 1))
+         (block (make-block :ommers (list ommer))))
+    (is (string= (hash32-to-hex (ommers-hash (list ommer)))
+                 (hash32-to-hex
+                  (block-header-ommers-hash (block-header block)))))
+    (signals block-validation-error
+      (validate-block-body-roots block))))
+
 (deftest block-body-validates-commitment-fields-before-comparison
   (let* ((block (make-block))
          (header (block-header block)))

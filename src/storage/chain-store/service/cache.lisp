@@ -108,6 +108,12 @@
   (unless (typep sidecar 'blob-sidecar)
     (block-validation-fail
      "Engine blob sidecar store value must be a blob sidecar"))
+  (when (blob-sidecar-blobs sidecar)
+    ;; A sidecar entering the live store is trusted by getBlobs and devp2p
+    ;; callers. Verify either the EIP-4844 blob proof or every EIP-7594 cell
+    ;; proof before making it visible.
+    (validate-blob-sidecar-fields
+     sidecar :require-proof-verification t))
   (let ((hashes (blob-sidecar-versioned-hashes sidecar))
         (blobs (blob-sidecar-blobs sidecar))
         (proofs (blob-sidecar-proofs sidecar)))

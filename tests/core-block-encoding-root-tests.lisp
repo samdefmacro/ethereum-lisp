@@ -47,6 +47,25 @@
                  (subseq (bytes-to-hex (receipt-rlp receipt)) 0 16)))
     (is (hash32-p root))))
 
+(deftest block-header-rlp-keeps-gapped-optional-fields-positional
+  (let* ((withdrawals-only
+           (rlp-list-items
+            (rlp-decode-one
+             (block-header-rlp
+              (make-block-header :withdrawals-root (zero-hash32))))))
+         (blob-without-withdrawals
+           (rlp-list-items
+            (rlp-decode-one
+             (block-header-rlp
+              (make-block-header :base-fee-per-gas 1
+                                 :blob-gas-used 0))))))
+    (is (= 17 (length withdrawals-only)))
+    (is (zerop (length (nth 15 withdrawals-only))))
+    (is (= 32 (length (nth 16 withdrawals-only))))
+    (is (= 18 (length blob-without-withdrawals)))
+    (is (= 32 (length (nth 16 blob-without-withdrawals))))
+    (is (zerop (length (nth 17 blob-without-withdrawals))))))
+
 (deftest typed-receipt-encoding-and-root
   (let* ((legacy (make-legacy-transaction :gas-price 1))
          (dynamic (make-dynamic-fee-transaction
@@ -54,7 +73,8 @@
                    :max-fee-per-gas 2))
          (legacy-receipt (make-receipt :status 1
                                        :cumulative-gas-used 21000))
-         (dynamic-receipt (make-receipt :status 1
+         (dynamic-receipt (make-receipt :type 2
+                                        :status 1
                                         :cumulative-gas-used 42000))
          (typed-encoding
            (transaction-receipt-encoding dynamic dynamic-receipt))
@@ -72,10 +92,10 @@
                   (transaction-receipt-list-root
                    (list legacy)
                    (list legacy-receipt)))))
-    (is (not (string= (hash32-to-hex
-                       (receipt-list-root
-                        (list legacy-receipt dynamic-receipt)))
-                      (hash32-to-hex root))))
+    (is (string= (hash32-to-hex
+                  (receipt-list-root
+                   (list legacy-receipt dynamic-receipt)))
+                 (hash32-to-hex root)))
     (signals block-validation-error
       (transaction-receipt-list-root (list legacy) '()))))
 

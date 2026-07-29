@@ -24,6 +24,7 @@
   (make-devnet-node
    :genesis-path genesis-path
    :genesis-json genesis-json
+   :genesis-preset (getf options :genesis-preset)
    :dev-mode-p (and genesis-json (getf options :dev-mode-p))
    :host (getf options :host)
    :port (getf options :port)
@@ -191,12 +192,15 @@
                (progn
                  (devnet-cli-print-usage output-stream)
                  0)
-               (let* ((genesis-path (devnet-cli-resolve-genesis-path options))
+               (let* ((genesis-preset (getf options :genesis-preset))
+                      (genesis-path
+                        (unless genesis-preset
+                          (devnet-cli-resolve-genesis-path options)))
                       (genesis-json
                         (devnet-cli-resolve-genesis-json
                          options genesis-path)))
-                 (unless (or genesis-path genesis-json)
-                   (error "--genesis is required unless --datadir contains an initialized genesis or --dev is enabled"))
+                 (unless (or genesis-path genesis-json genesis-preset)
+                   (error "--genesis is required unless --datadir contains an initialized genesis, --dev is enabled, or a public network preset is selected"))
                  (call-with-devnet-cli-telemetry-sink
                   options
                   output-stream

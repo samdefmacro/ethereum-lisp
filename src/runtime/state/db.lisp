@@ -1,5 +1,15 @@
 (in-package #:ethereum-lisp.state)
 
+(defvar *state-access-recorder* nil
+  "Optional per-execution callback for EIP-7928 access construction.
+
+The callback receives EVENT, STATE, ADDRESS, and an optional storage SLOT.
+Writes are reported before mutation so a recorder can retain the pre-value.")
+
+(defun record-state-access (event state address &optional slot)
+  (when *state-access-recorder*
+    (funcall *state-access-recorder* event state address slot)))
+
 (defun state-db-get-object (state address)
   (let ((key (address-key address)))
     (unless (gethash key (state-db-loaded-accounts state))
@@ -79,6 +89,7 @@
   state)
 
 (defun state-db-get-account (state address)
+  (record-state-access :account-read state address)
   (let ((object (state-db-get-object state address)))
     (and object
          (state-object-account object)
@@ -147,6 +158,7 @@ revert the transaction."
    :code-hash (state-object-code-hash object account)))
 
 (defun state-db-set-account (state address account)
+  (record-state-access :account-write state address)
   (let ((key (address-key address)))
     (state-db-get-object state address)
     (state-db-record-change state key)
@@ -200,6 +212,7 @@ revert the transaction."
   state)
 
 (defun state-db-clear-account (state address)
+  (record-state-access :account-write state address)
   (let ((key (address-key address)))
     (state-db-get-object state address)
     (state-db-record-change state key)
@@ -208,6 +221,7 @@ revert the transaction."
   state)
 
 (defun state-db-set-code (state address code)
+  (record-state-access :account-write state address)
   (let* ((key (address-key address))
          (code (ensure-byte-vector code)))
     (state-db-get-object state address)
@@ -231,12 +245,14 @@ revert the transaction."
       state)))
 
 (defun state-db-get-code (state address)
+  (record-state-access :account-read state address)
   (let ((object (state-db-get-object state address)))
     (if object
         (state-object-code object)
         (make-byte-vector 0))))
 
 (defun state-db-get-code-hash (state address)
+  (record-state-access :account-read state address)
   (let ((account (state-db-get-account state address)))
     (if account
         (state-account-code-hash account)
@@ -316,6 +332,7 @@ revert the transaction."
   state)
 
 (defun state-db-set-storage (state address slot value)
+  (record-state-access :storage-write state address slot)
   (let* ((key (address-key address))
          (value (ensure-state-uint256 value "Storage value")))
     (state-db-get-object state address)
@@ -348,6 +365,7 @@ revert the transaction."
       state)))
 
 (defun state-db-get-storage (state address slot)
+  (record-state-access :storage-read state address slot)
   (let ((object (state-db-get-object state address)))
     (if object
         (let* ((key (address-key address))

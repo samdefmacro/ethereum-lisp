@@ -2,9 +2,44 @@
 
 This document records an audit of one area of the client: the block, transaction
 and receipt domain types, header and body validation, and the state-transition
-pipeline that executes a block. It is a snapshot of the code, not a plan that
-has been carried out. Nothing described here as missing or divergent has been
-changed; the only file this audit wrote is this one.
+pipeline that executes a block. The findings remain a snapshot of the audited
+revision; the remediation status below records the later implementation.
+
+## Remediation status
+
+- **EXEC-01:** EIP-7918 evaluates parent excess with the child schedule,
+  including payload building and devnet block production.
+- **EXEC-02, EXEC-03:** proof-of-work bodies enforce the two-ommer limit,
+  duplicate/ancestor/depth rules, and per-ommer header validation against
+  supplied recent ancestry. Configured post-Merge status, rather than a
+  header-controlled difficulty test, selects proof-of-stake rules.
+- **EXEC-04:** every proof-of-work header is checked against the fork-specific
+  Frontier-through-Gray-Glacier difficulty formula and the in-tree light Ethash
+  backend verifies its mix digest and target without a native dependency.
+  Keccak-512 and Hashimoto are pinned against the official `ethereum/tests`
+  PoW vector at commit `c67e485ff8b5be9abc8ad15345ec21aa22e290d9`.
+- **EXEC-05:** the ten-block DAO extra-data rule and the canonical drain-list
+  balance transition are implemented.
+- **EXEC-06, EXEC-07:** Amsterdam execution derives and validates EIP-7928 block
+  access lists, performs EIP-7997 activation, and includes EIP-8282 request
+  types 0x03 and 0x04.
+- **EXEC-11:** EIP-4844 and EIP-7594 pooled network wrappers are decoded on the
+  live gossip path, and blob or cell proofs are verified on live store and
+  persisted import paths.
+- **EXEC-08, EXEC-09:** EIP-2935 system-call failure is consensus-fatal while
+  EIP-4788 failure remains rolled back and non-fatal; regression tests pin both
+  behaviours.
+- **EXEC-10:** withdrawals precede Prague request-system-call processing.
+- **EXEC-12:** Mainnet, Sepolia, Holesky, and Hoodi presets embed their
+  allocations and reproduce the published genesis hashes.
+- **EXEC-13, EXEC-14:** optional header fields are encoded positionally, and
+  RLP decoding enforces a configurable nesting-depth limit.
+- **EXEC-15:** the checksum-pinned EEST v5.4.0 corpus has a non-skipping gate
+  that executes Cancun, Prague, and Osaka-directory state-test families. That
+  archive contains no Amsterdam directory; its Osaka vectors are pre-activation
+  and therefore carry Prague post-state rules.
+- **EXEC-16:** receipts retain their transaction type, so the general receipt
+  root API produces EIP-2718 typed roots.
 
 ## Sources read
 
@@ -38,12 +73,9 @@ Their counterparts: geth `core/types/`, `core/block_validator.go`,
 Nethermind `Nethermind.Core/TxType.cs`, `Nethermind.Core/Transaction.cs`,
 `Nethermind.Consensus/Validators/`, `Nethermind.Evm/BlobGasCalculator.cs`.
 
-The warm dev container was absent for the duration of this audit
-(`scripts/dev.sh status` reported both container and image absent) and the
-instructions for this audit forbid starting it, so no finding below is backed by
-an evaluation in a running image. Every claim about our behaviour comes from
-reading the source. Where reading alone could not settle a question the verdict
-is UNVERIFIED and says so.
+The original audit was static. The remediation was subsequently validated in
+session-isolated Docker runs of the unit, integration, and end-to-end layers;
+the finding text below still describes evidence available at audit time.
 
 This audit overlaps `docs/gas-parity.md` in two places, noted inline. Where it
 does, this document is the later reading and is pinned to reference checkouts

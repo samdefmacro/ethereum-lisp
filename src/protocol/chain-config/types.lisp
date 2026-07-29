@@ -20,7 +20,7 @@
 (defconstant +bpo3-blob-base-fee-update-fraction+ 20609697)
 (defconstant +bpo4-blob-base-fee-update-fraction+ 13739630)
 (defconstant +max-contract-code-size+ 24576)
-(defconstant +amsterdam-max-contract-code-size+ 32768)
+(defconstant +amsterdam-max-contract-code-size+ 65536)
 
 ;; EIP-7825 (Osaka): a transaction's gas limit may not exceed 2^24.
 (defconstant +transaction-gas-limit-cap-eip7825+ 16777216)

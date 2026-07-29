@@ -1,5 +1,7 @@
 (in-package #:ethereum-lisp.test)
 
+(defvar *eth-sync-paris-genesis-json*)
+
 ;;;; The discovery routing table and the replies built from it. All pure: no
 ;;;; socket, no thread, and `now` is an integer the test chooses.
 

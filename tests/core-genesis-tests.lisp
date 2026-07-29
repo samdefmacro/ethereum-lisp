@@ -351,10 +351,12 @@
              ("arrowGlacierBlock" . 7)
              ("grayGlacierBlock" . 8)
              ("cancunTime" . "0x10")
+             ("pragueTime" . 20)
+             ("osakaTime" . 25)
+             ("ubtTime" . 25)
              ("bpo3Time" . 30)
              ("bpo5Time" . 40)
              ("amsterdamTime" . 50)
-             ("ubtTime" . 60)
              ("enableUBTAtGenesis" . t)
              ("terminalTotalDifficulty" . 0)
              ("terminalTotalDifficultyPassed" . t)
@@ -385,10 +387,12 @@
     (is (= 7 (chain-config-arrow-glacier-block config)))
     (is (= 8 (chain-config-gray-glacier-block config)))
     (is (= 16 (chain-config-cancun-time config)))
+    (is (= 20 (chain-config-prague-time config)))
+    (is (= 25 (chain-config-osaka-time config)))
+    (is (= 25 (chain-config-ubt-time config)))
     (is (= 30 (chain-config-bpo3-time config)))
     (is (= 40 (chain-config-bpo5-time config)))
     (is (= 50 (chain-config-amsterdam-time config)))
-    (is (= 60 (chain-config-ubt-time config)))
     (is (chain-config-enable-ubt-at-genesis-p config))
     (is (= 0 (chain-config-terminal-total-difficulty config)))
     (is (chain-config-terminal-total-difficulty-passed config))
@@ -416,6 +420,20 @@
     (is (= 11 (chain-config-eip150-block config)))
     (is (= 22 (chain-config-eip155-block config)))
     (is (= 22 (chain-config-eip158-block config)))))
+
+(deftest chain-config-from-genesis-config-rejects-impossible-fork-order
+  (signals block-validation-error
+    (chain-config-from-genesis-config
+     '(("pragueTime" . 30)
+       ("osakaTime" . 20))))
+  (signals block-validation-error
+    (chain-config-from-genesis-config
+     '(("osakaTime" . 20))))
+  (signals block-validation-error
+    (chain-config-from-genesis-config
+     '(("pragueTime" . 20)
+       ("osakaTime" . 30)
+       ("amsterdamTime" . 10)))))
 
 (deftest chain-config-from-genesis-config-rejects-bad-blob-schedule
   (signals block-validation-error
@@ -651,6 +669,7 @@
                 "\"shanghaiTime\":0,"
                 "\"cancunTime\":0,"
                 "\"pragueTime\":0,"
+                "\"osakaTime\":0,"
                 "\"amsterdamTime\":0"
                 "},"
                 "\"nonce\":\"0x0102030405060708\","
@@ -744,6 +763,7 @@
                 "\"shanghaiTime\":0,"
                 "\"cancunTime\":0,"
                 "\"pragueTime\":0,"
+                "\"osakaTime\":0,"
                 "\"amsterdamTime\":0"
                 "},"
                 "\"timestamp\":0"
@@ -768,3 +788,19 @@
     (is (string= (hash32-to-hex (block-access-list-hash '()))
                  (hash32-to-hex
                   (block-header-block-access-list-hash header))))))
+
+(deftest built-in-public-network-genesis-hashes-match-published-values
+  (:layer :integration :module :genesis)
+  ;; Published by go-ethereum params/config.go at pinned commit
+  ;; 38271784c2b31926563806da9a2e023b88f5e7a8.
+  (dolist (preset (list (mainnet-genesis-preset)
+                        (sepolia-genesis-preset)
+                        (holesky-genesis-preset)
+                        (hoodi-genesis-preset)))
+    (let* ((alloc (built-in-genesis-alloc preset))
+           (root (genesis-state-root-from-genesis-alloc alloc))
+           (block (built-in-genesis-block preset :state-root root))
+           (actual (block-hash block))
+           (expected (built-in-genesis-preset-expected-hash preset)))
+      (is (plusp (length alloc)))
+      (is (bytes= (hash32-bytes expected) (hash32-bytes actual))))))

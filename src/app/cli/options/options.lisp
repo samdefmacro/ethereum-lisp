@@ -5,6 +5,7 @@
   (setf args (devnet-cli-normalize-option-args args))
   (setf args (devnet-cli-apply-config-args args))
   (let ((genesis-path nil)
+        (genesis-preset nil)
         (host "127.0.0.1")
         (port +engine-rpc-default-http-port+)
         (default-public-host "127.0.0.1")
@@ -278,6 +279,18 @@
                ((string= option "--nodekeyhex")
                 (setf node-key
                       (next-parsed-value option #'devnet-cli-parse-node-key-hex)))
+               ((member option
+                        '("--mainnet" "--sepolia" "--holesky"
+                          "--hoodi" "--goerli")
+                        :test #'string=)
+                (when (next-optional-boolean option)
+                  (when (string= option "--goerli")
+                    (error "--goerli has no built-in genesis preset"))
+                  (let ((selected
+                          (intern (string-upcase (subseq option 2)) :keyword)))
+                    (when (and genesis-preset (not (eq genesis-preset selected)))
+                      (error "Only one public network preset may be selected"))
+                    (setf genesis-preset selected))))
                ((member option *devnet-cli-value-options* :test #'string=)
                 (consume-value-option option))
                ((member option *devnet-cli-optional-boolean-options*
@@ -285,7 +298,10 @@
                 (consume-optional-boolean-value option))
                (t
                 (error "Unknown option ~A" option))))
+    (when (and genesis-path genesis-preset)
+      (error "--genesis cannot be combined with a public network preset"))
     (list :genesis-path genesis-path
+          :genesis-preset genesis-preset
           :host host
           :port port
           :public-host (or public-host default-public-host)

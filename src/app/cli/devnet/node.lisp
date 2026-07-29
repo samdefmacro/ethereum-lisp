@@ -4,6 +4,7 @@
     (&key
        genesis-path
        genesis-json
+       genesis-preset
        dev-mode-p
        (host "127.0.0.1")
        (port +engine-rpc-default-http-port+)
@@ -64,8 +65,9 @@
        ws-origins
        ws-rpc-prefix)
   (unless (or (and genesis-path (stringp genesis-path))
-              (and genesis-json (stringp genesis-json)))
-    (error "Devnet node requires a genesis JSON path or source"))
+              (and genesis-json (stringp genesis-json))
+              genesis-preset)
+    (error "Devnet node requires a genesis JSON path, source, or preset"))
   (unless (functionp public-allowed-method-p)
     (error "Devnet public RPC method filter must be a function"))
   (when (and database-path
@@ -112,11 +114,18 @@
             :no-local-exemptions-p txpool-no-local-exemptions-p
             :lifetime-seconds txpool-lifetime-seconds))
          (genesis-json (and (null genesis-path) genesis-json))
+         (genesis-preset
+           (and genesis-preset
+                (find-built-in-genesis-preset genesis-preset)))
          (config
            (devnet-cli-apply-merge-overrides
-            (if genesis-json
-                (chain-config-from-genesis-json-string genesis-json)
-                (chain-config-from-genesis-json-file genesis-path))
+            (cond
+              (genesis-preset
+               (built-in-genesis-preset-config genesis-preset))
+              (genesis-json
+               (chain-config-from-genesis-json-string genesis-json))
+              (t
+               (chain-config-from-genesis-json-file genesis-path)))
             :terminal-total-difficulty terminal-total-difficulty
             :terminal-total-difficulty-passed terminal-total-difficulty-passed
             :terminal-total-difficulty-passed-specified-p
@@ -124,17 +133,26 @@
             :terminal-block-hash terminal-block-hash
             :terminal-block-number terminal-block-number))
          (state
-           (if genesis-json
-               (state-db-from-genesis-json-string genesis-json)
-               (state-db-from-genesis-json-file genesis-path)))
+           (cond
+             (genesis-preset
+              (state-db-from-built-in-genesis-preset genesis-preset))
+             (genesis-json
+              (state-db-from-genesis-json-string genesis-json))
+             (t
+              (state-db-from-genesis-json-file genesis-path))))
          (genesis-block
-           (if genesis-json
-               (genesis-block-from-state-genesis-json-string
-                genesis-json
-                :config config)
-               (genesis-block-from-state-genesis-json-file
-                genesis-path
-                :config config)))
+           (cond
+             (genesis-preset
+              (built-in-genesis-block
+               genesis-preset :state-root (state-db-root state)))
+             (genesis-json
+              (genesis-block-from-state-genesis-json-string
+               genesis-json
+               :config config))
+             (t
+              (genesis-block-from-state-genesis-json-file
+               genesis-path
+               :config config))))
          (persistence-state
            (make-devnet-persistence-state
             :chain-id (chain-config-chain-id config)
@@ -231,7 +249,11 @@
      persistence-state)
     (setf (first node-box)
           (%make-devnet-node
-       :genesis-path genesis-path
+       :genesis-path
+       (or genesis-path
+           (and genesis-preset
+                (format nil "builtin:~(~A~)"
+                        (built-in-genesis-preset-name genesis-preset))))
        :store store
        :config config
        :genesis-block genesis-block

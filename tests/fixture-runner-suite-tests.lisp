@@ -482,6 +482,19 @@
                     . "0x1"))
                  (fixture-required-field account "storage"))))))
 
+(deftest eest-state-test-forks-are-environment-parameterized
+  (let ((*fixture-root-environment-reader*
+          (lambda (name)
+            (when (string= name +phase-a-eest-state-test-forks-env+)
+              "Cancun, Prague,Osaka"))))
+    (is (equal '("Cancun" "Prague" "Osaka")
+               (phase-a-eest-state-test-supported-forks))))
+  (let ((*fixture-root-environment-reader* (lambda (name)
+                                              (declare (ignore name))
+                                              nil)))
+    (is (equal '("London" "Shanghai")
+               (phase-a-eest-state-test-supported-forks)))))
+
 (deftest optional-phase-a-eest-blockchain-replay-cases
   (let ((*fixture-root-environment-reader*
           (lambda (name)

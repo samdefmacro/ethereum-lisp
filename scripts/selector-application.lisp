@@ -8,7 +8,7 @@
 
 (in-package #:ethereum-lisp.selector-application)
 
-(defconstant +root-env+ "ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT")
+(defparameter +root-env+ "ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT")
 
 (defun test-call (name &rest args)
   (let ((symbol (find-symbol (string-upcase name) "ETHEREUM-LISP.TEST")))

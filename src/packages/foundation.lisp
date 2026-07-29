@@ -189,6 +189,7 @@
    #:keccak-256-digest
    #:keccak-256-hash
    #:keccak-256-hex
+   #:keccak-512
    #:sha256
    #:sha256-hash
    #:sha256-hex

@@ -8,6 +8,12 @@
 (defparameter +consolidation-request-predeploy-address+
   (address-from-hex "0x0000bbddc7ce488642fb579f8b00f3a590007251"))
 
+(defparameter +builder-deposit-request-predeploy-address+
+  (address-from-hex "0x0000bff46984e3725691fa540a8c7589300d8282"))
+
+(defparameter +builder-exit-request-predeploy-address+
+  (address-from-hex "0x000064d678505ad48f8ccb093bc65613800e8282"))
+
 (defparameter +deposit-event-signature-hash+
   (hash32-from-hex
    "0x649bbc62d0e31342afea4e5cd82d4049e7e1ee912fc0889aa790803be39038c5"))
@@ -15,6 +21,8 @@
 (defconstant +deposit-request-type+ #x00)
 (defconstant +withdrawal-request-type+ #x01)
 (defconstant +consolidation-request-type+ #x02)
+(defconstant +builder-deposit-request-type+ #x03)
+(defconstant +builder-exit-request-type+ #x04)
 
 (defconstant +deposit-event-data-length+ 576)
 (defconstant +deposit-pubkey-offset+ 160)
@@ -130,6 +138,23 @@
         (push (concat-bytes (vector +consolidation-request-type+)
                             consolidation-data)
               requests)))
+    (when (chain-rules-amsterdam-p chain-rules)
+      (let ((builder-deposit-data
+              (checked-request-system-call-data
+               state +builder-deposit-request-predeploy-address+
+               header chain-rules blob-base-fee block-hashes)))
+        (when (plusp (length builder-deposit-data))
+          (push (concat-bytes (vector +builder-deposit-request-type+)
+                              builder-deposit-data)
+                requests)))
+      (let ((builder-exit-data
+              (checked-request-system-call-data
+               state +builder-exit-request-predeploy-address+
+               header chain-rules blob-base-fee block-hashes)))
+        (when (plusp (length builder-exit-data))
+          (push (concat-bytes (vector +builder-exit-request-type+)
+                              builder-exit-data)
+                requests))))
     (values (nreverse requests) t)))
 
 (defun validate-derived-execution-requests (header requests)

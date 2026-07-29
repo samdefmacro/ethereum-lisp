@@ -56,18 +56,12 @@ excess blob gas field at all."
       0
       (multiple-value-bind (target-blob-gas max-blob-gas update-fraction)
           (chain-config-blob-schedule config block-number timestamp)
-        (multiple-value-bind (parent-target parent-max parent-update-fraction)
-            (chain-config-blob-schedule config
-                                        (block-header-number parent-header)
-                                        (block-header-timestamp parent-header))
-          (declare (ignore parent-target parent-max))
-          (expected-excess-blob-gas
-           parent-header
-           :target-blob-gas target-blob-gas
-           :max-blob-gas max-blob-gas
-           :eip7918-p (chain-config-osaka-p config block-number timestamp)
-           :update-fraction update-fraction
-           :parent-update-fraction parent-update-fraction)))))
+        (expected-excess-blob-gas
+         parent-header
+         :target-blob-gas target-blob-gas
+         :max-blob-gas max-blob-gas
+         :eip7918-p (chain-config-osaka-p config block-number timestamp)
+         :update-fraction update-fraction))))
 
 (defun engine-build-empty-payload (parent-block attributes &optional config)
   (unless (typep parent-block 'ethereum-block)

@@ -66,3 +66,55 @@ int eth_ckzg_verify_blob_kzg_proof(void *handle, const uint8_t *blob,
     }
     return ok ? 1 : 0;
 }
+
+/* EIP-7594: verify every extended-blob cell proof against one commitment. */
+int eth_ckzg_verify_blob_cell_proofs(void *handle, const uint8_t *blob,
+                                     const uint8_t *commitment,
+                                     const uint8_t *proofs) {
+    Cell *cells = malloc(CELLS_PER_EXT_BLOB * sizeof(Cell));
+    Bytes48 *commitments = malloc(CELLS_PER_EXT_BLOB * sizeof(Bytes48));
+    uint64_t *indices = malloc(CELLS_PER_EXT_BLOB * sizeof(uint64_t));
+    bool ok = false;
+    C_KZG_RET ret;
+
+    if (cells == NULL || commitments == NULL || indices == NULL) {
+        free(cells);
+        free(commitments);
+        free(indices);
+        return -1;
+    }
+    ret = compute_cells_and_kzg_proofs(
+        cells, NULL, (const Blob *)blob, (const KZGSettings *)handle);
+    if (ret == C_KZG_OK) {
+        for (uint64_t i = 0; i < CELLS_PER_EXT_BLOB; i++) {
+            commitments[i] = *(const Bytes48 *)commitment;
+            indices[i] = i;
+        }
+        ret = verify_cell_kzg_proof_batch(
+            &ok, commitments, indices, cells, (const Bytes48 *)proofs,
+            CELLS_PER_EXT_BLOB, (const KZGSettings *)handle);
+    }
+    free(cells);
+    free(commitments);
+    free(indices);
+    if (ret != C_KZG_OK) {
+        return -1;
+    }
+    return ok ? 1 : 0;
+}
+
+/* EIP-7594: compute the 128 cell proofs for one blob into caller storage. */
+int eth_ckzg_compute_blob_cell_proofs(void *handle, const uint8_t *blob,
+                                      uint8_t *proofs) {
+    Cell *cells = malloc(CELLS_PER_EXT_BLOB * sizeof(Cell));
+    C_KZG_RET ret;
+
+    if (cells == NULL) {
+        return -1;
+    }
+    ret = compute_cells_and_kzg_proofs(
+        cells, (Bytes48 *)proofs, (const Blob *)blob,
+        (const KZGSettings *)handle);
+    free(cells);
+    return ret == C_KZG_OK ? 1 : -1;
+}

@@ -1,13 +1,10 @@
 (in-package #:ethereum-lisp.kzg)
 
 (defconstant +blob-byte-size+ +blob-gas-per-blob+)
-(defconstant +kzg-proof-size+ +kzg-commitment-size+)
 (defconstant +kzg-field-element-size+ 32)
 (defconstant +kzg-blob-field-elements-per-blob+ 4096)
 (defconstant +kzg-field-modulus+
   #x73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001)
-(defconstant +cell-proofs-per-blob+ 128)
-
 (defun validate-kzg-field-element (bytes label)
   (let ((bytes (ensure-byte-vector bytes)))
     (unless (= +kzg-field-element-size+ (length bytes))
@@ -33,7 +30,7 @@
 
 (defun verify-kzg-point-proof (commitment z y proof)
   (unless (kzg-point-proof-verification-available-p)
-    (error "KZG point proof verification is not available"))
+    (kzg-unavailable-error "KZG point proof verification is not available"))
   (let ((commitment (ensure-byte-vector commitment))
         (z (ensure-byte-vector z))
         (y (ensure-byte-vector y))
@@ -51,7 +48,7 @@
 
 (defun verify-kzg-blob-proof (blob commitment proof)
   (unless (kzg-blob-proof-verification-available-p)
-    (error "KZG blob proof verification is not available"))
+    (kzg-unavailable-error "KZG blob proof verification is not available"))
   (let ((blob (ensure-byte-vector blob))
         (commitment (ensure-byte-vector commitment))
         (proof (ensure-byte-vector proof)))
@@ -65,21 +62,44 @@
       (error "KZG blob proof verification failed")))
   t)
 
+(defun verify-kzg-cell-proofs (blob commitment proofs)
+  (unless (kzg-cell-proof-verification-available-p)
+    (kzg-unavailable-error "KZG cell proof verification is not available"))
+  (unless (= (length proofs) +cell-proofs-per-blob+)
+    (error "A blob must have exactly ~D cell proofs"
+           +cell-proofs-per-blob+))
+  (unless (funcall (current-kzg-cell-proof-function)
+                   blob commitment proofs)
+    (error "KZG cell proof verification failed"))
+  t)
+
 (defun validate-blob-sidecar-kzg-proofs (sidecar)
-  (unless (kzg-blob-proof-verification-available-p)
-    (block-validation-fail
-     "KZG proof verification is not available; blob sidecars are shape-checked only"))
   (let ((blobs (blob-sidecar-blobs sidecar))
         (commitments (blob-sidecar-commitments sidecar))
         (proofs (blob-sidecar-proofs sidecar)))
-    (unless (= (length proofs) (length blobs))
-      (block-validation-fail
-       "KZG cell proof verification is not available; blob proof verification requires one proof per blob"))
+    (if (= (length proofs) (length blobs))
+        (unless (kzg-blob-proof-verification-available-p)
+          (block-validation-fail
+           "KZG blob proof verification is not available"))
+        (unless (kzg-cell-proof-verification-available-p)
+          (block-validation-fail
+           "KZG cell proof verification is not available")))
     (handler-case
-        (loop for blob in blobs
-              for commitment in commitments
-              for proof in proofs
-              do (verify-kzg-blob-proof blob commitment proof))
+        (if (= (length proofs) (length blobs))
+            (loop for blob in blobs
+                  for commitment in commitments
+                  for proof in proofs
+                  do (verify-kzg-blob-proof blob commitment proof))
+            (loop for blob in blobs
+                  for commitment in commitments
+                  for index from 0
+                  do (verify-kzg-cell-proofs
+                      blob commitment
+                      (subseq proofs
+                              (* index +cell-proofs-per-blob+)
+                              (* (1+ index) +cell-proofs-per-blob+)))))
+      (kzg-unavailable-error (condition)
+        (error condition))
       (error (condition)
         (block-validation-fail "~A" condition))))
   t)

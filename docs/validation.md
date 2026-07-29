@@ -40,7 +40,9 @@ need `ETHEREUM_LISP_PHASE_A_STATE_TEST_SELECTORS` and
 classifier finds), and without them they report the same skip they report with no
 corpus at all — so a run can mount the whole corpus, execute zero vectors, and
 still look like a pass. The Docker targets bind-mount the root and forward all
-three when they are set.
+three when they are set. State-test auto-discovery defaults to London and
+Shanghai; set `ETHEREUM_LISP_PHASE_A_STATE_TEST_FORKS` to a comma-separated
+fork list such as `Cancun,Prague,Osaka` to opt into later-fork vectors.
 
 `DOCKER_TEST_IMAGE_PREBUILT=1` runs the layers against an existing image instead
 of rebuilding it. CI sets it because it builds the image with buildx against a
@@ -50,3 +52,15 @@ Verification should not expand into unrelated coverage work, documentation
 maintenance, repeated baselines, or a second development objective. Report an
 unrelated failure separately and continue the requested feature when it is safe
 to do so.
+
+## Historical proof-of-work scope
+
+Block import and execution are post-Merge only. The client does not validate an
+Ethash seal, calculate proof-of-work difficulty, validate ommers, pay
+proof-of-work rewards, or apply the DAO-fork state transition. It therefore
+refuses pre-Merge headers, Merge-transition parents, and every non-empty ommer
+list instead of treating unverified historical blocks as valid.
+
+Genesis parsing retains historical fork fields because they are part of public
+network configurations and the EIP-2124 fork-id schedule. Parsing those fields
+does not advertise historical replay support.

@@ -11,6 +11,15 @@ in the tree. The findings themselves are a snapshot of the code at commit
 relative to that commit — function names are the durable identifier, so prefer
 them when a line has moved.
 
+Remediation update (2026-07-29): `gap/evm-gas` closes item 4.3's account
+predicate and item 5.5's corrected EIP-7954 code/initcode limits. It also adds
+Amsterdam opcode and transfer-log coverage, typed KZG backend refusal, Prague
+delegation gating, per-frame jump analysis, geometric EVM memory growth, and an
+O(1) stack-depth guard. The broad fork-aware gas schedule in item 4.1 and
+Amsterdam EIP-8037/8038 multidimensional gas are still open; the latter keeps
+Amsterdam Engine capability advertisement and dispatch disabled. The detailed
+status and dependency boundary are in `docs/gap-analysis/evm-and-gas.md`.
+
 The most important thing a reader can take from this document is not the fix
 list but the section on what is already correct. Several apparent bugs in this
 client are deliberate or harmless, and one of them is the sort of thing a

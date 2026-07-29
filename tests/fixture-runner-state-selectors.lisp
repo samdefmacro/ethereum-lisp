@@ -33,10 +33,14 @@
 
 (defparameter +eest-state-test-transaction-fields+
   '("data" "gasLimit" "gasPrice" "nonce" "to" "value" "secretKey"
-    "sender" "accessLists" "maxFeePerGas" "maxPriorityFeePerGas"))
+    "sender" "accessLists" "maxFeePerGas" "maxPriorityFeePerGas"
+    "maxFeePerBlobGas" "blobVersionedHashes" "authorizationList"))
 
 (defconstant +phase-a-eest-state-test-selectors-env+
   "ETHEREUM_LISP_PHASE_A_STATE_TEST_SELECTORS")
+
+(defconstant +phase-a-eest-state-test-forks-env+
+  "ETHEREUM_LISP_PHASE_A_STATE_TEST_FORKS")
 
 (defconstant +phase-a-eest-state-test-auto-selector+ "auto")
 
@@ -52,7 +56,7 @@
 (defparameter +phase-a-eest-state-test-discovery-feature-directories+
   '("frontier" "homestead" "eip150" "eip158" "byzantium"
     "constantinople" "constantinoplefix" "istanbul" "berlin" "london"
-    "paris" "shanghai"))
+    "paris" "shanghai" "cancun" "prague" "osaka" "amsterdam"))
 
 (defconstant +phase-a-eest-state-test-discovery-max-file-bytes+
   (* 2 1024 1024))

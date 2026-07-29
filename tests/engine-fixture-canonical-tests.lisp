@@ -330,12 +330,10 @@
                          (block-header-number
                           (block-header child-block))))))
           (is (= transaction-count (length receipts)))
-          (if (zerop (transaction-type (first transactions)))
-              (is (string= (hash32-to-hex (receipt-list-root receipts))
-                           (hash32-to-hex receipts-root)))
-              (is (not
-                   (string= (hash32-to-hex (receipt-list-root receipts))
-                            (hash32-to-hex receipts-root)))))
+          (is (= (transaction-type (first transactions))
+                 (receipt-type (first receipts))))
+          (is (string= (hash32-to-hex (receipt-list-root receipts))
+                       (hash32-to-hex receipts-root)))
           (is (string= (hash32-to-hex
                         (transaction-receipt-list-root
                          transactions

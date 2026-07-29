@@ -210,7 +210,16 @@
 
 (defun load-phase-a-eest-state-discovery-cases (root)
   (loop for path in (eest-state-test-root-json-paths root)
-        when (phase-a-eest-state-test-discovery-path-p root path)
+        when (and
+              (phase-a-eest-state-test-discovery-path-p root path)
+              (let* ((relative
+                       (enough-namestring (truename path) (truename root)))
+                     (slash (position #\/ relative))
+                     (fork-directory
+                       (if slash (subseq relative 0 slash) relative)))
+                (member fork-directory
+                        (phase-a-eest-state-test-supported-forks)
+                        :test #'string-equal)))
           append (load-eest-state-test-root-file-cases root path)))
 
 (defun eest-state-test-case-fork-names (case)
@@ -251,7 +260,7 @@
 
 (defun phase-a-eest-state-materializable-case-p (case)
   (handler-case
-      (and (intersection +phase-a-eest-state-test-supported-forks+
+      (and (intersection (phase-a-eest-state-test-supported-forks)
                          (eest-state-test-case-fork-names case)
                          :test #'string=)
            (plusp (eest-state-test-transaction-combination-count case)))
@@ -303,6 +312,22 @@
         do (setf start (1+ position))
       else
         do (return (nreverse parts)))))
+
+(defun phase-a-eest-state-test-supported-forks ()
+  (let ((value
+          (funcall *fixture-root-environment-reader*
+                   +phase-a-eest-state-test-forks-env+)))
+    (if (or (null value) (blank-string-p value))
+        (copy-list +phase-a-eest-state-test-supported-forks+)
+        (let ((forks
+                (remove-if
+                 #'blank-string-p
+                 (mapcar #'eest-fixture-trim-string
+                         (eest-fixture-split-string value #\,)))))
+          (unless forks
+            (error "~A must name at least one fork"
+                   +phase-a-eest-state-test-forks-env+))
+          forks))))
 
 (defun parse-phase-a-eest-state-test-selectors (value)
   (unless (stringp value)
@@ -363,7 +388,7 @@
              names
              expected-names))
     (dolist (case cases)
-      (unless (intersection +phase-a-eest-state-test-supported-forks+
+      (unless (intersection (phase-a-eest-state-test-supported-forks)
                             (eest-state-test-case-fork-names case)
                             :test #'string=)
         (error "Phase A EEST state_tests case ~A has no supported fork"

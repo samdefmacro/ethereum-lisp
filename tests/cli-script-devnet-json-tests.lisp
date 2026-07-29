@@ -241,3 +241,30 @@
         (is (eq nil (fixture-object-field summary "authRequired")))
         (is (eq t (fixture-object-field summary "stateAvailable")))))))
 
+(deftest ethereum-lisp-script-starts-from-built-in-hoodi-genesis
+  (:layer :e2e :module :cli)
+  #-sbcl
+  (skip-test "Ethereum Lisp process script requires SBCL")
+  #+sbcl
+  (multiple-value-bind (stdout stderr status)
+      (uiop:run-program
+       (list "sbcl"
+             "--script"
+             "scripts/ethereum-lisp.lisp"
+             "--"
+             "devnet"
+             "--hoodi"
+             "--json"
+             "--no-serve")
+       :output :string
+       :error-output :string
+       :ignore-error-status t)
+    (is (= 0 status))
+    (is (string= "" stderr))
+    (when (= 0 status)
+      (let ((summary (parse-json stdout)))
+        (is (= 560048 (fixture-object-field summary "chainId")))
+        (is (string= "builtin:hoodi"
+                     (fixture-object-field summary "genesisPath")))
+        (is (eq t (fixture-object-field summary "stateAvailable")))))))
+

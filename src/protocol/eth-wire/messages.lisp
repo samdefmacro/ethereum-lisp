@@ -277,12 +277,33 @@ otherwise a block number."
 ;;; transaction rides in its consensus encoding, the same split block bodies
 ;;; use: a legacy one as an RLP list, a typed one as an opaque byte string.
 
+(defun eth-network-transaction-rlp-object (transaction)
+  (if (typep transaction 'blob-network-transaction)
+      (blob-network-transaction-encoding transaction)
+      (block-transaction-rlp-object transaction)))
+
+(defun eth-network-transactions-rlp-object (transactions)
+  (apply #'make-rlp-list
+         (mapcar #'eth-network-transaction-rlp-object transactions)))
+
+(defun eth-network-transaction-from-rlp-object (value)
+  (if (rlp-list-p value)
+      (transaction-from-encoding (rlp-encode value))
+      (let ((bytes (ensure-byte-vector value)))
+        (if (and (plusp (length bytes)) (= (aref bytes 0) 3))
+            (blob-network-transaction-from-rlp (subseq bytes 1))
+            (transaction-from-encoding bytes)))))
+
+(defun eth-network-transactions-from-rlp-object (value)
+  (mapcar #'eth-network-transaction-from-rlp-object
+          (rlp-list-items value)))
+
 (defun encode-eth-transactions (transactions)
   "Encode a Transactions message: the full transactions, with no request id."
-  (rlp-encode (block-transactions-rlp-object transactions)))
+  (rlp-encode (eth-network-transactions-rlp-object transactions)))
 
 (defun decode-eth-transactions (bytes)
-  (block-transactions-from-rlp-object
+  (eth-network-transactions-from-rlp-object
    (rlp-decode (ensure-byte-vector bytes) :allow-trailing t)))
 
 (defun encode-eth-new-pooled-transaction-hashes (transactions)
@@ -337,7 +358,7 @@ than leaving the caller to pair up mismatched columns."
   (rlp-encode
    (make-rlp-list
     (integer-to-minimal-bytes request-id)
-    (block-transactions-rlp-object transactions))))
+    (eth-network-transactions-rlp-object transactions))))
 
 (defun decode-eth-pooled-transactions (bytes)
   "Decode a PooledTransactions reply into (VALUES REQUEST-ID TRANSACTIONS).
@@ -347,7 +368,7 @@ no longer had that transaction, so the caller matches by hash, not by position."
   (let ((items (rlp-list-items
                 (rlp-decode (ensure-byte-vector bytes) :allow-trailing t))))
     (values (bytes-to-integer (ensure-byte-vector (first items)))
-            (block-transactions-from-rlp-object (second items)))))
+            (eth-network-transactions-from-rlp-object (second items)))))
 
 ;;; GetReceipts / Receipts. The reply carries one list of receipts per block
 ;;; whose hash was asked for; a block we do not have is left out rather than

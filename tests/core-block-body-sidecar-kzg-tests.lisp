@@ -177,7 +177,17 @@
        (is (verify-kzg-blob-proof valid-blob valid-commitment valid-proof))
        (signals error
          (verify-kzg-blob-proof valid-blob valid-commitment
-                                invalid-blob-proof))))))
+                                invalid-blob-proof))
+       (let ((cell-proofs (compute-kzg-cell-proofs valid-blob)))
+         (is (= +cell-proofs-per-blob+ (length cell-proofs)))
+         (is (verify-kzg-cell-proofs
+              valid-blob valid-commitment cell-proofs))
+         (let ((corrupt (mapcar #'copy-seq cell-proofs)))
+           (setf (aref (first corrupt) 0)
+                 (logxor #xff (aref (first corrupt) 0)))
+           (signals error
+             (verify-kzg-cell-proofs
+              valid-blob valid-commitment corrupt))))))))
 
 (deftest blob-sidecar-field-validation-replays-real-kzg-vector
   (:layer :integration :module :kzg)

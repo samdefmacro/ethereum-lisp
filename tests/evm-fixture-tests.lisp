@@ -550,6 +550,36 @@
   (or (fixture-field-present-p transaction "maxFeePerGas")
       (fixture-field-present-p transaction "maxPriorityFeePerGas")))
 
+(defun eest-state-test-authorization (object)
+  (make-set-code-authorization
+   :chain-id
+   (eest-state-test-quantity-string
+    (fixture-required-field object "chainId")
+    "EEST state test authorization chainId")
+   :address (address-from-hex (fixture-required-field object "address"))
+   :nonce
+   (eest-state-test-quantity-string
+    (fixture-required-field object "nonce")
+    "EEST state test authorization nonce")
+   :y-parity
+   (eest-state-test-quantity-string
+    (or (fixture-object-field object "yParity")
+        (fixture-required-field object "v"))
+    "EEST state test authorization yParity")
+   :r
+   (eest-state-test-quantity-string
+    (fixture-required-field object "r")
+    "EEST state test authorization r")
+   :s
+   (eest-state-test-quantity-string
+    (fixture-required-field object "s")
+    "EEST state test authorization s")))
+
+(defun eest-state-test-authorization-list (transaction)
+  (mapcar #'eest-state-test-authorization
+          (ethereum-lisp.json:json-array-values
+           (fixture-required-field transaction "authorizationList"))))
+
 (defun eest-state-test-transaction (case post-entry)
   (let* ((fixture (fixture-required-field case "fixture"))
          (transaction (fixture-required-field fixture "transaction"))
@@ -572,6 +602,60 @@
          (recipient (unless (blank-string-p to)
                       (address-from-hex to))))
     (cond
+      ((fixture-field-present-p transaction "authorizationList")
+       (make-set-code-transaction
+        :chain-id 1
+        :nonce (eest-state-test-quantity-string
+                (fixture-required-field transaction "nonce")
+                "EEST state test transaction nonce")
+        :max-priority-fee-per-gas
+        (eest-state-test-quantity-string
+         (fixture-required-field transaction "maxPriorityFeePerGas")
+         "EEST state test transaction maxPriorityFeePerGas")
+        :max-fee-per-gas
+        (eest-state-test-quantity-string
+         (fixture-required-field transaction "maxFeePerGas")
+         "EEST state test transaction maxFeePerGas")
+        :gas-limit gas-limit
+        :to recipient
+        :value value
+        :data data
+        :access-list (or (eest-state-test-selected-access-list
+                          transaction
+                          indexes)
+                         '())
+        :authorization-list
+        (eest-state-test-authorization-list transaction)))
+      ((fixture-field-present-p transaction "blobVersionedHashes")
+       (make-blob-transaction
+        :chain-id 1
+        :nonce (eest-state-test-quantity-string
+                (fixture-required-field transaction "nonce")
+                "EEST state test transaction nonce")
+        :max-priority-fee-per-gas
+        (eest-state-test-quantity-string
+         (fixture-required-field transaction "maxPriorityFeePerGas")
+         "EEST state test transaction maxPriorityFeePerGas")
+        :max-fee-per-gas
+        (eest-state-test-quantity-string
+         (fixture-required-field transaction "maxFeePerGas")
+         "EEST state test transaction maxFeePerGas")
+        :gas-limit gas-limit
+        :to recipient
+        :value value
+        :data data
+        :access-list (or (eest-state-test-selected-access-list
+                          transaction
+                          indexes)
+                         '())
+        :max-fee-per-blob-gas
+        (eest-state-test-quantity-string
+         (fixture-required-field transaction "maxFeePerBlobGas")
+         "EEST state test transaction maxFeePerBlobGas")
+        :blob-versioned-hashes
+        (mapcar #'hash32-from-hex
+                (fixture-required-field transaction
+                                        "blobVersionedHashes"))))
       ((eest-state-test-dynamic-fee-transaction-p transaction)
        (make-dynamic-fee-transaction
         :chain-id 1
@@ -676,7 +760,8 @@
         (eest-state-test-expected-exception-tokens expected-exception)))
 
 (defun eest-state-test-chain-rules (fork)
-  (unless (member fork '("London" "Shanghai") :test #'string=)
+  (unless (member fork '("London" "Shanghai" "Cancun" "Prague" "Osaka")
+                  :test #'string=)
     (error "Unsupported EEST state test fork ~A" fork))
   (make-chain-rules :chain-id 1
                     :homestead-p t
@@ -689,7 +774,25 @@
                     :istanbul-p t
                     :berlin-p t
                     :london-p t
-                    :shanghai-p (string= fork "Shanghai")))
+                    :shanghai-p
+                    (member fork '("Shanghai" "Cancun" "Prague" "Osaka")
+                            :test #'string=)
+                    :cancun-p
+                    (member fork '("Cancun" "Prague" "Osaka")
+                            :test #'string=)
+                    :prague-p
+                    (member fork '("Prague" "Osaka") :test #'string=)
+                    :osaka-p (string= fork "Osaka")))
+
+(deftest eest-late-fork-state-tests-select-active-rules
+  (let ((cancun (eest-state-test-chain-rules "Cancun"))
+        (prague (eest-state-test-chain-rules "Prague"))
+        (osaka (eest-state-test-chain-rules "Osaka")))
+    (is (chain-rules-cancun-p cancun))
+    (is (not (chain-rules-prague-p cancun)))
+    (is (chain-rules-prague-p prague))
+    (is (not (chain-rules-osaka-p prague)))
+    (is (chain-rules-osaka-p osaka))))
 
 (defun execute-eest-state-test-post-entry (case post-entry &key (fork "London"))
   (let* ((fixture (fixture-required-field case "fixture"))
@@ -983,6 +1086,32 @@
                "tests/fixtures/execution-spec-tests-root/")))
     (dolist (case (load-phase-a-eest-state-test-root-cases root))
       (assert-eest-state-test-case case))))
+
+(defparameter +pinned-v5.4.0-late-fork-state-test-cases+
+  '(("cancun/eip1153_tstore/test_basic_tload_after_store.json/tests/cancun/eip1153_tstore/test_basic_tload.py::test_basic_tload_after_store[fork_Cancun-state_test]"
+     . "Cancun")
+    ("prague/eip2537_bls_12_381_precompiles/test_invalid_length_pairing.json/tests/prague/eip2537_bls_12_381_precompiles/test_bls12_variable_length_input_contracts.py::test_invalid_length_pairing[fork_Prague-full_discount_table-state_test-precompile_address_15--input_one_byte_too_long]"
+     . "Prague")
+    ;; EEST v5.4.0's Osaka feature directory contains pre-activation vectors
+    ;; whose expected post-state is Prague. The archive has no Amsterdam tree.
+    ("osaka/eip7825_transaction_gas_limit_cap/test_transaction_gas_limit_cap.json/tests/osaka/eip7825_transaction_gas_limit_cap/test_tx_gas_limit.py::test_transaction_gas_limit_cap[fork_Prague-tx_gas_limit_cap_none0-state_test]"
+     . "Prague")))
+
+(deftest pinned-v5.4.0-late-fork-state-test-families-execute
+  (with-execution-spec-tests-state-test-root (root)
+    (let* ((selectors
+             (mapcar #'car +pinned-v5.4.0-late-fork-state-test-cases+))
+           (cases (load-eest-state-test-root-cases root :names selectors)))
+      (is (= (length +pinned-v5.4.0-late-fork-state-test-cases+)
+             (length cases)))
+      (dolist (case cases)
+        (let* ((name (fixture-required-field case "name"))
+               (fork
+                 (cdr (assoc name
+                             +pinned-v5.4.0-late-fork-state-test-cases+
+                             :test #'string=))))
+          (is fork)
+          (assert-eest-state-test-case case :fork fork))))))
 
 (deftest optional-phase-a-eest-state-test-root-vectors-execute
   (dolist (case (load-optional-phase-a-eest-state-test-root-cases))

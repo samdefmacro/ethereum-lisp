@@ -700,7 +700,7 @@
             :blobs-bundle sidecar)))
     (chain-store-put-prepared-payload store prepared-payload)
     (setf (block-header-extra-data (block-header block)) #(#xff)
-          (aref blob 0) #xaa
+          (aref blob (1- (length blob))) #xaa
           (aref commitment 0) #xbb
           (aref proof 0) #xcc)
     (let* ((stored

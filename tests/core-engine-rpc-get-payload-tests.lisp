@@ -197,15 +197,21 @@
            (versioned-hash nil)
            (store (make-engine-payload-memory-store))
            (config (make-chain-config)))
-      (setf (aref blob 0) #xaa
-            (aref commitment 0) #xbb
+      (setf (aref commitment 0) #xbb
             (aref proof 0) #xcc
             sidecar (make-blob-sidecar
                      :blobs (list blob)
                      :commitments (list commitment)
                      :proofs (list proof))
             versioned-hash (first (blob-sidecar-versioned-hashes sidecar)))
-      (engine-payload-store-put-blob-sidecar store sidecar)
+      (signals block-validation-error
+        (engine-payload-store-put-blob-sidecar store sidecar))
+      (let ((*kzg-blob-proof-verifier*
+              (lambda (verified-blob verified-commitment verified-proof)
+                (and (bytes= blob verified-blob)
+                     (bytes= commitment verified-commitment)
+                     (bytes= proof verified-proof)))))
+        (engine-payload-store-put-blob-sidecar store sidecar))
       (let* ((response
                (engine-rpc-handle-request
                 (list (cons "jsonrpc" "2.0")
@@ -256,14 +262,22 @@
            (versioned-hash nil)
            (store (make-engine-payload-memory-store))
            (config (make-chain-config)))
-      (setf (aref blob 0) #xaa
+      (setf (aref blob 31) #x02
             (aref commitment 0) #xbb
             sidecar (make-blob-sidecar
                      :blobs (list blob)
                      :commitments (list commitment)
                      :proofs proofs)
             versioned-hash (first (blob-sidecar-versioned-hashes sidecar)))
-      (engine-payload-store-put-blob-sidecar store sidecar)
+      (signals block-validation-error
+        (engine-payload-store-put-blob-sidecar store sidecar))
+      (let ((*kzg-cell-proof-verifier*
+              (lambda (verified-blob verified-commitment verified-proofs)
+                (and (bytes= blob verified-blob)
+                     (bytes= commitment verified-commitment)
+                     (= +cell-proofs-per-blob+
+                        (length verified-proofs))))))
+        (engine-payload-store-put-blob-sidecar store sidecar))
       (let* ((response
                (engine-rpc-handle-request
                 (list (cons "jsonrpc" "2.0")

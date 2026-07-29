@@ -11,10 +11,12 @@
           (coinbase (zero-address))
           (timestamp 0)
           (block-number 0)
+          (slot-number 0)
           (prev-randao (zero-hash32))
           (difficulty 0)
           (random-p t)
           (context-gas-limit 0)
+          block-access-list-construction
           (block-hashes (make-hash-table)))
   (let ((effective-chain-rules
           (execution-chain-rules chain-rules chain-config block-number timestamp))
@@ -23,28 +25,36 @@
     (validate-execution-transaction-list-fields transactions
                                                 effective-chain-rules
                                                 blob-base-fee)
-    (validate-transaction-sender-code state sender)
-    (dolist (tx transactions)
+    (loop for tx in transactions
+          for block-access-index from 1
+          do
       (when (and block-gas-limit
                  (> (+ cumulative-gas (transaction-gas-limit tx))
                     block-gas-limit))
         (error 'block-validation-error :message "Block gas limit exceeded"))
-      (let ((receipt (apply-message state sender tx
-                                    :base-fee base-fee
-                                    :blob-base-fee blob-base-fee
-                                    :chain-id chain-id
-                                    :chain-rules effective-chain-rules
-                                    :chain-config chain-config
-                                    :coinbase coinbase
-                                    :timestamp timestamp
-                                    :block-number block-number
-                                    :prev-randao prev-randao
-                                    :difficulty difficulty
-                                    :random-p random-p
-                                    :context-gas-limit context-gas-limit
-                                    :block-hashes block-hashes)))
+      (let ((receipt
+              (call-with-block-access-phase
+               block-access-list-construction state block-access-index
+               (lambda ()
+                 (validate-transaction-sender-code state sender)
+                 (apply-message state sender tx
+                                :base-fee base-fee
+                                :blob-base-fee blob-base-fee
+                                :chain-id chain-id
+                                :chain-rules effective-chain-rules
+                                :chain-config chain-config
+                                :coinbase coinbase
+                                :timestamp timestamp
+                                :block-number block-number
+                                :slot-number slot-number
+                                :prev-randao prev-randao
+                                :difficulty difficulty
+                                :random-p random-p
+                                :context-gas-limit context-gas-limit
+                                :block-hashes block-hashes)))))
         (incf cumulative-gas (receipt-cumulative-gas-used receipt))
-        (push (make-receipt :status (receipt-status receipt)
+        (push (make-receipt :type (transaction-type tx)
+                            :status (receipt-status receipt)
                             :cumulative-gas-used cumulative-gas
                             :logs (receipt-logs receipt))
               receipts)))
@@ -61,10 +71,12 @@
           (coinbase (zero-address))
           (timestamp 0)
           (block-number 0)
+          (slot-number 0)
           (prev-randao (zero-hash32))
           (difficulty 0)
           (random-p t)
           (context-gas-limit 0)
+          block-access-list-construction
           (block-hashes (make-hash-table)))
   (let ((effective-chain-rules
           (execution-chain-rules chain-rules chain-config block-number timestamp))
@@ -75,32 +87,40 @@
                                                 blob-base-fee)
     (let ((senders (signed-transaction-senders-or-error transactions
                                                         expected-chain-id)))
+      ;; Validate every authority before the first transaction mutates state.
       (validate-transaction-senders-code state senders)
       (loop for tx in transactions
             for sender in senders
+            for block-access-index from 1
             do
         (when (and block-gas-limit
                    (> (+ cumulative-gas (transaction-gas-limit tx))
                       block-gas-limit))
           (error 'block-validation-error :message "Block gas limit exceeded"))
-        (let ((receipt (apply-message
-                        state sender tx
-                        :base-fee base-fee
-                        :blob-base-fee blob-base-fee
-                        :chain-id (transaction-context-chain-id
-                                   tx expected-chain-id)
-                        :chain-rules effective-chain-rules
-                        :chain-config chain-config
-                        :coinbase coinbase
-                        :timestamp timestamp
-                        :block-number block-number
-                        :prev-randao prev-randao
-                        :difficulty difficulty
-                        :random-p random-p
-                        :context-gas-limit context-gas-limit
-                        :block-hashes block-hashes)))
+        (let ((receipt
+                (call-with-block-access-phase
+                 block-access-list-construction state block-access-index
+                 (lambda ()
+                   (apply-message
+                    state sender tx
+                    :base-fee base-fee
+                    :blob-base-fee blob-base-fee
+                    :chain-id (transaction-context-chain-id
+                               tx expected-chain-id)
+                    :chain-rules effective-chain-rules
+                    :chain-config chain-config
+                    :coinbase coinbase
+                    :timestamp timestamp
+                    :block-number block-number
+                    :slot-number slot-number
+                    :prev-randao prev-randao
+                    :difficulty difficulty
+                    :random-p random-p
+                    :context-gas-limit context-gas-limit
+                    :block-hashes block-hashes)))))
           (incf cumulative-gas (receipt-cumulative-gas-used receipt))
-          (push (make-receipt :status (receipt-status receipt)
+          (push (make-receipt :type (transaction-type tx)
+                              :status (receipt-status receipt)
                               :cumulative-gas-used cumulative-gas
                               :logs (receipt-logs receipt))
                 receipts))))

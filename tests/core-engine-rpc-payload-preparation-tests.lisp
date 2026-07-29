@@ -1154,8 +1154,12 @@
     (is (= 6 (ethereum-lisp.engine-api::engine-rpc-prepared-payload-version
               4 amsterdam 1 1)))))
 
-(deftest engine-rpc-forkchoice-updated-v4-prepares-amsterdam-payload-v6
-  (labels ((field (object name)
+(deftest engine-rpc-amsterdam-payload-building-is-capability-gated
+  (is (not (ethereum-lisp.engine-api::engine-rpc-engine-method-p
+            "engine_forkchoiceUpdatedV4")))
+  (when (ethereum-lisp.engine-api::engine-rpc-engine-method-p
+         "engine_forkchoiceUpdatedV4")
+    (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))
            (forkchoice-state-object
                (head &key
@@ -1256,4 +1260,4 @@
           (is (ethereum-lisp.json:json-empty-array-p
                (field bundle "proofs")))
           (is (ethereum-lisp.json:json-empty-array-p
-               (field bundle "blobs"))))))))
+               (field bundle "blobs")))))))))

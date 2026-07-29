@@ -74,10 +74,10 @@
          (block-hash (block-hash block))
          (transaction-hash (transaction-hash transaction))
          (payload-id #(3 0 0 0 0 0 0 1))
-         (blob #(#xaa #xbb))
+         (blob (make-byte-vector +blob-byte-size+))
          (commitment (make-byte-vector +kzg-commitment-size+
                                        :initial-element 0))
-         (proof #(#xcc #xdd))
+         (proof (make-byte-vector +kzg-proof-size+))
          (sidecar nil)
          (versioned-hash nil)
          (head-checkpoint
@@ -107,14 +107,22 @@
            (ethereum-lisp.chain-store:engine-payload-store-put-pending-transaction-filter
             store)))
     (state-db-set-account state address (make-state-account :balance 10))
-    (setf (aref commitment 0) #x11
+    (setf (aref blob 0) #x02
+          (aref commitment 0) #x11
+          (aref proof 0) #xcc
           sidecar (make-blob-sidecar
                    :blobs (list blob)
                    :commitments (list commitment)
                    :proofs (list proof))
           versioned-hash (first (blob-sidecar-versioned-hashes sidecar)))
     (chain-store-put-prepared-payload store prepared-payload)
-    (ethereum-lisp.chain-store:engine-payload-store-put-blob-sidecar store sidecar)
+    (let ((*kzg-blob-proof-verifier*
+            (lambda (verified-blob verified-commitment verified-proof)
+              (and (bytes= blob verified-blob)
+                   (bytes= commitment verified-commitment)
+                   (bytes= proof verified-proof)))))
+      (ethereum-lisp.chain-store:engine-payload-store-put-blob-sidecar
+       store sidecar))
     (ethereum-lisp.chain-store:engine-payload-store-mark-invalid store invalid-block)
     (signals error
       (execute-atomic-block-commit
@@ -163,7 +171,7 @@
     (is (= 3
            (ethereum-lisp.engine-payloads:engine-prepared-payload-version
             (chain-store-prepared-payload store payload-id))))
-    (is (= #xaa
+    (is (= #x02
            (aref
             (ethereum-lisp.chain-store.model:engine-blob-and-proofs-blob
              (ethereum-lisp.chain-store:engine-payload-store-blob-and-proofs-v1

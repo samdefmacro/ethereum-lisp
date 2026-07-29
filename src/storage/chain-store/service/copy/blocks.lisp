@@ -48,6 +48,7 @@
     ((typep receipt 'receipt)
      (make-receipt
       :post-state (maybe-copy-bytes (receipt-post-state receipt))
+      :type (receipt-type receipt)
       :status (receipt-status receipt)
       :cumulative-gas-used (receipt-cumulative-gas-used receipt)
       :logs (mapcar #'engine-payload-store-copy-log-entry

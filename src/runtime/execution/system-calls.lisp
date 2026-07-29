@@ -11,7 +11,56 @@
 (defparameter +history-storage-address+
   (address-from-hex "0x0000f90827f1c53a10cb7a02335b175320002935"))
 
+(defparameter +deterministic-factory-address+
+  (address-from-hex "0x4e59b44847b379578588920ca78fbf26c0b4956c"))
+
+(defparameter +deterministic-factory-code+
+  (ethereum-lisp.hex:hex-to-bytes
+   "0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3"))
+
 (defconstant +protocol-system-call-gas-limit+ 30000000)
+
+(defun apply-eip7997-transition (state)
+  "Install the canonical deterministic deployment factory.
+
+Matching geth, preserve an existing balance, storage, and nonzero nonce. A
+pre-existing canonical code hash makes the transition idempotent."
+  (let ((expected-code-hash
+          (keccak-256-hash +deterministic-factory-code+)))
+    (unless (hash32= (state-db-get-code-hash
+                      state +deterministic-factory-address+)
+                     expected-code-hash)
+      (state-db-set-code state
+                         +deterministic-factory-address+
+                         +deterministic-factory-code+)
+      (let ((account
+              (or (state-db-get-account state
+                                        +deterministic-factory-address+)
+                  (make-state-account))))
+        (when (zerop (state-account-nonce account))
+          (put-execution-account-values
+           state
+           +deterministic-factory-address+
+           1
+           (state-account-balance account)
+           (state-account-code-hash account))))))
+  state)
+
+(defun apply-amsterdam-activation-transition
+    (state header parent-header chain-config)
+  "Apply activation-block-only Amsterdam irregular transitions."
+  (when (and chain-config
+             parent-header
+             (chain-config-amsterdam-p
+              chain-config
+              (block-header-number header)
+              (block-header-timestamp header))
+             (not (chain-config-amsterdam-p
+                   chain-config
+                   (block-header-number parent-header)
+                   (block-header-timestamp parent-header))))
+    (apply-eip7997-transition state))
+  state)
 
 (defun protocol-system-call-accessed-addresses (target)
   (let ((accessed-addresses (make-hash-table :test 'equalp)))
@@ -36,7 +85,7 @@ only this call. REQUIRE-CODE-P rejects an empty target and REQUIRE-SUCCESS-P
 rejects execution failure for protocol calls whose EIPs mandate both."
   (let ((code (if (or (null chain-rules)
                       (chain-rules-prague-p chain-rules))
-                  (execution-resolved-code state target)
+                  (execution-resolved-code state target chain-rules)
                   (state-db-get-code state target))))
     (when (and require-code-p (zerop (length code)))
       (block-validation-fail
@@ -57,6 +106,7 @@ rejects execution failure for protocol calls whose EIPs mandate both."
                               (zero-address))
                 :timestamp (block-header-timestamp header)
                 :block-number (block-header-number header)
+                :slot-number (or (block-header-slot-number header) 0)
                 :prev-randao (or (block-header-mix-hash header)
                                   (zero-hash32))
                 :difficulty (block-header-difficulty header)
@@ -71,12 +121,13 @@ rejects execution failure for protocol calls whose EIPs mandate both."
                 :block-hashes block-hashes
                 :accessed-addresses
                 (protocol-system-call-accessed-addresses target))))
-        (flet ((rollback-failed-call (&optional result)
+        (flet ((rollback-failed-call (&optional result cause)
                  (state-db-revert-to-snapshot state snapshot)
                  (when require-success-p
                    (block-validation-fail
-                    "Protocol system call to ~A failed"
-                    (address-to-hex target)))
+                    "Protocol system call to ~A failed~@[: ~A~]"
+                    (address-to-hex target)
+                    cause))
                  result))
           (handler-case
               (let ((result
@@ -87,8 +138,8 @@ rejects execution failure for protocol calls whose EIPs mandate both."
                     (rollback-failed-call result)
                     (finalize-evm-selfdestructs state context))
                 result)
-            (evm-error ()
-              (rollback-failed-call))))))))
+            (evm-error (condition)
+              (rollback-failed-call nil condition))))))))
 
 (defun process-parent-beacon-block-root
     (state header chain-rules
@@ -132,5 +183,6 @@ rejects execution failure for protocol calls whose EIPs mandate both."
        header
        chain-rules
        :blob-base-fee blob-base-fee
-       :block-hashes block-hashes)))
+       :block-hashes block-hashes
+       :require-success-p t)))
   state)

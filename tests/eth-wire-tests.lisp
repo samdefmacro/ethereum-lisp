@@ -234,6 +234,44 @@
                      (first (ethereum-lisp.eth-wire:eth-block-body-transactions
                              decoded-full)))))))))
 
+(deftest eth-pooled-blob-cell-proof-wrapper-round-trips
+  (:layer :unit :module :eth-wire)
+  (let* ((blob (make-byte-vector +blob-byte-size+))
+         (commitment (make-byte-vector +kzg-commitment-size+))
+         (proofs
+           (loop repeat +cell-proofs-per-blob+
+                 collect (make-byte-vector +kzg-proof-size+)))
+         (transaction
+           (make-blob-transaction
+            :chain-id 1
+            :to (address-from-hex
+                 "0x0000000000000000000000000000000000000001")
+            :blob-versioned-hashes
+            (list (kzg-commitment-to-versioned-hash commitment))))
+         (sidecar
+           (make-blob-sidecar
+            :blobs (list blob)
+            :commitments (list commitment)
+            :proofs proofs))
+         (entry (make-blob-network-transaction transaction sidecar)))
+    (multiple-value-bind (request-id decoded)
+        (ethereum-lisp.eth-wire:decode-eth-pooled-transactions
+         (ethereum-lisp.eth-wire:encode-eth-pooled-transactions
+          91 (list entry)))
+      (is (= 91 request-id))
+      (is (= 1 (length decoded)))
+      (let* ((decoded-entry (first decoded))
+             (decoded-transaction
+               (blob-network-transaction-transaction decoded-entry))
+             (decoded-sidecar
+               (blob-network-transaction-sidecar decoded-entry)))
+        (is (typep decoded-entry 'blob-network-transaction))
+        (is (bytes= (transaction-encoding transaction)
+                    (transaction-encoding decoded-transaction)))
+        (is (= +cell-proofs-per-blob+
+               (length (blob-sidecar-proofs decoded-sidecar))))
+        (is (bytes= blob (first (blob-sidecar-blobs decoded-sidecar))))))))
+
 (deftest eth-fork-id-matches-eip-2124-mainnet-vectors
   ;; EIP-2124 mainnet fork-hash vectors, over the mainnet genesis hash.
   (let ((genesis (hex-to-bytes

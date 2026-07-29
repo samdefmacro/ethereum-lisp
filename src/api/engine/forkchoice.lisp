@@ -55,6 +55,7 @@
             (list
              :expected-chain-id (chain-config-chain-id config)
              :header header
+             :parent-header (block-header parent-block)
              :chain-config config
              :block-hashes
              (chain-store-block-hashes-for-header store header))

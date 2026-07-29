@@ -35,9 +35,11 @@
    #:state-storage-range-entry-proof-key
    #:state-storage-range-entry-slot
    #:state-storage-range-entry-value
+   #:*state-access-recorder*
    #:state-db-get-account
    #:make-lazy-state-db
    #:state-db-account-loaded-p
+   #:state-db-account-or-empty
    #:state-db-set-account
    #:state-db-clear-account
    #:state-db-set-code
@@ -64,7 +66,8 @@
    #:state-db-root
    #:state-db-root-hex
    #:+wei-per-gwei+
-   #:state-db-add-balance))
+   #:state-db-add-balance
+   #:state-db-transfer-value))
 
 (defpackage #:ethereum-lisp.state-proof-json
   (:use #:cl
@@ -91,9 +94,11 @@
    #:state-db-from-genesis-alloc
    #:state-db-from-genesis-json-string
    #:state-db-from-genesis-json-file
+   #:state-db-from-built-in-genesis-preset
    #:genesis-state-root-from-genesis-alloc
    #:genesis-state-root-from-genesis-json-string
    #:genesis-state-root-from-genesis-json-file
+   #:genesis-state-root-from-built-in-genesis-preset
    #:validate-genesis-state-root
    #:validate-genesis-json-state-root
    #:genesis-header-from-state-genesis-object
@@ -101,7 +106,8 @@
    #:genesis-header-from-state-genesis-json-file
    #:genesis-block-from-state-genesis-object
    #:genesis-block-from-state-genesis-json-string
-   #:genesis-block-from-state-genesis-json-file))
+   #:genesis-block-from-state-genesis-json-file
+   #:genesis-block-from-built-in-genesis-preset))
 
 (defpackage #:ethereum-lisp.evm.internal
   (:use #:cl
@@ -141,6 +147,7 @@
    #:evm-step-limit-error-limit
    #:evm-step-limit-error-steps
    #:evm-step-limit-error-pc
+   #:amsterdam-execution-available-p
    #:precompile-address
    #:active-precompile-address-p
    #:prewarm-precompile-addresses
@@ -158,6 +165,7 @@
    #:evm-context-coinbase
    #:evm-context-timestamp
    #:evm-context-block-number
+   #:evm-context-slot-number
    #:evm-context-prev-randao
    #:evm-context-gas-limit
    #:evm-context-chain-id
@@ -210,6 +218,7 @@
    #:evm-step-limit-error-limit
    #:evm-step-limit-error-steps
    #:evm-step-limit-error-pc
+   #:amsterdam-execution-available-p
    #:precompile-address
    #:active-precompile-address-p
    #:prewarm-precompile-addresses
@@ -227,6 +236,7 @@
    #:evm-context-coinbase
    #:evm-context-timestamp
    #:evm-context-block-number
+   #:evm-context-slot-number
    #:evm-context-prev-randao
    #:evm-context-gas-limit
    #:evm-context-chain-id
@@ -299,6 +309,10 @@
    #:apply-signed-message-list
    #:execute-legacy-messages
    #:execute-signed-messages
+   #:block-reward-for-rules
+   #:apply-block-rewards-for-header
+   #:apply-dao-hard-fork
+   #:apply-dao-hard-fork-if-needed
    #:execute-legacy-block
    #:execute-signed-block))
 
