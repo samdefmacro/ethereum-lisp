@@ -100,7 +100,7 @@ arrives next on the same socket."
     (unless head-p
       (write-string body out))))
 
-(defun devnet-metrics-http-response (request-line snapshot)
+(defun devnet-metrics-http-response (request-line snapshot &optional gauges)
   "The whole HTTP response to REQUEST-LINE, as a string.
 
 Pure, so which paths answer and what a wrong method gets are testable without
@@ -123,7 +123,7 @@ already points, and answering both costs one clause."
              (string= path "/debug/metrics/prometheus"))
          (devnet-metrics-http-reply
           200 "OK"
-          (telemetry-prometheus-text snapshot)
+          (telemetry-prometheus-text snapshot :gauges gauges)
           :content-type "text/plain; version=0.0.4; charset=utf-8"
           :head-p (string= method "HEAD")))
         (t
@@ -174,9 +174,11 @@ that gets a connection reset reports the target as down rather than as answered.
             for header = (devnet-metrics-read-line
                           stream +devnet-metrics-read-timeout-seconds+)
             until (or (null header) (string= header "")))
-      (write-string (devnet-metrics-http-response
-                     request-line (funcall snapshot-function))
-                    stream)
+      (multiple-value-bind (snapshot gauges)
+          (funcall snapshot-function)
+        (write-string
+         (devnet-metrics-http-response request-line snapshot gauges)
+         stream))
       (finish-output stream))))
 
 (defun devnet-cli-log-metrics-error (node condition)
@@ -241,7 +243,10 @@ does not ask for metrics pays nothing for them."
                                                 :buffering :none))
                                   (devnet-metrics-serve-connection
                                    stream
-                                   (lambda () (devnet-node-metrics node))))
+                                   (lambda ()
+                                     (values
+                                      (devnet-node-metrics node)
+                                      (devnet-node-metric-gauges node)))))
                               ;; One bad scrape ends that connection, not the
                               ;; endpoint.
                               (error (condition)

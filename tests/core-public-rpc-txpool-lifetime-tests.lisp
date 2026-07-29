@@ -120,7 +120,7 @@
         (is (string= (quantity-to-hex 1)
                      (field (field local-status "result") "queued")))
         (is (= -32602 (field nolocals-error "code")))
-        (is (string= "Queued transaction underpriced for full global queue"
+        (is (string= "Queued transaction underpriced for full account queue"
                      (field nolocals-error "message"))))
       (let* ((local-response
                (send-raw pending-transaction 198 slot-local-store config
@@ -144,7 +144,7 @@
         (is (string= (quantity-to-hex 1)
                      (field (field local-status "result") "pending")))
         (is (= -32602 (field nolocals-error "code")))
-        (is (string= "Pending transaction underpriced for full global slots"
+        (is (string= "Pending transaction underpriced for full account slots"
                      (field nolocals-error "message")))))))
 
 (deftest txpool-maintenance-expires-queued-view-transactions-without-rpc

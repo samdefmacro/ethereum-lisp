@@ -45,15 +45,23 @@
           lifetime-seconds)
   (%make-devnet-txpool-policy
    :allow-unprotected-transactions-p allow-unprotected-transactions-p
-   :price-limit price-limit
-   :price-bump-percent price-bump-percent
-   :account-slot-limit account-slot-limit
-   :global-slot-limit global-slot-limit
-   :account-queue-limit account-queue-limit
-   :global-queue-limit global-queue-limit
+   ;; Keep the operator defaults aligned with the admission-service defaults.
+   ;; NIL means the flag was omitted; zero remains an explicit operator value.
+   :price-limit (if (null price-limit) 1 price-limit)
+   :price-bump-percent
+   (if (null price-bump-percent) 10 price-bump-percent)
+   :account-slot-limit
+   (if (null account-slot-limit) 16 account-slot-limit)
+   :global-slot-limit
+   (if (null global-slot-limit) 5120 global-slot-limit)
+   :account-queue-limit
+   (if (null account-queue-limit) 64 account-queue-limit)
+   :global-queue-limit
+   (if (null global-queue-limit) 1024 global-queue-limit)
    :local-addresses (and local-addresses (copy-list local-addresses))
    :no-local-exemptions-p no-local-exemptions-p
-   :lifetime-seconds lifetime-seconds))
+   :lifetime-seconds
+   (if (null lifetime-seconds) (* 3 60 60) lifetime-seconds)))
 
 (defstruct (devnet-persistence-state
             (:constructor make-devnet-persistence-state
@@ -79,6 +87,7 @@
                       txpool-journal-path
                       txpool-rejournal-seconds
                       dev-period-seconds
+                      miner-gas-limit
                       peers
                       bootnodes
                       node-key
@@ -122,6 +131,7 @@
   txpool-journal-path
   txpool-rejournal-seconds
   dev-period-seconds
+  miner-gas-limit
   peers
   bootnodes
   node-key
@@ -253,6 +263,29 @@ kept in step by hand."
   (let ((sink (devnet-node-telemetry-sink node)))
     (when (counting-telemetry-sink-p sink)
       (counting-telemetry-sink-snapshot sink))))
+
+(defun devnet-node-metric-gauges (node)
+  "Live operator levels sampled atomically enough for one Prometheus scrape."
+  (let* ((store (devnet-node-store node))
+         (head (chain-store-latest-block store))
+         (safe (chain-store-safe-block store))
+         (finalized (chain-store-finalized-block store)))
+    `(("ethereum_lisp_txpool_pending"
+       . ,(engine-payload-store-pending-transaction-count store))
+      ("ethereum_lisp_txpool_queued"
+       . ,(engine-payload-store-queued-transaction-count store))
+      ("ethereum_lisp_txpool_basefee"
+       . ,(engine-payload-store-basefee-transaction-count store))
+      ("ethereum_lisp_txpool_blob"
+       . ,(engine-payload-store-blob-transaction-count store))
+      ("ethereum_lisp_chain_head_number"
+       . ,(if head (block-header-number (block-header head)) 0))
+      ("ethereum_lisp_chain_safe_number"
+       . ,(if safe (block-header-number (block-header safe)) 0))
+      ("ethereum_lisp_chain_finalized_number"
+       . ,(if finalized (block-header-number (block-header finalized)) 0))
+      ("ethereum_lisp_peer_count"
+       . ,(devnet-peer-table-count (devnet-node-peer-table node))))))
 
 (defun devnet-node-enode (node)
   "Our own enode URL, or NIL when we are not listening.

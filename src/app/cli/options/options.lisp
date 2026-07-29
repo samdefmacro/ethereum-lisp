@@ -51,6 +51,7 @@
         (ready-file nil)
         (log-file nil)
         (pid-file nil)
+        (ignored-options nil)
         (http-max-clients nil)
         (http-read-timeout-seconds nil)
         (http-write-timeout-seconds nil)
@@ -278,11 +279,16 @@
                ((string= option "--nodekeyhex")
                 (setf node-key
                       (next-parsed-value option #'devnet-cli-parse-node-key-hex)))
-               ((member option *devnet-cli-value-options* :test #'string=)
+               ((string= option "--config")
+                ;; Already consumed by DEVNET-CLI-APPLY-CONFIG-ARGS above.
                 (consume-value-option option))
+               ((member option *devnet-cli-value-options* :test #'string=)
+                (consume-value-option option)
+                (push option ignored-options))
                ((member option *devnet-cli-optional-boolean-options*
                         :test #'string=)
-                (consume-optional-boolean-value option))
+                (consume-optional-boolean-value option)
+                (push option ignored-options))
                (t
                 (error "Unknown option ~A" option))))
     (list :genesis-path genesis-path
@@ -354,4 +360,5 @@
           :ws-origins ws-origins
           :ws-rpc-prefix ws-rpc-prefix
           :node-key node-key
+          :ignored-options (nreverse ignored-options)
           :help-p help-p))))

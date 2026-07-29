@@ -49,7 +49,7 @@
         (with-open-file (stream (devnet-cli-ensure-path-parent-directory
                                  log-file)
                                 :direction :output
-                                :if-exists :supersede
+                                :if-exists :append
                                 :if-does-not-exist :create)
           (funcall thunk
                    (ethereum-lisp.telemetry:make-stream-telemetry-sink
@@ -57,3 +57,26 @@
         (funcall thunk
                  (ethereum-lisp.telemetry:make-stream-telemetry-sink
                   :stream output-stream)))))
+
+(defun devnet-cli-report-ignored-options (options error-stream)
+  (declare (ignore error-stream))
+  (let ((ignored-options (getf options :ignored-options))
+        (log-file (getf options :log-file)))
+    (if (and ignored-options log-file)
+        (with-open-file (stream (devnet-cli-ensure-path-parent-directory
+                                 log-file)
+                                :direction :output
+                                :if-exists :append
+                                :if-does-not-exist :create)
+          (dolist (option ignored-options)
+            (telemetry-log
+             :warning
+             "cli.option_ignored"
+             :fields (list (cons "option" option)
+                           (cons "effect" "ignored"))
+             :sink (ethereum-lisp.telemetry:make-stream-telemetry-sink
+                    :stream stream))))
+        (dolist (option ignored-options)
+          (format *error-output*
+                  "Warning: ~A is accepted for compatibility and ignored.~%"
+                  option)))))

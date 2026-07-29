@@ -160,7 +160,7 @@ than one that never existed."
       value))
 
 (defun telemetry-prometheus-text
-    (snapshot &key (metric "ethereum_lisp_events_total"))
+    (snapshot &key (metric "ethereum_lisp_events_total") gauges)
   "SNAPSHOT rendered in the Prometheus text exposition format.
 
 SNAPSHOT is what COUNTING-TELEMETRY-SINK-SNAPSHOT returns: an alist of event
@@ -180,4 +180,7 @@ was emitted, and no mangling can collide."
       (format out "~A{event=\"~A\"} ~D~%"
               metric
               (telemetry-prometheus-escape (princ-to-string (car entry)))
-              (cdr entry)))))
+              (cdr entry)))
+    (dolist (entry gauges)
+      (format out "# TYPE ~A gauge~%" (car entry))
+      (format out "~A ~D~%" (car entry) (cdr entry)))))

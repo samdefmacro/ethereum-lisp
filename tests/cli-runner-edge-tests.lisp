@@ -419,6 +419,23 @@
       (is (search "--json boolean value must be true or false" stderr))
       (is (search "Usage: ethereum-lisp init" stderr)))))
 
+#+sbcl
+(deftest devnet-cli-datadir-lock-covers-the-node-lifetime
+  (:layer :unit :module :cli)
+  (let ((directory
+          (uiop:ensure-directory-pathname
+           (devnet-cli-temp-path "ethereum-lisp-lock-test" nil))))
+    (unwind-protect
+         (let ((result
+                 (ethereum-lisp.cli::call-with-devnet-cli-datadir-lock
+                  directory
+                  (lambda ()
+                    (is (probe-file (merge-pathnames "LOCK" directory)))
+                    :owned))))
+           (is (eq :owned result)))
+      (uiop:delete-directory-tree
+       directory :validate t :if-does-not-exist :ignore))))
+
 (deftest devnet-cli-accepts-geth-style-mining-archive-and-metrics-flags
   (let ((config-path
           (devnet-cli-temp-path "ethereum-lisp-geth" "toml")))

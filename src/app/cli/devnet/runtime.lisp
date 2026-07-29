@@ -112,7 +112,10 @@ the deterministic address order is kept."
              (parent-timestamp (block-header-timestamp parent-header))
              (timestamp (max (or timestamp 0) (1+ parent-timestamp)))
              (block-number (1+ (block-header-number parent-header)))
-             (gas-limit (block-header-gas-limit parent-header))
+             (gas-limit
+               (engine-target-gas-limit
+                (block-header-gas-limit parent-header)
+                (devnet-node-miner-gas-limit node)))
              (expected-chain-id (chain-config-chain-id config))
              (transactions
                (engine-select-mining-transactions

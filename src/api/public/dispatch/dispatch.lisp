@@ -16,13 +16,8 @@
           txpool-lifetime-seconds
           admin-backend
           (txpool-now 0))
-  (eth-rpc-remove-expired-txpool-transactions
-   store
-   config
-   txpool-lifetime-seconds
-   txpool-now
-   txpool-local-addresses
-   txpool-no-local-exemptions-p)
+  ;; Lifetime cleanup belongs to the node's periodic maintenance worker.  RPC
+  ;; traffic must not be required for a private validator node to evict entries.
   (let ((context
           (make-public-rpc-dispatch-context
            id

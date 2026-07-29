@@ -38,6 +38,8 @@
          (engine-error nil)
          (public-count nil)
          (public-error nil)
+         (txpool-maintenance-error nil)
+         (txpool-maintenance-thread nil)
          (rejournal-error nil)
          (rejournal-thread nil)
          (dev-period-error nil)
@@ -90,6 +92,12 @@
            shutdown-controller
            (lambda (condition)
              (setf rejournal-error condition))))
+    (setf txpool-maintenance-thread
+          (devnet-start-txpool-maintenance-thread
+           node
+           shutdown-controller
+           (lambda (condition)
+             (setf txpool-maintenance-error condition))))
     (setf dev-period-thread
           (devnet-start-dev-period-thread
            node
@@ -185,6 +193,9 @@
         (when rejournal-thread
           (devnet-shutdown-request shutdown-controller)
           (sb-thread:join-thread rejournal-thread))
+        (when txpool-maintenance-thread
+          (devnet-shutdown-request shutdown-controller)
+          (sb-thread:join-thread txpool-maintenance-thread))
         (when dev-period-thread
           (devnet-shutdown-request shutdown-controller)
           (sb-thread:join-thread dev-period-thread))
@@ -277,6 +288,8 @@
         (error discovery-server-error))
       (when rejournal-error
         (error rejournal-error))
+      (when txpool-maintenance-error
+        (error txpool-maintenance-error))
       (when dev-period-error
         (error dev-period-error))
 

@@ -10,13 +10,17 @@
 (deftest telemetry-prometheus-text-renders-a-snapshot
   (let ((text (ethereum-lisp.telemetry:telemetry-prometheus-text
                (list (cons "peer.dial.connected" 3)
-                     (cons "block.import" 12)))))
+                     (cons "block.import" 12))
+               :gauges
+               '(("ethereum_lisp_txpool_pending" . 4)))))
     (is (search "# TYPE ethereum_lisp_events_total counter" text))
     ;; The dotted name survives intact, because it is a label value and not
     ;; part of the metric name.
     (is (search "ethereum_lisp_events_total{event=\"peer.dial.connected\"} 3"
                 text))
     (is (search "ethereum_lisp_events_total{event=\"block.import\"} 12" text))
+    (is (search "# TYPE ethereum_lisp_txpool_pending gauge" text))
+    (is (search "ethereum_lisp_txpool_pending 4" text))
     ;; Every exposition document ends with a newline.
     (is (char= #\Newline (char text (1- (length text))))))
   ;; An empty snapshot is a valid document, not an empty one: a scraper needs
@@ -44,14 +48,17 @@
   (subseq response 0 (position #\Return response)))
 
 (deftest devnet-metrics-http-response-routes-requests
-  (let ((snapshot (list (cons "a.b" 7))))
+  (let ((snapshot (list (cons "a.b" 7)))
+        (gauges '(("ethereum_lisp_peer_count" . 2))))
     ;; The path Prometheus scrapes, and the one a geth scrape config points at.
     (dolist (target '("/metrics" "/debug/metrics/prometheus"))
       (let ((response (ethereum-lisp.cli:devnet-metrics-http-response
-                       (format nil "GET ~A HTTP/1.1" target) snapshot)))
+                       (format nil "GET ~A HTTP/1.1" target)
+                       snapshot gauges)))
         (is (equal "HTTP/1.1 200 OK"
                    (devnet-metrics-test-status-line response)))
-        (is (search "ethereum_lisp_events_total{event=\"a.b\"} 7" response))))
+        (is (search "ethereum_lisp_events_total{event=\"a.b\"} 7" response))
+        (is (search "ethereum_lisp_peer_count 2" response))))
     ;; A query string is not part of the path.
     (is (search "{event=\"a.b\"} 7"
                 (ethereum-lisp.cli:devnet-metrics-http-response

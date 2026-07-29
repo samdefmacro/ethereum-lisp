@@ -4,14 +4,21 @@
         #:ethereum-lisp.telemetry)
   (:import-from #:ethereum-lisp.types
                 #:hash32=)
+  (:import-from #:ethereum-lisp.engine-payloads
+                #:engine-target-gas-limit)
   (:import-from #:ethereum-lisp.txpool
                 #:engine-payload-store-enable-txpool-database-change-tracking
                 #:engine-payload-store-txpool-database-change-tracking-enabled-p
                 #:engine-payload-store-clear-txpool-database-dirty-transaction-hashes
                 #:engine-payload-store-pending-mining-transactions
                 #:engine-payload-store-pending-transactions
+                #:engine-payload-store-pending-transaction-count
+                #:engine-payload-store-queued-transaction-count
+                #:engine-payload-store-basefee-transaction-count
+                #:engine-payload-store-blob-transaction-count
                 #:engine-payload-store-pooled-transaction
                 #:engine-payload-store-pooled-transactions
+                #:engine-payload-store-remove-expired-txpool-queued-view-transactions
                 #:engine-select-mining-transactions)
   ;; The admin RPC namespace reads peering state through a backend of closures
   ;; the node builds; the struct itself belongs to the API layer.
@@ -45,6 +52,7 @@
   ;; Gossiped transactions go through the same admission the public RPC uses.
   (:import-from #:ethereum-lisp.txpool.application
                 #:make-txpool-admission-policy
+                #:txpool-local-transaction-predicate
                 #:txpool-admit-transaction)
   (:import-from #:ethereum-lisp.node-store.persistence
                 #:make-node-store-persistence-metadata

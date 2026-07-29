@@ -46,6 +46,7 @@
        txpool-journal-path
        txpool-rejournal-seconds
        dev-period-seconds
+       miner-gas-limit
        peers
        bootnodes
        node-key
@@ -166,6 +167,7 @@
             :new-payload-persistence-function
             new-payload-persistence-function
             :forkchoice-persistence-function forkchoice-persistence-function
+            :gas-limit-target miner-gas-limit
             :request-guard-function store-guard-function
             :jwt-secret jwt-secret
             :rpc-prefix
@@ -189,6 +191,7 @@
             :new-payload-persistence-function
             new-payload-persistence-function
             :forkchoice-persistence-function forkchoice-persistence-function
+            :gas-limit-target miner-gas-limit
             :request-guard-function store-guard-function
             :rpc-prefix
             (devnet-endpoint-config-rpc-prefix public-endpoint-config)
@@ -258,6 +261,7 @@
        :txpool-journal-path txpool-journal-path
        :txpool-rejournal-seconds txpool-rejournal-seconds
        :dev-period-seconds dev-period-seconds
+       :miner-gas-limit miner-gas-limit
        :peers (and peers (copy-list peers))
        :bootnodes (and bootnodes (copy-list bootnodes))
        ;; One stable node identity per node, shared by the discovery and peer-sync
