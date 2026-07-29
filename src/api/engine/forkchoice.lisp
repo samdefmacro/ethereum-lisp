@@ -346,7 +346,14 @@ for the rest of this payload; other senders are still considered."
                (candidate-id
                  (engine-payload-id
                   prepared-payload-version head-hash payload-attributes)))
-          (unless (chain-store-prepared-payload store candidate-id)
+          ;; A repeated build request keeps the stable id.  An open build
+          ;; continues improving in place; a payload already retrieved is
+          ;; explicitly reopened from an empty candidate for the new request.
+          (unless
+              (let ((existing
+                      (chain-store-prepared-payload store candidate-id)))
+                (and existing
+                     (engine-prepared-payload-open-p existing)))
             (multiple-value-bind (block viable-transactions)
                 (handler-case
                     (engine-rpc-build-viable-prepared-payload
