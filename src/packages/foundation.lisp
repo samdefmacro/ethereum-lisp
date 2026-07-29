@@ -138,6 +138,7 @@
 (defpackage #:ethereum-lisp.rlp
   (:use #:cl #:ethereum-lisp.bytes)
   (:export
+   #:+rlp-max-depth+
    #:rlp-error
    #:rlp-list
    #:rlp-list-p

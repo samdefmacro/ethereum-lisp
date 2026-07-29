@@ -3,6 +3,22 @@
 (defun rlp-hex (value)
   (bytes-to-hex (rlp-encode value)))
 
+(defun rlp-test-deep-list-bytes (depth)
+  "Build DEPTH nested RLP lists iteratively, without recursing in the test."
+  (let ((payload-length 1)
+        (prefixes '()))
+    (loop repeat depth
+          for prefix = (ethereum-lisp.rlp::encode-length #xc0 payload-length)
+          do (push prefix prefixes)
+             (incf payload-length (length prefix)))
+    (let ((result (make-byte-vector payload-length))
+          (position 0))
+      (dolist (prefix prefixes)
+        (replace result prefix :start1 position)
+        (incf position (length prefix)))
+      (setf (aref result position) #xc0)
+      result)))
+
 (deftest rlp-ethereum-examples
   (is (string= "0x83646f67" (rlp-hex "dog")))
   (is (string= "0xc88363617483646f67" (rlp-hex '("cat" "dog"))))
@@ -29,3 +45,8 @@
   (signals rlp-error (rlp-decode-one (hex-to-bytes "0x8101")))
   (signals rlp-error (rlp-decode-one (hex-to-bytes "0xb80100")))
   (signals rlp-error (rlp-decode-one (hex-to-bytes "0xf801c0"))))
+
+(deftest rlp-rejects-excessive-list-depth
+  (:layer :unit :module :rlp)
+  (signals rlp-error
+    (rlp-decode-one (rlp-test-deep-list-bytes (1+ +rlp-max-depth+)))))
