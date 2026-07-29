@@ -32,6 +32,10 @@
 fail or be refused, so admitting none over the limit would idle the last slots;
 the headroom is small because each one costs a thread.")
 
+(defconstant +devnet-default-inbound-per-ip+ 3)
+(defconstant +devnet-default-inbound-per-subnet+ 10)
+(defconstant +devnet-peer-ban-score+ -100)
+
 (defstruct (devnet-peer-entry
             (:constructor make-devnet-peer-entry
                 (&key id-hex direction remote-host remote-port socket thread
@@ -49,7 +53,9 @@ what an operator asks about."
   connected-at)
 
 (defstruct (devnet-peer-table
-            (:constructor %make-devnet-peer-table (self-id-hex max-peers)))
+            (:constructor %make-devnet-peer-table
+                (self-id-hex max-peers inbound-per-ip inbound-per-subnet
+                 netrestrict)))
   "The peers we hold, plus the handshakes not yet resolved into peers.
 
 Not internally locked: the peer manager owns a mutex and takes it around every
@@ -57,14 +63,24 @@ call, exactly as the dial registry is guarded. Keeping the lock outside means a
 verdict and the change that follows from it are one atomic step."
   self-id-hex
   max-peers
+  inbound-per-ip
+  inbound-per-subnet
+  netrestrict
   (pending 0)
+  (pending-hosts (make-hash-table :test #'equal))
+  (scores (make-hash-table :test #'equal))
   (entries '()))
 
-(defun make-devnet-peer-table (&key self-id-hex (max-peers +devnet-default-max-peers+))
+(defun make-devnet-peer-table
+    (&key self-id-hex (max-peers +devnet-default-max-peers+)
+          (inbound-per-ip +devnet-default-inbound-per-ip+)
+          (inbound-per-subnet +devnet-default-inbound-per-subnet+)
+          netrestrict)
   "A peer table for a node whose own id is SELF-ID-HEX.
 
 MAX-PEERS 0 turns peering off entirely: every verdict refuses."
-  (%make-devnet-peer-table self-id-hex (or max-peers 0)))
+  (%make-devnet-peer-table self-id-hex (or max-peers 0)
+                           inbound-per-ip inbound-per-subnet netrestrict))
 
 (defun devnet-peer-table-count (table)
   (length (devnet-peer-table-entries table)))
@@ -73,27 +89,122 @@ MAX-PEERS 0 turns peering off entirely: every verdict refuses."
   (find id-hex (devnet-peer-table-entries table)
         :key #'devnet-peer-entry-id-hex :test #'equal))
 
-(defun devnet-peer-table-slot-verdict (table)
+(defun devnet-string-parts (string separator)
+  (loop with start = 0
+        for position = (position separator string :start start)
+        collect (subseq string start position)
+        while position
+        do (setf start (1+ position))))
+
+(defun devnet-ipv4-integer (host)
+  (let ((parts (devnet-string-parts host #\.)))
+    (when (= (length parts) 4)
+      (handler-case
+          (let ((octets (mapcar #'parse-integer parts)))
+            (when (every (lambda (octet) (<= 0 octet 255)) octets)
+              (reduce (lambda (value octet) (+ (ash value 8) octet))
+                      octets :initial-value 0)))
+        (error () nil)))))
+
+(defun devnet-cidr-matches-p (host cidr)
+  "IPv4 CIDR matching plus exact IPv6 hosts. Invalid policy entries fail closed."
+  (let ((slash (position #\/ cidr)))
+    (if (find #\: host)
+        (and (string-equal host (if slash (subseq cidr 0 slash) cidr))
+             (or (null slash) (= 128 (parse-integer cidr :start (1+ slash)))))
+        (let* ((network-text (if slash (subseq cidr 0 slash) cidr))
+               (prefix (if slash (parse-integer cidr :start (1+ slash)) 32))
+               (address (devnet-ipv4-integer host))
+               (network (devnet-ipv4-integer network-text)))
+          (and address network (<= 0 prefix 32)
+               (= (ldb (byte prefix (- 32 prefix)) address)
+                  (ldb (byte prefix (- 32 prefix)) network)))))))
+
+(defun devnet-peer-host-allowed-p (table host)
+  (let ((ranges (devnet-peer-table-netrestrict table)))
+    (or (null ranges)
+        (some (lambda (range)
+                (handler-case (devnet-cidr-matches-p host range)
+                  (error () nil)))
+              ranges))))
+
+(defun devnet-peer-subnet-key (host)
+  (if (find #\: host)
+      (format nil "~{~A~^:~}"
+              (subseq (devnet-string-parts host #\:) 0
+                      (min 4 (length (devnet-string-parts host #\:)))))
+      (let ((parts (devnet-string-parts host #\.)))
+        (if (= (length parts) 4)
+            (format nil "~A.~A.~A" (first parts) (second parts) (third parts))
+            host))))
+
+(defun devnet-peer-table-host-count (table host &key subnet-p)
+  (let ((key (if subnet-p (devnet-peer-subnet-key host) host)))
+    (+ (loop for entry in (devnet-peer-table-entries table)
+             when (and (eq :inbound (devnet-peer-entry-direction entry))
+                       (equal key
+                              (if subnet-p
+                                  (devnet-peer-subnet-key
+                                   (devnet-peer-entry-remote-host entry))
+                                  (devnet-peer-entry-remote-host entry))))
+               count entry)
+       (loop for pending-host being the hash-keys
+               of (devnet-peer-table-pending-hosts table)
+             using (hash-value count)
+             when (equal key (if subnet-p
+                                 (devnet-peer-subnet-key pending-host)
+                                 pending-host))
+               sum count))))
+
+(defun devnet-peer-table-slot-verdict (table &optional remote-host)
   "Whether to spawn a session for a connection we have just accepted.
 
 Identity-free by necessity — see the file header. Returns :RESERVE or :NO-SLOT."
-  (if (and (plusp (devnet-peer-table-max-peers table))
+  (cond
+    ((and remote-host (not (devnet-peer-host-allowed-p table remote-host)))
+     :netrestrict)
+    ((and remote-host
+          (>= (devnet-peer-table-host-count table remote-host)
+              (devnet-peer-table-inbound-per-ip table)))
+     :ip-throttled)
+    ((and remote-host
+          (>= (devnet-peer-table-host-count table remote-host :subnet-p t)
+              (devnet-peer-table-inbound-per-subnet table)))
+     :subnet-throttled)
+    ((and (plusp (devnet-peer-table-max-peers table))
            (< (+ (devnet-peer-table-count table)
                  (devnet-peer-table-pending table))
               (+ (devnet-peer-table-max-peers table)
                  +devnet-peer-handshake-headroom+)))
-      :reserve
-      :no-slot))
+     :reserve)
+    (t :no-slot)))
 
-(defun devnet-peer-table-reserve-slot (table)
+(defun devnet-peer-table-reserve-slot (table &optional remote-host)
   "Count one more handshake in flight."
-  (incf (devnet-peer-table-pending table)))
+  (incf (devnet-peer-table-pending table))
+  (when remote-host
+    (incf (gethash remote-host (devnet-peer-table-pending-hosts table) 0))))
 
-(defun devnet-peer-table-release-slot (table)
+(defun devnet-peer-table-release-slot (table &optional remote-host)
   "Give back a reservation whose handshake ended, admitted or not. Never goes
 negative: a double release is a bug that must not corrupt the count."
   (setf (devnet-peer-table-pending table)
-        (max 0 (1- (devnet-peer-table-pending table)))))
+        (max 0 (1- (devnet-peer-table-pending table))))
+  (when remote-host
+    (let ((remaining
+            (max 0 (1- (gethash remote-host
+                                (devnet-peer-table-pending-hosts table) 0)))))
+      (if (zerop remaining)
+          (remhash remote-host (devnet-peer-table-pending-hosts table))
+          (setf (gethash remote-host
+                         (devnet-peer-table-pending-hosts table))
+                remaining)))))
+
+(defun devnet-peer-score (table id-hex)
+  (gethash id-hex (devnet-peer-table-scores table) 0))
+
+(defun devnet-peer-note-score (table id-hex delta)
+  (incf (gethash id-hex (devnet-peer-table-scores table) 0) delta))
 
 (defun devnet-peer-table-inbound-verdict (table id-hex)
   "Whether to keep a peer whose identity is now known.
@@ -105,6 +216,8 @@ onto devp2p disconnect reasons, so the peer is told which one it was."
           (equal id-hex (devnet-peer-table-self-id-hex table)))
      :self)
     ((devnet-peer-table-entry table id-hex) :already-connected)
+    ((<= (devnet-peer-score table id-hex) +devnet-peer-ban-score+)
+     :useless-peer)
     ((>= (devnet-peer-table-count table) (devnet-peer-table-max-peers table))
      :too-many-peers)
     (t :accept)))
@@ -173,7 +286,7 @@ Peer reads take the peer-table mutex, never the store guard."
      (lambda ()
        (let* ((node (node))
               (port (devnet-node-p2p-port node))
-              (host (or (devnet-node-p2p-host node) "0.0.0.0"))
+              (host (devnet-node-advertised-host node))
               (head-number (call-with-devnet-node-store-guard
                             node
                             (lambda ()
@@ -184,7 +297,7 @@ Peer reads take the peer-table mutex, never the store guard."
                ;; The same name we give peers in our devp2p Hello.
                :client-id +eth-sync-client-id+
                :enode (devnet-node-enode node)
-               :ip (eth-sync-socket-endpoint-host host)
+               :ip host
                :listener-port (or port 0)
                :listen-address (when port (format nil "~A:~D" host port))
                :eth (list :network-id (devnet-node-network-id node)

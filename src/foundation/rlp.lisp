@@ -5,10 +5,17 @@
   (:report (lambda (condition stream)
              (format stream "~A" (rlp-error-message condition)))))
 
+(defconstant +rlp-max-depth+ 64
+  "Maximum list nesting accepted by the generic RLP decoder.
+
+This is a resource bound, not an Ethereum consensus limit. Protocol objects in
+this client are shallower by orders of magnitude; the bound prevents hostile
+network input from consuming the Lisp control stack.")
+
 (defstruct (rlp-list (:constructor make-rlp-list (&rest items)))
   (items '() :type list))
 
-(defconstant +maximum-rlp-nesting-depth+ 64)
+(defconstant +maximum-rlp-nesting-depth+ +rlp-max-depth+)
 
 (defun fail (control &rest args)
   (error 'rlp-error :message (apply #'format nil control args)))
@@ -57,15 +64,19 @@
   (require-available bytes payload-start length)
   (subseq bytes payload-start (+ payload-start length)))
 
-(declaim (ftype function %rlp-decode))
-
 (defun decode-list-payload
-    (bytes payload-start payload-end depth maximum-depth)
+    (bytes payload-start payload-end depth maximum-depth max-list-items)
   (loop with items = '()
         with position = payload-start
+        with item-count = 0
         while (< position payload-end)
         do (multiple-value-bind (item next-position)
-               (%rlp-decode bytes position t (1+ depth) maximum-depth)
+               (%rlp-decode bytes position t (1+ depth) maximum-depth
+                            max-list-items)
+             (incf item-count)
+             (when (and max-list-items (> item-count max-list-items))
+               (fail "RLP list contains more than ~D items at byte ~D"
+                     max-list-items payload-start))
              (push item items)
              (setf position next-position))
         finally
@@ -74,7 +85,8 @@
                    position payload-end))
            (return (apply #'make-rlp-list (nreverse items)))))
 
-(defun %rlp-decode (bytes start allow-trailing depth maximum-depth)
+(defun %rlp-decode
+    (bytes start allow-trailing depth maximum-depth max-list-items)
   (when (> depth maximum-depth)
     (fail "RLP nesting depth exceeds maximum ~D" maximum-depth))
   (let ((input-length (length bytes)))
@@ -108,7 +120,7 @@
                     (payload-end (+ payload-start length)))
                (require-available bytes payload-start length)
                (values (decode-list-payload bytes payload-start payload-end
-                                            depth maximum-depth)
+                                            depth maximum-depth max-list-items)
                        payload-end)))
             (t
              (let ((length-of-length (- prefix #xf7)))
@@ -120,7 +132,8 @@
                  (let ((payload-end (+ payload-start length)))
                    (require-available bytes payload-start length)
                    (values (decode-list-payload bytes payload-start payload-end
-                                                depth maximum-depth)
+                                                depth maximum-depth
+                                                max-list-items)
                            payload-end))))))
         (unless (or allow-trailing (= next-position input-length))
           (fail "Trailing bytes after RLP item at byte ~D" next-position))
@@ -128,11 +141,19 @@
 
 (defun rlp-decode
     (bytes &key (start 0) (allow-trailing nil)
-                (maximum-depth +maximum-rlp-nesting-depth+))
-  (unless (and (integerp maximum-depth) (not (minusp maximum-depth)))
+                (max-depth +rlp-max-depth+) maximum-depth max-list-items)
+  "Decode one RLP item with nesting and per-list item resource bounds.
+
+MAXIMUM-DEPTH is the compatibility spelling of MAX-DEPTH. When supplied it
+takes precedence."
+  (let ((maximum-depth (or maximum-depth max-depth)))
+    (unless (and (integerp maximum-depth) (not (minusp maximum-depth)))
     (fail "RLP maximum depth must be a non-negative integer"))
-  (%rlp-decode (ensure-byte-vector bytes)
-               start allow-trailing 0 maximum-depth))
+    (unless (or (null max-list-items)
+                (and (integerp max-list-items) (not (minusp max-list-items))))
+      (fail "RLP maximum list item count must be a non-negative integer or NIL"))
+    (%rlp-decode (ensure-byte-vector bytes)
+                 start allow-trailing 0 maximum-depth max-list-items)))
 
 (defun rlp-decode-one (bytes)
   (rlp-decode bytes))

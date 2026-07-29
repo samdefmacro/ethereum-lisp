@@ -88,6 +88,72 @@ semantics."
   (eth-peer-await peer +eth-message-block-bodies+ request-id
                   #'decode-eth-block-bodies))
 
+(defun eth-peer-get-receipts
+    (peer hashes &key (first-block-receipt-index 0)
+                      (request-id (eth-peer-next-request-id peer)))
+  "Request receipt groups, returning the groups and an incomplete-last flag."
+  (let ((version (eth-peer-eth-version peer)))
+    (eth-peer-send
+     peer +eth-message-get-receipts+
+     (encode-eth-get-receipts request-id hashes version
+                              first-block-receipt-index))
+    (let ((result
+            (eth-peer-await
+             peer +eth-message-receipts+ request-id
+             (lambda (payload)
+               (multiple-value-bind (id groups incomplete)
+                   (decode-eth-receipts payload version)
+                 (values id (list groups incomplete)))))))
+      (values (first result) (second result)))))
+
+(defun eth-peer-get-block-access-lists
+    (peer hashes &key (request-id (eth-peer-next-request-id peer)))
+  "Request eth/71 block access lists, preserving unavailable empty strings."
+  (when (< (eth-peer-eth-version peer) +eth-protocol-version-71+)
+    (error "GetBlockAccessLists requires eth/71 or later"))
+  (eth-peer-send peer +eth-message-get-block-access-lists+
+                 (encode-eth-get-block-access-lists request-id hashes))
+  (eth-peer-await peer +eth-message-block-access-lists+ request-id
+                  #'decode-eth-block-access-lists))
+
+(defun eth-peer-get-cells
+    (peer hashes custody-mask &key (request-id (eth-peer-next-request-id peer)))
+  "Request eth/72 blob cells, returning hashes, cell groups, and custody mask."
+  (when (< (eth-peer-eth-version peer) +eth-protocol-version-72+)
+    (error "GetCells requires eth/72"))
+  (eth-peer-send peer +eth-message-get-cells+
+                 (encode-eth-get-cells request-id hashes custody-mask))
+  (let ((result
+          (eth-peer-await
+           peer +eth-message-cells+ request-id
+           (lambda (payload)
+             (multiple-value-bind (id response-hashes groups response-mask)
+                 (decode-eth-cells payload)
+               (values id (list response-hashes groups response-mask)))))))
+    (values (first result) (second result) (third result))))
+
+(defun eth-peer-fetch-announced-block (peer)
+  "Fetch and submit the oldest NewBlockHashes announcement from PEER.
+
+Runs only as a top-level pump action, preserving the one-request-in-flight
+contract. Returns true when a full block reached the backend."
+  (let ((announcement (eth-peer-take-announced-block peer))
+        (backend (eth-peer-serve-backend peer)))
+    (when (and announcement backend
+               (eth-serve-backend-accept-block backend))
+      (let* ((hash (eth-new-block-hash-hash announcement))
+             (headers (eth-peer-get-block-headers
+                       peer :origin-hash hash :amount 1))
+             (header (first headers)))
+        (when (and header
+                   (bytes= hash (hash32-bytes (block-header-hash header)))
+                   (= (eth-new-block-hash-number announcement)
+                      (block-header-number header)))
+          (let ((body (first (eth-peer-get-block-bodies peer (list hash)))))
+            (when body
+              (eth-accept-propagated-block
+               backend (eth-sync-assemble-block header body)))))))))
+
 (defun eth-peer-fetch-announced-transactions (peer &key (limit 256))
   "Ask PEER for up to LIMIT of the transactions it announced and offer them to
 the pool, returning how many the pool accepted.

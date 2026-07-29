@@ -3,6 +3,17 @@
 ;;;; RLPx frame codec: go-ethereum's golden frame vector (which uses a stub MAC)
 ;;;; and a real-Keccak-MAC write/read round-trip.
 
+(defun p2p-frame-test-session-pair ()
+  (let ((secret (keccak-256))
+        (stub (make-byte-vector 32 :initial-element 1)))
+    (values
+     (make-rlpx-session secret secret
+                        (rlpx-constant-mac stub)
+                        (rlpx-constant-mac stub))
+     (make-rlpx-session secret secret
+                        (rlpx-constant-mac stub)
+                        (rlpx-constant-mac stub)))))
+
 (deftest rlpx-frame-matches-go-ethereum-golden
   ;; go-ethereum p2p/rlpx TestFrameReadWrite: AES = MAC = Keccak256() and a stub
   ;; MAC that always digests to 0x01*32, writing msg code 8 with rlp([1,2,3,4]).
@@ -66,3 +77,61 @@
              (frame (copy-seq (rlpx-write-frame writer 8 (hex-to-bytes "0xc401020304")))))
         (setf (aref frame 40) (logxor (aref frame 40) 1))
         (signals error (rlpx-read-frame reader frame))))))
+
+(deftest rlpx-frame-size-limit-is-checked-from-the-header
+  (:layer :unit :module :p2p)
+  (multiple-value-bind (writer reader) (p2p-frame-test-session-pair)
+    (let ((frame (rlpx-write-frame writer 0 (make-byte-vector 32))))
+      (signals error (rlpx-read-frame reader frame :max-frame-size 16)))))
+
+(deftest rlpx-chunked-packets-reassemble-with-context-validation
+  (:layer :unit :module :p2p)
+  (multiple-value-bind (writer reader) (p2p-frame-test-session-pair)
+    (let ((payload (make-byte-vector 200 :initial-element #x5a))
+          (path #P"/private/tmp/ethereum-lisp-gap-network-sync-rlpx-chunk.bin"))
+      (unwind-protect
+           (progn
+             (with-open-file
+                 (output path :direction :output :if-exists :supersede
+                              :element-type '(unsigned-byte 8))
+               (ethereum-lisp.p2p:rlpx-write-frame-to-stream
+                writer 8 payload output :max-frame-size 32))
+             (with-open-file
+                 (input path :direction :input :element-type '(unsigned-byte 8))
+               (let ((connection
+                       (ethereum-lisp.p2p::%make-rlpx-connection
+                        :session reader :stream input)))
+                 (multiple-value-bind (code decoded)
+                     (ethereum-lisp.p2p:rlpx-connection-read-message
+                      connection :compressed nil :max-frame-size 32
+                                 :max-message-size 200)
+                   (is (= 8 code))
+                   (is (bytes= payload decoded))))))
+        (when (probe-file path) (delete-file path)))))
+  ;; A continuation from another context cannot be spliced into the packet.
+  (multiple-value-bind (writer reader) (p2p-frame-test-session-pair)
+    (let* ((path #P"/private/tmp/ethereum-lisp-gap-network-sync-rlpx-bad-chunk.bin")
+           (first
+             (ethereum-lisp.p2p::rlpx-write-frame-data
+              writer (concat-bytes #(8) (make-byte-vector 15))
+              :context-id 1 :total-packet-size 32))
+           (wrong
+             (ethereum-lisp.p2p::rlpx-write-frame-data
+              writer (make-byte-vector 16) :context-id 2)))
+      (unwind-protect
+           (progn
+             (with-open-file
+                 (output path :direction :output :if-exists :supersede
+                              :element-type '(unsigned-byte 8))
+               (write-sequence first output)
+               (write-sequence wrong output))
+             (with-open-file
+                 (input path :direction :input :element-type '(unsigned-byte 8))
+               (let ((connection
+                       (ethereum-lisp.p2p::%make-rlpx-connection
+                        :session reader :stream input)))
+                 (signals error
+                   (ethereum-lisp.p2p:rlpx-connection-read-message
+                    connection :compressed nil :max-frame-size 32
+                               :max-message-size 32)))))
+        (when (probe-file path) (delete-file path))))))

@@ -51,6 +51,27 @@
       (is (= 24 (rlpx-shared-capability-offset
                  (rlpx-shared-capability-named shared "eth")))))))
 
+(deftest rlpx-capability-block-lengths-match-the-wire-protocols
+  (:layer :unit :module :p2p)
+  (dolist (entry '((68 . 17) (69 . 18) (70 . 18) (71 . 20) (72 . 22)))
+    (is (= (cdr entry)
+           (ethereum-lisp.p2p::devp2p-capability-message-count
+            "eth" (car entry)))))
+  (is (= 8
+         (ethereum-lisp.p2p::devp2p-capability-message-count "snap"))))
+
+(deftest rlpx-eth-72-reserves-its-full-message-block
+  (:layer :unit :module :p2p)
+  (let* ((capabilities
+           (list (make-devp2p-capability "eth" 72)
+                 (make-devp2p-capability "snap" 1)))
+         (shared (rlpx-negotiate-capabilities capabilities capabilities)))
+    (is (= 72 (rlpx-shared-capability-version
+               (rlpx-shared-capability-named shared "eth"))))
+    (is (= (+ ethereum-lisp.p2p:+devp2p-base-protocol-length+ 22)
+           (rlpx-shared-capability-offset
+            (rlpx-shared-capability-named shared "snap"))))))
+
 (deftest rlpx-hello-exchange-negotiates-eth-over-a-socket
   (:layer :integration :module :p2p :requires-local-sockets t)
   (let* ((server-static

@@ -234,8 +234,7 @@ for one that failed."
                      (eth-sync-download-blocks
                       peer
                       (lambda (block) (devnet-peer-sync-import-block node block))
-                      :start-number (1+ head-number)
-                      :max-blocks +devnet-session-catchup-block-limit+)
+                      :start-number (1+ head-number))
                      ;; Then fill anything the consensus client asked for that
                      ;; we could not execute. Forward download only helps when
                      ;; the missing blocks extend OUR head; a reorged target
@@ -244,6 +243,11 @@ for one that failed."
       (call-with-devnet-peer-table
        node
        (lambda ()
+         (when (eq outcome :failed)
+           (ignore-errors
+            (discv4-table-note-failure
+             (devnet-node-discovery-table node)
+             (node-id-from-hex id-hex))))
          (devnet-dial-registry-mark-done
           (devnet-node-dial-registry node) id-hex (unix-time)
           :outcome outcome))))))
@@ -309,7 +313,7 @@ property of how the node is configured, not an assumption about the test corpus.
                               (handler-case
                                   (devnet-peer-dial-session
                                    node candidate shutdown-controller)
-                                (error (condition)
+                                (serious-condition (condition)
                                   (devnet-peer-manager-log
                                    node "peer.dial.failed"
                                    "id" (devnet-dial-candidate-id-hex candidate)
@@ -325,7 +329,7 @@ property of how the node is configured, not an assumption about the test corpus.
                 (loop repeat +devnet-dial-tick-seconds+
                       until (devnet-shutdown-requested-p shutdown-controller)
                       do (sleep 1)))
-            (error (condition)
+            (serious-condition (condition)
               (funcall error-callback condition)
               (devnet-shutdown-request shutdown-controller))))
         :name "ethereum-lisp-devnet-dial-scheduler")

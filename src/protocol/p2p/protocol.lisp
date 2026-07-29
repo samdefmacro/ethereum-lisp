@@ -14,6 +14,9 @@
 (defconstant +devp2p-message-ping+ #x02)
 (defconstant +devp2p-message-pong+ #x03)
 
+(defconstant +devp2p-max-message-size+ (* 2 1024)
+  "Maximum decoded base-protocol message size, matching go-ethereum 1.17.6.")
+
 ;; The EIP-706 disconnect reasons. A peer that refuses a connection says why,
 ;; and the reason is the only diagnostic the other end gets, so the ones an
 ;; inbound listener needs to send — already-connected, self, too-many-peers —
@@ -123,7 +126,16 @@ RLP-LIST`."
                         (snappy-compress payload)
                         (ensure-byte-vector payload))))
 
-(defun rlpx-read-message (session frame &key (compressed t))
-  "Read a framed devp2p message, returning (VALUES CODE PAYLOAD)."
+(defun rlpx-read-message
+    (session frame &key (compressed t)
+                       (max-message-size +devp2p-max-message-size+))
+  "Read a framed devp2p message, returning (VALUES CODE PAYLOAD).
+
+The base protocol is capped after decompression so a small compressed frame
+cannot expand past the protocol's resource budget."
   (multiple-value-bind (code data) (rlpx-read-frame session frame)
-    (values code (if compressed (snappy-decompress data) data))))
+    (let ((payload (if compressed (snappy-decompress data) data)))
+      (when (> (length payload) max-message-size)
+        (error "devp2p base message contains ~D bytes, exceeding the ~D-byte limit"
+               (length payload) max-message-size))
+      (values code payload))))

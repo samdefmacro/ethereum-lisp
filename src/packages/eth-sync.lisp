@@ -26,6 +26,7 @@
    #:eth-wire-read
    #:eth-wire-read-once
    #:eth-peer-send
+   #:eth-peer-send-block-range-update
    #:eth-peer-read
    #:eth-peer-read-once
    #:eth-build-status
@@ -35,12 +36,16 @@
    #:eth-chain-context-record-pairs
    #:eth-chain-context-record-compatible-p
    #:eth-validate-peer-status
+   #:eth-validate-block-range
    #:eth-peer-handshake
    #:eth-peer-connect
    #:eth-peer-next-request-id
    #:eth-peer-await
    #:eth-peer-get-block-headers
    #:eth-peer-get-block-bodies
+   #:eth-peer-get-receipts
+   #:eth-peer-get-block-access-lists
+   #:eth-peer-get-cells
    #:+eth-max-headers-serve+
    #:+eth-max-bodies-serve+
    #:+eth-max-receipts-serve+
@@ -55,6 +60,9 @@
    #:eth-serve-backend-known-transaction-p
    #:eth-serve-backend-accept-transaction
    #:eth-serve-backend-accept-blob-sidecar
+   #:eth-serve-backend-accept-block
+   #:eth-serve-backend-block-access-list
+   #:eth-serve-backend-blob-cells
    #:eth-serve-ancestor-hash
    #:eth-serve-headers
    #:eth-serve-bodies
@@ -64,8 +72,18 @@
    #:eth-peer-serve-loop
    #:+eth-max-pooled-transactions-serve+
    #:+eth-max-announced-transaction-hashes+
+   #:+eth-max-announced-block-hashes+
+   #:+eth-full-transaction-broadcast-size+
+   #:+eth-max-known-transaction-hashes+
    #:eth-peer-announced-hashes
+   #:eth-peer-known-transaction-hashes
+   #:eth-peer-knows-transaction-p
+   #:eth-peer-note-known-transaction-hashes
+   #:eth-peer-note-known-transactions
    #:eth-peer-announced-hash-count
+   #:eth-peer-announced-block-count
+   #:eth-peer-queue-announced-blocks
+   #:eth-peer-take-announced-block
    #:eth-gossipable-transaction-p
    #:eth-peer-broadcast-transactions
    #:eth-peer-announce-transactions
@@ -75,8 +93,16 @@
    #:eth-serve-pooled-transactions
    #:eth-peer-gossip-message
    #:eth-peer-fetch-announced-transactions
+   #:eth-peer-fetch-announced-block
+   #:eth-sync-validate-header-batch
+   #:eth-sync-validate-body
    #:eth-sync-assemble-block
    #:eth-sync-download-blocks
+   #:eth-sync-peer-source
+   #:make-eth-sync-peer-source
+   #:eth-sync-peer-source-id
+   #:eth-sync-peer-source-head-number
+   #:eth-sync-download-blocks-multi
    #:+eth-backfill-batch-size+
    #:+eth-backfill-max-headers+
    #:eth-sync-collect-backfill-headers

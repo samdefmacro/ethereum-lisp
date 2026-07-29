@@ -124,17 +124,29 @@ XORed with the digest itself rather than the ciphertext."
           (replace out bytes)
           out))))
 
-(defun rlpx-write-frame (session message-code message-data)
-  "Encode and MAC one frame carrying MESSAGE-CODE and MESSAGE-DATA."
-  (let* ((frame-data (concat-bytes
-                      (rlp-encode (integer-to-minimal-bytes message-code))
-                      (ensure-byte-vector message-data)))
+(defun rlpx-header-data (capability-id context-id total-packet-size)
+  (rlp-encode
+   (apply #'make-rlp-list
+          (append
+           (list (integer-to-minimal-bytes capability-id)
+                 (integer-to-minimal-bytes context-id))
+           (when total-packet-size
+             (list (integer-to-minimal-bytes total-packet-size)))))))
+
+(defun rlpx-write-frame-data
+    (session frame-data &key (capability-id 0) (context-id 0) total-packet-size)
+  "Encode and MAC one frame carrying already assembled FRAME-DATA."
+  (let* ((frame-data (ensure-byte-vector frame-data))
          (frame-size (length frame-data))
-         (header (make-byte-vector +rlpx-frame-block+)))
+         (header (make-byte-vector +rlpx-frame-block+))
+         (header-data
+           (rlpx-header-data capability-id context-id total-packet-size)))
+    (when (> (length header-data) (- +rlpx-frame-block+ 3))
+      (error "RLPx frame header metadata is too large"))
     (setf (aref header 0) (ldb (byte 8 16) frame-size)
           (aref header 1) (ldb (byte 8 8) frame-size)
           (aref header 2) (ldb (byte 8 0) frame-size))
-    (replace header +rlpx-header-data+ :start1 3)
+    (replace header header-data :start1 3)
     (let* ((header-ciphertext
              (aes-ctr-stream-apply (rlpx-session-egress-cipher session) header))
            (header-mac
@@ -148,6 +160,14 @@ XORed with the digest itself rather than the ciphertext."
                              frame-ciphertext)))
       (concat-bytes header-ciphertext header-mac
                     frame-ciphertext frame-mac))))
+
+(defun rlpx-write-frame (session message-code message-data)
+  "Encode and MAC one normal frame carrying MESSAGE-CODE and MESSAGE-DATA."
+  (rlpx-write-frame-data
+   session
+   (concat-bytes
+    (rlp-encode (integer-to-minimal-bytes message-code))
+    (ensure-byte-vector message-data))))
 
 (defun rlpx-read-frame-header (session header)
   "Verify the 32-byte HEADER (ciphertext then MAC) and return the frame size.
@@ -163,19 +183,29 @@ Advances the ingress MAC and cipher, so it must be followed by a body read."
                (rlpx-mac-header session (rlpx-session-ingress-mac session)
                                 header-ciphertext))
         (error "RLPx header MAC does not authenticate the frame"))
-      (let ((plaintext (aes-ctr-stream-apply
-                        (rlpx-session-ingress-cipher session) header-ciphertext)))
-        (logior (ash (aref plaintext 0) 16)
-                (ash (aref plaintext 1) 8)
-                (aref plaintext 2))))))
+      (let* ((plaintext
+               (aes-ctr-stream-apply
+                (rlpx-session-ingress-cipher session) header-ciphertext))
+             (metadata (rlp-decode (subseq plaintext 3) :allow-trailing t))
+             (fields (rlp-list-items metadata)))
+        (unless (or (= (length fields) 2) (= (length fields) 3))
+          (error "RLPx frame header metadata has the wrong field count"))
+        (values
+         (logior (ash (aref plaintext 0) 16)
+                 (ash (aref plaintext 1) 8)
+                 (aref plaintext 2))
+         (bytes-to-integer (ensure-byte-vector (first fields)))
+         (bytes-to-integer (ensure-byte-vector (second fields)))
+         (when (third fields)
+           (bytes-to-integer (ensure-byte-vector (third fields)))))))))
 
 (defun rlpx-frame-body-length (frame-size)
   "Bytes on the wire for a frame body of FRAME-SIZE: padded ciphertext plus MAC."
   (+ (* +rlpx-frame-block+ (ceiling frame-size +rlpx-frame-block+))
      +rlpx-frame-block+))
 
-(defun rlpx-read-frame-body (session frame-size body)
-  "Verify and decrypt a frame BODY of FRAME-SIZE bytes, returning code and data."
+(defun rlpx-read-frame-body-data (session frame-size body)
+  "Verify and decrypt a frame BODY, returning its unparsed frame data."
   (let ((body (ensure-byte-vector body))
         (padded (* +rlpx-frame-block+ (ceiling frame-size +rlpx-frame-block+))))
     (unless (= (length body) (+ padded +rlpx-frame-block+))
@@ -187,17 +217,23 @@ Advances the ingress MAC and cipher, so it must be followed by a body read."
                (rlpx-mac-frame session (rlpx-session-ingress-mac session)
                                frame-ciphertext))
         (error "RLPx frame MAC does not authenticate the frame"))
-      (let ((frame-data
-              (subseq (aes-ctr-stream-apply
-                       (rlpx-session-ingress-cipher session) frame-ciphertext)
-                      0 frame-size)))
-        (multiple-value-bind (code next)
-            (rlp-decode frame-data :allow-trailing t)
-          (values (bytes-to-integer (ensure-byte-vector code))
-                  (subseq frame-data next)))))))
+      (subseq (aes-ctr-stream-apply
+               (rlpx-session-ingress-cipher session) frame-ciphertext)
+              0 frame-size))))
 
-(defun rlpx-read-frame (session frame)
-  "Verify and decrypt a complete FRAME, returning (VALUES MESSAGE-CODE DATA)."
+(defun rlpx-read-frame-body (session frame-size body)
+  "Verify and decrypt a normal frame BODY, returning code and data."
+  (let ((frame-data (rlpx-read-frame-body-data session frame-size body)))
+    (multiple-value-bind (code next)
+        (rlp-decode frame-data :allow-trailing t)
+      (values (bytes-to-integer (ensure-byte-vector code))
+              (subseq frame-data next)))))
+
+(defun rlpx-read-frame (session frame &key max-frame-size)
+  "Verify and decrypt a complete FRAME, returning (VALUES MESSAGE-CODE DATA).
+
+When MAX-FRAME-SIZE is supplied, reject an oversized authenticated header
+before copying or decrypting its body."
   (let ((frame (ensure-byte-vector frame)))
     (when (< (length frame) (* 2 +rlpx-frame-block+))
       (error "RLPx frame is too short for a header"))
@@ -205,6 +241,9 @@ Advances the ingress MAC and cipher, so it must be followed by a body read."
              (rlpx-read-frame-header session (subseq frame 0 (* 2 +rlpx-frame-block+))))
            (body-length (rlpx-frame-body-length frame-size))
            (start (* 2 +rlpx-frame-block+)))
+      (when (and max-frame-size (> frame-size max-frame-size))
+        (error "RLPx frame declares ~D bytes, exceeding the ~D-byte limit"
+               frame-size max-frame-size))
       (when (< (length frame) (+ start body-length))
         (error "RLPx frame is shorter than its declared size"))
       (rlpx-read-frame-body session frame-size

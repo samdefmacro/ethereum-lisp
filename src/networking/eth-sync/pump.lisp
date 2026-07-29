@@ -148,7 +148,9 @@ how a caller observes the session without this file knowing what telemetry is."
                                                  policy))
                                        t)
                       :stop-p stopping
-                      :drainable-p (plusp (eth-peer-announced-hash-count peer))
+                      :drainable-p
+                      (or (plusp (eth-peer-announced-block-count peer))
+                          (plusp (eth-peer-announced-hash-count peer)))
                       :broadcast-p (and broadcast t))))
         (when on-event (funcall on-event action))
         (case action
@@ -168,9 +170,14 @@ how a caller observes the session without this file knowing what telemetry is."
            (rlpx-send-ping (eth-peer-connection peer))
            (setf (eth-pump-state-last-ping-at state) now))
           (:drain
+           (eth-peer-fetch-announced-block peer)
            (eth-peer-request-announced-transactions peer)
            (setf (eth-pump-state-last-drain-at state) now))
           (:broadcast
+           ;; Full-push only small transactions; the broadcast marks those
+           ;; known, so the second pass announces only the remaining large
+           ;; transactions by hash.
+           (eth-peer-broadcast-transactions peer broadcast)
            (eth-peer-announce-transactions peer broadcast))
           (:wait nil))
         (incf actions)))))

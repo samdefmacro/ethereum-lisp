@@ -99,6 +99,8 @@
    #:devnet-peer-table-reserve-slot
    #:devnet-peer-table-release-slot
    #:devnet-peer-table-inbound-verdict
+   #:devnet-peer-score
+   #:devnet-peer-note-score
    #:devnet-peer-table-admit
    #:devnet-peer-table-remove
    #:devnet-peer-table-snapshot
@@ -180,7 +182,6 @@
    #:devnet-node-claim-sync
    #:devnet-node-release-sync
    #:call-with-devnet-sync-claim
-   #:+devnet-session-catchup-block-limit+
    #:+devnet-broadcast-batch-limit+
    #:+devnet-peer-known-transaction-limit+
    #:devnet-dial-scheduler-pass

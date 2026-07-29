@@ -152,7 +152,13 @@
   (:export
    #:+eth-protocol-version+
    #:+eth-protocol-version-69+
+   #:+eth-protocol-version-70+
+   #:+eth-protocol-version-71+
+   #:+eth-protocol-version-72+
    #:+eth-supported-protocol-versions+
+   #:+eth-max-message-size+
+   #:+eth-max-transaction-announcements+
+   #:+eth-max-transactions-per-message+
    #:+eth-base-protocol-offset+
    #:+eth-message-status+
    #:+eth-message-new-block-hashes+
@@ -161,9 +167,14 @@
    #:+eth-message-block-headers+
    #:+eth-message-get-block-bodies+
    #:+eth-message-block-bodies+
+   #:+eth-message-new-block+
    #:+eth-message-get-receipts+
    #:+eth-message-receipts+
    #:+eth-message-block-range-update+
+   #:+eth-message-get-block-access-lists+
+   #:+eth-message-block-access-lists+
+   #:+eth-message-get-cells+
+   #:+eth-message-cells+
    #:eth-wire-message-id
    #:eth-fork-id
    #:make-eth-fork-id
@@ -186,6 +197,25 @@
    #:decode-eth-status-69
    #:encode-eth-status-for-version
    #:decode-eth-status-for-version
+   #:eth-block-range
+   #:make-eth-block-range
+   #:eth-block-range-earliest-block
+   #:eth-block-range-latest-block
+   #:eth-block-range-latest-block-hash
+   #:encode-eth-block-range-update
+   #:decode-eth-block-range-update
+   #:eth-new-block-hash
+   #:make-eth-new-block-hash
+   #:eth-new-block-hash-hash
+   #:eth-new-block-hash-number
+   #:encode-eth-new-block-hashes
+   #:decode-eth-new-block-hashes
+   #:eth-new-block
+   #:make-eth-new-block
+   #:eth-new-block-block
+   #:eth-new-block-total-difficulty
+   #:encode-eth-new-block
+   #:decode-eth-new-block
    #:eth-get-block-headers
    #:make-eth-get-block-headers
    #:eth-get-block-headers-request-id
@@ -219,6 +249,14 @@
    #:decode-eth-get-pooled-transactions
    #:encode-eth-pooled-transactions
    #:decode-eth-pooled-transactions
+   #:encode-eth-get-block-access-lists
+   #:decode-eth-get-block-access-lists
+   #:encode-eth-block-access-lists
+   #:decode-eth-block-access-lists
+   #:encode-eth-get-cells
+   #:decode-eth-get-cells
+   #:encode-eth-cells
+   #:decode-eth-cells
    #:encode-eth-get-block-bodies
    #:decode-eth-get-block-bodies
    #:encode-eth-block-bodies
@@ -229,6 +267,10 @@
    #:eth-receipt-rlp-object
    #:eth-block-receipts-rlp-object
    #:encode-eth-receipts
+   #:eth-wire-receipt
+   #:eth-wire-receipt-transaction-type
+   #:eth-wire-receipt-receipt
+   #:decode-eth-receipts
    #:eth-fork-hash
    #:compute-eth-fork-id
    #:chain-config-eth-fork-id

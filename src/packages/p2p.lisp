@@ -80,6 +80,7 @@
    #:+discv4-bucket-size+
    #:+discv4-bucket-count+
    #:+discv4-bond-lifetime-seconds+
+   #:+discv4-ping-timeout-seconds+
    #:discv4-table-entry
    #:make-discv4-table-entry
    #:discv4-table-entry-node-id
@@ -87,6 +88,7 @@
    #:discv4-table-entry-udp-port
    #:discv4-table-entry-tcp-port
    #:discv4-table-entry-bonded-at
+   #:discv4-table-entry-pending-ping-at
    #:discv4-table-entry-failures
    #:discv4-node-table
    #:make-discv4-node-table
@@ -97,6 +99,9 @@
    #:discv4-table-bonded-p
    #:discv4-table-put
    #:discv4-table-note-failure
+   #:discv4-table-note-ping
+   #:discv4-table-accept-pong
+   #:discv4-table-revalidation-candidate
    #:discv4-table-remove
    #:discv4-table-entries
    #:discv4-table-closest
@@ -164,6 +169,7 @@
    #:+devp2p-message-disconnect+
    #:+devp2p-message-ping+
    #:+devp2p-message-pong+
+   #:+devp2p-max-message-size+
    #:+devp2p-disconnect-requested+
    #:+devp2p-disconnect-tcp-error+
    #:+devp2p-disconnect-protocol-error+
@@ -212,3 +218,100 @@
    #:rlpx-send-ping
    #:rlpx-send-pong
    #:rlpx-send-disconnect))
+
+(defpackage #:ethereum-lisp.snap
+  (:use #:cl
+        #:ethereum-lisp.bytes
+        #:ethereum-lisp.rlp)
+  (:export
+   #:+snap-protocol-version+
+   #:+snap-message-count+
+   #:+snap-max-message-size+
+   #:+snap-max-list-items+
+   #:+snap-message-get-account-range+
+   #:+snap-message-account-range+
+   #:+snap-message-get-storage-ranges+
+   #:+snap-message-storage-ranges+
+   #:+snap-message-get-bytecodes+
+   #:+snap-message-bytecodes+
+   #:+snap-message-get-trie-nodes+
+   #:+snap-message-trie-nodes+
+   #:snap-account-data
+   #:make-snap-account-data
+   #:snap-account-data-hash
+   #:snap-account-data-body
+   #:snap-storage-data
+   #:make-snap-storage-data
+   #:snap-storage-data-hash
+   #:snap-storage-data-body
+   #:snap-get-account-range
+   #:make-snap-get-account-range
+   #:snap-get-account-range-id
+   #:snap-get-account-range-root
+   #:snap-get-account-range-origin
+   #:snap-get-account-range-limit
+   #:snap-get-account-range-bytes
+   #:snap-account-range
+   #:make-snap-account-range
+   #:snap-account-range-id
+   #:snap-account-range-accounts
+   #:snap-account-range-proof
+   #:snap-get-storage-ranges
+   #:make-snap-get-storage-ranges
+   #:snap-get-storage-ranges-id
+   #:snap-get-storage-ranges-root
+   #:snap-get-storage-ranges-accounts
+   #:snap-get-storage-ranges-origin
+   #:snap-get-storage-ranges-limit
+   #:snap-get-storage-ranges-bytes
+   #:snap-storage-ranges
+   #:make-snap-storage-ranges
+   #:snap-storage-ranges-id
+   #:snap-storage-ranges-slots
+   #:snap-storage-ranges-proof
+   #:snap-get-bytecodes
+   #:make-snap-get-bytecodes
+   #:snap-get-bytecodes-id
+   #:snap-get-bytecodes-hashes
+   #:snap-get-bytecodes-bytes
+   #:snap-bytecodes
+   #:make-snap-bytecodes
+   #:snap-bytecodes-id
+   #:snap-bytecodes-codes
+   #:snap-get-trie-nodes
+   #:make-snap-get-trie-nodes
+   #:snap-get-trie-nodes-id
+   #:snap-get-trie-nodes-root
+   #:snap-get-trie-nodes-paths
+   #:snap-get-trie-nodes-bytes
+   #:snap-trie-nodes
+   #:make-snap-trie-nodes
+   #:snap-trie-nodes-id
+   #:snap-trie-nodes-nodes
+   #:encode-snap-message
+   #:decode-snap-message
+   #:snap-state-backend
+   #:make-snap-state-backend
+   #:snap-state-backend-account-range
+   #:snap-state-backend-storage-ranges
+   #:snap-state-backend-bytecodes
+   #:snap-state-backend-trie-nodes
+   #:snap-serve-request))
+
+(defpackage #:ethereum-lisp.nat
+  (:use #:cl #:ethereum-lisp.bytes)
+  (:export
+   #:nat-policy
+   #:parse-nat-policy
+   #:nat-policy-mode
+   #:nat-policy-address
+   #:nat-policy-gateway
+   #:nat-pmp-external-address-request
+   #:nat-pmp-map-request
+   #:decode-nat-pmp-external-address-response
+   #:decode-nat-pmp-map-response
+   #:upnp-ssdp-discovery-request
+   #:upnp-discovery-location
+   #:upnp-control-url
+   #:upnp-add-port-mapping-request
+   #:nat-resolve-and-map))

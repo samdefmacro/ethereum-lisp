@@ -64,6 +64,7 @@
    #:state-db-storage-range
    #:state-db-for-each-account
    #:state-db-root
+   #:state-db-state-trie
    #:state-db-root-hex
    #:+wei-per-gwei+
    #:state-db-add-balance
@@ -354,6 +355,7 @@
    #:apply-block-rewards-for-header
    #:apply-dao-hard-fork
    #:apply-dao-hard-fork-if-needed
+   #:validate-block-body-commitments-before-execution
    #:execute-legacy-block
    #:execute-signed-block))
 
@@ -376,3 +378,17 @@
    #:execute-and-commit-engine-payload
    #:execute-and-commit-block
    #:execute-and-commit-signed-block))
+
+(defpackage #:ethereum-lisp.snap-sync
+  (:use #:cl
+        #:ethereum-lisp.bytes
+        #:ethereum-lisp.hex
+        #:ethereum-lisp.types
+        #:ethereum-lisp.rlp
+        #:ethereum-lisp.crypto
+        #:ethereum-lisp.accounts
+        #:ethereum-lisp.trie
+        #:ethereum-lisp.state
+        #:ethereum-lisp.snap)
+  (:export
+   #:make-persistent-snap-state-backend))

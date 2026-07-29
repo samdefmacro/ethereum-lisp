@@ -151,7 +151,7 @@
                                            engine-listener
                                            :max-connections max-connections
                                            :stop-p stop-requested-p))
-                                  (error (condition)
+                                  (serious-condition (condition)
                                     (setf engine-error condition)
                                     (devnet-shutdown-request
                                      shutdown-controller))))

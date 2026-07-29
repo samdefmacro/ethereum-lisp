@@ -11,6 +11,21 @@
                             (member c '(#\Space #\Newline #\Tab #\Return)))
                           text)))
 
+(deftest rlpx-auth-rejects-control-stack-depth-as-an-ordinary-error
+  (:layer :unit :module :p2p)
+  (let* ((recipient-private-key
+           #xb71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291)
+         (recipient-public-key
+           (secp256k1-private-key-public-key recipient-private-key))
+         ;; This is the audit's process-killing shape. Build it iteratively so
+         ;; the test itself does not consume one Lisp frame per nesting level.
+         (plaintext (rlp-test-deep-list-bytes 20000))
+         (packet (ethereum-lisp.p2p::rlpx-seal-message
+                  recipient-public-key plaintext)))
+    (is (< (length packet) #x10002))
+    (signals rlp-error
+      (rlpx-open-auth recipient-private-key packet))))
+
 (deftest rlpx-recipient-handshake-matches-eip8-vectors
   (let* ((key-b #xb71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291)
          (eph-b #xe238eb8e04fee6511ab04c6dd3c89ce097b11f25d584863ac2b6d5b35b1847e4)

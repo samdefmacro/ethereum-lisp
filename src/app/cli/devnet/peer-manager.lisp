@@ -41,6 +41,7 @@ nothing would hold a thread and a descriptor indefinitely.")
   (ecase verdict
     (:self +devp2p-disconnect-self+)
     (:already-connected +devp2p-disconnect-already-connected+)
+    (:useless-peer +devp2p-disconnect-useless-peer+)
     (:too-many-peers +devp2p-disconnect-too-many-peers+)))
 
 (defun devnet-peer-session-readable-function (peer)
@@ -64,7 +65,7 @@ actively-talking peer idle and drop it."
 
 (defun devnet-peer-run-session (node socket shutdown-controller admit-function
                                 &key on-session-start reserved-slot-p stop-p
-                                     max-actions pending-broadcast)
+                                     reserved-host max-actions pending-broadcast)
   "Turn an open SOCKET into a peer session and serve it until it ends.
 
 Runs on its own thread, and is shared by both directions: everything from
@@ -90,7 +91,7 @@ a dial knows who it is calling before it connects and so never reserves."
   #-sbcl
   (declare (ignore node socket shutdown-controller admit-function
                    on-session-start reserved-slot-p stop-p max-actions
-                   pending-broadcast))
+                   pending-broadcast reserved-host))
   #-sbcl
   nil
   #+sbcl
@@ -112,17 +113,26 @@ a dial knows who it is calling before it connects and so never reserves."
                (cond
                  ((and peer entry)
                   (when on-session-start (funcall on-session-start peer))
-                  (eth-peer-run-session
-                   peer
-                   :readable-function (devnet-peer-session-readable-function peer)
-                   :stop-p (or stop-p
-                               (lambda ()
-                                 (devnet-shutdown-requested-p shutdown-controller)))
-                   :max-actions max-actions
-                   ;; Our own pool reaches this peer through here, as DATA the
-                   ;; session loop sends -- never another thread writing to the
-                   ;; connection, which would desynchronize its MAC chain.
-                   :pending-broadcast pending-broadcast))
+                  (handler-case
+                      (eth-peer-run-session
+                       peer
+                       :readable-function
+                       (devnet-peer-session-readable-function peer)
+                       :stop-p
+                       (or stop-p
+                           (lambda ()
+                             (devnet-shutdown-requested-p shutdown-controller)))
+                       :max-actions max-actions
+                       ;; Our own pool reaches this peer through here, as DATA
+                       ;; the session loop sends -- never another thread.
+                       :pending-broadcast pending-broadcast)
+                    (serious-condition (condition)
+                      (call-with-devnet-peer-table
+                       node
+                       (lambda ()
+                         (devnet-peer-note-score
+                          table (devnet-peer-entry-id-hex entry) -25)))
+                      (error condition))))
                  ((and peer refusal)
                   (eth-sync-reject-connection
                    (eth-peer-connection peer)
@@ -138,7 +148,9 @@ a dial knows who it is calling before it connects and so never reserves."
                                      (devnet-peer-entry-id-hex admitted)))))
       (when reserved-slot-p
         (call-with-devnet-peer-table
-         node (lambda () (devnet-peer-table-release-slot table))))
+         node
+         (lambda ()
+           (devnet-peer-table-release-slot table reserved-host))))
       (devnet-shutdown-controller-remove-closeable shutdown-controller closeable)
       (ignore-errors (sb-bsd-sockets:socket-close socket)))))
 
@@ -206,6 +218,20 @@ on the session thread rather than on the accept loop."
                                              "id" id-hex "reason" verdict)
                     (values peer nil verdict)))))))))
 
+(defun devnet-call-with-peer-session-thread-guard (node remote-host thunk)
+  "Run a peer-session THUNK without allowing a serious condition to escape.
+
+This is a process-safety boundary: SBCL's control-stack exhaustion is a
+STORAGE-CONDITION, not an ERROR, and an unhandled condition in any thread
+terminates the whole node under sbcl --script."
+  (handler-case
+      (funcall thunk)
+    (serious-condition (condition)
+      (devnet-peer-manager-log
+       node "p2p.peer.session_failed"
+       "host" remote-host
+       "error" condition))))
+
 (defun devnet-start-p2p-listener-thread
     (node listener shutdown-controller error-callback)
   "Start the inbound accept loop, or return NIL when there is no listener.
@@ -240,10 +266,12 @@ Only an error escaping the loop itself is fail-stop."
                                 (call-with-devnet-peer-table
                                  node
                                  (lambda ()
-                                   (let ((verdict (devnet-peer-table-slot-verdict
-                                                   table)))
+                                   (let ((verdict
+                                           (devnet-peer-table-slot-verdict
+                                            table remote-host)))
                                      (when (eq verdict :reserve)
-                                       (devnet-peer-table-reserve-slot table))
+                                       (devnet-peer-table-reserve-slot
+                                        table remote-host))
                                      verdict))))
                             ;; Spawn and move on: the handshake must never run
                             ;; on this thread, or one silent peer stops the
@@ -261,19 +289,17 @@ Only an error escaping the loop itself is fail-stop."
                                        ;; garbage, closing mid-handshake, or
                                        ;; failing the fork-id check would take
                                        ;; the node down. Measured, not assumed.
-                                       (handler-case
-                                           (devnet-peer-run-session
-                                            node socket shutdown-controller
-                                            (devnet-peer-inbound-admit-function
-                                             node remote-host remote-port)
-                                            :reserved-slot-p t
-                                            :pending-broadcast
-                                            (devnet-peer-pending-broadcast node))
-                                         (error (condition)
-                                           (devnet-peer-manager-log
-                                            node "p2p.peer.session_failed"
-                                            "host" remote-host
-                                            "error" condition))))
+                                       (devnet-call-with-peer-session-thread-guard
+                                        node remote-host
+                                        (lambda ()
+                                          (devnet-peer-run-session
+                                           node socket shutdown-controller
+                                           (devnet-peer-inbound-admit-function
+                                            node remote-host remote-port)
+                                           :reserved-slot-p t
+                                           :reserved-host remote-host
+                                           :pending-broadcast
+                                           (devnet-peer-pending-broadcast node)))))
                                      :name "ethereum-lisp-devnet-peer-session")))
                               (call-with-devnet-mutex
                                sessions-lock
@@ -292,7 +318,7 @@ Only an error escaping the loop itself is fail-stop."
                   (error (condition)
                     (devnet-peer-manager-log node "p2p.listener.accept_failed"
                                              "error" condition))))
-            (error (condition)
+            (serious-condition (condition)
               (funcall error-callback condition)
               (devnet-shutdown-request shutdown-controller))))
         :name "ethereum-lisp-devnet-p2p-listener")

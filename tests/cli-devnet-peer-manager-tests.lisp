@@ -9,10 +9,13 @@
 ;;;; because the unit and integration layers have no per-test timeout: a test
 ;;;; that can block does not fail, it stops the run.
 
-(defun devnet-peer-table-test-entry (id-hex &key (direction :inbound))
+(define-condition devnet-test-storage-condition (storage-condition) ())
+
+(defun devnet-peer-table-test-entry
+    (id-hex &key (direction :inbound) (host "127.0.0.1"))
   (ethereum-lisp.cli:make-devnet-peer-entry
    :id-hex id-hex :direction direction
-   :remote-host "127.0.0.1" :remote-port 30303))
+   :remote-host host :remote-port 30303))
 
 (deftest devnet-peer-table-admission-verdicts
   ;; Both phases of admission, as a table. No sockets, no threads, no clock:
@@ -76,6 +79,34 @@
     (is (eq :too-many-peers
             (ethereum-lisp.cli:devnet-peer-table-inbound-verdict table "bb")))))
 
+(deftest devnet-peer-table-throttles-addresses-and-scores-abuse
+  (:layer :unit :module :p2p)
+  (let ((table
+          (ethereum-lisp.cli:make-devnet-peer-table
+           :self-id-hex "self" :max-peers 20
+           :inbound-per-ip 1 :inbound-per-subnet 2
+           :netrestrict '("10.0.0.0/8"))))
+    (is (eq :netrestrict
+            (ethereum-lisp.cli:devnet-peer-table-slot-verdict
+             table "192.0.2.1")))
+    (is (eq :reserve
+            (ethereum-lisp.cli:devnet-peer-table-slot-verdict table "10.1.2.3")))
+    (ethereum-lisp.cli:devnet-peer-table-reserve-slot table "10.1.2.3")
+    (is (eq :ip-throttled
+            (ethereum-lisp.cli:devnet-peer-table-slot-verdict table "10.1.2.3")))
+    (ethereum-lisp.cli:devnet-peer-table-release-slot table "10.1.2.3")
+    (ethereum-lisp.cli:devnet-peer-table-admit
+     table (devnet-peer-table-test-entry "a" :host "10.1.2.3") 1)
+    (ethereum-lisp.cli:devnet-peer-table-admit
+     table (devnet-peer-table-test-entry "b" :host "10.1.2.4") 2)
+    (is (eq :subnet-throttled
+            (ethereum-lisp.cli:devnet-peer-table-slot-verdict table "10.1.2.5")))
+    (ethereum-lisp.cli:devnet-peer-note-score table "hostile" -100)
+    (is (eq :useless-peer
+            (ethereum-lisp.cli:devnet-peer-table-inbound-verdict
+             table "hostile")))
+    (is (= -100 (ethereum-lisp.cli:devnet-peer-score table "hostile")))))
+
 (deftest devnet-shutdown-controller-closes-registered-closeables
   ;; A peer socket is not a listener, so it needs somewhere to be registered or
   ;; a thread blocked reading it never wakes. No sockets or threads needed to
@@ -101,6 +132,32 @@
                  controller (funcall note :late))))
       (is (null late))
       (is (equal '(:late :a) closed)))))
+
+(deftest devnet-peer-thread-contains-storage-conditions
+  (:layer :unit :module :devnet)
+  ;; If the production guard regresses to (ERROR ...), this test does not report
+  ;; a normal assertion failure: the unhandled STORAGE-CONDITION kills the
+  ;; sbcl --script test process. That destructive red is the property at stake.
+  (let* ((node (ethereum-lisp.cli:make-devnet-node
+                :genesis-json *eth-sync-paris-genesis-json*
+                :port 0 :public-port 0))
+         (escaped nil)
+         (thread
+           (sb-thread:make-thread
+            (lambda ()
+              ;; The outer ERROR handler satisfies the test-thread safety rule
+              ;; without masking STORAGE-CONDITION. The production guard is
+              ;; what must catch that wider condition family.
+              (handler-case
+                  (ethereum-lisp.cli::devnet-call-with-peer-session-thread-guard
+                   node "hostile-peer"
+                   (lambda () (error 'devnet-test-storage-condition)))
+                (error (condition)
+                  (setf escaped condition))))
+            :name "ethereum-lisp-storage-condition-regression")))
+    (is (not (eq :timeout
+                 (sb-thread:join-thread thread :timeout 5 :default :timeout))))
+    (is (null escaped))))
 
 (deftest devnet-node-shuts-down-with-a-silent-inbound-peer
   (:layer :integration :module :devnet :requires-local-sockets t)
@@ -157,9 +214,13 @@
   ;; port, which is --engine-port and rides a different key entirely. Parsing
   ;; only: nothing here binds a socket.
   (let ((options (ethereum-lisp.cli::devnet-cli-options
-                  (list "devnet" "--port" "30311" "--maxpeers" "7" "--no-serve"))))
+                  (list "devnet" "--port" "30311" "--maxpeers" "7"
+                        "--netrestrict" "10.0.0.0/8,192.0.2.0/24"
+                        "--no-serve"))))
     (is (= 30311 (getf options :p2p-port)))
     (is (= 7 (getf options :max-peers)))
+    (is (equal '("10.0.0.0/8" "192.0.2.0/24")
+               (getf options :netrestrict)))
     ;; The Engine port is untouched by --port.
     (is (/= 30311 (getf options :port))))
   ;; No --port at all means no inbound listener, which is the default: a devnet

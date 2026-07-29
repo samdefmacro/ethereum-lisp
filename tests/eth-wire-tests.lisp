@@ -142,6 +142,66 @@
               :transactions (list transaction)))
        68))))
 
+(deftest eth-receipts-decode-per-negotiated-protocol-version
+  (:layer :unit :module :p2p)
+  (let* ((transaction
+           (make-dynamic-fee-transaction
+            :chain-id 1 :nonce 2 :max-fee-per-gas 10
+            :max-priority-fee-per-gas 1 :gas-limit 21000
+            :value 3 :data #(1) :y-parity 0 :r 4 :s 5))
+         (receipt (make-receipt :status 1 :cumulative-gas-used 21000))
+         (block
+           (ethereum-lisp.blocks:make-block-from-parts
+            :header (make-block-header :number 1 :difficulty 0
+                                       :gas-limit 30000000
+                                       :extra-data (make-byte-vector 0))
+            :transactions (list transaction)
+            :receipts (list receipt))))
+    (dolist (version
+             (list ethereum-lisp.eth-wire:+eth-protocol-version+
+                   ethereum-lisp.eth-wire:+eth-protocol-version-69+))
+      (multiple-value-bind (request-id decoded)
+          (ethereum-lisp.eth-wire:decode-eth-receipts
+           (ethereum-lisp.eth-wire:encode-eth-receipts
+            14 (list block) version)
+           version)
+        (let* ((wire-receipt (first (first decoded)))
+               (decoded-receipt
+                 (ethereum-lisp.eth-wire:eth-wire-receipt-receipt
+                  wire-receipt)))
+          (is (= 14 request-id))
+          (is (= 2
+                 (ethereum-lisp.eth-wire:eth-wire-receipt-transaction-type
+                  wire-receipt)))
+          (is (= 1 (receipt-status decoded-receipt)))
+          (is (= 21000 (receipt-cumulative-gas-used decoded-receipt)))
+          (is (null (receipt-logs decoded-receipt))))))))
+
+(deftest eth-block-range-update-round-trips-and-validates
+  (:layer :unit :module :p2p)
+  (let* ((hash
+           (hex-to-bytes
+            "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"))
+         (range
+           (ethereum-lisp.eth-wire:make-eth-block-range 10 20 hash))
+         (decoded
+           (ethereum-lisp.eth-wire:decode-eth-block-range-update
+            (ethereum-lisp.eth-wire:encode-eth-block-range-update range))))
+    (is (= 10
+           (ethereum-lisp.eth-wire:eth-block-range-earliest-block decoded)))
+    (is (= 20
+           (ethereum-lisp.eth-wire:eth-block-range-latest-block decoded)))
+    (is (bytes=
+         hash
+         (ethereum-lisp.eth-wire:eth-block-range-latest-block-hash decoded)))
+    (is (ethereum-lisp.eth-sync:eth-validate-block-range 10 20 hash))
+    (signals error
+      (ethereum-lisp.eth-sync:eth-validate-block-range 21 20 hash))
+    (signals error
+      (ethereum-lisp.eth-sync:eth-validate-block-range
+       10 20 (make-array 32 :element-type '(unsigned-byte 8)
+                         :initial-element 0)))))
+
 (deftest eth-get-block-headers-round-trips
   ;; By number.
   (let* ((request (ethereum-lisp.eth-wire:make-eth-get-block-headers
@@ -165,6 +225,62 @@
     (is (null (ethereum-lisp.eth-wire:eth-get-block-headers-origin-number decoded)))
     (is (= 3 (ethereum-lisp.eth-wire:eth-get-block-headers-skip decoded)))
     (is (ethereum-lisp.eth-wire:eth-get-block-headers-reverse decoded))))
+
+(deftest eth-70-through-72-incremental-codecs-round-trip
+  (:layer :unit :module :p2p)
+  (let ((hash (make-byte-vector 32 :initial-element #x33)))
+    (multiple-value-bind (request-id hashes first-index)
+        (ethereum-lisp.eth-wire:decode-eth-get-receipts
+         (ethereum-lisp.eth-wire:encode-eth-get-receipts
+          7 (list hash) 70 12)
+         70)
+      (is (= 7 request-id))
+      (is (= 12 first-index))
+      (is (bytes= hash (first hashes))))
+    (let* ((available (make-rlp-list (make-byte-vector 0)))
+           (encoded
+             (ethereum-lisp.eth-wire:encode-eth-block-access-lists
+              8 (list available (make-byte-vector 0)))))
+      (multiple-value-bind (request-id lists)
+          (ethereum-lisp.eth-wire:decode-eth-block-access-lists encoded)
+        (is (= 8 request-id))
+        (is (rlp-list-p (first lists)))
+        (is (zerop (length (ensure-byte-vector (second lists)))))))
+    (let ((mask (make-byte-vector 16 :initial-element #x05))
+          (cell (make-byte-vector 2048 :initial-element #xa5)))
+      (multiple-value-bind (request-id hashes groups decoded-mask)
+          (ethereum-lisp.eth-wire:decode-eth-cells
+           (ethereum-lisp.eth-wire:encode-eth-cells
+            9 (list hash) (list (list cell)) mask))
+        (is (= 9 request-id))
+        (is (bytes= hash (first hashes)))
+        (is (bytes= cell (first (first groups))))
+        (is (bytes= mask decoded-mask)))))
+  (signals error
+    (ethereum-lisp.eth-wire:encode-eth-get-cells
+     1 nil (make-byte-vector 15))))
+
+(deftest eth-72-transaction-announcements-carry-custody
+  (:layer :unit :module :p2p)
+  (let* ((transaction
+           (make-legacy-transaction :nonce 1 :gas-price 2 :gas-limit 21000
+                                    :value 3 :data #(1) :v 27 :r 4 :s 5))
+         (mask (make-byte-vector 16 :initial-element #x80))
+         (encoded
+           (ethereum-lisp.eth-wire:encode-eth-new-pooled-transaction-hashes
+            (list transaction) :version 72 :custody-mask mask)))
+    (multiple-value-bind (types sizes hashes decoded-mask)
+        (ethereum-lisp.eth-wire:decode-eth-new-pooled-transaction-hashes
+         encoded 72)
+      (is (= 1 (length types)))
+      (is (= 1 (length sizes)))
+      (is (bytes= (hash32-bytes (transaction-hash transaction))
+                  (first hashes)))
+      (is (bytes= mask decoded-mask))))
+  (signals error
+    (ethereum-lisp.eth-wire:decode-eth-new-pooled-transaction-hashes
+     (ethereum-lisp.eth-wire:encode-eth-new-pooled-transaction-hashes nil)
+     72)))
 
 (deftest eth-block-headers-round-trips-real-headers
   (let* ((h1 (make-block-header :number 100 :timestamp 1000 :gas-limit 30000000
@@ -271,6 +387,40 @@
         (is (= +cell-proofs-per-blob+
                (length (blob-sidecar-proofs decoded-sidecar))))
         (is (bytes= blob (first (blob-sidecar-blobs decoded-sidecar))))))))
+
+(deftest eth-block-propagation-messages-round-trip
+  (:layer :unit :module :eth-wire)
+  (let* ((hash (hex-to-bytes
+                "0x1111111111111111111111111111111111111111111111111111111111111111"))
+         (announcement
+           (ethereum-lisp.eth-wire:make-eth-new-block-hash hash 42))
+         (decoded
+           (ethereum-lisp.eth-wire:decode-eth-new-block-hashes
+            (ethereum-lisp.eth-wire:encode-eth-new-block-hashes
+             (list announcement)))))
+    (is (= 1 (length decoded)))
+    (is (bytes= hash
+                (ethereum-lisp.eth-wire:eth-new-block-hash-hash
+                 (first decoded))))
+    (is (= 42
+           (ethereum-lisp.eth-wire:eth-new-block-hash-number
+            (first decoded)))))
+  (let* ((block
+           (ethereum-lisp.blocks:make-block-from-parts
+            :header (make-block-header :number 42 :difficulty 0
+                                       :gas-limit 30000000
+                                       :extra-data (make-byte-vector 0))))
+         (announcement
+           (ethereum-lisp.eth-wire:make-eth-new-block block 123456))
+         (decoded
+           (ethereum-lisp.eth-wire:decode-eth-new-block
+            (ethereum-lisp.eth-wire:encode-eth-new-block announcement))))
+    (is (= 123456
+           (ethereum-lisp.eth-wire:eth-new-block-total-difficulty decoded)))
+    (is (bytes= (hash32-bytes (block-hash block))
+                (hash32-bytes
+                 (block-hash
+                  (ethereum-lisp.eth-wire:eth-new-block-block decoded)))))))
 
 (deftest eth-fork-id-matches-eip-2124-mainnet-vectors
   ;; EIP-2124 mainnet fork-hash vectors, over the mainnet genesis hash.

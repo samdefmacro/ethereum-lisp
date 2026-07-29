@@ -258,7 +258,9 @@
                (let ((entry (first (ethereum-lisp.cli:devnet-peer-table-snapshot
                                     client-table))))
                  (is (eq :outbound (getf entry :direction)))
-                 (is (member (getf entry :eth-version) '(68 69))))
+                 (is (member
+                      (getf entry :eth-version)
+                      ethereum-lisp.eth-wire:+eth-supported-protocol-versions+)))
                ;; And the dial registry knows it owns that connection.
                (is (eq :connected
                        (ethereum-lisp.cli:devnet-dial-candidate-state

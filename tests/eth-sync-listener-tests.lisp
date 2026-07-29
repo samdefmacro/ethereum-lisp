@@ -117,5 +117,6 @@
              (is (string= "127.0.0.1" (getf server-result :host)))
              (is (plusp (getf server-result :port)))
              ;; Both sides negotiated the same eth version.
-             (is (= 69 (getf server-result :version))))
+             (is (= (first ethereum-lisp.eth-wire:+eth-supported-protocol-versions+)
+                    (getf server-result :version))))
         (eth-sync-listener-close listener)))))

@@ -470,7 +470,14 @@
    #:+discv4-packet-enr-request+
    #:+discv4-packet-enr-response+
    #:+discv4-max-packet-size+
+   #:discv4-expiration
+   #:encode-discv4-packet
+   #:make-discv4-ping
+   #:encode-discv4-ping
    #:decode-discv4-packet
+   #:decode-discv4-pong
+   #:discv4-pong-expiration
+   #:discv4-pong-ping-hash
    #:decode-discv4-neighbors
    #:discv4-neighbors-nodes
    #:discv4-neighbors-expiration
@@ -480,11 +487,13 @@
    #:discv4-node-node-id
    #:discv4-expired-p
    #:discv4-ip-string
+   #:discv4-endpoint-for-host
    #:discv4-make-socket
    #:discv4-send-to
    #:discv4-receive
    #:+discv4-bucket-size+
    #:+discv4-bond-lifetime-seconds+
+   #:+discv4-ping-timeout-seconds+
    #:discv4-table-entry
    #:make-discv4-table-entry
    #:discv4-table-entry-node-id
@@ -492,6 +501,7 @@
    #:discv4-table-entry-udp-port
    #:discv4-table-entry-tcp-port
    #:discv4-table-entry-bonded-at
+   #:discv4-table-entry-pending-ping-at
    #:discv4-node-table
    #:make-discv4-node-table
    #:discv4-log-distance
@@ -499,6 +509,9 @@
    #:discv4-table-bonded-p
    #:discv4-table-put
    #:discv4-table-note-failure
+   #:discv4-table-note-ping
+   #:discv4-table-accept-pong
+   #:discv4-table-revalidation-candidate
    #:discv4-table-remove
    #:discv4-table-entries
    #:discv4-table-closest
@@ -550,6 +563,7 @@
    #:eth-wire-read
    #:eth-wire-read-once
    #:eth-peer-send
+   #:eth-peer-send-block-range-update
    #:eth-peer-read
    #:eth-peer-read-once
    #:eth-build-status
@@ -558,12 +572,16 @@
    #:eth-chain-context-record-compatible-p
    #:eth-chain-context-record-pairs
    #:eth-validate-peer-status
+   #:eth-validate-block-range
    #:eth-peer-handshake
    #:eth-peer-connect
    #:eth-peer-next-request-id
    #:eth-peer-await
    #:eth-peer-get-block-headers
    #:eth-peer-get-block-bodies
+   #:eth-peer-get-receipts
+   #:eth-peer-get-block-access-lists
+   #:eth-peer-get-cells
    #:+eth-max-headers-serve+
    #:+eth-max-bodies-serve+
    #:+eth-max-receipts-serve+
@@ -578,6 +596,9 @@
    #:eth-serve-backend-known-transaction-p
    #:eth-serve-backend-accept-transaction
    #:eth-serve-backend-accept-blob-sidecar
+   #:eth-serve-backend-accept-block
+   #:eth-serve-backend-block-access-list
+   #:eth-serve-backend-blob-cells
    #:eth-serve-ancestor-hash
    #:eth-serve-headers
    #:eth-serve-bodies
@@ -587,8 +608,16 @@
    #:eth-peer-serve-loop
    #:+eth-max-pooled-transactions-serve+
    #:+eth-max-announced-transaction-hashes+
+   #:+eth-max-announced-block-hashes+
+   #:+eth-full-transaction-broadcast-size+
+   #:+eth-max-known-transaction-hashes+
    #:eth-peer-announced-hashes
+   #:eth-peer-known-transaction-hashes
+   #:eth-peer-knows-transaction-p
+   #:eth-peer-note-known-transaction-hashes
+   #:eth-peer-note-known-transactions
    #:eth-peer-announced-hash-count
+   #:eth-peer-announced-block-count
    #:eth-gossipable-transaction-p
    #:eth-peer-broadcast-transactions
    #:eth-peer-announce-transactions
@@ -598,8 +627,16 @@
    #:eth-serve-pooled-transactions
    #:eth-peer-gossip-message
    #:eth-peer-fetch-announced-transactions
+   #:eth-peer-fetch-announced-block
+   #:eth-sync-validate-header-batch
+   #:eth-sync-validate-body
    #:eth-sync-assemble-block
    #:eth-sync-download-blocks
+   #:eth-sync-peer-source
+   #:make-eth-sync-peer-source
+   #:eth-sync-peer-source-id
+   #:eth-sync-peer-source-head-number
+   #:eth-sync-download-blocks-multi
    #:+eth-backfill-batch-size+
    #:+eth-backfill-max-headers+
    #:eth-sync-collect-backfill-headers
@@ -1359,6 +1396,7 @@
    #:execution-result-state-root
    #:execution-result-transactions-root
    #:execution-result-receipts-root
+   #:validate-block-body-commitments-before-execution
    #:execute-legacy-transactions
    #:apply-legacy-message
    #:apply-signed-message

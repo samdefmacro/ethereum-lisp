@@ -89,6 +89,64 @@ given, is a predicate marking transactions the pool turns down."
           do (is (bytes= (transaction-encoding sent)
                          (transaction-encoding got))))))
 
+(deftest eth-transaction-gossip-item-counts-are-bounded
+  (:layer :unit :module :p2p)
+  ;; The ordinary round-trip above is the positive control. These hostile
+  ;; messages exceed the decoder bounds before transaction/hash materialization.
+  (signals rlp-error
+    (ethereum-lisp.eth-wire:decode-eth-transactions
+     (rlp-encode
+      (apply #'make-rlp-list
+             (loop repeat
+                   (1+ ethereum-lisp.eth-wire:+eth-max-transactions-per-message+)
+                   collect (make-byte-vector 0))))))
+  (signals error
+    (ethereum-lisp.eth-wire:decode-eth-new-pooled-transaction-hashes
+     (rlp-encode
+      (make-rlp-list
+       (make-byte-vector
+        (1+ ethereum-lisp.eth-wire:+eth-max-transaction-announcements+))
+       (make-rlp-list)
+       (make-rlp-list))))))
+
+(deftest eth-gossip-tracks-peer-knowledge-and-large-transactions
+  (:layer :unit :module :p2p)
+  (multiple-value-bind (backend pool) (eth-gossip-test-backend)
+    (declare (ignore pool))
+    (let* ((peer (eth-gossip-test-peer backend))
+           (small (eth-gossip-test-transaction 1))
+           (large
+             (make-legacy-transaction
+              :nonce 2 :gas-price 2 :gas-limit 100000
+              :value 3 :v 27 :r 4 :s 5
+              :data (make-array 5000 :element-type '(unsigned-byte 8)
+                                :initial-element 1))))
+      ;; Receiving a full transaction records that this peer knows it, so the
+      ;; next txpool poll cannot reflect it straight back.
+      (is (ethereum-lisp.eth-sync:eth-peer-gossip-message
+           peer ethereum-lisp.eth-wire:+eth-message-transactions+
+           (ethereum-lisp.eth-wire:encode-eth-transactions (list small))))
+      (is (ethereum-lisp.eth-sync:eth-peer-knows-transaction-p peer small))
+      (is (null
+           (ethereum-lisp.eth-sync::eth-peer-sendable-transactions
+            peer (list small)
+            (lambda (size) (declare (ignore size)) t))))
+      ;; A payload above the full-broadcast threshold is left for the hash
+      ;; announcement pass in the pump.
+      (is (> (length (transaction-encoding large))
+             ethereum-lisp.eth-sync:+eth-full-transaction-broadcast-size+))
+      (is (null
+           (ethereum-lisp.eth-sync::eth-peer-sendable-transactions
+            peer (list large)
+            (lambda (size)
+              (<= size
+                  ethereum-lisp.eth-sync:+eth-full-transaction-broadcast-size+)))))
+      (is (= 1
+             (length
+              (ethereum-lisp.eth-sync::eth-peer-sendable-transactions
+               peer (list large)
+               (lambda (size) (declare (ignore size)) t))))))))
+
 (deftest eth-new-pooled-transaction-hashes-round-trips
   (:layer :unit :module :p2p)
   (let ((transactions (list (eth-gossip-test-transaction 1)
@@ -129,6 +187,57 @@ given, is a predicate marking transactions the pool turns down."
          "0x1111111111111111111111111111111111111111111111111111111111111111")
         (hex-to-bytes
          "0x2222222222222222222222222222222222222222222222222222222222222222")))))))
+
+(deftest eth-gossip-queues-hash-announcements-and-submits-full-blocks
+  (:layer :unit :module :p2p)
+  (let* ((accepted nil)
+         (backend
+           (ethereum-lisp.eth-sync:make-eth-serve-backend
+            :accept-block (lambda (block) (setf accepted block))))
+         (peer (eth-gossip-test-peer backend))
+         (block
+           (ethereum-lisp.blocks:make-block-from-parts
+            :header (make-block-header :number 9 :difficulty 0
+                                       :gas-limit 30000000
+                                       :extra-data (make-byte-vector 0))))
+         (hash (hash32-bytes (block-hash block))))
+    (is (ethereum-lisp.eth-sync:eth-peer-gossip-message
+         peer ethereum-lisp.eth-wire:+eth-message-new-block-hashes+
+         (ethereum-lisp.eth-wire:encode-eth-new-block-hashes
+          (list (ethereum-lisp.eth-wire:make-eth-new-block-hash hash 9)))))
+    (is (= 1 (ethereum-lisp.eth-sync:eth-peer-announced-block-count peer)))
+    (is (ethereum-lisp.eth-sync:eth-peer-gossip-message
+         peer ethereum-lisp.eth-wire:+eth-message-new-block+
+         (ethereum-lisp.eth-wire:encode-eth-new-block
+          (ethereum-lisp.eth-wire:make-eth-new-block block 0))))
+    (is (not (null accepted)))
+    (is (bytes= (hash32-bytes (block-hash block))
+                (hash32-bytes (block-hash accepted))))))
+
+(deftest eth-gossip-applies-block-range-updates-without-a-serve-backend
+  (:layer :unit :module :p2p)
+  (let* ((old-hash
+           (hex-to-bytes
+            "0x1111111111111111111111111111111111111111111111111111111111111111"))
+         (new-hash
+           (hex-to-bytes
+            "0x2222222222222222222222222222222222222222222222222222222222222222"))
+         (status
+           (ethereum-lisp.eth-wire:make-eth-status
+            :version 69 :earliest-block 1 :latest-block 10
+            :latest-block-hash old-hash))
+         (peer
+           (ethereum-lisp.eth-sync::%make-eth-peer
+            :eth-version 69 :remote-status status)))
+    (is (ethereum-lisp.eth-sync:eth-peer-gossip-message
+         peer ethereum-lisp.eth-wire:+eth-message-block-range-update+
+         (ethereum-lisp.eth-wire:encode-eth-block-range-update
+          (ethereum-lisp.eth-wire:make-eth-block-range 5 20 new-hash))))
+    (is (= 5 (ethereum-lisp.eth-wire:eth-status-earliest-block status)))
+    (is (= 20 (ethereum-lisp.eth-wire:eth-status-latest-block status)))
+    (is (bytes=
+         new-hash
+         (ethereum-lisp.eth-wire:eth-status-latest-block-hash status)))))
 
 (deftest eth-pooled-transaction-messages-round-trip
   (:layer :unit :module :p2p)

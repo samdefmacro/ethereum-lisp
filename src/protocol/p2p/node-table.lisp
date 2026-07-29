@@ -35,9 +35,13 @@
   "How long an endpoint proof stays good: 12 hours. Our policy. Re-proving on
 every exchange would double the traffic of every lookup.")
 
+(defconstant +discv4-ping-timeout-seconds+ 10
+  "How long a routing-table endpoint probe may remain unanswered.")
+
 (defstruct (discv4-table-entry
             (:constructor make-discv4-table-entry
                 (&key node-id host udp-port tcp-port (bonded-at nil)
+                      pending-ping-hash pending-ping-at
                       (added-at 0) (last-seen-at 0) (failures 0))))
   "One known node. BONDED-AT is when it last proved it owns its endpoint; NIL
 means it has only ever been mentioned to us by somebody else."
@@ -46,6 +50,8 @@ means it has only ever been mentioned to us by somebody else."
   udp-port
   tcp-port
   bonded-at
+  pending-ping-hash
+  pending-ping-at
   added-at
   last-seen-at
   failures)
@@ -146,6 +152,60 @@ often enough. Returns T if it was dropped."
               (remove entry (aref (discv4-node-table-buckets table) index)))
         t))))
 
+(defun discv4-table-note-ping (table node-id ping-hash now)
+  "Remember the exact Ping NODE-ID must answer before it can become bonded."
+  (let ((entry (discv4-table-entry table node-id)))
+    (when entry
+      (setf (discv4-table-entry-pending-ping-hash entry)
+            (ensure-byte-vector ping-hash)
+            (discv4-table-entry-pending-ping-at entry) now)
+      entry)))
+
+(defun discv4-table-accept-pong
+    (table node-id host udp-port ping-hash now)
+  "Bond NODE-ID only when PING-HASH answers our outstanding endpoint probe."
+  (let ((entry (discv4-table-entry table node-id)))
+    (when (and entry
+               (string= host (discv4-table-entry-host entry))
+               (= udp-port (discv4-table-entry-udp-port entry))
+               (discv4-table-entry-pending-ping-hash entry)
+               (bytes= ping-hash
+                       (discv4-table-entry-pending-ping-hash entry)))
+      (setf (discv4-table-entry-bonded-at entry) now
+            (discv4-table-entry-last-seen-at entry) now
+            (discv4-table-entry-failures entry) 0
+            (discv4-table-entry-pending-ping-hash entry) nil
+            (discv4-table-entry-pending-ping-at entry) nil)
+      entry)))
+
+(defun discv4-table-revalidation-candidate (table now)
+  "Return one entry whose endpoint should be pinged, or NIL.
+
+Only one probe is outstanding at a time. An unanswered probe counts as a
+failure after +DISCV4-PING-TIMEOUT-SECONDS+; four failures use the ordinary
+table eviction path. Unbonded entries are checked before they can ever be
+relayed, and expired bonds are periodically re-proved."
+  (let ((entries (discv4-table-entries table)))
+    (dolist (entry entries)
+      (when (discv4-table-entry-pending-ping-hash entry)
+        (if (< (- now (discv4-table-entry-pending-ping-at entry))
+               +discv4-ping-timeout-seconds+)
+            (return-from discv4-table-revalidation-candidate nil)
+            (progn
+              (setf (discv4-table-entry-pending-ping-hash entry) nil
+                    (discv4-table-entry-pending-ping-at entry) nil)
+              (discv4-table-note-failure
+               table (discv4-table-entry-node-id entry))))))
+    (let ((candidates
+            (remove-if-not
+             (lambda (entry)
+               (or (null (discv4-table-entry-bonded-at entry))
+                   (>= (- now (discv4-table-entry-bonded-at entry))
+                       +discv4-bond-lifetime-seconds+)))
+             (discv4-table-entries table))))
+      (first (sort candidates #'<
+                   :key #'discv4-table-entry-last-seen-at)))))
+
 (defun discv4-table-remove (table node-id)
   (let ((index (discv4-table-bucket-index table node-id))
         (entry (discv4-table-entry table node-id)))
@@ -162,13 +222,20 @@ often enough. Returns T if it was dropped."
           (push entry entries))))))
 
 (defun discv4-table-closest (table target-id &key (limit +discv4-bucket-size+)
-                                                  (bonded-only t))
+                                                  (bonded-only t) now)
   "The nodes nearest TARGET-ID, nearest first.
 
 BONDED-ONLY by default, because this answers a stranger's FindNode: passing on
 an address that has never proved itself would make us a party to whatever it was
 claimed for."
-  (let ((entries (sort (discv4-table-entries table :bonded-only bonded-only)
+  (let ((entries (sort (remove-if-not
+                        (lambda (entry)
+                          (or (not bonded-only)
+                              (null now)
+                              (discv4-table-bonded-p
+                               table (discv4-table-entry-node-id entry) now)))
+                        (discv4-table-entries table
+                                             :bonded-only bonded-only))
                        #'<
                        :key (lambda (entry)
                               (discv4-node-distance

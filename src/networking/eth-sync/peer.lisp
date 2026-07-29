@@ -23,6 +23,12 @@
   ;; Transaction hashes this peer announced that we have not fetched yet, as a
   ;; set (see gossip.lisp). NIL until the peer announces something.
   announced-hashes
+  ;; Hashes this remote peer demonstrably knows, bounded in gossip.lisp. Used to
+  ;; avoid reflecting its own transactions straight back to it.
+  known-transaction-hashes
+  ;; Block hashes announced for top-level draining by the session pump. Kept as
+  ;; a FIFO list because ordering by the peer's announcement is useful.
+  announced-block-hashes
   (request-counter 0))
 
 (defun eth-peer-next-request-id (peer)
@@ -75,11 +81,17 @@ stay responsive between frames — to notice a shutdown, to time out an idle pee
 to send its own keepalive — has to see the Ping and Pong traffic, not block
 inside a loop that swallows it."
   (multiple-value-bind (code payload)
-      (rlpx-connection-read-message connection)
+      (rlpx-connection-read-message
+       connection
+       :max-frame-size (1+ +eth-max-message-size+)
+       :max-message-size +eth-max-message-size+)
     (cond
       ((= code +devp2p-message-disconnect+)
        (error 'rlpx-disconnect :reason (decode-devp2p-disconnect payload)))
       ((< code offset)
+       (when (> (length payload) +devp2p-max-message-size+)
+         (error "devp2p base message contains ~D bytes, exceeding the ~D-byte limit"
+                (length payload) +devp2p-max-message-size+))
        ;; Ping and Pong are the only base traffic a live session may carry; a
        ;; second Hello is a protocol error, and erroring on it is the behavior
        ;; ETH-WIRE-READ has always had.
@@ -116,6 +128,17 @@ ETH-WIRE-READ-ONCE and handle the base traffic itself."
 (defun eth-peer-read (peer)
   "Read the next eth message from PEER, returning (VALUES ETH-ID PAYLOAD)."
   (eth-wire-read (eth-peer-connection peer) (eth-peer-eth-offset peer)))
+
+(defun eth-peer-send-block-range-update (peer earliest latest latest-hash)
+  "Send an eth/69 BlockRangeUpdate after validating the advertised range."
+  (when (< (eth-peer-eth-version peer) +eth-protocol-version-69+)
+    (error "BlockRangeUpdate requires eth/69 or later"))
+  (eth-validate-block-range earliest latest latest-hash)
+  (eth-peer-send
+   peer
+   +eth-message-block-range-update+
+   (encode-eth-block-range-update
+    (make-eth-block-range earliest latest latest-hash))))
 
 (defun eth-peer-read-once (peer)
   "Read exactly one message from PEER, returning (VALUES KIND ID PAYLOAD).
@@ -215,6 +238,11 @@ success."
            (eth-status-network-id ours) (eth-status-network-id theirs)))
   (unless (bytes= (eth-status-genesis-hash ours) (eth-status-genesis-hash theirs))
     (error "eth genesis mismatch: peer is on a different chain"))
+  (when (>= (eth-status-version theirs) +eth-protocol-version-69+)
+    (eth-validate-block-range
+     (eth-status-earliest-block theirs)
+     (eth-status-latest-block theirs)
+     (eth-status-latest-block-hash theirs)))
   (when chain-context
     (validate-peer-fork-id (eth-chain-context-config chain-context)
                            (eth-chain-context-genesis-hash chain-context)
@@ -223,6 +251,17 @@ success."
                            (eth-status-fork-id theirs)
                            (eth-chain-context-genesis-timestamp chain-context)))
   theirs)
+
+(defun eth-validate-block-range (earliest latest latest-hash)
+  "Validate an eth/69 served range and return true."
+  (unless (and (integerp earliest) (integerp latest)
+               (<= 0 earliest latest))
+    (error "eth block range is invalid: ~S through ~S" earliest latest))
+  (let ((hash (ensure-byte-vector latest-hash)))
+    (unless (and (= (length hash) 32)
+                 (not (every #'zerop hash)))
+      (error "eth block range latest hash must be a non-zero 32-byte hash")))
+  t)
 
 (defun eth-peer-handshake (connection eth-offset eth-version our-status
                            &key chain-context serve-backend remote-hello)

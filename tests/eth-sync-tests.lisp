@@ -203,17 +203,56 @@
                    (is (= 16 (getf server-result :offset)))))))
         (ignore-errors (sb-bsd-sockets:socket-close listener))))))
 
-(defun eth-sync-test-header (number)
+(defun eth-sync-test-header (number &optional parent-hash)
   "A well-formed pre-London block header with the given NUMBER, for exercising
 the wire codecs (not a valid chain block). The hash-typed fields are left nil so
 the encoder substitutes its zero/empty defaults."
   (make-block-header
+   :parent-hash parent-hash
    :difficulty 0
    :number number
    :gas-limit 30000000
    :gas-used 0
    :timestamp (+ 1600000000 number)
    :extra-data (make-byte-vector 0)))
+
+(defun eth-sync-test-chain-headers (length)
+  (loop with parent = nil
+        for number from 1 to length
+        for header = (eth-sync-test-header number parent)
+        collect header
+        do (setf parent (block-header-hash header))))
+
+(deftest eth-sync-validates-delivered-header-and-body-commitments
+  (:layer :unit :module :p2p)
+  (let* ((headers (eth-sync-test-chain-headers 3))
+         (empty-body
+           (ethereum-lisp.eth-wire:make-eth-block-body
+            :transactions '() :ommers '()))
+         (committed-header
+           (make-block-header
+            :number 1 :difficulty 0 :gas-limit 30000000
+            :extra-data (make-byte-vector 0)
+            :transactions-root (transaction-list-root '())
+            :ommers-hash (ommers-hash '()))))
+    (is (eth-sync-validate-header-batch headers 1 nil))
+    (is (eth-sync-validate-header-batch
+         (rest headers) 2 (first headers)))
+    (signals error
+      (eth-sync-validate-header-batch headers 2 nil))
+    (let ((broken (copy-list headers)))
+      (setf (block-header-parent-hash (second broken)) (zero-hash32))
+      (signals error
+        (eth-sync-validate-header-batch broken 1 nil)))
+    (is (eth-sync-validate-body committed-header empty-body))
+    (signals error
+      (eth-sync-validate-body
+       committed-header
+       (ethereum-lisp.eth-wire:make-eth-block-body
+        :transactions (list (make-legacy-transaction
+                             :nonce 1 :gas-price 2 :gas-limit 21000
+                             :value 3 :v 27 :r 4 :s 5))
+        :ommers '())))))
 
 (deftest eth-peer-downloads-headers-and-bodies-over-a-socket
   (:layer :integration :module :p2p :requires-local-sockets t)
@@ -321,7 +360,8 @@ the encoder substitutes its zero/empty defaults."
 (defun eth-sync-serve-chain (peer chain-length)
   "Answer eth header and body requests for a canned chain of CHAIN-LENGTH blocks
 (numbered 1..CHAIN-LENGTH, empty bodies) until the peer disconnects."
-  (handler-case
+  (let ((chain (eth-sync-test-chain-headers chain-length)))
+    (handler-case
       (loop
         (multiple-value-bind (eth-id payload) (eth-peer-read peer)
           (cond
@@ -330,9 +370,10 @@ the encoder substitutes its zero/empty defaults."
                     (origin (ethereum-lisp.eth-wire:eth-get-block-headers-origin-number req))
                     (amount (ethereum-lisp.eth-wire:eth-get-block-headers-amount req))
                     (rid (ethereum-lisp.eth-wire:eth-get-block-headers-request-id req))
-                    (headers (loop for n from origin below (+ origin amount)
-                                   when (<= 1 n chain-length)
-                                     collect (eth-sync-test-header n))))
+                    (headers
+                      (loop for n from origin below (+ origin amount)
+                            when (<= 1 n chain-length)
+                              collect (nth (1- n) chain))))
                (eth-peer-send peer
                               ethereum-lisp.eth-wire:+eth-message-block-headers+
                               (ethereum-lisp.eth-wire:encode-eth-block-headers
@@ -349,7 +390,7 @@ the encoder substitutes its zero/empty defaults."
                                       (ethereum-lisp.eth-wire:make-eth-block-body
                                        :transactions '() :ommers '()))
                                     hashes))))))))
-    (rlpx-disconnect () nil)))
+      (rlpx-disconnect () nil))))
 
 (deftest eth-sync-downloads-a-chain-in-order-over-a-socket
   (:layer :integration :module :p2p :requires-local-sockets t)
@@ -418,6 +459,98 @@ the encoder substitutes its zero/empty defaults."
                    (when server-error
                      (error "eth sync server side failed: ~A" server-error))))))
         (ignore-errors (sb-bsd-sockets:socket-close listener))))))
+
+(deftest eth-sync-three-scripted-peers-fail-over-without-blocking
+  (:layer :integration :module :p2p)
+  ;; Three batches are initially in flight. One peer never delivers until the
+  ;; coordinator cancels it, one returns a malformed header range, and the good
+  ;; peer must fill both holes. If timeout/failover or ordered assembly regresses,
+  ;; this test takes the slow peer's five-second path or imports out of order.
+  (let* ((chain (coerce (eth-sync-test-chain-headers 6) 'vector))
+         (empty-body
+           (ethereum-lisp.eth-wire:make-eth-block-body
+            :transactions '() :ommers '()))
+         (cancelled nil)
+         (slow-started nil)
+         (penalties '())
+         (events '())
+         (imported '())
+         (maximum-in-flight 0)
+         (started-at (get-internal-real-time)))
+    (labels ((good-headers (origin amount)
+               (loop for number from origin below (+ origin amount)
+                     collect (aref chain (1- number))))
+             (bodies (headers)
+               (loop repeat (length headers) collect empty-body))
+             (receipts (headers)
+               (values (loop repeat (length headers) collect '()) nil))
+             (note-penalty (peer)
+               (lambda (reason score detail)
+                 (declare (ignore detail))
+                 (push (list peer reason score) penalties)))
+             (source (id header-function &key cancel)
+               (make-eth-sync-peer-source
+                nil :id id :head-number 6
+                :fetch-headers header-function
+                :fetch-bodies #'bodies
+                :fetch-receipts #'receipts
+                :penalty (note-penalty id)
+                :cancel cancel)))
+      (let* ((slow
+               (source
+                :slow
+                (lambda (origin amount)
+                  (setf slow-started t)
+                  (loop repeat 1000
+                        until cancelled
+                        do (sleep 0.005d0))
+                  (when cancelled
+                    (error "scripted slow peer cancelled"))
+                  (good-headers origin amount))
+                :cancel (lambda () (setf cancelled t))))
+             (bad
+               (source
+                :bad
+                (lambda (origin amount)
+                  (declare (ignore origin))
+                  (loop for number from 101
+                        repeat amount
+                        collect (eth-sync-test-header number)))))
+             (good (source :good #'good-headers))
+             (count
+               (eth-sync-download-blocks-multi
+                (list slow bad good)
+                (lambda (block)
+                  (push (block-header-number (block-header block)) imported))
+                :start-number 1
+                :target-number 6
+                :batch-size 2
+                :request-timeout-seconds 0.05d0
+                :progress
+                (lambda (snapshot event)
+                  (is (= 6 (getf snapshot :pivot)))
+                  (setf maximum-in-flight
+                        (max maximum-in-flight
+                             (getf snapshot :in-flight)
+                             (or (getf event :in-flight) 0)))
+                  (push event events)))))
+        (let ((elapsed
+                (/ (- (get-internal-real-time) started-at)
+                   (float internal-time-units-per-second 1d0))))
+          (is (= 6 count))
+          (is (equal '(1 2 3 4 5 6) (nreverse imported)))
+          (is slow-started)
+          (is cancelled)
+          (is (< elapsed 2d0))
+          (is (>= maximum-in-flight 2))
+          (is (find :timeout penalties :key #'second))
+          (is (find :malformed penalties :key #'second))
+          (is (find :headers events :key (lambda (event)
+                                           (getf event :stage))))
+          (is (find :bodies events :key (lambda (event)
+                                          (getf event :stage))))
+          (is (find :receipts events :key (lambda (event)
+                                            (getf event :stage)))))))))
 
 (deftest eth-sync-connect-peer-dials-and-handshakes-over-a-socket
   (:layer :integration :module :p2p :requires-local-sockets t)
