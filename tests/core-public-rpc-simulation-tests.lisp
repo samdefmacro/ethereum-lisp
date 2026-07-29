@@ -1053,6 +1053,9 @@
                    nil #'ethereum-lisp.engine-api:engine-rpc-public-method-p)))
     (is (assoc "debug" modules :test #'string=)))
   (is (ethereum-lisp.engine-api:engine-rpc-public-method-p "debug_getRawHeader"))
+  (let ((default
+          (ethereum-lisp.cli::devnet-cli-public-api-method-filter nil)))
+    (is (not (funcall default "debug_getRawHeader"))))
   (let ((eth-only (ethereum-lisp.cli::devnet-cli-public-api-method-filter (list "eth"))))
     (is (funcall eth-only "eth_chainId"))
     (is (not (funcall eth-only "debug_getRawHeader"))))

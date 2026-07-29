@@ -19,8 +19,8 @@
         (http-api-modules nil)
         (authrpc-cors-origins nil)
         (http-cors-origins nil)
-        (engine-vhosts nil)
-        (http-vhosts nil)
+        (engine-vhosts '("localhost"))
+        (http-vhosts '("localhost"))
         (public-rpc-enabled-p t)
         (state-prune-before nil)
         (max-connections nil)
@@ -278,6 +278,17 @@
                ((string= option "--nodekeyhex")
                 (setf node-key
                       (next-parsed-value option #'devnet-cli-parse-node-key-hex)))
+               ((member option '("--ipcpath" "--ipcapi" "--ipcdisable")
+                        :test #'string=)
+                (error "~A is not supported because IPC is not implemented"
+                       option))
+               ((member option '("--rpc.gascap"
+                                 "--rpc.evmtimeout"
+                                 "--rpc.batch-request-limit"
+                                 "--rpc.batch-response-max-size"
+                                 "--rpc.txfeecap")
+                        :test #'string=)
+                (error "~A is not configurable in this client" option))
                ((member option *devnet-cli-value-options* :test #'string=)
                 (consume-value-option option))
                ((member option *devnet-cli-optional-boolean-options*

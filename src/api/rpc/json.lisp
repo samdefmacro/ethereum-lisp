@@ -12,7 +12,14 @@
 (defun rpc-handle-request-json (request-json context)
   (let ((response (rpc-handle-request-string request-json context)))
     (if response
-        (json-encode response)
+        (let ((encoded (json-encode response)))
+          (if (> (length encoded) +rpc-batch-response-max-size+)
+              (json-encode
+               (json-rpc-response
+                nil
+                :error
+                (json-rpc-error-object -32603 "Batch response too large")))
+              encoded))
         "")))
 
 (defun engine-rpc-handle-request-string

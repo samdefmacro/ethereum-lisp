@@ -45,6 +45,39 @@
     (is (eq (engine-rpc-http-service-config service)
             (ethereum-lisp.rpc:rpc-context-config context)))))
 
+(deftest engine-rpc-http-internal-handler-error-is-json-rpc-response
+  (labels ((http-body (response)
+             (let ((boundary (search (format nil "~C~C~C~C"
+                                             #\Return #\Newline
+                                             #\Return #\Newline)
+                                     response)))
+               (subseq response (+ boundary 4))))
+           (field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((body
+             "{\"jsonrpc\":\"2.0\",\"id\":701,\"method\":\"eth_chainId\",\"params\":[]}")
+           (request
+             (format nil
+                     "POST / HTTP/1.1~%Host: localhost~%Content-Type: application/json~%Content-Length: ~D~%~%~A"
+                     (length body)
+                     body))
+           (response
+             (engine-rpc-handle-http-request-string
+              request
+              (make-engine-payload-memory-store)
+              (make-chain-config)
+              :request-guard-function
+              (lambda (thunk)
+                (declare (ignore thunk))
+                (error "private implementation detail"))))
+           (object (parse-json (http-body response)))
+           (rpc-error (field object "error")))
+      (is (search "HTTP/1.1 200 OK" response))
+      (is (= 701 (field object "id")))
+      (is (= -32603 (field rpc-error "code")))
+      (is (string= "Internal error" (field rpc-error "message")))
+      (is (not (search "private implementation detail" response))))))
+
 (deftest engine-rpc-http-post-dispatches-json-rpc
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))
