@@ -199,8 +199,7 @@ for one that failed."
                      (eth-sync-download-blocks
                       peer
                       (lambda (block) (devnet-peer-sync-import-block node block))
-                      :start-number (1+ head-number)
-                      :max-blocks +devnet-session-catchup-block-limit+)
+                      :start-number (1+ head-number))
                      ;; Then fill anything the consensus client asked for that
                      ;; we could not execute. Forward download only helps when
                      ;; the missing blocks extend OUR head; a reorged target
