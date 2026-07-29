@@ -89,6 +89,8 @@
       ((engine-payload-store-invalid-ancestor-status
         store head-hash head-hash))
       (t
+       (unless (chain-store-known-block store head-hash)
+         (engine-payload-store-put-forkchoice-sync-target store head-hash))
        (make-payload-status :status +payload-status-syncing+)))))
 
 (defun engine-new-payload-memory-status

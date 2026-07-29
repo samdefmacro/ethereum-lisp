@@ -41,6 +41,9 @@
    :remote-blocks
    (engine-payload-store-copy-table
     (memory-chain-store-remote-blocks store))
+   :forkchoice-sync-targets
+   (engine-payload-store-copy-table
+    (memory-chain-store-forkchoice-sync-targets store))
    :invalid-tipsets
    (engine-payload-store-copy-block-table
     (memory-chain-store-invalid-tipsets store))

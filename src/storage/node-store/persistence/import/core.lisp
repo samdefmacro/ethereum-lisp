@@ -75,6 +75,8 @@
           (memory-chain-store-invalid-block-hits source-chain)
           (memory-chain-store-remote-blocks target-chain)
           (memory-chain-store-remote-blocks source-chain)
+          (memory-chain-store-forkchoice-sync-targets target-chain)
+          (memory-chain-store-forkchoice-sync-targets source-chain)
           (memory-chain-store-blob-sidecars target-chain)
           (memory-chain-store-blob-sidecars source-chain)
           (memory-chain-store-prepared-payloads target-chain)

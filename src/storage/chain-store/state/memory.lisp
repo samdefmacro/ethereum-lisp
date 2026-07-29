@@ -37,6 +37,7 @@ reads treat absence as that same default."
                       (state-baseline-interval
                        +chain-store-default-state-baseline-interval+)
                       (remote-blocks (make-hash-table :test 'equalp))
+                      (forkchoice-sync-targets (make-hash-table :test 'equalp))
                       (invalid-tipsets (make-hash-table :test 'equalp))
                       (invalid-block-hits (make-hash-table :test 'equalp))
                       (prepared-payloads (make-hash-table :test 'equalp))
@@ -63,6 +64,7 @@ reads treat absence as that same default."
   (state-baseline-interval +chain-store-default-state-baseline-interval+
    :type (integer 1 *))
   remote-blocks
+  forkchoice-sync-targets
   invalid-tipsets
   invalid-block-hits
   prepared-payloads

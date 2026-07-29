@@ -29,6 +29,23 @@
   (remhash (engine-payload-store-key hash)
            (memory-chain-store-remote-blocks store)))
 
+(defun engine-payload-store-put-forkchoice-sync-target (store hash)
+  (setf store (chain-store-require-memory-store store))
+  (unless (typep hash 'hash32)
+    (block-validation-fail
+     "Engine forkchoice sync target must be a 32-byte hash"))
+  (setf (gethash
+         (engine-payload-store-key hash)
+         (memory-chain-store-forkchoice-sync-targets store))
+        (make-hash32 (copy-seq (hash32-bytes hash))))
+  hash)
+
+(defun engine-payload-store-forkchoice-sync-targets (store)
+  (setf store (chain-store-require-memory-store store))
+  (loop for hash being the hash-values
+          of (memory-chain-store-forkchoice-sync-targets store)
+        collect (make-hash32 (copy-seq (hash32-bytes hash)))))
+
 (defun engine-payload-store-prune-prepared-payloads-for-block
     (store block-key)
   (setf store (chain-store-require-memory-store store))

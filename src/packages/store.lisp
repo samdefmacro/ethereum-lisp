@@ -83,6 +83,7 @@
    #:chain-state-diff-codes
    #:chain-state-diff-storage
    #:memory-chain-store-remote-blocks
+   #:memory-chain-store-forkchoice-sync-targets
    #:memory-chain-store-invalid-tipsets
    #:memory-chain-store-invalid-block-hits
    #:memory-chain-store-prepared-payloads
@@ -154,6 +155,8 @@
    #:engine-payload-store-remote-block
    #:engine-payload-store-put-remote-block
    #:engine-payload-store-remove-remote-block
+   #:engine-payload-store-put-forkchoice-sync-target
+   #:engine-payload-store-forkchoice-sync-targets
    #:engine-payload-store-prune-prepared-payloads-for-block
    #:engine-payload-store-mark-invalid
    #:engine-payload-store-invalid-block

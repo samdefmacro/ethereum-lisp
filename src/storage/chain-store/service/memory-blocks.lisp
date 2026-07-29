@@ -12,6 +12,7 @@
         (canonicalized-p nil)
         (notify-head-p nil))
     (remhash key (memory-chain-store-remote-blocks store))
+    (remhash key (memory-chain-store-forkchoice-sync-targets store))
     (setf (gethash key (memory-chain-store-blocks store)) stored-block)
     (engine-payload-store-prune-prepared-payloads-for-block store key)
     (let ((number (block-header-number (block-header stored-block))))

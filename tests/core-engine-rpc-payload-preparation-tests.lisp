@@ -256,7 +256,12 @@
                (field (field response "result") "payloadStatus")))
         (is (string= +payload-status-syncing+
                      (field payload-status "status")))
-        (is (not (field payload-status "latestValidHash"))))
+        (is (not (field payload-status "latestValidHash")))
+        (let ((targets
+                (engine-payload-store-forkchoice-sync-targets store)))
+          (is (= 1 (length targets)))
+          (is (bytes= (hash32-bytes unknown-hash)
+                      (hash32-bytes (first targets))))))
       (let* ((response
                (engine-rpc-handle-request
                 (forkchoice-request
@@ -270,7 +275,10 @@
         (is (= 42 (field response "id")))
         (is (string= +payload-status-syncing+
                      (field payload-status "status")))
-        (is (not (field payload-status "latestValidHash"))))
+        (is (not (field payload-status "latestValidHash")))
+        (is (= 1
+               (length
+                (engine-payload-store-forkchoice-sync-targets store)))))
       (let* ((response
                (engine-rpc-handle-request
                 (forkchoice-request

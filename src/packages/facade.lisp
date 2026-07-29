@@ -930,6 +930,8 @@
    #:engine-payload-store-put-account-storage
    #:engine-payload-store-state-available-p
    #:engine-payload-store-remote-block
+   #:engine-payload-store-put-forkchoice-sync-target
+   #:engine-payload-store-forkchoice-sync-targets
    #:engine-payload-store-mark-invalid
    #:engine-payload-store-invalid-block
    #:engine-payload-id-to-hex
