@@ -102,12 +102,15 @@
                         '("--mainnet" "--sepolia" "--holesky" "--hoodi"
                           "--goerli")
                         :test #'string=)
-                (let ((preset (subseq option 2)))
+                (let ((selected
+                        (intern (string-upcase (subseq option 2)) :keyword)))
                   (when (next-optional-boolean option)
-                    (when (and chain-preset
-                               (not (string= chain-preset preset)))
-                      (error "Only one public chain preset may be selected"))
-                    (setf chain-preset preset))))
+                    (when (string= option "--goerli")
+                      (error "--goerli has no built-in genesis preset"))
+                    (when (and genesis-preset
+                               (not (eq genesis-preset selected)))
+                      (error "Only one public network preset may be selected"))
+                    (setf genesis-preset selected))))
                ((string= option "--host")
                 (setf host (next-value option))
                 (setf default-public-host host))

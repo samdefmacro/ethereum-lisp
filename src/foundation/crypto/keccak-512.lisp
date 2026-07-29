@@ -120,4 +120,3 @@
       (dotimes (lane 8 output)
         (store-little-endian-u64
          (aref state lane) output (* lane 8))))))
-

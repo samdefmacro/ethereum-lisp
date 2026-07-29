@@ -246,7 +246,11 @@ given, is a predicate marking transactions the pool turns down."
                      (bytes= commitment verified-commitment)
                      (= +cell-proofs-per-blob+
                         (length verified-proofs))))))
-        (is (= 1 (eth-accept-transactions client served)))))
+        (is (= 1 (eth-accept-transactions client served)))
+        (setf stored-sidecar nil
+              accepted nil)
+        (is (= 1 (eth-accept-transactions
+                  client (list (cons transaction sidecar)))))))
     (is stored-sidecar)
     (is (eq transaction accepted))))
 

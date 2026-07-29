@@ -43,8 +43,8 @@
            (incf position))
          (parse-unicode-code-unit ()
            (let ((code 0))
-             (dotimes (index 4)
-               (declare (ignore index))
+             (loop repeat 4
+                   do
                (let ((digit (and (peek)
                                  (json-hex-value (consume)))))
                  (unless digit

@@ -139,4 +139,3 @@
                   (block-header-number header)))
     (apply-dao-hard-fork state))
   state)
-

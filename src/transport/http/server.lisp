@@ -84,9 +84,8 @@ report success while a worker still holds a connection."
                                  semaphore :timeout remaining))
                      ;; Give back what was reclaimed so a caller that keeps the
                      ;; semaphore does not see permits vanish.
-                     (dotimes (index acquired)
-                       (declare (ignore index))
-                       (sb-thread:signal-semaphore semaphore))
+                     (loop repeat acquired
+                           do (sb-thread:signal-semaphore semaphore))
                      (return nil)))
               finally (return t))))
   #-sbcl

@@ -33,10 +33,9 @@
   (member "*" hosts :test #'string=))
 
 (defun engine-rpc-http-host-name (host)
-  (let* ((host (and host (engine-rpc-http-trim host)))
-         (length (and host (length host))))
+  (let ((host (and host (engine-rpc-http-trim host))))
     (cond
-      ((or (null host) (zerop length))
+      ((or (null host) (zerop (length host)))
        nil)
       ((and (char= #\[ (char host 0))
             (position #\] host))

@@ -83,21 +83,24 @@ us the connection."
         (accepted 0))
     (when accept
       (dolist (entry transactions)
-        (let ((transaction entry))
-          (when (typep entry 'blob-network-transaction)
-            (let ((sidecar (blob-network-transaction-sidecar entry)))
-              (setf transaction
-                    (blob-network-transaction-transaction entry))
-              (validate-blob-sidecar-fields
-               sidecar :transaction transaction
-               :require-proof-verification t)
-              (unless accept-sidecar
-                (error "Received blob transaction but no sidecar store is configured"))
-              (funcall accept-sidecar sidecar)))
-          (when (and (not (typep transaction 'blob-transaction))
-                     (ignore-errors (funcall accept transaction) t))
-            (incf accepted))
-          (when (and (typep entry 'blob-network-transaction)
+        (let ((transaction entry)
+              (sidecar nil))
+          (cond
+            ((typep entry 'blob-network-transaction)
+             (setf transaction (blob-network-transaction-transaction entry)
+                   sidecar (blob-network-transaction-sidecar entry)))
+            ((and (consp entry)
+                  (typep (car entry) 'blob-transaction)
+                  (typep (cdr entry) 'blob-sidecar))
+             (setf transaction (car entry)
+                   sidecar (cdr entry))))
+          (when sidecar
+            (validate-blob-sidecar-fields
+             sidecar :transaction transaction :require-proof-verification t)
+            (unless accept-sidecar
+              (error "Received blob transaction but no sidecar store is configured"))
+            (funcall accept-sidecar sidecar))
+          (when (and (or (not (typep transaction 'blob-transaction)) sidecar)
                      (ignore-errors (funcall accept transaction) t))
             (incf accepted)))))
     accepted))
@@ -136,7 +139,8 @@ Hashes we cannot serve are left out: the reply may be short and reordered, and
 the peer matches it up by hash rather than by position."
   (let ((pooled (eth-serve-backend-pooled-transaction backend))
         (sidecar-reader
-          (eth-serve-backend-pooled-blob-sidecar backend))
+          (or (eth-serve-backend-pooled-blob-sidecar backend)
+              (eth-serve-backend-pooled-transaction-sidecar backend)))
         (found '())
         (examined 0))
     (when pooled

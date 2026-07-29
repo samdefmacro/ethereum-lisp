@@ -228,6 +228,7 @@ decodes, and the raw revert data in the error object's data member."
 
 (defun eth-rpc-simulate-block-result
     (block calls results block-overrides index)
+  (declare (ignore calls))
   (let* ((header (block-header block))
          (object (eth-rpc-block-object block nil))
          (number
@@ -238,7 +239,6 @@ decodes, and the raw revert data in the error object's data member."
            (eth-rpc-block-override-quantity
             block-overrides "time"
             (+ (block-header-timestamp header) index 1))))
-    (declare (ignore calls))
     (eth-rpc-set-object-field object "number" (quantity-to-hex number))
     (eth-rpc-set-object-field object "timestamp" (quantity-to-hex timestamp))
     (eth-rpc-set-object-field

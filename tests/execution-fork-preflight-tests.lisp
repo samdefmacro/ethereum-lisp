@@ -334,11 +334,11 @@
                                     :base-fee-per-gas 1))
          (transaction (make-legacy-transaction :nonce 0
                                                :gas-price 1
-                                               :gas-limit 30000
+                                               :gas-limit 250000
                                                :to recipient
                                                :value 1)))
     (state-db-set-account state sender
-                          (make-state-account :balance 100000))
+                          (make-state-account :balance 500000))
     (multiple-value-bind (block receipts)
         (execute-legacy-block state sender (list transaction)
                               :header header
@@ -353,7 +353,7 @@
             (block-access-list-hash (block-block-access-list block))))))
     (is (= 1 (state-account-nonce (state-db-get-account state sender))))
     (is (< (state-account-balance (state-db-get-account state sender))
-           100000))
+           500000))
     (is (= 1 (state-account-balance
               (state-db-get-account state recipient))))))
 
@@ -414,7 +414,7 @@
                                                :to recipient
                                                :value 1)))
     (state-db-set-account state sender
-                          (make-state-account :balance 100000))
+                          (make-state-account :balance 500000))
     (signals block-validation-error
       (execute-legacy-block state sender (list transaction)
                             :header header
@@ -441,7 +441,7 @@
                                                :to recipient
                                                :value 1)))
     (state-db-set-account state sender
-                          (make-state-account :balance 100000))
+                          (make-state-account :balance 500000))
     (signals block-validation-error
       (execute-legacy-block state sender (list transaction)
                             :header header

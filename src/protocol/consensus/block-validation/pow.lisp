@@ -96,9 +96,9 @@
 
 (defun ethash-seed-hash (epoch)
   (let ((seed (make-byte-vector 32)))
-    (dotimes (index epoch seed)
-      (declare (ignore index))
-      (setf seed (keccak-256 seed)))))
+    (loop repeat epoch
+          do (setf seed (keccak-256 seed))
+          finally (return seed))))
 
 (defun make-ethash-light-cache (epoch)
   (let* ((size (ethash-cache-size epoch))
@@ -110,21 +110,21 @@
           do (setf item (keccak-512 item))
              (replace cache item
                       :start1 (* index +ethash-hash-bytes+)))
-    (dotimes (round +ethash-cache-rounds+)
-      (declare (ignore round))
-      (dotimes (index count)
-        (let* ((offset (* index +ethash-hash-bytes+))
-               (previous-offset
-                 (* (mod (1- index) count) +ethash-hash-bytes+))
-               (selected
-                 (mod (ethash-little-endian-u32 cache offset) count))
-               (selected-offset (* selected +ethash-hash-bytes+))
-               (mixed (make-byte-vector +ethash-hash-bytes+)))
-          (dotimes (byte +ethash-hash-bytes+)
-            (setf (aref mixed byte)
-                  (logxor (aref cache (+ previous-offset byte))
-                          (aref cache (+ selected-offset byte)))))
-          (replace cache (keccak-512 mixed) :start1 offset))))
+    (loop repeat +ethash-cache-rounds+
+          do
+             (dotimes (index count)
+               (let* ((offset (* index +ethash-hash-bytes+))
+                      (previous-offset
+                        (* (mod (1- index) count) +ethash-hash-bytes+))
+                      (selected
+                        (mod (ethash-little-endian-u32 cache offset) count))
+                      (selected-offset (* selected +ethash-hash-bytes+))
+                      (mixed (make-byte-vector +ethash-hash-bytes+)))
+                 (dotimes (byte +ethash-hash-bytes+)
+                   (setf (aref mixed byte)
+                         (logxor (aref cache (+ previous-offset byte))
+                                 (aref cache (+ selected-offset byte)))))
+                 (replace cache (keccak-512 mixed) :start1 offset))))
     cache))
 
 (defun ethash-light-cache (epoch)
@@ -321,4 +321,3 @@
        (block-header-difficulty header)
        expected)))
   (verify-ethash-seal header))
-

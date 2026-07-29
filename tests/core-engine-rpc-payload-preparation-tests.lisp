@@ -901,7 +901,11 @@
               :parent-beacon-root-present-p t)))
       (chain-store-put-block store parent :state-available-p t)
       (commit-state-db-to-chain-store store parent-hash state)
-      (engine-payload-store-put-blob-sidecar store sidecar)
+      (let ((*kzg-blob-proof-verifier*
+              (lambda (blob verified-commitment proof)
+                (declare (ignore blob proof))
+                (bytes= commitment verified-commitment))))
+        (engine-payload-store-put-blob-sidecar store sidecar))
       (multiple-value-bind (block selected)
           (ethereum-lisp.engine-api::engine-rpc-build-viable-prepared-payload
            store parent attributes config (list transaction))

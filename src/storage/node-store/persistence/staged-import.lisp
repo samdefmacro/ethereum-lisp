@@ -1098,9 +1098,9 @@ cross-handle file-database serialization."
               (block-record header-record receipt-record state-record)
             (node-store-public-staged-import-anchor-records
              database anchor anchor-block)
+          (declare (ignore block-record))
           (let ((batch (make-kv-write-batch))
                 (identifier (hash32-bytes (block-hash anchor-block))))
-            (declare (ignore block-record))
             (node-store-put-immutable-block-body-record
              database batch :staged-block anchor-block
              "Pinned staged import anchor block")

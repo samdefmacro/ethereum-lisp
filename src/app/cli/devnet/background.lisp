@@ -297,6 +297,7 @@ policy.")
 Every branch is guarded by the sender having proved its endpoint, except Ping
 itself -- which is how a sender proves it. A packet we cannot decode is dropped:
 an unsigned or malformed datagram is not something to answer."
+  (declare (ignore port))
   (multiple-value-bind (type data sender) (decode-discv4-packet packet)
     (let ((now (unix-time)))
       (cond

@@ -97,14 +97,15 @@
                     "engine_getPayloadV5"
                     "engine_getPayloadV6"
                     "engine_getBlobsV1"
+                    "engine_getBlobsV2"
+                    "engine_getBlobsV3"
+                    "engine_getBlobsV4"
+                    "engine_hasBlobs"
                     "engine_newPayloadV3"
                     "engine_newPayloadV4"
                     "engine_newPayloadV5"
                     "engine_forkchoiceUpdatedV4"))
-    (is (member method capabilities :test #'string=)))
-  (dolist (method '("engine_getBlobsV2"
-                    "engine_getBlobsV3"))
-    (is (not (member method capabilities :test #'string=)))))
+    (is (member method capabilities :test #'string=))))
 
 (defun devnet-cli-assert-engine-capability-report (report)
   (is (plusp (fixture-object-field report "engineCapabilityCount")))

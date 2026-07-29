@@ -150,7 +150,7 @@ never as another thread sending on the peer."
                     (lambda (transaction)
                       (if (typep transaction 'blob-transaction)
                           (let ((sidecar
-                                  (devnet-store-blob-transaction-sidecar
+                                  (devnet-pooled-blob-sidecar
                                    store transaction)))
                             (and sidecar (cons transaction sidecar)))
                           transaction))

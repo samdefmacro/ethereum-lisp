@@ -278,17 +278,23 @@ otherwise a block number."
 ;;; strings; type 3 uses the EIP-4844 pooled wrapper so its sidecar follows it.
 
 (defun eth-pooled-entry-transaction (entry)
-  (if (and (consp entry)
-           (typep (car entry) 'blob-transaction)
-           (typep (cdr entry) 'blob-sidecar))
-      (car entry)
-      entry))
+  (cond
+    ((typep entry 'blob-network-transaction)
+     (blob-network-transaction-transaction entry))
+    ((and (consp entry)
+          (typep (car entry) 'blob-transaction)
+          (typep (cdr entry) 'blob-sidecar))
+     (car entry))
+    (t entry)))
 
 (defun eth-pooled-entry-sidecar (entry)
-  (and (consp entry)
-       (typep (car entry) 'blob-transaction)
-       (typep (cdr entry) 'blob-sidecar)
-       (cdr entry)))
+  (cond
+    ((typep entry 'blob-network-transaction)
+     (blob-network-transaction-sidecar entry))
+    ((and (consp entry)
+          (typep (car entry) 'blob-transaction)
+          (typep (cdr entry) 'blob-sidecar))
+     (cdr entry))))
 
 (defun eth-pooled-transaction-rlp-object (entry)
   (let ((transaction (eth-pooled-entry-transaction entry))
@@ -322,7 +328,7 @@ otherwise a block number."
 (defun eth-network-transaction-rlp-object (transaction)
   (if (typep transaction 'blob-network-transaction)
       (blob-network-transaction-encoding transaction)
-      (block-transaction-rlp-object transaction)))
+      (eth-pooled-transaction-rlp-object transaction)))
 
 (defun eth-network-transactions-rlp-object (transactions)
   (apply #'make-rlp-list
@@ -333,7 +339,15 @@ otherwise a block number."
       (transaction-from-encoding (rlp-encode value))
       (let ((bytes (ensure-byte-vector value)))
         (if (and (plusp (length bytes)) (= (aref bytes 0) 3))
-            (blob-network-transaction-from-rlp (subseq bytes 1))
+            (let ((network-transaction
+                    (blob-network-transaction-from-rlp (subseq bytes 1))))
+              (if (typep network-transaction 'blob-network-transaction)
+                  network-transaction
+                  (multiple-value-bind (transaction sidecar)
+                      (pooled-transaction-from-encoding bytes)
+                    (if sidecar
+                        (cons transaction sidecar)
+                        network-transaction))))
             (transaction-from-encoding bytes)))))
 
 (defun eth-network-transactions-from-rlp-object (value)

@@ -217,10 +217,14 @@
                            capabilities
                            :test #'string=))
                (is (member "engine_getBlobsV1" capabilities :test #'string=))
-               (is (not (member "engine_getBlobsV2"
-                                capabilities :test #'string=)))
-               (is (not (member "engine_getBlobsV3"
-                                capabilities :test #'string=)))))
+               (is (member "engine_getBlobsV2"
+                           capabilities :test #'string=))
+               (is (member "engine_getBlobsV3"
+                           capabilities :test #'string=))
+               (is (member "engine_getBlobsV4"
+                           capabilities :test #'string=))
+               (is (member "engine_hasBlobs"
+                           capabilities :test #'string=))))
         (setf ethereum-lisp.core:*kzg-point-proof-verifier* old-point-verifier
               ethereum-lisp.core:*kzg-blob-proof-verifier* old-blob-verifier
               ethereum-lisp.core:*bls12381-backend* old-bls-backend)))

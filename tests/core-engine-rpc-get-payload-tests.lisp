@@ -265,7 +265,7 @@
                                       :cancun-time 0
                                       :prague-time 0
                                       :osaka-time 0)))
-      (setf (aref blob 0) #xaa
+      (setf (aref blob 31) #x02
             (aref commitment 0) #xbb
             sidecar (make-blob-sidecar
                      :blobs (list blob)
@@ -350,7 +350,12 @@
            (bitmap (make-byte-vector 16)))
       (setf (aref bitmap 0) #x01
             (aref bitmap 15) #x80)
-      (engine-payload-store-put-blob-sidecar store sidecar)
+      (let ((*kzg-blob-proof-verifier*
+              (lambda (verified-blob verified-commitment verified-proof)
+                (and (bytes= blob verified-blob)
+                     (bytes= commitment verified-commitment)
+                     (bytes= proof verified-proof)))))
+        (engine-payload-store-put-blob-sidecar store sidecar))
       (let* ((response
                (engine-rpc-handle-request
                 (list

@@ -574,6 +574,7 @@
    #:eth-serve-backend-block-by-hash
    #:eth-serve-backend-pooled-transaction
    #:eth-serve-backend-pooled-blob-sidecar
+   #:eth-serve-backend-pooled-transaction-sidecar
    #:eth-serve-backend-known-transaction-p
    #:eth-serve-backend-accept-transaction
    #:eth-serve-backend-accept-blob-sidecar

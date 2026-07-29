@@ -827,26 +827,13 @@
     (is (search "Unknown option --wat"
                 (run-error (list "devnet" "--wat"))))))
 
-(deftest devnet-cli-public-chain-presets-use-network-provider
+(deftest devnet-cli-public-chain-presets-use-built-in-genesis
   (:layer :unit :module :cli)
-  (let* ((genesis
-           (ethereum-lisp.cli::devnet-cli-dev-genesis-json
-            :gas-limit 30000000
-            :coinbase (zero-address)))
-         (ethereum-lisp.cli:*devnet-chain-preset-provider*
-           (lambda (name)
-             (when (string= name "mainnet")
-               (ethereum-lisp.cli:make-devnet-chain-preset
-                :name name
-                :genesis-json genesis
-                :network-id 1
-                :bootnodes '()))))
-         (options
-           (ethereum-lisp.cli:devnet-cli-apply-chain-preset
-            (ethereum-lisp.cli::devnet-cli-options
-             '("devnet" "--mainnet" "--no-serve")))))
-    (is (string= "mainnet" (getf options :chain-preset)))
-    (is (= 1 (getf options :network-id)))
-    (is (string=
-         genesis
-         (ethereum-lisp.cli::devnet-cli-resolve-genesis-json options nil)))))
+  (let ((options
+          (ethereum-lisp.cli:devnet-cli-apply-chain-preset
+           (ethereum-lisp.cli::devnet-cli-options
+            '("devnet" "--mainnet" "--no-serve")))))
+    (is (eq :mainnet (getf options :genesis-preset)))
+    (is (null (getf options :chain-preset)))
+    (is (null (ethereum-lisp.cli::devnet-cli-resolve-genesis-json
+               options nil)))))

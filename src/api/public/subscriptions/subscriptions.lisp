@@ -227,6 +227,7 @@ without disturbing the journal."
 
 Returns NIL when nothing has changed, which is the common case and costs one
 head comparison."
+  (declare (ignore config))
   (let ((subscriptions (eth-rpc-subscription-registry-subscriptions registry))
         (messages '()))
     (when subscriptions
@@ -243,7 +244,6 @@ head comparison."
                                     (eth-rpc-subscription-kind s)))
                               subscriptions)
                     (eth-rpc-subscription-pending-hashes store registry))))
-            (declare (ignorable config))
             (dolist (subscription subscriptions)
               (let ((id (eth-rpc-subscription-id subscription)))
                 (ecase (eth-rpc-subscription-kind subscription)
