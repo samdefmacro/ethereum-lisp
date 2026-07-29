@@ -64,6 +64,7 @@
    #:forkchoice-state-finalized-block-hash
    #:payload-attributes-v1
    #:payload-attributes-v1-p
+   #:copy-payload-attributes-v1
    #:make-payload-attributes-v1
    #:payload-attributes-v1-timestamp
    #:payload-attributes-v1-prev-randao
@@ -81,6 +82,11 @@
    #:engine-prepared-payload-version
    #:engine-prepared-payload-block
    #:engine-prepared-payload-blobs-bundle
+   #:engine-prepared-payload-parent-hash
+   #:engine-prepared-payload-payload-attributes
+   #:engine-prepared-payload-gas-limit-target
+   #:engine-prepared-payload-candidate-transactions-root
+   #:engine-prepared-payload-open-p
    #:validate-engine-prepared-payload
    #:maybe-copy-bytes
    #:maybe-copy-withdrawals

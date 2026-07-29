@@ -40,6 +40,8 @@
          (public-error nil)
          (txpool-maintenance-error nil)
          (txpool-maintenance-thread nil)
+         (payload-improvement-error nil)
+         (payload-improvement-thread nil)
          (rejournal-error nil)
          (rejournal-thread nil)
          (dev-period-error nil)
@@ -98,6 +100,12 @@
            shutdown-controller
            (lambda (condition)
              (setf txpool-maintenance-error condition))))
+    (setf payload-improvement-thread
+          (devnet-start-payload-improvement-thread
+           node
+           shutdown-controller
+           (lambda (condition)
+             (setf payload-improvement-error condition))))
     (setf dev-period-thread
           (devnet-start-dev-period-thread
            node
@@ -196,6 +204,9 @@
         (when txpool-maintenance-thread
           (devnet-shutdown-request shutdown-controller)
           (sb-thread:join-thread txpool-maintenance-thread))
+        (when payload-improvement-thread
+          (devnet-shutdown-request shutdown-controller)
+          (sb-thread:join-thread payload-improvement-thread))
         (when dev-period-thread
           (devnet-shutdown-request shutdown-controller)
           (sb-thread:join-thread dev-period-thread))
@@ -290,6 +301,8 @@
         (error rejournal-error))
       (when txpool-maintenance-error
         (error txpool-maintenance-error))
+      (when payload-improvement-error
+        (error payload-improvement-error))
       (when dev-period-error
         (error dev-period-error))
 

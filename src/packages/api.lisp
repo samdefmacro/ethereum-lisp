@@ -66,6 +66,8 @@
    #:engine-rpc-forkchoice-response-object
    #:engine-rpc-handle-get-payload-v1
    #:engine-rpc-handle-forkchoice-updated-v1
+   #:engine-rpc-improve-prepared-payload
+   #:engine-rpc-improve-open-payloads
    #:engine-rpc-engine-method-p
    #:engine-rpc-required-eth-method-p
    #:+engine-rpc-required-eth-methods+

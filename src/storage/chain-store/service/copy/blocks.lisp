@@ -96,7 +96,20 @@
        (engine-prepared-payload-block prepared-payload))
       :blobs-bundle
       (maybe-copy-blob-sidecar
-       (engine-prepared-payload-blobs-bundle prepared-payload))))
+       (engine-prepared-payload-blobs-bundle prepared-payload))
+      :parent-hash
+      (maybe-copy-hash32
+       (engine-prepared-payload-parent-hash prepared-payload))
+      :payload-attributes
+      (let ((attributes
+              (engine-prepared-payload-payload-attributes prepared-payload)))
+        (and attributes (copy-payload-attributes-v1 attributes)))
+      :gas-limit-target
+      (engine-prepared-payload-gas-limit-target prepared-payload)
+      :candidate-transactions-root
+      (maybe-copy-hash32
+       (engine-prepared-payload-candidate-transactions-root prepared-payload))
+      :open-p (engine-prepared-payload-open-p prepared-payload)))
     (t prepared-payload)))
 
 (defun engine-payload-store-copy-prepared-payload-table (table)

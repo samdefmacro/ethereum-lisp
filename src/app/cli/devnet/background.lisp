@@ -2,6 +2,30 @@
 
 ;;;; Periodic background workers for devnet runtime maintenance.
 
+(defun devnet-start-payload-improvement-thread
+    (node shutdown-controller error-callback)
+  #-sbcl
+  (declare (ignore node shutdown-controller error-callback))
+  #-sbcl
+  nil
+  #+sbcl
+  (sb-thread:make-thread
+   (lambda ()
+     (handler-case
+         (loop until (devnet-shutdown-requested-p shutdown-controller)
+               do (sleep 0.1)
+                  (unless (devnet-shutdown-requested-p shutdown-controller)
+                    (call-with-devnet-node-store-guard
+                     node
+                     (lambda ()
+                       (engine-rpc-improve-open-payloads
+                        (devnet-node-store node)
+                        (devnet-node-config node))))))
+       (error (condition)
+         (funcall error-callback condition)
+         (devnet-shutdown-request shutdown-controller))))
+   :name "ethereum-lisp-devnet-payload-improvement"))
+
 (defun devnet-start-txpool-maintenance-thread
     (node shutdown-controller error-callback)
   #-sbcl
