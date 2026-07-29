@@ -8,6 +8,8 @@
 (defstruct (rlp-list (:constructor make-rlp-list (&rest items)))
   (items '() :type list))
 
+(defconstant +maximum-rlp-nesting-depth+ 64)
+
 (defun fail (control &rest args)
   (error 'rlp-error :message (apply #'format nil control args)))
 
@@ -55,12 +57,15 @@
   (require-available bytes payload-start length)
   (subseq bytes payload-start (+ payload-start length)))
 
-(defun decode-list-payload (bytes payload-start payload-end)
+(declaim (ftype function %rlp-decode))
+
+(defun decode-list-payload
+    (bytes payload-start payload-end depth maximum-depth)
   (loop with items = '()
         with position = payload-start
         while (< position payload-end)
         do (multiple-value-bind (item next-position)
-               (rlp-decode bytes :start position :allow-trailing t)
+               (%rlp-decode bytes position t (1+ depth) maximum-depth)
              (push item items)
              (setf position next-position))
         finally
@@ -69,9 +74,10 @@
                    position payload-end))
            (return (apply #'make-rlp-list (nreverse items)))))
 
-(defun rlp-decode (bytes &key (start 0) (allow-trailing nil))
-  (let* ((bytes (ensure-byte-vector bytes))
-         (input-length (length bytes)))
+(defun %rlp-decode (bytes start allow-trailing depth maximum-depth)
+  (when (> depth maximum-depth)
+    (fail "RLP nesting depth exceeds maximum ~D" maximum-depth))
+  (let ((input-length (length bytes)))
     (when (>= start input-length)
       (fail "No RLP item at byte ~D" start))
     (let ((prefix (aref bytes start)))
@@ -101,7 +107,8 @@
                     (payload-start (1+ start))
                     (payload-end (+ payload-start length)))
                (require-available bytes payload-start length)
-               (values (decode-list-payload bytes payload-start payload-end)
+               (values (decode-list-payload bytes payload-start payload-end
+                                            depth maximum-depth)
                        payload-end)))
             (t
              (let ((length-of-length (- prefix #xf7)))
@@ -112,11 +119,20 @@
                          start))
                  (let ((payload-end (+ payload-start length)))
                    (require-available bytes payload-start length)
-                   (values (decode-list-payload bytes payload-start payload-end)
+                   (values (decode-list-payload bytes payload-start payload-end
+                                                depth maximum-depth)
                            payload-end))))))
         (unless (or allow-trailing (= next-position input-length))
           (fail "Trailing bytes after RLP item at byte ~D" next-position))
         (values value next-position)))))
+
+(defun rlp-decode
+    (bytes &key (start 0) (allow-trailing nil)
+                (maximum-depth +maximum-rlp-nesting-depth+))
+  (unless (and (integerp maximum-depth) (not (minusp maximum-depth)))
+    (fail "RLP maximum depth must be a non-negative integer"))
+  (%rlp-decode (ensure-byte-vector bytes)
+               start allow-trailing 0 maximum-depth))
 
 (defun rlp-decode-one (bytes)
   (rlp-decode bytes))

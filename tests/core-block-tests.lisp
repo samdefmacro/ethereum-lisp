@@ -581,11 +581,9 @@
       (validate-block-header-against-config
        below-reserve-parent config-child config))))
 
-(deftest eip7918-reserve-price-uses-the-parent-blob-fee-update-fraction
-  ;; At the first block of a fork that changes the update fraction, the parent's
-  ;; blob base fee must be computed with the *parent's* fraction. Using the
-  ;; child's yields a lower fee, which trips the reserve-price branch and
-  ;; produces a different excess blob gas — a one-block chain split.
+(deftest eip7918-reserve-price-uses-the-child-blob-fee-update-fraction
+  ;; At the first block of a fork that changes the update fraction, EIP-7918
+  ;; evaluates the parent excess using the child's schedule.
   ;;
   ;; These values are chosen so the two fractions disagree: the reserve price
   ;; 8192 * 72 = 589824 sits between 131072 * blob_fee(6000000, osaka) = 393216
@@ -603,33 +601,24 @@
                               :timestamp 9
                               :blob-gas-used parent-used
                               :excess-blob-gas parent-excess))
-         (correct-excess (- (+ parent-excess parent-used) osaka-target-gas))
+         (old-schedule-excess
+           (- (+ parent-excess parent-used) osaka-target-gas))
          (reserve-excess
            (+ parent-excess
               (floor (* parent-used (- osaka-max-gas osaka-target-gas))
                      osaka-max-gas))))
     ;; The two candidate answers must actually differ, or the test proves nothing.
-    (is (/= correct-excess reserve-excess))
-    (is (= 5606784 correct-excess))
+    (is (/= old-schedule-excess reserve-excess))
+    (is (= 5606784 old-schedule-excess))
     (is (= 6131072 reserve-excess))
-    ;; Parent fraction (correct): reserve price does not apply.
-    (is (= correct-excess
-           (expected-excess-blob-gas
-            parent
-            :target-blob-gas osaka-target-gas
-            :max-blob-gas osaka-max-gas
-            :eip7918-p t
-            :update-fraction +osaka-blob-base-fee-update-fraction+
-            :parent-update-fraction +blob-base-fee-update-fraction+)))
-    ;; Child fraction everywhere (the old behavior): reserve price wrongly fires.
+    ;; The child fraction makes the reserve-price branch fire.
     (is (= reserve-excess
            (expected-excess-blob-gas
             parent
             :target-blob-gas osaka-target-gas
             :max-blob-gas osaka-max-gas
             :eip7918-p t
-            :update-fraction +osaka-blob-base-fee-update-fraction+
-            :parent-update-fraction +osaka-blob-base-fee-update-fraction+)))
+            :update-fraction +osaka-blob-base-fee-update-fraction+)))
     ;; Driven through the config path, at the Osaka -> BPO1 boundary. Prague and
     ;; Osaka share an update fraction in this model, so BPO1 is the first
     ;; boundary where parent and child fractions actually differ.
@@ -644,7 +633,8 @@
                                 :timestamp 9
                                 :blob-gas-used bpo-parent-used
                                 :excess-blob-gas bpo-parent-excess))
-           (bpo-correct (- (+ bpo-parent-excess bpo-parent-used) bpo1-target))
+           (bpo-old-schedule
+             (- (+ bpo-parent-excess bpo-parent-used) bpo1-target))
            (bpo-reserve
              (+ bpo-parent-excess
                 (floor (* bpo-parent-used (- bpo1-max bpo1-target)) bpo1-max)))
@@ -659,15 +649,15 @@
                                      :gas-limit 30000000
                                      :base-fee-per-gas 24
                                      :blob-gas-used 0
-                                     :excess-blob-gas bpo-correct
+                                     :excess-blob-gas bpo-reserve
                                      :parent-beacon-root (zero-hash32)
                                      :requests-hash
                                      (execution-requests-hash '()))))
-      (is (/= bpo-correct bpo-reserve))
-      (is (= 3344640 bpo-correct))
+      (is (/= bpo-old-schedule bpo-reserve))
+      (is (= 3344640 bpo-old-schedule))
       (is (= 4218453 bpo-reserve))
       (is (validate-block-header-against-config bpo-parent child config))
-      (setf (block-header-excess-blob-gas child) bpo-reserve)
+      (setf (block-header-excess-blob-gas child) bpo-old-schedule)
       (signals block-validation-error
         (validate-block-header-against-config bpo-parent child config)))))
 
