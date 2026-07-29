@@ -11,7 +11,8 @@
                       txpool-account-slot-limit txpool-global-slot-limit
                       txpool-account-queue-limit txpool-global-queue-limit
                       txpool-local-addresses txpool-no-local-exemptions-p
-                      txpool-lifetime-seconds txpool-now admin-backend)))
+                      txpool-lifetime-seconds txpool-now admin-backend
+                      gas-limit-target)))
   store
   config
   import-function
@@ -32,7 +33,8 @@
   txpool-no-local-exemptions-p
   txpool-lifetime-seconds
   admin-backend
-  txpool-now)
+  txpool-now
+  gas-limit-target)
 
 (defun make-rpc-context
     (store config &key import-function
@@ -53,7 +55,8 @@
                        txpool-no-local-exemptions-p
                        txpool-lifetime-seconds
                        admin-backend
-                       txpool-now)
+                       txpool-now
+                       gas-limit-target)
   (unless (functionp allowed-method-p)
     (block-validation-fail "JSON-RPC method filter must be a function"))
   (when (and new-payload-persistence-function
@@ -89,7 +92,8 @@
    :txpool-no-local-exemptions-p txpool-no-local-exemptions-p
    :txpool-lifetime-seconds txpool-lifetime-seconds
    :admin-backend admin-backend
-   :txpool-now txpool-now))
+   :txpool-now txpool-now
+   :gas-limit-target gas-limit-target))
 
 (defun rpc-context-with-txpool-now (context txpool-now)
   (unless (typep context 'rpc-context)
@@ -157,7 +161,8 @@
            :new-payload-persistence-function
            (rpc-context-new-payload-persistence-function context)
            :forkchoice-persistence-function
-           (rpc-context-forkchoice-persistence-function context))
+           (rpc-context-forkchoice-persistence-function context)
+           :gas-limit-target (rpc-context-gas-limit-target context))
           (rpc-dispatch-public-method id method params context)
           (rpc-method-not-found-response id))
       (rpc-method-not-found-response id)))

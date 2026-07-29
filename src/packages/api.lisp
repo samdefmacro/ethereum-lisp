@@ -154,6 +154,7 @@
    #:rpc-context-new-payload-persistence-function
    #:rpc-context-network-id
    #:rpc-context-coinbase
+   #:rpc-context-gas-limit-target
    #:rpc-context-allowed-method-p
    #:rpc-context-rebind
    #:rpc-context-with-txpool-now

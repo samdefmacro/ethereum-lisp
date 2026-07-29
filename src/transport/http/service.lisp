@@ -102,6 +102,7 @@
        txpool-local-addresses
        txpool-no-local-exemptions-p
        txpool-lifetime-seconds
+       gas-limit-target
        admin-backend
        (telemetry-sink ethereum-lisp.telemetry:*telemetry-sink*))
   (unless (stringp host)
@@ -155,7 +156,8 @@
              (,txpool-global-slot-limit . "txpool global slot limit")
              (,txpool-account-queue-limit . "txpool account queue limit")
              (,txpool-global-queue-limit . "txpool global queue limit")
-             (,txpool-lifetime-seconds . "txpool lifetime")))
+             (,txpool-lifetime-seconds . "txpool lifetime")
+             (,gas-limit-target . "builder gas limit target")))
     (engine-rpc-http-validate-optional-non-negative
      (car value-and-label) (cdr value-and-label)))
   (when (and txpool-local-addresses
@@ -188,6 +190,7 @@
     :txpool-local-addresses txpool-local-addresses
     :txpool-no-local-exemptions-p txpool-no-local-exemptions-p
     :txpool-lifetime-seconds txpool-lifetime-seconds
+    :gas-limit-target gas-limit-target
     :admin-backend admin-backend)
    :jwt-secret jwt-secret
    :now-provider now-provider

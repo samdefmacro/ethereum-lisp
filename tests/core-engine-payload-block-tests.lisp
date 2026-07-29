@@ -250,3 +250,16 @@
              (block-header-excess-blob-gas header))))
     ;; The node's own validator must accept what its builder produced.
     (is (validate-block-header-against-config parent-header header config))))
+
+(deftest engine-builder-hones-gas-limit-toward-operator-target
+  (:layer :unit :module :engine)
+  (let ((parent-limit 30000000))
+    (is (= (+ parent-limit (1- (floor parent-limit 1024)))
+           (ethereum-lisp.engine-payloads:engine-target-gas-limit
+            parent-limit 60000000)))
+    (is (= (- parent-limit (1- (floor parent-limit 1024)))
+           (ethereum-lisp.engine-payloads:engine-target-gas-limit
+            parent-limit 10000000)))
+    (is (= parent-limit
+           (ethereum-lisp.engine-payloads:engine-target-gas-limit
+            parent-limit nil)))))
