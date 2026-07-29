@@ -118,6 +118,7 @@
           #x49a7b37aa6f6645917e7b807e9d1c00d4fa71f18343b0d4122a4d2df64dd6fee)
          (advertised-id (node-id-from-private-key
                          #x0102030405060708090a0b0c0d0e0f101112131415161718))
+         (client-from nil)
          (server-error nil))
     (multiple-value-bind (server-socket server-port)
         (ethereum-lisp.p2p:discv4-make-socket :host "127.0.0.1" :port 0)
@@ -141,6 +142,10 @@
                                             :address (list peer-addr peer-port))))
                                     (cond
                                       ((= type ethereum-lisp.p2p:+discv4-packet-ping+)
+                                       (setf client-from
+                                             (ethereum-lisp.p2p:discv4-ping-from
+                                              (ethereum-lisp.p2p:decode-discv4-ping
+                                               data)))
                                        (reply
                                         (ethereum-lisp.p2p:encode-discv4-packet
                                          server-priv ethereum-lisp.p2p:+discv4-packet-pong+
@@ -166,12 +171,22 @@
              (let* ((enode (enode-url server-id "127.0.0.1" server-port)))
                (multiple-value-bind (enodes bonded)
                    (ethereum-lisp.p2p:discv4-find-peers enode client-priv
-                                                        :timeout-seconds 5)
+                                                        :timeout-seconds 5
+                                                        :local-tcp-port 30399
+                                                        :advertised-host
+                                                        "127.0.0.1")
                  (sb-thread:join-thread server-thread)
                  (when server-error
                    (error "discv4 bootnode side failed: ~A" server-error))
                  ;; The Ping/Pong endpoint proof completed.
                  (is bonded)
+                 ;; The claimed TCP endpoint is the node's real listener, not
+                 ;; the crawl's ephemeral UDP source port.
+                 (is (not (null client-from)))
+                 (when client-from
+                   (is (= 30399
+                          (ethereum-lisp.p2p:discv4-endpoint-tcp-port
+                           client-from))))
                  ;; The advertised neighbor came back as a dialable enode.
                  (is (= 1 (length enodes)))
                  (multiple-value-bind (id host tcp disc) (parse-enode-url (first enodes))

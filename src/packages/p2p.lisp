@@ -97,6 +97,8 @@
    #:discv4-table-bonded-p
    #:discv4-table-put
    #:discv4-table-note-failure
+   #:discv4-table-note-ping
+   #:discv4-table-accept-pong
    #:discv4-table-remove
    #:discv4-table-entries
    #:discv4-table-closest

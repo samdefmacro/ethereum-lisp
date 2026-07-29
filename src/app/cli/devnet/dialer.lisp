@@ -209,6 +209,11 @@ for one that failed."
       (call-with-devnet-peer-table
        node
        (lambda ()
+         (when (eq outcome :failed)
+           (ignore-errors
+            (discv4-table-note-failure
+             (devnet-node-discovery-table node)
+             (node-id-from-hex id-hex))))
          (devnet-dial-registry-mark-done
           (devnet-node-dial-registry node) id-hex (unix-time)
           :outcome outcome))))))

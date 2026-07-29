@@ -95,7 +95,9 @@ immediately."
 
 (defun discv4-find-peers (bootnode-enode private-key
                           &key (timeout-seconds 5) target
-                               (local-host "0.0.0.0") (local-port 0))
+                               (local-host "0.0.0.0") (local-port 0)
+                               (local-tcp-port local-port)
+                               (advertised-host "127.0.0.1"))
   "Discover peers via a bootnode. Returns (VALUES ENODE-URLS BONDED-P).
 
 Sends a Ping to BOOTNODE-ENODE and waits for the matching Pong (endpoint
@@ -110,7 +112,8 @@ the bootnode has no neighbors to return."
       (unwind-protect
            (let* ((our-node-id (node-id-from-private-key private-key))
                   (boot-id (ensure-byte-vector boot-id))
-                  (from (discv4-endpoint-for-host "127.0.0.1" local-udp local-udp))
+                  (from (discv4-endpoint-for-host
+                         advertised-host local-udp local-tcp-port))
                   (to (discv4-endpoint-for-host boot-host boot-disc boot-tcp))
                   (ping-packet
                     (encode-discv4-packet
@@ -228,6 +231,8 @@ last one before the crawl is willing to conclude. Our policy.")
 (defun discv4-lookup (bootnode-enodes private-key
                       &key (alpha 3) (max-queries 16) (timeout-seconds 8)
                            (local-host "0.0.0.0") (local-port 0)
+                           (local-tcp-port local-port)
+                           (advertised-host "127.0.0.1")
                            record-filter)
   "Crawl outward from BOOTNODE-ENODES to discover peers over one persistent UDP
 socket. Bonds with known nodes, sends FindNode toward random targets, and folds
@@ -252,7 +257,8 @@ simply re-tried by the next crawl."
     (multiple-value-bind (socket local-udp)
         (discv4-make-socket :host local-host :port local-port)
       (unwind-protect
-           (let ((from (discv4-endpoint-for-host "127.0.0.1" local-udp local-udp))
+           (let ((from (discv4-endpoint-for-host
+                        advertised-host local-udp local-tcp-port))
                  (seen (make-hash-table :test 'equal))    ; id-hex -> discv4-node
                  (bonded (make-hash-table :test 'equal))  ; id-hex -> t
                  (pinged (make-hash-table :test 'equal))  ; id-hex -> t
@@ -517,26 +523,41 @@ simply re-tried by the next crawl."
 ;;;; protocol decisions can be tested without a socket. The loop that owns the
 ;;;; socket lives in the CLI layer with the other threads.
 
-(defun discv4-serve-ping (private-key table packet data sender host now)
-  "Answer a Ping: Pong first, and record the sender as bonded.
+(defun discv4-serve-ping
+    (private-key table packet data sender host port now &key local-endpoint)
+  "Answer a Ping and begin, but do not complete, an endpoint proof.
 
 The Pong echoes the hash of the ping packet, which is what proves to the sender
-that we received THAT ping rather than replaying an old one. Recording the
-sender bonded is the other half of the endpoint proof: it answered from the
-address it claimed, so it can now be handed to other peers."
+that we received THAT ping rather than replaying an old one. An unsolicited
+Ping proves nothing about the sender; when LOCAL-ENDPOINT is supplied, a Ping
+back is returned as the second value and only its matching Pong may bond it."
   (let ((ping (decode-discv4-ping data)))
     (unless (discv4-expired-p (discv4-ping-expiration ping))
-      (let ((from (discv4-ping-from ping)))
-        (discv4-table-put table sender host
-                          (discv4-endpoint-udp-port from)
-                          (discv4-endpoint-tcp-port from)
-                          now :bonded t)
-        (encode-discv4-packet
-         private-key +discv4-packet-pong+
-         (encode-discv4-pong
-          (make-discv4-pong :to from
-                            :ping-hash (subseq packet 0 32)
-                            :expiration (discv4-expiration))))))))
+      (let* ((claimed (discv4-ping-from ping))
+             (observed (discv4-endpoint-for-host
+                        host port (discv4-endpoint-tcp-port claimed)))
+             (entry (discv4-table-put
+                     table sender host port
+                     (discv4-endpoint-tcp-port claimed) now))
+             (pong
+               (encode-discv4-packet
+                private-key +discv4-packet-pong+
+                (encode-discv4-pong
+                 (make-discv4-pong :to observed
+                                   :ping-hash (subseq packet 0 32)
+                                   :expiration (discv4-expiration)))))
+             (ping-back
+               (when (and entry local-endpoint)
+                 (encode-discv4-packet
+                  private-key +discv4-packet-ping+
+                  (encode-discv4-ping
+                   (make-discv4-ping
+                    :from local-endpoint
+                    :to observed
+                    :expiration (discv4-expiration)))))))
+        (when ping-back
+          (discv4-table-note-ping table sender (subseq ping-back 0 32)))
+        (values pong ping-back)))))
 
 (defun discv4-neighbors-packets (private-key nodes)
   "Encode NODES as Neighbors packets, split to stay inside the datagram limit.
@@ -565,7 +586,37 @@ split. Sending one oversized datagram would simply be dropped."
             packets))
     (nreverse packets)))
 
-(defun discv4-serve-find-node (private-key table data sender now)
+(defun discv4-private-ip-p (ip)
+  "Whether IPv4 IP is non-routable and must not be relayed to a public peer."
+  (let ((ip (ensure-byte-vector ip)))
+    (or (/= (length ip) 4)
+        (let ((a (aref ip 0))
+              (b (aref ip 1)))
+          (or (= a 0)
+              (= a 10)
+              (= a 127)
+              (and (= a 169) (= b 254))
+              (and (= a 172) (<= 16 b 31))
+              (and (= a 192) (= b 168))
+              (>= a 224))))))
+
+(defun discv4-relay-address-p (entry requester-host)
+  "Whether ENTRY may be relayed to REQUESTER-HOST.
+
+Private peers may learn private neighbors; public peers never receive private,
+loopback, link-local, multicast, or otherwise non-routable addresses."
+  (or (null requester-host)
+      (let ((requester-private
+              (discv4-private-ip-p
+               (sb-bsd-sockets:make-inet-address requester-host)))
+            (entry-private
+              (discv4-private-ip-p
+               (sb-bsd-sockets:make-inet-address
+                (discv4-table-entry-host entry)))))
+        (or requester-private (not entry-private)))))
+
+(defun discv4-serve-find-node
+    (private-key table data sender now &key requester-host)
   "Answer a FindNode with the bonded nodes nearest the target, as packets.
 
 REFUSES a sender that has not proved its own endpoint. Without that check we
@@ -583,13 +634,17 @@ byte of effort it cost the attacker."
                               (discv4-table-entry-udp-port entry)
                               (discv4-table-entry-tcp-port entry)
                               (discv4-table-entry-node-id entry)))
-                           (discv4-table-closest
-                            table (discv4-find-node-target request)))))
+                           (remove-if-not
+                            (lambda (entry)
+                              (discv4-relay-address-p entry requester-host))
+                            (discv4-table-closest
+                             table (discv4-find-node-target request)
+                             :now now)))))
         (when nodes
           (discv4-neighbors-packets private-key nodes))))))
 
 (defun discv4-serve-enr-request (private-key table data sender packet now
-                                 &key record-pairs)
+                                 &key record-pairs (record-seq 1))
   "Answer an ENRRequest with our signed record.
 
 Bonded senders only, for the same amplification reason as FindNode: a signed
@@ -607,5 +662,5 @@ indistinguishable from a node on somebody else's."
        private-key +discv4-packet-enr-response+
        (encode-discv4-enr-response
         (make-discv4-enr-response :request-hash (subseq packet 0 32)
-                                  :record (encode-enr private-key 1
+                                  :record (encode-enr private-key record-seq
                                                       record-pairs)))))))

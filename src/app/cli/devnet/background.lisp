@@ -113,14 +113,36 @@ refresh succeeds, which turns filtering off rather than rejecting everybody."
       (devnet-node-chain-context-cache node))))
 
 (defun devnet-node-record-pairs (node)
-  "The chain-specific ENR entries this node advertises.
+  "The endpoint and chain-specific ENR entries this node advertises.
 
 Recomputed per request rather than cached, because our fork id moves as the head
 crosses a fork and a record still advertising the previous one is precisely the
 stale advertisement that gets a node filtered out."
-  (let ((chain-context (devnet-node-chain-context node)))
-    (when chain-context
-      (eth-chain-context-record-pairs chain-context))))
+  (let* ((chain-context (devnet-node-chain-context node))
+         (host (eth-sync-socket-endpoint-host
+                (or (devnet-node-p2p-host node) "0.0.0.0")))
+         (port (devnet-node-p2p-port node))
+         (endpoint-pairs
+           (when port
+             (list
+              (cons "ip"
+                    (ensure-byte-vector
+                     (sb-bsd-sockets:make-inet-address host)))
+              (cons "tcp" (integer-to-minimal-bytes port))
+              (cons "udp" (integer-to-minimal-bytes port))))))
+    (let ((pairs
+            (append endpoint-pairs
+                    (when chain-context
+                      (eth-chain-context-record-pairs chain-context)))))
+      (unless (equalp pairs (devnet-node-enr-pairs node))
+        (when (devnet-node-enr-pairs node)
+          (incf (devnet-node-enr-seq node)))
+        (setf (devnet-node-enr-pairs node) pairs))
+      pairs)))
+
+(defun devnet-node-record-seq (node)
+  "The monotonic sequence of the endpoint/fork-id pairs last constructed."
+  (devnet-node-enr-seq node))
 
 (defun devnet-discovery-record-filter (node)
   "A predicate on a discovered node's ENR: is it on our chain?
@@ -174,6 +196,10 @@ crawl is logged and retried; only an escaping error is fail-stop."
                          (discv4-lookup
                           bootnodes private-key
                           :timeout-seconds +devnet-discovery-crawl-seconds+
+                          :local-tcp-port (or (devnet-node-p2p-port node) 0)
+                          :advertised-host
+                          (eth-sync-socket-endpoint-host
+                           (or (devnet-node-p2p-host node) "0.0.0.0"))
                           :record-filter record-filter)
                        ;; Log the crawl's shape every time, not just when it
                        ;; goes wrong. A filtered crawl legitimately returns far
@@ -237,13 +263,22 @@ an unsigned or malformed datagram is not something to answer."
     (let ((now (unix-time)))
       (cond
         ((= type +discv4-packet-ping+)
-         (let ((pong (discv4-serve-ping private-key table packet data sender
-                                        host now)))
+         (multiple-value-bind (pong ping-back)
+             (discv4-serve-ping
+              private-key table packet data sender host port now
+              :local-endpoint
+              (discv4-endpoint-for-host
+               (eth-sync-socket-endpoint-host
+                (or (devnet-node-p2p-host node) "0.0.0.0"))
+               (devnet-node-p2p-port node)
+               (devnet-node-p2p-port node)))
            (when pong
              (devnet-peer-manager-log node "p2p.discovery.ping" "host" host)
-             (list pong))))
+             (remove nil (list pong ping-back)))))
         ((= type +discv4-packet-find-node+)
-         (let ((packets (discv4-serve-find-node private-key table data sender now)))
+         (let ((packets (discv4-serve-find-node
+                         private-key table data sender now
+                         :requester-host host)))
            (when packets
              (devnet-peer-manager-log node "p2p.discovery.find_node"
                                       "host" host "packets" (length packets)))
@@ -251,16 +286,15 @@ an unsigned or malformed datagram is not something to answer."
         ((= type +discv4-packet-enr-request+)
          (let ((response (discv4-serve-enr-request
                           private-key table data sender packet now
-                          :record-pairs (devnet-node-record-pairs node))))
+                          :record-pairs (devnet-node-record-pairs node)
+                          :record-seq (devnet-node-record-seq node))))
            (when response (list response))))
         ((= type +discv4-packet-pong+)
-         ;; Somebody answered a Ping of ours: proof enough to keep them.
-         (let ((entry (discv4-table-entry table sender)))
-           (when entry
-             (discv4-table-put table sender host
-                               (discv4-table-entry-udp-port entry)
-                               (discv4-table-entry-tcp-port entry)
-                               now :bonded t)))
+         ;; Only the exact answer to our outstanding Ping proves the endpoint.
+         (let ((pong (decode-discv4-pong data)))
+           (unless (discv4-expired-p (discv4-pong-expiration pong))
+             (discv4-table-accept-pong
+              table sender host port (discv4-pong-ping-hash pong) now)))
          nil)
         ((= type +discv4-packet-neighbors+)
          ;; Nodes somebody else vouches for. Recorded UNBONDED: we have not

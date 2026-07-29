@@ -154,7 +154,12 @@
   ;; The last eth chain context discovery managed to read, kept so discovery
   ;; never has to WAIT for the store guard to learn our fork id. See
   ;; DEVNET-NODE-CHAIN-CONTEXT for why waiting there is not an option.
-  (chain-context-cache nil))
+  (chain-context-cache nil)
+  ;; EIP-778 sequence and the exact pairs it describes. The responder updates
+  ;; these under the peer-table lock, so a changed endpoint/fork id increments
+  ;; monotonically even across a chain reorg whose head number decreases.
+  (enr-seq 1)
+  (enr-pairs nil))
 
 (defun devnet-make-mutex (name)
   "A mutex on SBCL, NIL elsewhere. CALL-WITH-DEVNET-MUTEX degrades accordingly."

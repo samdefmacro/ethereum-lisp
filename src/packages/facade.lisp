@@ -444,6 +444,9 @@
    #:+discv4-packet-enr-response+
    #:+discv4-max-packet-size+
    #:decode-discv4-packet
+   #:decode-discv4-pong
+   #:discv4-pong-expiration
+   #:discv4-pong-ping-hash
    #:decode-discv4-neighbors
    #:discv4-neighbors-nodes
    #:discv4-neighbors-expiration
@@ -453,6 +456,7 @@
    #:discv4-node-node-id
    #:discv4-expired-p
    #:discv4-ip-string
+   #:discv4-endpoint-for-host
    #:discv4-make-socket
    #:discv4-send-to
    #:discv4-receive
@@ -472,6 +476,8 @@
    #:discv4-table-bonded-p
    #:discv4-table-put
    #:discv4-table-note-failure
+   #:discv4-table-note-ping
+   #:discv4-table-accept-pong
    #:discv4-table-remove
    #:discv4-table-entries
    #:discv4-table-closest
