@@ -277,6 +277,46 @@
           finally
             (error "Unable to sign blob transaction fixture"))))
 
+(deftest blob-pooled-transaction-wrapper-roundtrips-sidecar
+  (let* ((commitment (make-byte-vector 48 :initial-element 7))
+         (transaction
+           (fixture-sign-blob-transaction
+            (make-blob-transaction
+             :chain-id 1
+             :nonce 2
+             :max-priority-fee-per-gas 3
+             :max-fee-per-gas 4
+             :gas-limit 21000
+             :to (zero-address)
+             :max-fee-per-blob-gas 5
+             :blob-versioned-hashes
+             (list (kzg-commitment-to-versioned-hash commitment)))
+            1))
+         (sidecar
+           (make-blob-sidecar
+            :blobs
+            (list
+             (let ((blob (make-byte-vector 3)))
+               (setf (aref blob 0) 1
+                     (aref blob 1) 2
+                     (aref blob 2) 3)
+               blob))
+            :commitments (list commitment)
+            :proofs (list (make-byte-vector 48 :initial-element 9))))
+         (encoding
+           (blob-pooled-transaction-encoding transaction sidecar)))
+    (multiple-value-bind (decoded decoded-sidecar)
+        (pooled-transaction-from-encoding encoding)
+      (is (typep decoded 'blob-transaction))
+      (is (equalp (transaction-encoding transaction)
+                  (transaction-encoding decoded)))
+      (is (equalp (blob-sidecar-blobs sidecar)
+                  (blob-sidecar-blobs decoded-sidecar)))
+      (is (equalp (blob-sidecar-commitments sidecar)
+                  (blob-sidecar-commitments decoded-sidecar)))
+      (is (equalp (blob-sidecar-proofs sidecar)
+                  (blob-sidecar-proofs decoded-sidecar))))))
+
 (deftest typed-transaction-signing-hash-vectors
   (let ((empty-access
           (make-access-list-transaction :chain-id 1 :nonce 1))

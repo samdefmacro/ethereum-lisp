@@ -1,5 +1,36 @@
 (in-package #:ethereum-lisp.txpool.index)
 
+(defun engine-pending-txpool-cheapest-transaction
+    (transactions &optional sender-key)
+  (loop with cheapest = nil
+        for transaction being the hash-values of transactions
+        when (or (null sender-key)
+                 (equalp sender-key
+                         (engine-pending-txpool-sender-key transaction)))
+          do (when (or (null cheapest)
+                       (< (transaction-max-priority-fee-per-gas transaction)
+                          (transaction-max-priority-fee-per-gas cheapest)))
+               (setf cheapest transaction))
+        finally (return cheapest)))
+
+(defun engine-pending-txpool-evict-cheapest-or-fail
+    (txpool transactions sender-index transaction failure-message
+     &optional sender-key)
+  (let ((victim
+          (engine-pending-txpool-cheapest-transaction
+           transactions sender-key)))
+    (unless (and victim
+                 (> (transaction-max-priority-fee-per-gas transaction)
+                    (transaction-max-priority-fee-per-gas victim)))
+      (block-validation-fail failure-message))
+    (engine-pending-txpool-unindex-transaction sender-index victim)
+    (remhash
+     (engine-pending-txpool-hash-key (transaction-hash victim))
+     transactions)
+    (engine-pending-txpool-clear-admission-time txpool victim)
+    (engine-pending-txpool-record-transaction-change txpool victim)
+    victim))
+
 (defun engine-pending-txpool-put-pending-transaction
     (txpool transaction
      &key (price-bump-percent +txpool-replacement-price-bump-percent+)
@@ -25,18 +56,21 @@
                    txpool
                    transaction)))
             (when (and (null conflict)
-                       global-slot-limit
-                       (>= (hash-table-count transactions) global-slot-limit))
-              (block-validation-fail
-               "Pending transaction exceeds txpool global slot limit"))
-            (when (and (null conflict)
                        account-slot-limit
                        (>= (engine-pending-txpool-sender-index-count
                             sender-index
                             transaction)
                            account-slot-limit))
-              (block-validation-fail
-               "Pending transaction exceeds txpool account slot limit"))
+              (engine-pending-txpool-evict-cheapest-or-fail
+               txpool transactions sender-index transaction
+               "Pending transaction underpriced for full account slots"
+               (engine-pending-txpool-sender-key transaction)))
+            (when (and (null conflict)
+                       global-slot-limit
+                       (>= (hash-table-count transactions) global-slot-limit))
+              (engine-pending-txpool-evict-cheapest-or-fail
+               txpool transactions sender-index transaction
+               "Pending transaction underpriced for full global slots"))
             (when conflict
               (unless (engine-pending-txpool-replacement-transaction-p
                        conflict transaction
@@ -91,18 +125,21 @@
                    sender-index
                    transaction)))
             (when (and (null conflict)
-                       global-queue-limit
-                       (>= (hash-table-count transactions) global-queue-limit))
-              (block-validation-fail
-               "Queued transaction exceeds txpool global queue limit"))
-            (when (and (null conflict)
                        account-queue-limit
                        (>= (engine-pending-txpool-sender-index-count
                             sender-index
                             transaction)
                            account-queue-limit))
-              (block-validation-fail
-               "Queued transaction exceeds txpool account queue limit"))
+              (engine-pending-txpool-evict-cheapest-or-fail
+               txpool transactions sender-index transaction
+               "Queued transaction underpriced for full account queue"
+               (engine-pending-txpool-sender-key transaction)))
+            (when (and (null conflict)
+                       global-queue-limit
+                       (>= (hash-table-count transactions) global-queue-limit))
+              (engine-pending-txpool-evict-cheapest-or-fail
+               txpool transactions sender-index transaction
+               "Queued transaction underpriced for full global queue"))
             (when conflict
               (unless (engine-pending-txpool-replacement-transaction-p
                        conflict transaction
@@ -134,6 +171,7 @@
 (defun engine-pending-txpool-put-flat-transaction
     (txpool transactions sender-index transaction target replacement-label
      &key (price-bump-percent +txpool-replacement-price-bump-percent+)
+          global-slot-limit
           admitted-at)
   (let ((key (engine-pending-txpool-hash-key
               (transaction-hash transaction)))
@@ -151,6 +189,14 @@
                   (engine-pending-txpool-indexed-conflict
                    sender-index
                    transaction)))
+            (when (and (null conflict)
+                       global-slot-limit
+                       (>= (hash-table-count transactions) global-slot-limit))
+              (engine-pending-txpool-evict-cheapest-or-fail
+               txpool transactions sender-index transaction
+               (format nil
+                       "~A transaction underpriced for full subpool"
+                       replacement-label)))
             (when conflict
               (unless (engine-pending-txpool-replacement-transaction-p
                        conflict transaction
@@ -183,6 +229,7 @@
 (defun engine-pending-txpool-put-basefee-transaction
     (txpool transaction
      &key (price-bump-percent +txpool-replacement-price-bump-percent+)
+          global-slot-limit
           admitted-at)
   (engine-pending-txpool-put-flat-transaction
    txpool
@@ -192,11 +239,13 @@
    :basefee
    "Basefee"
    :price-bump-percent price-bump-percent
+   :global-slot-limit global-slot-limit
    :admitted-at admitted-at))
 
 (defun engine-pending-txpool-put-blob-transaction
     (txpool transaction
      &key (price-bump-percent +txpool-replacement-price-bump-percent+)
+          global-slot-limit
           admitted-at)
   (engine-pending-txpool-put-flat-transaction
    txpool
@@ -206,4 +255,5 @@
    :blob
    "Blob"
    :price-bump-percent price-bump-percent
+   :global-slot-limit global-slot-limit
    :admitted-at admitted-at))

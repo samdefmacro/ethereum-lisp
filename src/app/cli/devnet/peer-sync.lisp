@@ -113,11 +113,9 @@ THIS IS THE SEAM THAT MAKES US A CONTRIBUTOR RATHER THAN A CONSUMER: without it
 a transaction submitted to our RPC reaches no one, and our pool only ever drains
 into blocks we build ourselves.
 
-It POLLS AND DIFFS rather than consuming a change feed, and that is deliberate.
-The txpool's dirty-key set looks like the obvious feed, but it is
-single-consumer and cleared by the journal exporter -- reading it here would
-silently break journaling. Polling costs one guarded snapshot per tick and
-cannot break anything else.
+It consumes the txpool's independent bounded change log.  This does not share
+the journal exporter's dirty-key set, so journaling and every peer have separate
+cursors.  Falling behind the bound triggers one full pooled snapshot.
 
 The known set is per session and bounded; clearing it on overflow re-sends at
 worst, which a peer discards.
@@ -126,22 +124,51 @@ Returns a CLOSURE because the session loop is the only thread allowed to write
 to its connection: outbound work has to arrive as data for that loop to send,
 never as another thread sending on the peer."
   (let ((store (devnet-node-store node))
-        (known (make-hash-table :test #'equalp)))
+        (known (make-hash-table :test #'equalp))
+        (cursor 0))
     (lambda ()
-      (let ((fresh '()))
-        (dolist (transaction
-                 (call-with-devnet-node-store-guard
-                  node
-                  (lambda () (engine-payload-store-pending-transactions store))))
+      (multiple-value-bind (transactions next-cursor)
+          (call-with-devnet-node-store-guard
+           node
+           (lambda ()
+             (multiple-value-bind (hashes current overflow-p)
+                 (engine-payload-store-txpool-changes-since store cursor)
+               (let ((transactions
+                       (if overflow-p
+                           (engine-payload-store-pooled-transactions store)
+                           (remove
+                            nil
+                            (mapcar
+                             (lambda (hash)
+                               (engine-payload-store-pooled-transaction
+                                store hash))
+                             hashes)))))
+                 (values
+                  (remove
+                   nil
+                   (mapcar
+                    (lambda (transaction)
+                      (if (typep transaction 'blob-transaction)
+                          (let ((sidecar
+                                  (devnet-store-blob-transaction-sidecar
+                                   store transaction)))
+                            (and sidecar (cons transaction sidecar)))
+                          transaction))
+                    transactions))
+                  current)))))
+        (setf cursor next-cursor)
+        (let ((fresh '()))
+          (dolist (entry transactions)
           (when (< (length fresh) +devnet-broadcast-batch-limit+)
-            (let ((hash (hash32-bytes (transaction-hash transaction))))
+            (let* ((transaction (eth-pooled-entry-transaction entry))
+                   (hash (hash32-bytes (transaction-hash transaction))))
               (unless (gethash hash known)
                 (when (>= (hash-table-count known)
                           +devnet-peer-known-transaction-limit+)
                   (clrhash known))
                 (setf (gethash hash known) t)
-                (push transaction fresh)))))
-        (nreverse fresh)))))
+                (push entry fresh)))))
+          (nreverse fresh))))))
 
 (defun devnet-peer-sync-import-block (node block)
   "Execute, commit, and canonicalize BLOCK into NODE's store under the store

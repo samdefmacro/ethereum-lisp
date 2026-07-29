@@ -86,10 +86,10 @@
                 "engineGetPayloadV2TxpoolNonSelectedQueuedStillQueued")))
   (is (stringp
        (fixture-object-field report "preparedReplacementTxpoolPayloadId")))
-  (is (not (string= (fixture-object-field report "preparedTxpoolPayloadId")
-                    (fixture-object-field
-                     report
-                     "preparedReplacementTxpoolPayloadId"))))
+  (is (string= (fixture-object-field report "preparedTxpoolPayloadId")
+               (fixture-object-field
+                report
+                "preparedReplacementTxpoolPayloadId")))
   (is (string= (fixture-object-field report "preparedPayloadParentHash")
                (fixture-object-field
                 report

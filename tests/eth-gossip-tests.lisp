@@ -32,23 +32,41 @@
 (defun eth-gossip-transaction-hash-bytes (transaction)
   (hash32-bytes (transaction-hash transaction)))
 
+(defun eth-gossip-test-blob-sidecar ()
+  (make-blob-sidecar
+   :blobs (list (make-byte-vector 3 :initial-element 1))
+   :commitments (list (make-byte-vector 48 :initial-element 2))
+   :proofs (list (make-byte-vector 48 :initial-element 3))))
+
 (defun eth-gossip-test-backend (&key (transactions '()) reject-p)
   "A backend over a hash-table pool. Returns (VALUES BACKEND POOL); REJECT-P, if
 given, is a predicate marking transactions the pool turns down."
-  (let ((pool (make-hash-table :test #'equalp)))
+  (let ((pool (make-hash-table :test #'equalp))
+        (sidecars (make-hash-table :test #'equalp)))
     (dolist (transaction transactions)
       (setf (gethash (eth-gossip-transaction-hash-bytes transaction) pool)
-            transaction))
+            transaction)
+      (when (typep transaction 'blob-transaction)
+        (setf (gethash (eth-gossip-transaction-hash-bytes transaction)
+                       sidecars)
+              (eth-gossip-test-blob-sidecar))))
     (values
      (make-eth-serve-backend
       :pooled-transaction (lambda (hash) (gethash hash pool))
+      :pooled-transaction-sidecar
+      (lambda (transaction)
+        (gethash (eth-gossip-transaction-hash-bytes transaction) sidecars))
       :known-transaction-p (lambda (hash) (nth-value 1 (gethash hash pool)))
       :accept-transaction
-      (lambda (transaction)
+      (lambda (transaction &optional sidecar)
         (when (and reject-p (funcall reject-p transaction))
           (error "test pool rejected the transaction"))
         (setf (gethash (eth-gossip-transaction-hash-bytes transaction) pool)
-              transaction)))
+              transaction)
+        (when sidecar
+          (setf (gethash (eth-gossip-transaction-hash-bytes transaction)
+                         sidecars)
+                sidecar))))
      pool)))
 
 (defun eth-gossip-test-peer (backend)
@@ -132,30 +150,56 @@ given, is a predicate marking transactions the pool turns down."
       (is (= 11 request-id))
       (is (= 2 (length decoded)))
       (is (bytes= (transaction-encoding (second transactions))
-                  (transaction-encoding (second decoded)))))))
+                  (transaction-encoding (second decoded))))))
+  (let* ((blob (eth-gossip-test-blob-transaction 3))
+         (sidecar (eth-gossip-test-blob-sidecar))
+         (entry (cons blob sidecar)))
+    (multiple-value-bind (request-id decoded)
+        (ethereum-lisp.eth-wire:decode-eth-pooled-transactions
+         (ethereum-lisp.eth-wire:encode-eth-pooled-transactions
+          12 (list entry)))
+      (is (= 12 request-id))
+      (is (= 1 (length decoded)))
+      (is (bytes=
+           (transaction-encoding blob)
+           (transaction-encoding
+            (ethereum-lisp.eth-wire:eth-pooled-entry-transaction
+             (first decoded)))))
+      (is (equalp
+           (blob-sidecar-blobs sidecar)
+           (blob-sidecar-blobs
+            (ethereum-lisp.eth-wire:eth-pooled-entry-sidecar
+             (first decoded))))))))
 
 ;;; What we will and will not pass on.
 
-(deftest eth-gossip-excludes-blob-transactions
+(deftest eth-gossip-serves-blob-transactions-with-sidecars
   (:layer :unit :module :p2p)
-  ;; We neither announce nor serve blob transactions, because their pooled form
-  ;; carries a sidecar we do not produce. Promising one we cannot deliver is
-  ;; worse than staying quiet about it.
+  ;; A bare type-3 transaction is not gossipable, but the pooled envelope with
+  ;; its sidecar is announced and served.
   (let ((plain (eth-gossip-test-transaction 1))
         (blob (eth-gossip-test-blob-transaction 2)))
     (is (eth-gossipable-transaction-p plain))
     (is (not (eth-gossipable-transaction-p blob)))
+    (is (eth-gossipable-transaction-p
+         (cons blob (eth-gossip-test-blob-sidecar))))
     (multiple-value-bind (backend pool)
         (eth-gossip-test-backend :transactions (list plain blob))
       (declare (ignore pool))
-      ;; Asked for both by hash, only the plain one is served.
+      ;; Asked for both by hash, both are served and the blob keeps its sidecar.
       (let ((served (eth-serve-pooled-transactions
                      backend
                      (list (eth-gossip-transaction-hash-bytes blob)
                            (eth-gossip-transaction-hash-bytes plain)))))
-        (is (= 1 (length served)))
+        (is (= 2 (length served)))
+        (is (typep (ethereum-lisp.eth-wire:eth-pooled-entry-transaction
+                    (first served))
+                   'blob-transaction))
+        (is (typep (ethereum-lisp.eth-wire:eth-pooled-entry-sidecar
+                    (first served))
+                   'blob-sidecar))
         (is (bytes= (transaction-encoding plain)
-                    (transaction-encoding (first served))))))))
+                    (transaction-encoding (second served))))))))
 
 (deftest eth-gossip-serves-and-verifies-versioned-blob-wrapper
   (:layer :unit :module :p2p)

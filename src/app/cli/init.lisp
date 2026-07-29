@@ -90,6 +90,48 @@
           :summary-format summary-format
           :help-p help-p)))
 
+(defstruct (devnet-chain-preset
+            (:constructor make-devnet-chain-preset
+                (&key name genesis-json network-id bootnodes)))
+  name
+  genesis-json
+  network-id
+  (bootnodes '() :type list))
+
+(defvar *devnet-chain-preset-provider* nil
+  "Optional network-owned function from a preset name to a canonical bundle.")
+
+(defun devnet-cli-chain-preset (options)
+  (let ((name (getf options :chain-preset)))
+    (when name
+      (unless (functionp *devnet-chain-preset-provider*)
+        (error "Public chain preset ~A is unavailable: no network preset provider is installed"
+               name))
+      (let ((preset (funcall *devnet-chain-preset-provider* name)))
+        (unless (and (typep preset 'devnet-chain-preset)
+                     (string= name (devnet-chain-preset-name preset))
+                     (stringp (devnet-chain-preset-genesis-json preset))
+                     (integerp (devnet-chain-preset-network-id preset)))
+          (error "Network preset provider returned no complete bundle for ~A"
+                 name))
+        preset))))
+
+(defun devnet-cli-apply-chain-preset (options)
+  (let ((preset (devnet-cli-chain-preset options)))
+    (if (null preset)
+        options
+        (let ((resolved (copy-list options)))
+          (when (getf resolved :genesis-path)
+            (error "Public chain presets cannot be combined with --genesis"))
+          (unless (getf resolved :network-id)
+            (setf (getf resolved :network-id)
+                  (devnet-chain-preset-network-id preset)))
+          (unless (getf resolved :bootnodes)
+            (setf (getf resolved :bootnodes)
+                  (copy-list (devnet-chain-preset-bootnodes preset))))
+          (setf (getf resolved :chain-preset-bundle) preset)
+          resolved))))
+
 (defun devnet-cli-resolve-genesis-path (options)
   (or (getf options :genesis-path)
       (let ((datadir-path (getf options :datadir-path)))
@@ -100,13 +142,17 @@
                  (namestring (truename stored-genesis))))))))
 
 (defun devnet-cli-resolve-genesis-json (options genesis-path)
-  (when (and (getf options :dev-mode-p)
-             (null genesis-path))
-    (devnet-cli-dev-genesis-json
-     :gas-limit (or (getf options :dev-gas-limit)
-                    (getf options :miner-gas-limit)
-                    +devnet-default-dev-gas-limit+)
-     :coinbase (getf options :coinbase))))
+  (when (null genesis-path)
+    (let ((preset (getf options :chain-preset-bundle)))
+      (cond
+        (preset
+         (devnet-chain-preset-genesis-json preset))
+        ((getf options :dev-mode-p)
+         (devnet-cli-dev-genesis-json
+          :gas-limit (or (getf options :dev-gas-limit)
+                         (getf options :miner-gas-limit)
+                         +devnet-default-dev-gas-limit+)
+          :coinbase (getf options :coinbase)))))))
 
 (defun devnet-cli-print-init-usage (stream)
   (format stream
@@ -119,9 +165,11 @@
         (explicit-jwt-secret-path (getf options :jwt-secret-path))
         (jwt-secret-path nil))
     (unless genesis-path
-      (error "init requires a genesis file"))
+      (error 'devnet-cli-usage-error
+             :cause "init requires a genesis file"))
     (unless database-path
-      (error "init requires --datadir or --database"))
+      (error 'devnet-cli-usage-error
+             :cause "init requires --datadir or --database"))
     (when datadir-path
       (devnet-cli-copy-file-string
        genesis-path

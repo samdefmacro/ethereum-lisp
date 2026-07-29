@@ -171,6 +171,6 @@ how a caller observes the session without this file knowing what telemetry is."
            (eth-peer-request-announced-transactions peer)
            (setf (eth-pump-state-last-drain-at state) now))
           (:broadcast
-           (eth-peer-broadcast-transactions peer broadcast))
+           (eth-peer-announce-transactions peer broadcast))
           (:wait nil))
         (incf actions)))))

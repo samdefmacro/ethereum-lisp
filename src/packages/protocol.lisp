@@ -241,6 +241,8 @@
    #:blob-network-transaction-sidecar
    #:blob-network-transaction-encoding
    #:blob-network-transaction-from-rlp
+   #:blob-pooled-transaction-from-encoding
+   #:blob-pooled-transaction-encoding
    #:blob-versioned-hash-bytes
    #:set-code-authorization
    #:make-set-code-authorization
@@ -277,6 +279,7 @@
    #:set-code-transaction-sender
    #:transaction-encoding
    #:transaction-from-encoding
+   #:pooled-transaction-from-encoding
    #:transaction-hash
    #:transaction-sender
    #:transaction-nonce

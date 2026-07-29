@@ -29,7 +29,14 @@ grow without bound.")
 
 (defun eth-gossipable-transaction-p (transaction)
   "Whether TRANSACTION may be announced or pushed to a peer."
-  (not (typep transaction 'blob-transaction)))
+  (cond
+    ((typep transaction 'blob-network-transaction) t)
+    ((and (consp transaction)
+          (typep (car transaction) 'blob-transaction)
+          (typep (cdr transaction) 'blob-sidecar))
+     t)
+    ((typep transaction 'blob-transaction) nil)
+    (t t)))
 
 ;;; Sending.
 

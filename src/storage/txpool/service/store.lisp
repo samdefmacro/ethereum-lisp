@@ -4,6 +4,15 @@
   (or (txpool-component store)
       (block-validation-fail "Txpool component is not available")))
 
+(defun engine-payload-store-configure-txpool-promotion-policy
+    (store account-slot-limit global-slot-limit local-transaction-predicate)
+  (engine-pending-txpool-configure-promotion-policy
+   (engine-payload-store-txpool store)
+   account-slot-limit
+   global-slot-limit
+   local-transaction-predicate)
+  store)
+
 (defun engine-payload-store-enable-txpool-database-change-tracking (store)
   (engine-pending-txpool-enable-database-change-tracking
    (engine-payload-store-txpool store))
@@ -23,6 +32,11 @@
    (engine-payload-store-txpool store)
    hashes)
   store)
+
+(defun engine-payload-store-txpool-changes-since (store sequence)
+  (engine-pending-txpool-changes-since
+   (engine-payload-store-txpool store)
+   sequence))
 
 (defun engine-payload-store-pending-transaction-table (store)
   (engine-pending-txpool-transactions

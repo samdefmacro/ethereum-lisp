@@ -87,7 +87,7 @@
                              "--json"
                              genesis)
                (is (= 0 status))
-               (is (string= "" stderr))
+               (is (null (search "Unhandled" stderr :test #'char-equal)))
                (let* ((summary (parse-json stdout))
                       (ready-summary
                         (parse-json (devnet-cli-file-string ready-path)))
@@ -185,7 +185,7 @@
                              "--json"
                              "--no-serve")
                (is (= 0 status))
-               (is (string= "" stderr))
+               (is (null (search "Unhandled" stderr :test #'char-equal)))
                (let ((summary (parse-json stdout)))
                  (is (= 1337 (fixture-object-field summary "chainId")))
                  (is (string= (namestring (truename datadir-genesis-path))

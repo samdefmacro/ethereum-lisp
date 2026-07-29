@@ -9,8 +9,9 @@ validation and state storage belong to `block-execution-and-types.md` and
 `state-trie-storage.md`. Where a finding here is the building-side or
 pool-side consequence of one of theirs, it says so and does not restate it.
 
-Nothing below has been implemented. Every item describes work that remains, and
-no statement here should be read as a claim that a fix is in the tree.
+The findings below describe the tree as audited on 2026-07-28.  The remediation
+status near the end records what has since been implemented and verified on
+`gap/txpool-build-ops`.
 
 ## Sources read
 
@@ -908,6 +909,52 @@ later ones. Sizes are S (a day or less), M (a few days), L (a week or more).
     `eth_sendRawTransaction` of a type-3 transaction is refused with a message
     naming the limitation, and that `txpool_status` never reports a blob
     transaction.
+
+## Remediation status (2026-07-29)
+
+Implemented in `gap/txpool-build-ops`:
+
+- BUILD-01 and BUILD-02: poisoned senders no longer poison the payload and
+  child-base-fee eligibility is checked during selection.
+- POOL-01 through POOL-11: encoded-size, initcode, Prague floor-gas, effective
+  tip, delegated-authority and bounded-capacity rules are enforced. Default
+  price, replacement, account, global and lifetime limits are active; overflow
+  evicts lower-value residents, and canonical promotion preserves the policy.
+- BUILD-03 and BUILD-09: `forkchoiceUpdated` publishes a stable payload id
+  before pool execution, a background worker improves open payloads, and
+  `getPayload` performs a final improvement before closing the candidate.
+- BUILD-04 through BUILD-07: `--miner.gaslimit` reaches Engine and dev-period
+  construction with protocol-compliant honing; sender heads are re-ranked after
+  each nonce; execution and filling interleave against actual cumulative gas;
+  and Osaka payloads enforce the EIP-7934 RLP-size cap.
+- POOL-10 and OPS-03, OPS-04, OPS-06, OPS-07: the datadir has an exclusive
+  process lock, txpool lifetime cleanup has an independent worker, logs append,
+  ordinary startup failures no longer dump usage, and Prometheus exposes live
+  pool/head/finality/peer gauges.
+- POOL-12 through POOL-14 and BUILD-08: EIP-4844 pooled wrappers carry
+  sidecars, public and peer admission verifies sidecar shape and KZG proofs,
+  blob replacement applies the blob-specific bump, payloads include blob gas,
+  and `blobsBundle` is assembled from stored sidecars.
+- POOL-15: a bounded txpool change log drives hash announcements from every
+  subpool; blob fetch and relay preserves the verified sidecar.
+- Compatibility-only CLI flags now emit an explicit ignored-option warning
+  instead of disappearing silently.
+- OPS-02: public-chain flags now select a validated preset bundle through the
+  exported network-provider seam. The bundle supplies canonical genesis JSON,
+  network id and bootnodes; startup fails explicitly if the network package has
+  not installed a complete bundle. This keeps canonical chain data in the
+  network-owned branch without silently treating a public-chain flag as a
+  no-op.
+
+The ordered remediation plan above is complete in this branch. Canonical public
+chain data remains owned by the network package and plugs into
+`*DEVNET-CHAIN-PRESET-PROVIDER*`; that merge seam is an integration boundary,
+not an unimplemented fallback in this area.
+
+Cold Docker verification after remediation: unit 933 passed / 3 skipped,
+integration 304 passed / 2 skipped, and the complete two-worker E2E layer
+passed 59 tests. The E2E workers completed in 303 and 386 seconds respectively,
+with explicit zero exit status under a 600-second worker bound.
 
 ## Out of scope, and left unverified
 

@@ -16,6 +16,8 @@
    #:engine-payload-store-txpool-database-change-tracking-enabled-p
    #:engine-payload-store-txpool-database-dirty-transaction-hashes
    #:engine-payload-store-clear-txpool-database-dirty-transaction-hashes
+   #:engine-payload-store-txpool-changes-since
+   #:engine-payload-store-configure-txpool-promotion-policy
    #:engine-payload-store-queued-sender-index
    #:engine-payload-store-basefee-sender-index
    #:engine-payload-store-blob-sender-index
@@ -33,6 +35,7 @@
    #:engine-payload-store-basefee-transactions
    #:engine-payload-store-blob-transactions
    #:engine-payload-store-pooled-transactions
+   #:engine-payload-store-sender-pooled-transactions
    #:engine-payload-store-pending-transactions-by-sender
    #:engine-payload-store-pending-sender-transactions
    #:engine-payload-store-pending-contiguous-nonce

@@ -38,6 +38,10 @@
          (engine-error nil)
          (public-count nil)
          (public-error nil)
+         (txpool-maintenance-error nil)
+         (txpool-maintenance-thread nil)
+         (payload-improvement-error nil)
+         (payload-improvement-thread nil)
          (rejournal-error nil)
          (rejournal-thread nil)
          (dev-period-error nil)
@@ -90,6 +94,18 @@
            shutdown-controller
            (lambda (condition)
              (setf rejournal-error condition))))
+    (setf txpool-maintenance-thread
+          (devnet-start-txpool-maintenance-thread
+           node
+           shutdown-controller
+           (lambda (condition)
+             (setf txpool-maintenance-error condition))))
+    (setf payload-improvement-thread
+          (devnet-start-payload-improvement-thread
+           node
+           shutdown-controller
+           (lambda (condition)
+             (setf payload-improvement-error condition))))
     (setf dev-period-thread
           (devnet-start-dev-period-thread
            node
@@ -158,7 +174,21 @@
                                  (sb-thread:join-thread
                                   engine-thread :timeout 1 :default :timeout))
                          (devnet-shutdown-request shutdown-controller)
-                         (sb-thread:join-thread engine-thread))
+                         (when (eq :timeout
+                                   (sb-thread:join-thread
+                                    engine-thread
+                                    :timeout 5
+                                    :default :timeout))
+                           ;; A synthetic or broken accept backend may ignore
+                           ;; listener closure.  Node shutdown must still be
+                           ;; bounded once all registered sockets are closed.
+                           (ignore-errors
+                            (sb-thread:terminate-thread engine-thread))
+                           (ignore-errors
+                            (sb-thread:join-thread
+                             engine-thread
+                             :timeout 5
+                             :default :timeout))))
                        (devnet-shutdown-request shutdown-controller)
                        (cond
                          (public-error (error public-error))
@@ -185,6 +215,12 @@
         (when rejournal-thread
           (devnet-shutdown-request shutdown-controller)
           (sb-thread:join-thread rejournal-thread))
+        (when txpool-maintenance-thread
+          (devnet-shutdown-request shutdown-controller)
+          (sb-thread:join-thread txpool-maintenance-thread))
+        (when payload-improvement-thread
+          (devnet-shutdown-request shutdown-controller)
+          (sb-thread:join-thread payload-improvement-thread))
         (when dev-period-thread
           (devnet-shutdown-request shutdown-controller)
           (sb-thread:join-thread dev-period-thread))
@@ -277,6 +313,10 @@
         (error discovery-server-error))
       (when rejournal-error
         (error rejournal-error))
+      (when txpool-maintenance-error
+        (error txpool-maintenance-error))
+      (when payload-improvement-error
+        (error payload-improvement-error))
       (when dev-period-error
         (error dev-period-error))
 

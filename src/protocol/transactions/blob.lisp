@@ -224,3 +224,64 @@
 (defun blob-sidecar-versioned-hashes (sidecar)
   (mapcar #'kzg-commitment-to-versioned-hash
           (blob-sidecar-commitments sidecar)))
+
+(defun blob-sidecar-byte-list-from-rlp (value label)
+  (unless (rlp-list-p value)
+    (block-validation-fail "~A must be an RLP list" label))
+  (mapcar (lambda (item) (rlp-bytes-field item label))
+          (rlp-list-items value)))
+
+(defun blob-pooled-transaction-from-encoding (bytes)
+  "Decode the EIP-4844 pooled transaction wrapper.
+
+Returns the canonical signed transaction and its sidecar as separate values."
+  (let ((bytes (ensure-byte-vector bytes)))
+    (unless (and (plusp (length bytes)) (= 3 (aref bytes 0)))
+      (block-validation-fail
+       "Blob pooled transaction encoding must start with type 3"))
+    (handler-case
+        (let ((value (rlp-decode-one (subseq bytes 1))))
+          (unless (rlp-list-p value)
+            (block-validation-fail
+             "Blob pooled transaction wrapper must be an RLP list"))
+          (let ((fields (rlp-list-items value)))
+            (unless (= 4 (length fields))
+              (block-validation-fail
+               "Blob pooled transaction wrapper must contain 4 fields"))
+            (unless (rlp-list-p (first fields))
+              (block-validation-fail
+               "Blob pooled transaction wrapper transaction must be an RLP list"))
+            (values
+             (blob-transaction-from-rlp
+              (rlp-encode (first fields)))
+             (make-blob-sidecar
+              :blobs
+              (blob-sidecar-byte-list-from-rlp
+               (second fields) "Blob pooled transaction blobs")
+              :commitments
+              (blob-sidecar-byte-list-from-rlp
+               (third fields) "Blob pooled transaction commitments")
+              :proofs
+              (blob-sidecar-byte-list-from-rlp
+               (fourth fields) "Blob pooled transaction proofs")))))
+      (block-validation-error (condition)
+        (error condition))
+      (rlp-error (condition)
+        (block-validation-fail
+         "Invalid blob pooled transaction RLP: ~A" condition)))))
+
+(defun blob-pooled-transaction-encoding (transaction sidecar)
+  (unless (typep transaction 'blob-transaction)
+    (block-validation-fail
+     "Blob pooled encoding requires a blob transaction"))
+  (unless (typep sidecar 'blob-sidecar)
+    (block-validation-fail
+     "Blob pooled encoding requires a blob sidecar"))
+  (concat-bytes
+   #(3)
+   (rlp-encode
+    (make-rlp-list
+     (blob-transaction-payload transaction)
+     (blob-sidecar-blobs sidecar)
+     (blob-sidecar-commitments sidecar)
+     (blob-sidecar-proofs sidecar)))))

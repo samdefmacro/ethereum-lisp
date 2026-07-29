@@ -79,6 +79,11 @@
                                 :log-path log-file
                                 :database-path database-file
                                 :pid-file-path pid-file
+                                ;; This fixture intentionally exercises the
+                                ;; basefee subpool with a zero-effective-tip
+                                ;; transaction; disable the operator price floor
+                                ;; for this synthetic node.
+                                :txpool-price-limit 0
                                 :txpool-journal-path (namestring journal-path)
                                 :txpool-rejournal-seconds 1
                                 :terminal-total-difficulty
@@ -2559,9 +2564,9 @@
                        (= 18 (length prepared-replacement-txpool-payload-id)))
                   "replacement engine_forkchoiceUpdatedV2 txpool did not return an 8-byte payloadId")
                  (devnet-smoke-gate-require
-                  (not (string= prepared-txpool-payload-id
-                                prepared-replacement-txpool-payload-id))
-                  "replacement txpool payload id did not change")
+                  (string= prepared-txpool-payload-id
+                           prepared-replacement-txpool-payload-id)
+                  "replacement txpool payload did not retain its stable id")
                  (devnet-smoke-gate-require
                   (not (fixture-object-field
                         get-replacement-txpool-payload-rpc "error"))

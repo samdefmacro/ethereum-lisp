@@ -2,6 +2,70 @@
 
 ;;;; Periodic background workers for devnet runtime maintenance.
 
+(defconstant +devnet-payload-improvement-interval-seconds+ 2
+  "Cadence for rebuilding open Engine payloads while the proposer waits.")
+
+(defun devnet-start-payload-improvement-thread
+    (node shutdown-controller error-callback)
+  #-sbcl
+  (declare (ignore node shutdown-controller error-callback))
+  #-sbcl
+  nil
+  #+sbcl
+  (sb-thread:make-thread
+   (lambda ()
+     (handler-case
+         (loop until (devnet-shutdown-requested-p shutdown-controller)
+               do (loop repeat +devnet-payload-improvement-interval-seconds+
+                        until (devnet-shutdown-requested-p shutdown-controller)
+                        do (sleep 1))
+                  (unless (devnet-shutdown-requested-p shutdown-controller)
+                    (call-with-devnet-node-store-guard
+                     node
+                     (lambda ()
+                       (engine-rpc-improve-open-payloads
+                        (devnet-node-store node)
+                        (devnet-node-config node))))))
+       (error (condition)
+         (funcall error-callback condition)
+         (devnet-shutdown-request shutdown-controller))))
+   :name "ethereum-lisp-devnet-payload-improvement"))
+
+(defun devnet-start-txpool-maintenance-thread
+    (node shutdown-controller error-callback)
+  #-sbcl
+  (declare (ignore node shutdown-controller error-callback))
+  #-sbcl
+  nil
+  #+sbcl
+  (let ((lifetime (devnet-node-txpool-lifetime-seconds node)))
+    (when lifetime
+      (sb-thread:make-thread
+       (lambda ()
+         (handler-case
+             (loop until (devnet-shutdown-requested-p shutdown-controller)
+                   do (loop repeat 60
+                            until (devnet-shutdown-requested-p
+                                   shutdown-controller)
+                            do (sleep 1))
+                      (unless (devnet-shutdown-requested-p
+                               shutdown-controller)
+                        (call-with-devnet-node-store-guard
+                         node
+                         (lambda ()
+                           (engine-payload-store-remove-expired-txpool-queued-view-transactions
+                            (devnet-node-store node)
+                            lifetime
+                            (unix-time)
+                            :local-transaction-predicate
+                            (txpool-local-transaction-predicate
+                             (devnet-node-config node)
+                             (devnet-peer-txpool-policy node)))))))
+           (error (condition)
+             (funcall error-callback condition)
+             (devnet-shutdown-request shutdown-controller))))
+       :name "ethereum-lisp-devnet-txpool-maintenance"))))
+
 (defun devnet-start-rejournal-thread
     (node shutdown-controller error-callback)
   #-sbcl

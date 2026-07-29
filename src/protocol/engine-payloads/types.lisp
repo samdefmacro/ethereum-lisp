@@ -94,11 +94,19 @@
 
 (defstruct (engine-prepared-payload
             (:constructor make-engine-prepared-payload
-                (&key payload-id version block blobs-bundle)))
+                (&key payload-id version block blobs-bundle
+                      parent-hash payload-attributes gas-limit-target
+                      candidate-transactions-root
+                      (open-p nil))))
   payload-id
   version
   block
-  blobs-bundle)
+  blobs-bundle
+  parent-hash
+  payload-attributes
+  gas-limit-target
+  candidate-transactions-root
+  (open-p nil :type boolean))
 
 (defun validate-engine-prepared-payload-blobs-bundle (bundle)
   (when bundle
@@ -135,6 +143,17 @@
                    'ethereum-block)
       (block-validation-fail
        "Engine prepared payload block must be an ethereum-block"))
+    (when (engine-prepared-payload-open-p prepared-payload)
+      (unless (and (hash32-p
+                    (engine-prepared-payload-parent-hash prepared-payload))
+                   (hash32-p
+                    (engine-prepared-payload-candidate-transactions-root
+                     prepared-payload))
+                   (typep
+                    (engine-prepared-payload-payload-attributes prepared-payload)
+                    'payload-attributes-v1))
+        (block-validation-fail
+         "Open Engine prepared payload requires parent and attributes")))
     (validate-engine-prepared-payload-blobs-bundle
      (engine-prepared-payload-blobs-bundle prepared-payload))
     prepared-payload))

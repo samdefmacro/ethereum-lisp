@@ -1,4 +1,45 @@
+#+sbcl
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (require :sb-posix))
+
 (in-package #:ethereum-lisp.cli)
+
+(defun call-with-devnet-cli-datadir-lock (datadir-path thunk)
+  "Run THUNK while this process exclusively owns DATADIR-PATH."
+  (unless (functionp thunk)
+    (error "Datadir lock requires a function"))
+  (if (null datadir-path)
+      (funcall thunk)
+      #+sbcl
+      (let* ((directory
+               (uiop:ensure-directory-pathname (pathname datadir-path)))
+             (lock-path (merge-pathnames "LOCK" directory))
+             (fd nil))
+        (ensure-directories-exist lock-path)
+        (unwind-protect
+             (progn
+               (setf fd
+                     (sb-posix:open
+                      (sb-ext:native-namestring lock-path)
+                      (logior sb-posix:o-rdwr sb-posix:o-creat)
+                      #o644))
+               (handler-case
+                   (sb-posix:fcntl
+                    fd sb-posix:f-setlk
+                    (make-instance
+                     'sb-posix:flock
+                     :type sb-posix:f-wrlck
+                     :whence sb-posix:seek-set
+                     :start 0
+                     :len 0))
+                 (sb-posix:syscall-error ()
+                   (error "Data directory is already in use: ~A"
+                          datadir-path)))
+               (funcall thunk))
+          (when fd
+            (ignore-errors (sb-posix:close fd)))))
+      #-sbcl
+      (error "Data directory locking requires SBCL")))
 
 (defun devnet-cli-ready-temp-path (path)
   (let* ((pathname (pathname path))

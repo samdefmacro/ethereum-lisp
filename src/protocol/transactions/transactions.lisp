@@ -108,6 +108,20 @@
            (block-validation-fail
             "Typed transaction decoding is not implemented yet"))))))
 
+(defun pooled-transaction-from-encoding (bytes)
+  "Decode a transaction accepted from a pool-facing wire surface.
+
+The second value is a blob sidecar for an EIP-4844 network wrapper, or NIL for
+canonical transaction encodings."
+  (let ((bytes (ensure-byte-vector bytes)))
+    (if (and (plusp (length bytes))
+             (= 3 (aref bytes 0)))
+        (handler-case
+            (blob-pooled-transaction-from-encoding bytes)
+          (block-validation-error ()
+            (values (transaction-from-encoding bytes) nil)))
+        (values (transaction-from-encoding bytes) nil))))
+
 (defun transaction-hash (transaction)
   (keccak-256-hash (transaction-encoding transaction)))
 

@@ -249,7 +249,9 @@
            (is (= 1 status))
            (is (string= "" stdout))
            (is (search error-substring stderr))
-           (is (search usage-substring stderr))
+           (if usage-substring
+               (is (search usage-substring stderr))
+               (is (null (search "Usage: ethereum-lisp" stderr))))
            (let* ((log-records (devnet-cli-file-forms log-path))
                   (record (first log-records))
                   (fields (getf record :fields))
@@ -322,7 +324,8 @@
                   "--authrpc.jwtsecret"
                   (namestring bad-jwt-path)
                   "--no-serve")
-            "--jwt-secret/--authrpc.jwtsecret must name a readable file containing a 32-byte hex secret")
+            "--jwt-secret/--authrpc.jwtsecret must name a readable file containing a 32-byte hex secret"
+            :usage-substring nil)
            (devnet-cli-assert-script-error-telemetry
             (list "devnet"
                   "--genesis"
@@ -330,7 +333,8 @@
                   "--authrpc.jwtsecret"
                   (namestring missing-jwt-path)
                   "--no-serve")
-            "--jwt-secret/--authrpc.jwtsecret must name a readable file containing a 32-byte hex secret")
+            "--jwt-secret/--authrpc.jwtsecret must name a readable file containing a 32-byte hex secret"
+            :usage-substring nil)
            (devnet-cli-assert-script-error-telemetry
             (list "init" "--json")
             "init requires a genesis file"
@@ -346,7 +350,7 @@
                   genesis)
             "--jwt-secret/--authrpc.jwtsecret must name a readable file containing a 32-byte hex secret"
             :event-name "init.error"
-            :usage-substring "Usage: ethereum-lisp init")
+            :usage-substring nil)
            (devnet-cli-assert-script-error-telemetry
             (list "init"
                   "--datadir"
@@ -357,7 +361,7 @@
                   genesis)
             "--jwt-secret/--authrpc.jwtsecret must name a readable file containing a 32-byte hex secret"
             :event-name "init.error"
-            :usage-substring "Usage: ethereum-lisp init"))
+            :usage-substring nil))
       (when (probe-file bad-jwt-path)
         (delete-file bad-jwt-path))
       (when (probe-file missing-jwt-path)
@@ -434,6 +438,23 @@
     (let ((stderr (get-output-stream-string errors)))
       (is (search "--json boolean value must be true or false" stderr))
       (is (search "Usage: ethereum-lisp init" stderr)))))
+
+#+sbcl
+(deftest devnet-cli-datadir-lock-covers-the-node-lifetime
+  (:layer :unit :module :cli)
+  (let ((directory
+          (uiop:ensure-directory-pathname
+           (devnet-cli-temp-path "ethereum-lisp-lock-test" nil))))
+    (unwind-protect
+         (let ((result
+                 (ethereum-lisp.cli::call-with-devnet-cli-datadir-lock
+                  directory
+                  (lambda ()
+                    (is (probe-file (merge-pathnames "LOCK" directory)))
+                    :owned))))
+           (is (eq :owned result)))
+      (uiop:delete-directory-tree
+       directory :validate t :if-does-not-exist :ignore))))
 
 (deftest devnet-cli-accepts-geth-style-mining-archive-and-metrics-flags
   (let ((config-path
@@ -807,3 +828,27 @@
                 (run-error (list "devnet" "--pid-file"))))
     (is (search "Unknown option --wat"
                 (run-error (list "devnet" "--wat"))))))
+
+(deftest devnet-cli-public-chain-presets-use-network-provider
+  (:layer :unit :module :cli)
+  (let* ((genesis
+           (ethereum-lisp.cli::devnet-cli-dev-genesis-json
+            :gas-limit 30000000
+            :coinbase (zero-address)))
+         (ethereum-lisp.cli:*devnet-chain-preset-provider*
+           (lambda (name)
+             (when (string= name "mainnet")
+               (ethereum-lisp.cli:make-devnet-chain-preset
+                :name name
+                :genesis-json genesis
+                :network-id 1
+                :bootnodes '()))))
+         (options
+           (ethereum-lisp.cli:devnet-cli-apply-chain-preset
+            (ethereum-lisp.cli::devnet-cli-options
+             '("devnet" "--mainnet" "--no-serve")))))
+    (is (string= "mainnet" (getf options :chain-preset)))
+    (is (= 1 (getf options :network-id)))
+    (is (string=
+         genesis
+         (ethereum-lisp.cli::devnet-cli-resolve-genesis-json options nil)))))

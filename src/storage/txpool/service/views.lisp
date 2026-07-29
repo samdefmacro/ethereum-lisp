@@ -91,6 +91,29 @@ reorder them."
                groups)
       result)))
 
+(defun engine-mining-best-sender-group (groups base-fee)
+  (reduce
+   (lambda (best candidate)
+     (let ((best-tip
+             (transaction-effective-tip (second best) base-fee))
+           (candidate-tip
+             (transaction-effective-tip (second candidate) base-fee)))
+       (if (or (> candidate-tip best-tip)
+               (and (= candidate-tip best-tip)
+                    (string< (first candidate) (first best))))
+           candidate
+           best)))
+   (rest groups)
+   :initial-value (first groups)))
+
+(defun engine-mining-interleave-sender-groups (groups base-fee)
+  "Pop the most profitable executable sender head and re-compare after each."
+  (loop while groups
+        for best = (engine-mining-best-sender-group groups base-fee)
+        collect (pop (cdr best))
+        do (when (null (cdr best))
+             (setf groups (delete best groups :test #'eq)))))
+
 (defun engine-payload-store-pending-mining-transactions
     (store expected-chain-id &key base-fee)
   "The pending transactions in the order a block should try to include them.
@@ -111,28 +134,25 @@ does not know the base fee is unaffected."
   (let ((transactions
           (remove-if-not
            (lambda (transaction)
-             (transaction-sender transaction
-                                 :expected-chain-id expected-chain-id))
-           (engine-payload-store-pending-transactions store))))
+             (and
+              (transaction-sender transaction
+                                  :expected-chain-id expected-chain-id)
+              ;; Pending classification reflects the parent state.  A rising
+              ;; base fee can make the transaction ineligible for the child
+              ;; being built, so enforce the child's fee here as well.
+              (or (null base-fee)
+                  (>= (transaction-max-fee-per-gas transaction)
+                      base-fee))))
+           (append
+            (engine-payload-store-pending-transactions store)
+            (engine-payload-store-blob-transactions store)))))
     (if (null base-fee)
         (sort (copy-list transactions)
               (lambda (left right)
                 (engine-mining-transaction< left right expected-chain-id)))
         (let ((groups (engine-mining-sender-groups transactions
                                                    expected-chain-id)))
-          (mapcan #'cdr
-                  (sort groups
-                        (lambda (left right)
-                          (let ((left-tip (transaction-effective-tip
-                                           (first (cdr left)) base-fee))
-                                (right-tip (transaction-effective-tip
-                                            (first (cdr right)) base-fee)))
-                            (cond
-                              ((> left-tip right-tip) t)
-                              ((> right-tip left-tip) nil)
-                              ;; Equal pay: fall back to the address so the
-                              ;; order stays deterministic across runs.
-                              (t (string< (car left) (car right))))))))))))
+          (engine-mining-interleave-sender-groups groups base-fee)))))
 
 (defun engine-select-mining-transactions
     (transactions gas-limit expected-chain-id)

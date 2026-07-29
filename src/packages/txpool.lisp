@@ -20,10 +20,15 @@
    #:engine-pending-txpool-blob-transactions
    #:engine-pending-txpool-blob-transactions-by-sender
    #:engine-pending-txpool-transaction-admitted-at
+   #:engine-pending-txpool-account-slot-limit
+   #:engine-pending-txpool-global-slot-limit
+   #:engine-pending-txpool-local-transaction-predicate
+   #:engine-pending-txpool-configure-promotion-policy
    #:engine-pending-txpool-database-change-tracking-enabled-p
    #:engine-pending-txpool-enable-database-change-tracking
    #:engine-pending-txpool-database-dirty-transaction-hashes
    #:engine-pending-txpool-clear-database-dirty-transaction-hashes
+   #:engine-pending-txpool-changes-since
    #:call-with-engine-pending-txpool-change-tracking
    #:engine-pending-txpool-sender
    #:engine-pending-txpool-sender-key

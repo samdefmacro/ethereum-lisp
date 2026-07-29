@@ -1,5 +1,14 @@
 (in-package #:ethereum-lisp.txpool.application)
 
+(defconstant +txpool-legacy-transaction-max-bytes+ (* 128 1024))
+(defconstant +txpool-blob-transaction-max-bytes+ (* 1024 1024))
+(defconstant +txpool-default-price-limit+ 1)
+(defconstant +txpool-default-price-bump-percent+ 10)
+(defconstant +txpool-default-account-slot-limit+ 16)
+(defconstant +txpool-default-global-slot-limit+ 5120)
+(defconstant +txpool-default-account-queue-limit+ 64)
+(defconstant +txpool-default-global-queue-limit+ 1024)
+
 (defstruct (txpool-admission-policy
             (:constructor %make-txpool-admission-policy))
   allow-unprotected-transactions-p
@@ -24,14 +33,39 @@
           no-local-exemptions-p)
   (%make-txpool-admission-policy
    :allow-unprotected-transactions-p allow-unprotected-transactions-p
-   :price-limit price-limit
-   :price-bump-percent price-bump-percent
-   :account-slot-limit account-slot-limit
-   :global-slot-limit global-slot-limit
-   :account-queue-limit account-queue-limit
-   :global-queue-limit global-queue-limit
+   :price-limit (if (null price-limit) +txpool-default-price-limit+ price-limit)
+   :price-bump-percent
+   (if (null price-bump-percent)
+       +txpool-default-price-bump-percent+
+       price-bump-percent)
+   :account-slot-limit
+   (if (null account-slot-limit)
+       +txpool-default-account-slot-limit+
+       account-slot-limit)
+   :global-slot-limit
+   (if (null global-slot-limit)
+       +txpool-default-global-slot-limit+
+       global-slot-limit)
+   :account-queue-limit
+   (if (null account-queue-limit)
+       +txpool-default-account-queue-limit+
+       account-queue-limit)
+   :global-queue-limit
+   (if (null global-queue-limit)
+       +txpool-default-global-queue-limit+
+       global-queue-limit)
    :local-addresses (copy-list local-addresses)
    :no-local-exemptions-p no-local-exemptions-p))
+
+(defun validate-txpool-encoded-size (transaction)
+  (let ((limit (if (typep transaction 'blob-transaction)
+                   +txpool-blob-transaction-max-bytes+
+                   +txpool-legacy-transaction-max-bytes+)))
+    (when (> (length (transaction-encoding transaction)) limit)
+      (block-validation-fail
+       "eth_sendRawTransaction encoded transaction exceeds ~D bytes"
+       limit)))
+  t)
 
 (defun txpool-local-transaction-p (sender policy)
   (and (not (txpool-admission-policy-no-local-exemptions-p policy))
@@ -62,6 +96,54 @@
                  (not (set-code-delegation-target code)))
         (block-validation-fail
          "eth_sendRawTransaction sender has non-delegation code"))))
+  t)
+
+(defun txpool-set-code-authorities (transaction)
+  (when (typep transaction 'set-code-transaction)
+    (remove nil
+            (mapcar #'set-code-authorization-authority
+                    (transaction-authorization-list transaction)))))
+
+(defun txpool-address= (left right)
+  (and left right
+       (bytes= (address-bytes left) (address-bytes right))))
+
+(defun txpool-authority-reserved-p (store authority)
+  (some
+   (lambda (pooled)
+     (some (lambda (reserved)
+             (txpool-address= authority reserved))
+           (txpool-set-code-authorities pooled)))
+   (engine-payload-store-pooled-transactions store)))
+
+(defun validate-txpool-delegation-reservations
+    (store sender transaction config)
+  (declare (ignore config))
+  (multiple-value-bind (head block-number timestamp)
+      (txpool-admission-head-context store)
+    (declare (ignore block-number timestamp))
+    (when (and head
+               (chain-store-state-available-p store (block-hash head)))
+      (let ((sender-code
+              (chain-store-account-code store (block-hash head) sender)))
+        (when (set-code-delegation-target sender-code)
+          (when (engine-payload-store-sender-pooled-transactions store sender)
+            (block-validation-fail
+             "eth_sendRawTransaction delegated account already has an in-flight transaction"))
+          (unless (= (transaction-nonce transaction)
+                     (chain-store-account-nonce
+                      store (block-hash head) sender))
+            (block-validation-fail
+             "eth_sendRawTransaction delegated account nonce must be current")))))
+    (when (txpool-authority-reserved-p store sender)
+      (block-validation-fail
+       "eth_sendRawTransaction sender is reserved by a pending set-code authorization"))
+    (dolist (authority (txpool-set-code-authorities transaction))
+      (when (or (engine-payload-store-sender-pooled-transactions
+                 store authority)
+                (txpool-authority-reserved-p store authority))
+        (block-validation-fail
+         "eth_sendRawTransaction set-code authority already has an in-flight transaction"))))
   t)
 
 (defun validate-txpool-sender-state (store head sender transaction)
@@ -131,6 +213,20 @@
         (when (< (transaction-gas-limit transaction) intrinsic-gas)
           (block-validation-fail
            "eth_sendRawTransaction gas limit below intrinsic gas")))
+      (handler-case
+          (ethereum-lisp.execution:validate-contract-initcode-size
+           transaction rules)
+        (ethereum-lisp.execution:transaction-validation-error (condition)
+          (block-validation-fail
+           "eth_sendRawTransaction ~A"
+           (ethereum-lisp.execution:transaction-validation-error-message
+            condition))))
+      (let ((floor-gas
+              (ethereum-lisp.execution:transaction-effective-floor-gas
+               transaction rules)))
+        (when (< (transaction-gas-limit transaction) floor-gas)
+          (block-validation-fail
+           "eth_sendRawTransaction gas limit below EIP-7623 floor data gas")))
       (when (and head
                  (> (transaction-gas-limit transaction)
                     (block-header-gas-limit (block-header head))))
@@ -161,9 +257,10 @@
     (when (and price-limit
                (not local-transaction-p)
                (plusp price-limit)
-               (< (transaction-max-fee-per-gas transaction) price-limit))
+               (< (transaction-max-priority-fee-per-gas transaction)
+                  price-limit))
       (block-validation-fail
-       "eth_sendRawTransaction gas price below txpool price limit")))
+       "eth_sendRawTransaction priority fee below txpool price limit")))
   t)
 
 (defun admit-new-transaction
@@ -171,17 +268,30 @@
   (let ((local-transaction-p
           (txpool-local-transaction-p sender policy))
         (price-bump
-          (txpool-admission-policy-price-bump-percent policy)))
+          (txpool-admission-policy-price-bump-percent policy))
+        (local-predicate
+          (txpool-local-transaction-predicate config policy)))
     (validate-admission-policy transaction local-transaction-p policy)
     (validate-txpool-admission transaction sender store config)
+    (engine-payload-store-configure-txpool-promotion-policy
+     store
+     (txpool-admission-policy-account-slot-limit policy)
+     (txpool-admission-policy-global-slot-limit policy)
+     local-predicate)
     (cond
       ((typep transaction 'blob-transaction)
        (engine-payload-store-put-blob-transaction
         store transaction :price-bump-percent price-bump
+                          :global-slot-limit
+                          (unless local-transaction-p
+                            (txpool-admission-policy-global-slot-limit policy))
                           :admitted-at admitted-at))
       ((txpool-basefee-ineligible-p store transaction)
        (engine-payload-store-put-basefee-transaction
         store transaction :price-bump-percent price-bump
+                          :global-slot-limit
+                          (unless local-transaction-p
+                            (txpool-admission-policy-global-slot-limit policy))
                           :admitted-at admitted-at))
       ((txpool-queued-nonce-gap-p store sender transaction config)
        (engine-payload-store-put-queued-transaction
@@ -203,26 +313,25 @@
         :global-slot-limit
         (unless local-transaction-p
           (txpool-admission-policy-global-slot-limit policy)))
-       (let ((local-predicate
-               (txpool-local-transaction-predicate config policy)))
-         (engine-payload-store-promote-queued-transactions
-          store :sender sender
-          :expected-chain-id (chain-config-chain-id config)
-          :account-slot-limit
-          (txpool-admission-policy-account-slot-limit policy)
-          :global-slot-limit
-          (txpool-admission-policy-global-slot-limit policy)
-          :local-transaction-predicate local-predicate)
-         (engine-payload-store-promote-basefee-and-queued-transactions
-          store :expected-chain-id (chain-config-chain-id config)
-          :account-slot-limit
-          (txpool-admission-policy-account-slot-limit policy)
-          :global-slot-limit
-          (txpool-admission-policy-global-slot-limit policy)
-          :local-transaction-predicate local-predicate))))))
+       (engine-payload-store-promote-queued-transactions
+        store :sender sender
+        :expected-chain-id (chain-config-chain-id config)
+        :account-slot-limit
+        (txpool-admission-policy-account-slot-limit policy)
+        :global-slot-limit
+        (txpool-admission-policy-global-slot-limit policy)
+        :local-transaction-predicate local-predicate)
+       (engine-payload-store-promote-basefee-and-queued-transactions
+        store :expected-chain-id (chain-config-chain-id config)
+        :account-slot-limit
+        (txpool-admission-policy-account-slot-limit policy)
+        :global-slot-limit
+        (txpool-admission-policy-global-slot-limit policy)
+        :local-transaction-predicate local-predicate)))))
 
 (defun txpool-admit-transaction
     (transaction store config policy &key admitted-at)
+  (validate-txpool-encoded-size transaction)
   (validate-set-code-transaction-fields transaction)
   (validate-set-code-authorization-signatures transaction)
   (let* ((hash (transaction-hash transaction))
@@ -234,6 +343,8 @@
                 "eth_sendRawTransaction transaction sender recovery failed"))))
     (unless (or (chain-store-transaction-location store hash)
                 (engine-payload-store-pooled-transaction store hash))
+      (validate-txpool-delegation-reservations
+       store sender transaction config)
       (admit-new-transaction
        transaction sender store config policy admitted-at))
     hash))

@@ -830,6 +830,8 @@
    #:blob-network-transaction-sidecar
    #:blob-network-transaction-encoding
    #:blob-network-transaction-from-rlp
+   #:blob-pooled-transaction-from-encoding
+   #:blob-pooled-transaction-encoding
    #:set-code-authorization
    #:make-set-code-authorization
    #:set-code-authorization-chain-id
@@ -865,6 +867,7 @@
    #:set-code-transaction-sender
    #:transaction-encoding
    #:transaction-from-encoding
+   #:pooled-transaction-from-encoding
    #:transaction-hash
    #:transaction-sender
    #:transaction-nonce
@@ -1337,7 +1340,10 @@
    #:apply-withdrawal
    #:apply-withdrawals
    #:transaction-validation-error
+   #:transaction-validation-error-message
    #:transaction-intrinsic-gas
+   #:transaction-effective-floor-gas
+   #:validate-contract-initcode-size
    #:apply-legacy-transaction
    #:apply-message
    #:apply-message-list

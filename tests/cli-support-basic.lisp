@@ -176,4 +176,6 @@
   (with-open-file (stream path :direction :input)
     (loop for form = (read stream nil :eof)
           until (eq form :eof)
-          collect form)))
+          unless (string= (or (getf form :name) "")
+                          "cli.option_ignored")
+            collect form)))

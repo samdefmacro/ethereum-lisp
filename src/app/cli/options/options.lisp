@@ -17,6 +17,7 @@
         (database-path nil)
         (datadir-path nil)
         (network-id nil)
+        (chain-preset nil)
         (http-api-modules nil)
         (authrpc-cors-origins nil)
         (http-cors-origins nil)
@@ -52,6 +53,7 @@
         (ready-file nil)
         (log-file nil)
         (pid-file nil)
+        (ignored-options nil)
         (http-max-clients nil)
         (http-read-timeout-seconds nil)
         (http-write-timeout-seconds nil)
@@ -96,6 +98,16 @@
                 (setf help-p t))
                ((string= option "--genesis")
                 (setf genesis-path (next-value option)))
+               ((member option
+                        '("--mainnet" "--sepolia" "--holesky" "--hoodi"
+                          "--goerli")
+                        :test #'string=)
+                (let ((preset (subseq option 2)))
+                  (when (next-optional-boolean option)
+                    (when (and chain-preset
+                               (not (string= chain-preset preset)))
+                      (error "Only one public chain preset may be selected"))
+                    (setf chain-preset preset))))
                ((string= option "--host")
                 (setf host (next-value option))
                 (setf default-public-host host))
@@ -291,11 +303,16 @@
                     (when (and genesis-preset (not (eq genesis-preset selected)))
                       (error "Only one public network preset may be selected"))
                     (setf genesis-preset selected))))
-               ((member option *devnet-cli-value-options* :test #'string=)
+               ((string= option "--config")
+                ;; Already consumed by DEVNET-CLI-APPLY-CONFIG-ARGS above.
                 (consume-value-option option))
+               ((member option *devnet-cli-value-options* :test #'string=)
+                (consume-value-option option)
+                (push option ignored-options))
                ((member option *devnet-cli-optional-boolean-options*
                         :test #'string=)
-                (consume-optional-boolean-value option))
+                (consume-optional-boolean-value option)
+                (push option ignored-options))
                (t
                 (error "Unknown option ~A" option))))
     (when (and genesis-path genesis-preset)
@@ -318,6 +335,7 @@
                                   (devnet-cli-datadir-database-path
                                    datadir-path)))
           :network-id network-id
+          :chain-preset chain-preset
           :http-api-modules http-api-modules
           :authrpc-cors-origins authrpc-cors-origins
           :http-cors-origins http-cors-origins
@@ -370,4 +388,5 @@
           :ws-origins ws-origins
           :ws-rpc-prefix ws-rpc-prefix
           :node-key node-key
+          :ignored-options (nreverse ignored-options)
           :help-p help-p))))

@@ -1,5 +1,17 @@
 (in-package #:ethereum-lisp.cli)
 
+(define-condition devnet-cli-usage-error (error)
+  ((cause :initarg :cause :reader devnet-cli-usage-error-cause))
+  (:report
+   (lambda (condition stream)
+     (princ (devnet-cli-usage-error-cause condition) stream))))
+
+(defun devnet-cli-parse-options-or-usage-error (parser args)
+  (handler-case
+      (funcall parser args)
+    (error (condition)
+      (error 'devnet-cli-usage-error :cause condition))))
+
 (defun devnet-cli-main-arguments (arguments)
   (let ((args (uiop:command-line-arguments))
         (output-stream *standard-output*)
@@ -50,6 +62,7 @@
    :terminal-block-hash (getf options :terminal-block-hash)
    :terminal-block-number (getf options :terminal-block-number)
    :dev-period-seconds (getf options :dev-period-seconds)
+   :miner-gas-limit (getf options :miner-gas-limit)
    :coinbase (getf options :coinbase)
    :allow-unprotected-transactions-p
    (getf options :allow-unprotected-transactions-p)
@@ -178,7 +191,9 @@
          (devnet-cli-print-version output-stream)
          0)
         ((devnet-cli-init-command-p args)
-         (let ((options (devnet-cli-init-options args)))
+         (let ((options
+                 (devnet-cli-parse-options-or-usage-error
+                  #'devnet-cli-init-options args)))
            (if (getf options :help-p)
                (progn
                  (devnet-cli-print-init-usage output-stream)
@@ -187,7 +202,11 @@
                  (devnet-cli-run-init options output-stream)
                  0))))
         (t
-         (let ((options (devnet-cli-options args)))
+         (let ((options
+                 (devnet-cli-apply-chain-preset
+                  (devnet-cli-parse-options-or-usage-error
+                   #'devnet-cli-options args))))
+           (devnet-cli-report-ignored-options options error-stream)
            (if (getf options :help-p)
                (progn
                  (devnet-cli-print-usage output-stream)
@@ -200,11 +219,17 @@
                         (devnet-cli-resolve-genesis-json
                          options genesis-path)))
                  (unless (or genesis-path genesis-json genesis-preset)
-                   (error "--genesis is required unless --datadir contains an initialized genesis, --dev is enabled, or a public network preset is selected"))
-                 (call-with-devnet-cli-telemetry-sink
-                  options
-                  output-stream
-                  (lambda (telemetry-sink)
+                   (error
+                    'devnet-cli-usage-error
+                    :cause
+                    "--genesis is required unless --datadir contains an initialized genesis, --dev is enabled, or a public network preset is selected"))
+                 (call-with-devnet-cli-datadir-lock
+                  (getf options :datadir-path)
+                  (lambda ()
+                    (call-with-devnet-cli-telemetry-sink
+                     options
+                     output-stream
+                     (lambda (telemetry-sink)
                     (call-with-devnet-cli-kzg-verifier
                      (lambda ()
                        (call-with-devnet-cli-bls12381-backend
@@ -229,14 +254,19 @@
                                        node options output-stream error-stream)
                                       (devnet-cli-run-no-serve-node
                                        node options output-stream))
-                                  0))))))))))))))))
-    (error (condition)
+                                  0))))))))))))))))))
+    (devnet-cli-usage-error (condition)
       (ignore-errors
        (devnet-cli-log-error-event args condition))
       (format error-stream "~A~%" condition)
       (if (devnet-cli-init-command-p args)
           (devnet-cli-print-init-usage error-stream)
           (devnet-cli-print-usage error-stream))
+      1)
+    (error (condition)
+      (ignore-errors
+       (devnet-cli-log-error-event args condition))
+      (format error-stream "~A~%" condition)
       1)))
 
 (defun main (&rest arguments)
