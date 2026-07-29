@@ -96,7 +96,17 @@
 (defun engine-payload-store-promote-basefee-and-queued-transactions
     (store &key expected-chain-id account-slot-limit global-slot-limit
                 local-transaction-predicate)
-  (let ((basefee-promoted
+  (let* ((txpool (engine-payload-store-txpool store))
+         (account-slot-limit
+           (or account-slot-limit
+               (engine-pending-txpool-account-slot-limit txpool)))
+         (global-slot-limit
+           (or global-slot-limit
+               (engine-pending-txpool-global-slot-limit txpool)))
+         (local-transaction-predicate
+           (or local-transaction-predicate
+               (engine-pending-txpool-local-transaction-predicate txpool)))
+         (basefee-promoted
           (engine-payload-store-promote-basefee-transactions
            store
            :expected-chain-id expected-chain-id

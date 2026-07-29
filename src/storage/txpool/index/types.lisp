@@ -21,6 +21,9 @@
                        (make-hash-table :test 'equalp))
                       (transaction-admitted-at
                        (make-hash-table :test 'equalp))
+                      account-slot-limit
+                      global-slot-limit
+                      local-transaction-predicate
                       (database-change-tracking-enabled-p nil)
                       (database-dirty-transaction-keys
                        (make-hash-table :test 'equalp)))))
@@ -33,10 +36,21 @@
   blob-transactions
   blob-transactions-by-sender
   transaction-admitted-at
+  account-slot-limit
+  global-slot-limit
+  local-transaction-predicate
   database-change-tracking-enabled-p
   database-dirty-transaction-keys)
 
 (defvar *engine-pending-txpool-change-recorder* nil)
+
+(defun engine-pending-txpool-configure-promotion-policy
+    (txpool account-slot-limit global-slot-limit local-transaction-predicate)
+  (setf (engine-pending-txpool-account-slot-limit txpool) account-slot-limit
+        (engine-pending-txpool-global-slot-limit txpool) global-slot-limit
+        (engine-pending-txpool-local-transaction-predicate txpool)
+        local-transaction-predicate)
+  txpool)
 
 (defun engine-pending-txpool-record-transaction-change (txpool transaction)
   (let ((hash (transaction-hash transaction)))

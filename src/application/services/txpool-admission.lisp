@@ -266,9 +266,16 @@
   (let ((local-transaction-p
           (txpool-local-transaction-p sender policy))
         (price-bump
-          (txpool-admission-policy-price-bump-percent policy)))
+          (txpool-admission-policy-price-bump-percent policy))
+        (local-predicate
+          (txpool-local-transaction-predicate config policy)))
     (validate-admission-policy transaction local-transaction-p policy)
     (validate-txpool-admission transaction sender store config)
+    (engine-payload-store-configure-txpool-promotion-policy
+     store
+     (txpool-admission-policy-account-slot-limit policy)
+     (txpool-admission-policy-global-slot-limit policy)
+     local-predicate)
     (cond
       ((typep transaction 'blob-transaction)
        (engine-payload-store-put-blob-transaction
@@ -304,23 +311,21 @@
         :global-slot-limit
         (unless local-transaction-p
           (txpool-admission-policy-global-slot-limit policy)))
-       (let ((local-predicate
-               (txpool-local-transaction-predicate config policy)))
-         (engine-payload-store-promote-queued-transactions
-          store :sender sender
-          :expected-chain-id (chain-config-chain-id config)
-          :account-slot-limit
-          (txpool-admission-policy-account-slot-limit policy)
-          :global-slot-limit
-          (txpool-admission-policy-global-slot-limit policy)
-          :local-transaction-predicate local-predicate)
-         (engine-payload-store-promote-basefee-and-queued-transactions
-          store :expected-chain-id (chain-config-chain-id config)
-          :account-slot-limit
-          (txpool-admission-policy-account-slot-limit policy)
-          :global-slot-limit
-          (txpool-admission-policy-global-slot-limit policy)
-          :local-transaction-predicate local-predicate))))))
+       (engine-payload-store-promote-queued-transactions
+        store :sender sender
+        :expected-chain-id (chain-config-chain-id config)
+        :account-slot-limit
+        (txpool-admission-policy-account-slot-limit policy)
+        :global-slot-limit
+        (txpool-admission-policy-global-slot-limit policy)
+        :local-transaction-predicate local-predicate)
+       (engine-payload-store-promote-basefee-and-queued-transactions
+        store :expected-chain-id (chain-config-chain-id config)
+        :account-slot-limit
+        (txpool-admission-policy-account-slot-limit policy)
+        :global-slot-limit
+        (txpool-admission-policy-global-slot-limit policy)
+        :local-transaction-predicate local-predicate)))))
 
 (defun txpool-admit-transaction
     (transaction store config policy &key admitted-at)
