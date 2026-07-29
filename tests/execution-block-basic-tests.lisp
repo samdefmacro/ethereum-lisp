@@ -425,29 +425,7 @@
                   (state-db-get-account state contract))))
         (is (not (state-db-get-account state created-address)))))))
 
-(deftest historical-block-reward-follows-fork-rules
-  (is (= 5000000000000000000
-         (ethereum-lisp.execution::block-reward-for-rules
-          (make-chain-rules :chain-id 1))))
-  (is (= 3000000000000000000
-         (ethereum-lisp.execution::block-reward-for-rules
-          (make-chain-rules :chain-id 1 :byzantium-p t))))
-  (is (= 2000000000000000000
-         (ethereum-lisp.execution::block-reward-for-rules
-          (make-chain-rules :chain-id 1
-                            :byzantium-p t
-                            :constantinople-p t)))))
-
-(deftest historical-ommer-reward-follows-ethash-formula
-  (let ((header (make-block-header :number 10))
-        (ommer (make-block-header :number 8)))
-    (is (= 1500000000000000000
-           (ethereum-lisp.execution::ommer-block-reward
-            2000000000000000000
-            header
-            ommer)))))
-
-(deftest legacy-block-execution-can-apply-historical-block-reward
+(deftest block-execution-refuses-proof-of-work-rewards
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
          (coinbase (address-from-hex "0x00000000000000000000000000000000000000cb"))
@@ -456,84 +434,32 @@
                                     :number 12
                                     :gas-limit 100000))
          (rules (make-chain-rules :chain-id 1 :byzantium-p t)))
-    (multiple-value-bind (block receipts)
-        (execute-legacy-block state sender '()
-                              :header header
-                              :chain-rules rules
-                              :apply-block-rewards-p t)
-      (is (null receipts))
-      (is (= 3000000000000000000
-             (state-account-balance
-              (state-db-get-account state coinbase))))
-      (is (string= (hash32-to-hex (state-db-root state))
-                   (hash32-to-hex
-                    (block-header-state-root (block-header block))))))))
+    (signals block-validation-error
+      (execute-legacy-block state sender '()
+                            :header header
+                            :chain-rules rules
+                            :apply-block-rewards-p t))
+    (is (null (state-db-get-account state coinbase)))))
 
-(deftest legacy-block-execution-can-apply-ommer-rewards
+(deftest block-execution-refuses-ommers-before-state-mutation
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
-         (coinbase (address-from-hex "0x00000000000000000000000000000000000000cb"))
          (ommer-beneficiary
            (address-from-hex "0x00000000000000000000000000000000000000dd"))
-         (header (make-block-header :beneficiary coinbase
-                                    :difficulty 1
+         (header (make-block-header :difficulty 0
                                     :number 10
                                     :gas-limit 100000))
          (ommer (make-block-header :beneficiary ommer-beneficiary
                                    :difficulty 1
                                    :number 8))
-         (rules (make-chain-rules :chain-id 1
-                                  :byzantium-p t
-                                  :constantinople-p t)))
-    (multiple-value-bind (block receipts)
-        (execute-legacy-block state sender '()
-                              :header header
-                              :chain-rules rules
-                              :ommers (list ommer)
-                              :apply-block-rewards-p t)
-      (is (null receipts))
-      (is (= 2062500000000000000
-             (state-account-balance
-              (state-db-get-account state coinbase))))
-      (is (= 1500000000000000000
-             (state-account-balance
-              (state-db-get-account state ommer-beneficiary))))
-      (is (string= (hash32-to-hex (ethereum-lisp.blocks:ommers-hash
-                                    (list ommer)))
-                   (hash32-to-hex
-                    (block-header-ommers-hash (block-header block)))))
-      (is (string= (hash32-to-hex (state-db-root state))
-                   (hash32-to-hex
-                    (block-header-state-root (block-header block))))))))
-
-(deftest post-merge-block-execution-skips-ethash-rewards
-  (let* ((state (make-state-db))
-         (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
-         (coinbase (address-from-hex "0x00000000000000000000000000000000000000cb"))
-         (ommer-beneficiary
-           (address-from-hex "0x00000000000000000000000000000000000000dd"))
-         (header (make-block-header :beneficiary coinbase
-                                    :difficulty 0
-                                    :number 10
-                                    :gas-limit 100000))
-         (ommer (make-block-header :beneficiary ommer-beneficiary
-                                   :difficulty 1
-                                   :number 8))
-         (rules (make-chain-rules :chain-id 1
-                                  :byzantium-p t
-                                  :constantinople-p t)))
-    (multiple-value-bind (block receipts)
-        (execute-legacy-block state sender '()
-                              :header header
-                              :chain-rules rules
-                              :ommers (list ommer)
-                              :apply-block-rewards-p t)
-      (is (null receipts))
-      (is (null (state-db-get-account state coinbase)))
-      (is (null (state-db-get-account state ommer-beneficiary)))
-      (is (string= (hash32-to-hex (state-db-root state))
-                   (hash32-to-hex
-                    (block-header-state-root (block-header block))))))))
+         (before-root (state-db-root state)))
+    (signals block-validation-error
+      (execute-legacy-block state sender '()
+                            :header header
+                            :ommers (list ommer)))
+    (is (null (state-db-get-account state ommer-beneficiary)))
+    (is (string= (hash32-to-hex before-root)
+                 (hash32-to-hex (state-db-root state))))))
 
 (deftest block-execution-rejects-cumulative-gas-above-limit
   (let* ((state (make-state-db))

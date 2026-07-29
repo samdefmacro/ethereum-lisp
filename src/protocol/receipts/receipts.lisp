@@ -89,10 +89,12 @@
 
 (defstruct (receipt (:constructor make-receipt
                        (&key post-state
+                             (type 0)
                              (status 1)
                              (cumulative-gas-used 0)
                              (logs '()))))
   post-state
+  (type 0 :type (integer 0 127))
   (status 1 :type (integer 0 1))
   (cumulative-gas-used 0 :type (integer 0 *))
   (logs '() :type list))
@@ -123,6 +125,13 @@
         receipt-rlp
         (concat-bytes (vector type) receipt-rlp))))
 
+(defun receipt-encoding (receipt)
+  (let ((type (receipt-type receipt))
+        (encoded (receipt-rlp receipt)))
+    (if (zerop type)
+        encoded
+        (concat-bytes (vector type) encoded))))
+
 (defun derive-list-root (encoded-items)
   (let ((trie (make-mpt)))
     (loop for item in encoded-items
@@ -134,7 +143,7 @@
   (derive-list-root (mapcar #'transaction-encoding transactions)))
 
 (defun receipt-list-root (receipts)
-  (derive-list-root (mapcar #'receipt-rlp receipts)))
+  (derive-list-root (mapcar #'receipt-encoding receipts)))
 
 (defun transaction-receipt-list-root (transactions receipts)
   (unless (= (length transactions) (length receipts))

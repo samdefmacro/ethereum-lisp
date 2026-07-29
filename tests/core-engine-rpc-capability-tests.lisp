@@ -183,11 +183,13 @@
                         request-json store config)))
                     (capabilities (field response "result")))
                (is (member "engine_newPayloadV3" capabilities :test #'string=))
-               (is (member "engine_newPayloadV5" capabilities :test #'string=))
-               (is (member "engine_forkchoiceUpdatedV4"
-                           capabilities
-                           :test #'string=))
-               (is (member "engine_getPayloadV6" capabilities :test #'string=))
+               (is (not (member "engine_newPayloadV5"
+                                capabilities :test #'string=)))
+               (is (not (member "engine_forkchoiceUpdatedV4"
+                                capabilities
+                                :test #'string=)))
+               (is (not (member "engine_getPayloadV6"
+                                capabilities :test #'string=)))
                (is (member "engine_getPayloadBodiesByHashV2"
                            capabilities
                            :test #'string=))
@@ -195,8 +197,10 @@
                            capabilities
                            :test #'string=))
                (is (member "engine_getBlobsV1" capabilities :test #'string=))
-               (is (member "engine_getBlobsV2" capabilities :test #'string=))
-               (is (member "engine_getBlobsV3" capabilities :test #'string=))))
+               (is (not (member "engine_getBlobsV2"
+                                capabilities :test #'string=)))
+               (is (not (member "engine_getBlobsV3"
+                                capabilities :test #'string=)))))
         (setf ethereum-lisp.core:*kzg-point-proof-verifier* old-point-verifier
               ethereum-lisp.core:*kzg-blob-proof-verifier* old-blob-verifier)))
     (let* ((response (parse-json

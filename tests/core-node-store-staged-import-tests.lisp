@@ -189,8 +189,12 @@
              new-state stage block))
         (setf state new-state)))))
 
-(deftest staged-execution-migrates-legacy-inline-block-access-list
-  (let* ((database (make-memory-key-value-database))
+(deftest staged-amsterdam-execution-is-capability-gated
+  (is (not (ethereum-lisp.engine-api::engine-rpc-engine-method-p
+            "engine_newPayloadV5")))
+  (when (ethereum-lisp.engine-api::engine-rpc-engine-method-p
+         "engine_newPayloadV5")
+    (let* ((database (make-memory-key-value-database))
          (config
            (let ((config
                    (staged-import-test-chain-config :cancun-time 0)))
@@ -300,7 +304,7 @@
     (multiple-value-bind (side-data present-p)
         (kv-get-chain-record database :block-access-list identifier)
       (is present-p)
-      (is (bytes= (block-encoded-block-access-list child) side-data)))))
+      (is (bytes= (block-encoded-block-access-list child) side-data))))))
 
 (defun staged-import-test-record-present-p (database kind identifier)
   (nth-value 1 (kv-get-chain-record database kind identifier)))

@@ -132,5 +132,6 @@ rejects execution failure for protocol calls whose EIPs mandate both."
        header
        chain-rules
        :blob-base-fee blob-base-fee
-       :block-hashes block-hashes)))
+       :block-hashes block-hashes
+       :require-success-p t)))
   state)

@@ -25,7 +25,7 @@
        (block-validation-fail
         "Receipt status must be empty, 0x01, or 32-byte post-state")))))
 
-(defun receipt-from-rlp-object (value)
+(defun receipt-from-rlp-object (value &key (type 0))
   (let ((fields (rlp-list-field value "Receipt")))
     (unless (= (length fields) 4)
       (block-validation-fail "Receipt must contain 4 fields"))
@@ -42,6 +42,7 @@
            "Receipt bloom does not match decoded receipt logs"))
         (make-receipt
          :post-state post-state
+         :type type
          :status status
          :cumulative-gas-used
          (rlp-uint-field (second fields) "Receipt cumulative gas used")
@@ -51,14 +52,15 @@
   (let ((encoded (ensure-byte-vector encoded))
         (type (transaction-type transaction)))
     (if (zerop type)
-        (receipt-from-rlp-object (rlp-decode-one encoded))
+        (receipt-from-rlp-object (rlp-decode-one encoded) :type type)
         (progn
           (when (< (length encoded) 2)
             (block-validation-fail "Typed receipt encoding is too short"))
           (unless (= type (aref encoded 0))
             (block-validation-fail
              "Typed receipt prefix does not match transaction type"))
-          (receipt-from-rlp-object (rlp-decode-one (subseq encoded 1)))))))
+          (receipt-from-rlp-object (rlp-decode-one (subseq encoded 1))
+                                   :type type)))))
 
 (defun block-receipts-from-record (block record)
   (handler-case

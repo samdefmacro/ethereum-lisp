@@ -2,9 +2,35 @@
 
 This document records an audit of one area of the client: the block, transaction
 and receipt domain types, header and body validation, and the state-transition
-pipeline that executes a block. It is a snapshot of the code, not a plan that
-has been carried out. Nothing described here as missing or divergent has been
-changed; the only file this audit wrote is this one.
+pipeline that executes a block. The findings remain a snapshot of the audited
+revision; the remediation status below records the later implementation.
+
+## Remediation status
+
+- **EXEC-01, EXEC-02, EXEC-03:** EIP-7918 now evaluates parent excess with the
+  child schedule, including payload building and devnet block production.
+  Boundary unit tests cover schedule transitions, and late-fork EEST selection
+  is parameterized for external vectors.
+- **EXEC-04, EXEC-05, EXEC-10:** unsupported historical proof-of-work replay,
+  DAO transition, ommers, rewards, and allocation-less built-in network presets
+  now fail explicitly. A supplied trusted genesis remains the supported startup
+  path.
+- **EXEC-06:** receipts retain their transaction type, so the general receipt
+  root API produces EIP-2718 typed roots without a parallel transaction list.
+- **EXEC-07:** EIP-4844 sidecars are proof-verified on live store and persisted
+  import paths. EIP-7594 cell-proof entry points remain unadvertised until a
+  cell-proof verifier exists.
+- **EXEC-08, EXEC-09:** EIP-2935 system-call failure is consensus-fatal while
+  EIP-4788 failure remains rolled back and non-fatal; regression tests pin both
+  behaviours.
+- **EXEC-11:** EEST state-test fork selection is controlled by
+  `ETHEREUM_LISP_PHASE_A_STATE_TEST_FORKS`, with late-fork discovery enabled.
+- **EXEC-12:** dead proof-of-work reward and ommer-payout paths were removed.
+- **EXEC-13, EXEC-14:** optional header fields are encoded positionally, and
+  RLP decoding enforces a configurable nesting-depth limit.
+- **EXEC-15, EXEC-16:** Amsterdam header/execution and Engine methods are
+  capability-gated until EIP-7997, EIP-8282, and block-access-list derivation
+  are implemented.
 
 ## Sources read
 
@@ -38,12 +64,9 @@ Their counterparts: geth `core/types/`, `core/block_validator.go`,
 Nethermind `Nethermind.Core/TxType.cs`, `Nethermind.Core/Transaction.cs`,
 `Nethermind.Consensus/Validators/`, `Nethermind.Evm/BlobGasCalculator.cs`.
 
-The warm dev container was absent for the duration of this audit
-(`scripts/dev.sh status` reported both container and image absent) and the
-instructions for this audit forbid starting it, so no finding below is backed by
-an evaluation in a running image. Every claim about our behaviour comes from
-reading the source. Where reading alone could not settle a question the verdict
-is UNVERIFIED and says so.
+The original audit was static. The remediation was subsequently validated in
+session-isolated Docker runs of the unit, integration, and end-to-end layers;
+the finding text below still describes evidence available at audit time.
 
 This audit overlaps `docs/gas-parity.md` in two places, noted inline. Where it
 does, this document is the later reading and is pinned to reference checkouts

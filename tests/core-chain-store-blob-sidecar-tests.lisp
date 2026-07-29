@@ -21,7 +21,7 @@
          sidecar
          versioned-hash
          versioned-hash-id)
-    (setf (aref blob 0) #xaa
+    (setf (aref blob (1- (length blob))) #xaa
           (aref commitment 0) #xbb
           sidecar (make-blob-sidecar
                    :blobs (list blob)
@@ -45,8 +45,12 @@
                             (ethereum-lisp.chain-store:engine-payload-store-blob-and-proofs-v1
                              source versioned-hash))))))
            (let ((database (make-file-key-value-database path)))
-             (is (eq restored
-                     (node-store-import-from-kv restored database))))
+             (let ((*kzg-blob-proof-verifier*
+                     (lambda (blob commitment proof)
+                       (declare (ignore blob commitment proof))
+                       t)))
+               (is (eq restored
+                       (node-store-import-from-kv restored database)))))
            (let ((restored-blob
                    (ethereum-lisp.chain-store:engine-payload-store-blob-and-proofs-v2
                     restored
@@ -95,7 +99,7 @@
                    proof)))
          (sidecar nil)
          (versioned-hash nil))
-    (setf (aref blob 0) #xaa
+    (setf (aref blob (1- (length blob))) #xaa
           (aref commitment 0) #xbb
           sidecar (make-blob-sidecar
                    :blobs (list blob)
@@ -127,7 +131,9 @@
              versioned-hash)))
       (is (= #xaa
              (aref (ethereum-lisp.chain-store.model:engine-blob-and-proofs-blob lookup)
-                   0)))
+                   (1- (length
+                        (ethereum-lisp.chain-store.model:engine-blob-and-proofs-blob
+                         lookup))))))
       (is (= #xbb
              (aref (ethereum-lisp.chain-store.model:engine-blob-and-proofs-commitment
                     lookup)
@@ -181,10 +187,14 @@
           (first (blob-sidecar-versioned-hashes source-sidecar)))
     (unwind-protect
          (progn
-           (ethereum-lisp.chain-store:engine-payload-store-put-blob-sidecar
-            target target-sidecar)
-           (ethereum-lisp.chain-store:engine-payload-store-put-blob-sidecar
-            source source-sidecar)
+           (let ((*kzg-blob-proof-verifier*
+                   (lambda (blob commitment proof)
+                     (declare (ignore blob commitment proof))
+                     t)))
+             (ethereum-lisp.chain-store:engine-payload-store-put-blob-sidecar
+              target target-sidecar)
+             (ethereum-lisp.chain-store:engine-payload-store-put-blob-sidecar
+              source source-sidecar))
            (let ((database (make-file-key-value-database path)))
              (node-store-export-to-kv source database)
              (kv-put-chain-record
@@ -196,10 +206,14 @@
                 (make-byte-vector 3 :initial-element 1)
                 source-proof
                 (make-rlp-list)))))
-           (signals block-validation-error
-             (node-store-import-from-kv
-              target
-              (make-file-key-value-database path)))
+           (let ((*kzg-blob-proof-verifier*
+                   (lambda (blob commitment proof)
+                     (declare (ignore blob commitment proof))
+                     t)))
+             (signals block-validation-error
+               (node-store-import-from-kv
+                target
+                (make-file-key-value-database path))))
            (is (ethereum-lisp.chain-store:engine-payload-store-blob-and-proofs-v1
                 target
                 target-versioned-hash))
@@ -241,11 +255,19 @@
                           :proofs (list source-proof))
           source-versioned-hash
           (first (blob-sidecar-versioned-hashes source-sidecar)))
-    (ethereum-lisp.chain-store:engine-payload-store-put-blob-sidecar
-     target target-sidecar)
-    (let ((source-cache (make-engine-payload-memory-store)))
+    (let ((*kzg-blob-proof-verifier*
+            (lambda (blob commitment proof)
+              (declare (ignore blob commitment proof))
+              t)))
       (ethereum-lisp.chain-store:engine-payload-store-put-blob-sidecar
-       source-cache source-sidecar)
+       target target-sidecar))
+    (let ((source-cache (make-engine-payload-memory-store)))
+      (let ((*kzg-blob-proof-verifier*
+              (lambda (blob commitment proof)
+                (declare (ignore blob commitment proof))
+                t)))
+        (ethereum-lisp.chain-store:engine-payload-store-put-blob-sidecar
+         source-cache source-sidecar))
       (kv-put-chain-record
        database
        :blob-sidecar
@@ -253,8 +275,12 @@
        (ethereum-lisp.node-store.persistence::chain-store-blob-sidecar-record-rlp
         (ethereum-lisp.chain-store:engine-payload-store-blob-and-proofs-v1
          source-cache source-versioned-hash))))
-    (signals block-validation-error
-      (node-store-import-from-kv target database))
+    (let ((*kzg-blob-proof-verifier*
+            (lambda (blob commitment proof)
+              (declare (ignore blob commitment proof))
+              t)))
+      (signals block-validation-error
+        (node-store-import-from-kv target database)))
     (let ((target-cache
             (ethereum-lisp.chain-store:engine-payload-store-blob-and-proofs-v1
              target target-versioned-hash)))

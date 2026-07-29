@@ -61,7 +61,8 @@
       (let* ((gas-used (receipt-cumulative-gas-used receipt))
              (refund (min refund-counter
                           (floor gas-used +refund-quotient-eip3529+))))
-        (make-receipt :status (receipt-status receipt)
+        (make-receipt :type (receipt-type receipt)
+                      :status (receipt-status receipt)
                       :cumulative-gas-used (- gas-used refund)
                       :logs (receipt-logs receipt)))
       receipt))
@@ -75,7 +76,8 @@
 (defun apply-floor-gas-to-receipt (receipt floor-gas)
   "EIP-7623: after refunds, a transaction is billed at least FLOOR-GAS."
   (if (> floor-gas (receipt-cumulative-gas-used receipt))
-      (make-receipt :status (receipt-status receipt)
+      (make-receipt :type (receipt-type receipt)
+                    :status (receipt-status receipt)
                     :cumulative-gas-used floor-gas
                     :logs (receipt-logs receipt))
       receipt))

@@ -227,13 +227,14 @@
         (execute-legacy-block state sender (list transaction)
                               :header header)
       (is (= 1 (length receipts)))
+      (is (= 2 (receipt-type (first receipts))))
       (is (string= (hash32-to-hex
                     (transaction-receipt-list-root
                      (list transaction)
                      receipts))
                    (hash32-to-hex
                     (block-header-receipts-root (block-header block)))))
-      (is (not (string= (hash32-to-hex (receipt-list-root receipts))
-                        (hash32-to-hex
-                         (block-header-receipts-root
-                          (block-header block)))))))))
+      (is (string= (hash32-to-hex (receipt-list-root receipts))
+                   (hash32-to-hex
+                    (block-header-receipts-root
+                     (block-header block))))))))

@@ -173,6 +173,18 @@
 (defun validate-block-header-against-config (parent-header header config)
   (let ((number (block-header-number header))
         (timestamp (block-header-timestamp header)))
+    (unless (chain-config-post-merge-p config number)
+      (block-validation-fail
+       "Pre-Merge block validation is unsupported"))
+    (when (and (plusp (block-header-difficulty parent-header))
+               (not (chain-config-terminal-total-difficulty-passed config))
+               (not (eql 0
+                         (chain-config-terminal-total-difficulty config))))
+      (block-validation-fail
+       "Merge transition validation is unsupported"))
+    (when (chain-config-amsterdam-p config number timestamp)
+      (block-validation-fail
+       "Amsterdam block validation is unavailable"))
     (multiple-value-bind (target-blob-gas max-blob-gas update-fraction)
         (chain-config-blob-schedule config number timestamp)
       (validate-block-header-basics
@@ -190,4 +202,4 @@
        :blob-schedule-target-gas target-blob-gas
        :blob-schedule-max-gas max-blob-gas
        :blob-schedule-update-fraction update-fraction
-       :post-merge-p (block-header-post-merge-p header)))))
+       :post-merge-p t))))

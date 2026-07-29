@@ -390,7 +390,7 @@
            (state-account-balance (state-db-get-account state sender))))
     (is (null (state-db-get-account state recipient)))))
 
-(deftest legacy-block-execution-carries-empty-block-access-list
+(deftest amsterdam-execution-refuses-supplied-empty-block-access-list
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
          (recipient (address-from-hex "0x00000000000000000000000000000000000000f2"))
@@ -406,21 +406,14 @@
                                                :value 1)))
     (state-db-set-account state sender
                           (make-state-account :balance 100000))
-    (multiple-value-bind (block receipts)
-        (execute-legacy-block state sender (list transaction)
-                              :header header
-                              :chain-config config
-                              :block-access-list '())
-      (is (= 1 (length receipts)))
-      (is (= 1 (receipt-status (first receipts))))
-      (is (block-block-access-list-present-p block))
-      (is (null (block-block-access-list block)))
-      (is (string= (hash32-to-hex (block-access-list-hash '()))
-                   (hash32-to-hex
-                    (block-header-block-access-list-hash
-                     (block-header block))))))))
+    (signals block-validation-error
+      (execute-legacy-block state sender (list transaction)
+                            :header header
+                            :chain-config config
+                            :block-access-list '()))
+    (is (= 0 (state-account-nonce (state-db-get-account state sender))))))
 
-(deftest legacy-block-execution-carries-encoded-block-access-list
+(deftest amsterdam-execution-refuses-supplied-encoded-block-access-list
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
          (recipient (address-from-hex "0x00000000000000000000000000000000000000f2"))
@@ -440,21 +433,12 @@
                                                :value 1)))
     (state-db-set-account state sender
                           (make-state-account :balance 100000))
-    (multiple-value-bind (block receipts)
-        (execute-legacy-block state sender (list transaction)
-                              :header header
-                              :chain-config config
-                              :block-access-list-rlp encoded)
-      (is (= 1 (length receipts)))
-      (is (= 1 (receipt-status (first receipts))))
-      (is (block-block-access-list-present-p block))
-      (is (bytes= encoded (block-encoded-block-access-list block)))
-      (is (bytes= encoded
-                  (block-access-list-rlp (block-block-access-list block))))
-      (is (string= (hash32-to-hex (block-access-list-rlp-hash encoded))
-                   (hash32-to-hex
-                    (block-header-block-access-list-hash
-                     (block-header block)))))))
+    (signals block-validation-error
+      (execute-legacy-block state sender (list transaction)
+                            :header header
+                            :chain-config config
+                            :block-access-list-rlp encoded))
+    (is (= 0 (state-account-nonce (state-db-get-account state sender)))))
   (let ((encoded (block-access-list-rlp '())))
     (signals block-validation-error
       (execute-legacy-block
@@ -484,17 +468,12 @@
                   :block-access-list-hash (keccak-256-hash encoded)))
          (config (make-chain-config :london-block 0
                                     :amsterdam-time 10)))
-    (multiple-value-bind (block receipts)
-        (execute-legacy-block state sender '()
-                              :header header
-                              :chain-config config
-                              :block-access-list-rlp encoded)
-      (is (null receipts))
-      (is (bytes= encoded (block-encoded-block-access-list block)))
-      (is (string= (hash32-to-hex (keccak-256-hash encoded))
-                   (hash32-to-hex
-                    (block-header-block-access-list-hash
-                     (block-header block))))))))
+    (signals block-validation-error
+      (execute-legacy-block state sender '()
+                            :header header
+                            :chain-config config
+                            :block-access-list-rlp encoded))
+    (is (null (state-db-get-account state account-address)))))
 
 (defun eip4788-test-chain-config ()
   (make-chain-config :byzantium-block 0
@@ -880,3 +859,38 @@
       (is (null receipts))
       (is (zerop (block-header-gas-used (block-header block))))
       (is (= 9 (state-db-get-storage state beacon-roots-address slot))))))
+
+(deftest reverted-parent-hash-history-system-call-rejects-block
+  (let* ((state (make-state-db))
+         (history-address
+           (address-from-hex
+            "0x0000f90827f1c53a10cb7a02335b175320002935"))
+         (parent-hash
+           (hash32-from-hex
+            "0x4444444444444444444444444444444444444444444444444444444444444444"))
+         (slot (eip4788-test-slot 0))
+         (code #(#x60 #x00 #x35 #x60 #x00 #x55
+                 #x60 #x00 #x60 #x00 #xfd))
+         (header (make-block-header
+                  :parent-hash parent-hash
+                  :number 1
+                  :timestamp 1
+                  :gas-limit 100000
+                  :base-fee-per-gas 0
+                  :blob-gas-used 0
+                  :excess-blob-gas 0
+                  :parent-beacon-root (zero-hash32)
+                  :requests-hash (execution-requests-hash '())))
+         (config (make-chain-config :london-block 0
+                                    :shanghai-time 0
+                                    :cancun-time 0
+                                    :prague-time 0)))
+    (state-db-set-code state history-address code)
+    (state-db-set-storage state history-address slot 9)
+    (signals block-validation-error
+      (execute-legacy-block state (zero-address) '()
+                            :header header
+                            :chain-config config
+                            :withdrawals '()
+                            :requests '()))
+    (is (= 9 (state-db-get-storage state history-address slot)))))

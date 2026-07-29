@@ -93,6 +93,45 @@
       (validate-transaction-type-for-config set-code config 10 29))
     (is (validate-transaction-type-for-config set-code config 10 30))))
 
+(deftest configured-post-merge-status-does-not-trust-header-difficulty
+  (let* ((parent (make-block-header :number 7
+                                    :gas-limit 1000000
+                                    :gas-used 500000
+                                    :timestamp 100
+                                    :base-fee-per-gas
+                                    +initial-base-fee+))
+         (parent-hash (block-header-hash parent))
+         (child (make-block-header :parent-hash parent-hash
+                                   :number 8
+                                   :gas-limit 1000000
+                                   :timestamp 101
+                                   :base-fee-per-gas
+                                   +initial-base-fee+))
+         (forged-pow-child
+           (make-block-header :parent-hash parent-hash
+                              :number 8
+                              :difficulty #x20000
+                              :gas-limit 1000000
+                              :timestamp 101
+                              :base-fee-per-gas
+                              +initial-base-fee+))
+         (post-merge-config
+           (make-chain-config :london-block 0
+                              :terminal-total-difficulty-passed t))
+         (pre-merge-config
+           (make-chain-config :london-block 0
+                              :terminal-total-difficulty 100)))
+    (is (chain-config-post-merge-p post-merge-config 8))
+    (is (not (chain-config-post-merge-p pre-merge-config 8)))
+    (is (validate-block-header-against-config
+         parent child post-merge-config))
+    (signals block-validation-error
+      (validate-block-header-against-config
+       parent forged-pow-child post-merge-config))
+    (signals block-validation-error
+      (validate-block-header-against-config
+       parent child pre-merge-config))))
+
 (deftest block-header-basic-parent-validation
   (let* ((parent (make-block-header :number 7
                                     :gas-limit 1024000
@@ -356,17 +395,18 @@
                   :withdrawals-root (withdrawal-list-root '())
                   :requests-hash (execution-requests-hash '()))
            config))
-      (is (validate-block-header-against-config
-           parent
-           (child :timestamp 400
-                  :blob-gas-used 0
-                  :excess-blob-gas 0
-                  :parent-beacon-root (zero-hash32)
-                  :withdrawals-root (withdrawal-list-root '())
-                  :requests-hash (execution-requests-hash '())
-                  :block-access-list-hash +empty-ommers-hash+
-                  :slot-number 0)
-           config))
+      (signals block-validation-error
+        (validate-block-header-against-config
+         parent
+         (child :timestamp 400
+                :blob-gas-used 0
+                :excess-blob-gas 0
+                :parent-beacon-root (zero-hash32)
+                :withdrawals-root (withdrawal-list-root '())
+                :requests-hash (execution-requests-hash '())
+                :block-access-list-hash +empty-ommers-hash+
+                :slot-number 0)
+         config))
       (is (validate-block-header-against-config
            parent
            (child :timestamp 300
@@ -431,7 +471,7 @@
                 :requests-hash (execution-requests-hash '()))
          config)))))
 
-(deftest amsterdam-header-slot-number-must-exceed-parent
+(deftest amsterdam-header-validation-is-capability-gated
   (let* ((config (make-chain-config :london-block 0
                                     :shanghai-time 150
                                     :cancun-time 200
@@ -465,7 +505,8 @@
               :requests-hash (execution-requests-hash '())
               :block-access-list-hash +empty-ommers-hash+
               :slot-number slot-number)))
-      (is (validate-block-header-against-config parent (child 11) config))
+      (signals block-validation-error
+        (validate-block-header-against-config parent (child 11) config))
       (signals block-validation-error
         (validate-block-header-against-config parent (child 10) config))
       (signals block-validation-error

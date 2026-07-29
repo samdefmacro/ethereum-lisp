@@ -26,36 +26,45 @@
            (hash-or-zero (block-header-mix-hash header))
            (optional-bytes (or (block-header-nonce header) (make-byte-vector 8))
                            8 "Header nonce"))))
-    (let ((optional-fields
-            (list
-             (and (block-header-base-fee-per-gas header)
-                  (ensure-uint256 (block-header-base-fee-per-gas header)
-                                  "Header base fee"))
-             (and (block-header-withdrawals-root header)
-                  (hash32-bytes (block-header-withdrawals-root header)))
-             (and (block-header-blob-gas-used header)
-                  (ensure-uint256 (block-header-blob-gas-used header)
-                                  "Header blob gas used"))
-             (and (block-header-excess-blob-gas header)
-                  (ensure-uint256 (block-header-excess-blob-gas header)
-                                  "Header excess blob gas"))
-             (and (block-header-parent-beacon-root header)
-                  (hash32-bytes (block-header-parent-beacon-root header)))
-             (and (block-header-requests-hash header)
-                  (hash32-bytes (block-header-requests-hash header)))
-             (and (block-header-block-access-list-hash header)
-                  (hash32-bytes
-                   (block-header-block-access-list-hash header)))
-             (and (block-header-slot-number header)
-                  (ensure-uint256 (block-header-slot-number header)
-                                  "Header slot number")))))
-      (loop with gap-seen-p = nil
-            for value in optional-fields
-            do (if value
-                   (if gap-seen-p
-                       (error "Header optional fields must form a contiguous prefix")
-                       (setf fields (append fields (list value))))
-                   (setf gap-seen-p t))))
+    (let* ((presence
+             (list (block-header-base-fee-per-gas header)
+                   (block-header-withdrawals-root header)
+                   (block-header-blob-gas-used header)
+                   (block-header-excess-blob-gas header)
+                   (block-header-parent-beacon-root header)
+                   (block-header-requests-hash header)
+                   (block-header-block-access-list-hash header)
+                   (block-header-slot-number header)))
+           (optional-fields
+             (list
+              (ensure-uint256
+               (or (block-header-base-fee-per-gas header) 0)
+               "Header base fee")
+              (hash32-bytes
+               (or (block-header-withdrawals-root header) (zero-hash32)))
+              (ensure-uint256
+               (or (block-header-blob-gas-used header) 0)
+               "Header blob gas used")
+              (ensure-uint256
+               (or (block-header-excess-blob-gas header) 0)
+               "Header excess blob gas")
+              (hash32-bytes
+               (or (block-header-parent-beacon-root header) (zero-hash32)))
+              (hash32-bytes
+               (or (block-header-requests-hash header) (zero-hash32)))
+              (hash32-bytes
+               (or (block-header-block-access-list-hash header)
+                   (zero-hash32)))
+              (ensure-uint256
+               (or (block-header-slot-number header) 0)
+               "Header slot number")))
+           (last-present (position-if #'identity presence :from-end t)))
+      ;; Never shift a later optional field into an earlier field's position.
+      ;; Incomplete local templates receive typed zero placeholders; fork-aware
+      ;; validation still rejects those shapes at an import boundary.
+      (when last-present
+        (setf fields
+              (append fields (subseq optional-fields 0 (1+ last-present))))))
     fields))
 
 (defun block-header-rlp-object (header)

@@ -12,6 +12,20 @@
 (defun chain-config-dao-fork-p (config block-number)
   (fork-block-active-p (chain-config-dao-fork-block config) block-number))
 
+(defun chain-config-post-merge-p (config block-number)
+  "Whether CONFIG requires proof-of-stake header rules at BLOCK-NUMBER.
+
+A config without transition metadata is treated as post-Merge because this
+client does not implement proof-of-work validation. A positive, unpassed TTD is
+pre-Merge until an explicit merge netsplit block is reached."
+  (or (chain-config-terminal-total-difficulty-passed config)
+      (let ((terminal-total-difficulty
+              (chain-config-terminal-total-difficulty config)))
+        (or (null terminal-total-difficulty)
+            (zerop terminal-total-difficulty)))
+      (fork-block-active-p (chain-config-merge-netsplit-block config)
+                           block-number)))
+
 (defun chain-config-eip150-p (config block-number)
   (fork-block-active-p (chain-config-eip150-block config) block-number))
 

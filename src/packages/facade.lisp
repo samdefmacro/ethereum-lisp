@@ -297,6 +297,7 @@
    #:fork-time-active-p
    #:chain-config-homestead-p
    #:chain-config-dao-fork-p
+   #:chain-config-post-merge-p
    #:chain-config-eip150-p
    #:chain-config-eip155-p
    #:chain-config-eip158-p
@@ -1108,10 +1109,12 @@
    #:bloom-contains-p
    #:receipt
    #:make-receipt
+   #:receipt-type
    #:receipt-status
    #:receipt-cumulative-gas-used
    #:receipt-logs
    #:receipt-rlp
+   #:receipt-encoding
    #:transaction-receipt-encoding
    #:receipt-bloom
    #:derive-list-root

@@ -59,6 +59,13 @@
                       (engine-blob-and-proofs-commitment blob-and-proofs)))
       (block-validation-fail
        "KV blob-sidecar record key does not match encoded commitment"))
+    (validate-blob-sidecar-fields
+     (make-blob-sidecar
+      :blobs (list (engine-blob-and-proofs-blob blob-and-proofs))
+      :commitments
+      (list (engine-blob-and-proofs-commitment blob-and-proofs))
+      :proofs (list (engine-blob-and-proofs-proof blob-and-proofs)))
+     :require-proof-verification t)
     (setf (gethash
            (engine-payload-store-key versioned-hash)
            (memory-chain-store-blob-sidecars store))

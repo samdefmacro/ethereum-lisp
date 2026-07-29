@@ -1027,7 +1027,7 @@
         (is (string= (quantity-to-hex 1) (field status "pending")))
         (is (string= (quantity-to-hex 0) (field status "queued")))))))
 
-(deftest devnet-cli-dev-period-tick-carries-active-fork-bodies
+(deftest devnet-cli-dev-period-tick-carries-supported-fork-bodies
   (let* ((now 0)
          (node
            (ethereum-lisp.cli:make-devnet-node
@@ -1035,8 +1035,7 @@
             (devnet-cli-funded-txpool-genesis-json
              :config-fields
              (list (cons "cancunTime" "0x0")
-                   (cons "pragueTime" "0x0")
-                   (cons "amsterdamTime" "0x0"))
+                   (cons "pragueTime" "0x0"))
              :code-accounts
              (loop for address
                      in '("0x00000961ef480eb55e80d19ad83579a64c007002"
@@ -1080,12 +1079,7 @@
       (is (null (block-requests block)))
       (is (string= (hash32-to-hex (execution-requests-hash '()))
                    (hash32-to-hex
-                    (block-header-requests-hash header))))
-      (is (block-block-access-list-present-p block))
-      (is (null (block-block-access-list block)))
-      (is (string= (hash32-to-hex (block-access-list-hash '()))
-                   (hash32-to-hex
-                    (block-header-block-access-list-hash header)))))))
+                    (block-header-requests-hash header)))))))
 
 (deftest devnet-cli-txpool-journal-rejects-wrong-chain-transactions
   (let ((journal-path

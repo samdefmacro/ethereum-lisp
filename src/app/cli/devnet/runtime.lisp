@@ -147,14 +147,7 @@ the deterministic address order is kept."
                       :max-blob-gas max-blob-gas
                       :eip7918-p (chain-config-osaka-p config block-number
                                                         timestamp)
-                      :update-fraction update-fraction
-                      ;; The reserve price concerns the parent's blob fee, so it
-                      ;; uses the fraction in force when the parent was built.
-                      :parent-update-fraction
-                      (nth-value 2 (chain-config-blob-schedule
-                                    config
-                                    (block-header-number parent-header)
-                                    (block-header-timestamp parent-header))))
+                      :update-fraction update-fraction)
                      :parent-beacon-root (zero-hash32)))))
           (when shanghai-p
             (setf fork-body-arguments

@@ -306,11 +306,10 @@
                            (hash32-to-hex
                             (block-header-receipts-root
                              (block-header child-block)))))
-              (is (not
-                   (string= (hash32-to-hex (receipt-list-root receipts))
-                            (hash32-to-hex
-                             (block-header-receipts-root
-                              (block-header child-block))))))
+              (is (string= (hash32-to-hex (receipt-list-root receipts))
+                           (hash32-to-hex
+                            (block-header-receipts-root
+                             (block-header child-block)))))
               (is (string= (quantity-to-hex 2) (field receipt "type")))
               (is (string= (quantity-to-hex 1) (field receipt "status")))
               (is (string= (quantity-to-hex 100)
@@ -462,11 +461,10 @@
                            (hash32-to-hex
                             (block-header-receipts-root
                              (block-header child-block)))))
-              (is (not
-                   (string= (hash32-to-hex (receipt-list-root receipts))
-                            (hash32-to-hex
-                             (block-header-receipts-root
-                              (block-header child-block))))))
+              (is (string= (hash32-to-hex (receipt-list-root receipts))
+                           (hash32-to-hex
+                            (block-header-receipts-root
+                             (block-header child-block)))))
               (is (string= (quantity-to-hex 1) (field receipt "type")))
               (is (string= (quantity-to-hex 1) (field receipt "status")))
               (is (string= (quantity-to-hex 1)

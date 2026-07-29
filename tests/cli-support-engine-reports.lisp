@@ -90,20 +90,21 @@
                     "engine_getPayloadBodiesByHashV1"
                     "engine_getPayloadBodiesByRangeV1"
                     "engine_forkchoiceUpdatedV3"
-                    "engine_forkchoiceUpdatedV4"
                     "engine_getPayloadBodiesByHashV2"
                     "engine_getPayloadBodiesByRangeV2"
                     "engine_getPayloadV3"
                     "engine_getPayloadV4"
                     "engine_getPayloadV5"
-                    "engine_getPayloadV6"
                     "engine_getBlobsV1"
+                    "engine_newPayloadV3"
+                    "engine_newPayloadV4"))
+    (is (member method capabilities :test #'string=)))
+  (dolist (method '("engine_forkchoiceUpdatedV4"
+                    "engine_getPayloadV6"
                     "engine_getBlobsV2"
                     "engine_getBlobsV3"
-                    "engine_newPayloadV3"
-                    "engine_newPayloadV4"
                     "engine_newPayloadV5"))
-    (is (member method capabilities :test #'string=))))
+    (is (not (member method capabilities :test #'string=)))))
 
 (defun devnet-cli-assert-engine-capability-report (report)
   (is (plusp (fixture-object-field report "engineCapabilityCount")))

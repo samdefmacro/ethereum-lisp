@@ -50,10 +50,8 @@
                 :message "Execution requests present before Prague")))
       (cond
         (amsterdam-p
-         (unless (or block-access-list-supplied-p
-                     (block-header-block-access-list-hash header))
-           (error 'block-validation-error
-                  :message "Header is missing block access list hash")))
+         (error 'block-validation-error
+                :message "Amsterdam block execution is unavailable"))
         ((or block-access-list-supplied-p
              (block-header-block-access-list-hash header))
          (error 'block-validation-error

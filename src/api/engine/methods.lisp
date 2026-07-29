@@ -13,19 +13,20 @@
     ("engine_newPayloadV1" :advertised-p t)
     ("engine_newPayloadV2" :advertised-p t)
     ("engine_forkchoiceUpdatedV3" :advertised-p t :kzg-p t)
-    ("engine_forkchoiceUpdatedV4" :advertised-p t :kzg-p t)
+    ("engine_forkchoiceUpdatedV4" :advertised-p nil :kzg-p t
+                                  :unsupported-p t)
     ("engine_getPayloadBodiesByHashV2" :advertised-p t :kzg-p t)
     ("engine_getPayloadBodiesByRangeV2" :advertised-p t :kzg-p t)
     ("engine_getPayloadV3" :advertised-p t :kzg-p t)
     ("engine_getPayloadV4" :advertised-p t :kzg-p t)
     ("engine_getPayloadV5" :advertised-p t :kzg-p t)
-    ("engine_getPayloadV6" :advertised-p t :kzg-p t)
+    ("engine_getPayloadV6" :advertised-p nil :kzg-p t :unsupported-p t)
     ("engine_getBlobsV1" :advertised-p t :kzg-p t)
-    ("engine_getBlobsV2" :advertised-p t :kzg-p t)
-    ("engine_getBlobsV3" :advertised-p t :kzg-p t)
+    ("engine_getBlobsV2" :advertised-p nil :kzg-p t :unsupported-p t)
+    ("engine_getBlobsV3" :advertised-p nil :kzg-p t :unsupported-p t)
     ("engine_newPayloadV3" :advertised-p t :kzg-p t)
     ("engine_newPayloadV4" :advertised-p t :kzg-p t)
-    ("engine_newPayloadV5" :advertised-p t :kzg-p t)))
+    ("engine_newPayloadV5" :advertised-p nil :kzg-p t :unsupported-p t)))
 
 (defun engine-rpc-method-spec (method)
   (assoc method +engine-rpc-method-registry+ :test #'string=))
@@ -53,7 +54,9 @@
 
 (defun engine-rpc-kzg-backed-method-p (method)
   (let ((spec (engine-rpc-method-spec method)))
-    (and spec (getf (rest spec) :kzg-p))))
+    (and spec
+         (getf (rest spec) :kzg-p)
+         (not (getf (rest spec) :unsupported-p)))))
 
 (defparameter +engine-rpc-required-eth-methods+
   '("eth_blockNumber"

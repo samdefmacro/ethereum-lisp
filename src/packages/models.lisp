@@ -55,11 +55,13 @@
    #:receipt-p
    #:make-receipt
    #:receipt-post-state
+   #:receipt-type
    #:receipt-status
    #:receipt-cumulative-gas-used
    #:receipt-logs
    #:receipt-status-bytes
    #:receipt-rlp
+   #:receipt-encoding
    #:transaction-receipt-encoding
    #:receipt-bloom
    #:derive-list-root

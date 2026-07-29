@@ -138,6 +138,7 @@
                         "/engine"
                         "--override.terminaltotaldifficulty"
                         "0x3039"
+                        "--override.terminaltotaldifficultypassed"
                         "--override.terminalblockhash"
                         terminal-block-hash
                         "--override.terminalblocknumber"

@@ -1,5 +1,11 @@
 (in-package #:ethereum-lisp.test)
 
+(deftest devnet-cli-gates-unembedded-network-presets
+  (signals error
+    (ethereum-lisp.cli::devnet-cli-options '("--mainnet")))
+  (is (listp
+       (ethereum-lisp.cli::devnet-cli-options '("--mainnet=false")))))
+
 (defun devnet-cli-assert-script-signal-shutdown
     (signal-name temp-name &key engine-only-p)
   (let ((script (namestring (truename "scripts/ethereum-lisp.lisp")))

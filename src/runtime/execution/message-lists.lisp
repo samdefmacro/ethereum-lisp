@@ -44,7 +44,8 @@
                                     :context-gas-limit context-gas-limit
                                     :block-hashes block-hashes)))
         (incf cumulative-gas (receipt-cumulative-gas-used receipt))
-        (push (make-receipt :status (receipt-status receipt)
+        (push (make-receipt :type (transaction-type tx)
+                            :status (receipt-status receipt)
                             :cumulative-gas-used cumulative-gas
                             :logs (receipt-logs receipt))
               receipts)))
@@ -100,7 +101,8 @@
                         :context-gas-limit context-gas-limit
                         :block-hashes block-hashes)))
           (incf cumulative-gas (receipt-cumulative-gas-used receipt))
-          (push (make-receipt :status (receipt-status receipt)
+          (push (make-receipt :type (transaction-type tx)
+                              :status (receipt-status receipt)
                               :cumulative-gas-used cumulative-gas
                               :logs (receipt-logs receipt))
                 receipts))))
