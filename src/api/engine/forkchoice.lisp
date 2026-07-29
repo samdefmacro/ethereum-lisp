@@ -49,6 +49,9 @@
                 (block-header-state-root header) nil
                 (block-header-receipts-root header) nil
                 (block-header-logs-bloom header) nil)
+          (when (chain-config-cancun-p config block-number timestamp)
+            (setf (block-header-blob-gas-used header)
+                  (blob-gas-used transactions)))
           (apply
            #'execute-signed-block
            state
@@ -114,15 +117,22 @@ for the rest of this payload; other senders are still considered."
                        store parent-block payload-attributes config
                        (append selected (list transaction))
                        :gas-limit-target gas-limit-target)))
+                (let ((header (block-header candidate)))
+                  (when (and
+                         (chain-config-osaka-p
+                          config
+                          (block-header-number header)
+                          (block-header-timestamp header))
+                         (> (length (block-rlp candidate))
+                            +max-rlp-block-size-eip7934+))
+                    (block-validation-fail
+                     "Block RLP size exceeds the EIP-7934 cap")))
                 (setf selected (append selected (list transaction))
                       block candidate))
             (transaction-validation-error ()
               (setf (gethash sender-key blocked-senders) t))
-            (block-validation-error (condition)
-              (if (string= "Block gas limit exceeded"
-                           (block-validation-error-message condition))
-                  (setf (gethash sender-key blocked-senders) t)
-                  (error condition)))))))
+            (block-validation-error ()
+              (setf (gethash sender-key blocked-senders) t))))))
     (values block selected)))
 
 (defun engine-rpc-pending-build-transactions (store config parent-header)
@@ -130,6 +140,29 @@ for the rest of this payload; other senders are still considered."
    store (chain-config-chain-id config)
    :base-fee (ignore-errors
               (expected-base-fee-per-gas parent-header))))
+
+(defun engine-rpc-blobs-bundle-for-transactions (store transactions)
+  (let ((blobs '())
+        (commitments '())
+        (proofs '()))
+    (dolist (transaction transactions)
+      (when (typep transaction 'blob-transaction)
+        (dolist (versioned-hash
+                 (blob-transaction-blob-versioned-hashes transaction))
+          (let ((blob-and-proofs
+                  (engine-payload-store-blob-and-proofs-v1
+                   store versioned-hash)))
+            (unless blob-and-proofs
+              (block-validation-fail
+               "Selected blob transaction sidecar is unavailable"))
+            (push (engine-blob-and-proofs-blob blob-and-proofs) blobs)
+            (push (engine-blob-and-proofs-commitment blob-and-proofs)
+                  commitments)
+            (push (engine-blob-and-proofs-proof blob-and-proofs) proofs)))))
+    (make-blob-sidecar
+     :blobs (nreverse blobs)
+     :commitments (nreverse commitments)
+     :proofs (nreverse proofs))))
 
 (defun engine-rpc-improve-prepared-payload (store config prepared-payload)
   "Rebuild an open payload from the latest txpool contents under the same id."
@@ -159,7 +192,6 @@ for the rest of this payload; other senders are still considered."
                  transactions
                  :gas-limit-target
                  (engine-prepared-payload-gas-limit-target prepared-payload))
-              (declare (ignore viable-transactions))
               (let ((improved
                       (make-engine-prepared-payload
                        :payload-id
@@ -167,6 +199,9 @@ for the rest of this payload; other senders are still considered."
                        :version
                        (engine-prepared-payload-version prepared-payload)
                        :block block
+                       :blobs-bundle
+                       (engine-rpc-blobs-bundle-for-transactions
+                        store viable-transactions)
                        :parent-hash
                        (engine-prepared-payload-parent-hash prepared-payload)
                        :payload-attributes
@@ -328,13 +363,15 @@ for the rest of this payload; other senders are still considered."
                     (engine-rpc-fail
                      +engine-rpc-error-invalid-payload-attributes+
                      (princ-to-string condition))))
-              (declare (ignore viable-transactions))
               (chain-store-put-prepared-payload
                store
                (make-engine-prepared-payload
                 :payload-id candidate-id
                 :version prepared-payload-version
                 :block block
+                :blobs-bundle
+                (engine-rpc-blobs-bundle-for-transactions
+                 store viable-transactions)
                 :parent-hash head-hash
                 :payload-attributes payload-attributes
                 :gas-limit-target gas-limit-target

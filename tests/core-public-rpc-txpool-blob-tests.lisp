@@ -219,7 +219,10 @@
                     (address-to-hex sender)))
            (pooled-transaction (field lookup-response "result")))
       (is (typep transaction 'blob-transaction))
-      (is (string= transaction-hash (field send-response "result")))
+      (is (= -32602 (field error "code")))
+      (is (string=
+           "Blob transaction admission requires an EIP-4844 sidecar wrapper"
+           (field error "message")))
       (is (= 0 (length (field pending-response "result"))))
       (is (string= (quantity-to-hex 0) (field status "pending")))
       (is (string= (quantity-to-hex 1) (field status "queued")))
@@ -288,9 +291,89 @@
         (is (> (block-header-blob-base-fee (block-header head-block))
                (blob-transaction-max-fee-per-blob-gas transaction)))
         (is (= -32602 (field error "code")))
-        (is (string= "eth_sendRawTransaction: Max fee per blob gas below blob base fee"
+        (is (string=
+             "Blob transaction admission requires an EIP-4844 sidecar wrapper"
                      (field error "message")))
         (is (string= (quantity-to-hex 0) (field status "pending")))
         (is (string= (quantity-to-hex 0) (field status "queued")))
         (is (null (field lookup-response "result")))))))
+
+(deftest eth-rpc-send-raw-transaction-accepts-verified-blob-wrapper
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (request (json store config)
+             (parse-json
+              (engine-rpc-handle-request-json json store config))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1337
+                                      :london-block 0
+                                      :cancun-time 0))
+           (commitment (make-byte-vector 48 :initial-element #x11))
+           (versioned-hash
+             (kzg-commitment-to-versioned-hash commitment))
+           (transaction
+             (fixture-sign-blob-transaction
+              (make-blob-transaction
+               :chain-id 1337
+               :nonce 0
+               :max-priority-fee-per-gas 2
+               :max-fee-per-gas 20
+               :gas-limit 21000
+               :to (zero-address)
+               :max-fee-per-blob-gas 20
+               :blob-versioned-hashes (list versioned-hash))
+              1))
+           (sidecar
+             (make-blob-sidecar
+              :blobs (list (make-byte-vector +blob-byte-size+))
+              :commitments (list commitment)
+              :proofs (list (make-byte-vector 48 :initial-element #x22))))
+           (raw
+             (bytes-to-hex
+              (blob-pooled-transaction-encoding transaction sidecar)))
+           (sender
+             (transaction-sender transaction :expected-chain-id 1337))
+           (state (make-state-db))
+           (head
+             (make-block
+              :header
+              (make-block-header
+               :number 0
+               :timestamp 0
+               :gas-limit 30000000
+               :base-fee-per-gas 1
+               :blob-gas-used 0
+               :excess-blob-gas 0
+               :state-root (state-db-root state)))))
+      (state-db-set-account
+       state sender (make-state-account :nonce 0 :balance 1000000000))
+      (setf (block-header-state-root (block-header head))
+            (state-db-root state))
+      (chain-store-put-block store head :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash head) state)
+      (let* ((*kzg-blob-proof-verifier*
+               (lambda (blob actual-commitment proof)
+                 (declare (ignore blob actual-commitment proof))
+                 t))
+             (response
+               (request
+                (concatenate
+                 'string
+                 "{\"jsonrpc\":\"2.0\",\"id\":178,"
+                 "\"method\":\"eth_sendRawTransaction\","
+                 "\"params\":[\"" raw "\"]}")
+                store config))
+             (stored-sidecar
+               (engine-payload-store-blob-and-proofs-v1
+                store versioned-hash)))
+        (is (string=
+             (hash32-to-hex (transaction-hash transaction))
+             (field response "result")))
+        (is (= 1
+               (ethereum-lisp.txpool:engine-payload-store-blob-transaction-count
+                store)))
+        (is stored-sidecar)
+        (is (equalp (first (blob-sidecar-blobs sidecar))
+                    (ethereum-lisp.chain-store.model:engine-blob-and-proofs-blob
+                     stored-sidecar)))))))
 
