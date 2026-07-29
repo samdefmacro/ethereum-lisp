@@ -49,9 +49,8 @@
          (error 'block-validation-error
                 :message "Execution requests present before Prague")))
       (cond
-        (amsterdam-p
-         (error 'block-validation-error
-                :message "Amsterdam block execution is unavailable"))
+        ;; Local Amsterdam payload construction derives both the list and hash.
+        (amsterdam-p nil)
         ((or block-access-list-supplied-p
              (block-header-block-access-list-hash header))
          (error 'block-validation-error

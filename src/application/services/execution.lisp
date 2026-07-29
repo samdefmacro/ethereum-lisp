@@ -110,6 +110,7 @@ so execution only fails if EVM code actually queries unavailable history."
     (store state transactions
      &key expected-chain-id
           (header (make-block-header))
+          parent-header
           chain-rules
           chain-config
           block-hashes
@@ -134,6 +135,13 @@ so execution only fails if EVM code actually queries unavailable history."
        (list :expected-chain-id expected-chain-id
              :expected-block-hash expected-block-hash
              :header header
+             :parent-header
+             (or parent-header
+                 (let ((parent-hash (block-header-parent-hash header)))
+                   (when parent-hash
+                     (let ((parent-block
+                             (chain-store-known-block store parent-hash)))
+                       (and parent-block (block-header parent-block))))))
              :chain-rules chain-rules
              :chain-config chain-config
              :block-hashes

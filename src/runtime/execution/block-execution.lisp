@@ -29,6 +29,7 @@
 (defun execute-block-with-message-applier
     (state transactions apply-transactions
      &key (header (make-block-header))
+          parent-header
           chain-rules
           chain-config
           (block-hashes (make-hash-table))
@@ -62,6 +63,10 @@
                                     chain-config
                                     (block-header-number header)
                                     (block-header-timestamp header)))
+           (block-access-list-construction
+             (when (and effective-chain-rules
+                        (chain-rules-amsterdam-p effective-chain-rules))
+               (make-construction-block-access-list)))
            (block-blob-base-fee
              (execution-block-blob-base-fee header chain-rules chain-config))
            (block-hashes
@@ -96,14 +101,19 @@
           (header-snapshot (copy-block-header-for-execution header)))
       (handler-case
           (progn
-            (process-parent-beacon-block-root
-             state header effective-chain-rules
-             :blob-base-fee block-blob-base-fee
-             :block-hashes block-hashes)
-            (process-parent-block-hash-history
-             state header effective-chain-rules
-             :blob-base-fee block-blob-base-fee
-             :block-hashes block-hashes)
+            (call-with-block-access-phase
+             block-access-list-construction state 0
+             (lambda ()
+               (apply-amsterdam-activation-transition
+                state header parent-header chain-config)
+               (process-parent-beacon-block-root
+                state header effective-chain-rules
+                :blob-base-fee block-blob-base-fee
+                :block-hashes block-hashes)
+               (process-parent-block-hash-history
+                state header effective-chain-rules
+                :blob-base-fee block-blob-base-fee
+                :block-hashes block-hashes)))
             (multiple-value-bind (receipts gas-used)
                 (funcall
                  apply-transactions
@@ -122,24 +132,46 @@
                  :random-p (block-header-post-merge-p header)
                  :context-gas-limit (block-header-gas-limit header)
                  :block-hashes block-hashes
+                 :block-access-list-construction
+                 block-access-list-construction
                  :block-gas-limit
                  (when (plusp (block-header-gas-limit header))
                    (block-header-gas-limit header)))
-              (when withdrawals-supplied-p
-                (apply-withdrawals state withdrawals))
               (multiple-value-bind (derived-requests requests-derived-p)
-                  (derive-prague-execution-requests
-                   state receipts header effective-chain-rules chain-config
-                   :blob-base-fee block-blob-base-fee
-                   :block-hashes block-hashes)
-                (let ((effective-requests
-                        (if requests-derived-p derived-requests requests))
-                      (effective-requests-supplied-p
-                        (or requests-derived-p requests-supplied-p)))
+                  (call-with-block-access-phase
+                   block-access-list-construction
+                   state
+                   (1+ (length transactions))
+                   (lambda ()
+                     (when withdrawals-supplied-p
+                       (apply-withdrawals state withdrawals))
+                     (derive-prague-execution-requests
+                      state receipts header effective-chain-rules chain-config
+                      :blob-base-fee block-blob-base-fee
+                      :block-hashes block-hashes)))
+                (let* ((effective-requests
+                         (if requests-derived-p derived-requests requests))
+                       (effective-requests-supplied-p
+                         (or requests-derived-p requests-supplied-p))
+                       (derived-block-access-list
+                         (when block-access-list-construction
+                           (construction-block-access-list-value
+                            block-access-list-construction))))
                   (when requests-derived-p
                     (validate-execution-request-list-fields effective-requests)
                     (validate-derived-execution-requests
                      header effective-requests))
+                  (when derived-block-access-list
+                    (validate-derived-block-access-list
+                     header
+                     derived-block-access-list
+                     block-access-list
+                     block-access-list-supplied-p
+                     :max-code-size block-access-list-max-code-size
+                     :max-items
+                     (when (plusp (block-header-gas-limit header))
+                       (floor (block-header-gas-limit header)
+                              +block-access-list-item-gas-cost+))))
                   (when apply-block-rewards-p
                     (apply-block-rewards-for-header
                      state header ommers effective-chain-rules))
@@ -169,12 +201,16 @@
                                     (list :withdrawals withdrawals))
                                   (when effective-requests-supplied-p
                                     (list :requests effective-requests))
-                                  (when block-access-list-supplied-p
-                                    (if encoded-block-access-list
-                                        (list :block-access-list-rlp
-                                              encoded-block-access-list)
-                                        (list :block-access-list
-                                              block-access-list)))))))
+                                  (cond
+                                    (derived-block-access-list
+                                     (list :block-access-list
+                                           derived-block-access-list))
+                                    (block-access-list-supplied-p
+                                     (if encoded-block-access-list
+                                         (list :block-access-list-rlp
+                                               encoded-block-access-list)
+                                         (list :block-access-list
+                                               block-access-list))))))))
                     (when (and expected-block-hash
                                (not (execution-hash32=
                                      expected-block-hash
@@ -191,6 +227,7 @@
 
 (defun execute-legacy-block (state sender transactions
                              &key (header (make-block-header))
+                                  parent-header
                                   chain-rules
                                   chain-config
                                   (block-hashes (make-hash-table))
@@ -209,6 +246,7 @@
    (lambda (state transactions &rest options)
      (apply #'apply-message-list state sender transactions options))
    :header header
+   :parent-header parent-header
    :chain-rules chain-rules
    :chain-config chain-config
    :block-hashes block-hashes
@@ -227,6 +265,7 @@
 (defun execute-signed-block (state transactions
                              &key expected-chain-id
                                   (header (make-block-header))
+                                  parent-header
                                   chain-rules
                                   chain-config
                                   (block-hashes (make-hash-table))
@@ -247,6 +286,7 @@
      (apply #'apply-signed-message-list
             state transactions :expected-chain-id expected-chain-id options))
    :header header
+   :parent-header parent-header
    :chain-rules chain-rules
    :chain-config chain-config
    :block-hashes block-hashes

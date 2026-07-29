@@ -323,7 +323,7 @@
            (state-account-balance (state-db-get-account state sender))))
     (is (null (state-db-get-account state recipient)))))
 
-(deftest block-execution-requires-block-access-list-after-amsterdam-before-state-mutation
+(deftest block-execution-derives-block-access-list-after-amsterdam
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
          (recipient (address-from-hex "0x0000000000000000000000000000000000000002"))
@@ -334,19 +334,28 @@
                                     :base-fee-per-gas 1))
          (transaction (make-legacy-transaction :nonce 0
                                                :gas-price 1
-                                               :gas-limit 21000
+                                               :gas-limit 30000
                                                :to recipient
                                                :value 1)))
     (state-db-set-account state sender
                           (make-state-account :balance 100000))
-    (signals block-validation-error
-      (execute-legacy-block state sender (list transaction)
-                            :header header
-                            :chain-config config))
-    (is (= 0 (state-account-nonce (state-db-get-account state sender))))
-    (is (= 100000
-           (state-account-balance (state-db-get-account state sender))))
-    (is (null (state-db-get-account state recipient)))))
+    (multiple-value-bind (block receipts)
+        (execute-legacy-block state sender (list transaction)
+                              :header header
+                              :chain-config config)
+      (is (= 1 (length receipts)))
+      (is (block-block-access-list-present-p block))
+      (is (plusp (length (block-block-access-list block))))
+      (is (string=
+           (hash32-to-hex
+            (block-header-block-access-list-hash (block-header block)))
+           (hash32-to-hex
+            (block-access-list-hash (block-block-access-list block))))))
+    (is (= 1 (state-account-nonce (state-db-get-account state sender))))
+    (is (< (state-account-balance (state-db-get-account state sender))
+           100000))
+    (is (= 1 (state-account-balance
+              (state-db-get-account state recipient))))))
 
 (deftest block-execution-preflights-block-access-list-item-gas-limit
   (let* ((state (make-state-db))
@@ -413,7 +422,7 @@
                             :block-access-list '()))
     (is (= 0 (state-account-nonce (state-db-get-account state sender))))))
 
-(deftest amsterdam-execution-refuses-supplied-encoded-block-access-list
+(deftest amsterdam-execution-rejects-mismatched-encoded-block-access-list
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
          (recipient (address-from-hex "0x00000000000000000000000000000000000000f2"))
@@ -438,7 +447,9 @@
                             :header header
                             :chain-config config
                             :block-access-list-rlp encoded))
-    (is (= 0 (state-account-nonce (state-db-get-account state sender)))))
+    (is (= 0 (state-account-nonce (state-db-get-account state sender))))))
+
+(deftest block-execution-rejects-dual-block-access-list-representations
   (let ((encoded (block-access-list-rlp '())))
     (signals block-validation-error
       (execute-legacy-block
@@ -446,34 +457,7 @@
        (address-from-hex "0x0000000000000000000000000000000000000001")
        '()
        :block-access-list '()
-       :block-access-list-rlp encoded)))
-  (let* ((state (make-state-db))
-         (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
-         (account-address
-           (address-from-hex "0x0000000000000000000000000000000000000003"))
-         (encoded
-           (rlp-encode
-            (make-rlp-list
-             (make-rlp-list
-              (address-bytes account-address)
-              (make-rlp-list)
-              (make-rlp-list (ensure-byte-vector '(0)))
-              (make-rlp-list)
-              (make-rlp-list)
-              (make-rlp-list)))))
-         (header (make-block-header
-                  :timestamp 10
-                  :gas-limit 50000
-                  :base-fee-per-gas 1
-                  :block-access-list-hash (keccak-256-hash encoded)))
-         (config (make-chain-config :london-block 0
-                                    :amsterdam-time 10)))
-    (signals block-validation-error
-      (execute-legacy-block state sender '()
-                            :header header
-                            :chain-config config
-                            :block-access-list-rlp encoded))
-    (is (null (state-db-get-account state account-address)))))
+       :block-access-list-rlp encoded))))
 
 (defun eip4788-test-chain-config ()
   (make-chain-config :byzantium-block 0
@@ -748,6 +732,71 @@
               (block-header-requests-hash (block-header block)))))
         (is (= (receipt-cumulative-gas-used (first receipts))
                (block-header-gas-used (block-header block))))))))
+
+(deftest amsterdam-transition-derives-builder-requests-and-factory
+  (let* ((state (make-state-db))
+         (withdrawal-data (make-byte-vector 76 :initial-element #x11))
+         (consolidation-data (make-byte-vector 116 :initial-element #x22))
+         (builder-deposit-data (make-byte-vector 192 :initial-element #x33))
+         (builder-exit-data (make-byte-vector 64 :initial-element #x44))
+         (queue-specs
+           `(("0x00000961ef480eb55e80d19ad83579a64c007002"
+              ,withdrawal-data)
+             ("0x0000bbddc7ce488642fb579f8b00f3a590007251"
+              ,consolidation-data)
+             ("0x0000bff46984e3725691fa540a8c7589300d8282"
+              ,builder-deposit-data)
+             ("0x000064d678505ad48f8ccb093bc65613800e8282"
+              ,builder-exit-data)))
+         (expected-requests
+           (list (concat-bytes #(#x01) withdrawal-data)
+                 (concat-bytes #(#x02) consolidation-data)
+                 (concat-bytes #(#x03) builder-deposit-data)
+                 (concat-bytes #(#x04) builder-exit-data)))
+         (factory
+           (address-from-hex
+            "0x4e59b44847b379578588920ca78fbf26c0b4956c"))
+         (config (make-chain-config :london-block 0
+                                    :shanghai-time 0
+                                    :prague-time 0
+                                    :amsterdam-time 10))
+         (parent-header
+           (make-block-header :number 0
+                              :timestamp 9
+                              :gas-limit 200000
+                              :base-fee-per-gas 0))
+         (header
+           (make-block-header
+            :parent-hash (block-header-hash parent-header)
+            :number 1
+            :timestamp 10
+            :gas-limit 200000
+            :base-fee-per-gas 0
+            :withdrawals-root (withdrawal-list-root '())
+            :requests-hash (execution-requests-hash expected-requests)
+            :slot-number 1)))
+    (dolist (spec queue-specs)
+      (state-db-set-code state
+                         (address-from-hex (first spec))
+                         (eip7685-test-return-code (second spec))))
+    (multiple-value-bind (block receipts)
+        (execute-legacy-block state (zero-address) '()
+                              :header header
+                              :parent-header parent-header
+                              :chain-config config
+                              :withdrawals '())
+      (is (null receipts))
+      (is (equalp expected-requests (block-requests block)))
+      (is (= 1 (state-account-nonce
+                (state-db-get-account state factory))))
+      (is (plusp (length (state-db-get-code state factory))))
+      (is (block-block-access-list-present-p block))
+      (is (find factory
+                (block-block-access-list block)
+                :test (lambda (left right)
+                        (bytes= (address-bytes left)
+                                (address-bytes right)))
+                :key #'block-access-account-address)))))
 
 (deftest prague-request-system-contracts-are-mandatory
   (let* ((state (make-state-db))

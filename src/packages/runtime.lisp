@@ -35,6 +35,7 @@
    #:state-storage-range-entry-proof-key
    #:state-storage-range-entry-slot
    #:state-storage-range-entry-value
+   #:*state-access-recorder*
    #:state-db-get-account
    #:state-db-set-account
    #:state-db-clear-account

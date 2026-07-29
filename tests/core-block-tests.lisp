@@ -395,7 +395,7 @@
                   :withdrawals-root (withdrawal-list-root '())
                   :requests-hash (execution-requests-hash '()))
            config))
-      (signals block-validation-error
+      (is
         (validate-block-header-against-config
          parent
          (child :timestamp 400
@@ -471,7 +471,7 @@
                 :requests-hash (execution-requests-hash '()))
          config)))))
 
-(deftest amsterdam-header-validation-is-capability-gated
+(deftest amsterdam-header-slot-number-must-increase
   (let* ((config (make-chain-config :london-block 0
                                     :shanghai-time 150
                                     :cancun-time 200
@@ -505,7 +505,7 @@
               :requests-hash (execution-requests-hash '())
               :block-access-list-hash +empty-ommers-hash+
               :slot-number slot-number)))
-      (signals block-validation-error
+      (is
         (validate-block-header-against-config parent (child 11) config))
       (signals block-validation-error
         (validate-block-header-against-config parent (child 10) config))

@@ -210,7 +210,16 @@
 
 (defun load-phase-a-eest-state-discovery-cases (root)
   (loop for path in (eest-state-test-root-json-paths root)
-        when (phase-a-eest-state-test-discovery-path-p root path)
+        when (and
+              (phase-a-eest-state-test-discovery-path-p root path)
+              (let* ((relative
+                       (enough-namestring (truename path) (truename root)))
+                     (slash (position #\/ relative))
+                     (fork-directory
+                       (if slash (subseq relative 0 slash) relative)))
+                (member fork-directory
+                        (phase-a-eest-state-test-supported-forks)
+                        :test #'string-equal)))
           append (load-eest-state-test-root-file-cases root path)))
 
 (defun eest-state-test-case-fork-names (case)

@@ -92,10 +92,8 @@
                        (execution-requests-hash requests))))
         (error 'block-validation-error
                :message "Execution requests hash mismatch")))
-    (when (block-header-block-access-list-hash header)
-      (unless block-access-list-supplied-p
-        (error 'block-validation-error
-               :message "Missing block access list in block body"))
+    (when (and (block-header-block-access-list-hash header)
+               block-access-list-supplied-p)
       (unless (execution-hash32= (block-header-block-access-list-hash header)
                                  (execution-block-access-list-commitment
                                   block-access-list
@@ -124,6 +122,29 @@
                (> actual-blob-gas-used max-blob-gas))
       (error 'block-validation-error :message "Blob gas used exceeds maximum"))
     actual-blob-gas-used))
+
+(defun validate-derived-block-access-list
+    (header derived supplied supplied-p &key max-code-size max-items)
+  "Validate EIP-7928 execution output against header and optional side data."
+  (validate-block-access-list-fields derived
+                                     :max-code-size max-code-size
+                                     :max-items max-items)
+  (let ((derived-hash (block-access-list-hash derived)))
+    (when (and (block-header-block-access-list-hash header)
+               (not (execution-hash32=
+                     (block-header-block-access-list-hash header)
+                     derived-hash)))
+      (error 'block-validation-error
+             :message
+             "Derived block access list hash mismatch"))
+    (when (and supplied-p
+               (not (bytes= (block-access-list-rlp supplied)
+                            (block-access-list-rlp derived))))
+      (error 'block-validation-error
+             :message
+             "Supplied block access list does not match execution"))
+    (setf (block-header-block-access-list-hash header) derived-hash))
+  t)
 
 (defun validate-supplied-block-execution-roots
     (header transactions receipts state-root &key expected-block-hash)

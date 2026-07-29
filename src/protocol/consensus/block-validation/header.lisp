@@ -182,9 +182,6 @@
                          (chain-config-terminal-total-difficulty config))))
       (block-validation-fail
        "Merge transition validation is unsupported"))
-    (when (chain-config-amsterdam-p config number timestamp)
-      (block-validation-fail
-       "Amsterdam block validation is unavailable"))
     (multiple-value-bind (target-blob-gas max-blob-gas update-fraction)
         (chain-config-blob-schedule config number timestamp)
       (validate-block-header-basics
