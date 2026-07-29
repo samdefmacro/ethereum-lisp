@@ -1,5 +1,7 @@
 (in-package #:ethereum-lisp.database)
 
+(defconstant +kv-chain-schema-version+ 2)
+
 (defparameter +kv-chain-record-kind-prefixes+
   '((:block . #x01)
     (:header . #x02)
@@ -21,7 +23,14 @@
     (:staged-transaction-index . #x12)
     (:stage-progress . #x13)
     (:block-access-list . #x14)
-    (:state-diff . #x15)))
+    (:state-diff . #x15)
+    (:ordered-block . #x16)
+    (:ordered-header . #x17)
+    (:ordered-receipt . #x18)
+    (:trie-node . #x19)
+    (:code . #x1a)
+    (:state-history . #x1b)
+    (:schema-version . #x1c)))
 
 (defparameter +kv-chain-checkpoint-labels+
   '((:head . "head")
@@ -85,6 +94,20 @@
   (concat-bytes
    (vector (kv-chain-record-kind-prefix kind))
    (kv-chain-record-identifier-bytes identifier)))
+
+(defun kv-chain-height-hash-identifier (number hash)
+  "Encode NUMBER then HASH so byte ordering is height ordering."
+  (let ((hash (ensure-byte-vector hash)))
+    (unless (= 32 (length hash))
+      (error "Height-ordered chain record hash must contain 32 bytes"))
+    (concat-bytes (kv-chain-record-uint64-bytes number) hash)))
+
+(defun kv-chain-height-hash-identifier-values (identifier)
+  (let ((identifier (ensure-byte-vector identifier)))
+    (unless (= 40 (length identifier))
+      (error "Height-ordered chain identifier must contain 40 bytes"))
+    (values (kv-chain-record-uint64-identifier (subseq identifier 0 8))
+            (subseq identifier 8))))
 
 (defun kv-chain-record-key-identifier (kind key)
   (let ((bytes (ensure-byte-vector key))

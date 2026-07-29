@@ -55,6 +55,10 @@
    #:kv-apply-batch
    #:kv-iterator
    #:kv-chain-record-key
+   #:+kv-chain-schema-version+
+   #:kv-chain-record-uint64-bytes
+   #:kv-chain-height-hash-identifier
+   #:kv-chain-height-hash-identifier-values
    #:kv-put-chain-record
    #:kv-get-chain-record
    #:kv-delete-chain-record
