@@ -116,6 +116,7 @@
                  :coinbase (or (block-header-beneficiary header) (zero-address))
                  :timestamp (block-header-timestamp header)
                  :block-number (block-header-number header)
+                 :slot-number (or (block-header-slot-number header) 0)
                  :prev-randao (or (block-header-mix-hash header) (zero-hash32))
                  :difficulty (block-header-difficulty header)
                  :random-p (block-header-post-merge-p header)

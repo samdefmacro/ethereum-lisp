@@ -1,7 +1,8 @@
 (in-package #:ethereum-lisp.block-access-lists)
 
 (defconstant +block-access-list-max-code-size+ 24576)
-(defconstant +block-access-list-amsterdam-max-code-size+ 32768)
+(defconstant +block-access-list-amsterdam-max-code-size+
+  ethereum-lisp.chain-config:+amsterdam-max-contract-code-size+)
 (defconstant +block-access-list-item-gas-cost+ 2000)
 
 (defstruct (block-access-account (:constructor make-block-access-account

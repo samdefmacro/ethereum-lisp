@@ -23,5 +23,7 @@
           (progn
             (verify-kzg-point-proof commitment z y proof)
             (values (kzg-point-evaluation-return-value) gas))
+        (kzg-unavailable-error (condition)
+          (error condition))
         (error (condition)
           (fail-precompile gas "~A" condition))))))

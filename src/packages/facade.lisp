@@ -363,6 +363,8 @@
    #:kzg-point-proof-verification-available-p
    #:kzg-blob-proof-verification-available-p
    #:kzg-proof-verification-available-p
+   #:kzg-unavailable-error
+   #:kzg-unavailable-error-message
    #:verify-kzg-point-proof
    #:verify-kzg-blob-proof
    #:make-kzg-cffi-verifier
@@ -1101,6 +1103,7 @@
    #:log-entry-topics
    #:log-entry-data
    #:log-entry-rlp-object
+   #:make-eth-transfer-log-entry
    #:bloom
    #:make-bloom
    #:bloom-bytes
@@ -1141,6 +1144,7 @@
    #:evm-step-limit-error-limit
    #:evm-step-limit-error-steps
    #:evm-step-limit-error-pc
+   #:amsterdam-execution-available-p
    #:precompile-address
    #:prewarm-precompile-addresses
    #:execute-precompile
@@ -1157,6 +1161,7 @@
    #:evm-context-coinbase
    #:evm-context-timestamp
    #:evm-context-block-number
+   #:evm-context-slot-number
    #:evm-context-prev-randao
    #:evm-context-gas-limit
    #:evm-context-chain-id

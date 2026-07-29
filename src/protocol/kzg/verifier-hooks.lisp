@@ -1,5 +1,13 @@
 (in-package #:ethereum-lisp.kzg)
 
+(define-condition kzg-unavailable-error (error)
+  ((message :initarg :message :reader kzg-unavailable-error-message))
+  (:report (lambda (condition stream)
+             (format stream "~A" (kzg-unavailable-error-message condition)))))
+
+(defun kzg-unavailable-error (control &rest args)
+  (error 'kzg-unavailable-error :message (apply #'format nil control args)))
+
 (defvar *kzg-point-proof-verifier* nil
   "Optional verifier for EIP-4844 point proofs.
 

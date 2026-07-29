@@ -256,7 +256,7 @@
                                     :shanghai-time 0
                                     :amsterdam-time 0))
          (allowed-initcode #(#x61 #x60 #x01 #x60 0 #xf3))
-         (oversized-initcode #(#x61 #x80 #x01 #x60 0 #xf3))
+         (oversized-initcode #(#x62 #x01 #x00 #x01 #x60 0 #xf3))
          (contract
            (make-address
             (subseq
@@ -271,11 +271,11 @@
                                               :data allowed-initcode))
          (oversized-tx (make-legacy-transaction :nonce 1
                                                 :gas-price 1
-                                                :gas-limit 8000000
+                                                :gas-limit 20000000
                                                 :to nil
                                                 :data oversized-initcode)))
     (state-db-set-account state sender
-                          (make-state-account :balance 20000000))
+                          (make-state-account :balance 50000000))
     (let ((receipt (apply-message state sender allowed-tx
                                   :chain-config config
                                   :timestamp 0)))
@@ -286,7 +286,7 @@
                                   :chain-config config
                                   :timestamp 0)))
       (is (= 0 (receipt-status receipt)))
-      (is (= 8000000 (receipt-cumulative-gas-used receipt))))))
+      (is (= 20000000 (receipt-cumulative-gas-used receipt))))))
 
 (deftest legacy-message-contract-creation-rejects-oversized-initcode
   (let* ((state (make-state-db))

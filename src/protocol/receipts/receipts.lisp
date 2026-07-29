@@ -31,6 +31,41 @@
   (topics '() :type list)
   data)
 
+(defun %receipt-integer-to-fixed-bytes (value size)
+  (let ((bytes (make-byte-vector size)))
+    (loop for index downfrom (1- size) to 0
+          for remaining = value then (ash remaining -8)
+          do (setf (aref bytes index) (logand remaining #xff)))
+    bytes))
+
+(defparameter +eth-transfer-system-address+
+  (make-address
+   (%receipt-integer-to-fixed-bytes
+    #xfffffffffffffffffffffffffffffffffffffffe
+    20)))
+
+(defparameter +eth-transfer-log-topic+
+  (make-hash32
+   (%receipt-integer-to-fixed-bytes
+    #xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef
+    32)))
+
+(defun make-eth-transfer-log-entry (sender recipient amount)
+  "Construct the EIP-7708 system log for one nonzero ETH transfer."
+  (make-log-entry
+   :address +eth-transfer-system-address+
+   :topics
+   (list +eth-transfer-log-topic+
+         (make-hash32
+          (%receipt-integer-to-fixed-bytes
+           (bytes-to-integer (address-bytes sender))
+           32))
+         (make-hash32
+          (%receipt-integer-to-fixed-bytes
+           (bytes-to-integer (address-bytes recipient))
+           32)))
+   :data (%receipt-integer-to-fixed-bytes amount 32)))
+
 (defun topic-bytes (topic)
   (etypecase topic
     (hash32 (hash32-bytes topic))

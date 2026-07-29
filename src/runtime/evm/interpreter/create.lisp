@@ -41,7 +41,12 @@
         (let ((snapshot (capture-execution-snapshot state context)))
           (handler-case
               (progn
-                (transfer-call-value state creator new-address value)
+                (let ((transfer-log
+                        (transfer-call-value
+                         state creator new-address value
+                         (evm-context-chain-rules context))))
+                  (when transfer-log
+                    (setf child-logs (list transfer-log))))
                 (let ((created-account (account-or-empty state new-address)))
                   (put-account-values
                    state
@@ -69,7 +74,9 @@
                   (if (eq (evm-result-status child-result) :reverted)
                       (restore-execution-snapshot state context snapshot)
                       (progn
-                        (setf child-logs (evm-result-logs child-result))
+                        (setf child-logs
+                              (append child-logs
+                                      (evm-result-logs child-result)))
                         (when (invalid-created-runtime-code-p
                                child-return-data
                                (evm-context-chain-rules context))

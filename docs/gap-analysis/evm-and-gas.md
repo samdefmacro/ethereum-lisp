@@ -26,6 +26,35 @@ missing fork parameter, an absent constant — are conclusive on their own.
 Behavioral claims about magnitudes are not, and are marked UNVERIFIED where the
 magnitude matters.
 
+## Remediation status (2026-07-29)
+
+The audit above remains the historical evidence snapshot; this status records
+what the `gap/evm-gas` remediation changed afterward.
+
+- Completed: Amsterdam Engine capability gating (including independent KZG,
+  BLS, and Amsterdam-execution predicates); `SLOTNUM`, `DUPN`, `SWAPN`, and
+  `EXCHANGE`; EIP-7954's 65,536-byte code limit; EIP-7708 transfer logs;
+  typed KZG unavailability; Prague-only EIP-7702 resolution; the EIP-161 empty
+  account predicate; post-merge fork-order validation; EIP-8246's
+  created-contract self-destruct-to-self balance-only result.
+- Completed performance fixes: each frame builds a jump-destination bitmap once,
+  EVM memory grows on a geometric backing store while preserving logical
+  word-aligned size, and stack overflow checks use a frame-local O(1) depth
+  counter.
+- Partially completed: the fork matrix now pins all four Amsterdam opcode costs,
+  pre-Amsterdam rejection, Osaka/Amsterdam precompile count, code limits, and
+  transfer-log behavior. A full all-opcode matrix and pinned Amsterdam EEST
+  corpus are still unavailable.
+- Deliberately gated and not implemented: EIP-8037/8038 multidimensional gas.
+  It changes transaction/block accounting and the scalar machine gas model, so
+  it crosses the execution and block ownership boundary. Consequently
+  `amsterdam-execution-available-p` remains false and Amsterdam Engine methods
+  are neither advertised nor dispatched.
+
+The Docker unit layer completed with 937 tests passed and 3 skipped after these
+changes. Integration and e2e verification are recorded with the branch handoff,
+not retroactively as evidence for the original audit.
+
 ## Executive summary
 
 The ordered list of the most consequential gaps:

@@ -16,16 +16,23 @@
                  (setf (gethash key selfdestructed) value))
                snapshot))))
 
-(defun mark-selfdestructed-address (context address)
+(defun mark-selfdestructed-address (context address &optional (mode t))
   (setf (gethash (address-to-hex address)
                  (evm-context-selfdestructed-addresses context))
-        t))
+        mode))
 
 (defun finalize-evm-selfdestructs (state context)
   (maphash
-   (lambda (key selfdestructed-p)
-     (when selfdestructed-p
-       (state-db-clear-account state (address-from-hex key))))
+   (lambda (key mode)
+     (when mode
+       (let* ((address (address-from-hex key))
+              (account (state-db-get-account state address))
+              (balance (if account (state-account-balance account) 0)))
+         (state-db-clear-account state address)
+         (when (and (eq mode :balance-only) (plusp balance))
+           (state-db-set-account
+            state address
+            (make-state-account :balance balance))))))
    (evm-context-selfdestructed-addresses context)))
 
 ;;; EIP-6780: accounts created during the current transaction. Tracked to

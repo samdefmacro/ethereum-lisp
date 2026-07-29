@@ -12,7 +12,8 @@
          (incf pc))
         ((= op #x56)
          (multiple-value-bind (destination rest) (pop1 stack)
-           (unless (valid-jump-destination-p code destination)
+           (unless (valid-jump-destination-p
+                    code destination jump-destinations)
              (fail "Invalid EVM jump destination ~D" destination))
            (setf stack rest
                  pc destination)))
@@ -22,7 +23,8 @@
            (if (zerop condition)
                (incf pc)
                (progn
-                 (unless (valid-jump-destination-p code destination)
+                 (unless (valid-jump-destination-p
+                          code destination jump-destinations)
                    (fail "Invalid EVM jump destination ~D" destination))
                  (setf pc destination)))))
         ((= op #x51)

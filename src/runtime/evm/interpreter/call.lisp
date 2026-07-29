@@ -189,10 +189,15 @@ merging are deliberately not configurable; those are shared EVM invariants."
           (when (and value-transfer-from
                      value-transfer-to
                      (plusp child-call-value))
-            (transfer-call-value state
-                                 value-transfer-from
-                                 value-transfer-to
-                                 child-call-value))
+            (let ((transfer-log
+                    (transfer-call-value
+                     state
+                     value-transfer-from
+                     value-transfer-to
+                     child-call-value
+                     (evm-context-chain-rules context))))
+              (when transfer-log
+                (setf child-logs (list transfer-log)))))
           (when precompile-address-p
             (setf child-started-p t))
           (multiple-value-bind (precompile-output precompile-gas precompile-p)
@@ -205,7 +210,10 @@ merging are deliberately not configurable; those are shared EVM invariants."
                   (setf success 1
                         child-gas-used precompile-gas
                         child-return-data precompile-output))
-                (let ((callee-code (evm-resolved-code state code-address)))
+                (let ((callee-code
+                        (evm-resolved-code
+                         state code-address
+                         (evm-context-chain-rules context))))
                   (if (zerop (length callee-code))
                       (setf success 1)
                       (let* ((child-context
@@ -232,7 +240,7 @@ merging are deliberately not configurable; those are shared EVM invariants."
                           (setf success child-success
                                 child-gas-used result-gas
                                 child-return-data result-return-data
-                                child-logs result-logs)
+                                child-logs (append child-logs result-logs))
                           (incf child-refund-counter result-refund))))))))
       (evm-precompile-error (condition)
         (restore-execution-snapshot state context snapshot)

@@ -94,6 +94,7 @@
                                 (coinbase (zero-address))
                                 (timestamp 0)
                                 (block-number 0)
+                                (slot-number 0)
                                 (prev-randao (zero-hash32))
                                 (difficulty 0)
                                 (random-p t)
@@ -131,6 +132,7 @@
   coinbase
   (timestamp 0 :type (integer 0 *))
   (block-number 0 :type (integer 0 *))
+  (slot-number 0 :type (integer 0 *))
   prev-randao
   (difficulty 0 :type (integer 0 *))
   (random-p t :type boolean)

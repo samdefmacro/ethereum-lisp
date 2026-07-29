@@ -9,9 +9,26 @@
 (defun ensure-memory-size (memory size)
   (if (<= size (length memory))
       memory
-      (let ((expanded (make-byte-vector (aligned-memory-size size))))
-        (replace expanded memory)
-        expanded)))
+      (let* ((logical-size (aligned-memory-size size))
+             (displaced-to (array-displacement memory))
+             (backing (or displaced-to memory))
+             (capacity (array-total-size backing)))
+        (if (>= capacity logical-size)
+            (make-array logical-size
+                        :element-type '(unsigned-byte 8)
+                        :displaced-to backing)
+            (let* ((new-capacity
+                     (max logical-size
+                          32
+                          (* 2 (max capacity 32))))
+                   (new-backing
+                     (make-array new-capacity
+                                 :element-type '(unsigned-byte 8)
+                                 :initial-element 0)))
+              (replace new-backing memory)
+              (make-array logical-size
+                          :element-type '(unsigned-byte 8)
+                          :displaced-to new-backing))))))
 
 (defun memory-total-gas (word-count)
   (+ (* word-count +memory-gas+)

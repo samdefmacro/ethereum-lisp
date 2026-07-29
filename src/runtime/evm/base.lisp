@@ -19,14 +19,34 @@
          :message (apply #'format nil control args)
          :gas-used gas-used))
 
+(defun amsterdam-execution-available-p ()
+  "Return whether every consensus-critical Amsterdam EVM rule is implemented.
+
+Keep this false until EIP-7708, EIP-7843, EIP-7954, EIP-8024, EIP-8037,
+EIP-8038, and EIP-8246 are all active on the execution path.  The Engine API
+uses this capability boundary to refuse Amsterdam payload methods rather than
+executing them with an older fork's semantics."
+  nil)
+
+(defvar *evm-stack-depth-cell* nil
+  "Dynamically bound to the current machine's mutable stack-depth cell.")
+
 (defun stack-push (stack value)
-  (when (>= (length stack) +stack-limit+)
+  (when (>= (if *evm-stack-depth-cell*
+                (car *evm-stack-depth-cell*)
+                (length stack))
+            +stack-limit+)
     (fail "EVM stack overflow"))
+  (when *evm-stack-depth-cell*
+    (incf (car *evm-stack-depth-cell*)))
   (cons (word value) stack))
 
 (defun pop1 (stack)
   (if stack
-      (values (first stack) (rest stack))
+      (progn
+        (when *evm-stack-depth-cell*
+          (decf (car *evm-stack-depth-cell*)))
+        (values (first stack) (rest stack)))
       (fail "EVM stack underflow")))
 
 (defun pop2 (stack)

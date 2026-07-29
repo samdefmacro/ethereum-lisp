@@ -9,6 +9,7 @@
                                      (coinbase (zero-address))
                                      (timestamp 0)
                                      (block-number 0)
+                                     (slot-number 0)
                                      (prev-randao (zero-hash32))
                                      (difficulty 0)
                                      (random-p t)
@@ -31,7 +32,8 @@
                            :base-fee base-fee
                            :blob-base-fee blob-base-fee
                            :chain-rules effective-chain-rules)
-    (let ((snapshot (state-db-copy state)))
+    (let ((snapshot (state-db-copy state))
+          (transfer-log nil))
       (handler-case
           (if (execution-contract-address-collision-p state contract)
               (finalize-transaction-receipt
@@ -39,8 +41,10 @@
                (make-receipt :status 0 :cumulative-gas-used gas-limit)
                base-fee)
               (progn
-                (transfer-value state sender contract
-                                (transaction-value tx))
+                (setf transfer-log
+                      (transfer-value
+                       state sender contract (transaction-value tx)
+                       effective-chain-rules))
                 (let ((contract-account
                         (execution-account-or-empty state contract)))
                   (put-execution-account-values
@@ -61,6 +65,7 @@
                           :coinbase coinbase
                           :timestamp timestamp
                           :block-number block-number
+                          :slot-number slot-number
                           :prev-randao prev-randao
                           :difficulty difficulty
                           :random-p random-p
@@ -111,7 +116,11 @@
                                          (make-receipt
                                           :status 1
                                           :cumulative-gas-used gas-used
-                                          :logs (evm-result-logs result))
+                                          :logs
+                                          (if transfer-log
+                                              (cons transfer-log
+                                                    (evm-result-logs result))
+                                              (evm-result-logs result)))
                                          base-fee
                                          :refund-counter
                                          (evm-result-refund-counter result))))

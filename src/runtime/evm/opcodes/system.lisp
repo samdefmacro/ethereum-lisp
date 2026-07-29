@@ -202,22 +202,34 @@
                (evm-context-state context)
                (evm-context-address context)
                beneficiary))
-             (selfdestruct-account
-              (evm-context-state context)
-              (evm-context-address context)
-              beneficiary)
+             (let ((transfer-log
+                     (selfdestruct-account
+                      (evm-context-state context)
+                      (evm-context-address context)
+                      beneficiary
+                      (evm-context-chain-rules context))))
+               (when transfer-log
+                 (push transfer-log logs)))
              ;; EIP-6780 (Cancun+): the account is deleted only when it was
              ;; created in this transaction; otherwise SELFDESTRUCT merely
              ;; transfers the balance. Pre-Cancun, deletion always applies.
-             (when (or (not (and (evm-context-chain-rules context)
-                                 (chain-rules-cancun-p
-                                  (evm-context-chain-rules context))))
-                       (account-created-this-transaction-p
-                        context
-                        (evm-context-address context)))
-               (mark-selfdestructed-address
-                context
-                (evm-context-address context))))
+             (let* ((rules (evm-context-chain-rules context))
+                    (address (evm-context-address context))
+                    (created-p
+                      (account-created-this-transaction-p context address)))
+               (when (or (not (and rules
+                                   (chain-rules-cancun-p rules)))
+                         created-p)
+                 (mark-selfdestructed-address
+                  context
+                  address
+                  (if (and created-p
+                           rules
+                           (chain-rules-amsterdam-p rules)
+                           (bytes= (address-bytes address)
+                                   (address-bytes beneficiary)))
+                      :balance-only
+                      t)))))
            (setf stack rest
                  status :selfdestructed
                  halted-p t)))

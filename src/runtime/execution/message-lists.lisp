@@ -11,6 +11,7 @@
           (coinbase (zero-address))
           (timestamp 0)
           (block-number 0)
+          (slot-number 0)
           (prev-randao (zero-hash32))
           (difficulty 0)
           (random-p t)
@@ -38,6 +39,7 @@
                                     :coinbase coinbase
                                     :timestamp timestamp
                                     :block-number block-number
+                                    :slot-number slot-number
                                     :prev-randao prev-randao
                                     :difficulty difficulty
                                     :random-p random-p
@@ -61,6 +63,7 @@
           (coinbase (zero-address))
           (timestamp 0)
           (block-number 0)
+          (slot-number 0)
           (prev-randao (zero-hash32))
           (difficulty 0)
           (random-p t)
@@ -94,6 +97,7 @@
                         :coinbase coinbase
                         :timestamp timestamp
                         :block-number block-number
+                        :slot-number slot-number
                         :prev-randao prev-randao
                         :difficulty difficulty
                         :random-p random-p

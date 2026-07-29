@@ -1036,6 +1036,7 @@
              :config-fields
              (list (cons "cancunTime" "0x0")
                    (cons "pragueTime" "0x0")
+                   (cons "osakaTime" "0x0")
                    (cons "amsterdamTime" "0x0"))
              :code-accounts
              (loop for address

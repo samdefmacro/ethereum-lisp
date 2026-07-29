@@ -11,9 +11,12 @@
                        :balance balance
                        :code-hash code-hash)))
 
-(defun transfer-value (state sender recipient value)
-  (unless (bytes= (address-bytes sender) (address-bytes recipient))
-    (when (plusp value)
+(defun transfer-value (state sender recipient value &optional rules)
+  (let ((transfer-p
+          (and (plusp value)
+               (not (bytes= (address-bytes sender)
+                            (address-bytes recipient))))))
+    (when transfer-p
       (let ((sender-account (execution-account-or-empty state sender))
             (recipient-account (execution-account-or-empty state recipient)))
         (put-execution-account-values
@@ -25,13 +28,19 @@
          state recipient
          (state-account-nonce recipient-account)
          (+ (state-account-balance recipient-account) value)
-         (state-account-code-hash recipient-account))))))
+         (state-account-code-hash recipient-account))))
+    (when (and transfer-p
+               rules
+               (chain-rules-amsterdam-p rules))
+      (make-eth-transfer-log-entry sender recipient value))))
 
-(defun execution-resolved-code (state address)
-  (let* ((code (state-db-get-code state address))
-         (delegation-target (set-code-delegation-target code)))
-    (if delegation-target
-        (state-db-get-code state delegation-target)
+(defun execution-resolved-code (state address rules)
+  (let ((code (state-db-get-code state address)))
+    (if (or (null rules) (chain-rules-prague-p rules))
+        (let ((delegation-target (set-code-delegation-target code)))
+          (if delegation-target
+              (state-db-get-code state delegation-target)
+              code))
         code)))
 
 (defun execution-create-address (creator nonce)

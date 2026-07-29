@@ -3,7 +3,9 @@
 (defun %execute-bytecode-frame (code context gas-limit step-budget)
   (let* ((*evm-step-budget* step-budget)
          (*evm-step-budget-policy-active-p* t)
-         (machine (make-evm-machine code context gas-limit step-budget)))
+         (machine (make-evm-machine code context gas-limit step-budget))
+         (*evm-stack-depth-cell*
+           (evm-machine-stack-depth-cell machine)))
     (loop until (or (evm-machine-halted-p machine)
                     (>= (evm-machine-pc machine)
                         (length (evm-machine-code machine))))
