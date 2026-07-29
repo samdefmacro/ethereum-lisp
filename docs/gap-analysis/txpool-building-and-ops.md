@@ -909,6 +909,41 @@ later ones. Sizes are S (a day or less), M (a few days), L (a week or more).
     naming the limitation, and that `txpool_status` never reports a blob
     transaction.
 
+## Remediation status (2026-07-29)
+
+Implemented in `gap/txpool-build-ops`:
+
+- BUILD-01 and BUILD-02: poisoned senders no longer poison the payload and
+  child-base-fee eligibility is checked during selection.
+- POOL-01 through POOL-06: encoded-size, initcode, Prague floor-gas, effective
+  tip, bounded-capacity and delegated-authority admission rules are enforced.
+  Default price, replacement, account, global and lifetime limits are active.
+- BUILD-03 and BUILD-05's ordering half: `--miner.gaslimit` is threaded into
+  Engine and dev-period payload construction with protocol-compliant honing,
+  and sender heads are re-ranked after every nonce.
+- OPS-03, OPS-04, OPS-06, OPS-07 and OPS-11: the datadir has an exclusive
+  process lock, txpool lifetime cleanup has an independent worker, logs append,
+  ordinary startup failures no longer dump usage, and Prometheus exposes live
+  pool/head/finality/peer gauges.
+- POOL-12 through POOL-14 use the honest fallback: public type-3 admission is
+  rejected with a sidecar/KZG limitation message, so unsupported blobs can
+  never appear in the pool.
+- Compatibility-only CLI flags now emit an explicit ignored-option warning
+  instead of disappearing silently.
+
+Explicit remaining dependencies:
+
+- BUILD-04 needs the RPC-owned prepared-payload lifecycle/scheduler seam before
+  payload improvement can run asynchronously without racing the store.
+- BUILD-05's actual-gas fill loop needs an execution-owned incremental
+  transaction application interface; declared gas remains the safe bound.
+- OPS-02 needs network-owned canonical preset bundles (genesis plus bootnodes).
+  Preset names therefore remain compatibility warnings rather than pretending
+  to select a public chain.
+- Full POOL-13/POOL-14 support still needs a network-wrapper codec carrying
+  sidecars and the RPC-06 `blobsBundle` surface. The rejection above is the
+  intentional gate until those interfaces exist.
+
 ## Out of scope, and left unverified
 
 Out of scope by assignment: the Engine API and JSON-RPC wire surfaces

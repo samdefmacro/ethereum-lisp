@@ -1,6 +1,7 @@
 /.cache/*
 !/.cache/.gitkeep
 /.dev-runtime/
+/.worktrees/
 /references/go-ethereum/
 /references/nethermind/
 *.fasl
