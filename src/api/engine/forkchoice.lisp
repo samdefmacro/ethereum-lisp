@@ -343,9 +343,6 @@ for the rest of this payload; other senders are still considered."
                  (engine-rpc-prepared-payload-version
                   payload-version payload-attributes
                   config block-number timestamp))
-               (transactions
-                 (engine-rpc-pending-build-transactions
-                  store config parent-header))
                (candidate-id
                  (engine-payload-id
                   prepared-payload-version head-hash payload-attributes)))
@@ -353,7 +350,7 @@ for the rest of this payload; other senders are still considered."
             (multiple-value-bind (block viable-transactions)
                 (handler-case
                     (engine-rpc-build-viable-prepared-payload
-                     store parent-block payload-attributes config transactions
+                     store parent-block payload-attributes config nil
                      :gas-limit-target gas-limit-target)
                   (block-validation-error (condition)
                     (engine-rpc-fail
@@ -376,7 +373,7 @@ for the rest of this payload; other senders are still considered."
                 :payload-attributes payload-attributes
                 :gas-limit-target gas-limit-target
                 :candidate-transactions-root
-                (transaction-list-root transactions)
+                (transaction-list-root nil)
                 :open-p t))))
           (setf payload-id candidate-id)))
       (engine-rpc-forkchoice-response-object
