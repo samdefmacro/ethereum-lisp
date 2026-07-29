@@ -71,6 +71,7 @@
    #:memory-chain-store-state-blocks
    #:memory-chain-store-state-diffs
    #:memory-chain-store-state-baseline-interval
+   #:memory-chain-store-state-retention-depth
    #:chain-state-diff
    #:chain-state-diff-p
    #:make-chain-state-diff
@@ -172,6 +173,7 @@
    #:chain-store-state-available-p
    #:engine-payload-store-prune-state-snapshot
    #:chain-store-prune-state-before
+   #:chain-store-prune-state-to-retention-depth
    #:chain-store-state-kind
    #:chain-store-put-state-diff
    #:chain-store-commit-post-state

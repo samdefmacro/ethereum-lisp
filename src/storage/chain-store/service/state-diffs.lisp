@@ -334,3 +334,11 @@ can be pruned. Returns T on success, NIL when the view is unresolvable."
       (dolist (block-key block-keys)
         (engine-payload-store-prune-state-snapshot store block-key))
       (length block-keys))))
+
+(defun chain-store-prune-state-to-retention-depth (store)
+  "Prune state outside STORE's configured distance from its canonical head."
+  (let* ((store (chain-store-require-memory-store store))
+         (head-number (memory-chain-store-head-number store))
+         (depth (memory-chain-store-state-retention-depth store))
+         (first-kept (max 0 (1+ (- head-number depth)))))
+    (chain-store-prune-state-before store first-kept)))

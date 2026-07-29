@@ -190,8 +190,11 @@
 
 (defun chain-store-set-canonical-head
     (store hash &key expected-chain-id chain-config)
-  (canonical-chain-set-head
-   store
-   hash
-   :expected-chain-id expected-chain-id
-   :chain-config chain-config))
+  (multiple-value-bind (head transition)
+      (canonical-chain-set-head
+       store
+       hash
+       :expected-chain-id expected-chain-id
+       :chain-config chain-config)
+    (chain-store-prune-state-to-retention-depth store)
+    (values head transition)))

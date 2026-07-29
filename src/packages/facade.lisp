@@ -947,6 +947,7 @@
    #:chain-store-block-receipts
    #:chain-store-state-available-p
    #:chain-store-prune-state-before
+   #:chain-store-prune-state-to-retention-depth
    #:chain-store-put-account-balance
    #:chain-store-account-balance
    #:chain-store-put-account-nonce

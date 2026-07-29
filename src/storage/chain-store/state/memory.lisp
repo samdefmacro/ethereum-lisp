@@ -4,6 +4,9 @@
   "Store a full state baseline at least every this many blocks; blocks in
 between persist only the diff against their parent.")
 
+(defconstant +chain-store-default-state-retention-depth+ 128
+  "Retain state for this many canonical heights behind the readable head.")
+
 (defstruct (chain-state-diff
             (:constructor make-chain-state-diff
                 (&key parent-key
@@ -36,6 +39,8 @@ reads treat absence as that same default."
                       (state-diffs (make-hash-table :test 'equalp))
                       (state-baseline-interval
                        +chain-store-default-state-baseline-interval+)
+                      (state-retention-depth
+                       +chain-store-default-state-retention-depth+)
                       (remote-blocks (make-hash-table :test 'equalp))
                       (invalid-tipsets (make-hash-table :test 'equalp))
                       (prepared-payloads (make-hash-table :test 'equalp))
@@ -60,6 +65,8 @@ reads treat absence as that same default."
   state-blocks
   state-diffs
   (state-baseline-interval +chain-store-default-state-baseline-interval+
+   :type (integer 1 *))
+  (state-retention-depth +chain-store-default-state-retention-depth+
    :type (integer 1 *))
   remote-blocks
   invalid-tipsets

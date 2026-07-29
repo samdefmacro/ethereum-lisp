@@ -223,6 +223,27 @@ STORAGE-ENTRIES) — as BLOCK's post-state and return the stored kind."
       (is (= 1 (length accounts)))
       (is (equalp (list (cons slot 12)) (fifth (first accounts)))))))
 
+(deftest chain-store-canonical-head-prunes-state-by-retention-depth
+  (let* ((store
+           (make-engine-payload-memory-store
+            :chain-store
+            (ethereum-lisp.chain-store.state:make-memory-chain-store
+             :state-retention-depth 3)))
+         (blocks (state-diff-test-chain store 7))
+         (address (state-diff-test-address 1)))
+    (loop for block in blocks
+          for balance from 1
+          do (state-diff-test-commit
+              store block (list (list address balance 0 #() '()))))
+    (chain-store-set-canonical-head store (block-hash (seventh blocks)))
+    (loop for block in (subseq blocks 0 4)
+          do (is (not (chain-store-state-available-p
+                       store (block-hash block)))))
+    (loop for block in (subseq blocks 4)
+          do (is (chain-store-state-available-p store (block-hash block))))
+    (is (= 7 (chain-store-account-balance
+              store (block-hash (seventh blocks)) address)))))
+
 (deftest chain-store-diff-and-baseline-roots-agree
   (let* ((diff-store (make-engine-payload-memory-store))
          (baseline-store
