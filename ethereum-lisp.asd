@@ -70,6 +70,7 @@
        (:file "trie-types" :pathname "trie/types")
        (:file "trie-store" :pathname "trie/store")
        (:file "trie-nodes" :pathname "trie/nodes")
+       (:file "trie-persistence" :pathname "trie/persistence")
        (:file "trie-proofs" :pathname "trie/proofs")
        (:file "validation" :pathname "validation")
        (:file "json-values" :pathname "json/values")

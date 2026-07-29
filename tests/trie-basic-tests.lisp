@@ -169,3 +169,49 @@
     (is (< 512 initial-encodings))
     (is (< update-encodings 16))))
 
+(deftest trie-node-store-persists-root-and-descendants
+  (let ((trie (make-mpt))
+        (database (make-memory-key-value-database)))
+    (mpt-put trie #(1) #(10))
+    (mpt-put trie #(2) #(20))
+    (let ((root (mpt-persist database trie)))
+      (is (ethereum-lisp.types:hash32=
+           root (make-hash32 (mpt-root-hash trie))))
+      (multiple-value-bind (encoded present-p)
+          (trie-node-store-get database root)
+        (is present-p)
+        (is (bytes= encoded
+                    (ethereum-lisp.trie::encoded-node
+                     (mpt-root-node trie))))))))
+
+(deftest trie-iterator-resumes-after-cursor
+  (let ((trie (make-mpt)))
+    (dolist (entry '((#(1) . #(10)) (#(2) . #(20)) (#(3) . #(30))))
+      (mpt-put trie (car entry) (cdr entry)))
+    (let ((iterator (make-mpt-iterator trie)))
+      (multiple-value-bind (key value cursor present-p)
+          (funcall iterator)
+        (is present-p)
+        (is (bytes= #(1) key))
+        (is (bytes= #(10) value))
+        (let ((resumed (make-mpt-iterator trie :after cursor)))
+          (multiple-value-bind (next-key next-value next-cursor next-present-p)
+              (funcall resumed)
+            (declare (ignore next-cursor))
+            (is next-present-p)
+            (is (bytes= #(2) next-key))
+            (is (bytes= #(20) next-value))))))))
+
+(deftest trie-range-proof-rejects-omission
+  (let ((trie (make-mpt)))
+    (dotimes (index 5)
+      (mpt-put trie (vector index) (vector (+ 10 index))))
+    (multiple-value-bind (entries proof)
+        (mpt-get-range-proof trie :start #(1) :end #(4))
+      (is (mpt-verify-range-proof
+           (mpt-root-hash trie) entries proof :start #(1) :end #(4)))
+      (signals error
+        (mpt-verify-range-proof
+         (mpt-root-hash trie) (rest entries) proof
+         :start #(1) :end #(4))))))
+

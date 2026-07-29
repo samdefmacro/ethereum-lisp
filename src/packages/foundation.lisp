@@ -234,6 +234,7 @@
         #:ethereum-lisp.types
         #:ethereum-lisp.rlp
         #:ethereum-lisp.crypto
+        #:ethereum-lisp.database
         #:ethereum-lisp.trie.encoding)
   (:export
    #:mpt
@@ -247,4 +248,9 @@
    #:mpt-verify-proof
    #:mpt-root-hash
    #:mpt-root-hex
-   #:mpt-root-node))
+   #:mpt-root-node
+   #:mpt-persist
+   #:trie-node-store-get
+   #:make-mpt-iterator
+   #:mpt-get-range-proof
+   #:mpt-verify-range-proof))
