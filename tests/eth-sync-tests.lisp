@@ -460,6 +460,98 @@ the encoder substitutes its zero/empty defaults."
                      (error "eth sync server side failed: ~A" server-error))))))
         (ignore-errors (sb-bsd-sockets:socket-close listener))))))
 
+(deftest eth-sync-three-scripted-peers-fail-over-without-blocking
+  (:layer :integration :module :p2p)
+  ;; Three batches are initially in flight. One peer never delivers until the
+  ;; coordinator cancels it, one returns a malformed header range, and the good
+  ;; peer must fill both holes. If timeout/failover or ordered assembly regresses,
+  ;; this test takes the slow peer's five-second path or imports out of order.
+  (let* ((chain (coerce (eth-sync-test-chain-headers 6) 'vector))
+         (empty-body
+           (ethereum-lisp.eth-wire:make-eth-block-body
+            :transactions '() :ommers '()))
+         (cancelled nil)
+         (slow-started nil)
+         (penalties '())
+         (events '())
+         (imported '())
+         (maximum-in-flight 0)
+         (started-at (get-internal-real-time)))
+    (labels ((good-headers (origin amount)
+               (loop for number from origin below (+ origin amount)
+                     collect (aref chain (1- number))))
+             (bodies (headers)
+               (loop repeat (length headers) collect empty-body))
+             (receipts (headers)
+               (values (loop repeat (length headers) collect '()) nil))
+             (note-penalty (peer)
+               (lambda (reason score detail)
+                 (declare (ignore detail))
+                 (push (list peer reason score) penalties)))
+             (source (id header-function &key cancel)
+               (make-eth-sync-peer-source
+                nil :id id :head-number 6
+                :fetch-headers header-function
+                :fetch-bodies #'bodies
+                :fetch-receipts #'receipts
+                :penalty (note-penalty id)
+                :cancel cancel)))
+      (let* ((slow
+               (source
+                :slow
+                (lambda (origin amount)
+                  (setf slow-started t)
+                  (loop repeat 1000
+                        until cancelled
+                        do (sleep 0.005d0))
+                  (when cancelled
+                    (error "scripted slow peer cancelled"))
+                  (good-headers origin amount))
+                :cancel (lambda () (setf cancelled t))))
+             (bad
+               (source
+                :bad
+                (lambda (origin amount)
+                  (declare (ignore origin))
+                  (loop for number from 101
+                        repeat amount
+                        collect (eth-sync-test-header number)))))
+             (good (source :good #'good-headers))
+             (count
+               (eth-sync-download-blocks-multi
+                (list slow bad good)
+                (lambda (block)
+                  (push (block-header-number (block-header block)) imported))
+                :start-number 1
+                :target-number 6
+                :batch-size 2
+                :request-timeout-seconds 0.05d0
+                :progress
+                (lambda (snapshot event)
+                  (is (= 6 (getf snapshot :pivot)))
+                  (setf maximum-in-flight
+                        (max maximum-in-flight
+                             (getf snapshot :in-flight)
+                             (or (getf event :in-flight) 0)))
+                  (push event events)))))
+        (let ((elapsed
+                (/ (- (get-internal-real-time) started-at)
+                   (float internal-time-units-per-second 1d0))))
+          (is (= 6 count))
+          (is (equal '(1 2 3 4 5 6) (nreverse imported)))
+          (is slow-started)
+          (is cancelled)
+          (is (< elapsed 2d0))
+          (is (>= maximum-in-flight 2))
+          (is (find :timeout penalties :key #'second))
+          (is (find :malformed penalties :key #'second))
+          (is (find :headers events :key (lambda (event)
+                                           (getf event :stage))))
+          (is (find :bodies events :key (lambda (event)
+                                          (getf event :stage))))
+          (is (find :receipts events :key (lambda (event)
+                                            (getf event :stage)))))))))
+
 (deftest eth-sync-connect-peer-dials-and-handshakes-over-a-socket
   (:layer :integration :module :p2p :requires-local-sockets t)
   (let* ((config (eth-sync-test-config))

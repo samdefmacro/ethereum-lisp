@@ -85,15 +85,18 @@ them by their physical location instead reintroduces dependency cycles:
 
   Two properties of this layer are load-bearing and easy to break:
 
-  - **It contains no threads.** Every thread belongs to the CLI layer, in
-    `devnet/peer-manager.lisp` (inbound) and `devnet/dialer.lisp` (outbound).
-    `eth-sync/pump.lisp` supplies a session loop whose readiness gate and clock
-    are both injected, so the caller decides how concurrency happens.
-  - **A session is single-threaded by construction.** `rlpx-write-frame`
+  - **A connection has exactly one owning thread.** Ordinary long-lived session
+    threads belong to the CLI layer, in `devnet/peer-manager.lisp` (inbound) and
+    `devnet/dialer.lisp` (outbound). The bounded multi-peer downloader is the
+    exception: it creates one worker for each supplied peer and never shares a
+    peer between workers. `eth-sync/pump.lisp` still supplies the ordinary
+    session loop whose readiness gate and clock are injected.
+  - **Each peer session is single-threaded by construction.** `rlpx-write-frame`
     advances a per-connection cipher and running MAC with no lock, so a second
     thread writing the same connection desynchronizes it. Outbound work reaches
     a session as data, through a closure the loop calls — never by another
-    thread sending on the peer.
+    thread sending on the peer. The multi-peer downloader gains parallelism
+    across connections, never within one connection.
 
   A dialed connection becomes a long-lived session on the SAME pump an accepted
   one gets, so both properties above hold identically in both directions.

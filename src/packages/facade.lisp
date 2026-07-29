@@ -606,6 +606,11 @@
    #:eth-sync-validate-body
    #:eth-sync-assemble-block
    #:eth-sync-download-blocks
+   #:eth-sync-peer-source
+   #:make-eth-sync-peer-source
+   #:eth-sync-peer-source-id
+   #:eth-sync-peer-source-head-number
+   #:eth-sync-download-blocks-multi
    #:+eth-backfill-batch-size+
    #:+eth-backfill-max-headers+
    #:eth-sync-collect-backfill-headers
