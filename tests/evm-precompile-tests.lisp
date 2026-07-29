@@ -793,15 +793,19 @@
              (execute-bytecode (program mismatched-version-input)
                                :context context))
            (unverified-proof-result
-             (execute-bytecode (program unverified-proof-input)
-                               :context context))
+             (let ((*kzg-point-proof-verifier*
+                     (lambda (commitment z y proof)
+                       (declare (ignore commitment z y proof))
+                       nil)))
+               (execute-bytecode (program unverified-proof-input)
+                                 :context context)))
            (unverified-proof-error
              (handler-case
                  (progn
                    (ethereum-lisp.evm.internal::run-kzg-point-evaluation-precompile
                     unverified-proof-input)
                    nil)
-               (ethereum-lisp.evm.internal::evm-precompile-error (condition)
+               (kzg-unavailable-error (condition)
                  condition))))
       (is (= 0 (first (evm-result-stack short-result))))
       (is (bytes= (byte-prefix-padded short-input 32)
@@ -813,9 +817,6 @@
       (is (bytes= (byte-prefix-padded unverified-proof-input 32)
                   (evm-result-return-data unverified-proof-result)))
       (is unverified-proof-error)
-      (is (= ethereum-lisp.evm.internal::+kzg-point-evaluation-gas+
-             (ethereum-lisp.evm.internal::evm-precompile-error-gas-used
-              unverified-proof-error)))
       (is (search "KZG point proof verification is not available"
                   (princ-to-string unverified-proof-error)
                   :test #'char=))

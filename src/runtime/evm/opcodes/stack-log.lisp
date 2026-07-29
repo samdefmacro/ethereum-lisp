@@ -21,6 +21,50 @@
              (fail "EVM stack underflow on SWAP~D" depth))
            (rotatef (first stack) (nth depth stack)))
          (incf pc))
+        ((= op #xe6)
+         (unless context
+           (fail "DUPN requires an EVM context"))
+         (require-context-fork context #'chain-rules-amsterdam-p
+                               "Amsterdam" "DUPN" pc)
+         (let ((immediate (read-opcode-immediate-byte code pc)))
+           (when (< 90 immediate 128)
+             (fail "Invalid DUPN immediate 0x~2,'0X at pc ~D" immediate pc))
+           (let ((depth (decode-eip8024-single immediate)))
+             (when (< (length stack) depth)
+               (fail "EVM stack underflow on DUPN depth ~D" depth))
+             (setf stack (stack-push stack (nth (1- depth) stack)))))
+         (incf pc 2))
+        ((= op #xe7)
+         (unless context
+           (fail "SWAPN requires an EVM context"))
+         (require-context-fork context #'chain-rules-amsterdam-p
+                               "Amsterdam" "SWAPN" pc)
+         (let ((immediate (read-opcode-immediate-byte code pc)))
+           (when (< 90 immediate 128)
+             (fail "Invalid SWAPN immediate 0x~2,'0X at pc ~D" immediate pc))
+           (let ((depth (decode-eip8024-single immediate)))
+             (when (< (length stack) (1+ depth))
+               (fail "EVM stack underflow on SWAPN depth ~D" depth))
+             (rotatef (first stack) (nth depth stack))))
+         (incf pc 2))
+        ((= op #xe8)
+         (unless context
+           (fail "EXCHANGE requires an EVM context"))
+         (require-context-fork context #'chain-rules-amsterdam-p
+                               "Amsterdam" "EXCHANGE" pc)
+         (let ((immediate (read-opcode-immediate-byte code pc)))
+           (when (< 81 immediate 128)
+             (fail "Invalid EXCHANGE immediate 0x~2,'0X at pc ~D"
+                   immediate pc))
+           (multiple-value-bind (first-depth second-depth)
+               (decode-eip8024-pair immediate)
+             (let ((required (1+ (max first-depth second-depth))))
+               (when (< (length stack) required)
+                 (fail "EVM stack underflow on EXCHANGE; requires ~D items"
+                       required))
+               (rotatef (nth first-depth stack)
+                        (nth second-depth stack)))))
+         (incf pc 2))
         ((<= #xa0 op #xa4)
          (unless context
            (fail "LOG requires an EVM context"))

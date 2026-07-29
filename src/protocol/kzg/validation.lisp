@@ -33,7 +33,7 @@
 
 (defun verify-kzg-point-proof (commitment z y proof)
   (unless (kzg-point-proof-verification-available-p)
-    (error "KZG point proof verification is not available"))
+    (kzg-unavailable-error "KZG point proof verification is not available"))
   (let ((commitment (ensure-byte-vector commitment))
         (z (ensure-byte-vector z))
         (y (ensure-byte-vector y))
@@ -51,7 +51,7 @@
 
 (defun verify-kzg-blob-proof (blob commitment proof)
   (unless (kzg-blob-proof-verification-available-p)
-    (error "KZG blob proof verification is not available"))
+    (kzg-unavailable-error "KZG blob proof verification is not available"))
   (let ((blob (ensure-byte-vector blob))
         (commitment (ensure-byte-vector commitment))
         (proof (ensure-byte-vector proof)))
@@ -80,6 +80,8 @@
               for commitment in commitments
               for proof in proofs
               do (verify-kzg-blob-proof blob commitment proof))
+      (kzg-unavailable-error (condition)
+        (error condition))
       (error (condition)
         (block-validation-fail "~A" condition))))
   t)

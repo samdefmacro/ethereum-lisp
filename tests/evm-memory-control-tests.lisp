@@ -1,5 +1,22 @@
 (in-package #:ethereum-lisp.test)
 
+(deftest evm-memory-growth-reuses-geometric-backing
+  (let* ((first
+           (ethereum-lisp.evm.internal::ensure-memory-size
+            (make-byte-vector 0) 1))
+         (second
+           (ethereum-lisp.evm.internal::ensure-memory-size first 33)))
+    (multiple-value-bind (first-backing first-offset)
+        (array-displacement first)
+      (multiple-value-bind (second-backing second-offset)
+          (array-displacement second)
+        (is (eq first-backing second-backing))
+        (is (= 0 first-offset))
+        (is (= 0 second-offset))
+        (is (= 32 (length first)))
+        (is (= 64 (length second)))
+        (is (>= (array-total-size second-backing) 64))))))
+
 (deftest evm-mstore-and-return
   (let ((result (execute-bytecode #(96 42 96 0 82 96 32 96 0 243))))
     (is (eq :returned (evm-result-status result)))

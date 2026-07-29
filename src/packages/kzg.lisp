@@ -25,6 +25,8 @@
    #:kzg-point-proof-verification-available-p
    #:kzg-blob-proof-verification-available-p
    #:kzg-proof-verification-available-p
+   #:kzg-unavailable-error
+   #:kzg-unavailable-error-message
    #:verify-kzg-point-proof
    #:verify-kzg-blob-proof
    #:make-kzg-cffi-verifier

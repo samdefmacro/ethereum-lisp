@@ -36,7 +36,7 @@ only this call. REQUIRE-CODE-P rejects an empty target and REQUIRE-SUCCESS-P
 rejects execution failure for protocol calls whose EIPs mandate both."
   (let ((code (if (or (null chain-rules)
                       (chain-rules-prague-p chain-rules))
-                  (execution-resolved-code state target)
+                  (execution-resolved-code state target chain-rules)
                   (state-db-get-code state target))))
     (when (and require-code-p (zerop (length code)))
       (block-validation-fail
@@ -57,6 +57,7 @@ rejects execution failure for protocol calls whose EIPs mandate both."
                               (zero-address))
                 :timestamp (block-header-timestamp header)
                 :block-number (block-header-number header)
+                :slot-number (or (block-header-slot-number header) 0)
                 :prev-randao (or (block-header-mix-hash header)
                                   (zero-hash32))
                 :difficulty (block-header-difficulty header)

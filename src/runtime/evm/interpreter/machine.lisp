@@ -20,6 +20,7 @@ The interpreter owns control flow; opcode handlers mutate this object.  Keeping
 the frame explicit makes gas accounting and rollback state visible instead of
 hiding them in one large lexical scope."
   (code (make-byte-vector 0) :type byte-vector)
+  (jump-destinations #* :type simple-bit-vector)
   context
   gas-limit
   step-budget
@@ -27,7 +28,8 @@ hiding them in one large lexical scope."
   (steps 0 :type (integer 0 *))
   (gas-used 0 :type (integer 0 *))
   (stack '() :type list)
-  (memory (make-byte-vector 0) :type byte-vector)
+  (stack-depth-cell (list 0) :type cons)
+  (memory (make-byte-vector 0) :type (array (unsigned-byte 8) (*)))
   (return-data (make-byte-vector 0) :type byte-vector)
   (return-data-buffer (make-byte-vector 0) :type byte-vector)
   frame-snapshot
@@ -41,6 +43,7 @@ hiding them in one large lexical scope."
 (defun make-evm-machine (code context gas-limit step-budget)
   (%make-evm-machine
    :code (ensure-byte-vector code)
+   :jump-destinations (jump-destination-bitmap (ensure-byte-vector code))
    :context context
    :gas-limit gas-limit
    :step-budget step-budget
@@ -102,19 +105,23 @@ hiding them in one large lexical scope."
         (evm-machine-halted-p machine) t))
 
 (defun evm-machine-result (machine)
-  (make-evm-result
-   :status (evm-machine-status machine)
-   :stack (evm-machine-stack machine)
-   :memory (evm-machine-memory machine)
-   :return-data (evm-machine-return-data machine)
-   :logs (nreverse (evm-machine-logs machine))
-   :pc (evm-machine-pc machine)
-   :gas-used (evm-machine-gas-used machine)
-   :refund-counter (evm-machine-refund-counter machine)))
+  (let* ((memory (evm-machine-memory machine))
+         (memory-copy (make-byte-vector (length memory))))
+    (replace memory-copy memory)
+    (make-evm-result
+     :status (evm-machine-status machine)
+     :stack (evm-machine-stack machine)
+     :memory memory-copy
+     :return-data (evm-machine-return-data machine)
+     :logs (nreverse (evm-machine-logs machine))
+     :pc (evm-machine-pc machine)
+     :gas-used (evm-machine-gas-used machine)
+     :refund-counter (evm-machine-refund-counter machine))))
 
 (defmacro with-evm-machine-state ((machine) &body body)
   "Bind the mutable frame fields used by an opcode handler."
-  `(with-slots (code context gas-limit step-budget pc steps gas-used stack memory
+  `(with-slots (code jump-destinations context gas-limit step-budget
+                pc steps gas-used stack memory
                 return-data return-data-buffer frame-snapshot
                 original-storage-values cleared-storage-slots logs
                 refund-counter status halted-p)

@@ -42,6 +42,8 @@
         #:ethereum-lisp.blocks
         #:ethereum-lisp.consensus
         #:ethereum-lisp.kzg
+        #:ethereum-lisp.bls12381
+        #:ethereum-lisp.evm
         #:ethereum-lisp.engine-payloads
         #:ethereum-lisp.txpool.index
         #:ethereum-lisp.chain-store.model

@@ -135,6 +135,7 @@
    #:evm-step-limit-error-limit
    #:evm-step-limit-error-steps
    #:evm-step-limit-error-pc
+   #:amsterdam-execution-available-p
    #:precompile-address
    #:active-precompile-address-p
    #:prewarm-precompile-addresses
@@ -152,6 +153,7 @@
    #:evm-context-coinbase
    #:evm-context-timestamp
    #:evm-context-block-number
+   #:evm-context-slot-number
    #:evm-context-prev-randao
    #:evm-context-gas-limit
    #:evm-context-chain-id
@@ -204,6 +206,7 @@
    #:evm-step-limit-error-limit
    #:evm-step-limit-error-steps
    #:evm-step-limit-error-pc
+   #:amsterdam-execution-available-p
    #:precompile-address
    #:active-precompile-address-p
    #:prewarm-precompile-addresses
@@ -221,6 +224,7 @@
    #:evm-context-coinbase
    #:evm-context-timestamp
    #:evm-context-block-number
+   #:evm-context-slot-number
    #:evm-context-prev-randao
    #:evm-context-gas-limit
    #:evm-context-chain-id

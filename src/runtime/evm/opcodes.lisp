@@ -8,6 +8,21 @@
               (+ (ash value 8)
                  (if (< index (length code)) (aref code index) 0)))))))
 
+(defun read-opcode-immediate-byte (code pc)
+  (let ((index (1+ pc)))
+    (if (< index (length code)) (aref code index) 0)))
+
+(defun decode-eip8024-single (immediate)
+  (mod (+ immediate 145) 256))
+
+(defun decode-eip8024-pair (immediate)
+  (let* ((encoded (logxor immediate 143))
+         (row (floor encoded 16))
+         (column (mod encoded 16)))
+    (if (< row column)
+        (values (1+ row) (1+ column))
+        (values (1+ column) (- 29 row)))))
+
 (defun byte-op (index value)
   (if (>= index 32)
       0
@@ -29,15 +44,39 @@
         do (let ((op (aref code pc)))
              (when (= pc position)
                (return t))
-             (if (<= #x60 op #x7f)
-                 (incf pc (+ 1 (- op #x5f)))
-                 (incf pc)))
+             (cond
+               ((<= #x60 op #x7f)
+                (incf pc (+ 1 (- op #x5f))))
+               ((<= #xe6 op #xe8)
+                (incf pc 2))
+               (t
+                (incf pc))))
         finally (return nil)))
 
-(defun valid-jump-destination-p (code destination)
+(defun jump-destination-bitmap (code)
+  (let ((bitmap (make-array (length code)
+                            :element-type 'bit
+                            :initial-element 0)))
+    (loop with pc = 0
+          while (< pc (length code))
+          do (let ((op (aref code pc)))
+               (when (= op #x5b)
+                 (setf (sbit bitmap pc) 1))
+               (cond
+                 ((<= #x60 op #x7f)
+                  (incf pc (+ 1 (- op #x5f))))
+                 ((<= #xe6 op #xe8)
+                  (incf pc 2))
+                 (t
+                  (incf pc)))))
+    bitmap))
+
+(defun valid-jump-destination-p (code destination &optional bitmap)
   (and (< destination (length code))
        (= (aref code destination) #x5b)
-       (code-position-p code destination)))
+       (if bitmap
+           (= 1 (sbit bitmap destination))
+           (code-position-p code destination))))
 
 (defun opcode-base-gas (op)
   (cond
@@ -52,7 +91,7 @@
     ((= op #x0b) 5)
     ((= op #x20) 30)
     ((member op '(#x30 #x32 #x33 #x34 #x36 #x38 #x3a #x3d
-                  #x41 #x42 #x43 #x44 #x45 #x46 #x48
+                  #x41 #x42 #x43 #x44 #x45 #x46 #x48 #x4b
                   #x4a #x58 #x59 #x5a)
              :test #'=)
      2)
@@ -73,6 +112,7 @@
     ((= op #x5f) 2)
     ((<= #x60 op #x7f) 3)
     ((<= #x80 op #x9f) 3)
+    ((member op '(#xe6 #xe7 #xe8) :test #'=) 3)
     ((<= #xa0 op #xa4) 375)
     ((member op '(#xf0 #xf5) :test #'=) 32000)
     ((member op '(#xf1 #xf2 #xf4 #xfa) :test #'=) 100)

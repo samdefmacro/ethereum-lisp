@@ -273,6 +273,14 @@
                (stack-push stack
                            (evm-context-blob-base-fee context)))
          (incf pc))
+        ((= op #x4b)
+         (unless context
+           (fail "SLOTNUM requires an EVM context"))
+         (require-context-fork context #'chain-rules-amsterdam-p
+                               "Amsterdam" "SLOTNUM" pc)
+         (setf stack (stack-push stack
+                                 (evm-context-slot-number context)))
+         (incf pc))
         (t
          (fail "Unsupported EVM opcode 0x~2,'0X at pc ~D" op pc))))))
 

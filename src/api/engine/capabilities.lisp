@@ -12,9 +12,10 @@
   (engine-rpc-registered-methods :kzg-p t :advertised-p t))
 
 (defun engine-rpc-capabilities ()
-  (append (copy-list +engine-rpc-capabilities+)
-          (when (kzg-proof-verification-available-p)
-            (copy-list +engine-rpc-kzg-backed-capabilities+))))
+  (loop for (method . properties) in +engine-rpc-method-registry+
+        when (and (getf properties :advertised-p)
+                  (engine-rpc-method-available-p method))
+          collect method))
 
 (defparameter +engine-rpc-client-version+
   '(("code" . "CL")

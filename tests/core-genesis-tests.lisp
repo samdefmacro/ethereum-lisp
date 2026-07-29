@@ -351,10 +351,12 @@
              ("arrowGlacierBlock" . 7)
              ("grayGlacierBlock" . 8)
              ("cancunTime" . "0x10")
+             ("pragueTime" . 20)
+             ("osakaTime" . 25)
+             ("ubtTime" . 25)
              ("bpo3Time" . 30)
              ("bpo5Time" . 40)
              ("amsterdamTime" . 50)
-             ("ubtTime" . 60)
              ("enableUBTAtGenesis" . t)
              ("terminalTotalDifficulty" . 0)
              ("terminalTotalDifficultyPassed" . t)
@@ -385,10 +387,12 @@
     (is (= 7 (chain-config-arrow-glacier-block config)))
     (is (= 8 (chain-config-gray-glacier-block config)))
     (is (= 16 (chain-config-cancun-time config)))
+    (is (= 20 (chain-config-prague-time config)))
+    (is (= 25 (chain-config-osaka-time config)))
+    (is (= 25 (chain-config-ubt-time config)))
     (is (= 30 (chain-config-bpo3-time config)))
     (is (= 40 (chain-config-bpo5-time config)))
     (is (= 50 (chain-config-amsterdam-time config)))
-    (is (= 60 (chain-config-ubt-time config)))
     (is (chain-config-enable-ubt-at-genesis-p config))
     (is (= 0 (chain-config-terminal-total-difficulty config)))
     (is (chain-config-terminal-total-difficulty-passed config))
@@ -416,6 +420,20 @@
     (is (= 11 (chain-config-eip150-block config)))
     (is (= 22 (chain-config-eip155-block config)))
     (is (= 22 (chain-config-eip158-block config)))))
+
+(deftest chain-config-from-genesis-config-rejects-impossible-fork-order
+  (signals block-validation-error
+    (chain-config-from-genesis-config
+     '(("pragueTime" . 30)
+       ("osakaTime" . 20))))
+  (signals block-validation-error
+    (chain-config-from-genesis-config
+     '(("osakaTime" . 20))))
+  (signals block-validation-error
+    (chain-config-from-genesis-config
+     '(("pragueTime" . 20)
+       ("osakaTime" . 30)
+       ("amsterdamTime" . 10)))))
 
 (deftest chain-config-from-genesis-config-rejects-bad-blob-schedule
   (signals block-validation-error
@@ -651,6 +669,7 @@
                 "\"shanghaiTime\":0,"
                 "\"cancunTime\":0,"
                 "\"pragueTime\":0,"
+                "\"osakaTime\":0,"
                 "\"amsterdamTime\":0"
                 "},"
                 "\"nonce\":\"0x0102030405060708\","
@@ -744,6 +763,7 @@
                 "\"shanghaiTime\":0,"
                 "\"cancunTime\":0,"
                 "\"pragueTime\":0,"
+                "\"osakaTime\":0,"
                 "\"amsterdamTime\":0"
                 "},"
                 "\"timestamp\":0"

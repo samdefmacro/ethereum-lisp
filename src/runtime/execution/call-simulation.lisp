@@ -171,7 +171,8 @@ mutated."
              (call-transaction-context-base-fee gas-price base-fee))
            (intrinsic-gas (execution-transaction-intrinsic-gas
                            tx effective-chain-rules))
-           (code (execution-resolved-code call-state recipient))
+           (code (execution-resolved-code
+                  call-state recipient effective-chain-rules))
            (precompile-p
              (active-precompile-address-p
               recipient effective-chain-rules)))

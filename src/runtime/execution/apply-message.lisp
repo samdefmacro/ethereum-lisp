@@ -10,6 +10,7 @@
           (coinbase (zero-address))
           (timestamp 0)
           (block-number 0)
+          (slot-number 0)
           (prev-randao (zero-hash32))
           (difficulty 0)
           (random-p t)
@@ -37,15 +38,18 @@
                                  :chain-rules effective-chain-rules)
           (let* ((refund-counter
                    (apply-set-code-authorizations state tx chain-id))
-                 (code (execution-resolved-code state recipient))
+                 (code (execution-resolved-code
+                        state recipient effective-chain-rules))
                  (precompile-p
                    (active-precompile-address-p
                     recipient effective-chain-rules)))
             (cond
               (precompile-p
-               (let ((snapshot (state-db-copy state)))
-                 (transfer-value state sender recipient
-                                 (transaction-value tx))
+               (let* ((snapshot (state-db-copy state))
+                      (transfer-log
+                        (transfer-value
+                         state sender recipient (transaction-value tx)
+                         effective-chain-rules)))
                  (handler-case
                      (multiple-value-bind
                            (output precompile-gas-used active-p)
@@ -60,7 +64,10 @@
                         (make-receipt
                          :status 1
                          :cumulative-gas-used
-                         (+ intrinsic-gas precompile-gas-used))
+                         (+ intrinsic-gas precompile-gas-used)
+                         :logs (if transfer-log
+                                   (list transfer-log)
+                                   '()))
                         base-fee
                         :refund-counter refund-counter))
                    (evm-error ()
@@ -72,18 +79,24 @@
                       base-fee
                       :refund-counter refund-counter)))))
               ((zerop (length code))
-               (transfer-value state sender recipient
-                               (transaction-value tx))
-               (finalize-transaction-receipt
-                state sender coinbase tx
-                (make-receipt :status 1
-                              :cumulative-gas-used intrinsic-gas)
-                base-fee
-                :refund-counter refund-counter))
+               (let ((transfer-log
+                       (transfer-value
+                        state sender recipient (transaction-value tx)
+                        effective-chain-rules)))
+                 (finalize-transaction-receipt
+                  state sender coinbase tx
+                  (make-receipt
+                   :status 1
+                   :cumulative-gas-used intrinsic-gas
+                   :logs (if transfer-log (list transfer-log) '()))
+                  base-fee
+                  :refund-counter refund-counter)))
               (t
-               (let ((snapshot (state-db-copy state)))
-                 (transfer-value state sender recipient
-                                 (transaction-value tx))
+               (let* ((snapshot (state-db-copy state))
+                      (transfer-log
+                        (transfer-value
+                         state sender recipient (transaction-value tx)
+                         effective-chain-rules)))
                  (handler-case
                      (let* ((context
                               (make-message-evm-context
@@ -97,6 +110,7 @@
                                :coinbase coinbase
                                :timestamp timestamp
                                :block-number block-number
+                               :slot-number slot-number
                                :prev-randao prev-randao
                                :difficulty difficulty
                                :random-p random-p
@@ -127,7 +141,11 @@
                                      :cumulative-gas-used
                                      (transaction-evm-gas-used
                                       tx result effective-chain-rules)
-                                     :logs (evm-result-logs result))
+                                     :logs
+                                     (if transfer-log
+                                         (cons transfer-log
+                                               (evm-result-logs result))
+                                         (evm-result-logs result)))
                                     base-fee
                                     :refund-counter
                                     (+ refund-counter
@@ -151,6 +169,7 @@
                                  :coinbase coinbase
                                  :timestamp timestamp
                                  :block-number block-number
+                                 :slot-number slot-number
                                  :prev-randao prev-randao
                                  :difficulty difficulty
                                  :random-p random-p
@@ -167,6 +186,7 @@
           (coinbase (zero-address))
           (timestamp 0)
           (block-number 0)
+          (slot-number 0)
           (prev-randao (zero-hash32))
           (difficulty 0)
           (random-p t)
@@ -184,6 +204,7 @@
                    :coinbase coinbase
                    :timestamp timestamp
                    :block-number block-number
+                   :slot-number slot-number
                    :prev-randao prev-randao
                    :difficulty difficulty
                    :random-p random-p

@@ -44,6 +44,7 @@
    #:log-entry-topics
    #:log-entry-data
    #:log-entry-rlp-object
+   #:make-eth-transfer-log-entry
    #:topic-bytes
    #:bloom
    #:bloom-p
