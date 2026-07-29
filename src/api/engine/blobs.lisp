@@ -18,7 +18,18 @@
      +engine-rpc-error-too-large-request+
      "The number of requested blobs must not exceed 128")))
 
-(defun engine-rpc-handle-get-blobs-v1 (params store)
+(defun engine-rpc-get-blobs-osaka-p (store config)
+  (let* ((head (chain-store-latest-block store))
+         (header (and head (block-header head))))
+    (chain-config-osaka-p
+     config
+     (if header (block-header-number header) 0)
+     (if header (block-header-timestamp header) 0))))
+
+(defun engine-rpc-handle-get-blobs-v1 (params store config)
+  (when (engine-rpc-get-blobs-osaka-p store config)
+    (engine-rpc-fail +engine-rpc-error-unsupported-fork+
+                     "engine_getBlobsV1 is unsupported after Osaka"))
   (let ((hashes
           (engine-rpc-get-blob-hashes-param
            params "engine_getBlobsV1")))
@@ -31,7 +42,9 @@
                   (engine-rpc-blob-and-proof-v1-object blob-and-proofs))))
             hashes)))
 
-(defun engine-rpc-handle-get-blobs-v2 (params store)
+(defun engine-rpc-handle-get-blobs-v2 (params store config)
+  (unless (engine-rpc-get-blobs-osaka-p store config)
+    (return-from engine-rpc-handle-get-blobs-v2 nil))
   (let* ((hashes
            (engine-rpc-get-blob-hashes-param
             params "engine_getBlobsV2"))
@@ -46,7 +59,9 @@
         nil
         (mapcar #'engine-rpc-blob-and-proof-v2-object blobs))))
 
-(defun engine-rpc-handle-get-blobs-v3 (params store)
+(defun engine-rpc-handle-get-blobs-v3 (params store config)
+  (unless (engine-rpc-get-blobs-osaka-p store config)
+    (return-from engine-rpc-handle-get-blobs-v3 nil))
   (let ((hashes
           (engine-rpc-get-blob-hashes-param
            params "engine_getBlobsV3")))

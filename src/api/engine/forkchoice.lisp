@@ -72,8 +72,30 @@
         (storage-fail "Forkchoice persistence failed: ~A" condition)))))
 
 (defun engine-rpc-prepared-payload-version
-    (forkchoice-version config block-number timestamp)
+    (forkchoice-version payload-attributes config block-number timestamp)
   (case forkchoice-version
+    (1
+     (if (chain-config-shanghai-p config block-number timestamp)
+         (engine-rpc-fail +engine-rpc-error-unsupported-fork+
+                          "forkchoiceUpdatedV1 is unsupported after Shanghai")
+         1))
+    (2
+     (cond
+       ((chain-config-cancun-p config block-number timestamp)
+        (engine-rpc-fail +engine-rpc-error-unsupported-fork+
+                         "forkchoiceUpdatedV2 is unsupported after Cancun"))
+       ((and (chain-config-shanghai-p config block-number timestamp)
+             (not (payload-attributes-v1-withdrawals-present-p
+                   payload-attributes)))
+        (engine-rpc-fail
+         +engine-rpc-error-invalid-payload-attributes+
+         "forkchoiceUpdatedV2 requires withdrawals after Shanghai"))
+       ((and (not (chain-config-shanghai-p config block-number timestamp))
+             (payload-attributes-v1-withdrawals-present-p payload-attributes))
+        (engine-rpc-fail
+         +engine-rpc-error-invalid-payload-attributes+
+         "forkchoiceUpdatedV2 does not support withdrawals before Shanghai"))
+       (t 2)))
     (3
      (cond
        ((chain-config-amsterdam-p config block-number timestamp)
@@ -158,7 +180,8 @@
                            payload-attributes))
                (prepared-payload-version
                  (engine-rpc-prepared-payload-version
-                  payload-version config block-number timestamp))
+                  payload-version payload-attributes
+                  config block-number timestamp))
                (transactions
                  (engine-select-mining-transactions
                   (engine-payload-store-pending-mining-transactions

@@ -255,7 +255,10 @@
            (sidecar nil)
            (versioned-hash nil)
            (store (make-engine-payload-memory-store))
-           (config (make-chain-config)))
+           (config (make-chain-config :london-block 0
+                                      :cancun-time 0
+                                      :prague-time 0
+                                      :osaka-time 0)))
       (setf (aref blob 0) #xaa
             (aref commitment 0) #xbb
             sidecar (make-blob-sidecar

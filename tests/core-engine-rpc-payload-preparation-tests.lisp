@@ -1137,7 +1137,8 @@
                (field bundle "blobs"))))))))
 
 (deftest engine-rpc-forkchoice-selects-the-fork-get-payload-version
-  (let ((cancun (make-chain-config :london-block 0 :cancun-time 0))
+  (let ((attributes (make-payload-attributes-v1))
+        (cancun (make-chain-config :london-block 0 :cancun-time 0))
         (prague (make-chain-config :london-block 0 :cancun-time 0
                                    :prague-time 0))
         (osaka (make-chain-config :london-block 0 :cancun-time 0
@@ -1146,13 +1147,13 @@
                                       :prague-time 0 :osaka-time 0
                                       :amsterdam-time 0)))
     (is (= 3 (ethereum-lisp.engine-api::engine-rpc-prepared-payload-version
-              3 cancun 1 1)))
+              3 attributes cancun 1 1)))
     (is (= 4 (ethereum-lisp.engine-api::engine-rpc-prepared-payload-version
-              3 prague 1 1)))
+              3 attributes prague 1 1)))
     (is (= 5 (ethereum-lisp.engine-api::engine-rpc-prepared-payload-version
-              3 osaka 1 1)))
+              3 attributes osaka 1 1)))
     (is (= 6 (ethereum-lisp.engine-api::engine-rpc-prepared-payload-version
-              4 amsterdam 1 1)))))
+              4 attributes amsterdam 1 1)))))
 
 (deftest engine-rpc-forkchoice-updated-v4-prepares-amsterdam-payload-v6
   (labels ((field (object name)
@@ -1178,7 +1179,8 @@
                    (cons "withdrawals" (list (withdrawal-object)))
                    (cons "parentBeaconBlockRoot"
                          (hash32-to-hex parent-beacon-root))
-                   (cons "slotNumber" "0x2a")))
+                   (cons "slotNumber" "0x2a")
+                   (cons "targetGasLimit" "0x1c9c380")))
            (forkchoice-request (id state payload-attributes)
              (list (cons "jsonrpc" "2.0")
                    (cons "id" id)
@@ -1247,6 +1249,8 @@
           (is (= 33 (field get-payload-response "id")))
           (is (eq :false (field envelope "shouldOverrideBuilder")))
           (is (string= (quantity-to-hex 42) (field payload "slotNumber")))
+          (is (string= (quantity-to-hex 30000000)
+                       (field payload "gasLimit")))
           (is (string= "0x0" (field payload "blobGasUsed")))
           (is (string= "0x0" (field payload "excessBlobGas")))
           (is (= 1 (length withdrawals)))

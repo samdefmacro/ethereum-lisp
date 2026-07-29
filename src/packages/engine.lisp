@@ -74,6 +74,8 @@
    #:payload-attributes-v1-parent-beacon-root-present-p
    #:payload-attributes-v1-slot-number
    #:payload-attributes-v1-slot-number-present-p
+   #:payload-attributes-v1-target-gas-limit
+   #:payload-attributes-v1-target-gas-limit-present-p
    #:engine-prepared-payload
    #:engine-prepared-payload-p
    #:make-engine-prepared-payload
@@ -94,6 +96,7 @@
    #:executable-data-to-block-no-hash
    #:executable-data-to-block
    #:engine-new-payload-params-status
+   #:engine-new-payload-version-invalid-p
    #:engine-new-payload-version-status
    #:invalid-payload-status
    #:forkchoice-state-zero-head-status

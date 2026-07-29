@@ -81,7 +81,8 @@
                 (&key timestamp prev-randao suggested-fee-recipient
                       withdrawals withdrawals-present-p
                       parent-beacon-root parent-beacon-root-present-p
-                      slot-number slot-number-present-p)))
+                                    slot-number slot-number-present-p
+                                    target-gas-limit target-gas-limit-present-p)))
   timestamp
   prev-randao
   suggested-fee-recipient
@@ -90,7 +91,9 @@
   parent-beacon-root
   parent-beacon-root-present-p
   slot-number
-  slot-number-present-p)
+  slot-number-present-p
+  target-gas-limit
+  target-gas-limit-present-p)
 
 (defstruct (engine-prepared-payload
             (:constructor make-engine-prepared-payload

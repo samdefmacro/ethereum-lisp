@@ -14,13 +14,23 @@
 
 (defun engine-rpc-validate-payload-attributes-v1
     (object &key (method "engine_forkchoiceUpdatedV1")
-                 withdrawals-field-required-p)
+                 withdrawals-field-required-p
+                 (withdrawals-field-forbidden-p t)
+                 (parent-beacon-root-field-forbidden-p t))
   (unless (json-object-p object)
     (block-validation-fail
      "~A payloadAttributes must be an object or null" method))
   (when (and withdrawals-field-required-p
              (not (json-object-field-present-p object "withdrawals")))
     (block-validation-fail "~A payloadAttributes withdrawals is missing" method))
+  (when (and withdrawals-field-forbidden-p
+             (json-object-field-present-p object "withdrawals"))
+    (block-validation-fail
+     "~A payloadAttributes withdrawals is unsupported" method))
+  (when (and parent-beacon-root-field-forbidden-p
+             (json-object-field-present-p object "parentBeaconBlockRoot"))
+    (block-validation-fail
+     "~A payloadAttributes parentBeaconBlockRoot is unsupported" method))
   (make-payload-attributes-v1
    :timestamp (json-rpc-required-quantity-field object "timestamp")
    :prev-randao (json-rpc-required-hash32-field object "prevRandao")
@@ -32,17 +42,22 @@
 
 (defun engine-rpc-validate-payload-attributes-v2 (object)
   (engine-rpc-validate-payload-attributes-v1
-   object :method "engine_forkchoiceUpdatedV2"))
+   object
+   :method "engine_forkchoiceUpdatedV2"
+   :withdrawals-field-forbidden-p nil))
 
-(defun engine-rpc-validate-payload-attributes-v3 (object)
+(defun engine-rpc-validate-payload-attributes-v3
+    (object &key (method "engine_forkchoiceUpdatedV3"))
   (let ((attributes
           (engine-rpc-validate-payload-attributes-v1
            object
-           :method "engine_forkchoiceUpdatedV3"
-           :withdrawals-field-required-p t)))
+           :method method
+           :withdrawals-field-required-p t
+           :withdrawals-field-forbidden-p nil
+           :parent-beacon-root-field-forbidden-p nil)))
     (unless (json-object-field-present-p object "parentBeaconBlockRoot")
       (block-validation-fail
-       "engine_forkchoiceUpdatedV3 payloadAttributes parentBeaconBlockRoot is missing"))
+       "~A payloadAttributes parentBeaconBlockRoot is missing" method))
     (setf (payload-attributes-v1-parent-beacon-root attributes)
           (json-rpc-required-hash32-field object "parentBeaconBlockRoot")
           (payload-attributes-v1-parent-beacon-root-present-p attributes)
@@ -50,7 +65,9 @@
     attributes))
 
 (defun engine-rpc-validate-payload-attributes-v4 (object)
-  (let ((attributes (engine-rpc-validate-payload-attributes-v3 object)))
+  (let ((attributes
+          (engine-rpc-validate-payload-attributes-v3
+           object :method "engine_forkchoiceUpdatedV4")))
     (unless (json-object-field-present-p object "slotNumber")
       (block-validation-fail
        "engine_forkchoiceUpdatedV4 payloadAttributes slotNumber is missing"))
@@ -58,6 +75,16 @@
           (json-rpc-required-quantity-field object "slotNumber")
           (payload-attributes-v1-slot-number-present-p attributes)
           t)
+    (unless (json-object-field-present-p object "targetGasLimit")
+      (block-validation-fail
+       "engine_forkchoiceUpdatedV4 payloadAttributes targetGasLimit is missing"))
+    (let ((target-gas-limit
+            (json-rpc-required-quantity-field object "targetGasLimit")))
+      (unless (plusp target-gas-limit)
+        (block-validation-fail
+         "engine_forkchoiceUpdatedV4 payloadAttributes targetGasLimit must be positive"))
+      (setf (payload-attributes-v1-target-gas-limit attributes) target-gas-limit
+            (payload-attributes-v1-target-gas-limit-present-p attributes) t))
     attributes))
 
 (defun engine-rpc-forkchoice-response-object (status &key payload-id)

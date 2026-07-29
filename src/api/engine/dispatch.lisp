@@ -106,17 +106,17 @@
        (json-rpc-response
         id
         :result
-        (engine-rpc-handle-get-blobs-v1 params store)))
+        (engine-rpc-handle-get-blobs-v1 params store config)))
       ((string= method "engine_getBlobsV2")
        (json-rpc-response
         id
         :result
-        (engine-rpc-handle-get-blobs-v2 params store)))
+        (engine-rpc-handle-get-blobs-v2 params store config)))
       ((string= method "engine_getBlobsV3")
        (json-rpc-response
         id
         :result
-        (engine-rpc-handle-get-blobs-v3 params store)))
+        (engine-rpc-handle-get-blobs-v3 params store config)))
       ((string= method "engine_getClientVersionV1")
        (json-rpc-response
         id

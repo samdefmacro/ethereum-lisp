@@ -18,6 +18,9 @@
          (amsterdam-p (chain-config-amsterdam-p config number timestamp))
          (supported-p
            (case version
+             (1 (not (chain-config-shanghai-p
+                      config number timestamp)))
+             (2 (not cancun-p))
              (3 (and cancun-p
                      (not prague-p)
                      (not osaka-p)
@@ -98,6 +101,14 @@
                      (engine-rpc-persist-new-payload
                       store block new-payload-persistence-function))
                    (engine-rpc-payload-status-object status))))
+        (let ((invalid-message
+                (engine-new-payload-version-invalid-p
+                 version payload config
+                 (>= version 3)
+                 (>= version 3)
+                 (>= version 4))))
+          (when invalid-message
+            (engine-rpc-fail -32602 invalid-message)))
         (if new-payload-persistence-function
             (chain-store-atomic-commit store #'handle-payload)
             (handle-payload))))))
