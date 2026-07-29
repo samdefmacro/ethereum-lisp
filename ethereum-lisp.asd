@@ -47,6 +47,7 @@
        (:file "database-memory" :pathname "database/memory")
        (:file "database-file" :pathname "database/file")
        (:file "database-batch" :pathname "database/batch")
+       (:file "database-rocksdb" :pathname "database/rocksdb")
        (:file "database-chain-records" :pathname "database/chain-records")
        (:file "telemetry" :pathname "telemetry")
        (:file "types" :pathname "types")

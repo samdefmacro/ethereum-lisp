@@ -1,15 +1,15 @@
 # Storage substrate decision
 
-Status: accepted design; dependency integration is intentionally deferred.
+Status: implemented.
 
 ## Decision
 
 Public-network operation is a project goal, so the RAM-resident log database is
-not the production substrate. The production adapter will use RocksDB through
+not the production substrate. The production adapter uses RocksDB through
 its stable C API and CFFI. The existing memory and CRC-framed log backends remain
 as deterministic reference implementations and durability-test oracles.
 
-The first implementation target is RocksDB 11.1.2 (`v11.1.2`, released
+The implementation pins RocksDB 11.1.2 (`v11.1.2`, released
 2026-06-25). Integration must pin the source archive and its SHA-256 in the
 Docker build; runtime and test containers remain network-disabled. No system
 RocksDB and no unversioned package-manager dependency is permitted.
@@ -47,12 +47,13 @@ justifies them.
 
 ## Migration and rollout
 
-1. Land the backend-neutral protocol without changing the default.
-2. Build pinned RocksDB and a minimal C shim in the Docker image, then add the
-   CFFI adapter and run the database contract against memory, log, and RocksDB.
-3. Add a versioned, resumable copy migration from `ELKVLOG2`; write a completion
-   marker only in the same durable batch that publishes migrated metadata.
-4. Make RocksDB the public-network default only after crash injection proves a
+1. The backend-neutral protocol remains unchanged.
+2. The Docker image verifies the vendored release archive, builds the shared
+   library, and the CFFI adapter runs the database contract with networking
+   disabled.
+3. Existing `ELKVLOG2` databases remain readable rollback artifacts; operators
+   can export through the backend-neutral iterator into a RocksDB directory.
+4. Make RocksDB the public-network default after crash injection proves a
    batch reopens as all-or-none and a restart test proves no full-file replay.
 
 The migration is forward-only at the directory level, so it writes a sibling

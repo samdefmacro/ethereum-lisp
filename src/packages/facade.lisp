@@ -19,8 +19,12 @@
    #:key-value-database
    #:memory-key-value-database
    #:file-key-value-database
+   #:rocksdb-key-value-database
    #:make-memory-key-value-database
    #:make-file-key-value-database
+   #:make-rocksdb-key-value-database
+   #:close-rocksdb-key-value-database
+   #:rocksdb-available-p
    #:kv-get
    #:kv-put
    #:kv-delete

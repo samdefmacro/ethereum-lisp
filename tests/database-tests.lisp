@@ -200,6 +200,46 @@
         (when (probe-file temp-path)
           (delete-file temp-path))))))
 
+(deftest rocksdb-key-value-database-persists-atomic-batches
+  (:layer :integration :module :database)
+  (let ((path
+          (merge-pathnames
+           (make-pathname :directory
+                          `(:relative ,(format nil "ethereum-lisp-rocks-~A"
+                                              (gensym))))
+           #P"/private/tmp/")))
+    (unwind-protect
+         (progn
+           (let ((database (make-rocksdb-key-value-database path))
+                 (batch (make-kv-write-batch)))
+             (unwind-protect
+                  (progn
+                    (kv-put database #(1) #(10))
+                    (kv-batch-put batch #(2) #(20))
+                    (kv-batch-delete batch #(1))
+                    (kv-apply-batch database batch))
+               (close-rocksdb-key-value-database database)))
+           (let ((database (make-rocksdb-key-value-database path)))
+             (unwind-protect
+                  (progn
+                    (multiple-value-bind (value present-p)
+                        (kv-get database #(1))
+                      (declare (ignore value))
+                      (is (not present-p)))
+                    (multiple-value-bind (value present-p)
+                        (kv-get database #(2))
+                      (is present-p)
+                      (is (bytes= #(20) value)))
+                    (let ((iterator (kv-iterator database)))
+                      (multiple-value-bind (key value present-p)
+                          (funcall iterator)
+                        (is present-p)
+                        (is (bytes= #(2) key))
+                        (is (bytes= #(20) value)))))
+               (close-rocksdb-key-value-database database))))
+      (when (probe-file path)
+        (uiop:delete-directory-tree path :validate t)))))
+
 (deftest chain-record-keys-namespace-chain-data
   (let ((database (make-memory-key-value-database))
         (block-hash (make-byte-vector 32 :initial-element #xaa))
