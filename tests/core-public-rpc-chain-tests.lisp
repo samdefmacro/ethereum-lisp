@@ -75,6 +75,24 @@
       (is (= 20 (field response "id")))
       (is (null (field response "result")))
       (is (search "\"result\":false" response-json)))
+    (let* ((store (make-engine-payload-memory-store))
+           (head (make-block :header (make-block-header :number 7
+                                                        :timestamp 7)))
+           (remote (make-block :header (make-block-header :number 12
+                                                          :timestamp 12))))
+      (engine-payload-store-put-block store head :state-available-p t)
+      (engine-payload-store-put-remote-block store remote)
+      (let* ((response-json
+               (engine-rpc-handle-request-json
+                "{\"jsonrpc\":\"2.0\",\"id\":201,\"method\":\"eth_syncing\",\"params\":[]}"
+                store
+                (make-chain-config)))
+             (response (parse-json response-json))
+             (progress (field response "result")))
+        (is (= 201 (field response "id")))
+        (is (string= "0x7" (field progress "startingBlock")))
+        (is (string= "0x7" (field progress "currentBlock")))
+        (is (string= "0xc" (field progress "highestBlock")))))
     (let* ((response-json
              (engine-rpc-handle-request-json
               (concatenate
