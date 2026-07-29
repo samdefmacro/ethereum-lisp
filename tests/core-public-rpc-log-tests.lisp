@@ -302,8 +302,9 @@
                 config))
              (uninstall-missing-response
                (parse-json uninstall-missing-json)))
-        (is (string= (quantity-to-hex 1) filter-id))
-        (is (string= (quantity-to-hex 2) pending-filter-id))
+        (is (= 34 (length filter-id)))
+        (is (= 34 (length pending-filter-id)))
+        (is (not (string= filter-id pending-filter-id)))
         (is (search "\"result\":[]" pending-filter-logs-json))
         (is (= 2 (length filter-logs)))
         (is (string= (quantity-to-hex 40)

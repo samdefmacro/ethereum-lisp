@@ -27,10 +27,11 @@
             (:constructor make-engine-log-filter
                 (&key criteria last-block-number block-hash-p
                       block-hash-consumed-p
-                      pending-changes)))
+                      pending-changes deadline)))
   criteria
   last-block-number
   pending-changes
+  deadline
   (block-hash-p nil :type boolean)
   (block-hash-consumed-p nil :type boolean))
 
@@ -42,14 +43,16 @@
 
 (defstruct (engine-block-filter
             (:constructor make-engine-block-filter
-                (&key last-block-number hashes)))
+                (&key last-block-number hashes deadline)))
   (last-block-number 0 :type (integer 0 *))
-  hashes)
+  hashes
+  deadline)
 
 (defstruct (engine-pending-transaction-filter
             (:constructor make-engine-pending-transaction-filter
-                (&key hashes)))
-  hashes)
+                (&key hashes deadline)))
+  hashes
+  deadline)
 
 (defun engine-pending-transaction-filter-record-hash (filter hash)
   (unless (typep filter 'engine-pending-transaction-filter)

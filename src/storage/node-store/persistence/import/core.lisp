@@ -71,6 +71,8 @@
           source-txpool
           (memory-chain-store-invalid-tipsets target-chain)
           (memory-chain-store-invalid-tipsets source-chain)
+          (memory-chain-store-invalid-block-hits target-chain)
+          (memory-chain-store-invalid-block-hits source-chain)
           (memory-chain-store-remote-blocks target-chain)
           (memory-chain-store-remote-blocks source-chain)
           (memory-chain-store-blob-sidecars target-chain)

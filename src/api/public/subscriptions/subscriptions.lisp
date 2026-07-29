@@ -132,43 +132,68 @@ params, and a client that replied to it would be replying to nothing."
                      (cons "result" result))))))
 
 (defun eth-rpc-subscription-new-heads (store registry)
-  "The blocks to report since the cursor last moved, oldest first.
+  "Return new and removed blocks since the cursor moved.
 
-Walks back from the current head by parent hash to the head we last reported,
-so a connection that missed blocks gets all of them in order rather than only
-the newest. A walk that runs past the limit -- a long idle, or a reorg onto a
-branch that never contained our cursor -- yields the current head alone, which
-is the honest answer when the intermediate history is not ours to reconstruct."
+The first value is the replacement branch oldest first. The second is the
+orphaned branch from the former head backwards. If no common ancestor can be
+found within the bounded walk, only the current head is reported and no removed
+claim is fabricated."
   (let* ((head (chain-store-head-block store))
          (cursor (eth-rpc-subscription-registry-last-head-hash registry)))
     (when head
       (let ((head-hash (block-hash head)))
         (cond
-          ((and cursor (hash32= cursor head-hash)) nil)
+          ((and cursor (hash32= cursor head-hash)) (values nil nil))
           ((null cursor)
            ;; First pass: adopt the head without reporting it. A client that
            ;; subscribes at block N wants N+1 onwards, not a replay of N.
            (setf (eth-rpc-subscription-registry-last-head-hash registry) head-hash)
-           nil)
+           (values nil nil))
           (t
-           (let ((blocks '())
-                 (walk head))
+           (let ((old-chain '())
+                 (old-hashes (make-hash-table :test 'equalp))
+                 (walk (chain-store-known-block store cursor)))
              (loop repeat +eth-rpc-subscription-head-catchup-limit+
                    while walk
-                   do (push walk blocks)
-                      (let ((parent-hash (block-header-parent-hash
-                                          (block-header walk))))
-                        (when (and cursor (hash32= parent-hash cursor))
-                          (return))
-                        (setf walk (chain-store-known-block store parent-hash))))
+                   do (push walk old-chain)
+                      (setf (gethash (engine-payload-store-key
+                                     (block-hash walk))
+                                    old-hashes)
+                            t
+                            walk
+                            (chain-store-known-block
+                             store
+                             (block-header-parent-hash
+                              (block-header walk)))))
+             (setf old-chain (nreverse old-chain))
+             (let ((new-blocks '())
+                   (common-hash nil)
+                   (walk head))
+               (loop repeat +eth-rpc-subscription-head-catchup-limit+
+                     while walk
+                     for key = (engine-payload-store-key (block-hash walk))
+                     do (if (gethash key old-hashes)
+                            (progn
+                              (setf common-hash key)
+                              (return))
+                            (progn
+                              (push walk new-blocks)
+                              (setf walk
+                                    (chain-store-known-block
+                                     store
+                                     (block-header-parent-hash
+                                      (block-header walk)))))))
              (setf (eth-rpc-subscription-registry-last-head-hash registry)
                    head-hash)
-             (if (and blocks
-                      (let ((oldest (first blocks)))
-                        (hash32= (block-header-parent-hash (block-header oldest))
-                                 cursor)))
-                 blocks
-                 (list head)))))))))
+               (if common-hash
+                   (values
+                    new-blocks
+                    (loop for block in old-chain
+                          until (string=
+                                 common-hash
+                                 (engine-payload-store-key (block-hash block)))
+                          collect block))
+                   (values (list head) nil))))))))))
 
 (defun eth-rpc-subscription-pending-hashes (store registry)
   "The pooled transactions this connection has not been told about yet.
@@ -205,28 +230,38 @@ head comparison."
   (let ((subscriptions (eth-rpc-subscription-registry-subscriptions registry))
         (messages '()))
     (when subscriptions
-      (let* ((wants-chain-p
-               (some (lambda (s) (member (eth-rpc-subscription-kind s)
-                                         '(:new-heads :logs)))
-                     subscriptions))
-             (new-blocks (when wants-chain-p
-                           (eth-rpc-subscription-new-heads store registry)))
-             (pending
-               (when (some (lambda (s)
-                             (eq :new-pending-transactions
-                                 (eth-rpc-subscription-kind s)))
-                           subscriptions)
-                 (eth-rpc-subscription-pending-hashes store registry))))
-        (declare (ignorable config))
-        (dolist (subscription subscriptions)
-          (let ((id (eth-rpc-subscription-id subscription)))
-            (ecase (eth-rpc-subscription-kind subscription)
+      (let ((wants-chain-p
+              (some (lambda (s) (member (eth-rpc-subscription-kind s)
+                                        '(:new-heads :logs)))
+                    subscriptions)))
+        (multiple-value-bind (new-blocks removed-blocks)
+            (when wants-chain-p
+              (eth-rpc-subscription-new-heads store registry))
+          (let ((pending
+                  (when (some (lambda (s)
+                                (eq :new-pending-transactions
+                                    (eth-rpc-subscription-kind s)))
+                              subscriptions)
+                    (eth-rpc-subscription-pending-hashes store registry))))
+            (declare (ignorable config))
+            (dolist (subscription subscriptions)
+              (let ((id (eth-rpc-subscription-id subscription)))
+                (ecase (eth-rpc-subscription-kind subscription)
               (:new-heads
                (dolist (block new-blocks)
                  (push (eth-rpc-subscription-notification-json
                         id (eth-rpc-header-object (block-header block)))
                        messages)))
               (:logs
+               (dolist (block removed-blocks)
+                 (dolist (log (eth-rpc-block-logs-object
+                               block
+                               (eth-rpc-subscription-addresses subscription)
+                               (eth-rpc-subscription-topic-filters
+                                subscription)
+                               :removed-p t))
+                   (push (eth-rpc-subscription-notification-json id log)
+                         messages)))
                (dolist (block new-blocks)
                  (dolist (log (eth-rpc-block-logs-object
                                block
@@ -246,5 +281,5 @@ head comparison."
                             ;; which is what a client expects here.
                             (eth-rpc-transaction-object transaction nil nil)
                             (hash32-to-hex (transaction-hash transaction))))
-                       messages))))))))
-    (nreverse messages)))
+                       messages)))))))))
+    (nreverse messages))))

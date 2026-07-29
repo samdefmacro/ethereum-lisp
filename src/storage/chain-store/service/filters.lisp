@@ -1,7 +1,53 @@
 (in-package #:ethereum-lisp.chain-store)
 
+(defconstant +engine-filter-id-bytes+ 16)
+(defconstant +engine-filter-timeout-seconds+ 300)
+
+(defun engine-filter-deadline (filter)
+  (etypecase filter
+    (engine-log-filter (engine-log-filter-deadline filter))
+    (engine-block-filter (engine-block-filter-deadline filter))
+    (engine-pending-transaction-filter
+     (engine-pending-transaction-filter-deadline filter))))
+
+(defun (setf engine-filter-deadline) (deadline filter)
+  (etypecase filter
+    (engine-log-filter
+     (setf (engine-log-filter-deadline filter) deadline))
+    (engine-block-filter
+     (setf (engine-block-filter-deadline filter) deadline))
+    (engine-pending-transaction-filter
+     (setf (engine-pending-transaction-filter-deadline filter) deadline))))
+
+(defun engine-filter-reset-deadline (filter now)
+  (setf (engine-filter-deadline filter)
+        (+ now +engine-filter-timeout-seconds+))
+  filter)
+
+(defun engine-payload-store-sweep-expired-filters (store &optional (now (unix-time)))
+  (setf store (chain-store-require-memory-store store))
+  (let ((expired-ids nil)
+        (filters (memory-chain-store-log-filters store)))
+    (maphash
+     (lambda (id filter)
+       (when (and (engine-filter-deadline filter)
+                  (<= (engine-filter-deadline filter) now))
+         (push id expired-ids)))
+     filters)
+    (dolist (id expired-ids)
+      (remhash id filters))
+    (length expired-ids)))
+
+(defun engine-payload-store-new-filter-id (store)
+  (let ((filters (memory-chain-store-log-filters store)))
+    (loop for id = (bytes-to-hex
+                    (secure-random-bytes +engine-filter-id-bytes+))
+          unless (gethash id filters)
+            return id)))
+
 (defun engine-payload-store-notify-block-filters (store block)
   (setf store (chain-store-require-memory-store store))
+  (engine-payload-store-sweep-expired-filters store)
   (unless (typep block 'ethereum-block)
     (block-validation-fail "Block filter notification block must be a block"))
   (loop for filter
@@ -26,6 +72,7 @@
 (defun engine-payload-store-notify-log-filters
     (store block &key removed-p)
   (setf store (chain-store-require-memory-store store))
+  (engine-payload-store-sweep-expired-filters store)
   (loop for filter
           being the hash-values of
             (memory-chain-store-log-filters store)
@@ -39,6 +86,7 @@
 (defun engine-payload-store-notify-pending-transaction-filters
     (store transaction)
   (setf store (chain-store-require-memory-store store))
+  (engine-payload-store-sweep-expired-filters store)
   (loop for filter
           being the hash-values of
             (memory-chain-store-log-filters store)
@@ -48,38 +96,47 @@
               (transaction-hash transaction))))
 
 (defun engine-payload-store-put-log-filter
-    (store criteria &key block-hash-p last-block-number)
+    (store criteria &key block-hash-p last-block-number (now (unix-time)))
   (setf store (chain-store-require-memory-store store))
-  (let ((id (memory-chain-store-next-log-filter-id store)))
+  (engine-payload-store-sweep-expired-filters store now)
+  (let ((id (engine-payload-store-new-filter-id store)))
     (setf (gethash id (memory-chain-store-log-filters store))
           (make-engine-log-filter
            :criteria criteria
            :block-hash-p block-hash-p
-           :last-block-number last-block-number))
-    (incf (memory-chain-store-next-log-filter-id store))
+           :last-block-number last-block-number
+           :deadline (+ now +engine-filter-timeout-seconds+)))
     id))
 
-(defun engine-payload-store-put-block-filter (store)
+(defun engine-payload-store-put-block-filter (store &key (now (unix-time)))
   (setf store (chain-store-require-memory-store store))
-  (let ((id (memory-chain-store-next-log-filter-id store)))
+  (engine-payload-store-sweep-expired-filters store now)
+  (let ((id (engine-payload-store-new-filter-id store)))
     (setf (gethash id (memory-chain-store-log-filters store))
           (make-engine-block-filter
            :last-block-number
-           (memory-chain-store-head-number store)))
-    (incf (memory-chain-store-next-log-filter-id store))
+           (memory-chain-store-head-number store)
+           :deadline (+ now +engine-filter-timeout-seconds+)))
     id))
 
-(defun engine-payload-store-put-pending-transaction-filter (store)
+(defun engine-payload-store-put-pending-transaction-filter
+    (store &key (now (unix-time)))
   (setf store (chain-store-require-memory-store store))
-  (let ((id (memory-chain-store-next-log-filter-id store)))
+  (engine-payload-store-sweep-expired-filters store now)
+  (let ((id (engine-payload-store-new-filter-id store)))
     (setf (gethash id (memory-chain-store-log-filters store))
-          (make-engine-pending-transaction-filter))
-    (incf (memory-chain-store-next-log-filter-id store))
+          (make-engine-pending-transaction-filter
+           :deadline (+ now +engine-filter-timeout-seconds+)))
     id))
 
-(defun engine-payload-store-log-filter (store id)
+(defun engine-payload-store-log-filter
+    (store id &key (now (unix-time)) (reset-deadline-p t))
   (setf store (chain-store-require-memory-store store))
-  (gethash id (memory-chain-store-log-filters store)))
+  (engine-payload-store-sweep-expired-filters store now)
+  (let ((filter (gethash id (memory-chain-store-log-filters store))))
+    (when (and filter reset-deadline-p)
+      (engine-filter-reset-deadline filter now))
+    filter))
 
 (defun engine-payload-store-uninstall-log-filter (store id)
   (setf store (chain-store-require-memory-store store))

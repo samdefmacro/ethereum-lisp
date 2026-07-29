@@ -1,5 +1,11 @@
 (in-package #:ethereum-lisp.chain-store)
 
+(defconstant +engine-invalid-block-hit-eviction+ 128
+  "Reconsider an invalid block after this many repeated references.")
+
+(defconstant +engine-invalid-tipsets-cap+ 512
+  "Maximum invalid descendant hashes retained in memory.")
+
 (defun engine-payload-store-remote-block
     (store hash)
   (setf store (chain-store-require-memory-store store))
@@ -45,16 +51,36 @@
   (unless (typep invalid-block 'ethereum-block)
     (block-validation-fail "Engine payload invalid marker must be a block"))
   (let* ((invalid-hash (block-hash invalid-block))
-         (key (engine-payload-store-key (or head-hash invalid-hash))))
+         (invalid-key (engine-payload-store-key invalid-hash))
+         (key (engine-payload-store-key (or head-hash invalid-hash)))
+         (tipsets (memory-chain-store-invalid-tipsets store))
+         (hits (memory-chain-store-invalid-block-hits store)))
     (engine-payload-store-remove-remote-block store invalid-hash)
     (engine-payload-store-prune-prepared-payloads-for-block
      store
-     (engine-payload-store-key invalid-hash))
+     invalid-key)
     (when head-hash
       (engine-payload-store-remove-remote-block store head-hash)
       (engine-payload-store-prune-prepared-payloads-for-block store key))
-    (setf (gethash key (memory-chain-store-invalid-tipsets store))
+    (unless (gethash key tipsets)
+      (loop while (>= (hash-table-count tipsets)
+                      +engine-invalid-tipsets-cap+)
+            do (let ((stale-key nil)
+                     (stale-block nil))
+                 (maphash
+                  (lambda (candidate-key candidate-block)
+                    (unless stale-key
+                      (setf stale-key candidate-key
+                            stale-block candidate-block)))
+                  tipsets)
+                 (remhash stale-key tipsets)
+                 (remhash
+                  (engine-payload-store-key (block-hash stale-block))
+                  hits))))
+    (setf (gethash key tipsets)
           (engine-payload-store-copy-block invalid-block))
+    (when (string= key invalid-key)
+      (incf (gethash invalid-key hits 0)))
     invalid-block))
 
 (defun engine-payload-store-invalid-block
@@ -63,6 +89,35 @@
   (engine-payload-store-copy-block
    (gethash (engine-payload-store-key hash)
             (memory-chain-store-invalid-tipsets store))))
+
+(defun engine-payload-store-invalid-ancestor (store hash)
+  "Return HASH's invalid ancestor, evicting a repeatedly hit verdict.
+
+Eviction removes every descendant that points at the same rejected block so a
+transient or raced verdict can be retried without restarting the node."
+  (setf store (chain-store-require-memory-store store))
+  (let* ((tipsets (memory-chain-store-invalid-tipsets store))
+         (hits (memory-chain-store-invalid-block-hits store))
+         (invalid-block
+           (gethash (engine-payload-store-key hash) tipsets)))
+    (when invalid-block
+      (let* ((invalid-key
+               (engine-payload-store-key (block-hash invalid-block)))
+             (hit-count (incf (gethash invalid-key hits 0))))
+        (when (>= hit-count +engine-invalid-block-hit-eviction+)
+          (let ((stale-keys nil))
+            (maphash
+             (lambda (descendant-key candidate)
+               (when (string= invalid-key
+                              (engine-payload-store-key
+                               (block-hash candidate)))
+                 (push descendant-key stale-keys)))
+             tipsets)
+            (dolist (stale-key stale-keys)
+              (remhash stale-key tipsets)))
+          (remhash invalid-key hits)
+          (return-from engine-payload-store-invalid-ancestor nil)))
+      (engine-payload-store-copy-block invalid-block))))
 
 (defun engine-payload-id-key (payload-id)
   (let ((bytes (ensure-byte-vector payload-id)))

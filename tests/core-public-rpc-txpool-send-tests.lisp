@@ -271,7 +271,7 @@
                  "{\"jsonrpc\":\"2.0\",\"id\":76,\"method\":\"txpool_inspect\",\"params\":[\"unexpected\"]}"
                  store
                  config))))
-        (is (string= (quantity-to-hex 1) pending-filter-id))
+        (is (= 34 (length pending-filter-id)))
         (is (search "\"result\":[]" initial-pending-filter-json))
         (is (string= transaction-hash (field send-response "result")))
         (is (= 1 (length pending-filter-changes)))
@@ -388,7 +388,7 @@
                          (or (transaction-sender transaction)
                              (zero-address)))))
                (summary (field sender-transactions "9")))
-          (is (string= (format nil "~A: 1000000000000000000 wei + 21000 gas x 20000000000 wei"
+          (is (string= (format nil "~A: 1000000000000000000 wei + 21000 gas × 20000000000 wei"
                                (address-to-hex recipient))
                        summary))
           (is (search "\"queued\":{}" txpool-inspect-json)))

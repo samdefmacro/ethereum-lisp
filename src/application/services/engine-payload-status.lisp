@@ -20,7 +20,7 @@
 (defun engine-payload-store-invalid-ancestor-status
     (store check-hash head-hash)
   (let ((invalid-block
-          (engine-payload-store-invalid-block store check-hash)))
+          (engine-payload-store-invalid-ancestor store check-hash)))
     (when invalid-block
       (unless (string= (engine-payload-store-key check-hash)
                        (engine-payload-store-key head-hash))
@@ -29,7 +29,17 @@
       (make-payload-status
        :status +payload-status-invalid+
        :latest-valid-hash
-       (block-header-parent-hash (block-header invalid-block))
+       (let* ((parent-hash
+                (block-header-parent-hash (block-header invalid-block)))
+              (parent-block
+                (and (hash32-p parent-hash)
+                     (chain-store-known-block store parent-hash))))
+         (if (and parent-block
+                  (plusp (or (block-header-difficulty
+                              (block-header parent-block))
+                             0)))
+             (zero-hash32)
+             parent-hash))
        :validation-error "links to previously rejected block"))))
 
 (defun engine-forkchoice-checkpoint-error-message

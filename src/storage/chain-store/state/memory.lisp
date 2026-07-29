@@ -38,9 +38,10 @@ reads treat absence as that same default."
                        +chain-store-default-state-baseline-interval+)
                       (remote-blocks (make-hash-table :test 'equalp))
                       (invalid-tipsets (make-hash-table :test 'equalp))
+                      (invalid-block-hits (make-hash-table :test 'equalp))
                       (prepared-payloads (make-hash-table :test 'equalp))
                       (blob-sidecars (make-hash-table :test 'equalp))
-                      (log-filters (make-hash-table :test 'eql))
+                      (log-filters (make-hash-table :test 'equal))
                       (next-log-filter-id 1)
                       (head-checkpoint
                        (make-chain-store-checkpoint :label :head))
@@ -63,6 +64,7 @@ reads treat absence as that same default."
    :type (integer 1 *))
   remote-blocks
   invalid-tipsets
+  invalid-block-hits
   prepared-payloads
   blob-sidecars
   log-filters

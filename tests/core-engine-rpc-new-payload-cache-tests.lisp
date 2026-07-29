@@ -73,3 +73,39 @@
         (is (string= (hash32-to-hex (block-hash invalid-child-block))
                      (hash32-to-hex (block-hash cached-head))))))))
 
+(deftest engine-invalid-ancestor-cache-recovers-after-hit-threshold
+  (let* ((store (make-engine-payload-memory-store))
+         (invalid-block
+           (make-block :header (make-block-header :number 2 :timestamp 2)))
+         (invalid-hash (block-hash invalid-block)))
+    (engine-payload-store-mark-invalid store invalid-block)
+    (loop repeat 126
+          do (is (engine-payload-store-invalid-ancestor-status
+                  store invalid-hash invalid-hash)))
+    (is (not (engine-payload-store-invalid-ancestor-status
+              store invalid-hash invalid-hash)))
+    (is (not (engine-payload-store-invalid-block store invalid-hash)))))
+
+(deftest engine-invalid-ancestor-zeroes-pre-merge-last-valid-hash
+  (let* ((store (make-engine-payload-memory-store))
+         (pow-parent
+           (make-block
+            :header (make-block-header :number 1
+                                       :timestamp 1
+                                       :difficulty 1)))
+         (invalid-block
+           (make-block
+            :header (make-block-header :parent-hash (block-hash pow-parent)
+                                       :number 2
+                                       :timestamp 2)))
+         (invalid-hash (block-hash invalid-block)))
+    (engine-payload-store-put-block store pow-parent :state-available-p t)
+    (engine-payload-store-mark-invalid store invalid-block)
+    (let ((status
+            (engine-payload-store-invalid-ancestor-status
+             store invalid-hash invalid-hash)))
+      (is status)
+      (is (string= (hash32-to-hex (zero-hash32))
+                   (hash32-to-hex
+                    (payload-status-latest-valid-hash status)))))))
+

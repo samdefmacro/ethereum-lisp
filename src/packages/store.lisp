@@ -31,6 +31,7 @@
    #:engine-log-filter-pending-changes
    #:engine-log-filter-block-hash-p
    #:engine-log-filter-block-hash-consumed-p
+   #:engine-log-filter-deadline
    #:engine-log-filter-change
    #:engine-log-filter-change-p
    #:make-engine-log-filter-change
@@ -41,10 +42,12 @@
    #:make-engine-block-filter
    #:engine-block-filter-last-block-number
    #:engine-block-filter-hashes
+   #:engine-block-filter-deadline
    #:engine-pending-transaction-filter
    #:engine-pending-transaction-filter-p
    #:make-engine-pending-transaction-filter
    #:engine-pending-transaction-filter-hashes
+   #:engine-pending-transaction-filter-deadline
    #:engine-pending-transaction-filter-record-hash
    #:engine-block-filter-record-hash
    #:engine-payload-store-key))
@@ -81,6 +84,7 @@
    #:chain-state-diff-storage
    #:memory-chain-store-remote-blocks
    #:memory-chain-store-invalid-tipsets
+   #:memory-chain-store-invalid-block-hits
    #:memory-chain-store-prepared-payloads
    #:memory-chain-store-blob-sidecars
    #:memory-chain-store-log-filters
@@ -144,6 +148,7 @@
    #:engine-payload-store-put-log-filter
    #:engine-payload-store-put-block-filter
    #:engine-payload-store-put-pending-transaction-filter
+   #:engine-payload-store-sweep-expired-filters
    #:engine-payload-store-log-filter
    #:engine-payload-store-uninstall-log-filter
    #:engine-payload-store-remote-block
@@ -152,6 +157,7 @@
    #:engine-payload-store-prune-prepared-payloads-for-block
    #:engine-payload-store-mark-invalid
    #:engine-payload-store-invalid-block
+   #:engine-payload-store-invalid-ancestor
    #:engine-payload-id-key
    #:engine-payload-id-to-hex
    #:engine-payload-store-put-prepared-payload
