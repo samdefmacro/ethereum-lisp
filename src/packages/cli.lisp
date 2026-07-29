@@ -79,6 +79,14 @@
                 #:storage-error
                 #:storage-fail)
   (:export
+   #:devnet-chain-preset
+   #:make-devnet-chain-preset
+   #:devnet-chain-preset-name
+   #:devnet-chain-preset-genesis-json
+   #:devnet-chain-preset-network-id
+   #:devnet-chain-preset-bootnodes
+   #:*devnet-chain-preset-provider*
+   #:devnet-cli-apply-chain-preset
    #:make-devnet-peer-table
    #:devnet-peer-table
    #:devnet-peer-table-count

@@ -16,6 +16,7 @@
         (database-path nil)
         (datadir-path nil)
         (network-id nil)
+        (chain-preset nil)
         (http-api-modules nil)
         (authrpc-cors-origins nil)
         (http-cors-origins nil)
@@ -96,6 +97,16 @@
                 (setf help-p t))
                ((string= option "--genesis")
                 (setf genesis-path (next-value option)))
+               ((member option
+                        '("--mainnet" "--sepolia" "--holesky" "--hoodi"
+                          "--goerli")
+                        :test #'string=)
+                (let ((preset (subseq option 2)))
+                  (when (next-optional-boolean option)
+                    (when (and chain-preset
+                               (not (string= chain-preset preset)))
+                      (error "Only one public chain preset may be selected"))
+                    (setf chain-preset preset))))
                ((string= option "--host")
                 (setf host (next-value option))
                 (setf default-public-host host))
@@ -308,6 +319,7 @@
                                   (devnet-cli-datadir-database-path
                                    datadir-path)))
           :network-id network-id
+          :chain-preset chain-preset
           :http-api-modules http-api-modules
           :authrpc-cors-origins authrpc-cors-origins
           :http-cors-origins http-cors-origins

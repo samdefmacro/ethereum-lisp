@@ -187,7 +187,9 @@
                  (devnet-cli-run-init options output-stream)
                  0))))
         (t
-         (let ((options (devnet-cli-options args)))
+         (let ((options
+                 (devnet-cli-apply-chain-preset
+                  (devnet-cli-options args))))
            (devnet-cli-report-ignored-options options error-stream)
            (if (getf options :help-p)
                (progn
