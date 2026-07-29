@@ -14,10 +14,30 @@
 ;; validates as a vector set. It does not replay them -- see docs/gap-analysis.
 (deftest optional-eest-transaction-test-root-vectors
   (with-execution-spec-tests-transaction-test-root (root)
-    (let* ((vectors (load-eest-transaction-test-root-vectors root))
+    (let* ((cases (load-eest-transaction-test-root-cases root))
+           (success-cases (eest-transaction-success-cases cases))
+           (invalid-cases (eest-transaction-invalid-cases cases))
+           (vectors (load-eest-transaction-test-root-vectors root))
            (summary (transaction-fixture-vector-summary vectors)))
-      (is (< 0 (fixture-object-field summary "count")))
-      (is (< 0 (length (fixture-object-field summary "types")))))))
+      ;; A root with no cases would satisfy every assertion below, so require
+      ;; cases before asserting anything about them.
+      (is (< 0 (length cases)))
+      ;; Whatever forks the corpus targets, every case is a success case or an
+      ;; invalid case -- never both, never neither.
+      (is (= (length cases)
+             (+ (length success-cases) (length invalid-cases))))
+      ;; DO NOT assert a positive vector count here. The vector count follows the
+      ;; corpus, and a corpus may legitimately contain no valid transaction:
+      ;; execution-spec-tests v5.4.0 (fixtures_stable.tar.gz) is exactly that
+      ;; case, its whole transaction_tests suite being 12 EIP-7702 set-code files
+      ;; under prague/eip7702_set_code_tx whose Prague result carries
+      ;; intrinsicGas and exception and no hash -- so
+      ;; EEST-TRANSACTION-CASE-SUCCESS-RESULT correctly finds none, and
+      ;; (< 0 count) failed on the first CI run that reached this test with a
+      ;; corpus mounted. The loader still validates the success vectors it does
+      ;; find as a set, which is the assertion that has to hold.
+      (is (= (length success-cases) (length vectors)))
+      (is (= (length vectors) (fixture-object-field summary "count"))))))
 
 (deftest transaction-envelope-fixture-vectors
   (let ((vectors (load-transaction-envelope-vectors
