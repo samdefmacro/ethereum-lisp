@@ -111,8 +111,15 @@ does not know the base fee is unaffected."
   (let ((transactions
           (remove-if-not
            (lambda (transaction)
-             (transaction-sender transaction
-                                 :expected-chain-id expected-chain-id))
+             (and
+              (transaction-sender transaction
+                                  :expected-chain-id expected-chain-id)
+              ;; Pending classification reflects the parent state.  A rising
+              ;; base fee can make the transaction ineligible for the child
+              ;; being built, so enforce the child's fee here as well.
+              (or (null base-fee)
+                  (>= (transaction-max-fee-per-gas transaction)
+                      base-fee))))
            (engine-payload-store-pending-transactions store))))
     (if (null base-fee)
         (sort (copy-list transactions)

@@ -98,6 +98,81 @@ transaction the effective tip is simply the gas price less the base fee."
                                                 :expected-chain-id 1)))
                          ordered))))))
 
+(deftest mining-order-filters-at-the-child-base-fee
+  (:layer :unit :module :txpool)
+  (let* ((store (make-engine-payload-memory-store))
+         (ineligible (mining-order-test-transaction 1 0 109))
+         (eligible (mining-order-test-transaction 2 0 110)))
+    (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
+     store ineligible)
+    (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
+     store eligible)
+    (let ((ordered
+            (ethereum-lisp.txpool:engine-payload-store-pending-mining-transactions
+             store 1 :base-fee 110)))
+      (is (= 1 (length ordered)))
+      (is (bytes= (transaction-encoding eligible)
+                  (transaction-encoding (first ordered)))))))
+
+(deftest prepared-payload-skips-an-invalid-sender
+  (:layer :unit :module :engine)
+  (let* ((store (make-engine-payload-memory-store))
+         (config (make-chain-config :chain-id 1
+                                    :byzantium-block 0
+                                    :constantinople-block 0
+                                    :petersburg-block 0
+                                    :berlin-block 0
+                                    :london-block 0))
+         (invalid-key 1)
+         (valid-key 2)
+         (invalid-sender (fixture-private-key-address invalid-key))
+         (valid-sender (fixture-private-key-address valid-key))
+         (recipient
+           (address-from-hex
+            "0x0000000000000000000000000000000000003002"))
+         (invalid
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 1 :gas-price 1000 :gas-limit 21000
+             :to recipient :value 1)
+            invalid-key 1))
+         (valid
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 0 :gas-price 1000 :gas-limit 21000
+             :to recipient :value 1)
+            valid-key 1))
+         (parent-state (make-state-db))
+         (attributes
+           (make-payload-attributes-v1
+            :timestamp 11
+            :prev-randao (zero-hash32)
+            :suggested-fee-recipient (zero-address))))
+    (state-db-set-account
+     parent-state invalid-sender
+     (make-state-account :nonce 0 :balance 1000000000))
+    (state-db-set-account
+     parent-state valid-sender
+     (make-state-account :nonce 0 :balance 1000000000))
+    (let* ((parent
+             (make-block
+              :header
+              (make-block-header
+               :number 0 :timestamp 10 :gas-limit 42000 :gas-used 0
+               :base-fee-per-gas 100
+               :state-root (state-db-root parent-state))))
+           (parent-hash (block-hash parent)))
+      (chain-store-put-block store parent :state-available-p t)
+      (commit-state-db-to-chain-store store parent-hash parent-state)
+      (multiple-value-bind (block viable)
+          (ethereum-lisp.engine-api::engine-rpc-build-viable-prepared-payload
+           store parent attributes config (list invalid valid))
+        (is (= 1 (length viable)))
+        (is (= 1 (length (block-transactions block))))
+        (is (bytes= (transaction-encoding valid)
+                    (transaction-encoding
+                     (first (block-transactions block)))))))))
+
 (deftest devnet-broadcast-offers-each-transaction-to-a-peer-once
   (:layer :unit :module :devnet)
   ;; Without this seam a transaction submitted to our RPC reaches nobody: the
