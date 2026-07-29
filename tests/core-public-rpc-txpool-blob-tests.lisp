@@ -208,6 +208,7 @@
               store
               config))
            (status (field status-response "result"))
+           (error (field send-response "error"))
            (content (field content-response "result"))
            (queued (field (field content "queued") (address-to-hex sender)))
            (queued-from
@@ -219,18 +220,18 @@
                     (address-to-hex sender)))
            (pooled-transaction (field lookup-response "result")))
       (is (typep transaction 'blob-transaction))
-      (is (string= transaction-hash (field send-response "result")))
+      (is (= -32602 (field error "code")))
+      (is (string=
+           "eth_sendRawTransaction blob sidecars and KZG admission are not supported"
+           (field error "message")))
       (is (= 0 (length (field pending-response "result"))))
       (is (string= (quantity-to-hex 0) (field status "pending")))
-      (is (string= (quantity-to-hex 1) (field status "queued")))
+      (is (string= (quantity-to-hex 0) (field status "queued")))
       (is (null (field content "pending")))
-      (is (string= transaction-hash (field (field queued "0") "hash")))
-      (is (string= transaction-hash (field queued-from "hash")))
-      (is (search (format nil "~A wei"
-                          (transaction-value transaction))
-                  (field inspect-queued "0")))
-      (is (string= transaction-hash (field pooled-transaction "hash")))
-      (is (null (field pooled-transaction "blockHash")))
+      (is (null queued))
+      (is (null queued-from))
+      (is (null inspect-queued))
+      (is (null pooled-transaction))
       (is (= 0 (length (field filter-changes "result")))))))
 
 (deftest eth-rpc-send-raw-transaction-rejects-low-blob-fee-cap
@@ -288,7 +289,8 @@
         (is (> (block-header-blob-base-fee (block-header head-block))
                (blob-transaction-max-fee-per-blob-gas transaction)))
         (is (= -32602 (field error "code")))
-        (is (string= "eth_sendRawTransaction: Max fee per blob gas below blob base fee"
+        (is (string=
+             "eth_sendRawTransaction blob sidecars and KZG admission are not supported"
                      (field error "message")))
         (is (string= (quantity-to-hex 0) (field status "pending")))
         (is (string= (quantity-to-hex 0) (field status "queued")))

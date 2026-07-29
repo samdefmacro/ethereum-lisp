@@ -45,8 +45,8 @@
   (and (typep condition 'block-validation-error)
        (member
         (block-validation-error-message condition)
-        '("Pending transaction exceeds txpool global slot limit"
-          "Pending transaction exceeds txpool account slot limit")
+        '("Pending transaction underpriced for full global slots"
+          "Pending transaction underpriced for full account slots")
         :test #'string=)))
 
 (defun engine-payload-store-promotion-local-transaction-p

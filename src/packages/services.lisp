@@ -33,6 +33,7 @@
    #:engine-payload-store-basefee-transactions
    #:engine-payload-store-blob-transactions
    #:engine-payload-store-pooled-transactions
+   #:engine-payload-store-sender-pooled-transactions
    #:engine-payload-store-pending-transactions-by-sender
    #:engine-payload-store-pending-sender-transactions
    #:engine-payload-store-pending-contiguous-nonce

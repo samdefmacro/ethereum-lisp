@@ -1257,7 +1257,10 @@
    #:apply-withdrawal
    #:apply-withdrawals
    #:transaction-validation-error
+   #:transaction-validation-error-message
    #:transaction-intrinsic-gas
+   #:transaction-effective-floor-gas
+   #:validate-contract-initcode-size
    #:apply-legacy-transaction
    #:apply-message
    #:apply-message-list

@@ -70,21 +70,25 @@
 (defun engine-payload-store-put-basefee-transaction
     (store transaction
      &key (price-bump-percent +txpool-replacement-price-bump-percent+)
+          global-slot-limit
           admitted-at)
   (engine-payload-store-insert-transaction
    store transaction :basefee
    #'engine-pending-txpool-put-basefee-transaction
    (list :price-bump-percent price-bump-percent
+         :global-slot-limit global-slot-limit
          :admitted-at admitted-at)))
 
 (defun engine-payload-store-put-blob-transaction
     (store transaction
      &key (price-bump-percent +txpool-replacement-price-bump-percent+)
+          global-slot-limit
           admitted-at)
   (engine-payload-store-insert-transaction
    store transaction :blob
    #'engine-pending-txpool-put-blob-transaction
    (list :price-bump-percent price-bump-percent
+         :global-slot-limit global-slot-limit
          :admitted-at admitted-at)))
 
 (defun engine-payload-store-basefee-promotable-transaction-p

@@ -89,14 +89,14 @@
              (rejected-error (field rejected-response "error"))
              (nolocals-error (field nolocals-response "error")))
         (is (= -32602 (field rejected-error "code")))
-        (is (string= "eth_sendRawTransaction gas price below txpool price limit"
+        (is (string= "eth_sendRawTransaction priority fee below txpool price limit"
                      (field rejected-error "message")))
         (is (string= (hash32-to-hex (transaction-hash pending-transaction))
                      (field local-response "result")))
         (is (string= (quantity-to-hex 1)
                      (field (field local-status "result") "pending")))
         (is (= -32602 (field nolocals-error "code")))
-        (is (string= "eth_sendRawTransaction gas price below txpool price limit"
+        (is (string= "eth_sendRawTransaction priority fee below txpool price limit"
                      (field nolocals-error "message"))))
       (let* ((local-response
                (send-raw queued-transaction 195 queue-local-store config
@@ -120,7 +120,7 @@
         (is (string= (quantity-to-hex 1)
                      (field (field local-status "result") "queued")))
         (is (= -32602 (field nolocals-error "code")))
-        (is (string= "Queued transaction exceeds txpool global queue limit"
+        (is (string= "Queued transaction underpriced for full global queue"
                      (field nolocals-error "message"))))
       (let* ((local-response
                (send-raw pending-transaction 198 slot-local-store config
@@ -144,10 +144,10 @@
         (is (string= (quantity-to-hex 1)
                      (field (field local-status "result") "pending")))
         (is (= -32602 (field nolocals-error "code")))
-        (is (string= "Pending transaction exceeds txpool global slot limit"
+        (is (string= "Pending transaction underpriced for full global slots"
                      (field nolocals-error "message")))))))
 
-(deftest eth-rpc-txpool-lifetime-expires-queued-view-transactions
+(deftest txpool-maintenance-expires-queued-view-transactions-without-rpc
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))
            (send-raw (transaction id store config now)
@@ -213,6 +213,8 @@
                    (field (send-raw queued-transaction 301 queued-store
                                     config 10)
                           "result")))
+      (ethereum-lisp.txpool:engine-payload-store-remove-expired-txpool-queued-view-transactions
+       queued-store 5 16)
       (let* ((status-response
                (request
                 "{\"jsonrpc\":\"2.0\",\"id\":302,\"method\":\"txpool_status\",\"params\":[]}"

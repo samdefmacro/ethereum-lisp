@@ -152,7 +152,7 @@
               config))
            (rejected-error (field rejected-response "error")))
       (is (= -32602 (field rejected-error "code")))
-      (is (string= "eth_sendRawTransaction gas price below txpool price limit"
+      (is (string= "eth_sendRawTransaction priority fee below txpool price limit"
                    (field rejected-error "message")))
       (is (string= (quantity-to-hex 0)
                    (field (field rejected-status "result") "pending")))

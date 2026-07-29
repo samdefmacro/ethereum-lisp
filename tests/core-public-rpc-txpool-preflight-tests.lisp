@@ -227,6 +227,53 @@
                        (field (field status-response "result")
                               "pending"))))))))
 
+(deftest txpool-admission-enforces-size-initcode-and-floor-gas
+  (:layer :unit :module :txpool)
+  (let* ((store (make-engine-payload-memory-store))
+         (config (make-chain-config :chain-id 1
+                                    :byzantium-block 0
+                                    :constantinople-block 0
+                                    :petersburg-block 0
+                                    :berlin-block 0
+                                    :london-block 0
+                                    :shanghai-time 0
+                                    :prague-time 0))
+         (sender (fixture-private-key-address 1))
+         (head
+           (make-block
+            :header
+            (make-block-header
+             :number 0 :timestamp 1 :gas-limit 30000000)))
+         (oversized
+           (make-legacy-transaction
+            :gas-price 1 :gas-limit 30000000
+            :to (zero-address)
+            :data (make-byte-vector
+                   (1+ ethereum-lisp.txpool.application::
+                        +txpool-legacy-transaction-max-bytes+))))
+         (oversized-initcode
+           (make-legacy-transaction
+            :gas-price 1 :gas-limit 30000000 :to nil
+            :data
+            (make-byte-vector
+             (1+ ethereum-lisp.execution::+max-initcode-size+))))
+         (floor-gas
+           (make-legacy-transaction
+            :gas-price 1 :gas-limit 21016
+            :to (zero-address) :data #(1))))
+    (chain-store-put-block store head :state-available-p t)
+    (chain-store-put-account-balance
+     store (block-hash head) sender most-positive-fixnum)
+    (signals block-validation-error
+      (ethereum-lisp.txpool.application::validate-txpool-encoded-size
+       oversized))
+    (signals block-validation-error
+      (ethereum-lisp.txpool.application::validate-txpool-admission
+       oversized-initcode sender store config))
+    (signals block-validation-error
+      (ethereum-lisp.txpool.application::validate-txpool-admission
+       floor-gas sender store config))))
+
 (deftest eth-rpc-send-raw-transaction-enforces-pending-balance-expenditure
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))

@@ -219,7 +219,7 @@
         (is (string= (hash32-to-hex (transaction-hash nonce-one))
                      (field first-response "result")))
         (is (= -32602 (field error "code")))
-        (is (string= "Queued transaction exceeds txpool global queue limit"
+        (is (string= "Queued transaction underpriced for full global queue"
                      (field error "message")))
         (is (string= (quantity-to-hex 1)
                      (field (field status-response "result") "queued")))
@@ -241,7 +241,7 @@
         (is (string= (hash32-to-hex (transaction-hash nonce-one))
                      (field first-response "result")))
         (is (= -32602 (field error "code")))
-        (is (string= "Queued transaction exceeds txpool account queue limit"
+        (is (string= "Queued transaction underpriced for full account queue"
                      (field error "message")))
         (is (string= (quantity-to-hex 1)
                      (field (field status-response "result") "queued"))))
@@ -318,17 +318,21 @@
            (sender-one-nonce-one (signed-legacy 1 1 1 recipient))
            (sender-one-replacement (signed-legacy 0 2 1 recipient))
            (sender-two-nonce-zero (signed-legacy 0 1 2 recipient))
+           (sender-two-high-price (signed-legacy 0 100 2 recipient))
            (sender-one (transaction-sender sender-one-nonce-zero
                                            :expected-chain-id 1))
            (sender-two (transaction-sender sender-two-nonce-zero
                                            :expected-chain-id 1))
            (global-store (funded-store sender-one sender-two))
+           (eviction-store (funded-store sender-one sender-two))
            (account-store (funded-store sender-one))
            (replacement-store (funded-store sender-one))
            (global-promotion-store (funded-store sender-one))
            (account-promotion-store (funded-store sender-one))
            (sender-two-hash (hash32-to-hex
                              (transaction-hash sender-two-nonce-zero)))
+           (sender-two-high-price-hash
+             (hash32-to-hex (transaction-hash sender-two-high-price)))
            (replacement-hash (hash32-to-hex
                               (transaction-hash sender-one-replacement))))
       (let* ((first-response
@@ -355,11 +359,43 @@
         (is (string= (hash32-to-hex (transaction-hash sender-one-nonce-zero))
                      (field first-response "result")))
         (is (= -32602 (field error "code")))
-        (is (string= "Pending transaction exceeds txpool global slot limit"
+        (is (string= "Pending transaction underpriced for full global slots"
                      (field error "message")))
         (is (string= (quantity-to-hex 1)
                      (field (field status-response "result") "pending")))
         (is (null (field lookup-response "result"))))
+      (let* ((first-response
+               (send-raw sender-one-nonce-zero 257 eviction-store config
+                         :txpool-global-slot-limit 1))
+             (second-response
+               (send-raw sender-two-high-price 258 eviction-store config
+                         :txpool-global-slot-limit 1))
+             (old-lookup
+               (request
+                (concatenate
+                 'string
+                 "{\"jsonrpc\":\"2.0\",\"id\":259,"
+                 "\"method\":\"eth_getTransactionByHash\",\"params\":[\""
+                 (hash32-to-hex
+                  (transaction-hash sender-one-nonce-zero))
+                 "\"]}")
+                eviction-store config))
+             (new-lookup
+               (request
+                (concatenate
+                 'string
+                 "{\"jsonrpc\":\"2.0\",\"id\":260,"
+                 "\"method\":\"eth_getTransactionByHash\",\"params\":[\""
+                 sender-two-high-price-hash "\"]}")
+                eviction-store config)))
+        (is (string= (hash32-to-hex
+                      (transaction-hash sender-one-nonce-zero))
+                     (field first-response "result")))
+        (is (string= sender-two-high-price-hash
+                     (field second-response "result")))
+        (is (null (field old-lookup "result")))
+        (is (string= sender-two-high-price-hash
+                     (field (field new-lookup "result") "hash"))))
       (let* ((first-response
                (send-raw sender-one-nonce-zero 245 account-store config
                          :txpool-account-slot-limit 1
@@ -377,7 +413,7 @@
         (is (string= (hash32-to-hex (transaction-hash sender-one-nonce-zero))
                      (field first-response "result")))
         (is (= -32602 (field error "code")))
-        (is (string= "Pending transaction exceeds txpool account slot limit"
+        (is (string= "Pending transaction underpriced for full account slots"
                      (field error "message")))
         (is (string= (quantity-to-hex 1)
                      (field (field status-response "result") "pending"))))
