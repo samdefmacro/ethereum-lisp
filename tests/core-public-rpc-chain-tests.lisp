@@ -75,6 +75,25 @@
       (is (= 20 (field response "id")))
       (is (null (field response "result")))
       (is (search "\"result\":false" response-json)))
+    (let* ((store (make-engine-payload-memory-store))
+           (head (make-block :header (make-block-header :number 7
+                                                        :timestamp 7)))
+           (remote (make-block :header (make-block-header :number 12
+                                                          :timestamp 12))))
+      (engine-payload-store-put-block store head :state-available-p t)
+      (ethereum-lisp.chain-store:engine-payload-store-put-remote-block
+       store remote)
+      (let* ((response-json
+               (engine-rpc-handle-request-json
+                "{\"jsonrpc\":\"2.0\",\"id\":201,\"method\":\"eth_syncing\",\"params\":[]}"
+                store
+                (make-chain-config)))
+             (response (parse-json response-json))
+             (progress (field response "result")))
+        (is (= 201 (field response "id")))
+        (is (string= "0x7" (field progress "startingBlock")))
+        (is (string= "0x7" (field progress "currentBlock")))
+        (is (string= "0xc" (field progress "highestBlock")))))
     (let* ((response-json
              (engine-rpc-handle-request-json
               (concatenate
@@ -423,4 +442,106 @@
                (make-chain-config))))
            (error (field response "error")))
       (is (= -32602 (field error "code"))))))
+
+(deftest eth-rpc-config-reports-current-next-and-last-forks
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config
+             (make-chain-config
+              :chain-id 17000
+              :byzantium-block 0
+              :istanbul-block 0
+              :london-block 0
+              :cancun-time 0
+              :prague-time 200
+              :osaka-time 300
+              :deposit-contract-address
+              (address-from-hex
+               "0x00000000219ab540356cbb839cbe05303d7705fa")))
+           (genesis
+             (make-block
+              :header
+              (make-block-header :number 0 :timestamp 100)))
+           (head
+             (make-block
+              :header
+              (make-block-header
+               :parent-hash (block-hash genesis)
+               :number 1
+               :timestamp 150))))
+      (chain-store-put-block store genesis :state-available-p t)
+      (chain-store-put-block store head :state-available-p t)
+      (chain-store-set-canonical-head
+       store (block-hash head)
+       :expected-chain-id (chain-config-chain-id config)
+       :chain-config config)
+      (let* ((response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":301,\"method\":\"eth_config\",\"params\":[]}"
+                 store config)))
+             (result (field response "result"))
+             (current (field result "current"))
+             (next (field result "next"))
+             (last (field result "last")))
+        (is (= 0 (field current "activationTime")))
+        (is (= 200 (field next "activationTime")))
+        (is (= 300 (field last "activationTime")))
+        (is (string= "0x4268" (field current "chainId")))
+        (is (= 10 (length (field current "precompiles"))))
+        (is (= 17 (length (field next "precompiles"))))
+        (is (string=
+             "0x000f3df6d732807ef1319fb7b8bb8522d0beac02"
+             (field (field current "systemContracts")
+                    "BEACON_ROOTS_ADDRESS")))
+        (is (= 9 (field (field next "blobSchedule") "max")))
+        (is (= 6 (field (field next "blobSchedule") "target")))
+        (is (= 10 (length (field current "forkId"))))))))
+
+(deftest eth-rpc-gas-oracle-samples-recent-priority-fees
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1 :london-block 0))
+           (low
+             (make-legacy-transaction
+              :gas-price 105 :gas-limit 21000 :to (zero-address)))
+           (high
+             (make-dynamic-fee-transaction
+              :chain-id 1
+              :max-fee-per-gas 120
+              :max-priority-fee-per-gas 20
+              :gas-limit 21000
+              :to (zero-address)))
+           (block
+             (make-block
+              :header
+              (make-block-header
+               :number 0 :timestamp 1 :gas-limit 100000
+               :gas-used 42000 :base-fee-per-gas 100)
+              :transactions (list low high)
+              :receipts
+              (list
+               (make-receipt :status 1 :cumulative-gas-used 21000)
+               (make-receipt :status 1 :cumulative-gas-used 42000)))))
+      (chain-store-put-block store block :state-available-p t)
+      (let* ((responses
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "[{\"jsonrpc\":\"2.0\",\"id\":302,"
+                  "\"method\":\"eth_maxPriorityFeePerGas\",\"params\":[]},"
+                  "{\"jsonrpc\":\"2.0\",\"id\":303,"
+                  "\"method\":\"eth_gasPrice\",\"params\":[]},"
+                  "{\"jsonrpc\":\"2.0\",\"id\":304,"
+                  "\"method\":\"eth_feeHistory\","
+                  "\"params\":[\"0x1\",\"latest\",[0,60,100]]}]")
+                 store config)))
+             (fee-history (field (third responses) "result"))
+             (rewards (first (field fee-history "reward"))))
+        (is (string= "0x14" (field (first responses) "result")))
+        (is (string= "0x78" (field (second responses) "result")))
+        (is (equal '("0x5" "0x14" "0x14") rewards))))))
 

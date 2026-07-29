@@ -34,16 +34,37 @@
     prepared-payload))
 
 (defun engine-rpc-prepared-payload-envelope (prepared-payload)
-  (block-to-executable-data
-   (engine-prepared-payload-block prepared-payload)
-   :blobs-bundle (engine-prepared-payload-blobs-bundle prepared-payload)))
+  (let* ((block (engine-prepared-payload-block prepared-payload))
+         (base-fee (or (block-header-base-fee-per-gas (block-header block)) 0))
+         (previous-cumulative-gas 0)
+         (block-value
+           (loop for transaction in (block-transactions block)
+                 for receipt in (block-receipts block)
+                 for cumulative-gas = (receipt-cumulative-gas-used receipt)
+                 for gas-used = (- cumulative-gas previous-cumulative-gas)
+                 sum (* gas-used
+                        (transaction-priority-fee-per-gas
+                         transaction :base-fee base-fee))
+                 do (setf previous-cumulative-gas cumulative-gas))))
+    (block-to-executable-data
+     block
+     :block-value block-value
+     :blobs-bundle (engine-prepared-payload-blobs-bundle prepared-payload))))
+
+(defun engine-rpc-require-prepared-payload-version
+    (prepared-payload supported-versions method)
+  (unless (member (engine-prepared-payload-version prepared-payload)
+                  supported-versions)
+    (engine-rpc-fail
+     +engine-rpc-error-unsupported-fork+
+     (format nil "payload id is not for ~A" method))))
 
 (defun engine-rpc-handle-get-payload-v1 (params store &optional config)
   (let ((prepared-payload
           (engine-rpc-prepared-payload
            params store config "engine_getPayloadV1")))
-    (unless (= 1 (engine-prepared-payload-version prepared-payload))
-      (block-validation-fail "payload id is not for engine_getPayloadV1"))
+    (engine-rpc-require-prepared-payload-version
+     prepared-payload '(1) "engine_getPayloadV1")
     (engine-rpc-executable-data-object
      (execution-payload-envelope-execution-payload
       (engine-rpc-prepared-payload-envelope prepared-payload)))))
@@ -52,9 +73,8 @@
   (let ((prepared-payload
           (engine-rpc-prepared-payload
            params store config "engine_getPayloadV2")))
-    (unless (member (engine-prepared-payload-version prepared-payload)
-                    '(1 2))
-      (block-validation-fail "payload id is not for engine_getPayloadV2"))
+    (engine-rpc-require-prepared-payload-version
+     prepared-payload '(1 2) "engine_getPayloadV2")
     (engine-rpc-execution-payload-envelope-object
      (engine-rpc-prepared-payload-envelope prepared-payload))))
 
@@ -62,8 +82,8 @@
   (let ((prepared-payload
           (engine-rpc-prepared-payload
            params store config "engine_getPayloadV3")))
-    (unless (= 3 (engine-prepared-payload-version prepared-payload))
-      (block-validation-fail "payload id is not for engine_getPayloadV3"))
+    (engine-rpc-require-prepared-payload-version
+     prepared-payload '(3) "engine_getPayloadV3")
     (engine-rpc-execution-payload-envelope-object
      (engine-rpc-prepared-payload-envelope prepared-payload)
      :include-blobs-bundle-p t
@@ -73,8 +93,8 @@
   (let ((prepared-payload
           (engine-rpc-prepared-payload
            params store config "engine_getPayloadV4")))
-    (unless (= 4 (engine-prepared-payload-version prepared-payload))
-      (block-validation-fail "payload id is not for engine_getPayloadV4"))
+    (engine-rpc-require-prepared-payload-version
+     prepared-payload '(4) "engine_getPayloadV4")
     (engine-rpc-execution-payload-envelope-object
      (engine-rpc-prepared-payload-envelope prepared-payload)
      :include-blobs-bundle-p t
@@ -85,8 +105,8 @@
   (let ((prepared-payload
           (engine-rpc-prepared-payload
            params store config "engine_getPayloadV5")))
-    (unless (= 5 (engine-prepared-payload-version prepared-payload))
-      (block-validation-fail "payload id is not for engine_getPayloadV5"))
+    (engine-rpc-require-prepared-payload-version
+     prepared-payload '(5) "engine_getPayloadV5")
     (engine-rpc-execution-payload-envelope-object
      (engine-rpc-prepared-payload-envelope prepared-payload)
      :include-blobs-bundle-p t
@@ -97,8 +117,8 @@
   (let ((prepared-payload
           (engine-rpc-prepared-payload
            params store config "engine_getPayloadV6")))
-    (unless (= 6 (engine-prepared-payload-version prepared-payload))
-      (block-validation-fail "payload id is not for engine_getPayloadV6"))
+    (engine-rpc-require-prepared-payload-version
+     prepared-payload '(6) "engine_getPayloadV6")
     (engine-rpc-execution-payload-envelope-object
      (engine-rpc-prepared-payload-envelope prepared-payload)
      :include-blobs-bundle-p t

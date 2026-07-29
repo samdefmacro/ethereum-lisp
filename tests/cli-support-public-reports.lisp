@@ -6,7 +6,7 @@
   (is (every #'digit-char-p
              (fixture-object-field report "publicNetVersion")))
   (is (null (fixture-object-field report "publicNetListening")))
-  (is (null (fixture-object-field report "publicSyncing")))
+  (is (eq t (fixture-object-field report "publicSyncing")))
   (is (string= "0x0" (fixture-object-field report "publicNetPeerCount")))
   (is (= 0 (fixture-object-field report "publicAccountCount")))
   (is (string= (address-to-hex (zero-address))

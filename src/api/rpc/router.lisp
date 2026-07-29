@@ -1,5 +1,8 @@
 (in-package #:ethereum-lisp.rpc)
 
+(defconstant +rpc-batch-request-limit+ 1000)
+(defconstant +rpc-batch-response-max-size+ 25000000)
+
 (defstruct (rpc-context
             (:constructor %make-rpc-context
                 (&key store config import-function
@@ -228,6 +231,12 @@
         (unless notification-p
           (json-rpc-response
            id
+           :error (json-rpc-error-object -32603 "Internal error"))))
+      (error (condition)
+        (declare (ignore condition))
+        (unless notification-p
+          (json-rpc-response
+           id
            :error (json-rpc-error-object -32603 "Internal error")))))))
 
 (defun rpc-handle-request (request context)
@@ -236,21 +245,33 @@
   (let ((thunk (lambda ()
                  (rpc-handle-request-without-guard request context)))
         (guard (rpc-context-request-guard-function context)))
-    (if guard
-        (funcall guard thunk)
-        (funcall thunk))))
+    (handler-case
+        (if guard
+            (funcall guard thunk)
+            (funcall thunk))
+      (error (condition)
+        (declare (ignore condition))
+        (unless (json-rpc-notification-p request)
+          (json-rpc-response
+           (and (json-object-p request)
+                (json-object-field request "id"))
+           :error (json-rpc-error-object -32603 "Internal error")))))))
 
 (defun rpc-handle-request-value (request context)
   (cond
     ((json-object-p request)
      (rpc-handle-request request context))
     ((and (listp request) request)
-     (loop for item in request
-           for response = (if (json-object-p item)
-                              (rpc-handle-request item context)
-                              (json-rpc-invalid-request-response))
-           when response
-             collect response))
+     (if (> (length request) +rpc-batch-request-limit+)
+         (json-rpc-response
+          nil
+          :error (json-rpc-error-object -32600 "Batch request too large"))
+         (loop for item in request
+               for response = (if (json-object-p item)
+                                  (rpc-handle-request item context)
+                                  (json-rpc-invalid-request-response))
+               when response
+                 collect response)))
     (t
      (json-rpc-invalid-request-response))))
 

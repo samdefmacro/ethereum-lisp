@@ -174,6 +174,7 @@
    #:devnet-start-dial-scheduler-thread
    #:devnet-peer-dial-session
    #:devnet-node-sync-targets
+   #:devnet-node-forkchoice-sync-targets
    #:devnet-peer-fill-sync-gaps
    #:devnet-peer-pending-broadcast
    #:devnet-node-claim-sync

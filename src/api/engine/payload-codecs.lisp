@@ -114,6 +114,13 @@
      (cons "proofs"
            (engine-rpc-json-array #'bytes-to-hex cell-proofs)))))
 
+(defun engine-rpc-blob-cells-and-proofs-v1-object (cells proofs)
+  (list
+   (cons "blob_cells"
+         (engine-rpc-json-array #'bytes-to-hex cells))
+   (cons "proofs"
+         (engine-rpc-json-array #'bytes-to-hex proofs))))
+
 (defun engine-rpc-execution-payload-envelope-object
     (envelope &key include-blobs-bundle-p include-override-p
                    include-requests-p)

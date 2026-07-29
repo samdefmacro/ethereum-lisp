@@ -461,35 +461,18 @@ HTTPPort = 1945
                  "--json=false"))))
     (is (eq :sexp (getf init-options :summary-format)))))
 
-(deftest devnet-cli-main-accepts-geth-style-rpc-limit-flags
+(deftest devnet-cli-main-rejects-inert-geth-style-rpc-limit-flags
   (let ((output (make-string-output-stream))
         (errors (make-string-output-stream)))
-    (is (= 0
-           (ethereum-lisp.cli:main
-            (list "devnet"
-                  (format nil "--genesis=~A" +devnet-cli-genesis-fixture+)
-                  "--rpc.gascap=50000000"
-                  "--rpc.evmtimeout=5s"
-                  "--rpc.txfeecap=0"
-                  "--rpc.batch-request-limit=1000"
-                  "--rpc.batch-response-max-size=25000000"
-                  "--http.maxclients=128"
-                  "--http.readtimeout=30s"
-                  "--http.writetimeout"
-                  "30s"
-                  "--http.idletimeout=2m"
-                  "--override.terminaltotaldifficulty=0"
-                  "--override.terminaltotaldifficultypassed=true"
-                  "--override.terminalblockhash=0x0000000000000000000000000000000000000000000000000000000000000000"
-                  "--override.terminalblocknumber=0"
-                  "--json"
-                  "--no-serve")
-            :output-stream output
-            :error-stream errors)))
-    (is (string= "" (get-output-stream-string errors)))
-    (let ((summary (parse-json (get-output-stream-string output))))
-      (is (string= "127.0.0.1:8551"
-                   (fixture-object-field summary "engineEndpoint")))
-      (is (string= "127.0.0.1:8545"
-                   (fixture-object-field summary "rpcEndpoint"))))))
+    (is (not
+         (= 0
+            (ethereum-lisp.cli:main
+             (list "devnet"
+                   (format nil "--genesis=~A" +devnet-cli-genesis-fixture+)
+                   "--rpc.gascap=50000000")
+             :output-stream output
+             :error-stream errors))))
+    (is (string= "" (get-output-stream-string output)))
+    (is (search "--rpc.gascap is not configurable"
+                (get-output-stream-string errors)))))
 

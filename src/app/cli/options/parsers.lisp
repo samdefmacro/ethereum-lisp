@@ -178,12 +178,13 @@ least one valid enode."
 (defun devnet-cli-public-api-method-filter (modules)
   "The predicate deciding which methods the public HTTP port will answer.
 
-With no --http.api this is the default public set, which does NOT include the
-admin namespace. admin_ is reachable only when \"admin\" is named explicitly,
-because this branch is returned UNFILTERED — folding admin_ into the default
-predicate would publish admin_addPeer on a default-open port."
+With no --http.api this is the conservative public set. It excludes admin_ and
+debug_; either namespace is reachable only when named explicitly."
   (if (null modules)
-      #'engine-rpc-public-method-p
+      (lambda (method)
+        (and (engine-rpc-public-method-p method)
+             (not (string= "debug"
+                           (or (devnet-cli-rpc-method-module method) "")))))
       (let ((modules (copy-list modules)))
         (lambda (method)
           (and (or (engine-rpc-public-method-p method)

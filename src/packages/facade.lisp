@@ -393,6 +393,8 @@
    #:kzg-cffi-verifier-available-p
    #:compute-kzg-cell-proofs
    #:+cell-proofs-per-blob+
+   #:+bytes-per-cell+
+   #:kzg-compute-cells-and-proofs
    #:validate-blob-sidecar-fields)
   (#:ethereum-lisp.p2p
    #:ecies-encrypt
@@ -529,6 +531,7 @@
    #:admin-backend-node-info
    #:admin-backend-peers
    #:admin-backend-add-peer
+   #:admin-backend-remove-peer
    #:admin-backend-peer-count
    #:admin-backend-listening-p)
   (#:ethereum-lisp.eth-sync
@@ -983,6 +986,8 @@
    #:engine-payload-store-put-account-storage
    #:engine-payload-store-state-available-p
    #:engine-payload-store-remote-block
+   #:engine-payload-store-put-forkchoice-sync-target
+   #:engine-payload-store-forkchoice-sync-targets
    #:engine-payload-store-mark-invalid
    #:engine-payload-store-invalid-block
    #:engine-payload-id-to-hex

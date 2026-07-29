@@ -117,7 +117,7 @@
         (is (string= (hash32-to-hex (execution-requests-hash '()))
                      (field latest "requestsHash")))
         (is (string= (hash32-to-hex (block-access-list-hash '()))
-                     (field latest "balHash")))
+                     (field latest "blockAccessListHash")))
         (is (string= (quantity-to-hex 99) (field latest "slotNumber")))
         (is (string= (hash32-to-hex (block-header-transactions-root header))
                      (field latest "transactionsRoot")))

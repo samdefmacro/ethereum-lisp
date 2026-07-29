@@ -69,21 +69,26 @@ before Osaka — and those touches belong in a reported access list."
                              (cdr (assoc "address" entry :test #'string=)))))))))
 
 (defun engine-rpc-handle-eth-create-access-list (params store config)
-  (unless (or (= 1 (length params)) (= 2 (length params)))
+  (unless (<= 1 (length params) 4)
     (block-validation-fail
-     "eth_createAccessList params must contain call object and optional block id"))
+     "eth_createAccessList params must contain call object, optional block id, state overrides, and block overrides"))
   (let* ((object (first params))
          (block (eth-rpc-state-block-param
-                 (list (if (= 2 (length params)) (second params) "latest"))
+                 (list (if (>= (length params) 2) (second params) "latest"))
                  store
-                 "eth_createAccessList")))
+                 "eth_createAccessList"))
+         (state-overrides (third params))
+         (block-overrides (fourth params))
+         (header (block-header block)))
     (multiple-value-bind (sender tx)
         (eth-rpc-call-object-transaction
          object (block-header block) "eth_createAccessList" config)
       (multiple-value-bind
             (status return-data gas-used accessed-addresses accessed-storage)
           (eth-rpc-simulate-call-object
-           object block store config "eth_createAccessList")
+           object block store config "eth_createAccessList"
+           :state-overrides state-overrides
+           :block-overrides block-overrides)
         (declare (ignore return-data))
         (unless (eth-rpc-call-status-success-p status)
           (block-validation-fail
@@ -95,11 +100,17 @@ before Osaka — and those touches belong in a reported access list."
                 accessed-storage
                 sender
                 (transaction-to tx)
-                (or (block-header-beneficiary (block-header block))
-                    (zero-address))
+                (eth-rpc-block-override-address
+                 block-overrides "feeRecipient"
+                 (or (block-header-beneficiary header) (zero-address))
+                 "eth_createAccessList")
                 (and config
                      (chain-config-rules
                       config
-                      (block-header-number (block-header block))
-                      (block-header-timestamp (block-header block))))))
+                      (eth-rpc-block-override-quantity
+                       block-overrides "number"
+                       (block-header-number header))
+                      (eth-rpc-block-override-quantity
+                       block-overrides "time"
+                       (block-header-timestamp header))))))
          (cons "gasUsed" (quantity-to-hex gas-used)))))))

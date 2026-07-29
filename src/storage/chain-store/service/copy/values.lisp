@@ -24,15 +24,18 @@
       :block-hash-p
       (engine-log-filter-block-hash-p filter)
       :block-hash-consumed-p
-      (engine-log-filter-block-hash-consumed-p filter)))
+      (engine-log-filter-block-hash-consumed-p filter)
+      :deadline (engine-log-filter-deadline filter)))
     ((typep filter 'engine-block-filter)
      (make-engine-block-filter
       :last-block-number (engine-block-filter-last-block-number filter)
-      :hashes (copy-list (engine-block-filter-hashes filter))))
+      :hashes (copy-list (engine-block-filter-hashes filter))
+      :deadline (engine-block-filter-deadline filter)))
     ((typep filter 'engine-pending-transaction-filter)
      (make-engine-pending-transaction-filter
       :hashes (copy-list
-               (engine-pending-transaction-filter-hashes filter))))
+               (engine-pending-transaction-filter-hashes filter))
+      :deadline (engine-pending-transaction-filter-deadline filter)))
     (t filter)))
 
 (defun engine-payload-store-copy-filter-table (table)

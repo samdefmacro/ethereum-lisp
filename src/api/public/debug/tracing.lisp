@@ -125,3 +125,143 @@ broadly would quietly start collecting frames for block import."
       ;; transfer, or a rejection before the first frame opened.
       (block-validation-fail "debug_traceCall produced no call frames"))
     (eth-rpc-call-frame-object frame)))
+
+(defun eth-rpc-block-execution-context-arguments (store block config)
+  (let* ((header (block-header block))
+         (block-number (block-header-number header))
+         (timestamp (block-header-timestamp header)))
+    (multiple-value-bind (target-blob-gas max-blob-gas update-fraction)
+        (chain-config-blob-schedule config block-number timestamp)
+      (declare (ignore target-blob-gas max-blob-gas))
+      (list
+       :base-fee (or (block-header-base-fee-per-gas header) 0)
+       :blob-base-fee
+       (if (block-header-excess-blob-gas header)
+           (block-header-blob-base-fee
+            header :update-fraction update-fraction)
+           0)
+       :chain-config config
+       :block-gas-limit (block-header-gas-limit header)
+       :coinbase (or (block-header-beneficiary header) (zero-address))
+       :timestamp timestamp
+       :block-number block-number
+       :prev-randao (or (block-header-mix-hash header) (zero-hash32))
+       :difficulty (block-header-difficulty header)
+       :random-p t
+       :context-gas-limit (block-header-gas-limit header)
+       :block-hashes
+       (chain-store-block-hashes-for-header store header)))))
+
+(defun eth-rpc-trace-transaction-location (location store config)
+  (let* ((block (engine-transaction-location-block location))
+         (transaction (engine-transaction-location-transaction location))
+         (index (engine-transaction-location-index location))
+         (parent
+           (chain-store-known-block
+            store (block-header-parent-hash (block-header block)))))
+    (unless parent
+      (block-validation-fail
+       "debug_traceTransaction parent block is unavailable"))
+    (let* ((state (chain-store-state-db store (block-hash parent)))
+           (context
+             (eth-rpc-block-execution-context-arguments store block config))
+           (prefix (subseq (block-transactions block) 0 index)))
+      (when prefix
+        (apply #'apply-signed-message-list
+               state prefix
+               :expected-chain-id (chain-config-chain-id config)
+               context))
+      (let* ((sender
+               (or (transaction-sender
+                    transaction
+                    :expected-chain-id (chain-config-chain-id config))
+                   (block-validation-fail
+                    "debug_traceTransaction sender recovery failed")))
+             (tracer (make-evm-call-tracer))
+             (*evm-call-tracer* tracer)
+             (depth
+               (evm-call-tracer-enter
+                tracer
+                :type "CALL"
+                :from sender
+                :to (transaction-to transaction)
+                :value (transaction-value transaction)
+                :gas (transaction-gas-limit transaction)
+                :input (transaction-data transaction))))
+        (multiple-value-bind (status output gas-used)
+            (apply #'execute-message-call
+                   state sender transaction
+                   (loop for (key value) on context by #'cddr
+                         unless (eq key :block-gas-limit)
+                           append (list key value)))
+          (evm-call-tracer-exit
+           tracer depth
+           :gas-used gas-used
+           :output output
+           :error (unless (eth-rpc-call-status-success-p status)
+                    "execution reverted")))
+        (eth-rpc-call-frame-object (evm-call-tracer-root tracer))))))
+
+(defun engine-rpc-handle-debug-trace-transaction (params store config)
+  (unless (<= 1 (length params) 2)
+    (block-validation-fail
+     "debug_traceTransaction params must contain transaction hash and optional tracer config"))
+  (eth-rpc-trace-tracer-name (second params) "debug_traceTransaction")
+  (let* ((hash
+           (json-rpc-hash32
+            (first params) "debug_traceTransaction transaction hash"))
+         (location (chain-store-transaction-location store hash)))
+    (unless location
+      (block-validation-fail "debug_traceTransaction transaction not found"))
+    (eth-rpc-trace-transaction-location location store config)))
+
+(defun eth-rpc-debug-trace-block (block store config)
+  (eth-rpc-json-array
+   (loop for transaction in (block-transactions block)
+         for location =
+           (chain-store-transaction-location
+            store (transaction-hash transaction))
+         collect
+         (list
+          (cons "result"
+                (eth-rpc-trace-transaction-location
+                 location store config))))))
+
+(defun engine-rpc-handle-debug-trace-block-by-hash (params store config)
+  (unless (<= 1 (length params) 2)
+    (block-validation-fail
+     "debug_traceBlockByHash params must contain block hash and optional tracer config"))
+  (eth-rpc-trace-tracer-name (second params) "debug_traceBlockByHash")
+  (let ((block
+          (chain-store-known-block
+           store
+           (json-rpc-hash32
+            (first params) "debug_traceBlockByHash block hash"))))
+    (unless block
+      (block-validation-fail "debug_traceBlockByHash block not found"))
+    (eth-rpc-debug-trace-block block store config)))
+
+(defun engine-rpc-handle-debug-trace-block-by-number (params store config)
+  (unless (<= 1 (length params) 2)
+    (block-validation-fail
+     "debug_traceBlockByNumber params must contain block number and optional tracer config"))
+  (eth-rpc-trace-tracer-name (second params) "debug_traceBlockByNumber")
+  (let ((block
+          (eth-rpc-block-param
+           (list (first params)) store "debug_traceBlockByNumber")))
+    (unless block
+      (block-validation-fail "debug_traceBlockByNumber block not found"))
+    (eth-rpc-debug-trace-block block store config)))
+
+(defun engine-rpc-handle-debug-set-head (params store config)
+  (unless (= 1 (length params))
+    (block-validation-fail
+     "debug_setHead params must contain exactly one block id"))
+  (let ((block (eth-rpc-block-param params store "debug_setHead")))
+    (unless block
+      (block-validation-fail "debug_setHead block not found"))
+      (ethereum-lisp.canonical-chain:chain-store-set-canonical-head
+       store (block-hash block)
+       :expected-chain-id (chain-config-chain-id config)
+       :chain-config config)
+    nil))

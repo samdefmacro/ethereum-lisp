@@ -42,6 +42,10 @@
        (public-rpc-dispatch-response
         context
         (engine-rpc-handle-eth-chain-id params config)))
+      ((public-rpc-dispatch-method-p context "eth_config")
+       (public-rpc-dispatch-response
+        context
+        (engine-rpc-handle-eth-config params store config)))
       ((public-rpc-dispatch-method-p context "eth_blockNumber")
        (public-rpc-dispatch-response
         context
@@ -53,7 +57,7 @@
       ((public-rpc-dispatch-method-p context "eth_syncing")
        (public-rpc-dispatch-response
         context
-        (engine-rpc-handle-eth-syncing params)))
+        (engine-rpc-handle-eth-syncing params store)))
       ((public-rpc-dispatch-method-p context "eth_accounts")
        (public-rpc-dispatch-response
         context

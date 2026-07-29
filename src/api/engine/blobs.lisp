@@ -18,7 +18,18 @@
      +engine-rpc-error-too-large-request+
      "The number of requested blobs must not exceed 128")))
 
-(defun engine-rpc-handle-get-blobs-v1 (params store)
+(defun engine-rpc-get-blobs-osaka-p (store config)
+  (let* ((head (chain-store-latest-block store))
+         (header (and head (block-header head))))
+    (chain-config-osaka-p
+     config
+     (if header (block-header-number header) 0)
+     (if header (block-header-timestamp header) 0))))
+
+(defun engine-rpc-handle-get-blobs-v1 (params store config)
+  (when (engine-rpc-get-blobs-osaka-p store config)
+    (engine-rpc-fail +engine-rpc-error-unsupported-fork+
+                     "engine_getBlobsV1 is unsupported after Osaka"))
   (let ((hashes
           (engine-rpc-get-blob-hashes-param
            params "engine_getBlobsV1")))
@@ -31,7 +42,9 @@
                   (engine-rpc-blob-and-proof-v1-object blob-and-proofs))))
             hashes)))
 
-(defun engine-rpc-handle-get-blobs-v2 (params store)
+(defun engine-rpc-handle-get-blobs-v2 (params store config)
+  (unless (engine-rpc-get-blobs-osaka-p store config)
+    (return-from engine-rpc-handle-get-blobs-v2 nil))
   (let* ((hashes
            (engine-rpc-get-blob-hashes-param
             params "engine_getBlobsV2"))
@@ -46,7 +59,9 @@
         nil
         (mapcar #'engine-rpc-blob-and-proof-v2-object blobs))))
 
-(defun engine-rpc-handle-get-blobs-v3 (params store)
+(defun engine-rpc-handle-get-blobs-v3 (params store config)
+  (unless (engine-rpc-get-blobs-osaka-p store config)
+    (return-from engine-rpc-handle-get-blobs-v3 nil))
   (let ((hashes
           (engine-rpc-get-blob-hashes-param
            params "engine_getBlobsV3")))
@@ -58,6 +73,57 @@
                 (when blob-and-proofs
                   (engine-rpc-blob-and-proof-v2-object blob-and-proofs))))
             hashes)))
+
+(defun engine-rpc-get-blobs-indices-bitmap-param (params method)
+  (let ((bitmap
+          (json-rpc-bytes
+           (json-rpc-required-param params 1 "indices_bitarray" method)
+           "indices_bitarray")))
+    (unless (= 16 (length bitmap))
+      (block-validation-fail
+       "~A indices_bitarray must be 16 bytes" method))
+    bitmap))
+
+(defun engine-rpc-custody-bitmap-indices (bitmap)
+  (loop for byte across bitmap
+        for byte-index from 0
+        append
+        (loop for bit below 8
+              when (logbitp bit byte)
+                collect (+ (* byte-index 8) bit))))
+
+(defun engine-rpc-handle-get-blobs-v4 (params store config)
+  (unless (engine-rpc-get-blobs-osaka-p store config)
+    (return-from engine-rpc-handle-get-blobs-v4 nil))
+  (let* ((method "engine_getBlobsV4")
+         (hashes (engine-rpc-get-blob-hashes-param params method))
+         (bitmap (engine-rpc-get-blobs-indices-bitmap-param params method))
+         (indices (engine-rpc-custody-bitmap-indices bitmap)))
+    (engine-rpc-validate-get-blobs-request-size hashes)
+    (mapcar
+     (lambda (versioned-hash)
+       (let ((blob-and-proofs
+               (engine-payload-store-blob-and-proofs-v1
+                store versioned-hash)))
+         (when blob-and-proofs
+           (multiple-value-bind (cells proofs)
+               (kzg-compute-cells-and-proofs
+                (engine-blob-and-proofs-blob blob-and-proofs))
+             (engine-rpc-blob-cells-and-proofs-v1-object
+              (mapcar (lambda (index) (nth index cells)) indices)
+              (mapcar (lambda (index) (nth index proofs)) indices))))))
+     hashes)))
+
+(defun engine-rpc-handle-has-blobs (params store)
+  (let* ((method "engine_hasBlobs")
+         (hashes (engine-rpc-get-blob-hashes-param params method)))
+    (engine-rpc-validate-get-blobs-request-size hashes)
+    (mapcar
+     (lambda (versioned-hash)
+       (if (engine-payload-store-blob-and-proofs-v1 store versioned-hash)
+           t
+           :false))
+     hashes)))
 
 (defun engine-rpc-handle-get-payload-bodies-by-hash
     (params store method body-object-function)

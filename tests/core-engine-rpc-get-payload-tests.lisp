@@ -261,8 +261,11 @@
            (sidecar nil)
            (versioned-hash nil)
            (store (make-engine-payload-memory-store))
-           (config (make-chain-config)))
-      (setf (aref blob 31) #x02
+           (config (make-chain-config :london-block 0
+                                      :cancun-time 0
+                                      :prague-time 0
+                                      :osaka-time 0)))
+      (setf (aref blob 0) #xaa
             (aref commitment 0) #xbb
             sidecar (make-blob-sidecar
                      :blobs (list blob)
@@ -327,3 +330,58 @@
         (is (string= (bytes-to-hex (first proofs))
                      (first (field first-blob "proofs"))))
         (is (null (second result)))))))
+
+(deftest engine-rpc-get-blobs-v4-and-has-blobs
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :london-block 0 :osaka-time 0))
+           (blob (make-byte-vector +blob-byte-size+))
+           (commitment (make-byte-vector 48 :initial-element #x11))
+           (proof (make-byte-vector 48 :initial-element #x22))
+           (sidecar
+             (make-blob-sidecar
+              :blobs (list blob)
+              :commitments (list commitment)
+              :proofs (list proof)))
+           (versioned-hash (first (blob-sidecar-versioned-hashes sidecar)))
+           (unknown-hash
+             (make-hash32 (make-byte-vector 32 :initial-element #x33)))
+           (bitmap (make-byte-vector 16)))
+      (setf (aref bitmap 0) #x01
+            (aref bitmap 15) #x80)
+      (engine-payload-store-put-blob-sidecar store sidecar)
+      (let* ((response
+               (engine-rpc-handle-request
+                (list
+                 (cons "jsonrpc" "2.0")
+                 (cons "id" 47)
+                 (cons "method" "engine_getBlobsV4")
+                 (cons
+                  "params"
+                  (list
+                   (list (hash32-to-hex versioned-hash))
+                   (bytes-to-hex bitmap))))
+                store config))
+             (result (field response "result"))
+             (blob-result (first result)))
+        (is (= 1 (length result)))
+        (is (= 2 (length (field blob-result "blob_cells"))))
+        (is (= 2 (length (field blob-result "proofs"))))
+        (is (= (+ 2 (* 2 +bytes-per-cell+))
+               (length (first (field blob-result "blob_cells"))))))
+      (let* ((response
+               (engine-rpc-handle-request
+                (list
+                 (cons "jsonrpc" "2.0")
+                 (cons "id" 48)
+                 (cons "method" "engine_hasBlobs")
+                 (cons
+                  "params"
+                  (list
+                   (list (hash32-to-hex versioned-hash)
+                         (hash32-to-hex unknown-hash)))))
+                store config))
+             (result (field response "result")))
+        (is (eq t (first result)))
+        (is (eq :false (second result)))))))

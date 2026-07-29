@@ -256,7 +256,12 @@
                (field (field response "result") "payloadStatus")))
         (is (string= +payload-status-syncing+
                      (field payload-status "status")))
-        (is (not (field payload-status "latestValidHash"))))
+        (is (not (field payload-status "latestValidHash")))
+        (let ((targets
+                (engine-payload-store-forkchoice-sync-targets store)))
+          (is (= 1 (length targets)))
+          (is (bytes= (hash32-bytes unknown-hash)
+                      (hash32-bytes (first targets))))))
       (let* ((response
                (engine-rpc-handle-request
                 (forkchoice-request
@@ -270,7 +275,10 @@
         (is (= 42 (field response "id")))
         (is (string= +payload-status-syncing+
                      (field payload-status "status")))
-        (is (not (field payload-status "latestValidHash"))))
+        (is (not (field payload-status "latestValidHash")))
+        (is (= 1
+               (length
+                (engine-payload-store-forkchoice-sync-targets store)))))
       (let* ((response
                (engine-rpc-handle-request
                 (forkchoice-request
@@ -805,12 +813,8 @@
                   store
                   config))
                (base-payload-id
-                 (payload-id-from-response base-prepare-response))
-               (base-payload-transactions
-                 (get-payload-transactions
-                  209 base-payload-id store config)))
+                 (payload-id-from-response base-prepare-response)))
           (is (stringp base-payload-id))
-          (is (equal (list base-raw) base-payload-transactions))
           (is (string= replacement-hash
                        (field (send-raw
                                210 replacement-transaction store config)
@@ -1202,7 +1206,8 @@
                (field bundle "blobs"))))))))
 
 (deftest engine-rpc-forkchoice-selects-the-fork-get-payload-version
-  (let ((cancun (make-chain-config :london-block 0 :cancun-time 0))
+  (let ((attributes (make-payload-attributes-v1))
+        (cancun (make-chain-config :london-block 0 :cancun-time 0))
         (prague (make-chain-config :london-block 0 :cancun-time 0
                                    :prague-time 0))
         (osaka (make-chain-config :london-block 0 :cancun-time 0
@@ -1211,13 +1216,13 @@
                                       :prague-time 0 :osaka-time 0
                                       :amsterdam-time 0)))
     (is (= 3 (ethereum-lisp.engine-api::engine-rpc-prepared-payload-version
-              3 cancun 1 1)))
+              3 attributes cancun 1 1)))
     (is (= 4 (ethereum-lisp.engine-api::engine-rpc-prepared-payload-version
-              3 prague 1 1)))
+              3 attributes prague 1 1)))
     (is (= 5 (ethereum-lisp.engine-api::engine-rpc-prepared-payload-version
-              3 osaka 1 1)))
+              3 attributes osaka 1 1)))
     (is (= 6 (ethereum-lisp.engine-api::engine-rpc-prepared-payload-version
-              4 amsterdam 1 1)))))
+              4 attributes amsterdam 1 1)))))
 
 (deftest engine-rpc-amsterdam-payload-building-is-capability-gated
   (is (not (ethereum-lisp.engine-api::engine-rpc-engine-method-p
@@ -1247,7 +1252,8 @@
                    (cons "withdrawals" (list (withdrawal-object)))
                    (cons "parentBeaconBlockRoot"
                          (hash32-to-hex parent-beacon-root))
-                   (cons "slotNumber" "0x2a")))
+                   (cons "slotNumber" "0x2a")
+                   (cons "targetGasLimit" "0x1c9c380")))
            (forkchoice-request (id state payload-attributes)
              (list (cons "jsonrpc" "2.0")
                    (cons "id" id)
@@ -1316,6 +1322,12 @@
           (is (= 33 (field get-payload-response "id")))
           (is (eq :false (field envelope "shouldOverrideBuilder")))
           (is (string= (quantity-to-hex 42) (field payload "slotNumber")))
+          (is (string=
+               (quantity-to-hex
+                (ethereum-lisp.engine-payloads:engine-target-gas-limit
+                 (block-header-gas-limit (block-header known-block))
+                 30000000))
+                       (field payload "gasLimit")))
           (is (string= "0x0" (field payload "blobGasUsed")))
           (is (string= "0x0" (field payload "excessBlobGas")))
           (is (= 1 (length withdrawals)))

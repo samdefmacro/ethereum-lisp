@@ -15,7 +15,8 @@
 
 (defstruct (admin-backend
             (:constructor make-admin-backend
-                (&key node-info peers add-peer peer-count listening-p)))
+                (&key node-info peers add-peer remove-peer
+                      peer-count listening-p)))
   "How the RPC layer reaches peering state, as closures.
 
 NODE-INFO returns a plist describing this node; PEERS a list of plists, one per
@@ -25,6 +26,7 @@ be NIL, which reads as 'this node cannot answer that'."
   node-info
   peers
   add-peer
+  remove-peer
   peer-count
   listening-p)
 
@@ -110,6 +112,18 @@ peer's version is a property of its connection anyway."
     (parse-enode-url enode)
     (if (funcall (admin-backend-add-peer backend) enode) t :false)))
 
+(defun engine-rpc-handle-admin-remove-peer (params backend)
+  (unless (= 1 (length params))
+    (invalid-parameters-fail
+     "admin_removePeer params must contain one enode URL"))
+  (unless (and backend (admin-backend-remove-peer backend))
+    (admin-unavailable-fail "admin_removePeer"))
+  (let ((enode (first params)))
+    (unless (stringp enode)
+      (invalid-parameters-fail "admin_removePeer enode must be a string"))
+    (parse-enode-url enode)
+    (if (funcall (admin-backend-remove-peer backend) enode) t :false)))
+
 (defun engine-rpc-handle-public-admin-method (context)
   (let ((params (public-rpc-dispatch-context-params context))
         (backend (public-rpc-dispatch-context-admin-backend context)))
@@ -123,4 +137,7 @@ peer's version is a property of its connection anyway."
       ((public-rpc-dispatch-method-p context "admin_addPeer")
        (public-rpc-dispatch-response
         context (engine-rpc-handle-admin-add-peer params backend)))
+      ((public-rpc-dispatch-method-p context "admin_removePeer")
+       (public-rpc-dispatch-response
+        context (engine-rpc-handle-admin-remove-peer params backend)))
       (t nil))))

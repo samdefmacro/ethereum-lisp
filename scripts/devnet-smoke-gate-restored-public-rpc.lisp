@@ -53,6 +53,10 @@
          (log-filter-create-outputs
            (loop repeat (length log-targets)
                  collect (make-string-output-stream)))
+         (saved-log-filter-create-responses
+           (make-array (length log-targets) :initial-element nil))
+         (runtime-log-filter-ids
+           (make-array (length log-targets) :initial-element nil))
          (log-filter-logs-outputs
            (loop repeat (length log-targets)
                  collect (make-string-output-stream)))
@@ -63,6 +67,8 @@
            (loop repeat (length log-targets)
                  collect (make-string-output-stream)))
          (block-filter-create-output (make-string-output-stream))
+         (saved-block-filter-create-response nil)
+         (runtime-block-filter-id nil)
          (block-filter-changes-output (make-string-output-stream))
          (block-filter-get-logs-output (make-string-output-stream))
          (block-filter-uninstall-output (make-string-output-stream))
@@ -556,46 +562,29 @@
                   output))
            (loop for target in log-targets
                  for output in log-filter-logs-outputs
-                 for filter-id from 1
+                 for index from 0
                  for id from 190
                  collect
                  (cons
-                  (json-encode
-                   (list (cons "jsonrpc" "2.0")
-                         (cons "id" id)
-                         (cons "method" "eth_getFilterLogs")
-                         (cons "params"
-                               (list (quantity-to-hex filter-id)))))
+                  (list :filter-logs index id)
                   output))
            (loop for target in log-targets
                  for output in log-filter-uninstall-outputs
-                 for filter-id from 1
+                 for index from 0
                  for id from 200
                  collect
                  (cons
-                  (json-encode
-                   (list (cons "jsonrpc" "2.0")
-                         (cons "id" id)
-                         (cons "method" "eth_uninstallFilter")
-                         (cons "params"
-                               (list (quantity-to-hex filter-id)))))
+                  (list :filter-uninstall index id)
                   output))
            (loop for target in log-targets
                  for output in log-filter-missing-outputs
-                 for filter-id from 1
+                 for index from 0
                  for id from 210
                  collect
                  (cons
-                  (json-encode
-                   (list (cons "jsonrpc" "2.0")
-                         (cons "id" id)
-                         (cons "method" "eth_getFilterLogs")
-                         (cons "params"
-                               (list (quantity-to-hex filter-id)))))
+                  (list :filter-missing index id)
                   output))
-           (let ((block-filter-id
-                   (quantity-to-hex (1+ (length log-targets)))))
-             (list
+           (list
               (cons
                (json-encode
                 (list (cons "jsonrpc" "2.0")
@@ -604,33 +593,17 @@
                       (cons "params" #())))
                block-filter-create-output)
               (cons
-               (json-encode
-                (list (cons "jsonrpc" "2.0")
-                      (cons "id" 221)
-                      (cons "method" "eth_getFilterChanges")
-                      (cons "params" (list block-filter-id))))
+               (list :block-filter-changes 221)
                block-filter-changes-output)
               (cons
-               (json-encode
-                (list (cons "jsonrpc" "2.0")
-                      (cons "id" 222)
-                      (cons "method" "eth_getFilterLogs")
-                      (cons "params" (list block-filter-id))))
+               (list :block-filter-logs 222)
                block-filter-get-logs-output)
               (cons
-               (json-encode
-                (list (cons "jsonrpc" "2.0")
-                      (cons "id" 223)
-                      (cons "method" "eth_uninstallFilter")
-                      (cons "params" (list block-filter-id))))
+               (list :block-filter-uninstall 223)
                block-filter-uninstall-output)
               (cons
-               (json-encode
-                (list (cons "jsonrpc" "2.0")
-                      (cons "id" 224)
-                      (cons "method" "eth_getFilterChanges")
-                      (cons "params" (list block-filter-id))))
-               block-filter-missing-output)))))
+               (list :block-filter-missing 224)
+               block-filter-missing-output))))
     (let ((summary
             (ethereum-lisp.cli:start-devnet-node-listeners
              node
@@ -645,12 +618,73 @@
                 (when public-requests
                   (destructuring-bind (body . output)
                       (pop public-requests)
-                    (make-engine-rpc-http-connection
-                     :input-stream
-                     (make-string-input-stream
-                      (devnet-cli-json-rpc-http-request body))
-                     :output-stream output
-                     :close-function (lambda () nil)))))
+                    (let ((request-body
+                            (cond
+                              ((and (consp body)
+                                    (member (first body)
+                                            '(:filter-logs
+                                              :filter-uninstall
+                                              :filter-missing)))
+                               (destructuring-bind (kind index id) body
+                                 (let ((filter-id
+                                         (or
+                                          (aref runtime-log-filter-ids index)
+                                          (let ((response
+                                                  (get-output-stream-string
+                                                   (nth
+                                                    index
+                                                    log-filter-create-outputs))))
+                                            (setf
+                                             (aref
+                                              saved-log-filter-create-responses
+                                              index)
+                                             response
+                                             (aref runtime-log-filter-ids index)
+                                             (fixture-object-field
+                                              (devnet-smoke-gate-rpc-body
+                                               response)
+                                              "result"))))))
+                                   (devnet-smoke-gate-json-rpc-request
+                                    id
+                                    (if (eq kind :filter-uninstall)
+                                        "eth_uninstallFilter"
+                                        "eth_getFilterLogs")
+                                    (list filter-id)))))
+                              ((and (consp body)
+                                    (member
+                                     (first body)
+                                     '(:block-filter-changes
+                                       :block-filter-logs
+                                       :block-filter-uninstall
+                                       :block-filter-missing)))
+                               (unless runtime-block-filter-id
+                                 (setf
+                                  saved-block-filter-create-response
+                                  (get-output-stream-string
+                                   block-filter-create-output)
+                                  runtime-block-filter-id
+                                  (fixture-object-field
+                                   (devnet-smoke-gate-rpc-body
+                                    saved-block-filter-create-response)
+                                   "result")))
+                               (destructuring-bind (kind id) body
+                                 (devnet-smoke-gate-json-rpc-request
+                                  id
+                                  (case kind
+                                    (:block-filter-logs
+                                     "eth_getFilterLogs")
+                                    (:block-filter-uninstall
+                                     "eth_uninstallFilter")
+                                    (otherwise
+                                     "eth_getFilterChanges"))
+                                  (list runtime-block-filter-id))))
+                              (t body))))
+                      (make-engine-rpc-http-connection
+                       :input-stream
+                       (make-string-input-stream
+                        (devnet-cli-json-rpc-http-request request-body))
+                       :output-stream output
+                       :close-function (lambda () nil))))))
               :close-function (lambda () nil))
              :max-connections expected-public-connections)))
       (let* ((block-number-response
@@ -1542,14 +1576,13 @@
                     0
                     "Restored eth_getLogs blockHash")))
         (loop for target in log-targets
-              for create-output in log-filter-create-outputs
               for logs-output in log-filter-logs-outputs
               for uninstall-output in log-filter-uninstall-outputs
               for missing-output in log-filter-missing-outputs
-              for filter-id from 1
+              for index from 0
               do
                  (let* ((create-response
-                          (get-output-stream-string create-output))
+                          (aref saved-log-filter-create-responses index))
                         (logs-response
                           (get-output-stream-string logs-output))
                         (uninstall-response
@@ -1582,8 +1615,12 @@
                     (= 200 (devnet-cli-http-status missing-response))
                     "Restored missing eth_getFilterLogs HTTP status mismatch")
                    (devnet-smoke-gate-require
-                    (string= (quantity-to-hex filter-id)
-                             (fixture-object-field create-rpc "result"))
+                    (and
+                     (= 34
+                        (length
+                         (fixture-object-field create-rpc "result")))
+                     (string= (aref runtime-log-filter-ids index)
+                              (fixture-object-field create-rpc "result")))
                     "Restored eth_newFilter id mismatch")
                    (devnet-smoke-gate-require
                     (= (getf target :count) (length filter-logs))
@@ -1610,7 +1647,7 @@
                    (push missing-error-code
                          actual-log-filter-missing-error-codes)))
         (let* ((block-filter-create-response
-                 (get-output-stream-string block-filter-create-output))
+                 saved-block-filter-create-response)
                (block-filter-changes-response
                  (get-output-stream-string block-filter-changes-output))
                (block-filter-get-logs-response
@@ -1634,8 +1671,6 @@
                (block-filter-missing-rpc
                  (devnet-smoke-gate-rpc-body
                   block-filter-missing-response))
-               (expected-block-filter-id
-                 (quantity-to-hex (1+ (length log-targets))))
                (block-filter-changes
                  (fixture-object-field block-filter-changes-rpc "result")))
           (dolist (response
@@ -1658,7 +1693,8 @@
                 actual-block-filter-missing-error-code
                 (devnet-smoke-gate-error-code block-filter-missing-rpc))
           (devnet-smoke-gate-require
-           (string= expected-block-filter-id actual-block-filter-id)
+           (and (= 34 (length actual-block-filter-id))
+                (string= runtime-block-filter-id actual-block-filter-id))
            "Restored eth_newBlockFilter id mismatch")
           (devnet-smoke-gate-require
            (zerop actual-block-filter-change-count)

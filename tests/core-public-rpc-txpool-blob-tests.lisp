@@ -159,6 +159,7 @@
                "\"params\":[\"" raw-transaction "\"]}")
               store
               config))
+           (error (field send-response "error"))
            (pending-response
              (request
               "{\"jsonrpc\":\"2.0\",\"id\":168,\"method\":\"eth_pendingTransactions\",\"params\":[]}"

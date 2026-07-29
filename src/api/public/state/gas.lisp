@@ -11,13 +11,16 @@
          (requested
            (eth-rpc-call-object-quantity-field
             object "gas" :default block-limit)))
-    (min requested block-limit)))
+    (min requested block-limit +eth-rpc-default-call-gas-limit+)))
 
 (defun eth-rpc-estimate-gas-success-p
-    (object block store config gas-limit)
+    (object block store config gas-limit state-overrides block-overrides)
   (multiple-value-bind (status return-data gas-used)
       (eth-rpc-simulate-call-object
-       object block store config "eth_estimateGas" :gas-limit gas-limit)
+       object block store config "eth_estimateGas"
+       :gas-limit gas-limit
+       :state-overrides state-overrides
+       :block-overrides block-overrides)
     (declare (ignore return-data gas-used))
     (eth-rpc-call-status-success-p status)))
 
@@ -32,14 +35,16 @@
      :eip3860-p (or (null rules) (chain-rules-shanghai-p rules)))))
 
 (defun engine-rpc-handle-eth-estimate-gas (params store config)
-  (unless (or (= 1 (length params)) (= 2 (length params)))
+  (unless (<= 1 (length params) 4)
     (block-validation-fail
-     "eth_estimateGas params must contain call object and optional block id"))
+     "eth_estimateGas params must contain call object, optional block id, state overrides, and block overrides"))
   (let* ((object (first params))
          (block (eth-rpc-state-block-param
-                 (list (if (= 2 (length params)) (second params) "latest"))
+                 (list (if (>= (length params) 2) (second params) "latest"))
                  store
-                 "eth_estimateGas")))
+                 "eth_estimateGas"))
+         (state-overrides (third params))
+         (block-overrides (fourth params)))
     (multiple-value-bind (sender tx)
         (eth-rpc-call-object-transaction
          object (block-header block) "eth_estimateGas" config)
@@ -48,8 +53,12 @@
                (eth-rpc-call-intrinsic-gas
                 tx (block-header block) config))
              (high
-               (eth-rpc-call-object-gas-cap
-                object (block-header block) "eth_estimateGas")))
+               (min
+                (eth-rpc-call-object-gas-cap
+                 object (block-header block) "eth_estimateGas")
+                (eth-rpc-block-override-quantity
+                 block-overrides "gasLimit"
+                 (block-header-gas-limit (block-header block))))))
         (when (> intrinsic-gas high)
           (block-validation-fail
            "eth_estimateGas intrinsic gas exceeds gas cap"))
@@ -58,7 +67,10 @@
         ;; so callers can decode the reason instead of seeing a bare failure.
         (multiple-value-bind (status return-data)
             (eth-rpc-simulate-call-object
-             object block store config "eth_estimateGas" :gas-limit high)
+             object block store config "eth_estimateGas"
+             :gas-limit high
+             :state-overrides state-overrides
+             :block-overrides block-overrides)
           (when (eq status :reverted)
             (eth-rpc-fail-execution-reverted return-data))
           (unless (eth-rpc-call-status-success-p status)
@@ -68,7 +80,8 @@
               while (< low high)
               for mid = (floor (+ low high) 2)
               do (if (eth-rpc-estimate-gas-success-p
-                      object block store config mid)
+                      object block store config mid
+                      state-overrides block-overrides)
                      (setf high mid)
                      (setf low (1+ mid)))
               finally (return (quantity-to-hex low)))))))

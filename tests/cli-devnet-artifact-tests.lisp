@@ -196,7 +196,6 @@
                          "--ws.api=eth,net"
                          "--ws.origins=*"
                          "--ws.rpcprefix=/ws"
-                         "--ipcapi=eth,net,web3"
                          "--graphql=false"
                          "--graphql.addr=192.0.2.33"
                          "--graphql.port=9647"
@@ -210,7 +209,6 @@
                          "--goerli=false"
                          "--syncmode=full"
                          "--nodiscover=false"
-                         "--ipcdisable=true"
                          "--verbosity=3"
                          "--maxpeers=0"
                          "--nat=none"
@@ -221,7 +219,6 @@
                           "0101010101010101010101010101010101010101010101010101010101010101")
                          "--discovery.port=30303"
                          "--discovery.dns="
-                         "--ipcpath=/tmp/ethereum-lisp.ipc"
                          "--allow-insecure-unlock=false"
                          (format nil "--ready-file=~A"
                                  (namestring ready-path))

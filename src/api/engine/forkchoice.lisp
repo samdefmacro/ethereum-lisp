@@ -234,8 +234,30 @@ for the rest of this payload; other senders are still considered."
         (storage-fail "Forkchoice persistence failed: ~A" condition)))))
 
 (defun engine-rpc-prepared-payload-version
-    (forkchoice-version config block-number timestamp)
+    (forkchoice-version payload-attributes config block-number timestamp)
   (case forkchoice-version
+    (1
+     (if (chain-config-shanghai-p config block-number timestamp)
+         (engine-rpc-fail +engine-rpc-error-unsupported-fork+
+                          "forkchoiceUpdatedV1 is unsupported after Shanghai")
+         1))
+    (2
+     (cond
+       ((chain-config-cancun-p config block-number timestamp)
+        (engine-rpc-fail +engine-rpc-error-unsupported-fork+
+                         "forkchoiceUpdatedV2 is unsupported after Cancun"))
+       ((and (chain-config-shanghai-p config block-number timestamp)
+             (not (payload-attributes-v1-withdrawals-present-p
+                   payload-attributes)))
+        (engine-rpc-fail
+         +engine-rpc-error-invalid-payload-attributes+
+         "forkchoiceUpdatedV2 requires withdrawals after Shanghai"))
+       ((and (not (chain-config-shanghai-p config block-number timestamp))
+             (payload-attributes-v1-withdrawals-present-p payload-attributes))
+        (engine-rpc-fail
+         +engine-rpc-error-invalid-payload-attributes+
+         "forkchoiceUpdatedV2 does not support withdrawals before Shanghai"))
+       (t 2)))
     (3
      (cond
        ((chain-config-amsterdam-p config block-number timestamp)
@@ -320,42 +342,47 @@ for the rest of this payload; other senders are still considered."
                            payload-attributes))
                (prepared-payload-version
                  (engine-rpc-prepared-payload-version
-                  payload-version config block-number timestamp))
+                  payload-version payload-attributes
+                  config block-number timestamp))
                (candidate-id
                  (engine-payload-id
                   prepared-payload-version head-hash payload-attributes)))
-          ;; A fresh build request reopens this deterministic id.  A previous
-          ;; getPayload may have closed an older candidate with the same
-          ;; attributes; retaining it would make a later forkchoice request
-          ;; blind to txpool replacements.
-          (multiple-value-bind (block viable-transactions)
-              (handler-case
-                  (engine-rpc-build-viable-prepared-payload
-                   store parent-block payload-attributes config nil
-                   :gas-limit-target gas-limit-target)
-                (block-validation-error (condition)
-                  (engine-rpc-fail
-                   +engine-rpc-error-invalid-payload-attributes+
-                   (block-validation-error-message condition)))
-                (transaction-validation-error (condition)
-                  (engine-rpc-fail
-                   +engine-rpc-error-invalid-payload-attributes+
-                   (princ-to-string condition))))
-            (chain-store-put-prepared-payload
-             store
-             (make-engine-prepared-payload
-              :payload-id candidate-id
-              :version prepared-payload-version
-              :block block
-              :blobs-bundle
-              (engine-rpc-blobs-bundle-for-transactions
-               store viable-transactions)
-              :parent-hash head-hash
-              :payload-attributes payload-attributes
-              :gas-limit-target gas-limit-target
-              :candidate-transactions-root
-              (transaction-list-root nil)
-              :open-p t)))
+          ;; A repeated build request keeps the stable id.  An open build
+          ;; continues improving in place; a payload already retrieved is
+          ;; explicitly reopened from an empty candidate for the new request.
+          (unless
+              (let ((existing
+                      (chain-store-prepared-payload store candidate-id)))
+                (and existing
+                     (engine-prepared-payload-open-p existing)))
+            (multiple-value-bind (block viable-transactions)
+                (handler-case
+                    (engine-rpc-build-viable-prepared-payload
+                     store parent-block payload-attributes config nil
+                     :gas-limit-target gas-limit-target)
+                  (block-validation-error (condition)
+                    (engine-rpc-fail
+                     +engine-rpc-error-invalid-payload-attributes+
+                     (block-validation-error-message condition)))
+                  (transaction-validation-error (condition)
+                    (engine-rpc-fail
+                     +engine-rpc-error-invalid-payload-attributes+
+                     (princ-to-string condition))))
+              (chain-store-put-prepared-payload
+               store
+               (make-engine-prepared-payload
+                :payload-id candidate-id
+                :version prepared-payload-version
+                :block block
+                :blobs-bundle
+                (engine-rpc-blobs-bundle-for-transactions
+                 store viable-transactions)
+                :parent-hash head-hash
+                :payload-attributes payload-attributes
+                :gas-limit-target gas-limit-target
+                :candidate-transactions-root
+                (transaction-list-root nil)
+                :open-p t))))
           (setf payload-id candidate-id)))
       (engine-rpc-forkchoice-response-object
        status
@@ -389,6 +416,18 @@ for the rest of this payload; other senders are still considered."
 
 (defun engine-rpc-handle-forkchoice-updated-v4
     (params store config &key forkchoice-persistence-function gas-limit-target)
+  (when (> (length params) 3)
+    (block-validation-fail
+     "engine_forkchoiceUpdatedV4 accepts at most three parameters"))
+  (when (and (= 3 (length params))
+             (not (json-null-p (third params))))
+    (let ((custody-columns
+            (json-rpc-bytes
+             (third params)
+             "engine_forkchoiceUpdatedV4 custodyColumns")))
+      (unless (= 16 (length custody-columns))
+        (block-validation-fail
+         "engine_forkchoiceUpdatedV4 custodyColumns must be 16 bytes"))))
   (engine-rpc-handle-forkchoice-updated
    params store config "engine_forkchoiceUpdatedV4" 4
    #'engine-rpc-validate-payload-attributes-v4

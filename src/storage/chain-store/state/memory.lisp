@@ -42,10 +42,12 @@ reads treat absence as that same default."
                       (state-retention-depth
                        +chain-store-default-state-retention-depth+)
                       (remote-blocks (make-hash-table :test 'equalp))
+                      (forkchoice-sync-targets (make-hash-table :test 'equalp))
                       (invalid-tipsets (make-hash-table :test 'equalp))
+                      (invalid-block-hits (make-hash-table :test 'equalp))
                       (prepared-payloads (make-hash-table :test 'equalp))
                       (blob-sidecars (make-hash-table :test 'equalp))
-                      (log-filters (make-hash-table :test 'eql))
+                      (log-filters (make-hash-table :test 'equal))
                       (next-log-filter-id 1)
                       (head-checkpoint
                        (make-chain-store-checkpoint :label :head))
@@ -69,7 +71,9 @@ reads treat absence as that same default."
   (state-retention-depth +chain-store-default-state-retention-depth+
    :type (integer 1 *))
   remote-blocks
+  forkchoice-sync-targets
   invalid-tipsets
+  invalid-block-hits
   prepared-payloads
   blob-sidecars
   log-filters

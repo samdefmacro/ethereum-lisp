@@ -23,8 +23,10 @@
     ("engine_getPayloadV6" :advertised-p t :kzg-p t :bls-p t
      :amsterdam-p t)
     ("engine_getBlobsV1" :advertised-p t :kzg-p t)
-    ("engine_getBlobsV2" :advertised-p nil :kzg-p t :unsupported-p t)
-    ("engine_getBlobsV3" :advertised-p nil :kzg-p t :unsupported-p t)
+    ("engine_getBlobsV2" :advertised-p t :kzg-p t)
+    ("engine_getBlobsV3" :advertised-p t :kzg-p t)
+    ("engine_getBlobsV4" :advertised-p t :kzg-p t)
+    ("engine_hasBlobs" :advertised-p t :kzg-p t)
     ("engine_newPayloadV3" :advertised-p t :kzg-p t)
     ("engine_newPayloadV4" :advertised-p t :kzg-p t :bls-p t)
     ("engine_newPayloadV5" :advertised-p t :kzg-p t :bls-p t

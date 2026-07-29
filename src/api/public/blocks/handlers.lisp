@@ -1,15 +1,46 @@
 (in-package #:ethereum-lisp.public-api)
 
+(defun eth-rpc-build-pending-block (store config)
+  "Execute the currently viable txpool contents on top of the canonical head."
+  (let ((parent (chain-store-latest-block store)))
+    (when parent
+      (let* ((parent-header (block-header parent))
+             (number (1+ (block-header-number parent-header)))
+             (timestamp (1+ (block-header-timestamp parent-header)))
+             (cancun-p (chain-config-cancun-p config number timestamp))
+             (amsterdam-p
+               (chain-config-amsterdam-p config number timestamp))
+             (attributes
+               (make-payload-attributes-v1
+                :timestamp timestamp
+                :prev-randao (zero-hash32)
+                :suggested-fee-recipient
+                (or (block-header-beneficiary parent-header)
+                    (zero-address))
+                :withdrawals '()
+                :withdrawals-present-p
+                (chain-config-shanghai-p config number timestamp)
+                :parent-beacon-root (and cancun-p (zero-hash32))
+                :parent-beacon-root-present-p cancun-p
+                :slot-number (and amsterdam-p 0)
+                :slot-number-present-p amsterdam-p))
+             (transactions
+               (engine-rpc-pending-build-transactions
+                store config parent-header)))
+        (engine-rpc-build-viable-prepared-payload
+         store parent attributes config transactions)))))
+
 (defun engine-rpc-handle-eth-get-block-by-number (params store config)
   (let* ((full-transactions-p
            (eth-rpc-block-full-transactions-param params "eth_getBlockByNumber"))
          (expected-chain-id (chain-config-chain-id config)))
     (if (eth-rpc-pending-block-tag-p (first params))
-        (let ((base-block (chain-store-latest-block store)))
-          (when base-block
+        (multiple-value-bind (pending-block transactions)
+            (eth-rpc-build-pending-block store config)
+          (when pending-block
             (eth-rpc-pending-block-object
-             base-block
-             (eth-rpc-visible-pending-transactions store expected-chain-id)
+             pending-block
+             transactions
              full-transactions-p
              config
              :expected-chain-id expected-chain-id)))
@@ -40,11 +71,10 @@
     (params store config)
   (if (and (= 1 (length params))
            (eth-rpc-pending-block-tag-p (first params)))
-      (quantity-to-hex
-       (length
-        (eth-rpc-visible-pending-transactions
-         store
-         (chain-config-chain-id config))))
+      (multiple-value-bind (pending-block transactions)
+          (eth-rpc-build-pending-block store config)
+        (declare (ignore pending-block))
+        (quantity-to-hex (length transactions)))
       (let* ((number (eth-rpc-block-number-param
                       params store
                       "eth_getBlockTransactionCountByNumber"))

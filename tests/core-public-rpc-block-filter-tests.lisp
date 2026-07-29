@@ -1,5 +1,26 @@
 (in-package #:ethereum-lisp.test)
 
+(deftest engine-filter-ids-are-random-and-polls-reset-expiry
+  (let* ((store (make-engine-payload-memory-store))
+         (first-id
+           (ethereum-lisp.chain-store:engine-payload-store-put-block-filter
+            store :now 100))
+         (second-id
+           (ethereum-lisp.chain-store:engine-payload-store-put-block-filter
+            store :now 100)))
+    (is (stringp first-id))
+    (is (= 34 (length first-id)))
+    (is (not (string= first-id second-id)))
+    (is (ethereum-lisp.chain-store:engine-payload-store-log-filter
+         store first-id :now 399))
+    (is (ethereum-lisp.chain-store:engine-payload-store-log-filter
+         store first-id :now 600))
+    (is (not (ethereum-lisp.chain-store:engine-payload-store-log-filter
+              store first-id :now 901)))
+    (is (not
+         (ethereum-lisp.chain-store:engine-payload-store-uninstall-log-filter
+          store first-id)))))
+
 (deftest eth-rpc-block-filter
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))
@@ -110,7 +131,7 @@
                  "{\"jsonrpc\":\"2.0\",\"id\":88,\"method\":\"eth_newBlockFilter\",\"params\":[\"unexpected\"]}"
                  store
                  config))))
-        (is (string= (quantity-to-hex 1) filter-id))
+        (is (= 34 (length filter-id)))
         (is (search "\"result\":[]" initial-changes-json))
         (is (= 1 (length first-changes)))
         (is (string= (hash32-to-hex (block-hash block-2))

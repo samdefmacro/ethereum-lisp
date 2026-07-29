@@ -109,6 +109,17 @@ first, so a long backfill does not starve a short one."
           #'<
           :key (lambda (block) (block-header-number (block-header block))))))
 
+(defun devnet-node-forkchoice-sync-targets (node)
+  "Unknown forkchoice heads to fetch directly, in stable hash order."
+  (sort
+   (call-with-devnet-node-store-guard
+    node
+    (lambda ()
+      (engine-payload-store-forkchoice-sync-targets
+       (devnet-node-store node))))
+   #'string<
+   :key #'hash32-to-hex))
+
 (defun devnet-peer-fill-sync-gaps (node peer)
   "Fetch what a buffered block needs in order to execute, and return how many
 blocks were imported.
@@ -146,7 +157,31 @@ a different one -- so a failure is logged and the next target tried."
           (error (condition)
             (devnet-peer-manager-log node "peer.sync.gap_failed"
                                      "target" (hash32-to-hex (block-hash target))
-                                     "error" condition)))))))
+                                     "error" condition)))))
+    (dolist (target (devnet-node-forkchoice-sync-targets node) imported)
+      (handler-case
+          (let ((filled
+                  (eth-sync-fill-gap
+                   peer
+                   (hash32-bytes target)
+                   (lambda (hash)
+                     (call-with-devnet-node-store-guard
+                      node
+                      (lambda ()
+                        (and (chain-store-known-block
+                              store (make-hash32 hash))
+                             t))))
+                   (lambda (block)
+                     (devnet-peer-sync-import-block node block)))))
+            (when (plusp filled)
+              (devnet-peer-manager-log node "peer.sync.head_filled"
+                                       "blocks" filled
+                                       "target" (hash32-to-hex target))
+              (incf imported filled)))
+        (error (condition)
+          (devnet-peer-manager-log node "peer.sync.head_failed"
+                                   "target" (hash32-to-hex target)
+                                   "error" condition))))))
 
 (defun devnet-peer-dial-session (node candidate shutdown-controller
                                  &key stop-p max-actions)

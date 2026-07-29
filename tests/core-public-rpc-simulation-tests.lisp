@@ -1053,6 +1053,9 @@
                    nil #'ethereum-lisp.engine-api:engine-rpc-public-method-p)))
     (is (assoc "debug" modules :test #'string=)))
   (is (ethereum-lisp.engine-api:engine-rpc-public-method-p "debug_getRawHeader"))
+  (let ((default
+          (ethereum-lisp.cli::devnet-cli-public-api-method-filter nil)))
+    (is (not (funcall default "debug_getRawHeader"))))
   (let ((eth-only (ethereum-lisp.cli::devnet-cli-public-api-method-filter (list "eth"))))
     (is (funcall eth-only "eth_chainId"))
     (is (not (funcall eth-only "debug_getRawHeader"))))
@@ -1107,3 +1110,96 @@
                           (setf (aref bytes 31) 9)
                           (bytes-to-hex bytes))))
           (is (string= expected (field error-object "data"))))))))
+
+(deftest eth-rpc-call-applies-state-and-block-overrides
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1 :london-block 0))
+           (contract
+             (address-from-hex
+              "0x00000000000000000000000000000000000000ee"))
+           ;; NUMBER; MSTORE(0); RETURN(0, 32).
+           (code #(#x43 #x60 #x00 #x52 #x60 #x20 #x60 #x00 #xf3))
+           (state (make-state-db))
+           (block
+             (make-block
+              :header
+              (make-block-header
+               :number 1 :timestamp 10 :gas-limit 100000
+               :base-fee-per-gas 0 :state-root (state-db-root state)))))
+      (chain-store-put-block store block :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash block) state)
+      (let* ((response
+               (engine-rpc-handle-request
+                (list
+                 (cons "jsonrpc" "2.0")
+                 (cons "id" 401)
+                 (cons "method" "eth_call")
+                 (cons
+                  "params"
+                  (list
+                   (list (cons "to" (address-to-hex contract)))
+                   "latest"
+                   (list
+                    (cons
+                     (address-to-hex contract)
+                     (list (cons "code" (bytes-to-hex code)))))
+                   (list (cons "number" "0x2a")))))
+                store config))
+             (result (field response "result")))
+        (is (= 42 (bytes-to-integer (hex-to-bytes result))))
+        (is (= 0
+               (length
+                (chain-store-account-code
+                 store (block-hash block) contract))))))))
+
+(deftest eth-rpc-simulate-v1-executes-calls
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1 :london-block 0))
+           (contract
+             (address-from-hex
+              "0x00000000000000000000000000000000000000ef"))
+           (code #(#x60 #x07 #x60 #x00 #x52 #x60 #x20 #x60 #x00 #xf3))
+           (state (make-state-db))
+           (block
+             (make-block
+              :header
+              (make-block-header
+               :number 1 :timestamp 10 :gas-limit 100000
+               :base-fee-per-gas 0 :state-root (state-db-root state)))))
+      (state-db-set-code state contract code)
+      (setf (block-header-state-root (block-header block))
+            (state-db-root state))
+      (chain-store-put-block store block :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash block) state)
+      (let* ((response
+               (engine-rpc-handle-request
+                (list
+                 (cons "jsonrpc" "2.0")
+                 (cons "id" 402)
+                 (cons "method" "eth_simulateV1")
+                 (cons
+                  "params"
+                  (list
+                   (list
+                    (cons
+                     "blockStateCalls"
+                     (list
+                      (list
+                       (cons
+                        "calls"
+                        (list
+                         (list
+                          (cons "to" (address-to-hex contract))))))))))))
+                store config))
+             (blocks (field response "result"))
+             (calls (field (first blocks) "calls"))
+             (call (first calls)))
+        (is (= 1 (length blocks)))
+        (is (string= "0x1" (field call "status")))
+        (is (= 7
+               (bytes-to-integer
+                (hex-to-bytes (field call "returnData")))))))))

@@ -17,13 +17,24 @@
                          :s #x67cbe9d8997f761aecb703304b3800ccf555c9f3dc64214b297fb1966a3b6d83))
            (raw-transaction (bytes-to-hex (transaction-encoding transaction)))
            (transaction-hash (hash32-to-hex (transaction-hash transaction)))
+           (sender
+             (transaction-sender transaction :expected-chain-id 1))
+           (state (make-state-db))
            (base-block
              (make-block
               :header (make-block-header :number 14
                                          :timestamp 140
                                          :gas-limit 30000000
                                          :gas-used 30000000
-                                         :base-fee-per-gas 1000)))
+                                         :base-fee-per-gas 1000
+                                         :state-root
+                                         (progn
+                                           (state-db-set-account
+                                            state sender
+                                            (make-state-account
+                                             :nonce 9
+                                             :balance 2000000000000000000))
+                                           (state-db-root state)))))
            (mined-block
              (make-block
               :header (make-block-header :number 15
@@ -32,6 +43,8 @@
               :transactions (list transaction)))
            (config (make-chain-config :chain-id 1 :london-block 0)))
       (engine-payload-store-put-block store base-block)
+      (commit-state-db-to-chain-store
+       store (block-hash base-block) state)
       (let* ((new-pending-filter-response
                (parse-json
                 (engine-rpc-handle-request-json
@@ -271,7 +284,7 @@
                  "{\"jsonrpc\":\"2.0\",\"id\":76,\"method\":\"txpool_inspect\",\"params\":[\"unexpected\"]}"
                  store
                  config))))
-        (is (string= (quantity-to-hex 1) pending-filter-id))
+        (is (= 34 (length pending-filter-id)))
         (is (search "\"result\":[]" initial-pending-filter-json))
         (is (string= transaction-hash (field send-response "result")))
         (is (= 1 (length pending-filter-changes)))
@@ -388,7 +401,7 @@
                          (or (transaction-sender transaction)
                              (zero-address)))))
                (summary (field sender-transactions "9")))
-          (is (string= (format nil "~A: 1000000000000000000 wei + 21000 gas x 20000000000 wei"
+          (is (string= (format nil "~A: 1000000000000000000 wei + 21000 gas × 20000000000 wei"
                                (address-to-hex recipient))
                        summary))
           (is (search "\"queued\":{}" txpool-inspect-json)))

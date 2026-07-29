@@ -24,6 +24,10 @@
             (if (payload-attributes-v1-slot-number-present-p attributes)
                 (integer-to-minimal-bytes
                  (payload-attributes-v1-slot-number attributes))
+                #())
+            (if (payload-attributes-v1-target-gas-limit-present-p attributes)
+                (integer-to-minimal-bytes
+                 (payload-attributes-v1-target-gas-limit attributes))
                 #())))
          (payload-id (make-byte-vector 8)))
     (setf (aref payload-id 0) version)
@@ -98,7 +102,10 @@ excess blob gas field at all."
              :number block-number
              :gas-limit
              (engine-target-gas-limit
-              (block-header-gas-limit parent-header) gas-limit-target)
+              (block-header-gas-limit parent-header)
+              (if (payload-attributes-v1-target-gas-limit-present-p attributes)
+                  (payload-attributes-v1-target-gas-limit attributes)
+                  gas-limit-target))
              :gas-used 0
              :timestamp timestamp
              :base-fee-per-gas

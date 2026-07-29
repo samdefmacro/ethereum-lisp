@@ -1610,12 +1610,9 @@
                               post-reorg-block-filter-changes-rpc "id")))
                  (is (= 650 (fixture-object-field
                               post-reorg-log-filter-changes-rpc "id")))
-                 (is (string= "0x1"
-                              (fixture-object-field
-                               new-block-filter-rpc "result")))
-                 (is (string= "0x2"
-                              (fixture-object-field
-                               new-log-filter-rpc "result")))
+                 (is (= 34 (length block-filter-id)))
+                 (is (= 34 (length log-filter-id)))
+                 (is (not (string= block-filter-id log-filter-id)))
                  (is (= 1 (length block-filter-changes)))
                  (is (string= block-hash-hex (first block-filter-changes)))
                  (is (= (length receipt-logs) (length log-filter-changes)))
