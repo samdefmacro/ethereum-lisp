@@ -151,6 +151,29 @@ the message carries the served block range and our head instead —
       (decode-eth-status-69 bytes)
       (decode-eth-status bytes)))
 
+(defstruct (eth-block-range
+            (:constructor make-eth-block-range
+                (earliest-block latest-block latest-block-hash)))
+  earliest-block
+  latest-block
+  latest-block-hash)
+
+(defun encode-eth-block-range-update (range)
+  (rlp-encode
+   (make-rlp-list
+    (integer-to-minimal-bytes (eth-block-range-earliest-block range))
+    (integer-to-minimal-bytes (eth-block-range-latest-block range))
+    (ensure-byte-vector (eth-block-range-latest-block-hash range)))))
+
+(defun decode-eth-block-range-update (bytes)
+  (let ((items
+          (rlp-list-items
+           (rlp-decode (ensure-byte-vector bytes) :allow-trailing t))))
+    (make-eth-block-range
+     (bytes-to-integer (ensure-byte-vector (first items)))
+     (bytes-to-integer (ensure-byte-vector (second items)))
+     (ensure-byte-vector (third items)))))
+
 ;;; NewBlockHashes / NewBlock propagation.
 
 (defstruct (eth-new-block-hash
@@ -483,3 +506,84 @@ prefix byte and eth/69 carries as the first field."
     (apply #'make-rlp-list
            (mapcar (lambda (block) (eth-block-receipts-rlp-object block version))
                    blocks)))))
+
+(defstruct (eth-wire-receipt
+            (:constructor make-eth-wire-receipt (transaction-type receipt)))
+  transaction-type
+  receipt)
+
+(defun eth-log-entry-from-wire-object (value)
+  (let ((items (rlp-list-items value)))
+    (make-log-entry
+     :address (make-address (ensure-byte-vector (first items)))
+     :topics (mapcar (lambda (topic)
+                       (make-hash32 (ensure-byte-vector topic)))
+                     (rlp-list-items (second items)))
+     :data (ensure-byte-vector (third items)))))
+
+(defun eth-receipt-status-values (value)
+  (let ((bytes (ensure-byte-vector value)))
+    (cond
+      ((= (length bytes) 32) (values bytes 1))
+      ((zerop (length bytes)) (values nil 0))
+      ((and (= (length bytes) 1) (= (aref bytes 0) 1))
+       (values nil 1))
+      (t (error "invalid eth receipt status field")))))
+
+(defun eth-wire-receipt-from-fields (type fields)
+  (multiple-value-bind (post-state status)
+      (eth-receipt-status-values (first fields))
+    (let ((logs
+            (mapcar #'eth-log-entry-from-wire-object
+                    (rlp-list-items (car (last fields))))))
+      (when (= (length fields) 4)
+        (let ((expected-bloom (ensure-byte-vector (third fields)))
+              (actual-bloom (bloom-bytes (receipt-bloom logs))))
+          (unless (and (= (length expected-bloom) 256)
+                       (bytes= expected-bloom actual-bloom))
+            (error "eth/68 receipt bloom does not match its logs"))))
+      (make-eth-wire-receipt
+       type
+       (make-receipt
+        :post-state post-state
+        :status status
+        :cumulative-gas-used
+        (bytes-to-integer (ensure-byte-vector (second fields)))
+        :logs logs)))))
+
+(defun eth-wire-receipt-from-object (value version)
+  (if (>= version +eth-protocol-version-69+)
+      (let ((fields (rlp-list-items value)))
+        (unless (= (length fields) 4)
+          (error "eth/69 receipt must contain four fields"))
+        (eth-wire-receipt-from-fields
+         (bytes-to-integer (ensure-byte-vector (first fields)))
+         (rest fields)))
+      (let* ((typed (not (rlp-list-p value)))
+             (bytes (when typed (ensure-byte-vector value)))
+             (type (if typed (aref bytes 0) 0))
+             (fields
+               (rlp-list-items
+                (if typed
+                    (rlp-decode-one (subseq bytes 1))
+                    value))))
+        (unless (= (length fields) 4)
+          (error "eth/68 receipt must contain four fields"))
+        (eth-wire-receipt-from-fields type fields))))
+
+(defun decode-eth-receipts (bytes version)
+  "Decode a Receipts reply into (VALUES REQUEST-ID BLOCK-RECEIPT-GROUPS).
+
+Each item is an ETH-WIRE-RECEIPT pairing the transaction type carried by the
+wire format with its decoded receipt."
+  (let ((items
+          (rlp-list-items
+           (rlp-decode (ensure-byte-vector bytes) :allow-trailing t))))
+    (values
+     (bytes-to-integer (ensure-byte-vector (first items)))
+     (mapcar
+      (lambda (group)
+        (mapcar (lambda (value)
+                  (eth-wire-receipt-from-object value version))
+                (rlp-list-items group)))
+      (rlp-list-items (second items))))))

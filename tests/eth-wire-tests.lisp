@@ -142,6 +142,66 @@
               :transactions (list transaction)))
        68))))
 
+(deftest eth-receipts-decode-per-negotiated-protocol-version
+  (:layer :unit :module :p2p)
+  (let* ((transaction
+           (make-dynamic-fee-transaction
+            :chain-id 1 :nonce 2 :max-fee-per-gas 10
+            :max-priority-fee-per-gas 1 :gas-limit 21000
+            :value 3 :data #(1) :y-parity 0 :r 4 :s 5))
+         (receipt (make-receipt :status 1 :cumulative-gas-used 21000))
+         (block
+           (ethereum-lisp.blocks:make-block-from-parts
+            :header (make-block-header :number 1 :difficulty 0
+                                       :gas-limit 30000000
+                                       :extra-data (make-byte-vector 0))
+            :transactions (list transaction)
+            :receipts (list receipt))))
+    (dolist (version
+             (list ethereum-lisp.eth-wire:+eth-protocol-version+
+                   ethereum-lisp.eth-wire:+eth-protocol-version-69+))
+      (multiple-value-bind (request-id decoded)
+          (ethereum-lisp.eth-wire:decode-eth-receipts
+           (ethereum-lisp.eth-wire:encode-eth-receipts
+            14 (list block) version)
+           version)
+        (let* ((wire-receipt (first (first decoded)))
+               (decoded-receipt
+                 (ethereum-lisp.eth-wire:eth-wire-receipt-receipt
+                  wire-receipt)))
+          (is (= 14 request-id))
+          (is (= 2
+                 (ethereum-lisp.eth-wire:eth-wire-receipt-transaction-type
+                  wire-receipt)))
+          (is (= 1 (receipt-status decoded-receipt)))
+          (is (= 21000 (receipt-cumulative-gas-used decoded-receipt)))
+          (is (null (receipt-logs decoded-receipt))))))))
+
+(deftest eth-block-range-update-round-trips-and-validates
+  (:layer :unit :module :p2p)
+  (let* ((hash
+           (hex-to-bytes
+            "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"))
+         (range
+           (ethereum-lisp.eth-wire:make-eth-block-range 10 20 hash))
+         (decoded
+           (ethereum-lisp.eth-wire:decode-eth-block-range-update
+            (ethereum-lisp.eth-wire:encode-eth-block-range-update range))))
+    (is (= 10
+           (ethereum-lisp.eth-wire:eth-block-range-earliest-block decoded)))
+    (is (= 20
+           (ethereum-lisp.eth-wire:eth-block-range-latest-block decoded)))
+    (is (bytes=
+         hash
+         (ethereum-lisp.eth-wire:eth-block-range-latest-block-hash decoded)))
+    (is (ethereum-lisp.eth-sync:eth-validate-block-range 10 20 hash))
+    (signals error
+      (ethereum-lisp.eth-sync:eth-validate-block-range 21 20 hash))
+    (signals error
+      (ethereum-lisp.eth-sync:eth-validate-block-range
+       10 20 (make-array 32 :element-type '(unsigned-byte 8)
+                         :initial-element 0)))))
+
 (deftest eth-get-block-headers-round-trips
   ;; By number.
   (let* ((request (ethereum-lisp.eth-wire:make-eth-get-block-headers

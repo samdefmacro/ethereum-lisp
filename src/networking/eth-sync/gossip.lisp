@@ -196,9 +196,27 @@ that has nothing else to do."
 
 (defun eth-peer-gossip-message (peer eth-id payload)
   "Handle one gossip message from PEER, returning T if it was one."
-  (let ((backend (eth-peer-serve-backend peer)))
-    (when backend
-      (cond
+  (cond
+    ((= eth-id +eth-message-block-range-update+)
+     (when (< (eth-peer-eth-version peer) +eth-protocol-version-69+)
+       (error "eth/68 peer sent an eth/69 BlockRangeUpdate"))
+     (let ((range (decode-eth-block-range-update payload)))
+       (eth-validate-block-range
+        (eth-block-range-earliest-block range)
+        (eth-block-range-latest-block range)
+        (eth-block-range-latest-block-hash range))
+       (let ((status (eth-peer-remote-status peer)))
+         (setf (eth-status-earliest-block status)
+               (eth-block-range-earliest-block range)
+               (eth-status-latest-block status)
+               (eth-block-range-latest-block range)
+               (eth-status-latest-block-hash status)
+               (eth-block-range-latest-block-hash range))))
+     t)
+    (t
+     (let ((backend (eth-peer-serve-backend peer)))
+       (when backend
+         (cond
         ((= eth-id +eth-message-new-block-hashes+)
          (eth-peer-queue-announced-blocks
           peer (decode-eth-new-block-hashes payload))
@@ -235,4 +253,4 @@ that has nothing else to do."
            (declare (ignore request-id))
            (eth-accept-transactions backend transactions))
          t)
-        (t nil)))))
+           (t nil)))))))

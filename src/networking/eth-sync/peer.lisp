@@ -126,6 +126,17 @@ ETH-WIRE-READ-ONCE and handle the base traffic itself."
   "Read the next eth message from PEER, returning (VALUES ETH-ID PAYLOAD)."
   (eth-wire-read (eth-peer-connection peer) (eth-peer-eth-offset peer)))
 
+(defun eth-peer-send-block-range-update (peer earliest latest latest-hash)
+  "Send an eth/69 BlockRangeUpdate after validating the advertised range."
+  (when (< (eth-peer-eth-version peer) +eth-protocol-version-69+)
+    (error "BlockRangeUpdate requires eth/69 or later"))
+  (eth-validate-block-range earliest latest latest-hash)
+  (eth-peer-send
+   peer
+   +eth-message-block-range-update+
+   (encode-eth-block-range-update
+    (make-eth-block-range earliest latest latest-hash))))
+
 (defun eth-peer-read-once (peer)
   "Read exactly one message from PEER, returning (VALUES KIND ID PAYLOAD).
 
@@ -224,6 +235,11 @@ success."
            (eth-status-network-id ours) (eth-status-network-id theirs)))
   (unless (bytes= (eth-status-genesis-hash ours) (eth-status-genesis-hash theirs))
     (error "eth genesis mismatch: peer is on a different chain"))
+  (when (>= (eth-status-version theirs) +eth-protocol-version-69+)
+    (eth-validate-block-range
+     (eth-status-earliest-block theirs)
+     (eth-status-latest-block theirs)
+     (eth-status-latest-block-hash theirs)))
   (when chain-context
     (validate-peer-fork-id (eth-chain-context-config chain-context)
                            (eth-chain-context-genesis-hash chain-context)
@@ -232,6 +248,17 @@ success."
                            (eth-status-fork-id theirs)
                            (eth-chain-context-genesis-timestamp chain-context)))
   theirs)
+
+(defun eth-validate-block-range (earliest latest latest-hash)
+  "Validate an eth/69 served range and return true."
+  (unless (and (integerp earliest) (integerp latest)
+               (<= 0 earliest latest))
+    (error "eth block range is invalid: ~S through ~S" earliest latest))
+  (let ((hash (ensure-byte-vector latest-hash)))
+    (unless (and (= (length hash) 32)
+                 (not (every #'zerop hash)))
+      (error "eth block range latest hash must be a non-zero 32-byte hash")))
+  t)
 
 (defun eth-peer-handshake (connection eth-offset eth-version our-status
                            &key chain-context serve-backend remote-hello)

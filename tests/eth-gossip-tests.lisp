@@ -158,6 +158,31 @@ given, is a predicate marking transactions the pool turns down."
     (is (bytes= (hash32-bytes (block-hash block))
                 (hash32-bytes (block-hash accepted))))))
 
+(deftest eth-gossip-applies-block-range-updates-without-a-serve-backend
+  (:layer :unit :module :p2p)
+  (let* ((old-hash
+           (hex-to-bytes
+            "0x1111111111111111111111111111111111111111111111111111111111111111"))
+         (new-hash
+           (hex-to-bytes
+            "0x2222222222222222222222222222222222222222222222222222222222222222"))
+         (status
+           (ethereum-lisp.eth-wire:make-eth-status
+            :version 69 :earliest-block 1 :latest-block 10
+            :latest-block-hash old-hash))
+         (peer
+           (ethereum-lisp.eth-sync::%make-eth-peer
+            :eth-version 69 :remote-status status)))
+    (is (ethereum-lisp.eth-sync:eth-peer-gossip-message
+         peer ethereum-lisp.eth-wire:+eth-message-block-range-update+
+         (ethereum-lisp.eth-wire:encode-eth-block-range-update
+          (ethereum-lisp.eth-wire:make-eth-block-range 5 20 new-hash))))
+    (is (= 5 (ethereum-lisp.eth-wire:eth-status-earliest-block status)))
+    (is (= 20 (ethereum-lisp.eth-wire:eth-status-latest-block status)))
+    (is (bytes=
+         new-hash
+         (ethereum-lisp.eth-wire:eth-status-latest-block-hash status)))))
+
 (deftest eth-pooled-transaction-messages-round-trip
   (:layer :unit :module :p2p)
   (let ((hashes (list (eth-gossip-transaction-hash-bytes

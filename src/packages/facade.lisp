@@ -528,6 +528,7 @@
    #:eth-wire-read
    #:eth-wire-read-once
    #:eth-peer-send
+   #:eth-peer-send-block-range-update
    #:eth-peer-read
    #:eth-peer-read-once
    #:eth-build-status
@@ -536,6 +537,7 @@
    #:eth-chain-context-record-compatible-p
    #:eth-chain-context-record-pairs
    #:eth-validate-peer-status
+   #:eth-validate-block-range
    #:eth-peer-handshake
    #:eth-peer-connect
    #:eth-peer-next-request-id

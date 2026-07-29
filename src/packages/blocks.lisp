@@ -188,6 +188,13 @@
    #:decode-eth-status-69
    #:encode-eth-status-for-version
    #:decode-eth-status-for-version
+   #:eth-block-range
+   #:make-eth-block-range
+   #:eth-block-range-earliest-block
+   #:eth-block-range-latest-block
+   #:eth-block-range-latest-block-hash
+   #:encode-eth-block-range-update
+   #:decode-eth-block-range-update
    #:eth-new-block-hash
    #:make-eth-new-block-hash
    #:eth-new-block-hash-hash
@@ -241,6 +248,10 @@
    #:eth-receipt-rlp-object
    #:eth-block-receipts-rlp-object
    #:encode-eth-receipts
+   #:eth-wire-receipt
+   #:eth-wire-receipt-transaction-type
+   #:eth-wire-receipt-receipt
+   #:decode-eth-receipts
    #:eth-fork-hash
    #:compute-eth-fork-id
    #:chain-config-eth-fork-id
