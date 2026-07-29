@@ -207,6 +207,8 @@
    #:+eth-message-new-pooled-transaction-hashes+
    #:+eth-message-get-pooled-transactions+
    #:+eth-message-pooled-transactions+
+   #:eth-pooled-entry-transaction
+   #:eth-pooled-entry-sidecar
    #:encode-eth-transactions
    #:decode-eth-transactions
    #:encode-eth-new-pooled-transaction-hashes

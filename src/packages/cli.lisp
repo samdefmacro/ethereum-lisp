@@ -8,6 +8,8 @@
                 #:engine-target-gas-limit)
   (:import-from #:ethereum-lisp.engine-api
                 #:engine-rpc-improve-open-payloads)
+  (:import-from #:ethereum-lisp.eth-wire
+                #:eth-pooled-entry-transaction)
   (:import-from #:ethereum-lisp.txpool
                 #:engine-payload-store-enable-txpool-database-change-tracking
                 #:engine-payload-store-txpool-database-change-tracking-enabled-p

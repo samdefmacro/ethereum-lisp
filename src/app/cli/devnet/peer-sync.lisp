@@ -28,6 +28,35 @@ addresses — the same rule go-ethereum's --txpool.locals uses."
    :local-addresses (devnet-node-txpool-local-addresses node)
    :no-local-exemptions-p (devnet-node-txpool-no-local-exemptions-p node)))
 
+(defun devnet-store-blob-transaction-sidecar (store transaction)
+  (let ((blobs '())
+        (commitments '())
+        (proofs '())
+        (missing-p nil))
+    (dolist (versioned-hash
+             (blob-transaction-blob-versioned-hashes transaction))
+      (let ((entry
+              (engine-payload-store-blob-and-proofs-v1
+               store versioned-hash)))
+        (unless entry
+          (setf missing-p t))
+        (when entry
+          (push
+           (ethereum-lisp.chain-store.model:engine-blob-and-proofs-blob entry)
+           blobs)
+          (push
+           (ethereum-lisp.chain-store.model:engine-blob-and-proofs-commitment
+            entry)
+           commitments)
+          (push
+           (ethereum-lisp.chain-store.model:engine-blob-and-proofs-proof entry)
+           proofs))))
+    (unless missing-p
+      (make-blob-sidecar
+       :blobs (nreverse blobs)
+       :commitments (nreverse commitments)
+       :proofs (nreverse proofs)))))
+
 (defun devnet-peer-serve-backend (node)
   "A serve backend answering a peer's requests and gossip from NODE's store.
 
@@ -56,6 +85,11 @@ take the guard for the whole admission, since that mutates the pool."
          (guarded (lambda ()
                     (engine-payload-store-pooled-transaction
                      store (make-hash32 hash)))))
+       :pooled-transaction-sidecar
+       (lambda (transaction)
+         (guarded
+          (lambda ()
+            (devnet-store-blob-transaction-sidecar store transaction))))
        :known-transaction-p
        (lambda (hash)
          (guarded (lambda ()
@@ -65,11 +99,22 @@ take the guard for the whole admission, since that mutates the pool."
                                t)
                           (and (chain-store-transaction-location store key) t))))))
        :accept-transaction
-       (lambda (transaction)
-         (guarded (lambda ()
-                    (txpool-admit-transaction
-                     transaction store config policy
-                     :admitted-at (unix-time)))))))))
+       (lambda (transaction &optional sidecar)
+         (guarded
+          (lambda ()
+            (when (typep transaction 'blob-transaction)
+              (unless sidecar
+                (block-validation-fail
+                 "Peer blob transaction requires a sidecar"))
+              (validate-blob-sidecar-fields
+               sidecar :transaction transaction
+               :require-proof-verification t))
+            (prog1
+                (txpool-admit-transaction
+                 transaction store config policy
+                 :admitted-at (unix-time))
+              (when sidecar
+                (engine-payload-store-put-blob-sidecar store sidecar))))))))))
 
 (defconstant +devnet-broadcast-batch-limit+ 64
   "How many transactions we push to one peer in a single tick. Our policy: a
@@ -108,27 +153,41 @@ never as another thread sending on the peer."
            (lambda ()
              (multiple-value-bind (hashes current overflow-p)
                  (engine-payload-store-txpool-changes-since store cursor)
-               (values
-                (if overflow-p
-                    (engine-payload-store-pooled-transactions store)
-                    (remove
-                     nil
-                     (mapcar
-                      (lambda (hash)
-                        (engine-payload-store-pooled-transaction store hash))
-                      hashes)))
-                current))))
+               (let ((transactions
+                       (if overflow-p
+                           (engine-payload-store-pooled-transactions store)
+                           (remove
+                            nil
+                            (mapcar
+                             (lambda (hash)
+                               (engine-payload-store-pooled-transaction
+                                store hash))
+                             hashes)))))
+                 (values
+                  (remove
+                   nil
+                   (mapcar
+                    (lambda (transaction)
+                      (if (typep transaction 'blob-transaction)
+                          (let ((sidecar
+                                  (devnet-store-blob-transaction-sidecar
+                                   store transaction)))
+                            (and sidecar (cons transaction sidecar)))
+                          transaction))
+                    transactions))
+                  current)))))
         (setf cursor next-cursor)
         (let ((fresh '()))
-          (dolist (transaction transactions)
+          (dolist (entry transactions)
           (when (< (length fresh) +devnet-broadcast-batch-limit+)
-            (let ((hash (hash32-bytes (transaction-hash transaction))))
+            (let* ((transaction (eth-pooled-entry-transaction entry))
+                   (hash (hash32-bytes (transaction-hash transaction))))
               (unless (gethash hash known)
                 (when (>= (hash-table-count known)
                           +devnet-peer-known-transaction-limit+)
                   (clrhash known))
                 (setf (gethash hash known) t)
-                (push transaction fresh)))))
+                (push entry fresh)))))
           (nreverse fresh))))))
 
 (defun devnet-peer-sync-import-block (node block)

@@ -545,6 +545,7 @@
    #:eth-serve-backend-block-by-number
    #:eth-serve-backend-block-by-hash
    #:eth-serve-backend-pooled-transaction
+   #:eth-serve-backend-pooled-transaction-sidecar
    #:eth-serve-backend-known-transaction-p
    #:eth-serve-backend-accept-transaction
    #:eth-serve-ancestor-hash

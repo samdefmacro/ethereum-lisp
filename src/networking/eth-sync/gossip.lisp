@@ -12,13 +12,8 @@
 ;;;; the same payload does not arrive from every neighbour at once. Both ends
 ;;;; reach the pool through the same backend the request handlers use.
 ;;;;
-;;;; BLOB TRANSACTIONS ARE NOT GOSSIPED, in either direction. Their pooled form
-;;;; carries the sidecar, whose wire representation has moved across recent
-;;;; protocol versions, and we build no blob payloads yet in any case.
-;;;; Announcing one would promise a transaction we could not then serve, so blob
-;;;; transactions are filtered out of every announcement, broadcast, and reply.
-;;;; Receiving one still works: it decodes and is offered to the pool like any
-;;;; other transaction.
+;;;; Blob transactions use an entry of (TRANSACTION . SIDECAR).  They are
+;;;; announced only when the backend can serve the verified sidecar.
 
 (defconstant +eth-max-pooled-transactions-serve+ 256
   "How many hashes one GetPooledTransactions request is answered for, from
@@ -31,7 +26,10 @@ grow without bound.")
 
 (defun eth-gossipable-transaction-p (transaction)
   "Whether TRANSACTION may be announced or pushed to a peer."
-  (not (typep transaction 'blob-transaction)))
+  (let ((entry transaction)
+        (transaction (eth-pooled-entry-transaction transaction)))
+    (or (not (typep transaction 'blob-transaction))
+        (eth-pooled-entry-sidecar entry))))
 
 ;;; Sending.
 
@@ -66,10 +64,16 @@ us the connection."
   (let ((accept (eth-serve-backend-accept-transaction backend))
         (accepted 0))
     (when accept
-      (dolist (transaction transactions)
-        (when (ignore-errors (funcall accept transaction) t)
+      (dolist (entry transactions)
+        (let ((transaction (eth-pooled-entry-transaction entry))
+              (sidecar (eth-pooled-entry-sidecar entry)))
+        (when (ignore-errors
+                (if sidecar
+                    (funcall accept transaction sidecar)
+                    (funcall accept transaction))
+                t)
           (incf accepted))))
-    accepted))
+    accepted)))
 
 (defun eth-peer-announced-hash-table (peer)
   (or (eth-peer-announced-hashes peer)
@@ -104,6 +108,8 @@ re-announcing what we have costs nothing."
 Hashes we cannot serve are left out: the reply may be short and reordered, and
 the peer matches it up by hash rather than by position."
   (let ((pooled (eth-serve-backend-pooled-transaction backend))
+        (sidecar-reader
+          (eth-serve-backend-pooled-transaction-sidecar backend))
         (found '())
         (examined 0))
     (when pooled
@@ -111,9 +117,16 @@ the peer matches it up by hash rather than by position."
         (when (>= examined +eth-max-pooled-transactions-serve+)
           (return))
         (incf examined)
-        (let ((transaction (when (= (length hash) 32) (funcall pooled hash))))
-          (when (and transaction (eth-gossipable-transaction-p transaction))
-            (push transaction found)))))
+        (let* ((transaction
+                 (when (= (length hash) 32) (funcall pooled hash)))
+               (sidecar
+                 (and transaction
+                      (typep transaction 'blob-transaction)
+                      sidecar-reader
+                      (funcall sidecar-reader transaction)))
+               (entry (if sidecar (cons transaction sidecar) transaction)))
+          (when (and transaction (eth-gossipable-transaction-p entry))
+            (push entry found)))))
     (nreverse found)))
 
 (defun eth-peer-take-announced-hashes (peer limit)

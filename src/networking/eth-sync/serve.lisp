@@ -26,6 +26,7 @@
 (defstruct (eth-serve-backend
             (:constructor make-eth-serve-backend
                 (&key block-by-number block-by-hash pooled-transaction
+                      pooled-transaction-sidecar
                       known-transaction-p accept-transaction)))
   "What a peer's messages are answered from, as closures rather than a store.
 
@@ -41,6 +42,7 @@ by signalling. Any of them may be NIL, which turns off just that part."
   block-by-number
   block-by-hash
   pooled-transaction
+  pooled-transaction-sidecar
   known-transaction-p
   accept-transaction)
 
