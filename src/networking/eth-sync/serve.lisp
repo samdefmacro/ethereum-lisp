@@ -26,7 +26,8 @@
 (defstruct (eth-serve-backend
             (:constructor make-eth-serve-backend
                 (&key block-by-number block-by-hash pooled-transaction
-                      known-transaction-p accept-transaction accept-block)))
+                      known-transaction-p accept-transaction accept-block
+                      block-access-list blob-cells)))
   "What a peer's messages are answered from, as closures rather than a store.
 
 BLOCK-BY-NUMBER returns the canonical block at a block number; BLOCK-BY-HASH
@@ -45,7 +46,11 @@ by signalling. Any of them may be NIL, which turns off just that part."
   accept-transaction
   ;; Validate/import or buffer a propagated full block. NIL disables block
   ;; propagation without coupling this protocol layer to a chain store.
-  accept-block)
+  accept-block
+  ;; eth/71: return an RLP object for HASH, or NIL when unavailable.
+  block-access-list
+  ;; eth/72: (HASHES MASK) -> response hashes, cell groups, response mask.
+  blob-cells)
 
 (defun eth-serve-block-by-number (backend number)
   (let ((reader (eth-serve-backend-block-by-number backend)))
@@ -70,7 +75,24 @@ by signalling. Any of them may be NIL, which turns off just that part."
 (defun eth-serve-ancestor-hash (backend hash steps)
   "The hash STEPS parent links back from the block HASH, or NIL if the walk
 leaves the blocks we hold or runs past genesis."
-  (let ((current hash))
+  (let* ((origin (eth-serve-block-by-hash backend hash))
+         (origin-number
+           (and origin (block-header-number (block-header origin))))
+         (canonical-origin
+           (and origin-number
+                (eth-serve-block-by-number backend origin-number))))
+    ;; A canonical hash origin can jump by number. Besides making large skips
+    ;; constant-time, comparing the canonical block at the origin preserves the
+    ;; side-chain rule: non-canonical origins still follow their own parents.
+    (when (and canonical-origin
+               (bytes= hash (hash32-bytes (block-hash canonical-origin))))
+      (when (< origin-number steps)
+        (return-from eth-serve-ancestor-hash nil))
+      (let ((ancestor
+              (eth-serve-block-by-number backend (- origin-number steps))))
+        (return-from eth-serve-ancestor-hash
+          (and ancestor (hash32-bytes (block-hash ancestor))))))
+    (let ((current hash))
     (loop repeat steps
           do (let ((block (eth-serve-block-by-hash backend current)))
                (when (null block)
@@ -80,7 +102,7 @@ leaves the blocks we hold or runs past genesis."
                    (return-from eth-serve-ancestor-hash nil))
                  (setf current (hash32-bytes
                                 (block-header-parent-hash header))))))
-    current))
+      current)))
 
 (defun eth-serve-headers (backend request)
   "Resolve a GetBlockHeaders REQUEST against BACKEND and return the headers.
@@ -211,14 +233,45 @@ serve backend — so the caller can handle it."
                            request-id (eth-serve-bodies backend hashes))))
          t)
         ((= eth-id +eth-message-get-receipts+)
-         (multiple-value-bind (request-id hashes)
-             (decode-eth-get-receipts payload)
-           (let ((version (eth-peer-eth-version peer)))
+         (let ((version (eth-peer-eth-version peer)))
+           (multiple-value-bind (request-id hashes first-index)
+               (decode-eth-get-receipts payload version)
              (eth-peer-send peer +eth-message-receipts+
                             (encode-eth-receipts
                              request-id
                              (eth-serve-receipt-blocks backend hashes version)
-                             version))))
+                             version
+                             :first-block-receipt-index first-index))))
+         t)
+        ((= eth-id +eth-message-get-block-access-lists+)
+         (when (< (eth-peer-eth-version peer) +eth-protocol-version-71+)
+           (error "GetBlockAccessLists requires eth/71 or later"))
+         (multiple-value-bind (request-id hashes)
+             (decode-eth-get-block-access-lists payload)
+           (let ((reader (eth-serve-backend-block-access-list backend)))
+             (eth-peer-send
+              peer +eth-message-block-access-lists+
+              (encode-eth-block-access-lists
+               request-id
+               (mapcar (lambda (hash)
+                         (or (and reader (funcall reader hash))
+                             (make-byte-vector 0)))
+                       hashes)))))
+         t)
+        ((= eth-id +eth-message-get-cells+)
+         (when (< (eth-peer-eth-version peer) +eth-protocol-version-72+)
+           (error "GetCells requires eth/72"))
+         (multiple-value-bind (request-id hashes mask)
+             (decode-eth-get-cells payload)
+           (let ((reader (eth-serve-backend-blob-cells backend)))
+             (multiple-value-bind (response-hashes groups response-mask)
+                 (if reader
+                     (funcall reader hashes mask)
+                     (values nil nil mask))
+               (eth-peer-send
+                peer +eth-message-cells+
+                (encode-eth-cells request-id response-hashes groups
+                                  response-mask)))))
          t)
         (t nil)))))
 

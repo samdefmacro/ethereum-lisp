@@ -14,14 +14,18 @@
 follow.")
 
 (defparameter +devp2p-capability-message-counts+
-  '(("eth" . 18)
+  '(("eth" (68 . 17) (69 . 18) (70 . 18) (71 . 20) (72 . 22))
     ("snap" . 8))
-  "Number of message ids each supported capability occupies, used to lay out
-capability blocks during negotiation.")
+  "Message-id block lengths by capability and, where they differ, version.")
 
-(defun devp2p-capability-message-count (name)
-  (or (cdr (assoc name +devp2p-capability-message-counts+ :test #'string=))
-      (error "capability ~S has no known message-id block length" name)))
+(defun devp2p-capability-message-count (name &optional version)
+  (let ((definition
+          (cdr (assoc name +devp2p-capability-message-counts+ :test #'string=))))
+    (cond
+      ((integerp definition) definition)
+      ((and version (assoc version definition)) (cdr (assoc version definition)))
+      (t (error "capability ~S version ~S has no known message-id block length"
+                name version)))))
 
 (define-condition rlpx-disconnect (error)
   ((reason :initarg :reason :reader rlpx-disconnect-reason))
@@ -66,7 +70,7 @@ devp2p capability multiplexing rules require."
       (dolist (entry shared (nreverse result))
         (destructuring-bind (name . version) entry
           (push (%make-rlpx-shared-capability name version offset) result)
-          (incf offset (devp2p-capability-message-count name)))))))
+          (incf offset (devp2p-capability-message-count name version)))))))
 
 (defun rlpx-shared-capability-named (shared-caps name)
   "Return the shared capability called NAME, or NIL if it was not negotiated."

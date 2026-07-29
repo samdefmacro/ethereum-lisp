@@ -1,6 +1,6 @@
 (in-package #:ethereum-lisp.eth-wire)
 
-;;;; The "eth" wire protocol (eth/68) message codecs.
+;;;; The "eth" wire protocol (eth/68 through eth/72) message codecs.
 ;;;;
 ;;;; These are the messages a peer uses to sync the chain. They ride the RLPx
 ;;;; frame codec as ordinary devp2p messages, at message ids offset past the
@@ -11,11 +11,12 @@
 
 (defconstant +eth-protocol-version+ 68)
 (defconstant +eth-protocol-version-69+ 69)
+(defconstant +eth-protocol-version-70+ 70)
+(defconstant +eth-protocol-version-71+ 71)
+(defconstant +eth-protocol-version-72+ 72)
 
-(defparameter +eth-supported-protocol-versions+ '(69 68)
-  "eth wire versions we speak, highest first. eth/69 (EIP-7642) drops total
-difficulty from Status and adds a block range; the header/body messages are
-unchanged, so download works across both.")
+(defparameter +eth-supported-protocol-versions+ '(72 71 70 69 68)
+  "eth wire versions we speak, highest first.")
 
 (defconstant +eth-max-message-size+ (* 10 1024 1024)
   "Maximum decoded eth message size, matching go-ethereum 1.17.6.")
@@ -42,6 +43,10 @@ unchanged, so download works across both.")
 (defconstant +eth-message-receipts+ #x10)
 ;; eth/69 adds a block-range announcement past the eth/68 id space.
 (defconstant +eth-message-block-range-update+ #x11)
+(defconstant +eth-message-get-block-access-lists+ #x12)
+(defconstant +eth-message-block-access-lists+ #x13)
+(defconstant +eth-message-get-cells+ #x14)
+(defconstant +eth-message-cells+ #x15)
 
 ;; The base "p2p" protocol reserves ids 0x00-0x0f, so a capability's ids are
 ;; offset past it.
@@ -368,28 +373,32 @@ otherwise a block number."
                :allow-trailing t
                :max-list-items +eth-max-transactions-per-message+)))
 
-(defun encode-eth-new-pooled-transaction-hashes (transactions)
-  "Encode an eth/68 announcement of TRANSACTIONS as three equal-length columns:
-the types packed into one byte string, the consensus encoding sizes, and the
-hashes. (eth/72 adds a fourth column of blob cell custody; we speak 68 and 69,
-which do not have it.)"
-  (rlp-encode
-   (make-rlp-list
-    (map 'byte-vector #'transaction-type transactions)
-    (apply #'make-rlp-list
-           (mapcar (lambda (transaction)
-                     (integer-to-minimal-bytes
-                      (length (transaction-encoding transaction))))
-                   transactions))
-    (apply #'make-rlp-list
-           (mapcar (lambda (transaction)
-                     (hash32-bytes (transaction-hash transaction)))
-                   transactions)))))
+(defun encode-eth-new-pooled-transaction-hashes
+    (transactions &key (version +eth-protocol-version-71+)
+                       (custody-mask (make-byte-vector 16)))
+  "Encode a transaction announcement. eth/72 appends its 16-byte custody mask."
+  (let ((fields
+          (list
+           (map 'byte-vector #'transaction-type transactions)
+           (apply #'make-rlp-list
+                  (mapcar (lambda (transaction)
+                            (integer-to-minimal-bytes
+                             (length (transaction-encoding transaction))))
+                          transactions))
+           (apply #'make-rlp-list
+                  (mapcar (lambda (transaction)
+                            (hash32-bytes (transaction-hash transaction)))
+                          transactions)))))
+    (when (>= version +eth-protocol-version-72+)
+      (let ((mask (ensure-byte-vector custody-mask)))
+        (unless (= (length mask) 16)
+          (error "eth/72 custody mask must contain 16 bytes"))
+        (setf fields (append fields (list mask)))))
+    (rlp-encode (apply #'make-rlp-list fields))))
 
-(defun decode-eth-new-pooled-transaction-hashes (bytes)
-  "Decode an announcement into (VALUES TYPES SIZES HASHES), three equal-length
-lists. A message whose columns disagree is malformed and is rejected here rather
-than leaving the caller to pair up mismatched columns."
+(defun decode-eth-new-pooled-transaction-hashes
+    (bytes &optional (version +eth-protocol-version-71+))
+  "Decode an announcement into (VALUES TYPES SIZES HASHES CUSTODY-MASK)."
   (let* ((items (rlp-list-items
                  (rlp-decode
                   (ensure-byte-vector bytes)
@@ -405,12 +414,25 @@ than leaving the caller to pair up mismatched columns."
                           (bytes-to-integer (ensure-byte-vector size)))
                         (rlp-list-items (second items))))
            (hashes
-             (mapcar #'ensure-byte-vector (rlp-list-items (third items)))))
+             (mapcar #'ensure-byte-vector (rlp-list-items (third items))))
+           (mask
+             (when (>= version +eth-protocol-version-72+)
+               (unless (= (length items) 4)
+                 (error "eth/72 NewPooledTransactionHashes needs four fields"))
+               (let ((value (ensure-byte-vector (fourth items))))
+                 (unless (= (length value) 16)
+                   (error "eth/72 custody mask must contain 16 bytes"))
+                 value))))
+      (when (and (< version +eth-protocol-version-72+) (/= (length items) 3))
+        (error "pre-eth/72 NewPooledTransactionHashes needs three fields"))
+      (dolist (hash hashes)
+        (unless (= (length hash) 32)
+          (error "eth transaction announcement hash must contain 32 bytes")))
       (unless (= (length types) (length sizes) (length hashes))
         (error "eth NewPooledTransactionHashes has ~D types, ~D sizes, and ~D ~
               hashes, which must be equal"
                (length types) (length sizes) (length hashes)))
-      (values types sizes hashes))))
+      (values types sizes hashes mask))))
 
 (defun encode-eth-get-pooled-transactions (request-id hashes)
   (rlp-encode
@@ -441,6 +463,101 @@ no longer had that transaction, so the caller matches by hash, not by position."
     (values (bytes-to-integer (ensure-byte-vector (first items)))
             (block-transactions-from-rlp-object (second items)))))
 
+;;; eth/71 block access lists and eth/72 blob cells. BAL values stay as RLP
+;;; objects because an empty byte string means unavailable while an empty list
+;;; is a valid access list.
+
+(defun eth-wire-hashes (value context)
+  (let ((hashes (mapcar #'ensure-byte-vector (rlp-list-items value))))
+    (when (> (length hashes) +eth-max-transaction-announcements+)
+      (error "~A contains too many hashes" context))
+    (dolist (hash hashes)
+      (unless (= (length hash) 32)
+        (error "~A hash must contain 32 bytes" context)))
+    hashes))
+
+(defun encode-eth-get-block-access-lists (request-id hashes)
+  (rlp-encode
+   (make-rlp-list
+    (integer-to-minimal-bytes request-id)
+    (apply #'make-rlp-list (mapcar #'ensure-byte-vector hashes)))))
+
+(defun decode-eth-get-block-access-lists (bytes)
+  (let ((items (rlp-list-items (rlp-decode (ensure-byte-vector bytes)))))
+    (unless (= (length items) 2)
+      (error "eth/71 GetBlockAccessLists must contain two fields"))
+    (values (bytes-to-integer (ensure-byte-vector (first items)))
+            (eth-wire-hashes (second items) "GetBlockAccessLists"))))
+
+(defun encode-eth-block-access-lists (request-id access-lists)
+  (rlp-encode
+   (make-rlp-list
+    (integer-to-minimal-bytes request-id)
+    (apply #'make-rlp-list access-lists))))
+
+(defun decode-eth-block-access-lists (bytes)
+  (let ((items (rlp-list-items (rlp-decode (ensure-byte-vector bytes)))))
+    (unless (= (length items) 2)
+      (error "eth/71 BlockAccessLists must contain two fields"))
+    (values (bytes-to-integer (ensure-byte-vector (first items)))
+            (rlp-list-items (second items)))))
+
+(defun eth-custody-mask (value context)
+  (let ((mask (ensure-byte-vector value)))
+    (unless (= (length mask) 16)
+      (error "~A custody mask must contain 16 bytes" context))
+    mask))
+
+(defun encode-eth-get-cells (request-id hashes custody-mask)
+  (rlp-encode
+   (make-rlp-list
+    (integer-to-minimal-bytes request-id)
+    (apply #'make-rlp-list (mapcar #'ensure-byte-vector hashes))
+    (eth-custody-mask custody-mask "GetCells"))))
+
+(defun decode-eth-get-cells (bytes)
+  (let ((items (rlp-list-items (rlp-decode (ensure-byte-vector bytes)))))
+    (unless (= (length items) 3)
+      (error "eth/72 GetCells must contain three fields"))
+    (values (bytes-to-integer (ensure-byte-vector (first items)))
+            (eth-wire-hashes (second items) "GetCells")
+            (eth-custody-mask (third items) "GetCells"))))
+
+(defun encode-eth-cells (request-id hashes cell-groups custody-mask)
+  (unless (= (length hashes) (length cell-groups))
+    (error "eth/72 Cells hashes and cell groups must have equal lengths"))
+  (rlp-encode
+   (make-rlp-list
+    (integer-to-minimal-bytes request-id)
+    (apply #'make-rlp-list (mapcar #'ensure-byte-vector hashes))
+    (apply #'make-rlp-list
+           (mapcar (lambda (group)
+                     (apply #'make-rlp-list
+                            (mapcar #'ensure-byte-vector group)))
+                   cell-groups))
+    (eth-custody-mask custody-mask "Cells"))))
+
+(defun decode-eth-cells (bytes)
+  (let ((items (rlp-list-items (rlp-decode (ensure-byte-vector bytes)))))
+    (unless (= (length items) 4)
+      (error "eth/72 Cells must contain four fields"))
+    (let ((hashes (eth-wire-hashes (second items) "Cells"))
+          (groups
+            (mapcar
+             (lambda (group)
+               (mapcar
+                (lambda (cell)
+                  (let ((bytes (ensure-byte-vector cell)))
+                    (unless (= (length bytes) 2048)
+                      (error "eth/72 blob cell must contain 2048 bytes"))
+                    bytes))
+                (rlp-list-items group)))
+             (rlp-list-items (third items)))))
+      (unless (= (length hashes) (length groups))
+        (error "eth/72 Cells hashes and cell groups must have equal lengths"))
+      (values (bytes-to-integer (ensure-byte-vector (first items)))
+              hashes groups (eth-custody-mask (fourth items) "Cells")))))
+
 ;;; GetReceipts / Receipts. The reply carries one list of receipts per block
 ;;; whose hash was asked for; a block we do not have is left out rather than
 ;;; held a place, so the reply is not positional.
@@ -453,18 +570,39 @@ no longer had that transaction, so the caller matches by hash, not by position."
 ;;; recomputes from the logs, and hoists the transaction type into a flat list:
 ;;; [type, status, cumulative-gas, logs], with legacy receipts carrying type 0.
 
-(defun encode-eth-get-receipts (request-id hashes)
+(defun encode-eth-get-receipts
+    (request-id hashes &optional (version +eth-protocol-version-69+)
+                                 (first-block-receipt-index 0))
   (rlp-encode
-   (make-rlp-list
-    (integer-to-minimal-bytes request-id)
-    (apply #'make-rlp-list (mapcar #'ensure-byte-vector hashes)))))
+   (if (>= version +eth-protocol-version-70+)
+       (make-rlp-list
+        (integer-to-minimal-bytes request-id)
+        (integer-to-minimal-bytes first-block-receipt-index)
+        (apply #'make-rlp-list (mapcar #'ensure-byte-vector hashes)))
+       (make-rlp-list
+        (integer-to-minimal-bytes request-id)
+        (apply #'make-rlp-list (mapcar #'ensure-byte-vector hashes))))))
 
-(defun decode-eth-get-receipts (bytes)
-  "Decode a GetReceipts request into (VALUES REQUEST-ID HASHES)."
+(defun decode-eth-get-receipts
+    (bytes &optional (version +eth-protocol-version-69+))
+  "Decode GetReceipts into REQUEST-ID, HASHES, and FIRST-RECEIPT-INDEX."
   (let ((items (rlp-list-items
                 (rlp-decode (ensure-byte-vector bytes) :allow-trailing t))))
-    (values (bytes-to-integer (ensure-byte-vector (first items)))
-            (mapcar #'ensure-byte-vector (rlp-list-items (second items))))))
+    (if (>= version +eth-protocol-version-70+)
+        (progn
+          (unless (= (length items) 3)
+            (error "eth/70 GetReceipts must contain three fields"))
+          (values
+           (bytes-to-integer (ensure-byte-vector (first items)))
+           (mapcar #'ensure-byte-vector (rlp-list-items (third items)))
+           (bytes-to-integer (ensure-byte-vector (second items)))))
+        (progn
+          (unless (= (length items) 2)
+            (error "eth/69 GetReceipts must contain two fields"))
+          (values (bytes-to-integer (ensure-byte-vector (first items)))
+                  (mapcar #'ensure-byte-vector
+                          (rlp-list-items (second items)))
+                  0)))))
 
 (defun eth-receipt-rlp-object (transaction receipt version)
   "RLP object for RECEIPT in the wire format of the negotiated eth VERSION.
@@ -485,7 +623,7 @@ prefix byte and eth/69 carries as the first field."
             (rlp-decode-one encoded)
             encoded))))
 
-(defun eth-block-receipts-rlp-object (block version)
+(defun eth-block-receipts-rlp-object (block version &optional (start 0))
   "RLP object for every receipt of BLOCK, in the negotiated VERSION's format."
   (let ((transactions (block-transactions block))
         (receipts (block-receipts block)))
@@ -493,19 +631,34 @@ prefix byte and eth/69 carries as the first field."
       (error "block has ~D transactions but ~D receipts, so its receipts ~
               cannot be served"
              (length transactions) (length receipts)))
+    (when (> start (length receipts))
+      (error "receipt start index ~D exceeds block receipt count ~D"
+             start (length receipts)))
     (apply #'make-rlp-list
            (mapcar (lambda (transaction receipt)
                      (eth-receipt-rlp-object transaction receipt version))
-                   transactions receipts))))
+                   (nthcdr start transactions)
+                   (nthcdr start receipts)))))
 
-(defun encode-eth-receipts (request-id blocks version)
+(defun encode-eth-receipts
+    (request-id blocks version &key (first-block-receipt-index 0)
+                                    last-block-incomplete)
   "Encode a Receipts reply carrying the receipts of each block in BLOCKS."
-  (rlp-encode
-   (make-rlp-list
-    (integer-to-minimal-bytes request-id)
-    (apply #'make-rlp-list
-           (mapcar (lambda (block) (eth-block-receipts-rlp-object block version))
-                   blocks)))))
+  (let ((groups
+          (loop for block in blocks
+                for first = t then nil
+                collect (eth-block-receipts-rlp-object
+                         block version
+                         (if first first-block-receipt-index 0)))))
+    (rlp-encode
+     (if (>= version +eth-protocol-version-70+)
+         (make-rlp-list
+          (integer-to-minimal-bytes request-id)
+          (if last-block-incomplete #(1) (make-byte-vector 0))
+          (apply #'make-rlp-list groups))
+         (make-rlp-list
+          (integer-to-minimal-bytes request-id)
+          (apply #'make-rlp-list groups))))))
 
 (defstruct (eth-wire-receipt
             (:constructor make-eth-wire-receipt (transaction-type receipt)))
@@ -572,18 +725,28 @@ prefix byte and eth/69 carries as the first field."
         (eth-wire-receipt-from-fields type fields))))
 
 (defun decode-eth-receipts (bytes version)
-  "Decode a Receipts reply into (VALUES REQUEST-ID BLOCK-RECEIPT-GROUPS).
+  "Decode into REQUEST-ID, BLOCK-RECEIPT-GROUPS, and LAST-BLOCK-INCOMPLETE.
 
 Each item is an ETH-WIRE-RECEIPT pairing the transaction type carried by the
 wire format with its decoded receipt."
   (let ((items
           (rlp-list-items
            (rlp-decode (ensure-byte-vector bytes) :allow-trailing t))))
-    (values
-     (bytes-to-integer (ensure-byte-vector (first items)))
-     (mapcar
-      (lambda (group)
-        (mapcar (lambda (value)
-                  (eth-wire-receipt-from-object value version))
-                (rlp-list-items group)))
-      (rlp-list-items (second items))))))
+    (let* ((version-70-p (>= version +eth-protocol-version-70+))
+           (groups (if version-70-p (third items) (second items)))
+           (incomplete
+             (and version-70-p
+                  (not (zerop
+                        (bytes-to-integer
+                         (ensure-byte-vector (second items))))))))
+      (unless (= (length items) (if version-70-p 3 2))
+        (error "eth Receipts has the wrong field count for version ~D" version))
+      (values
+       (bytes-to-integer (ensure-byte-vector (first items)))
+       (mapcar
+        (lambda (group)
+          (mapcar (lambda (value)
+                    (eth-wire-receipt-from-object value version))
+                  (rlp-list-items group)))
+        (rlp-list-items groups))
+       incomplete))))

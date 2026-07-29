@@ -226,6 +226,62 @@
     (is (= 3 (ethereum-lisp.eth-wire:eth-get-block-headers-skip decoded)))
     (is (ethereum-lisp.eth-wire:eth-get-block-headers-reverse decoded))))
 
+(deftest eth-70-through-72-incremental-codecs-round-trip
+  (:layer :unit :module :p2p)
+  (let ((hash (make-byte-vector 32 :initial-element #x33)))
+    (multiple-value-bind (request-id hashes first-index)
+        (ethereum-lisp.eth-wire:decode-eth-get-receipts
+         (ethereum-lisp.eth-wire:encode-eth-get-receipts
+          7 (list hash) 70 12)
+         70)
+      (is (= 7 request-id))
+      (is (= 12 first-index))
+      (is (bytes= hash (first hashes))))
+    (let* ((available (make-rlp-list (make-byte-vector 0)))
+           (encoded
+             (ethereum-lisp.eth-wire:encode-eth-block-access-lists
+              8 (list available (make-byte-vector 0)))))
+      (multiple-value-bind (request-id lists)
+          (ethereum-lisp.eth-wire:decode-eth-block-access-lists encoded)
+        (is (= 8 request-id))
+        (is (rlp-list-p (first lists)))
+        (is (zerop (length (ensure-byte-vector (second lists)))))))
+    (let ((mask (make-byte-vector 16 :initial-element #x05))
+          (cell (make-byte-vector 2048 :initial-element #xa5)))
+      (multiple-value-bind (request-id hashes groups decoded-mask)
+          (ethereum-lisp.eth-wire:decode-eth-cells
+           (ethereum-lisp.eth-wire:encode-eth-cells
+            9 (list hash) (list (list cell)) mask))
+        (is (= 9 request-id))
+        (is (bytes= hash (first hashes)))
+        (is (bytes= cell (first (first groups))))
+        (is (bytes= mask decoded-mask)))))
+  (signals error
+    (ethereum-lisp.eth-wire:encode-eth-get-cells
+     1 nil (make-byte-vector 15))))
+
+(deftest eth-72-transaction-announcements-carry-custody
+  (:layer :unit :module :p2p)
+  (let* ((transaction
+           (make-legacy-transaction :nonce 1 :gas-price 2 :gas-limit 21000
+                                    :value 3 :data #(1) :v 27 :r 4 :s 5))
+         (mask (make-byte-vector 16 :initial-element #x80))
+         (encoded
+           (ethereum-lisp.eth-wire:encode-eth-new-pooled-transaction-hashes
+            (list transaction) :version 72 :custody-mask mask)))
+    (multiple-value-bind (types sizes hashes decoded-mask)
+        (ethereum-lisp.eth-wire:decode-eth-new-pooled-transaction-hashes
+         encoded 72)
+      (is (= 1 (length types)))
+      (is (= 1 (length sizes)))
+      (is (bytes= (hash32-bytes (transaction-hash transaction))
+                  (first hashes)))
+      (is (bytes= mask decoded-mask))))
+  (signals error
+    (ethereum-lisp.eth-wire:decode-eth-new-pooled-transaction-hashes
+     (ethereum-lisp.eth-wire:encode-eth-new-pooled-transaction-hashes nil)
+     72)))
+
 (deftest eth-block-headers-round-trips-real-headers
   (let* ((h1 (make-block-header :number 100 :timestamp 1000 :gas-limit 30000000
                                 :base-fee-per-gas 7 :state-root +empty-trie-hash+

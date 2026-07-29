@@ -104,7 +104,8 @@ bandwidth, and the protocol asks that it carry at least one transaction."
              t))))
     (when sendable
       (eth-peer-send peer +eth-message-new-pooled-transaction-hashes+
-                     (encode-eth-new-pooled-transaction-hashes sendable))
+                     (encode-eth-new-pooled-transaction-hashes
+                      sendable :version (eth-peer-eth-version peer)))
       (eth-peer-note-known-transactions peer sendable))
     (length sendable)))
 
@@ -283,11 +284,12 @@ that has nothing else to do."
            (eth-accept-transactions backend transactions))
          t)
         ((= eth-id +eth-message-new-pooled-transaction-hashes+)
-         (multiple-value-bind (types sizes hashes)
-             (decode-eth-new-pooled-transaction-hashes payload)
+         (multiple-value-bind (types sizes hashes custody-mask)
+             (decode-eth-new-pooled-transaction-hashes
+              payload (eth-peer-eth-version peer))
            ;; The type and size columns only help a fetcher decide what to ask
            ;; for first; we fetch in announcement order and ignore them.
-           (declare (ignore types sizes))
+           (declare (ignore types sizes custody-mask))
            (eth-peer-note-known-transaction-hashes peer hashes)
            (eth-peer-queue-announced-hashes peer backend hashes))
          t)

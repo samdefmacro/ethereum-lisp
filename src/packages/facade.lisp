@@ -556,6 +556,9 @@
    #:eth-peer-await
    #:eth-peer-get-block-headers
    #:eth-peer-get-block-bodies
+   #:eth-peer-get-receipts
+   #:eth-peer-get-block-access-lists
+   #:eth-peer-get-cells
    #:+eth-max-headers-serve+
    #:+eth-max-bodies-serve+
    #:+eth-max-receipts-serve+
@@ -568,6 +571,8 @@
    #:eth-serve-backend-known-transaction-p
    #:eth-serve-backend-accept-transaction
    #:eth-serve-backend-accept-block
+   #:eth-serve-backend-block-access-list
+   #:eth-serve-backend-blob-cells
    #:eth-serve-ancestor-hash
    #:eth-serve-headers
    #:eth-serve-bodies

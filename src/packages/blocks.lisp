@@ -150,6 +150,9 @@
   (:export
    #:+eth-protocol-version+
    #:+eth-protocol-version-69+
+   #:+eth-protocol-version-70+
+   #:+eth-protocol-version-71+
+   #:+eth-protocol-version-72+
    #:+eth-supported-protocol-versions+
    #:+eth-max-message-size+
    #:+eth-max-transaction-announcements+
@@ -166,6 +169,10 @@
    #:+eth-message-get-receipts+
    #:+eth-message-receipts+
    #:+eth-message-block-range-update+
+   #:+eth-message-get-block-access-lists+
+   #:+eth-message-block-access-lists+
+   #:+eth-message-get-cells+
+   #:+eth-message-cells+
    #:eth-wire-message-id
    #:eth-fork-id
    #:make-eth-fork-id
@@ -238,6 +245,14 @@
    #:decode-eth-get-pooled-transactions
    #:encode-eth-pooled-transactions
    #:decode-eth-pooled-transactions
+   #:encode-eth-get-block-access-lists
+   #:decode-eth-get-block-access-lists
+   #:encode-eth-block-access-lists
+   #:decode-eth-block-access-lists
+   #:encode-eth-get-cells
+   #:decode-eth-get-cells
+   #:encode-eth-cells
+   #:decode-eth-cells
    #:encode-eth-get-block-bodies
    #:decode-eth-get-block-bodies
    #:encode-eth-block-bodies
