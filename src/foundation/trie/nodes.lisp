@@ -69,34 +69,107 @@
                    (setf (aref children index) (build-node group)))))
              (make-branch-node :children children :value value)))))))
 
+(defvar *node-encoding-count* nil
+  "When bound to a number, increment it for every trie node encoded on a cache
+miss. Tests use this to guard the dirty-path complexity contract.")
+
 (declaim (ftype (function (t) t) node-reference))
 
-(defun node-rlp-object (node)
+(defun node-cache-value (node leaf-reader extension-reader branch-reader)
   (etypecase node
-    (leaf-node
-     (make-rlp-list (hex-prefix-encode (leaf-node-path node))
-                    (leaf-node-value node)))
-    (extension-node
-     (make-rlp-list (hex-prefix-encode (extension-node-path node))
-                    (node-reference (extension-node-child node))))
-    (branch-node
-     (apply #'make-rlp-list
-            (append
-             (loop for child across (branch-node-children node)
-                   collect (if child (node-reference child) (make-byte-vector 0)))
-             (list (branch-node-value node)))))))
+    (leaf-node (funcall leaf-reader node))
+    (extension-node (funcall extension-reader node))
+    (branch-node (funcall branch-reader node))))
+
+(defun (setf node-cache-value)
+    (value node leaf-writer extension-writer branch-writer)
+  (etypecase node
+    (leaf-node (funcall leaf-writer value node))
+    (extension-node (funcall extension-writer value node))
+    (branch-node (funcall branch-writer value node)))
+  value)
+
+(defun node-rlp-object (node)
+  (or (node-cache-value node
+                        #'leaf-node-cached-rlp-object
+                        #'extension-node-cached-rlp-object
+                        #'branch-node-cached-rlp-object)
+      (setf (node-cache-value node
+                              (lambda (value object)
+                                (setf (leaf-node-cached-rlp-object object) value))
+                              (lambda (value object)
+                                (setf (extension-node-cached-rlp-object object) value))
+                              (lambda (value object)
+                                (setf (branch-node-cached-rlp-object object) value)))
+            (etypecase node
+              (leaf-node
+               (make-rlp-list (hex-prefix-encode (leaf-node-path node))
+                              (leaf-node-value node)))
+              (extension-node
+               (make-rlp-list (hex-prefix-encode (extension-node-path node))
+                              (node-reference (extension-node-child node))))
+              (branch-node
+               (apply #'make-rlp-list
+                      (append
+                       (loop for child across (branch-node-children node)
+                             collect (if child
+                                         (node-reference child)
+                                         (make-byte-vector 0)))
+                       (list (branch-node-value node)))))))))
 
 (defun encoded-node (node)
-  (rlp-encode (node-rlp-object node)))
+  (or (node-cache-value node
+                        #'leaf-node-cached-encoded
+                        #'extension-node-cached-encoded
+                        #'branch-node-cached-encoded)
+      (progn
+        (when *node-encoding-count*
+          (incf *node-encoding-count*))
+        (setf (node-cache-value node
+                                (lambda (value object)
+                                  (setf (leaf-node-cached-encoded object) value))
+                                (lambda (value object)
+                                  (setf (extension-node-cached-encoded object) value))
+                                (lambda (value object)
+                                  (setf (branch-node-cached-encoded object) value)))
+              (rlp-encode (node-rlp-object node))))))
 
 (defun node-reference (node)
-  (let ((encoded (encoded-node node)))
-    (if (< (length encoded) 32)
-        (node-rlp-object node)
-        (keccak-256 encoded))))
+  (or (node-cache-value node
+                        #'leaf-node-cached-reference
+                        #'extension-node-cached-reference
+                        #'branch-node-cached-reference)
+      (let* ((encoded (encoded-node node))
+             (reference (if (< (length encoded) 32)
+                            (node-rlp-object node)
+                            (keccak-256 encoded))))
+        (setf (node-cache-value
+               node
+               (lambda (value object)
+                 (setf (leaf-node-cached-reference object) value))
+               (lambda (value object)
+                 (setf (extension-node-cached-reference object) value))
+               (lambda (value object)
+                 (setf (branch-node-cached-reference object) value)))
+              reference))))
+
+(defun node-hash (node)
+  (or (node-cache-value node
+                        #'leaf-node-cached-hash
+                        #'extension-node-cached-hash
+                        #'branch-node-cached-hash)
+      (setf (node-cache-value
+             node
+             (lambda (value object)
+               (setf (leaf-node-cached-hash object) value))
+             (lambda (value object)
+               (setf (extension-node-cached-hash object) value))
+             (lambda (value object)
+               (setf (branch-node-cached-hash object) value)))
+            (keccak-256 (encoded-node node)))))
 
 (defun mpt-root-node (trie)
-  (build-node (hash-table-entries (mpt-entries trie))))
+  (mpt-root trie))
 
 (defun nibbles-prefix-p (prefix nibbles)
   (and (<= (length prefix) (length nibbles))
@@ -104,14 +177,12 @@
           (length prefix))))
 
 (defun node-reference-hashed-p (node)
-  (let ((reference (node-reference node)))
-    (and (byte-vector-p reference)
-         (= 32 (length reference)))))
+  (>= (length (encoded-node node)) 32))
 
 (defun mpt-root-hash (trie)
   (let ((root (mpt-root-node trie)))
     (if root
-        (keccak-256 (encoded-node root))
+        (node-hash root)
         (hash32-bytes +empty-trie-hash+))))
 
 (defun mpt-root-hex (trie)

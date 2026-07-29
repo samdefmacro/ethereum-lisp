@@ -103,12 +103,18 @@
        (hash32-bytes (zero-hash32))
        (ascii-to-bytes "dog")
        (mpt-get-proof trie (ascii-to-bytes "dog"))))
-    (signals error
-      (mpt-verify-proof
-       (mpt-root-hash trie)
-       (ascii-to-bytes "dog")
-       (append (mpt-get-proof trie (ascii-to-bytes "dog"))
-               (mpt-get-proof trie (ascii-to-bytes "horse")))))))
+    (let* ((dog-proof (mpt-get-proof trie (ascii-to-bytes "dog")))
+           (padded-proof
+             (reverse
+              (append dog-proof
+                      (mpt-get-proof trie (ascii-to-bytes "horse"))))))
+      (multiple-value-bind (value present-p)
+          (mpt-verify-proof
+           (mpt-root-hash trie)
+           (ascii-to-bytes "dog")
+           padded-proof)
+        (is present-p)
+        (is (bytes= (ascii-to-bytes "puppy") value))))))
 
 (deftest trie-proof-rejects-tampered-referenced-node
   (let ((trie (make-mpt)))
@@ -138,4 +144,28 @@
        (mpt-get-proof (make-mpt) (ascii-to-bytes "dog")))
     (is (null present-p))
     (is (null value))))
+
+(deftest trie-rehashes-only-the-updated-path
+  ;; The initial root is the positive control: every node must be encoded. Once
+  ;; caches are warm, changing one leaf must not make work scale with 512
+  ;; retained entries.
+  (let ((trie (make-mpt))
+        (initial-encodings 0)
+        (update-encodings 0))
+    (dotimes (index 512)
+      (mpt-put trie
+               (vector (ldb (byte 8 8) index)
+                       (ldb (byte 8 0) index))
+               (integer-to-minimal-bytes (1+ index))))
+    (let ((ethereum-lisp.trie::*node-encoding-count* 0))
+      (mpt-root-hash trie)
+      (setf initial-encodings
+            ethereum-lisp.trie::*node-encoding-count*))
+    (mpt-put trie (vector 0 0) (integer-to-minimal-bytes 999))
+    (let ((ethereum-lisp.trie::*node-encoding-count* 0))
+      (mpt-root-hash trie)
+      (setf update-encodings
+            ethereum-lisp.trie::*node-encoding-count*))
+    (is (< 512 initial-encodings))
+    (is (< update-encodings 16))))
 
