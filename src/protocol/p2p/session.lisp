@@ -14,10 +14,10 @@
 follow.")
 
 (defparameter +devp2p-capability-message-counts+
-  '(("eth" . 17))
+  '(("eth" . 18)
+    ("snap" . 8))
   "Number of message ids each supported capability occupies, used to lay out
-capability blocks during negotiation. Only eth is implemented; extend this
-table as new capabilities are added.")
+capability blocks during negotiation.")
 
 (defun devp2p-capability-message-count (name)
   (or (cdr (assoc name +devp2p-capability-message-counts+ :test #'string=))

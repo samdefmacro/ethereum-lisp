@@ -51,6 +51,13 @@
       (is (= 24 (rlpx-shared-capability-offset
                  (rlpx-shared-capability-named shared "eth")))))))
 
+(deftest rlpx-capability-block-lengths-match-the-wire-protocols
+  (:layer :unit :module :p2p)
+  (is (= 18
+         (ethereum-lisp.p2p::devp2p-capability-message-count "eth")))
+  (is (= 8
+         (ethereum-lisp.p2p::devp2p-capability-message-count "snap"))))
+
 (deftest rlpx-hello-exchange-negotiates-eth-over-a-socket
   (:layer :integration :module :p2p :requires-local-sockets t)
   (let* ((server-static
