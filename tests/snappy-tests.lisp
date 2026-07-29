@@ -63,3 +63,20 @@
   (let* ((data (ascii-to-bytes "the quick brown fox jumps over the lazy dog"))
          (compressed (snappy-compress data)))
     (is (bytes= data (snappy-decompress compressed)))))
+
+(deftest snappy-compress-emits-real-back-references
+  (let* ((data (make-byte-vector 4096 :initial-element #x41))
+         (compressed (snappy-compress data)))
+    (is (< (length compressed) 256))
+    (is (bytes= data (snappy-decompress compressed)))
+    (multiple-value-bind (decoded-length position)
+        (ethereum-lisp.snappy::snappy-read-varint compressed 0)
+      (is (= (length data) decoded-length))
+      (is (find 2 compressed :start position
+                             :key (lambda (tag) (logand tag 3))))))
+  ;; Incompressible-looking bytes still round-trip through literal runs.
+  (let* ((data
+           (coerce (loop for i below 1024 collect (mod (* i 73) 251))
+                   '(simple-array (unsigned-byte 8) (*))))
+         (compressed (snappy-compress data)))
+    (is (bytes= data (snappy-decompress compressed)))))
