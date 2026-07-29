@@ -62,7 +62,7 @@
      (list (cons "requestsHash"
                  (hash32-to-hex (block-header-requests-hash header)))))
    (when (block-header-block-access-list-hash header)
-     (list (cons "balHash"
+     (list (cons "blockAccessListHash"
                  (hash32-to-hex
                   (block-header-block-access-list-hash header)))))
    (when (block-header-slot-number header)

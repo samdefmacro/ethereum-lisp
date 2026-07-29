@@ -34,7 +34,24 @@
      (cons "logIndex" (quantity-to-hex log-index))
      (cons "removed" (if removed-p t :false)))))
 
-(defun eth-rpc-receipt-object (location &key expected-chain-id)
+(defun eth-rpc-receipt-blob-fields (transaction header config)
+  (when (typep transaction 'blob-transaction)
+    (multiple-value-bind (target-blob-gas max-blob-gas update-fraction)
+        (chain-config-blob-schedule
+         config
+         (block-header-number header)
+         (block-header-timestamp header))
+      (declare (ignore target-blob-gas max-blob-gas))
+      (list
+       (cons "blobGasUsed"
+             (quantity-to-hex (transaction-blob-gas-used transaction)))
+       (cons "blobGasPrice"
+             (quantity-to-hex
+              (block-header-blob-base-fee
+               header :update-fraction update-fraction)))))))
+
+(defun eth-rpc-receipt-object
+    (location &key expected-chain-id chain-config)
   (let* ((receipt (engine-transaction-location-receipt location))
          (block (engine-transaction-location-block location))
          (transaction (engine-transaction-location-transaction location))
@@ -86,13 +103,15 @@
           (cons "effectiveGasPrice"
                 (quantity-to-hex
                  (eth-rpc-transaction-gas-price transaction header))))
+         (eth-rpc-receipt-blob-fields transaction header chain-config)
          (if (receipt-post-state receipt)
              (list (cons "root"
                          (bytes-to-hex (receipt-post-state receipt))))
              (list (cons "status"
                          (quantity-to-hex (receipt-status receipt))))))))))
 
-(defun eth-rpc-block-receipts-object (block &key expected-chain-id)
+(defun eth-rpc-block-receipts-object
+    (block &key expected-chain-id chain-config)
   "Return the receipt objects of BLOCK, or NIL when BLOCK is unknown.
 
 An existing block with no transactions has an empty receipt list, which must
@@ -113,7 +132,8 @@ serialise as [] — null is reserved for a block that does not exist."
                            :log-index-start log-index-start)
            collect (prog1 (eth-rpc-receipt-object
                            location
-                           :expected-chain-id expected-chain-id)
+                           :expected-chain-id expected-chain-id
+                           :chain-config chain-config)
                      (incf log-index-start
                            (length (receipt-logs receipt))))))))
 
@@ -124,7 +144,8 @@ serialise as [] — null is reserved for a block that does not exist."
     (when location
       (eth-rpc-receipt-object
        location
-       :expected-chain-id (chain-config-chain-id config)))))
+       :expected-chain-id (chain-config-chain-id config)
+       :chain-config config))))
 
 (defun engine-rpc-handle-eth-get-block-receipts (params store config)
   (if (eth-rpc-pending-block-id-param-p params "eth_getBlockReceipts")
@@ -132,4 +153,5 @@ serialise as [] — null is reserved for a block that does not exist."
       (let ((block (eth-rpc-block-param params store "eth_getBlockReceipts")))
         (eth-rpc-block-receipts-object
          block
-         :expected-chain-id (chain-config-chain-id config)))))
+         :expected-chain-id (chain-config-chain-id config)
+         :chain-config config))))

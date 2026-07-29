@@ -81,7 +81,8 @@
            (remote (make-block :header (make-block-header :number 12
                                                           :timestamp 12))))
       (engine-payload-store-put-block store head :state-available-p t)
-      (engine-payload-store-put-remote-block store remote)
+      (ethereum-lisp.chain-store:engine-payload-store-put-remote-block
+       store remote)
       (let* ((response-json
                (engine-rpc-handle-request-json
                 "{\"jsonrpc\":\"2.0\",\"id\":201,\"method\":\"eth_syncing\",\"params\":[]}"

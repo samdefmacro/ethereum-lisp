@@ -82,7 +82,7 @@
          transaction
          :expected-chain-id expected-chain-id)
     (let ((to (transaction-to transaction)))
-      (format nil "~A: ~D wei + ~D gas x ~D wei"
+      (format nil "~A: ~D wei + ~D gas × ~D wei"
               (if to
                   (address-to-hex to)
                   "contract creation")

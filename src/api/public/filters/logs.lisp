@@ -1,5 +1,9 @@
 (in-package #:ethereum-lisp.public-api)
 
+(defconstant +eth-rpc-max-log-topic-slots+ 4)
+(defconstant +eth-rpc-max-log-subtopics+ 1000)
+(defconstant +eth-rpc-max-log-block-range+ 5000)
+
 (defun eth-rpc-address= (left right)
   (and left
        right
@@ -97,12 +101,17 @@ drop real results."
       ((json-empty-array-p value)
        :empty-topic-set)
       ((json-array-p value)
-       (mapcar (lambda (topic)
-                 (unless (stringp topic)
-                   (block-validation-fail
-                    "~A topic filter entries must be topics" method))
-                 (eth-rpc-hash-param (list topic) method "topic"))
-               (json-array-values value)))
+       (let ((values (json-array-values value)))
+         (when (> (length values) +eth-rpc-max-log-subtopics+)
+           (block-validation-fail
+            "~A topic filter slot exceeds the ~D-topic limit"
+            method +eth-rpc-max-log-subtopics+))
+         (mapcar (lambda (topic)
+                   (unless (stringp topic)
+                     (block-validation-fail
+                      "~A topic filter entries must be topics" method))
+                   (eth-rpc-hash-param (list topic) method "topic"))
+                 values)))
     (t
      (block-validation-fail
       "~A topic filter slots must be null, a topic, or topic array" method))))
@@ -112,9 +121,14 @@ drop real results."
     (cond
       ((or (null topics) (json-null-p topics)) nil)
       ((json-array-p topics)
-       (mapcar (lambda (topic)
-                 (eth-rpc-log-filter-topic topic method))
-               (json-array-values topics)))
+       (let ((values (json-array-values topics)))
+         (when (> (length values) +eth-rpc-max-log-topic-slots+)
+           (block-validation-fail
+            "~A topics filter exceeds the ~D-slot limit"
+            method +eth-rpc-max-log-topic-slots+))
+         (mapcar (lambda (topic)
+                   (eth-rpc-log-filter-topic topic method))
+                 values)))
       (t
        (block-validation-fail
         "~A topics filter must be an array" method)))))
@@ -139,7 +153,7 @@ drop real results."
        (let ((block (chain-store-known-block store block-hash)))
          (if block
              (list block)
-             '()))))
+             (block-validation-fail "~A blockHash is unknown" method)))))
     ((eth-rpc-log-filter-from-pending-p filter)
      (when (json-object-field-present-p filter "toBlock")
        (eth-rpc-block-number-param
@@ -161,6 +175,10 @@ drop real results."
        (when (> from-number to-number)
          (block-validation-fail
           "~A fromBlock must be less than or equal to toBlock" method))
+       (when (> (- to-number from-number) +eth-rpc-max-log-block-range+)
+         (block-validation-fail
+          "~A block range exceeds the ~D-block limit"
+          method +eth-rpc-max-log-block-range+))
        (loop for number from from-number to to-number
              for block = (chain-store-block-by-number store number)
              when block
