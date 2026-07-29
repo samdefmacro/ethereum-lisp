@@ -137,7 +137,12 @@
    #:mpt-verify-proof
    #:mpt-root-hash
    #:mpt-root-hex
-   #:mpt-root-node)
+   #:mpt-root-node
+   #:mpt-persist
+   #:trie-node-store-get
+   #:make-mpt-iterator
+   #:mpt-get-range-proof
+   #:mpt-verify-range-proof)
   (#:ethereum-lisp.blocks
    #:+empty-ommers-hash+
    #:ommers-hash
