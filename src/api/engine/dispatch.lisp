@@ -3,7 +3,7 @@
 (defun engine-rpc-handle-engine-method
     (id method params store config
      &key import-function new-payload-persistence-function
-          forkchoice-persistence-function)
+          forkchoice-persistence-function gas-limit-target)
   (let ((version (engine-rpc-new-payload-version method)))
     (cond
       (version
@@ -26,28 +26,32 @@
         :result
         (engine-rpc-handle-forkchoice-updated-v1
          params store config
-         :forkchoice-persistence-function forkchoice-persistence-function)))
+         :forkchoice-persistence-function forkchoice-persistence-function
+         :gas-limit-target gas-limit-target)))
       ((string= method "engine_forkchoiceUpdatedV2")
        (json-rpc-response
         id
         :result
         (engine-rpc-handle-forkchoice-updated-v2
          params store config
-         :forkchoice-persistence-function forkchoice-persistence-function)))
+         :forkchoice-persistence-function forkchoice-persistence-function
+         :gas-limit-target gas-limit-target)))
       ((string= method "engine_forkchoiceUpdatedV3")
        (json-rpc-response
         id
         :result
         (engine-rpc-handle-forkchoice-updated-v3
          params store config
-         :forkchoice-persistence-function forkchoice-persistence-function)))
+         :forkchoice-persistence-function forkchoice-persistence-function
+         :gas-limit-target gas-limit-target)))
       ((string= method "engine_forkchoiceUpdatedV4")
        (json-rpc-response
         id
         :result
         (engine-rpc-handle-forkchoice-updated-v4
          params store config
-         :forkchoice-persistence-function forkchoice-persistence-function)))
+         :forkchoice-persistence-function forkchoice-persistence-function
+         :gas-limit-target gas-limit-target)))
       ((string= method "engine_getPayloadV1")
        (json-rpc-response
         id

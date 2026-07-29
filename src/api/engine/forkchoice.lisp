@@ -20,9 +20,11 @@
     arguments))
 
 (defun engine-rpc-build-prepared-payload
-    (store parent-block payload-attributes config transactions)
+    (store parent-block payload-attributes config transactions
+     &key gas-limit-target)
   (let* ((block (engine-build-empty-payload
-                 parent-block payload-attributes config))
+                 parent-block payload-attributes config
+                 gas-limit-target))
          (header (block-header block))
          (block-number (block-header-number header))
          (timestamp (block-header-timestamp header)))
@@ -60,6 +62,65 @@
              (chain-store-block-hashes-for-header store header))
             (engine-rpc-prepared-payload-body-arguments
              payload-attributes config block-number timestamp)))))))
+
+(defun engine-rpc-transaction-sender-key (transaction expected-chain-id)
+  (let ((sender (transaction-sender
+                 transaction :expected-chain-id expected-chain-id)))
+    (and sender (address-to-hex sender))))
+
+(defun engine-rpc-first-invalid-transaction-sender-key
+    (store parent-block payload-attributes config transactions
+     &key gas-limit-target)
+  "Find the sender whose next transaction makes payload execution invalid.
+
+Each probe starts from the parent state through
+ENGINE-RPC-BUILD-PREPARED-PAYLOAD, so a successful prefix cannot leak its
+mutated working state into the next probe."
+  (loop with prefix = '()
+        for transaction in transactions
+        do (setf prefix (append prefix (list transaction)))
+           (handler-case
+               (engine-rpc-build-prepared-payload
+                store parent-block payload-attributes config prefix
+                :gas-limit-target gas-limit-target)
+             (transaction-validation-error ()
+               (return
+                 (engine-rpc-transaction-sender-key
+                  transaction (chain-config-chain-id config)))))))
+
+(defun engine-rpc-build-viable-prepared-payload
+    (store parent-block payload-attributes config transactions
+     &key gas-limit-target)
+  "Build the best viable payload from TRANSACTIONS.
+
+A transaction-validation failure invalidates that sender's remaining nonce
+chain, not the payload.  The builder retries without that sender and ultimately
+returns the empty payload, which is always the safe result for otherwise valid
+payload attributes."
+  (loop with remaining = transactions
+        do (handler-case
+               (return
+                 (values
+                  (engine-rpc-build-prepared-payload
+                   store parent-block payload-attributes config remaining
+                   :gas-limit-target gas-limit-target)
+                  remaining))
+             (transaction-validation-error ()
+               (let ((sender-key
+                       (engine-rpc-first-invalid-transaction-sender-key
+                        store parent-block payload-attributes config
+                        remaining
+                        :gas-limit-target gas-limit-target)))
+                 (if sender-key
+                     (setf remaining
+                           (remove
+                            sender-key remaining
+                            :test #'string=
+                            :key (lambda (transaction)
+                                   (engine-rpc-transaction-sender-key
+                                    transaction
+                                    (chain-config-chain-id config)))))
+                     (setf remaining '())))))))
 
 (defun engine-rpc-persist-forkchoice
     (store transition forkchoice-persistence-function)
@@ -116,7 +177,7 @@
 
 (defun engine-rpc-handle-forkchoice-updated
     (params store config method payload-version payload-attributes-parser
-     &key forkchoice-persistence-function)
+     &key forkchoice-persistence-function gas-limit-target)
   (unless (and (listp params) params)
     (block-validation-fail "~A params must include forkchoice state" method))
   (let ((state
@@ -199,52 +260,62 @@
                  (engine-payload-id-with-transactions
                   prepared-payload-version head-hash payload-attributes
                   transactions)))
-          (unless (chain-store-prepared-payload
-                   store candidate-id)
-            (chain-store-put-prepared-payload
-             store
-             (make-engine-prepared-payload
-              :payload-id candidate-id
-              :version prepared-payload-version
-              :block
-              (handler-case
-                  (engine-rpc-build-prepared-payload
-                   store parent-block payload-attributes config transactions)
-                (block-validation-error (condition)
-                  (engine-rpc-fail
-                   +engine-rpc-error-invalid-payload-attributes+
-                   (block-validation-error-message condition)))))))
+          (unless (chain-store-prepared-payload store candidate-id)
+            (multiple-value-bind (block viable-transactions)
+                (handler-case
+                    (engine-rpc-build-viable-prepared-payload
+                     store parent-block payload-attributes config transactions
+                     :gas-limit-target gas-limit-target)
+                  (block-validation-error (condition)
+                    (engine-rpc-fail
+                     +engine-rpc-error-invalid-payload-attributes+
+                     (block-validation-error-message condition)))
+                  (transaction-validation-error (condition)
+                    (engine-rpc-fail
+                     +engine-rpc-error-invalid-payload-attributes+
+                     (princ-to-string condition))))
+              (declare (ignore viable-transactions))
+              (chain-store-put-prepared-payload
+               store
+               (make-engine-prepared-payload
+                :payload-id candidate-id
+                :version prepared-payload-version
+                :block block))))
           (setf payload-id candidate-id)))
       (engine-rpc-forkchoice-response-object
        status
        :payload-id payload-id))))
 
 (defun engine-rpc-handle-forkchoice-updated-v1
-    (params store config &key forkchoice-persistence-function)
+    (params store config &key forkchoice-persistence-function gas-limit-target)
   (engine-rpc-handle-forkchoice-updated
    params store config "engine_forkchoiceUpdatedV1" 1
    (lambda (payload-attributes)
      (engine-rpc-validate-payload-attributes-v1
       payload-attributes :method "engine_forkchoiceUpdatedV1"))
-   :forkchoice-persistence-function forkchoice-persistence-function))
+   :forkchoice-persistence-function forkchoice-persistence-function
+   :gas-limit-target gas-limit-target))
 
 (defun engine-rpc-handle-forkchoice-updated-v2
-    (params store config &key forkchoice-persistence-function)
+    (params store config &key forkchoice-persistence-function gas-limit-target)
   (engine-rpc-handle-forkchoice-updated
    params store config "engine_forkchoiceUpdatedV2" 2
    #'engine-rpc-validate-payload-attributes-v2
-   :forkchoice-persistence-function forkchoice-persistence-function))
+   :forkchoice-persistence-function forkchoice-persistence-function
+   :gas-limit-target gas-limit-target))
 
 (defun engine-rpc-handle-forkchoice-updated-v3
-    (params store config &key forkchoice-persistence-function)
+    (params store config &key forkchoice-persistence-function gas-limit-target)
   (engine-rpc-handle-forkchoice-updated
    params store config "engine_forkchoiceUpdatedV3" 3
    #'engine-rpc-validate-payload-attributes-v3
-   :forkchoice-persistence-function forkchoice-persistence-function))
+   :forkchoice-persistence-function forkchoice-persistence-function
+   :gas-limit-target gas-limit-target))
 
 (defun engine-rpc-handle-forkchoice-updated-v4
-    (params store config &key forkchoice-persistence-function)
+    (params store config &key forkchoice-persistence-function gas-limit-target)
   (engine-rpc-handle-forkchoice-updated
    params store config "engine_forkchoiceUpdatedV4" 4
    #'engine-rpc-validate-payload-attributes-v4
-   :forkchoice-persistence-function forkchoice-persistence-function))
+   :forkchoice-persistence-function forkchoice-persistence-function
+   :gas-limit-target gas-limit-target))

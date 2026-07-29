@@ -103,5 +103,6 @@
    #:engine-payload-id
    #:engine-payload-id-v1
    #:engine-payload-id-with-transactions
+   #:engine-target-gas-limit
    #:engine-build-empty-payload
    #:engine-build-empty-payload-v1))

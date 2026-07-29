@@ -48,8 +48,8 @@ transaction the effective tip is simply the gas price less the base fee."
   ;; Ordering used to be by sender ADDRESS, so a block filled with whoever
   ;; sorted first and left better-paying transactions out whenever the gas limit
   ;; bound. Now senders are ordered by what their next transaction pays -- but a
-  ;; sender's own nonces must still be contiguous and ascending, because nonce
-  ;; N+1 cannot execute before N.
+  ;; sender's own nonces must still ascend, while every inclusion exposes that
+  ;; sender's next nonce for a fresh profitability comparison.
   (let* ((poor-key 1)
          (rich-key 2)
          (base-fee 100)
@@ -74,13 +74,14 @@ transaction the effective tip is simply the gas price less the base fee."
       (is (= 4 (length ordered)))
       ;; The better-paying sender goes first, whatever the addresses sort like.
       (is (string= rich-address (first senders)))
-      (is (string= rich-address (second senders)))
+      (is (string= poor-address (second senders)))
       (is (string= poor-address (third senders)))
-      ;; Each sender's nonces stay contiguous and ascending.
-      (is (equal '(0 1 0 1) (mapcar #'transaction-nonce ordered)))
+      (is (string= rich-address (fourth senders)))
+      ;; Each sender's own nonce order remains ascending.
+      (is (equal '(0 0 1 1) (mapcar #'transaction-nonce ordered)))
       ;; And the poor sender's high-paying SECOND transaction did not jump the
       ;; queue: it cannot execute before its own nonce 0.
-      (is (= 9000 (transaction-max-fee-per-gas (fourth ordered)))))
+      (is (= 9000 (transaction-max-fee-per-gas (third ordered)))))
     ;; Without a base fee the deterministic address order is kept, so a caller
     ;; that does not know the base fee is unaffected.
     (let ((ordered (ethereum-lisp.txpool:engine-payload-store-pending-mining-transactions

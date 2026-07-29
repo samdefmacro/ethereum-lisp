@@ -73,7 +73,20 @@ excess blob gas field at all."
            :update-fraction update-fraction
            :parent-update-fraction parent-update-fraction)))))
 
-(defun engine-build-empty-payload (parent-block attributes &optional config)
+(defun engine-target-gas-limit (parent-gas-limit target-gas-limit)
+  "Move PARENT-GAS-LIMIT toward TARGET-GAS-LIMIT by at most 1/1024 minus one."
+  (if (null target-gas-limit)
+      parent-gas-limit
+      (let ((delta (max 1 (1- (floor parent-gas-limit 1024)))))
+        (cond
+          ((> target-gas-limit parent-gas-limit)
+           (min target-gas-limit (+ parent-gas-limit delta)))
+          ((< target-gas-limit parent-gas-limit)
+           (max target-gas-limit (- parent-gas-limit delta)))
+          (t parent-gas-limit)))))
+
+(defun engine-build-empty-payload
+    (parent-block attributes &optional config gas-limit-target)
   (unless (typep parent-block 'ethereum-block)
     (block-validation-fail "Payload parent must be a known block"))
   (unless (typep attributes 'payload-attributes-v1)
@@ -94,9 +107,11 @@ excess blob gas field at all."
              :mix-hash (payload-attributes-v1-prev-randao attributes)
              :number block-number
              :gas-limit
-             (if (payload-attributes-v1-target-gas-limit-present-p attributes)
-                 (payload-attributes-v1-target-gas-limit attributes)
-                 (block-header-gas-limit parent-header))
+             (engine-target-gas-limit
+              (block-header-gas-limit parent-header)
+              (if (payload-attributes-v1-target-gas-limit-present-p attributes)
+                  (payload-attributes-v1-target-gas-limit attributes)
+                  gas-limit-target))
              :gas-used 0
              :timestamp timestamp
              :base-fee-per-gas
