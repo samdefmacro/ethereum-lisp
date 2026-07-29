@@ -143,7 +143,9 @@ does not know the base fee is unaffected."
               (or (null base-fee)
                   (>= (transaction-max-fee-per-gas transaction)
                       base-fee))))
-           (engine-payload-store-pending-transactions store))))
+           (append
+            (engine-payload-store-pending-transactions store)
+            (engine-payload-store-blob-transactions store)))))
     (if (null base-fee)
         (sort (copy-list transactions)
               (lambda (left right)

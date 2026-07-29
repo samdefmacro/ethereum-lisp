@@ -330,9 +330,6 @@
 (defun txpool-admit-transaction
     (transaction store config policy &key admitted-at)
   (validate-txpool-encoded-size transaction)
-  (when (typep transaction 'blob-transaction)
-    (block-validation-fail
-     "eth_sendRawTransaction blob sidecars and KZG admission are not supported"))
   (validate-set-code-transaction-fields transaction)
   (validate-set-code-authorization-signatures transaction)
   (let* ((hash (transaction-hash transaction))

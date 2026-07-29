@@ -837,6 +837,76 @@
                              replacement-payload-transactions
                              :test #'string=)))))))))
 
+(deftest prepared-payload-builds-blob-transaction-and-bundle
+  (let* ((store (make-engine-payload-memory-store))
+         (config (make-chain-config :chain-id 1
+                                    :byzantium-block 0
+                                    :constantinople-block 0
+                                    :petersburg-block 0
+                                    :berlin-block 0
+                                    :london-block 0
+                                    :shanghai-time 0
+                                    :cancun-time 0))
+         (commitment (make-byte-vector 48 :initial-element #x33))
+         (versioned-hash (kzg-commitment-to-versioned-hash commitment))
+         (transaction
+           (fixture-sign-blob-transaction
+            (make-blob-transaction
+             :chain-id 1
+             :nonce 0
+             :max-priority-fee-per-gas 2
+             :max-fee-per-gas 20
+             :gas-limit 21000
+             :to (zero-address)
+             :max-fee-per-blob-gas 20
+             :blob-versioned-hashes (list versioned-hash))
+            1))
+         (sidecar
+           (make-blob-sidecar
+            :blobs (list (make-byte-vector +blob-byte-size+))
+            :commitments (list commitment)
+            :proofs (list (make-byte-vector 48 :initial-element #x44))))
+         (sender (transaction-sender transaction :expected-chain-id 1))
+         (state (make-state-db)))
+    (state-db-set-account
+     state sender (make-state-account :nonce 0 :balance 1000000000))
+    (let* ((parent
+             (make-block
+              :header
+              (make-block-header
+               :number 0
+               :timestamp 10
+               :gas-limit 30000000
+               :base-fee-per-gas 1
+               :blob-gas-used 0
+               :excess-blob-gas 0
+               :state-root (state-db-root state))))
+           (parent-hash (block-hash parent))
+           (attributes
+             (make-payload-attributes-v1
+              :timestamp 11
+              :prev-randao (zero-hash32)
+              :suggested-fee-recipient (zero-address)
+              :withdrawals '()
+              :withdrawals-present-p t
+              :parent-beacon-root (zero-hash32)
+              :parent-beacon-root-present-p t)))
+      (chain-store-put-block store parent :state-available-p t)
+      (commit-state-db-to-chain-store store parent-hash state)
+      (engine-payload-store-put-blob-sidecar store sidecar)
+      (multiple-value-bind (block selected)
+          (ethereum-lisp.engine-api::engine-rpc-build-viable-prepared-payload
+           store parent attributes config (list transaction))
+        (let ((bundle
+                (ethereum-lisp.engine-api::engine-rpc-blobs-bundle-for-transactions
+                 store selected)))
+          (is (= 1 (length (block-transactions block))))
+          (is (= +blob-gas-per-blob+
+                 (block-header-blob-gas-used (block-header block))))
+          (is (= 1 (length (blob-sidecar-blobs bundle))))
+          (is (equalp commitment
+                      (first (blob-sidecar-commitments bundle)))))))))
+
 (deftest engine-rpc-forkchoice-updated-known-block-precedes-invalid-cache
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))

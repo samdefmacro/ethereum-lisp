@@ -233,6 +233,8 @@
    #:blob-sidecar-commitments
    #:blob-sidecar-proofs
    #:blob-sidecar-versioned-hashes
+   #:blob-pooled-transaction-from-encoding
+   #:blob-pooled-transaction-encoding
    #:blob-versioned-hash-bytes
    #:set-code-authorization
    #:make-set-code-authorization
@@ -269,6 +271,7 @@
    #:set-code-transaction-sender
    #:transaction-encoding
    #:transaction-from-encoding
+   #:pooled-transaction-from-encoding
    #:transaction-hash
    #:transaction-sender
    #:transaction-nonce
