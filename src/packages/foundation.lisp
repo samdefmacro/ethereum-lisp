@@ -39,8 +39,12 @@
    #:key-value-database
    #:memory-key-value-database
    #:file-key-value-database
+   #:rocksdb-key-value-database
    #:make-memory-key-value-database
    #:make-file-key-value-database
+   #:make-rocksdb-key-value-database
+   #:close-rocksdb-key-value-database
+   #:rocksdb-available-p
    #:kv-database-reopen-required-p
    #:kv-log-corruption-error
    #:kv-log-corruption-error-path
@@ -55,6 +59,10 @@
    #:kv-apply-batch
    #:kv-iterator
    #:kv-chain-record-key
+   #:+kv-chain-schema-version+
+   #:kv-chain-record-uint64-bytes
+   #:kv-chain-height-hash-identifier
+   #:kv-chain-height-hash-identifier-values
    #:kv-put-chain-record
    #:kv-get-chain-record
    #:kv-delete-chain-record
@@ -230,6 +238,7 @@
         #:ethereum-lisp.types
         #:ethereum-lisp.rlp
         #:ethereum-lisp.crypto
+        #:ethereum-lisp.database
         #:ethereum-lisp.trie.encoding)
   (:export
    #:mpt
@@ -243,4 +252,9 @@
    #:mpt-verify-proof
    #:mpt-root-hash
    #:mpt-root-hex
-   #:mpt-root-node))
+   #:mpt-root-node
+   #:mpt-persist
+   #:trie-node-store-get
+   #:make-mpt-iterator
+   #:mpt-get-range-proof
+   #:mpt-verify-range-proof))

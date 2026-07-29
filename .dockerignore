@@ -5,3 +5,5 @@
 !tools/ckzg-ffi/shim.c
 !tools/bls-ffi
 !tools/bls-ffi/shim.c
+!tools/rocksdb
+!tools/rocksdb/rocksdb-11.1.2.tar.gz

@@ -31,7 +31,7 @@
                            :base-fee base-fee
                            :blob-base-fee blob-base-fee
                            :chain-rules effective-chain-rules)
-    (let ((snapshot (state-db-copy state)))
+    (let ((snapshot (state-db-snapshot state)))
       (handler-case
           (if (execution-contract-address-collision-p state contract)
               (finalize-transaction-receipt
@@ -78,7 +78,7 @@
                             :gas-limit (- gas-limit intrinsic-gas)))))
                   (if (eq (evm-result-status result) :reverted)
                       (progn
-                        (state-db-restore state snapshot)
+                        (state-db-revert-to-snapshot state snapshot)
                         (finalize-transaction-receipt
                          state sender coinbase tx
                          (make-receipt :status 0
@@ -97,7 +97,7 @@
                                    (evm-context-chain-rules context))
                                   (> gas-used gas-limit))
                               (progn
-                                (state-db-restore state snapshot)
+                                (state-db-revert-to-snapshot state snapshot)
                                 (finalize-transaction-receipt
                                  state sender coinbase tx
                                  (make-receipt :status 0
@@ -118,7 +118,7 @@
                                   (finalize-evm-selfdestructs state context)
                                   receipt)))))))))
                 (evm-error ()
-          (state-db-restore state snapshot)
+          (state-db-revert-to-snapshot state snapshot)
           (finalize-transaction-receipt
            state sender coinbase tx
            (make-receipt :status 0 :cumulative-gas-used gas-limit)

@@ -913,6 +913,14 @@ Ordered by what unblocks the most, with the `PROJECT.md` principle each item
 protects. Sizes are S (under a day of focused work), M (a few days), L (a week
 or more, or a design document first).
 
+**Implementation status (2026-07-29): complete.** Items 1–10 are implemented
+on `gap/state-storage`: immutable cached trie paths, state journaling and
+fork-gated finalisation, hash-indexed proofs, bounded retention, ordered schema
+v2 records, the pinned RocksDB 11.1.2 CFFI backend, startup rewind,
+account-scoped lazy historical reads, content-addressed trie nodes, complete
+range witnesses, and resumable iteration. The original findings remain below
+as the evidence and acceptance criteria that motivated the changes.
+
 ### 1. Memoize node encodings and hashes; hash only dirty paths — M
 
 Retain the constructed node tree alongside the entry table and cache each

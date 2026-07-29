@@ -147,6 +147,52 @@
      (memory-chain-store-number-blocks store))
     (setf (memory-chain-store-head-number store) head-number)))
 
+(defun chain-store-newest-stateful-ancestor (store head-hash)
+  "Return the newest canonical ancestor at or below HEAD-HASH with state."
+  (loop for hash = head-hash then (block-header-parent-hash header)
+        for block = (and hash (engine-payload-store-known-block store hash))
+        for header = (and block (block-header block))
+        while header
+        for number = (block-header-number header)
+        for canonical = (chain-store-canonical-hash store number)
+        unless (and canonical (hash32= canonical hash))
+          do (return nil)
+        when (engine-payload-store-state-available-p store hash)
+          do (return hash)
+        when (zerop number)
+          do (return nil)))
+
+(defun chain-store-truncate-canonical-indexes (store head-hash)
+  "Move the readable canonical head to HEAD-HASH without deleting block data."
+  (let* ((store (chain-store-require-memory-store store))
+         (block (engine-payload-store-known-block store head-hash))
+         (head-number (block-header-number (block-header block)))
+         (numbers '()))
+    (maphash (lambda (number hash)
+               (declare (ignore hash))
+               (when (> number head-number)
+                 (push number numbers)))
+             (memory-chain-store-canonical-hashes store))
+    (dolist (number numbers)
+      (remhash number (memory-chain-store-canonical-hashes store))
+      (remhash number (memory-chain-store-number-blocks store)))
+    (setf (memory-chain-store-head-number store) head-number
+          (memory-chain-store-head-checkpoint store)
+          (make-chain-store-checkpoint :label :head :block-hash head-hash))
+    head-number))
+
+(defun chain-store-checkpoint-after-rewind (store checkpoint-hash
+                                            head-hash head-number)
+  "Keep a checkpoint when it remains an ancestor; otherwise lower it to HEAD."
+  (if (and checkpoint-hash
+           (let ((block (engine-payload-store-known-block store checkpoint-hash)))
+             (and block
+                  (<= (block-header-number (block-header block)) head-number)
+                  (engine-payload-store-ancestor-p
+                   store checkpoint-hash head-hash))))
+      checkpoint-hash
+      head-hash))
+
 (defun chain-store-import-checkpoints-from-kv (store database)
   (setf store (chain-store-require-memory-store store))
   (let (head-hash safe-hash finalized-hash)
@@ -164,9 +210,26 @@
       (block-validation-fail
        "KV safe/finalized checkpoint requires a head checkpoint"))
     (when (and head-hash
-               (not (engine-payload-store-state-available-p
-                     store head-hash)))
-      (block-validation-fail "KV head checkpoint state is not available"))
+               (not (engine-payload-store-state-available-p store head-hash)))
+      (let ((persisted-head head-hash)
+            (rewound-head
+              (chain-store-newest-stateful-ancestor store head-hash)))
+        (unless rewound-head
+          (block-validation-fail
+           "KV head checkpoint state is not available and no ancestor has state"))
+        (let ((head-number
+                (chain-store-truncate-canonical-indexes store rewound-head)))
+          (setf head-hash rewound-head
+                safe-hash
+                (chain-store-checkpoint-after-rewind
+                 store safe-hash rewound-head head-number)
+                finalized-hash
+                (chain-store-checkpoint-after-rewind
+                 store finalized-hash rewound-head head-number))
+          (format *error-output*
+                  "Rewound unavailable persisted head ~A to stateful ancestor ~A.~%"
+                  (hash32-to-hex persisted-head)
+                  (hash32-to-hex rewound-head)))))
     (when head-hash
       (let* ((head-block (engine-payload-store-known-block store head-hash))
              (head-number (block-header-number (block-header head-block)))

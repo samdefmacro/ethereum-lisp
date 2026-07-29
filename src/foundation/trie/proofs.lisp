@@ -37,23 +37,35 @@
          t)
         nil)))
 
-(defun mpt-proof-consume-referenced-node (reference proof)
+(defun mpt-proof-node-index (proof)
+  "Index encoded proof nodes by Keccak hash.
+
+The wire proof is a node set, not a positional path. Indexing makes verification
+independent of order and permits unrelated nodes supplied by a peer."
+  (let ((index (make-hash-table :test #'equal)))
+    (dolist (encoded proof index)
+      (let ((encoded (ensure-byte-vector encoded)))
+        (setf (gethash (bytes-to-hex (keccak-256 encoded) :prefix nil) index)
+              encoded)))))
+
+(defun mpt-proof-index-node (reference proof-index)
+  (gethash (bytes-to-hex reference :prefix nil) proof-index))
+
+(defun mpt-proof-consume-referenced-node (reference proof-index)
   (cond
     ((and (byte-vector-p reference) (zerop (length reference)))
-     (values nil nil nil))
+     (values nil nil))
     ((rlp-list-p reference)
-     (values reference proof t))
+     (values reference t))
     ((and (byte-vector-p reference) (= 32 (length reference)))
-     (unless proof
-       (error "MPT proof is missing referenced node"))
-     (let ((encoded (first proof)))
-       (unless (bytes= reference (keccak-256 encoded))
-         (error "MPT proof referenced node hash mismatch"))
-       (values (rlp-decode-one encoded) (rest proof) t)))
+     (let ((encoded (mpt-proof-index-node reference proof-index)))
+       (unless encoded
+         (error "MPT proof is missing referenced node"))
+       (values (rlp-decode-one encoded) t)))
     (t
      (error "MPT proof has malformed node reference"))))
 
-(defun mpt-proof-node-value (node nibbles proof)
+(defun mpt-proof-node-value (node nibbles proof-index)
   (unless (rlp-list-p node)
     (error "MPT proof node must be an RLP list"))
   (let ((items (rlp-list-items node)))
@@ -61,14 +73,14 @@
       (17
        (if (zerop (length nibbles))
            (let ((value (nth 16 items)))
-             (values value (plusp (length value)) proof))
-           (multiple-value-bind (child next-proof present-p)
+             (values value (plusp (length value))))
+           (multiple-value-bind (child present-p)
                (mpt-proof-consume-referenced-node
                 (nth (aref nibbles 0) items)
-                proof)
+                proof-index)
              (if present-p
-                 (mpt-proof-node-value child (subseq nibbles 1) next-proof)
-                 (values nil nil next-proof)))))
+                 (mpt-proof-node-value child (subseq nibbles 1) proof-index)
+                 (values nil nil)))))
       (2
        (multiple-value-bind (path leaf-p)
            (hex-prefix-decode (first items))
@@ -77,20 +89,20 @@
                          (concatenate 'vector
                                       nibbles
                                       (vector +terminator-nibble+)))
-                 (values (second items) t proof)
-                 (values nil nil proof))
+                 (values (second items) t)
+                 (values nil nil))
              (if (nibbles-prefix-p path nibbles)
-                 (multiple-value-bind (child next-proof present-p)
+                 (multiple-value-bind (child present-p)
                      (mpt-proof-consume-referenced-node
                       (second items)
-                      proof)
+                      proof-index)
                    (if present-p
                        (mpt-proof-node-value
                         child
                         (subseq nibbles (length path))
-                        next-proof)
-                       (values nil nil next-proof)))
-                 (values nil nil proof)))))
+                        proof-index)
+                       (values nil nil)))
+                 (values nil nil)))))
       (otherwise
        (error "MPT proof node has malformed item count: ~D" (length items))))))
 
@@ -105,14 +117,11 @@
       ((null proof)
        (error "MPT proof is empty for non-empty root"))
       (t
-       (let ((root-node (first proof)))
-         (unless (bytes= root-hash (keccak-256 root-node))
+       (let* ((proof-index (mpt-proof-node-index proof))
+              (root-node (mpt-proof-index-node root-hash proof-index)))
+         (unless root-node
            (error "MPT proof root hash mismatch"))
-         (multiple-value-bind (value present-p remaining-proof)
-             (mpt-proof-node-value
-              (rlp-decode-one root-node)
-              (keybytes-to-nibbles key :terminator nil)
-              (rest proof))
-           (when remaining-proof
-             (error "MPT proof has unconsumed nodes"))
-           (values value present-p)))))))
+         (mpt-proof-node-value
+          (rlp-decode-one root-node)
+          (keybytes-to-nibbles key :terminator nil)
+          proof-index))))))

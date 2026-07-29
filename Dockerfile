@@ -12,10 +12,30 @@ RUN apt-get update \
         cl-swank \
         curl \
         libsecp256k1-dev \
+        libgflags-dev \
+        libsnappy-dev \
+        zlib1g-dev \
+        libbz2-dev \
+        liblz4-dev \
+        libzstd-dev \
         build-essential \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /private/tmp \
     && chmod 1777 /private/tmp
+
+# RocksDB is vendored as a checksummed release archive so this layer can be
+# rebuilt with Docker networking disabled. Keep the version synchronized with
+# docs/storage-substrate.md and the CFFI backend.
+COPY tools/rocksdb/rocksdb-11.1.2.tar.gz /opt/rocksdb-11.1.2.tar.gz
+RUN --network=none \
+    echo "d5e78b69e0fb2960576fd5f21c9f3d1a02f635da61159b01942ff285e891c9c0  /opt/rocksdb-11.1.2.tar.gz" \
+        | sha256sum -c - \
+    && mkdir /opt/rocksdb \
+    && tar -xzf /opt/rocksdb-11.1.2.tar.gz -C /opt/rocksdb --strip-components=1 \
+    && make -C /opt/rocksdb -j2 shared_lib PORTABLE=1 DISABLE_WARNING_AS_ERROR=1 \
+    && cp -a /opt/rocksdb/librocksdb.so* /usr/local/lib/ \
+    && ldconfig \
+    && rm -rf /opt/rocksdb /opt/rocksdb-11.1.2.tar.gz
 
 # Build c-kzg-4844 (with its bundled blst) as a shared library for the KZG CFFI
 # binding, and stage its trusted setup. Pinned to a tag; the build has network,

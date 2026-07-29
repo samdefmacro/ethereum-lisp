@@ -18,12 +18,14 @@
   "Apply a transaction message and execute recipient code when present."
   (let* ((effective-chain-rules
           (execution-chain-rules chain-rules chain-config block-number timestamp))
+         (transaction-snapshot (state-db-snapshot state))
          (*transaction-floor-gas*
            (transaction-effective-floor-gas tx effective-chain-rules)))
     (validate-execution-transaction-fields
      tx effective-chain-rules blob-base-fee)
     (validate-transaction-sender-code state sender)
-    (if (transaction-to tx)
+    (multiple-value-prog1
+        (if (transaction-to tx)
         (let* ((recipient (transaction-to tx))
                (gas-limit (transaction-gas-limit tx))
                (gas-price
@@ -31,6 +33,7 @@
                (intrinsic-gas
                  (execution-transaction-intrinsic-gas
                   tx effective-chain-rules)))
+          (state-db-touch-account state recipient)
           (charge-sender-upfront state sender tx
                                  :base-fee base-fee
                                  :blob-base-fee blob-base-fee
@@ -43,7 +46,7 @@
                     recipient effective-chain-rules)))
             (cond
               (precompile-p
-               (let ((snapshot (state-db-copy state)))
+               (let ((snapshot (state-db-snapshot state)))
                  (transfer-value state sender recipient
                                  (transaction-value tx))
                  (handler-case
@@ -64,7 +67,7 @@
                         base-fee
                         :refund-counter refund-counter))
                    (evm-error ()
-                     (state-db-restore state snapshot)
+                     (state-db-revert-to-snapshot state snapshot)
                      (finalize-transaction-receipt
                       state sender coinbase tx
                       (make-receipt :status 0
@@ -81,7 +84,7 @@
                 base-fee
                 :refund-counter refund-counter))
               (t
-               (let ((snapshot (state-db-copy state)))
+               (let ((snapshot (state-db-snapshot state)))
                  (transfer-value state sender recipient
                                  (transaction-value tx))
                  (handler-case
@@ -109,7 +112,7 @@
                                :gas-limit (- gas-limit intrinsic-gas))))
                        (if (eq (evm-result-status result) :reverted)
                            (progn
-                             (state-db-restore state snapshot)
+                             (state-db-revert-to-snapshot state snapshot)
                              (finalize-transaction-receipt
                               state sender coinbase tx
                               (make-receipt
@@ -135,27 +138,31 @@
                              (finalize-evm-selfdestructs state context)
                              receipt)))
                    (evm-error ()
-                     (state-db-restore state snapshot)
+                     (state-db-revert-to-snapshot state snapshot)
                      (finalize-transaction-receipt
                       state sender coinbase tx
                       (make-receipt :status 0
                                     :cumulative-gas-used gas-limit)
                       base-fee
                       :refund-counter refund-counter))))))))
-        (apply-contract-creation state sender tx
-                                 :base-fee base-fee
-                                 :blob-base-fee blob-base-fee
-                                 :chain-id chain-id
-                                 :chain-rules effective-chain-rules
-                                 :chain-config chain-config
-                                 :coinbase coinbase
-                                 :timestamp timestamp
-                                 :block-number block-number
-                                 :prev-randao prev-randao
-                                 :difficulty difficulty
-                                 :random-p random-p
-                                 :context-gas-limit context-gas-limit
-                                 :block-hashes block-hashes))))
+            (apply-contract-creation state sender tx
+                                     :base-fee base-fee
+                                     :blob-base-fee blob-base-fee
+                                     :chain-id chain-id
+                                     :chain-rules effective-chain-rules
+                                     :chain-config chain-config
+                                     :coinbase coinbase
+                                     :timestamp timestamp
+                                     :block-number block-number
+                                     :prev-randao prev-randao
+                                     :difficulty difficulty
+                                     :random-p random-p
+                                     :context-gas-limit context-gas-limit
+                                     :block-hashes block-hashes))
+      (state-db-finalize-transaction
+       state transaction-snapshot
+       (or (null effective-chain-rules)
+           (chain-rules-eip158-p effective-chain-rules))))))
 
 (defun apply-signed-message
     (state tx

@@ -19,8 +19,12 @@
    #:key-value-database
    #:memory-key-value-database
    #:file-key-value-database
+   #:rocksdb-key-value-database
    #:make-memory-key-value-database
    #:make-file-key-value-database
+   #:make-rocksdb-key-value-database
+   #:close-rocksdb-key-value-database
+   #:rocksdb-available-p
    #:kv-get
    #:kv-put
    #:kv-delete
@@ -137,7 +141,12 @@
    #:mpt-verify-proof
    #:mpt-root-hash
    #:mpt-root-hex
-   #:mpt-root-node)
+   #:mpt-root-node
+   #:mpt-persist
+   #:trie-node-store-get
+   #:make-mpt-iterator
+   #:mpt-get-range-proof
+   #:mpt-verify-range-proof)
   (#:ethereum-lisp.blocks
    #:+empty-ommers-hash+
    #:ommers-hash
@@ -947,6 +956,7 @@
    #:chain-store-block-receipts
    #:chain-store-state-available-p
    #:chain-store-prune-state-before
+   #:chain-store-prune-state-to-retention-depth
    #:chain-store-put-account-balance
    #:chain-store-account-balance
    #:chain-store-put-account-nonce
@@ -955,6 +965,7 @@
    #:chain-store-account-code
    #:chain-store-put-account-storage
    #:chain-store-account-storage
+   #:chain-store-account-storage-entries
    #:chain-store-for-each-account
    #:chain-store-update-forkchoice-checkpoints
    #:chain-store-head-checkpoint
@@ -1209,6 +1220,8 @@
    #:state-storage-range-entry-slot
    #:state-storage-range-entry-value
    #:state-db-get-account
+   #:make-lazy-state-db
+   #:state-db-account-loaded-p
    #:state-db-set-account
    #:state-db-clear-account
    #:state-db-set-code
@@ -1216,6 +1229,10 @@
    #:state-db-get-code-hash
    #:state-db-copy
    #:state-db-restore
+   #:state-db-snapshot
+   #:state-db-revert-to-snapshot
+   #:state-db-finalize-transaction
+   #:state-db-touch-account
    #:state-db-set-storage
    #:state-db-get-storage
    #:state-db-get-storage-root

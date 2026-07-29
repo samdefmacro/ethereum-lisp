@@ -49,9 +49,9 @@ block-prefixed keys."
         (return default))
       (case (engine-payload-store-state-kind-for-key store block-key)
         (:baseline
-         (return (gethash (format nil "~A:~A" block-key suffix)
-                          prefixed-table
-                          default)))
+         (multiple-value-bind (value present-p)
+             (gethash (format nil "~A:~A" block-key suffix) prefixed-table)
+           (return (values (if present-p value default) present-p))))
         (:diff
          (let ((diff (engine-payload-store-state-diff-for-key
                       store block-key)))
@@ -60,7 +60,9 @@ block-prefixed keys."
            (multiple-value-bind (value present-p)
                (gethash suffix (funcall diff-table-reader diff))
              (when present-p
-               (return (if (eq value :absent) default value)))
+              (return (if (eq value :absent)
+                          (values default nil)
+                          (values value t))))
              (setf block-key (chain-state-diff-parent-key diff)))))
         (t
          (return default))))))
@@ -85,6 +87,45 @@ when the chain does not reach one."
            (incf distance)
            (setf block-key (chain-state-diff-parent-key diff))))
         (t (return nil))))))
+
+(defun chain-store-account-storage-entries (store block-hash address)
+  "Resolve one account's live storage entries without building a world view."
+  (let* ((store (chain-store-require-memory-store store))
+         (block-key (engine-payload-store-key block-hash))
+         (address-prefix (format nil "~A:" (address-to-hex address)))
+         (diffs '())
+         (entries (make-hash-table :test #'equal))
+         (remaining (engine-payload-store-state-walk-limit store)))
+    (loop
+      (when (minusp (decf remaining))
+        (return-from chain-store-account-storage-entries nil))
+      (case (engine-payload-store-state-kind-for-key store block-key)
+        (:baseline
+         (let ((prefix (format nil "~A:~A" block-key address-prefix)))
+           (maphash
+            (lambda (key value)
+              (when (engine-payload-store-string-prefix-p prefix key)
+                (setf (gethash (subseq key (length prefix)) entries) value)))
+            (memory-chain-store-account-storage store)))
+         (return))
+        (:diff
+         (let ((diff (engine-payload-store-state-diff-for-key store block-key)))
+           (unless diff
+             (return-from chain-store-account-storage-entries nil))
+           (push diff diffs)
+           (setf block-key (chain-state-diff-parent-key diff))))
+        (t (return-from chain-store-account-storage-entries nil))))
+    (dolist (diff diffs)
+      (maphash
+       (lambda (suffix value)
+         (when (engine-payload-store-string-prefix-p address-prefix suffix)
+           (let ((slot (subseq suffix (length address-prefix))))
+             (if (or (eq value :absent) (zerop value))
+                 (remhash slot entries)
+                 (setf (gethash slot entries) value)))))
+       (chain-state-diff-storage diff)))
+    (loop for slot in (engine-payload-store-sorted-hash-keys entries)
+          collect (cons (hash32-from-hex slot) (gethash slot entries)))))
 
 (defun chain-store-put-state-diff
     (store block-hash parent-hash &key balances nonces codes storage)
@@ -334,3 +375,11 @@ can be pruned. Returns T on success, NIL when the view is unresolvable."
       (dolist (block-key block-keys)
         (engine-payload-store-prune-state-snapshot store block-key))
       (length block-keys))))
+
+(defun chain-store-prune-state-to-retention-depth (store)
+  "Prune state outside STORE's configured distance from its canonical head."
+  (let* ((store (chain-store-require-memory-store store))
+         (head-number (memory-chain-store-head-number store))
+         (depth (memory-chain-store-state-retention-depth store))
+         (first-kept (max 0 (1+ (- head-number depth)))))
+    (chain-store-prune-state-before store first-kept)))

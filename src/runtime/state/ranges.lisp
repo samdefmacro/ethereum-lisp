@@ -82,6 +82,7 @@
                   (state-storage-range-entry-proof-key entry))))))
 
 (defun state-db-for-each-account (state function)
+  (state-db-materialize state)
   (dolist (address-key (state-db-sorted-hash-keys (state-db-objects state)))
     (let* ((object (gethash address-key (state-db-objects state)))
            (address (address-from-hex address-key))

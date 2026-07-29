@@ -103,12 +103,18 @@
        (hash32-bytes (zero-hash32))
        (ascii-to-bytes "dog")
        (mpt-get-proof trie (ascii-to-bytes "dog"))))
-    (signals error
-      (mpt-verify-proof
-       (mpt-root-hash trie)
-       (ascii-to-bytes "dog")
-       (append (mpt-get-proof trie (ascii-to-bytes "dog"))
-               (mpt-get-proof trie (ascii-to-bytes "horse")))))))
+    (let* ((dog-proof (mpt-get-proof trie (ascii-to-bytes "dog")))
+           (padded-proof
+             (reverse
+              (append dog-proof
+                      (mpt-get-proof trie (ascii-to-bytes "horse"))))))
+      (multiple-value-bind (value present-p)
+          (mpt-verify-proof
+           (mpt-root-hash trie)
+           (ascii-to-bytes "dog")
+           padded-proof)
+        (is present-p)
+        (is (bytes= (ascii-to-bytes "puppy") value))))))
 
 (deftest trie-proof-rejects-tampered-referenced-node
   (let ((trie (make-mpt)))
@@ -138,4 +144,74 @@
        (mpt-get-proof (make-mpt) (ascii-to-bytes "dog")))
     (is (null present-p))
     (is (null value))))
+
+(deftest trie-rehashes-only-the-updated-path
+  ;; The initial root is the positive control: every node must be encoded. Once
+  ;; caches are warm, changing one leaf must not make work scale with 512
+  ;; retained entries.
+  (let ((trie (make-mpt))
+        (initial-encodings 0)
+        (update-encodings 0))
+    (dotimes (index 512)
+      (mpt-put trie
+               (vector (ldb (byte 8 8) index)
+                       (ldb (byte 8 0) index))
+               (integer-to-minimal-bytes (1+ index))))
+    (let ((ethereum-lisp.trie::*node-encoding-count* 0))
+      (mpt-root-hash trie)
+      (setf initial-encodings
+            ethereum-lisp.trie::*node-encoding-count*))
+    (mpt-put trie (vector 0 0) (integer-to-minimal-bytes 999))
+    (let ((ethereum-lisp.trie::*node-encoding-count* 0))
+      (mpt-root-hash trie)
+      (setf update-encodings
+            ethereum-lisp.trie::*node-encoding-count*))
+    (is (< 512 initial-encodings))
+    (is (< update-encodings 16))))
+
+(deftest trie-node-store-persists-root-and-descendants
+  (let ((trie (make-mpt))
+        (database (make-memory-key-value-database)))
+    (mpt-put trie #(1) #(10))
+    (mpt-put trie #(2) #(20))
+    (let ((root (mpt-persist database trie)))
+      (is (ethereum-lisp.types:hash32=
+           root (make-hash32 (mpt-root-hash trie))))
+      (multiple-value-bind (encoded present-p)
+          (trie-node-store-get database root)
+        (is present-p)
+        (is (bytes= encoded
+                    (ethereum-lisp.trie::encoded-node
+                     (mpt-root-node trie))))))))
+
+(deftest trie-iterator-resumes-after-cursor
+  (let ((trie (make-mpt)))
+    (dolist (entry '((#(1) . #(10)) (#(2) . #(20)) (#(3) . #(30))))
+      (mpt-put trie (car entry) (cdr entry)))
+    (let ((iterator (make-mpt-iterator trie)))
+      (multiple-value-bind (key value cursor present-p)
+          (funcall iterator)
+        (is present-p)
+        (is (bytes= #(1) key))
+        (is (bytes= #(10) value))
+        (let ((resumed (make-mpt-iterator trie :after cursor)))
+          (multiple-value-bind (next-key next-value next-cursor next-present-p)
+              (funcall resumed)
+            (declare (ignore next-cursor))
+            (is next-present-p)
+            (is (bytes= #(2) next-key))
+            (is (bytes= #(20) next-value))))))))
+
+(deftest trie-range-proof-rejects-omission
+  (let ((trie (make-mpt)))
+    (dotimes (index 5)
+      (mpt-put trie (vector index) (vector (+ 10 index))))
+    (multiple-value-bind (entries proof)
+        (mpt-get-range-proof trie :start #(1) :end #(4))
+      (is (mpt-verify-range-proof
+           (mpt-root-hash trie) entries proof :start #(1) :end #(4)))
+      (signals error
+        (mpt-verify-range-proof
+         (mpt-root-hash trie) (rest entries) proof
+         :start #(1) :end #(4))))))
 

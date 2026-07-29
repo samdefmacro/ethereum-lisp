@@ -19,7 +19,9 @@
          (empty-root (state-db-root-hex state)))
     (state-db-set-storage state address slot 99)
     (is (state-db-get-account state address))
-    (state-db-set-storage state address slot 0)
+    (let ((snapshot (state-db-snapshot state)))
+      (state-db-set-storage state address slot 0)
+      (state-db-finalize-transaction state snapshot t))
     (is (null (state-db-get-account state address)))
     (is (string= empty-root (state-db-root-hex state)))))
 
@@ -68,7 +70,9 @@
          (empty-root (state-db-root-hex state)))
     (state-db-set-code state address (hex-to-bytes "0x60016000"))
     (is (state-db-get-account state address))
-    (state-db-set-code state address #())
+    (let ((snapshot (state-db-snapshot state)))
+      (state-db-set-code state address #())
+      (state-db-finalize-transaction state snapshot t))
     (is (null (state-db-get-account state address)))
     (is (string= empty-root (state-db-root-hex state)))))
 
@@ -184,4 +188,38 @@
                 "0x0000000000000000000000000000000000000000000000000000000000000001"
                 "0x000000000000000000000000000000000000000000000000000000000000000b")
                storage-slots))))
+
+(deftest state-journal-reverts-nested-account-mutations
+  (let ((state (make-state-db))
+        (address (address-from-hex
+                  "0x0000000000000000000000000000000000000010"))
+        (slot (hash32-from-hex
+               "0x0000000000000000000000000000000000000000000000000000000000000010")))
+    (state-db-set-account state address (make-state-account :balance 1))
+    (let ((outer (state-db-snapshot state))
+          (root (state-db-root state)))
+      (state-db-set-storage state address slot 7)
+      (let ((inner (state-db-snapshot state)))
+        (state-db-set-code state address #(1 2 3))
+        (state-db-clear-account state address)
+        (state-db-revert-to-snapshot state inner)
+        (is (= 7 (state-db-get-storage state address slot)))
+        (is (zerop (length (state-db-get-code state address)))))
+      (state-db-revert-to-snapshot state outer)
+      (is (= 1 (state-account-balance (state-db-get-account state address))))
+      (is (= 0 (state-db-get-storage state address slot)))
+      (is (ethereum-lisp.types:hash32= root (state-db-root state))))))
+
+(deftest state-finalization-is-fork-gated
+  (let ((state (make-state-db))
+        (address (address-from-hex
+                  "0x0000000000000000000000000000000000000011")))
+    (let ((snapshot (state-db-snapshot state)))
+      (state-db-set-account state address (make-state-account))
+      (state-db-finalize-transaction state snapshot nil)
+      (is (state-db-get-account state address)))
+    (let ((snapshot (state-db-snapshot state)))
+      (state-db-set-account state address (make-state-account))
+      (state-db-finalize-transaction state snapshot t)
+      (is (null (state-db-get-account state address))))))
 

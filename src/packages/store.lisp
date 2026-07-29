@@ -71,6 +71,7 @@
    #:memory-chain-store-state-blocks
    #:memory-chain-store-state-diffs
    #:memory-chain-store-state-baseline-interval
+   #:memory-chain-store-state-retention-depth
    #:chain-state-diff
    #:chain-state-diff-p
    #:make-chain-state-diff
@@ -172,6 +173,7 @@
    #:chain-store-state-available-p
    #:engine-payload-store-prune-state-snapshot
    #:chain-store-prune-state-before
+   #:chain-store-prune-state-to-retention-depth
    #:chain-store-state-kind
    #:chain-store-put-state-diff
    #:chain-store-commit-post-state
@@ -193,6 +195,7 @@
    #:chain-store-account-code
    #:chain-store-put-account-storage
    #:chain-store-account-storage
+   #:chain-store-account-storage-entries
    #:engine-payload-store-account-storage-entries
    #:chain-store-for-each-account
    #:engine-payload-store-canonical-parent-p

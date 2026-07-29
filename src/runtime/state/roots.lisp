@@ -1,6 +1,7 @@
 (in-package #:ethereum-lisp.state)
 
 (defun state-db-state-trie (state)
+  (state-db-materialize state)
   (let ((trie (make-mpt)))
     (maphash (lambda (address object)
                (let* ((address-hash (keccak-256 (address-bytes (address-from-hex address))))

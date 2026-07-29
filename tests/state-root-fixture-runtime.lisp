@@ -37,7 +37,13 @@
 (defun run-state-root-fixture-case (case)
   (let ((state (make-state-db)))
     (dolist (operation (fixture-object-field case "operations"))
-      (apply-state-root-fixture-operation state operation))
+      (let ((snapshot (state-db-snapshot state))
+            (op (fixture-object-field operation "op")))
+        (apply-state-root-fixture-operation state operation)
+        ;; These legacy vectors model the old mutator boundary, where code and
+        ;; storage writes finalized emptiness immediately.
+        (when (or (string= op "setStorage") (string= op "setCode"))
+          (state-db-finalize-transaction state snapshot t))))
     state))
 
 (defstruct (state-root-fixture-account-state

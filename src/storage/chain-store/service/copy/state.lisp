@@ -38,6 +38,8 @@
     (memory-chain-store-state-diffs store))
    :state-baseline-interval
    (memory-chain-store-state-baseline-interval store)
+   :state-retention-depth
+   (memory-chain-store-state-retention-depth store)
    :remote-blocks
    (engine-payload-store-copy-table
     (memory-chain-store-remote-blocks store))

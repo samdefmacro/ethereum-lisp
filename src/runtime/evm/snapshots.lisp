@@ -80,7 +80,7 @@
 
 (defun capture-execution-snapshot (state context)
   (make-evm-execution-snapshot
-   :state (state-db-copy state)
+   :state (state-db-snapshot state)
    :transient-storage (copy-transient-storage context)
    :storage-clears (copy-storage-clears context)
    :accessed-storage (copy-accessed-storage context)
@@ -94,7 +94,7 @@
   snapshot)
 
 (defun restore-execution-snapshot (state context snapshot)
-  (state-db-restore state (evm-execution-snapshot-state snapshot))
+  (state-db-revert-to-snapshot state (evm-execution-snapshot-state snapshot))
   (restore-transient-storage
    context
    (evm-execution-snapshot-transient-storage snapshot))

@@ -64,19 +64,45 @@ so execution only fails if EVM code actually queries unavailable history."
 
 (defun chain-store-state-db (store block-hash)
   (when (chain-store-state-available-p store block-hash)
-    (let ((state (make-state-db)))
-      (chain-store-for-each-account
-       store
-       block-hash
-       (lambda (address balance nonce code storage-entries)
-         (state-db-set-account
-          state address
-          (make-state-account :nonce nonce :balance balance))
-         (when (plusp (length code))
-           (state-db-set-code state address code))
-         (dolist (entry storage-entries)
-           (state-db-set-storage state address (car entry) (cdr entry)))))
-      state)))
+    (labels
+        ((load-all (state)
+           (chain-store-for-each-account
+            store block-hash
+            (lambda (address balance nonce code storage-entries)
+              (unless (state-db-account-loaded-p state address)
+                (state-db-set-account
+                 state address
+                 (make-state-account :nonce nonce :balance balance))
+                (when (plusp (length code))
+                  (state-db-set-code state address code))
+                (dolist (entry storage-entries)
+                  (state-db-set-storage
+                   state address (car entry) (cdr entry))))))))
+      (make-lazy-state-db
+       (lambda (address)
+         (multiple-value-bind (balance balance-present-p)
+             (chain-store-account-balance store block-hash address)
+           (let ((storage-entries
+                   (chain-store-account-storage-entries
+                    store block-hash address))
+                 (code (chain-store-account-code store block-hash address)))
+             (multiple-value-bind (nonce nonce-present-p)
+                 (chain-store-account-nonce store block-hash address)
+               (if (or balance-present-p nonce-present-p storage-entries
+                       (plusp (length code)))
+                   (values
+                    (make-state-account
+                     :nonce nonce
+                     :balance balance
+                     :code-hash
+                     (ethereum-lisp.crypto:keccak-256-hash code))
+                    code
+                    t
+                    storage-entries)
+                   (values nil nil nil))))))
+       (lambda (address slot)
+         (chain-store-account-storage store block-hash address slot))
+       #'load-all))))
 
 (defun execute-atomic-block-commit (store state thunk)
   (let ((state-snapshot (state-db-copy state)))
