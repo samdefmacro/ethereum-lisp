@@ -22,6 +22,7 @@
        (p2p-host "0.0.0.0")
        p2p-port
        max-peers
+       netrestrict
        public-api-modules
        engine-cors-origins
        public-cors-origins
@@ -271,7 +272,8 @@
        :peer-table
        (make-devnet-peer-table
         :self-id-hex (node-id-to-hex (node-id-from-private-key node-key))
-        :max-peers (or max-peers +devnet-default-max-peers+))
+        :max-peers (or max-peers +devnet-default-max-peers+)
+        :netrestrict netrestrict)
      :discovery-table
      (make-discv4-node-table (node-id-from-private-key node-key))
      :metrics-host metrics-host

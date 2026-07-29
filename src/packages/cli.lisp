@@ -78,6 +78,8 @@
    #:devnet-peer-table-reserve-slot
    #:devnet-peer-table-release-slot
    #:devnet-peer-table-inbound-verdict
+   #:devnet-peer-score
+   #:devnet-peer-note-score
    #:devnet-peer-table-admit
    #:devnet-peer-table-remove
    #:devnet-peer-table-snapshot

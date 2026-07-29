@@ -59,6 +59,7 @@
         (node-key nil)
         (p2p-port nil)
         (max-peers nil)
+        (netrestrict nil)
         (metrics nil)
         (metrics-host nil)
         (metrics-port nil)
@@ -132,6 +133,10 @@
                 (setf max-peers
                       (next-parsed-value option
                                          #'devnet-cli-parse-non-negative-integer)))
+               ((string= option "--netrestrict")
+                (setf netrestrict
+                      (next-transformed-value
+                       option #'devnet-cli-parse-vhost-list)))
                ((or (string= option "--engine-port")
                     (string= option "--authrpc.port"))
                 (setf port (next-parsed-value option #'devnet-cli-parse-port)))
@@ -345,6 +350,7 @@
           :bootnodes (nreverse bootnodes)
           :p2p-port p2p-port
           :max-peers max-peers
+          :netrestrict netrestrict
           :metrics metrics
           :metrics-host metrics-host
           :metrics-port metrics-port
