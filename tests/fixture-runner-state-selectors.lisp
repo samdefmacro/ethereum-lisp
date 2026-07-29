@@ -33,7 +33,8 @@
 
 (defparameter +eest-state-test-transaction-fields+
   '("data" "gasLimit" "gasPrice" "nonce" "to" "value" "secretKey"
-    "sender" "accessLists" "maxFeePerGas" "maxPriorityFeePerGas"))
+    "sender" "accessLists" "maxFeePerGas" "maxPriorityFeePerGas"
+    "maxFeePerBlobGas" "blobVersionedHashes" "authorizationList"))
 
 (defconstant +phase-a-eest-state-test-selectors-env+
   "ETHEREUM_LISP_PHASE_A_STATE_TEST_SELECTORS")
