@@ -23,6 +23,9 @@
   ;; Transaction hashes this peer announced that we have not fetched yet, as a
   ;; set (see gossip.lisp). NIL until the peer announces something.
   announced-hashes
+  ;; Hashes this remote peer demonstrably knows, bounded in gossip.lisp. Used to
+  ;; avoid reflecting its own transactions straight back to it.
+  known-transaction-hashes
   ;; Block hashes announced for top-level draining by the session pump. Kept as
   ;; a FIFO list because ordering by the peer's announcement is useful.
   announced-block-hashes

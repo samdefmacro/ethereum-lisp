@@ -32,29 +32,80 @@ grow without bound.")
 (defconstant +eth-max-announced-block-hashes+ 256
   "How many block hashes one peer may queue before the excess is dropped.")
 
+(defconstant +eth-full-transaction-broadcast-size+ 4096
+  "Largest transaction pushed in full; larger transactions are hash-announced.")
+
+(defconstant +eth-max-known-transaction-hashes+ 8192
+  "How many transaction hashes one session remembers for its remote peer.")
+
 (defun eth-gossipable-transaction-p (transaction)
   "Whether TRANSACTION may be announced or pushed to a peer."
   (not (typep transaction 'blob-transaction)))
 
 ;;; Sending.
 
+(defun eth-peer-known-transaction-table (peer)
+  (or (eth-peer-known-transaction-hashes peer)
+      (setf (eth-peer-known-transaction-hashes peer)
+            (make-hash-table :test #'equalp))))
+
+(defun eth-peer-knows-transaction-p (peer transaction)
+  (gethash (hash32-bytes (transaction-hash transaction))
+           (eth-peer-known-transaction-table peer)))
+
+(defun eth-peer-note-known-transaction-hashes (peer hashes)
+  "Record that PEER knows HASHES, bounding memory for a long-lived session."
+  (let ((known (eth-peer-known-transaction-table peer)))
+    (dolist (hash hashes)
+      (when (>= (hash-table-count known)
+                +eth-max-known-transaction-hashes+)
+        (clrhash known))
+      (setf (gethash (ensure-byte-vector hash) known) t)))
+  peer)
+
+(defun eth-peer-note-known-transactions (peer transactions)
+  (eth-peer-note-known-transaction-hashes
+   peer
+   (mapcar (lambda (transaction)
+             (hash32-bytes (transaction-hash transaction)))
+           transactions)))
+
+(defun eth-peer-sendable-transactions (peer transactions size-predicate)
+  (remove-if-not
+   (lambda (transaction)
+     (and (eth-gossipable-transaction-p transaction)
+          (not (eth-peer-knows-transaction-p peer transaction))
+          (funcall size-predicate (length (transaction-encoding transaction)))))
+   transactions))
+
 (defun eth-peer-broadcast-transactions (peer transactions)
   "Push TRANSACTIONS to PEER in full, and return how many were sent.
 
 Sends nothing when none qualify: an empty Transactions message is wasted
 bandwidth, and the protocol asks that it carry at least one transaction."
-  (let ((sendable (remove-if-not #'eth-gossipable-transaction-p transactions)))
+  (let ((sendable
+          (eth-peer-sendable-transactions
+           peer transactions
+           (lambda (size)
+             (<= size +eth-full-transaction-broadcast-size+)))))
     (when sendable
       (eth-peer-send peer +eth-message-transactions+
-                     (encode-eth-transactions sendable)))
+                     (encode-eth-transactions sendable))
+      (eth-peer-note-known-transactions peer sendable))
     (length sendable)))
 
 (defun eth-peer-announce-transactions (peer transactions)
   "Announce TRANSACTIONS to PEER by hash, and return how many were announced."
-  (let ((sendable (remove-if-not #'eth-gossipable-transaction-p transactions)))
+  (let ((sendable
+          (eth-peer-sendable-transactions
+           peer transactions
+           (lambda (size)
+             (declare (ignore size))
+             t))))
     (when sendable
       (eth-peer-send peer +eth-message-new-pooled-transaction-hashes+
-                     (encode-eth-new-pooled-transaction-hashes sendable)))
+                     (encode-eth-new-pooled-transaction-hashes sendable))
+      (eth-peer-note-known-transactions peer sendable))
     (length sendable)))
 
 ;;; Receiving.
@@ -227,7 +278,9 @@ that has nothing else to do."
           (eth-new-block-block (decode-eth-new-block payload)))
          t)
         ((= eth-id +eth-message-transactions+)
-         (eth-accept-transactions backend (decode-eth-transactions payload))
+         (let ((transactions (decode-eth-transactions payload)))
+           (eth-peer-note-known-transactions peer transactions)
+           (eth-accept-transactions backend transactions))
          t)
         ((= eth-id +eth-message-new-pooled-transaction-hashes+)
          (multiple-value-bind (types sizes hashes)
@@ -235,6 +288,7 @@ that has nothing else to do."
            ;; The type and size columns only help a fetcher decide what to ask
            ;; for first; we fetch in announcement order and ignore them.
            (declare (ignore types sizes))
+           (eth-peer-note-known-transaction-hashes peer hashes)
            (eth-peer-queue-announced-hashes peer backend hashes))
          t)
         ((= eth-id +eth-message-get-pooled-transactions+)

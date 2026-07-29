@@ -64,7 +64,13 @@
    #:+eth-max-pooled-transactions-serve+
    #:+eth-max-announced-transaction-hashes+
    #:+eth-max-announced-block-hashes+
+   #:+eth-full-transaction-broadcast-size+
+   #:+eth-max-known-transaction-hashes+
    #:eth-peer-announced-hashes
+   #:eth-peer-known-transaction-hashes
+   #:eth-peer-knows-transaction-p
+   #:eth-peer-note-known-transaction-hashes
+   #:eth-peer-note-known-transactions
    #:eth-peer-announced-hash-count
    #:eth-peer-announced-block-count
    #:eth-peer-queue-announced-blocks

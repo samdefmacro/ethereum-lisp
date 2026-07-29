@@ -91,6 +91,44 @@ given, is a predicate marking transactions the pool turns down."
        (make-rlp-list)
        (make-rlp-list))))))
 
+(deftest eth-gossip-tracks-peer-knowledge-and-large-transactions
+  (:layer :unit :module :p2p)
+  (multiple-value-bind (backend pool) (eth-gossip-test-backend)
+    (declare (ignore pool))
+    (let* ((peer (eth-gossip-test-peer backend))
+           (small (eth-gossip-test-transaction 1))
+           (large
+             (make-legacy-transaction
+              :nonce 2 :gas-price 2 :gas-limit 100000
+              :value 3 :v 27 :r 4 :s 5
+              :data (make-array 5000 :element-type '(unsigned-byte 8)
+                                :initial-element 1))))
+      ;; Receiving a full transaction records that this peer knows it, so the
+      ;; next txpool poll cannot reflect it straight back.
+      (is (ethereum-lisp.eth-sync:eth-peer-gossip-message
+           peer ethereum-lisp.eth-wire:+eth-message-transactions+
+           (ethereum-lisp.eth-wire:encode-eth-transactions (list small))))
+      (is (ethereum-lisp.eth-sync:eth-peer-knows-transaction-p peer small))
+      (is (null
+           (ethereum-lisp.eth-sync::eth-peer-sendable-transactions
+            peer (list small)
+            (lambda (size) (declare (ignore size)) t))))
+      ;; A payload above the full-broadcast threshold is left for the hash
+      ;; announcement pass in the pump.
+      (is (> (length (transaction-encoding large))
+             ethereum-lisp.eth-sync:+eth-full-transaction-broadcast-size+))
+      (is (null
+           (ethereum-lisp.eth-sync::eth-peer-sendable-transactions
+            peer (list large)
+            (lambda (size)
+              (<= size
+                  ethereum-lisp.eth-sync:+eth-full-transaction-broadcast-size+)))))
+      (is (= 1
+             (length
+              (ethereum-lisp.eth-sync::eth-peer-sendable-transactions
+               peer (list large)
+               (lambda (size) (declare (ignore size)) t))))))))
+
 (deftest eth-new-pooled-transaction-hashes-round-trips
   (:layer :unit :module :p2p)
   (let ((transactions (list (eth-gossip-test-transaction 1)
