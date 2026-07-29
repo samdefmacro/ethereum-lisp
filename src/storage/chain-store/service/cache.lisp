@@ -164,6 +164,14 @@ transient or raced verdict can be retried without restarting the node."
    (gethash (engine-payload-id-key payload-id)
             (memory-chain-store-prepared-payloads store))))
 
+(defun engine-payload-store-prepared-payload-list (store)
+  (setf store (chain-store-require-memory-store store))
+  (loop for prepared-payload
+          being the hash-values of
+            (memory-chain-store-prepared-payloads store)
+        collect
+        (engine-payload-store-copy-prepared-payload prepared-payload)))
+
 (defun chain-store-put-prepared-payload (store prepared-payload)
   (engine-payload-store-put-prepared-payload
    (chain-store-require-memory-store store)
@@ -173,6 +181,10 @@ transient or raced verdict can be retried without restarting the node."
   (engine-payload-store-prepared-payload
    (chain-store-require-memory-store store)
    payload-id))
+
+(defun chain-store-prepared-payloads (store)
+  (engine-payload-store-prepared-payload-list
+   (chain-store-require-memory-store store)))
 
 (defun engine-payload-store-put-blob-sidecar
     (store sidecar)

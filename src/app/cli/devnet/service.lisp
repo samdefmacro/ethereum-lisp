@@ -38,6 +38,8 @@
          (engine-error nil)
          (public-count nil)
          (public-error nil)
+         (payload-improvement-error nil)
+         (payload-improvement-thread nil)
          (rejournal-error nil)
          (rejournal-thread nil)
          (dev-period-error nil)
@@ -90,6 +92,12 @@
            shutdown-controller
            (lambda (condition)
              (setf rejournal-error condition))))
+    (setf payload-improvement-thread
+          (devnet-start-payload-improvement-thread
+           node
+           shutdown-controller
+           (lambda (condition)
+             (setf payload-improvement-error condition))))
     (setf dev-period-thread
           (devnet-start-dev-period-thread
            node
@@ -185,6 +193,9 @@
         (when rejournal-thread
           (devnet-shutdown-request shutdown-controller)
           (sb-thread:join-thread rejournal-thread))
+        (when payload-improvement-thread
+          (devnet-shutdown-request shutdown-controller)
+          (sb-thread:join-thread payload-improvement-thread))
         (when dev-period-thread
           (devnet-shutdown-request shutdown-controller)
           (sb-thread:join-thread dev-period-thread))
@@ -277,6 +288,8 @@
         (error discovery-server-error))
       (when rejournal-error
         (error rejournal-error))
+      (when payload-improvement-error
+        (error payload-improvement-error))
       (when dev-period-error
         (error dev-period-error))
 

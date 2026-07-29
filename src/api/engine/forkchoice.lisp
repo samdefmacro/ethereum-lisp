@@ -91,36 +91,101 @@ mutated working state into the next probe."
 (defun engine-rpc-build-viable-prepared-payload
     (store parent-block payload-attributes config transactions
      &key gas-limit-target)
-  "Build the best viable payload from TRANSACTIONS.
+  "Execute and fill TRANSACTIONS in order using actual cumulative gas.
 
-A transaction-validation failure invalidates that sender's remaining nonce
-chain, not the payload.  The builder retries without that sender and ultimately
-returns the empty payload, which is always the safe result for otherwise valid
-payload attributes."
-  (loop with remaining = transactions
-        do (handler-case
-               (return
-                 (values
-                  (engine-rpc-build-prepared-payload
-                   store parent-block payload-attributes config remaining
-                   :gas-limit-target gas-limit-target)
-                  remaining))
-             (transaction-validation-error ()
-               (let ((sender-key
-                       (engine-rpc-first-invalid-transaction-sender-key
-                        store parent-block payload-attributes config
-                        remaining
-                        :gas-limit-target gas-limit-target)))
-                 (if sender-key
-                     (setf remaining
-                           (remove
-                            sender-key remaining
-                            :test #'string=
-                            :key (lambda (transaction)
-                                   (engine-rpc-transaction-sender-key
-                                    transaction
-                                    (chain-config-chain-id config)))))
-                     (setf remaining '())))))))
+Each candidate is probed on top of the already accepted transactions.  A
+sender whose next nonce is invalid or cannot fit the remaining gas is skipped
+for the rest of this payload; other senders are still considered."
+  (let ((block
+          (engine-rpc-build-prepared-payload
+           store parent-block payload-attributes config nil
+           :gas-limit-target gas-limit-target))
+        (selected '())
+        (blocked-senders (make-hash-table :test #'equal))
+        (expected-chain-id (chain-config-chain-id config)))
+    (dolist (transaction transactions)
+      (let ((sender-key
+              (engine-rpc-transaction-sender-key
+               transaction expected-chain-id)))
+        (unless (gethash sender-key blocked-senders)
+          (handler-case
+              (let ((candidate
+                      (engine-rpc-build-prepared-payload
+                       store parent-block payload-attributes config
+                       (append selected (list transaction))
+                       :gas-limit-target gas-limit-target)))
+                (setf selected (append selected (list transaction))
+                      block candidate))
+            (transaction-validation-error ()
+              (setf (gethash sender-key blocked-senders) t))
+            (block-validation-error (condition)
+              (if (string= "Block gas limit exceeded"
+                           (block-validation-error-message condition))
+                  (setf (gethash sender-key blocked-senders) t)
+                  (error condition)))))))
+    (values block selected)))
+
+(defun engine-rpc-pending-build-transactions (store config parent-header)
+  (engine-payload-store-pending-mining-transactions
+   store (chain-config-chain-id config)
+   :base-fee (ignore-errors
+              (expected-base-fee-per-gas parent-header))))
+
+(defun engine-rpc-improve-prepared-payload (store config prepared-payload)
+  "Rebuild an open payload from the latest txpool contents under the same id."
+  (unless (typep prepared-payload 'engine-prepared-payload)
+    (block-validation-fail "Payload improvement requires a prepared payload"))
+  (if (not (engine-prepared-payload-open-p prepared-payload))
+      prepared-payload
+      (let* ((parent-block
+               (chain-store-known-block
+                store
+                (engine-prepared-payload-parent-hash prepared-payload)))
+             (transactions
+               (engine-rpc-pending-build-transactions
+                store config (block-header parent-block)))
+             (candidate-root (transaction-list-root transactions)))
+        (if (hash32=
+             candidate-root
+             (engine-prepared-payload-candidate-transactions-root
+              prepared-payload))
+            prepared-payload
+            (multiple-value-bind (block viable-transactions)
+                (engine-rpc-build-viable-prepared-payload
+                 store
+                 parent-block
+                 (engine-prepared-payload-payload-attributes prepared-payload)
+                 config
+                 transactions
+                 :gas-limit-target
+                 (engine-prepared-payload-gas-limit-target prepared-payload))
+              (declare (ignore viable-transactions))
+              (let ((improved
+                      (make-engine-prepared-payload
+                       :payload-id
+                       (engine-prepared-payload-payload-id prepared-payload)
+                       :version
+                       (engine-prepared-payload-version prepared-payload)
+                       :block block
+                       :parent-hash
+                       (engine-prepared-payload-parent-hash prepared-payload)
+                       :payload-attributes
+                       (engine-prepared-payload-payload-attributes
+                        prepared-payload)
+                       :gas-limit-target
+                       (engine-prepared-payload-gas-limit-target
+                        prepared-payload)
+                       :candidate-transactions-root candidate-root
+                       :open-p t)))
+                (chain-store-put-prepared-payload store improved)
+                improved))))))
+
+(defun engine-rpc-improve-open-payloads (store config)
+  "Improve every payload that has not yet been retrieved."
+  (dolist (prepared-payload (chain-store-prepared-payloads store))
+    (when (engine-prepared-payload-open-p prepared-payload)
+      (engine-rpc-improve-prepared-payload store config prepared-payload)))
+  nil)
 
 (defun engine-rpc-persist-forkchoice
     (store transition forkchoice-persistence-function)
@@ -244,22 +309,11 @@ payload attributes."
                   payload-version payload-attributes
                   config block-number timestamp))
                (transactions
-                 (engine-select-mining-transactions
-                  (engine-payload-store-pending-mining-transactions
-                   store (chain-config-chain-id config)
-                   ;; Order by what each sender actually pays at THIS block's
-                   ;; base fee, which is the only point the tip is knowable.
-                   ;; A chain without a base fee (pre-London, or a parent that
-                   ;; carries none) has no tip to order by, and NIL falls back
-                   ;; to the deterministic address order rather than failing.
-                   :base-fee (ignore-errors
-                              (expected-base-fee-per-gas parent-header)))
-                  (block-header-gas-limit parent-header)
-                  (chain-config-chain-id config)))
+                 (engine-rpc-pending-build-transactions
+                  store config parent-header))
                (candidate-id
-                 (engine-payload-id-with-transactions
-                  prepared-payload-version head-hash payload-attributes
-                  transactions)))
+                 (engine-payload-id
+                  prepared-payload-version head-hash payload-attributes)))
           (unless (chain-store-prepared-payload store candidate-id)
             (multiple-value-bind (block viable-transactions)
                 (handler-case
@@ -280,7 +334,13 @@ payload attributes."
                (make-engine-prepared-payload
                 :payload-id candidate-id
                 :version prepared-payload-version
-                :block block))))
+                :block block
+                :parent-hash head-hash
+                :payload-attributes payload-attributes
+                :gas-limit-target gas-limit-target
+                :candidate-transactions-root
+                (transaction-list-root transactions)
+                :open-p t))))
           (setf payload-id candidate-id)))
       (engine-rpc-forkchoice-response-object
        status

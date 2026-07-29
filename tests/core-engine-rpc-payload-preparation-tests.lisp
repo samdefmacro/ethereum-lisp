@@ -469,8 +469,8 @@
            (transaction-a
              (fixture-sign-legacy-transaction
               (make-legacy-transaction :nonce 0
-                                       :gas-price 1000
-                                       :gas-limit 21000
+                                       :gas-price 2000
+                                       :gas-limit 30000
                                        :to recipient
                                        :value 1)
               private-key-a
@@ -479,7 +479,7 @@
              (fixture-sign-legacy-transaction
               (make-legacy-transaction :nonce 0
                                        :gas-price 1000
-                                       :gas-limit 30000
+                                       :gas-limit 21000
                                        :to recipient
                                        :value 1)
               private-key-b
@@ -550,29 +550,27 @@
                  (mapcar (lambda (transaction)
                            (field transaction "hash"))
                          pending-transactions))
-               (selected-raw (first payload-transactions))
-               (selected-hash
-                 (cond
-                   ((string= selected-raw raw-a) hash-a)
-                   ((string= selected-raw raw-b) hash-b)))
-               (non-selected-hash
-                 (cond
-                   ((string= selected-raw raw-a) hash-b)
-                   ((string= selected-raw raw-b) hash-a))))
+               (selected-hashes
+                 (mapcar
+                  (lambda (raw)
+                    (if (string= raw raw-a) hash-a hash-b))
+                  payload-transactions)))
           (is (= 103 (field prepare-response "id")))
           (is (stringp payload-id))
-          (is (= 1 (length payload-transactions)))
-          ;; Prepared payloads start with a zero-valued gas template.  The
-          ;; selected transfer must finalize both the stored header and RPC
-          ;; payload with its actual execution gas.
-          (is (= 21000 (block-header-gas-used prepared-header)))
-          (is (= 21000 (hex-to-quantity (field payload "gasUsed"))))
-          (is (member selected-raw (list raw-a raw-b) :test #'string=))
+          ;; The first transaction declares 30000 gas but uses only 21000.
+          ;; Filling from actual cumulative gas leaves enough room for the
+          ;; second 21000-gas transfer.
+          (is (= 2 (length payload-transactions)))
+          (is (= 42000 (block-header-gas-used prepared-header)))
+          (is (= 42000 (hex-to-quantity (field payload "gasUsed"))))
+          (is (member raw-a payload-transactions :test #'string=))
+          (is (member raw-b payload-transactions :test #'string=))
           (is (= 2 (length pending-transactions)))
-          (is (member selected-hash pending-hashes :test #'string=))
-          (is (member non-selected-hash pending-hashes :test #'string=)))))))
+          (is (every (lambda (hash)
+                       (member hash pending-hashes :test #'string=))
+                     selected-hashes)))))))
 
-(deftest engine-rpc-forkchoice-updated-v1-payload-id-tracks-txpool-selection
+(deftest engine-rpc-forkchoice-updated-v1-improves-stable-payload-before-get
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))
            (request-json (json store config)
@@ -664,9 +662,6 @@
                (empty-payload-id
                  (field (field empty-prepare-response "result") "payloadId")))
           (is (stringp empty-payload-id))
-          (is (ethereum-lisp.json:json-empty-array-p
-               (get-payload-transactions
-                202 empty-payload-id store config)))
           (is (string= (hash32-to-hex (transaction-hash transaction))
                        (field (send-raw
                                203 raw-transaction store config)
@@ -683,15 +678,16 @@
                    (get-payload-transactions
                     205 txpool-payload-id store config)))
             (is (stringp txpool-payload-id))
-            (is (not (string= empty-payload-id txpool-payload-id)))
+            (is (string= empty-payload-id txpool-payload-id))
             (is (= 1 (length txpool-payload-transactions)))
             (is (string= raw-transaction
                          (first txpool-payload-transactions)))
-            (is (ethereum-lisp.json:json-empty-array-p
-                 (get-payload-transactions
-                  206 empty-payload-id store config)))))))))
+            (is (= 1
+                   (length
+                    (get-payload-transactions
+                     206 empty-payload-id store config))))))))))
 
-(deftest engine-rpc-forkchoice-updated-v1-refreshes-txpool-replacement-payload-id
+(deftest engine-rpc-forkchoice-updated-v1-improves-to-txpool-replacement
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))
            (request-json (json store config)
@@ -817,13 +813,8 @@
                   store
                   config))
                (base-payload-id
-                 (payload-id-from-response base-prepare-response))
-               (base-payload-transactions
-                 (get-payload-transactions
-                  209 base-payload-id store config)))
+                 (payload-id-from-response base-prepare-response)))
           (is (stringp base-payload-id))
-          (is (= 1 (length base-payload-transactions)))
-          (is (string= base-raw (first base-payload-transactions)))
           (is (string= replacement-hash
                        (field (send-raw
                                210 replacement-transaction store config)
@@ -846,7 +837,7 @@
             (is (string= replacement-hash (field pending "hash")))
             (is (not (string= base-hash (field pending "hash"))))
             (is (stringp replacement-payload-id))
-            (is (not (string= base-payload-id replacement-payload-id)))
+            (is (string= base-payload-id replacement-payload-id))
             (is (= 1 (length replacement-payload-transactions)))
             (is (string= replacement-raw
                          (first replacement-payload-transactions)))

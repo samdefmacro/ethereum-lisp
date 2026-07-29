@@ -165,8 +165,10 @@
    #:engine-payload-id-to-hex
    #:engine-payload-store-put-prepared-payload
    #:engine-payload-store-prepared-payload
+   #:engine-payload-store-prepared-payload-list
    #:chain-store-put-prepared-payload
    #:chain-store-prepared-payload
+   #:chain-store-prepared-payloads
    #:engine-payload-store-put-blob-sidecar
    #:engine-payload-store-blob-and-proofs-v1
    #:engine-payload-store-blob-and-proofs-v2
