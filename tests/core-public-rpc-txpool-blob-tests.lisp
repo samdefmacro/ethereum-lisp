@@ -159,6 +159,7 @@
                "\"params\":[\"" raw-transaction "\"]}")
               store
               config))
+           (error (field send-response "error"))
            (pending-response
              (request
               "{\"jsonrpc\":\"2.0\",\"id\":168,\"method\":\"eth_pendingTransactions\",\"params\":[]}"
@@ -225,15 +226,12 @@
            (field error "message")))
       (is (= 0 (length (field pending-response "result"))))
       (is (string= (quantity-to-hex 0) (field status "pending")))
-      (is (string= (quantity-to-hex 1) (field status "queued")))
+      (is (string= (quantity-to-hex 0) (field status "queued")))
       (is (null (field content "pending")))
-      (is (string= transaction-hash (field (field queued "0") "hash")))
-      (is (string= transaction-hash (field queued-from "hash")))
-      (is (search (format nil "~A wei"
-                          (transaction-value transaction))
-                  (field inspect-queued "0")))
-      (is (string= transaction-hash (field pooled-transaction "hash")))
-      (is (null (field pooled-transaction "blockHash")))
+      (is (null queued))
+      (is (null queued-from))
+      (is (null inspect-queued))
+      (is (null pooled-transaction))
       (is (= 0 (length (field filter-changes "result")))))))
 
 (deftest eth-rpc-send-raw-transaction-rejects-low-blob-fee-cap

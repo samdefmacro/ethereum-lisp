@@ -135,9 +135,12 @@
         (/ (or (block-header-blob-gas-used header) 0) max-blob-gas)
         0)))
 
-(defun eth-rpc-fee-history-zero-reward (percentiles)
-  (loop repeat (length percentiles)
-        collect (quantity-to-hex 0)))
+(defun eth-rpc-fee-history-reward (block percentiles)
+  (let ((samples (eth-rpc-block-priority-fee-samples block)))
+    (loop for percentile in percentiles
+          collect
+          (quantity-to-hex
+           (eth-rpc-priority-fee-percentile samples percentile)))))
 
 (defun engine-rpc-handle-eth-fee-history (params store config)
   (let* ((method "eth_feeHistory")
@@ -172,10 +175,10 @@
                 (append object
                         (list
                          (cons "reward"
-                               (loop repeat (length blocks)
+                               (loop for block in blocks
                                      collect
-                                     (eth-rpc-fee-history-zero-reward
-                                      percentiles)))))))
+                                     (eth-rpc-fee-history-reward
+                                      block percentiles)))))))
         (when (eth-rpc-fee-history-blob-enabled-p blocks)
           (setf object
                 (append

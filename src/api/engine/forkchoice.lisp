@@ -408,6 +408,18 @@ for the rest of this payload; other senders are still considered."
 
 (defun engine-rpc-handle-forkchoice-updated-v4
     (params store config &key forkchoice-persistence-function gas-limit-target)
+  (when (> (length params) 3)
+    (block-validation-fail
+     "engine_forkchoiceUpdatedV4 accepts at most three parameters"))
+  (when (and (= 3 (length params))
+             (not (json-null-p (third params))))
+    (let ((custody-columns
+            (json-rpc-bytes
+             (third params)
+             "engine_forkchoiceUpdatedV4 custodyColumns")))
+      (unless (= 16 (length custody-columns))
+        (block-validation-fail
+         "engine_forkchoiceUpdatedV4 custodyColumns must be 16 bytes"))))
   (engine-rpc-handle-forkchoice-updated
    params store config "engine_forkchoiceUpdatedV4" 4
    #'engine-rpc-validate-payload-attributes-v4

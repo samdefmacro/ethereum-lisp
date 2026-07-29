@@ -3,9 +3,11 @@
 ;;;; The admin namespace: what it reports, and — more important — who is
 ;;;; allowed to reach it.
 
-(defun admin-test-backend (&key (listening t) (peers '()) (added '()))
+(defun admin-test-backend
+    (&key (listening t) (peers '()) (added '()) (removed '()))
   "A backend answering from fixed data, so these tests state the RPC surface
 rather than a node's peering state."
+  (declare (ignore added removed))
   (make-admin-backend
    :listening-p (lambda () listening)
    :peer-count (lambda () (length peers))
@@ -18,7 +20,8 @@ rather than a node's peering state."
                       :listener-port 30303
                       :listen-address "127.0.0.1:30303"
                       :eth (list :network-id 1337 :genesis "0xaa" :head "0xbb")))
-   :add-peer (lambda (enode) (push enode (cdr added)) t)))
+   :add-peer (lambda (enode) (declare (ignore enode)) t)
+   :remove-peer (lambda (enode) (declare (ignore enode)) t)))
 
 (deftest admin-namespace-is-reachable-only-when-named
   ;; THE security property. With no --http.api the filter falls back to the
@@ -43,7 +46,8 @@ rather than a node's peering state."
                      (list "eth" "admin"))))
     (is (funcall with-admin "admin_nodeInfo"))
     (is (funcall with-admin "admin_peers"))
-    (is (funcall with-admin "admin_addPeer")))
+    (is (funcall with-admin "admin_addPeer"))
+    (is (funcall with-admin "admin_removePeer")))
   ;; And rpc_modules advertises it on exactly the same rule.
   (is (null (assoc "admin"
                    (ethereum-lisp.public-api::engine-rpc-handle-rpc-modules
@@ -101,7 +105,15 @@ rather than a node's peering state."
       (ethereum-lisp.public-api::engine-rpc-handle-admin-add-peer
        (list "not-an-enode") backend))
     (signals error
-      (ethereum-lisp.public-api::engine-rpc-handle-admin-add-peer nil backend)))
+      (ethereum-lisp.public-api::engine-rpc-handle-admin-add-peer nil backend))
+    (is (eq t
+            (ethereum-lisp.public-api::engine-rpc-handle-admin-remove-peer
+             (list
+              "enode://ca634cae0d49acb401d8a15135d7683a4ca6390aa5375e1057c2691298d0b7d18261503a6c96a8aaf46e2f377217f75f640fd2d5f79d554768081b057760b6e6@127.0.0.1:30303")
+             backend)))
+    (signals error
+      (ethereum-lisp.public-api::engine-rpc-handle-admin-remove-peer
+       (list "not-an-enode") backend)))
   ;; A node built without peering says so rather than inventing an answer.
   (signals error
     (ethereum-lisp.public-api::engine-rpc-handle-admin-node-info nil nil))

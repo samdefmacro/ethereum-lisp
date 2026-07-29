@@ -106,3 +106,130 @@ neither."
   (when params
     (block-validation-fail "eth_hashrate params must be empty"))
   (quantity-to-hex 0))
+
+(defparameter +eth-config-precompiles+
+  '((1 . "ECREC")
+    (2 . "SHA256")
+    (3 . "RIPEMD160")
+    (4 . "ID")
+    (5 . "MODEXP")
+    (6 . "BN254_ADD")
+    (7 . "BN254_MUL")
+    (8 . "BN254_PAIRING")
+    (9 . "BLAKE2F")
+    (10 . "KZG_POINT_EVALUATION")
+    (11 . "BLS12_G1ADD")
+    (12 . "BLS12_G1MSM")
+    (13 . "BLS12_G2ADD")
+    (14 . "BLS12_G2MSM")
+    (15 . "BLS12_PAIRING_CHECK")
+    (16 . "BLS12_MAP_FP_TO_G1")
+    (17 . "BLS12_MAP_FP2_TO_G2")
+    (256 . "P256VERIFY")))
+
+(defun eth-config-precompile-active-p
+    (number config block-number timestamp)
+  (cond
+    ((<= number 4) t)
+    ((<= 5 number 8)
+     (chain-config-byzantium-p config block-number))
+    ((= number 9)
+     (chain-config-istanbul-p config block-number))
+    ((= number 10)
+     (chain-config-cancun-p config block-number timestamp))
+    ((<= 11 number 17)
+     (chain-config-prague-p config block-number timestamp))
+    ((= number 256)
+     (chain-config-osaka-p config block-number timestamp))))
+
+(defun eth-config-precompiles-object
+    (config block-number timestamp)
+  (loop for (number . name) in +eth-config-precompiles+
+        when (eth-config-precompile-active-p
+              number config block-number timestamp)
+          collect (cons name (address-to-hex (precompile-address number)))))
+
+(defun eth-config-system-contracts-object
+    (config block-number timestamp)
+  (when (chain-config-cancun-p config block-number timestamp)
+    (append
+     (list
+      (cons "BEACON_ROOTS_ADDRESS"
+            "0x000f3df6d732807ef1319fb7b8bb8522d0beac02"))
+     (when (chain-config-prague-p config block-number timestamp)
+       (append
+        (list
+         (cons "CONSOLIDATION_REQUEST_PREDEPLOY_ADDRESS"
+               "0x0000bbddc7ce488642fb579f8b00f3a590007251"))
+        (when (chain-config-deposit-contract-address config)
+          (list
+           (cons "DEPOSIT_CONTRACT_ADDRESS"
+                 (address-to-hex
+                  (chain-config-deposit-contract-address config)))))
+        (list
+         (cons "HISTORY_STORAGE_ADDRESS"
+               "0x0000f90827f1c53a10cb7a02335b175320002935")
+         (cons "WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS"
+               "0x00000961ef480eb55e80d19ad83579a64c007002")))))))
+
+(defun eth-config-object
+    (config genesis-hash genesis-timestamp block-number activation-time)
+  (multiple-value-bind (target-gas max-gas update-fraction)
+      (chain-config-blob-schedule config block-number activation-time)
+    (let ((fork-id
+            (ethereum-lisp.eth-wire:chain-config-eth-fork-id
+             config (hash32-bytes genesis-hash) block-number activation-time
+             genesis-timestamp)))
+      (append
+       (list
+        (cons "activationTime" activation-time)
+        (cons "blobSchedule"
+              (list
+               (cons "baseFeeUpdateFraction" update-fraction)
+               (cons "max" (/ max-gas +blob-gas-per-blob+))
+               (cons "target" (/ target-gas +blob-gas-per-blob+))))
+        (cons "chainId" (quantity-to-hex (chain-config-chain-id config)))
+        (cons
+         "forkId"
+         (bytes-to-hex
+          (ethereum-lisp.eth-wire:eth-fork-id-hash fork-id)))
+        (cons "precompiles"
+              (eth-config-precompiles-object
+               config block-number activation-time)))
+       (let ((system-contracts
+               (eth-config-system-contracts-object
+                config block-number activation-time)))
+         (when system-contracts
+           (list (cons "systemContracts" system-contracts))))))))
+
+(defun engine-rpc-handle-eth-config (params store config)
+  (when params
+    (block-validation-fail "eth_config params must be empty"))
+  (let* ((genesis (chain-store-block-by-number store 0))
+         (head (chain-store-latest-block store)))
+    (unless (and genesis head)
+      (block-validation-fail "eth_config requires genesis and head blocks"))
+    (let* ((genesis-header (block-header genesis))
+           (head-header (block-header head))
+           (genesis-time (block-header-timestamp genesis-header))
+           (head-time (block-header-timestamp head-header))
+           (head-number (block-header-number head-header))
+           (fork-times
+             (cons 0
+                   (chain-config-time-fork-schedule config genesis-time)))
+           (current-time
+             (or (car (last (remove-if (lambda (time) (> time head-time))
+                                       fork-times)))
+                 0))
+           (future-times
+             (remove-if-not (lambda (time) (> time head-time)) fork-times))
+           (next-time (first future-times))
+           (last-time (car (last future-times))))
+      (labels ((object (activation-time)
+                 (and activation-time
+                      (eth-config-object
+                       config (block-hash genesis) genesis-time
+                       head-number activation-time))))
+        (list (cons "current" (object current-time))
+              (cons "next" (or (object next-time) :null))
+              (cons "last" (or (object last-time) :null)))))))

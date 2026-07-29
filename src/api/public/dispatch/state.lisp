@@ -31,6 +31,10 @@
        (public-rpc-dispatch-response
         context
         (engine-rpc-handle-eth-call params store config)))
+      ((public-rpc-dispatch-method-p context "eth_simulateV1")
+       (public-rpc-dispatch-response
+        context
+        (engine-rpc-handle-eth-simulate-v1 params store config)))
       ((public-rpc-dispatch-method-p context "eth_estimateGas")
        (public-rpc-dispatch-response
         context

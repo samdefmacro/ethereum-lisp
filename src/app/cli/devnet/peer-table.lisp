@@ -224,4 +224,30 @@ Peer reads take the peer-table mutex, never the store guard."
           node
           (lambda ()
             (pushnew enode (devnet-node-peers node) :test #'string=)
-            t)))))))
+            t))))
+     :remove-peer
+     (lambda (enode)
+       (let* ((node (node))
+              (id-hex
+                (node-id-to-hex
+                 (nth-value 0 (parse-enode-url enode))))
+              (removed-static-p nil)
+              (entry
+                (call-with-devnet-peer-table
+                 node
+                 (lambda ()
+                   (setf removed-static-p
+                         (not (null
+                               (member enode (devnet-node-peers node)
+                                       :test #'string=))))
+                   (setf (devnet-node-peers node)
+                         (remove enode (devnet-node-peers node)
+                                 :test #'string=))
+                   (devnet-peer-table-remove
+                    (devnet-node-peer-table node) id-hex)))))
+         #+sbcl
+         (when (and entry (devnet-peer-entry-socket entry))
+           (ignore-errors
+             (sb-bsd-sockets:socket-close
+              (devnet-peer-entry-socket entry))))
+         (if (or entry removed-static-p) t nil))))))

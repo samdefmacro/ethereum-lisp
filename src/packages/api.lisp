@@ -66,6 +66,8 @@
    #:engine-rpc-forkchoice-response-object
    #:engine-rpc-handle-get-payload-v1
    #:engine-rpc-handle-forkchoice-updated-v1
+   #:engine-rpc-build-viable-prepared-payload
+   #:engine-rpc-pending-build-transactions
    #:engine-rpc-improve-prepared-payload
    #:engine-rpc-improve-open-payloads
    #:engine-rpc-engine-method-p
@@ -124,6 +126,7 @@
    #:admin-backend-node-info
    #:admin-backend-peers
    #:admin-backend-add-peer
+   #:admin-backend-remove-peer
    #:admin-backend-peer-count
    #:admin-backend-listening-p
    #:eth-rpc-subscription

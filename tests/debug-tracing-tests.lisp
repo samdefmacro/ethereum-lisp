@@ -126,3 +126,50 @@
       (is (equal "STATICCALL" (evm-call-frame-type (first children))))
       (is (equal "CREATE" (evm-call-frame-type (second children))))
       (is (null (evm-call-frame-children (first children)))))))
+
+(deftest parity-trace-namespace-is-explicitly-unavailable
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (is (not (engine-rpc-public-method-p "trace_replayTransaction")))
+    (let* ((response
+             (engine-rpc-handle-request
+              (list (cons "jsonrpc" "2.0")
+                    (cons "id" 8)
+                    (cons "method" "trace_replayTransaction")
+                    (cons "params" '()))
+              (make-engine-payload-memory-store)
+              (make-chain-config)
+              :allowed-method-p #'engine-rpc-public-method-p))
+           (error-object (field response "error")))
+      (is (= -32601 (field error-object "code")))
+      (is (search "not found" (field error-object "message"))))))
+
+(deftest debug-set-head-rewinds-the-canonical-chain
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1 :london-block 0))
+           (genesis
+             (make-block
+              :header (make-block-header :number 0 :timestamp 1)))
+           (child
+             (make-block
+              :header
+              (make-block-header
+               :parent-hash (block-hash genesis)
+               :number 1 :timestamp 2))))
+      (chain-store-put-block store genesis :state-available-p t)
+      (chain-store-put-block store child :state-available-p t)
+      (chain-store-set-canonical-head
+       store (block-hash child)
+       :expected-chain-id 1 :chain-config config)
+      (let ((response
+              (engine-rpc-handle-request
+               (list (cons "jsonrpc" "2.0")
+                     (cons "id" 9)
+                     (cons "method" "debug_setHead")
+                     (cons "params" (list "0x0")))
+               store config
+               :allowed-method-p #'engine-rpc-public-method-p)))
+        (is (null (field response "result")))
+        (is (= 0 (chain-store-head-number store)))))))

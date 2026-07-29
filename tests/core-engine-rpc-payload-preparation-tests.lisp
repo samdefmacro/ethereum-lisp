@@ -1318,7 +1318,11 @@
           (is (= 33 (field get-payload-response "id")))
           (is (eq :false (field envelope "shouldOverrideBuilder")))
           (is (string= (quantity-to-hex 42) (field payload "slotNumber")))
-          (is (string= (quantity-to-hex 30000000)
+          (is (string=
+               (quantity-to-hex
+                (ethereum-lisp.engine-payloads:engine-target-gas-limit
+                 (block-header-gas-limit (block-header known-block))
+                 30000000))
                        (field payload "gasLimit")))
           (is (string= "0x0" (field payload "blobGasUsed")))
           (is (string= "0x0" (field payload "excessBlobGas")))

@@ -121,6 +121,16 @@
         id
         :result
         (engine-rpc-handle-get-blobs-v3 params store config)))
+      ((string= method "engine_getBlobsV4")
+       (json-rpc-response
+        id
+        :result
+        (engine-rpc-handle-get-blobs-v4 params store config)))
+      ((string= method "engine_hasBlobs")
+       (json-rpc-response
+        id
+        :result
+        (engine-rpc-handle-has-blobs params store)))
       ((string= method "engine_getClientVersionV1")
        (json-rpc-response
         id

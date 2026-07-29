@@ -15,6 +15,7 @@
    #:+kzg-blob-field-elements-per-blob+
    #:+kzg-field-modulus+
    #:+cell-proofs-per-blob+
+   #:+bytes-per-cell+
    #:*kzg-point-proof-verifier*
    #:*kzg-blob-proof-verifier*
    #:*kzg-verifier*
@@ -29,4 +30,5 @@
    #:verify-kzg-blob-proof
    #:make-kzg-cffi-verifier
    #:kzg-cffi-verifier-available-p
+   #:kzg-compute-cells-and-proofs
    #:validate-blob-sidecar-fields))

@@ -66,3 +66,12 @@ int eth_ckzg_verify_blob_kzg_proof(void *handle, const uint8_t *blob,
     }
     return ok ? 1 : 0;
 }
+
+/* EIP-7594 cell computation. 1 = success, -1 = malformed input/error. */
+int eth_ckzg_compute_cells_and_proofs(void *handle, const uint8_t *blob,
+                                      uint8_t *cells, uint8_t *proofs) {
+    C_KZG_RET ret = compute_cells_and_kzg_proofs(
+        (Cell *)cells, (KZGProof *)proofs, (const Blob *)blob,
+        (const KZGSettings *)handle);
+    return ret == C_KZG_OK ? 1 : -1;
+}

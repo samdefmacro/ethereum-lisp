@@ -26,4 +26,20 @@
       ((public-rpc-dispatch-method-p context "debug_traceCall")
        (public-rpc-dispatch-response
         context
-        (engine-rpc-handle-debug-trace-call params store config))))))
+        (engine-rpc-handle-debug-trace-call params store config)))
+      ((public-rpc-dispatch-method-p context "debug_traceTransaction")
+       (public-rpc-dispatch-response
+        context
+        (engine-rpc-handle-debug-trace-transaction params store config)))
+      ((public-rpc-dispatch-method-p context "debug_traceBlockByHash")
+       (public-rpc-dispatch-response
+        context
+        (engine-rpc-handle-debug-trace-block-by-hash params store config)))
+      ((public-rpc-dispatch-method-p context "debug_traceBlockByNumber")
+       (public-rpc-dispatch-response
+        context
+        (engine-rpc-handle-debug-trace-block-by-number params store config)))
+      ((public-rpc-dispatch-method-p context "debug_setHead")
+       (public-rpc-dispatch-response
+        context
+        (engine-rpc-handle-debug-set-head params store config))))))

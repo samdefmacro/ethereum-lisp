@@ -368,6 +368,8 @@
    #:make-kzg-cffi-verifier
    #:kzg-cffi-verifier-available-p
    #:+cell-proofs-per-blob+
+   #:+bytes-per-cell+
+   #:kzg-compute-cells-and-proofs
    #:validate-blob-sidecar-fields)
   (#:ethereum-lisp.p2p
    #:ecies-encrypt
@@ -504,6 +506,7 @@
    #:admin-backend-node-info
    #:admin-backend-peers
    #:admin-backend-add-peer
+   #:admin-backend-remove-peer
    #:admin-backend-peer-count
    #:admin-backend-listening-p)
   (#:ethereum-lisp.eth-sync

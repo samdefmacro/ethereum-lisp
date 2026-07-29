@@ -64,24 +64,15 @@
                transactions))))
 
 (defun eth-rpc-pending-block-object
-    (base-block transactions full-transactions-p config &key expected-chain-id)
+    (pending-block transactions full-transactions-p config
+     &key expected-chain-id)
+  (declare (ignore config))
   (let ((object
           (eth-rpc-block-object
-           base-block full-transactions-p
+           pending-block full-transactions-p
            :expected-chain-id expected-chain-id)))
-    (eth-rpc-set-object-field object "number"
-                              (quantity-to-hex
-                               (1+ (block-header-number
-                                    (block-header base-block)))))
-    (eth-rpc-set-object-field object "parentHash"
-                              (hash32-to-hex
-                               (block-hash base-block)))
     (eth-rpc-set-object-field object "hash" nil)
     (eth-rpc-set-object-field object "nonce" nil)
-    (let ((base-fee
-            (eth-rpc-pending-base-fee (block-header base-block) config)))
-      (when base-fee
-        (eth-rpc-set-object-field object "baseFeePerGas" base-fee)))
     (eth-rpc-set-object-field
      object
      "transactions"

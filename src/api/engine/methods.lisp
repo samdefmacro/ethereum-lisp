@@ -23,6 +23,8 @@
     ("engine_getBlobsV1" :advertised-p t :kzg-p t)
     ("engine_getBlobsV2" :advertised-p t :kzg-p t)
     ("engine_getBlobsV3" :advertised-p t :kzg-p t)
+    ("engine_getBlobsV4" :advertised-p t :kzg-p t)
+    ("engine_hasBlobs" :advertised-p t :kzg-p t)
     ("engine_newPayloadV3" :advertised-p t :kzg-p t)
     ("engine_newPayloadV4" :advertised-p t :kzg-p t)
     ("engine_newPayloadV5" :advertised-p t :kzg-p t)))

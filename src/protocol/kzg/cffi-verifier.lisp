@@ -25,6 +25,13 @@
   (proof :pointer))
 (cffi:defcfun ("eth_ckzg_verify_blob_kzg_proof" %eth-ckzg-verify-blob-kzg-proof) :int
   (settings :pointer) (blob :pointer) (commitment :pointer) (proof :pointer))
+(cffi:defcfun ("eth_ckzg_compute_cells_and_proofs"
+               %eth-ckzg-compute-cells-and-proofs) :int
+  (settings :pointer) (blob :pointer) (cells :pointer) (proofs :pointer))
+
+(defconstant +bytes-per-cell+ 2048)
+(defconstant +kzg-cffi-cells-per-blob+ 128)
+(defconstant +kzg-cffi-blob-byte-size+ 131072)
 
 (defparameter *kzg-trusted-setup-path*
   #p"/usr/local/share/eth-kzg/trusted_setup.txt"
@@ -71,6 +78,36 @@ verify-kzg-blob-proof wrapper."
         (cffi:with-pointer-to-vector-data (cp (kzg-cffi-octets commitment))
           (cffi:with-pointer-to-vector-data (pp (kzg-cffi-octets proof))
             (= 1 (%eth-ckzg-verify-blob-kzg-proof settings bp cp pp))))))))
+
+(defun kzg-compute-cells-and-proofs (blob)
+  "Return the 128 EIP-7594 cells and proofs for BLOB as two values."
+  (let ((settings (kzg-cffi-settings))
+        (blob (kzg-cffi-octets blob)))
+    (unless settings
+      (block-validation-fail "KZG cell computation is unavailable"))
+    (unless (= +kzg-cffi-blob-byte-size+ (length blob))
+      (block-validation-fail "KZG cell computation requires one full blob"))
+    (let ((cell-bytes
+            (make-byte-vector
+             (* +kzg-cffi-cells-per-blob+ +bytes-per-cell+)))
+          (proof-bytes
+            (make-byte-vector (* +kzg-cffi-cells-per-blob+ 48))))
+      (cffi:with-pointer-to-vector-data (bp blob)
+        (cffi:with-pointer-to-vector-data (cp cell-bytes)
+          (cffi:with-pointer-to-vector-data (pp proof-bytes)
+            (unless (= 1
+                       (%eth-ckzg-compute-cells-and-proofs
+                        settings bp cp pp))
+              (block-validation-fail "KZG cell computation failed")))))
+      (values
+       (loop for index below +kzg-cffi-cells-per-blob+
+             collect
+             (subseq cell-bytes
+                     (* index +bytes-per-cell+)
+                     (* (1+ index) +bytes-per-cell+)))
+       (loop for index below +kzg-cffi-cells-per-blob+
+             collect
+             (subseq proof-bytes (* index 48) (* (1+ index) 48)))))))
 
 (defun kzg-cffi-verifier-available-p ()
   "True when the CFFI verifier can be built (library and setup both present)."

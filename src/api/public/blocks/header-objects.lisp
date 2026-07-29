@@ -87,26 +87,17 @@
              (1+ (block-header-number base-header))))
     (eth-rpc-fee-history-next-base-fee base-header config)))
 
-(defun eth-rpc-pending-header-object (base-header config)
-  (let ((object (eth-rpc-header-object base-header)))
-    (eth-rpc-set-object-field
-     object
-     "number"
-     (quantity-to-hex (1+ (block-header-number base-header))))
-    (eth-rpc-set-object-field object "parentHash"
-                              (hash32-to-hex
-                               (block-header-hash base-header)))
+(defun eth-rpc-pending-header-object (pending-header config)
+  (declare (ignore config))
+  (let ((object (eth-rpc-header-object pending-header)))
     (eth-rpc-set-object-field object "hash" nil)
     (eth-rpc-set-object-field object "nonce" nil)
-    (let ((base-fee (eth-rpc-pending-base-fee base-header config)))
-      (when base-fee
-        (eth-rpc-set-object-field object "baseFeePerGas" base-fee)))
     object))
 
 (defun engine-rpc-handle-eth-get-header-by-number (params store config)
   (if (and (= 1 (length params))
            (eth-rpc-pending-block-tag-p (first params)))
-      (let ((block (chain-store-latest-block store)))
+      (let ((block (eth-rpc-build-pending-block store config)))
         (when block
           (eth-rpc-pending-header-object (block-header block) config)))
       (let* ((number (eth-rpc-block-number-param

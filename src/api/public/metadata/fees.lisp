@@ -1,8 +1,49 @@
 (in-package #:ethereum-lisp.public-api)
 
+(defconstant +eth-rpc-gas-oracle-block-count+ 20)
+(defconstant +eth-rpc-gas-oracle-percentile+ 60)
+
+(defun eth-rpc-block-priority-fee-samples (block)
+  "Return (TIP . GAS-USED) samples for BLOCK in transaction order."
+  (let ((base-fee
+          (or (block-header-base-fee-per-gas (block-header block)) 0))
+        (previous-cumulative 0))
+    (loop for transaction in (block-transactions block)
+          for receipt in (block-receipts block)
+          for cumulative = (receipt-cumulative-gas-used receipt)
+          for gas-used = (- cumulative previous-cumulative)
+          do (setf previous-cumulative cumulative)
+          collect
+          (cons
+           (transaction-priority-fee-per-gas
+            transaction :base-fee base-fee)
+           gas-used))))
+
+(defun eth-rpc-priority-fee-percentile (samples percentile)
+  "Return the gas-weighted priority-fee percentile from (TIP . GAS) SAMPLES."
+  (if (null samples)
+      0
+      (let* ((ordered (sort (copy-list samples) #'< :key #'car))
+             (total-gas (loop for sample in ordered sum (cdr sample)))
+             (threshold (* total-gas (/ percentile 100)))
+             (used 0))
+        (or (loop for (tip . gas) in ordered
+                  do (incf used gas)
+                  when (>= used threshold)
+                    return tip)
+            (caar (last ordered))))))
+
 (defun engine-rpc-suggest-gas-tip-cap (store)
-  (declare (ignore store))
-  0)
+  (let* ((head-number (chain-store-head-number store))
+         (first-number
+           (max 0 (1+ (- head-number +eth-rpc-gas-oracle-block-count+))))
+         (samples
+           (loop for number from first-number to head-number
+                 for block = (chain-store-block-by-number store number)
+                 when block
+                   append (eth-rpc-block-priority-fee-samples block))))
+    (eth-rpc-priority-fee-percentile
+     samples +eth-rpc-gas-oracle-percentile+)))
 
 (defun engine-rpc-handle-eth-max-priority-fee-per-gas (params store)
   (when params
