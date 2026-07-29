@@ -80,6 +80,7 @@
    #:+discv4-bucket-size+
    #:+discv4-bucket-count+
    #:+discv4-bond-lifetime-seconds+
+   #:+discv4-ping-timeout-seconds+
    #:discv4-table-entry
    #:make-discv4-table-entry
    #:discv4-table-entry-node-id
@@ -87,6 +88,7 @@
    #:discv4-table-entry-udp-port
    #:discv4-table-entry-tcp-port
    #:discv4-table-entry-bonded-at
+   #:discv4-table-entry-pending-ping-at
    #:discv4-table-entry-failures
    #:discv4-node-table
    #:make-discv4-node-table
@@ -99,6 +101,7 @@
    #:discv4-table-note-failure
    #:discv4-table-note-ping
    #:discv4-table-accept-pong
+   #:discv4-table-revalidation-candidate
    #:discv4-table-remove
    #:discv4-table-entries
    #:discv4-table-closest

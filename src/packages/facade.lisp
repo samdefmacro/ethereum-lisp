@@ -443,6 +443,10 @@
    #:+discv4-packet-enr-request+
    #:+discv4-packet-enr-response+
    #:+discv4-max-packet-size+
+   #:discv4-expiration
+   #:encode-discv4-packet
+   #:make-discv4-ping
+   #:encode-discv4-ping
    #:decode-discv4-packet
    #:decode-discv4-pong
    #:discv4-pong-expiration
@@ -462,6 +466,7 @@
    #:discv4-receive
    #:+discv4-bucket-size+
    #:+discv4-bond-lifetime-seconds+
+   #:+discv4-ping-timeout-seconds+
    #:discv4-table-entry
    #:make-discv4-table-entry
    #:discv4-table-entry-node-id
@@ -469,6 +474,7 @@
    #:discv4-table-entry-udp-port
    #:discv4-table-entry-tcp-port
    #:discv4-table-entry-bonded-at
+   #:discv4-table-entry-pending-ping-at
    #:discv4-node-table
    #:make-discv4-node-table
    #:discv4-log-distance
@@ -478,6 +484,7 @@
    #:discv4-table-note-failure
    #:discv4-table-note-ping
    #:discv4-table-accept-pong
+   #:discv4-table-revalidation-candidate
    #:discv4-table-remove
    #:discv4-table-entries
    #:discv4-table-closest

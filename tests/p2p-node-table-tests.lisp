@@ -102,6 +102,59 @@
     ;; And the limit is honoured.
     (is (= 3 (length (discv4-table-closest table target :limit 3))))))
 
+(deftest discv4-table-revalidates-and-evicts-unanswered-entries
+  (:layer :unit :module :p2p)
+  (let* ((table (make-discv4-node-table (node-table-test-id 0)))
+         (node-id (node-table-test-id 1))
+         (ping-hash
+           (make-array 32 :element-type '(unsigned-byte 8)
+                       :initial-element 9)))
+    (discv4-table-put table node-id "127.0.0.1" 30303 30303 100)
+    (is (discv4-table-revalidation-candidate table 100))
+    (discv4-table-note-ping table node-id ping-hash 100)
+    (is (null (discv4-table-revalidation-candidate
+               table (+ 99 +discv4-ping-timeout-seconds+))))
+    (loop for now from (+ 100 +discv4-ping-timeout-seconds+)
+                    by +discv4-ping-timeout-seconds+
+          repeat 3
+          do (is (discv4-table-revalidation-candidate table now))
+             (discv4-table-note-ping table node-id ping-hash now))
+    ;; The fourth timed-out probe uses the ordinary failure threshold and drops
+    ;; the entry, making room in its bucket for a live replacement.
+    (is (null
+         (discv4-table-revalidation-candidate
+          table (+ 100 (* 4 +discv4-ping-timeout-seconds+)))))
+    (is (zerop (discv4-table-count table))))
+  (let* ((table (make-discv4-node-table (node-table-test-id 0)))
+         (node-id (node-table-test-id 2)))
+    (discv4-table-put table node-id "127.0.0.1" 30303 30303 100 :bonded t)
+    (is (null (discv4-table-revalidation-candidate table 101)))
+    (is (discv4-table-revalidation-candidate
+         table (+ 100 +discv4-bond-lifetime-seconds+)))))
+
+(deftest devnet-discovery-revalidation-builds-a-tracked-ping
+  (:layer :unit :module :p2p)
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0
+            :p2p-host "127.0.0.1" :p2p-port 30399))
+         (table (ethereum-lisp.cli:devnet-node-discovery-table node))
+         (peer-id (node-table-test-id 3)))
+    (discv4-table-put table peer-id "127.0.0.2" 30400 30401 100)
+    (multiple-value-bind (packet host port)
+        (ethereum-lisp.cli::devnet-discovery-revalidation-probe
+         node (ethereum-lisp.cli::devnet-node-node-key node) table 100)
+      (is (string= "127.0.0.2" host))
+      (is (= 30400 port))
+      (multiple-value-bind (type data)
+          (ethereum-lisp.p2p:decode-discv4-packet packet)
+        (declare (ignore data))
+        (is (= ethereum-lisp.p2p:+discv4-packet-ping+ type)))
+      (let ((entry (discv4-table-entry table peer-id)))
+        (is (= 100
+               (ethereum-lisp.p2p:discv4-table-entry-pending-ping-at entry)))))))
+
 (deftest discv4-serves-ping-and-refuses-unbonded-queries
   (:layer :unit :module :p2p)
   (let* ((our-key #xb71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291)

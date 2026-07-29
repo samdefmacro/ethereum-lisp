@@ -556,7 +556,7 @@ back is returned as the second value and only its matching Pong may bond it."
                     :to observed
                     :expiration (discv4-expiration)))))))
         (when ping-back
-          (discv4-table-note-ping table sender (subseq ping-back 0 32)))
+          (discv4-table-note-ping table sender (subseq ping-back 0 32) now))
         (values pong ping-back)))))
 
 (defun discv4-neighbors-packets (private-key nodes)

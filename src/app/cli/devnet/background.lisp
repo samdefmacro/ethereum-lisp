@@ -312,6 +312,35 @@ an unsigned or malformed datagram is not something to answer."
          nil)
         (t nil)))))
 
+(defun devnet-discovery-revalidation-probe (node private-key table now)
+  "Build one routing-table endpoint probe.
+
+Returns (VALUES PACKET HOST UDP-PORT), or no values when no entry is due. The
+table caller holds the peer-table lock while choosing and recording the probe,
+so a Pong cannot race ahead of PENDING-PING-HASH."
+  (let ((entry (discv4-table-revalidation-candidate table now)))
+    (when entry
+      (let* ((host (discv4-table-entry-host entry))
+             (udp-port (discv4-table-entry-udp-port entry))
+             (from
+               (discv4-endpoint-for-host
+                (eth-sync-socket-endpoint-host
+                 (or (devnet-node-p2p-host node) "0.0.0.0"))
+                (devnet-node-p2p-port node)
+                (devnet-node-p2p-port node)))
+             (to
+               (discv4-endpoint-for-host
+                host udp-port (discv4-table-entry-tcp-port entry)))
+             (packet
+               (encode-discv4-packet
+                private-key +discv4-packet-ping+
+                (encode-discv4-ping
+                 (make-discv4-ping
+                  :from from :to to :expiration (discv4-expiration))))))
+        (discv4-table-note-ping
+         table (discv4-table-entry-node-id entry) (subseq packet 0 32) now)
+        (values packet host udp-port)))))
+
 (defun devnet-start-discovery-server-thread
     (node shutdown-controller error-callback)
   "Start the discv4 responder, or return NIL when the node has no p2p port.
@@ -357,7 +386,17 @@ be a liveness bug."
                                                   host packet-port))))
                                        (ignore-errors
                                         (discv4-send-to socket reply host
-                                                        packet-port)))))
+                                                        packet-port))))
+                                   (multiple-value-bind
+                                       (probe probe-host probe-port)
+                                       (call-with-devnet-peer-table
+                                        node
+                                        (lambda ()
+                                          (devnet-discovery-revalidation-probe
+                                           node private-key table (unix-time))))
+                                     (when probe
+                                       (discv4-send-to
+                                        socket probe probe-host probe-port))))
                                (error (condition)
                                  (devnet-peer-manager-log
                                   node "p2p.discovery.packet_failed"
