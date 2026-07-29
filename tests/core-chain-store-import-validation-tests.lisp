@@ -264,6 +264,53 @@
       (when (probe-file path)
         (delete-file path)))))
 
+(deftest node-store-rewind-finds-newest-canonical-stateful-ancestor
+  (let* ((store (make-engine-payload-memory-store))
+         (genesis
+           (make-block
+            :header
+            (make-block-header :number 0
+                               :parent-hash (zero-hash32)
+                               :state-root +empty-trie-hash+
+                               :gas-limit 30000000)))
+         (block-1
+           (make-block
+            :header
+            (make-block-header :number 1
+                               :parent-hash (block-hash genesis)
+                               :state-root +empty-trie-hash+
+                               :timestamp 1
+                               :gas-limit 30000000)))
+         (head
+           (make-block
+            :header
+            (make-block-header :number 2
+                               :parent-hash (block-hash block-1)
+                               :state-root +empty-trie-hash+
+                               :timestamp 2
+                               :gas-limit 30000000))))
+    (dolist (block (list genesis block-1 head))
+      (chain-store-put-block store block :state-available-p t))
+    (chain-store-set-canonical-head store (block-hash head))
+    (let* ((chain
+             (ethereum-lisp.chain-store.state:chain-store-require-memory-store
+              store))
+           (head-key (hash32-to-hex (block-hash head))))
+      (remhash head-key
+               (ethereum-lisp.chain-store.state:memory-chain-store-state-blocks
+                chain))
+      (let ((rewound
+              (ethereum-lisp.node-store.persistence::
+               chain-store-newest-stateful-ancestor store (block-hash head))))
+        (is (ethereum-lisp.types:hash32= (block-hash block-1) rewound))
+        (is (= 1
+               (ethereum-lisp.node-store.persistence::
+                chain-store-truncate-canonical-indexes store rewound)))
+        (is (= 1 (chain-store-head-number store)))
+        (is (null (chain-store-block-by-number store 2)))
+        ;; Hash-addressed side-chain data survives the readable-head repair.
+        (is (chain-store-known-block store (block-hash head)))))))
+
 (deftest node-store-import-from-kv-rejects-disconnected-canonical-indexes
   (let* ((path
            (merge-pathnames
