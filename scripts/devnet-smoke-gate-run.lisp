@@ -1875,11 +1875,22 @@
                         (hash32-to-hex (block-hash remote-block)))
                       (expected-invalid-block-hash
                         (hash32-to-hex (block-hash invalid-block)))
-                      (expected-gas-price
+                      (expected-base-fee
                         (quantity-to-hex
                          (or (block-header-base-fee-per-gas
                               (block-header child-block))
                              0)))
+                      (expected-priority-fee
+                        (ethereum-lisp.public-api::eth-rpc-priority-fee-percentile
+                         (ethereum-lisp.public-api::eth-rpc-block-priority-fee-samples
+                          child-block)
+                         60))
+                      (expected-gas-price
+                        (quantity-to-hex
+                         (+ (or (block-header-base-fee-per-gas
+                                 (block-header child-block))
+                                0)
+                            expected-priority-fee)))
                       (expected-next-base-fee
                         (quantity-to-hex
                          (expected-base-fee-per-gas
@@ -2868,7 +2879,7 @@
                                                  "result"))
                   "eth_gasPrice mismatch")
                  (devnet-smoke-gate-require
-                  (string= (quantity-to-hex 0)
+                  (string= (quantity-to-hex expected-priority-fee)
                            (fixture-object-field public-priority-fee-rpc
                                                  "result"))
                   "eth_maxPriorityFeePerGas mismatch")
@@ -2896,7 +2907,7 @@
                     (= 2 (length base-fees))
                     "eth_feeHistory baseFeePerGas length mismatch")
                    (devnet-smoke-gate-require
-                    (string= expected-gas-price (first base-fees))
+                    (string= expected-base-fee (first base-fees))
                     "eth_feeHistory base fee mismatch")
                    (devnet-smoke-gate-require
                     (string= expected-next-base-fee (second base-fees))
