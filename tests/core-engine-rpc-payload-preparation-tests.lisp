@@ -805,8 +805,12 @@
                   store
                   config))
                (base-payload-id
-                 (payload-id-from-response base-prepare-response)))
+                 (payload-id-from-response base-prepare-response))
+               (base-payload-transactions
+                 (get-payload-transactions
+                  209 base-payload-id store config)))
           (is (stringp base-payload-id))
+          (is (equal (list base-raw) base-payload-transactions))
           (is (string= replacement-hash
                        (field (send-raw
                                210 replacement-transaction store config)

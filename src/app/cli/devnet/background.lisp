@@ -2,6 +2,9 @@
 
 ;;;; Periodic background workers for devnet runtime maintenance.
 
+(defconstant +devnet-payload-improvement-interval-seconds+ 2
+  "Cadence for rebuilding open Engine payloads while the proposer waits.")
+
 (defun devnet-start-payload-improvement-thread
     (node shutdown-controller error-callback)
   #-sbcl
@@ -13,7 +16,9 @@
    (lambda ()
      (handler-case
          (loop until (devnet-shutdown-requested-p shutdown-controller)
-               do (sleep 0.1)
+               do (loop repeat +devnet-payload-improvement-interval-seconds+
+                        until (devnet-shutdown-requested-p shutdown-controller)
+                        do (sleep 1))
                   (unless (devnet-shutdown-requested-p shutdown-controller)
                     (call-with-devnet-node-store-guard
                      node

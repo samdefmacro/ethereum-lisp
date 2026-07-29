@@ -174,7 +174,21 @@
                                  (sb-thread:join-thread
                                   engine-thread :timeout 1 :default :timeout))
                          (devnet-shutdown-request shutdown-controller)
-                         (sb-thread:join-thread engine-thread))
+                         (when (eq :timeout
+                                   (sb-thread:join-thread
+                                    engine-thread
+                                    :timeout 5
+                                    :default :timeout))
+                           ;; A synthetic or broken accept backend may ignore
+                           ;; listener closure.  Node shutdown must still be
+                           ;; bounded once all registered sockets are closed.
+                           (ignore-errors
+                            (sb-thread:terminate-thread engine-thread))
+                           (ignore-errors
+                            (sb-thread:join-thread
+                             engine-thread
+                             :timeout 5
+                             :default :timeout))))
                        (devnet-shutdown-request shutdown-controller)
                        (cond
                          (public-error (error public-error))

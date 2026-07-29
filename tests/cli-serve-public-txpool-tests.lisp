@@ -228,6 +228,8 @@
                           "0"
                           "--public-port"
                           "0"
+                          "--txpool.pricelimit"
+                          "0"
                           "--ready-file"
                           (namestring ready-path)
                           "--log-file"

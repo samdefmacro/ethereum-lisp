@@ -323,35 +323,38 @@ for the rest of this payload; other senders are still considered."
                (candidate-id
                  (engine-payload-id
                   prepared-payload-version head-hash payload-attributes)))
-          (unless (chain-store-prepared-payload store candidate-id)
-            (multiple-value-bind (block viable-transactions)
-                (handler-case
-                    (engine-rpc-build-viable-prepared-payload
-                     store parent-block payload-attributes config nil
-                     :gas-limit-target gas-limit-target)
-                  (block-validation-error (condition)
-                    (engine-rpc-fail
-                     +engine-rpc-error-invalid-payload-attributes+
-                     (block-validation-error-message condition)))
-                  (transaction-validation-error (condition)
-                    (engine-rpc-fail
-                     +engine-rpc-error-invalid-payload-attributes+
-                     (princ-to-string condition))))
-              (chain-store-put-prepared-payload
-               store
-               (make-engine-prepared-payload
-                :payload-id candidate-id
-                :version prepared-payload-version
-                :block block
-                :blobs-bundle
-                (engine-rpc-blobs-bundle-for-transactions
-                 store viable-transactions)
-                :parent-hash head-hash
-                :payload-attributes payload-attributes
-                :gas-limit-target gas-limit-target
-                :candidate-transactions-root
-                (transaction-list-root nil)
-                :open-p t))))
+          ;; A fresh build request reopens this deterministic id.  A previous
+          ;; getPayload may have closed an older candidate with the same
+          ;; attributes; retaining it would make a later forkchoice request
+          ;; blind to txpool replacements.
+          (multiple-value-bind (block viable-transactions)
+              (handler-case
+                  (engine-rpc-build-viable-prepared-payload
+                   store parent-block payload-attributes config nil
+                   :gas-limit-target gas-limit-target)
+                (block-validation-error (condition)
+                  (engine-rpc-fail
+                   +engine-rpc-error-invalid-payload-attributes+
+                   (block-validation-error-message condition)))
+                (transaction-validation-error (condition)
+                  (engine-rpc-fail
+                   +engine-rpc-error-invalid-payload-attributes+
+                   (princ-to-string condition))))
+            (chain-store-put-prepared-payload
+             store
+             (make-engine-prepared-payload
+              :payload-id candidate-id
+              :version prepared-payload-version
+              :block block
+              :blobs-bundle
+              (engine-rpc-blobs-bundle-for-transactions
+               store viable-transactions)
+              :parent-hash head-hash
+              :payload-attributes payload-attributes
+              :gas-limit-target gas-limit-target
+              :candidate-transactions-root
+              (transaction-list-root nil)
+              :open-p t)))
           (setf payload-id candidate-id)))
       (engine-rpc-forkchoice-response-object
        status
