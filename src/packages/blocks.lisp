@@ -162,6 +162,7 @@
    #:+eth-message-block-headers+
    #:+eth-message-get-block-bodies+
    #:+eth-message-block-bodies+
+   #:+eth-message-new-block+
    #:+eth-message-get-receipts+
    #:+eth-message-receipts+
    #:+eth-message-block-range-update+
@@ -187,6 +188,18 @@
    #:decode-eth-status-69
    #:encode-eth-status-for-version
    #:decode-eth-status-for-version
+   #:eth-new-block-hash
+   #:make-eth-new-block-hash
+   #:eth-new-block-hash-hash
+   #:eth-new-block-hash-number
+   #:encode-eth-new-block-hashes
+   #:decode-eth-new-block-hashes
+   #:eth-new-block
+   #:make-eth-new-block
+   #:eth-new-block-block
+   #:eth-new-block-total-difficulty
+   #:encode-eth-new-block
+   #:decode-eth-new-block
    #:eth-get-block-headers
    #:make-eth-get-block-headers
    #:eth-get-block-headers-request-id

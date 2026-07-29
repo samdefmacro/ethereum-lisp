@@ -26,7 +26,7 @@
 (defstruct (eth-serve-backend
             (:constructor make-eth-serve-backend
                 (&key block-by-number block-by-hash pooled-transaction
-                      known-transaction-p accept-transaction)))
+                      known-transaction-p accept-transaction accept-block)))
   "What a peer's messages are answered from, as closures rather than a store.
 
 BLOCK-BY-NUMBER returns the canonical block at a block number; BLOCK-BY-HASH
@@ -42,7 +42,10 @@ by signalling. Any of them may be NIL, which turns off just that part."
   block-by-hash
   pooled-transaction
   known-transaction-p
-  accept-transaction)
+  accept-transaction
+  ;; Validate/import or buffer a propagated full block. NIL disables block
+  ;; propagation without coupling this protocol layer to a chain store.
+  accept-block)
 
 (defun eth-serve-block-by-number (backend number)
   (let ((reader (eth-serve-backend-block-by-number backend)))

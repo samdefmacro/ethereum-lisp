@@ -23,6 +23,9 @@
   ;; Transaction hashes this peer announced that we have not fetched yet, as a
   ;; set (see gossip.lisp). NIL until the peer announces something.
   announced-hashes
+  ;; Block hashes announced for top-level draining by the session pump. Kept as
+  ;; a FIFO list because ordering by the peer's announcement is useful.
+  announced-block-hashes
   (request-counter 0))
 
 (defun eth-peer-next-request-id (peer)

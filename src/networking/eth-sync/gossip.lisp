@@ -29,6 +29,9 @@ go-ethereum's soft limit on the asking side.")
 announcing faster than we fetch, and the excess is dropped rather than left to
 grow without bound.")
 
+(defconstant +eth-max-announced-block-hashes+ 256
+  "How many block hashes one peer may queue before the excess is dropped.")
+
 (defun eth-gossipable-transaction-p (transaction)
   "Whether TRANSACTION may be announced or pushed to a peer."
   (not (typep transaction 'blob-transaction)))
@@ -80,6 +83,40 @@ us the connection."
   "How many announced hashes are queued for PEER."
   (let ((table (eth-peer-announced-hashes peer)))
     (if table (hash-table-count table) 0)))
+
+(defun eth-peer-announced-block-count (peer)
+  (length (eth-peer-announced-block-hashes peer)))
+
+(defun eth-peer-queue-announced-blocks (peer announcements)
+  "Queue fresh block hash announcements in peer order, returning how many."
+  (let ((queued (eth-peer-announced-block-hashes peer))
+        (added 0))
+    (dolist (announcement announcements)
+      (when (>= (length queued) +eth-max-announced-block-hashes+)
+        (return))
+      (let ((hash (eth-new-block-hash-hash announcement)))
+        (when (and (= (length hash) 32)
+                   (not (find hash queued
+                              :key #'eth-new-block-hash-hash
+                              :test #'bytes=)))
+          (setf queued (append queued (list announcement)))
+          (incf added))))
+    (setf (eth-peer-announced-block-hashes peer) queued)
+    added))
+
+(defun eth-peer-take-announced-block (peer)
+  "Remove and return the oldest block-hash announcement from PEER."
+  (let ((queued (eth-peer-announced-block-hashes peer)))
+    (when queued
+      (setf (eth-peer-announced-block-hashes peer) (rest queued))
+      (first queued))))
+
+(defun eth-accept-propagated-block (backend block)
+  (let ((accept (eth-serve-backend-accept-block backend)))
+    (when accept
+      ;; Invalid propagation is a peer-quality event, not a session-fatal
+      ;; protocol error. The backend performs all consensus validation.
+      (ignore-errors (funcall accept block) t))))
 
 (defun eth-peer-queue-announced-hashes (peer backend hashes)
   "Queue the announced HASHES worth asking PEER for, and return how many.
@@ -162,6 +199,15 @@ that has nothing else to do."
   (let ((backend (eth-peer-serve-backend peer)))
     (when backend
       (cond
+        ((= eth-id +eth-message-new-block-hashes+)
+         (eth-peer-queue-announced-blocks
+          peer (decode-eth-new-block-hashes payload))
+         t)
+        ((= eth-id +eth-message-new-block+)
+         (eth-accept-propagated-block
+          backend
+          (eth-new-block-block (decode-eth-new-block payload)))
+         t)
         ((= eth-id +eth-message-transactions+)
          (eth-accept-transactions backend (decode-eth-transactions payload))
          t)

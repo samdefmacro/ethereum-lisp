@@ -553,6 +553,7 @@
    #:eth-serve-backend-pooled-transaction
    #:eth-serve-backend-known-transaction-p
    #:eth-serve-backend-accept-transaction
+   #:eth-serve-backend-accept-block
    #:eth-serve-ancestor-hash
    #:eth-serve-headers
    #:eth-serve-bodies
@@ -562,8 +563,10 @@
    #:eth-peer-serve-loop
    #:+eth-max-pooled-transactions-serve+
    #:+eth-max-announced-transaction-hashes+
+   #:+eth-max-announced-block-hashes+
    #:eth-peer-announced-hashes
    #:eth-peer-announced-hash-count
+   #:eth-peer-announced-block-count
    #:eth-gossipable-transaction-p
    #:eth-peer-broadcast-transactions
    #:eth-peer-announce-transactions
@@ -573,6 +576,7 @@
    #:eth-serve-pooled-transactions
    #:eth-peer-gossip-message
    #:eth-peer-fetch-announced-transactions
+   #:eth-peer-fetch-announced-block
    #:eth-sync-assemble-block
    #:eth-sync-download-blocks
    #:+eth-backfill-batch-size+

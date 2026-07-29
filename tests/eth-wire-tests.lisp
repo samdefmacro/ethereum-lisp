@@ -234,6 +234,40 @@
                      (first (ethereum-lisp.eth-wire:eth-block-body-transactions
                              decoded-full)))))))))
 
+(deftest eth-block-propagation-messages-round-trip
+  (:layer :unit :module :eth-wire)
+  (let* ((hash (hex-to-bytes
+                "0x1111111111111111111111111111111111111111111111111111111111111111"))
+         (announcement
+           (ethereum-lisp.eth-wire:make-eth-new-block-hash hash 42))
+         (decoded
+           (ethereum-lisp.eth-wire:decode-eth-new-block-hashes
+            (ethereum-lisp.eth-wire:encode-eth-new-block-hashes
+             (list announcement)))))
+    (is (= 1 (length decoded)))
+    (is (bytes= hash
+                (ethereum-lisp.eth-wire:eth-new-block-hash-hash
+                 (first decoded))))
+    (is (= 42
+           (ethereum-lisp.eth-wire:eth-new-block-hash-number
+            (first decoded)))))
+  (let* ((block
+           (ethereum-lisp.blocks:make-block-from-parts
+            :header (make-block-header :number 42 :difficulty 0
+                                       :gas-limit 30000000
+                                       :extra-data (make-byte-vector 0))))
+         (announcement
+           (ethereum-lisp.eth-wire:make-eth-new-block block 123456))
+         (decoded
+           (ethereum-lisp.eth-wire:decode-eth-new-block
+            (ethereum-lisp.eth-wire:encode-eth-new-block announcement))))
+    (is (= 123456
+           (ethereum-lisp.eth-wire:eth-new-block-total-difficulty decoded)))
+    (is (bytes= (hash32-bytes (block-hash block))
+                (hash32-bytes
+                 (block-hash
+                  (ethereum-lisp.eth-wire:eth-new-block-block decoded)))))))
+
 (deftest eth-fork-id-matches-eip-2124-mainnet-vectors
   ;; EIP-2124 mainnet fork-hash vectors, over the mainnet genesis hash.
   (let ((genesis (hex-to-bytes

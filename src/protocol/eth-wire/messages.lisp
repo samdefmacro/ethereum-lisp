@@ -34,6 +34,7 @@ unchanged, so download works across both.")
 (defconstant +eth-message-block-headers+ #x04)
 (defconstant +eth-message-get-block-bodies+ #x05)
 (defconstant +eth-message-block-bodies+ #x06)
+(defconstant +eth-message-new-block+ #x07)
 (defconstant +eth-message-new-pooled-transaction-hashes+ #x08)
 (defconstant +eth-message-get-pooled-transactions+ #x09)
 (defconstant +eth-message-pooled-transactions+ #x0a)
@@ -149,6 +150,54 @@ the message carries the served block range and our head instead —
   (if (>= version +eth-protocol-version-69+)
       (decode-eth-status-69 bytes)
       (decode-eth-status bytes)))
+
+;;; NewBlockHashes / NewBlock propagation.
+
+(defstruct (eth-new-block-hash
+            (:constructor make-eth-new-block-hash (hash number)))
+  hash
+  number)
+
+(defun encode-eth-new-block-hashes (announcements)
+  (rlp-encode
+   (apply #'make-rlp-list
+          (mapcar
+           (lambda (announcement)
+             (make-rlp-list
+              (ensure-byte-vector (eth-new-block-hash-hash announcement))
+              (integer-to-minimal-bytes
+               (eth-new-block-hash-number announcement))))
+           announcements))))
+
+(defun decode-eth-new-block-hashes (bytes)
+  (mapcar
+   (lambda (value)
+     (let ((items (rlp-list-items value)))
+       (make-eth-new-block-hash
+        (ensure-byte-vector (first items))
+        (bytes-to-integer (ensure-byte-vector (second items))))))
+   (rlp-list-items
+    (rlp-decode (ensure-byte-vector bytes) :allow-trailing t))))
+
+(defstruct (eth-new-block
+            (:constructor make-eth-new-block (block total-difficulty)))
+  block
+  total-difficulty)
+
+(defun encode-eth-new-block (announcement)
+  (rlp-encode
+   (make-rlp-list
+    (rlp-decode-one (block-rlp (eth-new-block-block announcement)))
+    (integer-to-minimal-bytes
+     (eth-new-block-total-difficulty announcement)))))
+
+(defun decode-eth-new-block (bytes)
+  (let ((items
+          (rlp-list-items
+           (rlp-decode (ensure-byte-vector bytes) :allow-trailing t))))
+    (make-eth-new-block
+     (block-from-rlp (rlp-encode (first items)))
+     (bytes-to-integer (ensure-byte-vector (second items))))))
 
 ;;; GetBlockHeaders / BlockHeaders. eth/66 wraps every request and response in a
 ;;; request id so replies can be matched to requests.

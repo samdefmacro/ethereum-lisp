@@ -132,6 +132,32 @@ given, is a predicate marking transactions the pool turns down."
         (hex-to-bytes
          "0x2222222222222222222222222222222222222222222222222222222222222222")))))))
 
+(deftest eth-gossip-queues-hash-announcements-and-submits-full-blocks
+  (:layer :unit :module :p2p)
+  (let* ((accepted nil)
+         (backend
+           (ethereum-lisp.eth-sync:make-eth-serve-backend
+            :accept-block (lambda (block) (setf accepted block))))
+         (peer (eth-gossip-test-peer backend))
+         (block
+           (ethereum-lisp.blocks:make-block-from-parts
+            :header (make-block-header :number 9 :difficulty 0
+                                       :gas-limit 30000000
+                                       :extra-data (make-byte-vector 0))))
+         (hash (hash32-bytes (block-hash block))))
+    (is (ethereum-lisp.eth-sync:eth-peer-gossip-message
+         peer ethereum-lisp.eth-wire:+eth-message-new-block-hashes+
+         (ethereum-lisp.eth-wire:encode-eth-new-block-hashes
+          (list (ethereum-lisp.eth-wire:make-eth-new-block-hash hash 9)))))
+    (is (= 1 (ethereum-lisp.eth-sync:eth-peer-announced-block-count peer)))
+    (is (ethereum-lisp.eth-sync:eth-peer-gossip-message
+         peer ethereum-lisp.eth-wire:+eth-message-new-block+
+         (ethereum-lisp.eth-wire:encode-eth-new-block
+          (ethereum-lisp.eth-wire:make-eth-new-block block 0))))
+    (is (not (null accepted)))
+    (is (bytes= (hash32-bytes (block-hash block))
+                (hash32-bytes (block-hash accepted))))))
+
 (deftest eth-pooled-transaction-messages-round-trip
   (:layer :unit :module :p2p)
   (let ((hashes (list (eth-gossip-transaction-hash-bytes

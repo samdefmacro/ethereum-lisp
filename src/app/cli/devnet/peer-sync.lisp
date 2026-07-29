@@ -69,7 +69,16 @@ take the guard for the whole admission, since that mutates the pool."
          (guarded (lambda ()
                     (txpool-admit-transaction
                      transaction store config policy
-                     :admitted-at (unix-time)))))))))
+                     :admitted-at (unix-time)))))
+       :accept-block
+       (lambda (block)
+         ;; The Engine new-payload path performs the same consensus validation
+         ;; and missing-parent buffering regardless of whether the block came
+         ;; from consensus RPC or peer propagation. Forkchoice remains the only
+         ;; authority that canonicalizes it.
+         (guarded
+          (lambda ()
+            (engine-new-payload-memory-status store block config))))))))
 
 (defconstant +devnet-broadcast-batch-limit+ 64
   "How many transactions we push to one peer in a single tick. Our policy: a

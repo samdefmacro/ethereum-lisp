@@ -88,6 +88,28 @@ semantics."
   (eth-peer-await peer +eth-message-block-bodies+ request-id
                   #'decode-eth-block-bodies))
 
+(defun eth-peer-fetch-announced-block (peer)
+  "Fetch and submit the oldest NewBlockHashes announcement from PEER.
+
+Runs only as a top-level pump action, preserving the one-request-in-flight
+contract. Returns true when a full block reached the backend."
+  (let ((announcement (eth-peer-take-announced-block peer))
+        (backend (eth-peer-serve-backend peer)))
+    (when (and announcement backend
+               (eth-serve-backend-accept-block backend))
+      (let* ((hash (eth-new-block-hash-hash announcement))
+             (headers (eth-peer-get-block-headers
+                       peer :origin-hash hash :amount 1))
+             (header (first headers)))
+        (when (and header
+                   (bytes= hash (hash32-bytes (block-header-hash header)))
+                   (= (eth-new-block-hash-number announcement)
+                      (block-header-number header)))
+          (let ((body (first (eth-peer-get-block-bodies peer (list hash)))))
+            (when body
+              (eth-accept-propagated-block
+               backend (eth-sync-assemble-block header body)))))))))
+
 (defun eth-peer-fetch-announced-transactions (peer &key (limit 256))
   "Ask PEER for up to LIMIT of the transactions it announced and offer them to
 the pool, returning how many the pool accepted.
