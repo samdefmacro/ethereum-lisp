@@ -254,13 +254,25 @@ canonical body-only representation."
                            transaction receipt))))))
 
 (defun chain-store-export-block-record-to-kv (batch block)
-  (let ((identifier (hash32-bytes (block-hash block))))
+  (let* ((identifier (hash32-bytes (block-hash block)))
+         (ordered-identifier
+           (kv-chain-height-hash-identifier
+            (block-header-number (block-header block)) identifier)))
     (kv-batch-put-chain-record
      batch :block identifier (chain-store-block-record-rlp block))
     (kv-batch-put-chain-record
      batch :header identifier (block-header-rlp (block-header block)))
     (kv-batch-put-chain-record
      batch :receipt identifier (block-receipts-record-rlp block))
+    (kv-batch-put-chain-record
+     batch :ordered-block ordered-identifier
+     (chain-store-block-record-rlp block))
+    (kv-batch-put-chain-record
+     batch :ordered-header ordered-identifier
+     (block-header-rlp (block-header block)))
+    (kv-batch-put-chain-record
+     batch :ordered-receipt ordered-identifier
+     (block-receipts-record-rlp block))
     (chain-store-populate-block-access-list-side-data-batch batch block)))
 
 (defun chain-store-populate-block-record-export-batch (store database batch)
@@ -270,7 +282,12 @@ canonical body-only representation."
    (lambda (key block)
      (declare (ignore key))
      (chain-store-export-block-record-to-kv batch block))
-   (memory-chain-store-blocks store)))
+   (memory-chain-store-blocks store))
+  ;; Publishing this marker in the same batch makes v1 -> v2 migration
+  ;; all-or-nothing. Legacy hash keys remain readable during rollout.
+  (kv-batch-put-chain-record
+   batch :schema-version "chain"
+   (kv-chain-record-uint64-bytes +kv-chain-schema-version+)))
 
 (defun chain-store-export-block-records-to-kv (store database)
   (chain-store-apply-export-batch

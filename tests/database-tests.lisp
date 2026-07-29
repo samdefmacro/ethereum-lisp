@@ -234,6 +234,20 @@
       (is (eq :missing value))
       (is (not present-p)))))
 
+(deftest height-ordered-chain-identifiers-sort-and-round-trip
+  (let* ((hash-a (make-byte-vector 32 :initial-element #xaa))
+         (hash-b (make-byte-vector 32 :initial-element #xbb))
+         (height-2
+           (ethereum-lisp.database:kv-chain-height-hash-identifier 2 hash-b))
+         (height-10
+           (ethereum-lisp.database:kv-chain-height-hash-identifier 10 hash-a)))
+    (is (string< (bytes-to-hex height-2) (bytes-to-hex height-10)))
+    (multiple-value-bind (number hash)
+        (ethereum-lisp.database:kv-chain-height-hash-identifier-values
+         height-10)
+      (is (= 10 number))
+      (is (bytes= hash-a hash)))))
+
 (deftest chain-record-typed-index-helpers-round-trip
   (let ((database (make-memory-key-value-database))
         (block-hash-a (make-byte-vector 32 :initial-element #x0a))
