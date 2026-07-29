@@ -11,6 +11,33 @@
 (defconstant +eth-sync-default-batch-size+ 192
   "How many block headers to request at once during download.")
 
+(defun eth-sync-validate-header-batch (headers origin-number previous-header)
+  "Reject a header reply that does not answer the requested contiguous range."
+  (loop with parent = previous-header
+        for header in headers
+        for expected from origin-number
+        do (unless (= expected (block-header-number header))
+             (error "peer returned header ~D where block ~D was requested"
+                    (block-header-number header) expected))
+           (when parent
+             (unless (hash32= (block-header-parent-hash header)
+                              (block-header-hash parent))
+               (error "peer returned a non-contiguous header at block ~D"
+                      expected)))
+           (setf parent header))
+  t)
+
+(defun eth-sync-validate-body (header body)
+  "Reject a body whose commitments do not match HEADER before import."
+  (ethereum-lisp.execution:validate-block-body-commitments-before-execution
+   (eth-block-body-transactions body)
+   header
+   :ommers (eth-block-body-ommers body)
+   :withdrawals (eth-block-body-withdrawals body)
+   :withdrawals-supplied-p
+   (eth-block-body-withdrawals-present-p body))
+  t)
+
 (defun eth-sync-assemble-block (header body)
   "Assemble a block from a downloaded HEADER and its BODY.
 
@@ -38,7 +65,8 @@ stops the download. PROGRESS, if given, is called with each block after import.
 Stops when the peer returns no further headers, or after MAX-BLOCKS blocks.
 Returns the number of blocks imported."
   (let ((next start-number)
-        (imported 0))
+        (imported 0)
+        (previous-header nil))
     (loop
       (let ((amount (if max-blocks
                         (min batch-size (- max-blocks imported))
@@ -49,6 +77,7 @@ Returns the number of blocks imported."
                         peer :origin-number next :amount amount)))
           (when (null headers)
             (return imported))
+          (eth-sync-validate-header-batch headers next previous-header)
           (let* ((hashes (mapcar (lambda (h) (hash32-bytes (block-header-hash h)))
                                  headers))
                  (bodies (eth-peer-get-block-bodies peer hashes)))
@@ -57,10 +86,12 @@ Returns the number of blocks imported."
                      (length bodies) (length headers)))
             (loop for header in headers
                   for body in bodies
-                  do (let ((block (eth-sync-assemble-block header body)))
+                  do (eth-sync-validate-body header body)
+                     (let ((block (eth-sync-assemble-block header body)))
                        (funcall import-block block)
                        (incf imported)
                        (when progress (funcall progress block))))
+            (setf previous-header (car (last headers)))
             (setf next (+ next (length headers)))
             ;; A short batch means the peer has no more blocks past its tip.
             (when (< (length headers) amount)

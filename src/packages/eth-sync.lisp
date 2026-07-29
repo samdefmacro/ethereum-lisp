@@ -79,6 +79,8 @@
    #:eth-peer-gossip-message
    #:eth-peer-fetch-announced-transactions
    #:eth-peer-fetch-announced-block
+   #:eth-sync-validate-header-batch
+   #:eth-sync-validate-body
    #:eth-sync-assemble-block
    #:eth-sync-download-blocks
    #:+eth-backfill-batch-size+

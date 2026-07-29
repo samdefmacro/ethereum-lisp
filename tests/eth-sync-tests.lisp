@@ -203,17 +203,56 @@
                    (is (= 16 (getf server-result :offset)))))))
         (ignore-errors (sb-bsd-sockets:socket-close listener))))))
 
-(defun eth-sync-test-header (number)
+(defun eth-sync-test-header (number &optional parent-hash)
   "A well-formed pre-London block header with the given NUMBER, for exercising
 the wire codecs (not a valid chain block). The hash-typed fields are left nil so
 the encoder substitutes its zero/empty defaults."
   (make-block-header
+   :parent-hash parent-hash
    :difficulty 0
    :number number
    :gas-limit 30000000
    :gas-used 0
    :timestamp (+ 1600000000 number)
    :extra-data (make-byte-vector 0)))
+
+(defun eth-sync-test-chain-headers (length)
+  (loop with parent = nil
+        for number from 1 to length
+        for header = (eth-sync-test-header number parent)
+        collect header
+        do (setf parent (block-header-hash header))))
+
+(deftest eth-sync-validates-delivered-header-and-body-commitments
+  (:layer :unit :module :p2p)
+  (let* ((headers (eth-sync-test-chain-headers 3))
+         (empty-body
+           (ethereum-lisp.eth-wire:make-eth-block-body
+            :transactions '() :ommers '()))
+         (committed-header
+           (make-block-header
+            :number 1 :difficulty 0 :gas-limit 30000000
+            :extra-data (make-byte-vector 0)
+            :transactions-root (transaction-list-root '())
+            :ommers-hash (ommers-hash '()))))
+    (is (eth-sync-validate-header-batch headers 1 nil))
+    (is (eth-sync-validate-header-batch
+         (rest headers) 2 (first headers)))
+    (signals error
+      (eth-sync-validate-header-batch headers 2 nil))
+    (let ((broken (copy-list headers)))
+      (setf (block-header-parent-hash (second broken)) (zero-hash32))
+      (signals error
+        (eth-sync-validate-header-batch broken 1 nil)))
+    (is (eth-sync-validate-body committed-header empty-body))
+    (signals error
+      (eth-sync-validate-body
+       committed-header
+       (ethereum-lisp.eth-wire:make-eth-block-body
+        :transactions (list (make-legacy-transaction
+                             :nonce 1 :gas-price 2 :gas-limit 21000
+                             :value 3 :v 27 :r 4 :s 5))
+        :ommers '())))))
 
 (deftest eth-peer-downloads-headers-and-bodies-over-a-socket
   (:layer :integration :module :p2p :requires-local-sockets t)
@@ -321,7 +360,8 @@ the encoder substitutes its zero/empty defaults."
 (defun eth-sync-serve-chain (peer chain-length)
   "Answer eth header and body requests for a canned chain of CHAIN-LENGTH blocks
 (numbered 1..CHAIN-LENGTH, empty bodies) until the peer disconnects."
-  (handler-case
+  (let ((chain (eth-sync-test-chain-headers chain-length)))
+    (handler-case
       (loop
         (multiple-value-bind (eth-id payload) (eth-peer-read peer)
           (cond
@@ -330,9 +370,10 @@ the encoder substitutes its zero/empty defaults."
                     (origin (ethereum-lisp.eth-wire:eth-get-block-headers-origin-number req))
                     (amount (ethereum-lisp.eth-wire:eth-get-block-headers-amount req))
                     (rid (ethereum-lisp.eth-wire:eth-get-block-headers-request-id req))
-                    (headers (loop for n from origin below (+ origin amount)
-                                   when (<= 1 n chain-length)
-                                     collect (eth-sync-test-header n))))
+                    (headers
+                      (loop for n from origin below (+ origin amount)
+                            when (<= 1 n chain-length)
+                              collect (nth (1- n) chain))))
                (eth-peer-send peer
                               ethereum-lisp.eth-wire:+eth-message-block-headers+
                               (ethereum-lisp.eth-wire:encode-eth-block-headers
@@ -349,7 +390,7 @@ the encoder substitutes its zero/empty defaults."
                                       (ethereum-lisp.eth-wire:make-eth-block-body
                                        :transactions '() :ommers '()))
                                     hashes))))))))
-    (rlpx-disconnect () nil)))
+      (rlpx-disconnect () nil))))
 
 (deftest eth-sync-downloads-a-chain-in-order-over-a-socket
   (:layer :integration :module :p2p :requires-local-sockets t)

@@ -293,6 +293,7 @@
    #:apply-signed-message-list
    #:execute-legacy-messages
    #:execute-signed-messages
+   #:validate-block-body-commitments-before-execution
    #:execute-legacy-block
    #:execute-signed-block))
 

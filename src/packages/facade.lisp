@@ -586,6 +586,8 @@
    #:eth-peer-gossip-message
    #:eth-peer-fetch-announced-transactions
    #:eth-peer-fetch-announced-block
+   #:eth-sync-validate-header-batch
+   #:eth-sync-validate-body
    #:eth-sync-assemble-block
    #:eth-sync-download-blocks
    #:+eth-backfill-batch-size+
@@ -1286,6 +1288,7 @@
    #:execution-result-state-root
    #:execution-result-transactions-root
    #:execution-result-receipts-root
+   #:validate-block-body-commitments-before-execution
    #:execute-legacy-transactions
    #:apply-legacy-message
    #:apply-signed-message
