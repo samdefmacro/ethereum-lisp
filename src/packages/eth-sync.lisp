@@ -6,6 +6,7 @@
         #:ethereum-lisp.rlp
         #:ethereum-lisp.transactions
         #:ethereum-lisp.blocks
+        #:ethereum-lisp.kzg
         #:ethereum-lisp.chain-config
         #:ethereum-lisp.p2p
         #:ethereum-lisp.eth-wire)
@@ -49,8 +50,10 @@
    #:eth-serve-backend-block-by-number
    #:eth-serve-backend-block-by-hash
    #:eth-serve-backend-pooled-transaction
+   #:eth-serve-backend-pooled-blob-sidecar
    #:eth-serve-backend-known-transaction-p
    #:eth-serve-backend-accept-transaction
+   #:eth-serve-backend-accept-blob-sidecar
    #:eth-serve-ancestor-hash
    #:eth-serve-headers
    #:eth-serve-bodies

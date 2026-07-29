@@ -31,8 +31,12 @@
           versioned-hash-id (hash32-bytes versioned-hash))
     (unwind-protect
          (progn
-           (ethereum-lisp.chain-store:engine-payload-store-put-blob-sidecar
-            source sidecar)
+           (let ((*kzg-cell-proof-verifier*
+                   (lambda (blob commitment cell-proofs)
+                     (declare (ignore blob commitment cell-proofs))
+                     t)))
+             (ethereum-lisp.chain-store:engine-payload-store-put-blob-sidecar
+              source sidecar))
            (let ((database (make-file-key-value-database path)))
              (node-store-export-to-kv source database))
            (let ((database (make-file-key-value-database path)))
@@ -45,9 +49,9 @@
                             (ethereum-lisp.chain-store:engine-payload-store-blob-and-proofs-v1
                              source versioned-hash))))))
            (let ((database (make-file-key-value-database path)))
-             (let ((*kzg-blob-proof-verifier*
-                     (lambda (blob commitment proof)
-                       (declare (ignore blob commitment proof))
+             (let ((*kzg-cell-proof-verifier*
+                     (lambda (blob commitment cell-proofs)
+                       (declare (ignore blob commitment cell-proofs))
                        t)))
                (is (eq restored
                        (node-store-import-from-kv restored database)))))
@@ -106,7 +110,12 @@
                    :commitments (list commitment)
                    :proofs proofs)
           versioned-hash (first (blob-sidecar-versioned-hashes sidecar)))
-    (ethereum-lisp.chain-store:engine-payload-store-put-blob-sidecar store sidecar)
+    (let ((*kzg-cell-proof-verifier*
+            (lambda (verified-blob verified-commitment cell-proofs)
+              (declare (ignore verified-blob verified-commitment cell-proofs))
+              t)))
+      (ethereum-lisp.chain-store:engine-payload-store-put-blob-sidecar
+       store sidecar))
     (let ((lookup
             (ethereum-lisp.chain-store:engine-payload-store-blob-and-proofs-v2
              store

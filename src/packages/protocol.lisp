@@ -234,6 +234,13 @@
    #:blob-sidecar-commitments
    #:blob-sidecar-proofs
    #:blob-sidecar-versioned-hashes
+   #:+blob-sidecar-cell-proofs-per-blob+
+   #:blob-network-transaction
+   #:make-blob-network-transaction
+   #:blob-network-transaction-transaction
+   #:blob-network-transaction-sidecar
+   #:blob-network-transaction-encoding
+   #:blob-network-transaction-from-rlp
    #:blob-versioned-hash-bytes
    #:set-code-authorization
    #:make-set-code-authorization

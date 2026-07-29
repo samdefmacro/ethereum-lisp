@@ -108,13 +108,10 @@
   (unless (typep sidecar 'blob-sidecar)
     (block-validation-fail
      "Engine blob sidecar store value must be a blob sidecar"))
-  (when (and (blob-sidecar-blobs sidecar)
-             (= (length (blob-sidecar-proofs sidecar))
-                (length (blob-sidecar-blobs sidecar))))
-    ;; A sidecar entering the live store is trusted by getBlobs callers. Refuse
-    ;; EIP-4844 sidecars unless the configured backend proves
-    ;; blob/commitment/proof binding. EIP-7594 cell proofs require a separate
-    ;; verifier and remain capability-gated at their external entry point.
+  (when (blob-sidecar-blobs sidecar)
+    ;; A sidecar entering the live store is trusted by getBlobs and devp2p
+    ;; callers. Verify either the EIP-4844 blob proof or every EIP-7594 cell
+    ;; proof before making it visible.
     (validate-blob-sidecar-fields
      sidecar :require-proof-verification t))
   (let ((hashes (blob-sidecar-versioned-hashes sidecar))

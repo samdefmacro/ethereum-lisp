@@ -360,16 +360,20 @@
    #:+kzg-proof-size+
    #:*kzg-point-proof-verifier*
    #:*kzg-blob-proof-verifier*
+   #:*kzg-cell-proof-verifier*
    #:*kzg-verifier*
    #:kzg-point-proof-verification-available-p
    #:kzg-blob-proof-verification-available-p
+   #:kzg-cell-proof-verification-available-p
    #:kzg-proof-verification-available-p
    #:kzg-unavailable-error
    #:kzg-unavailable-error-message
    #:verify-kzg-point-proof
    #:verify-kzg-blob-proof
+   #:verify-kzg-cell-proofs
    #:make-kzg-cffi-verifier
    #:kzg-cffi-verifier-available-p
+   #:compute-kzg-cell-proofs
    #:+cell-proofs-per-blob+
    #:validate-blob-sidecar-fields)
   (#:ethereum-lisp.p2p
@@ -548,8 +552,10 @@
    #:eth-serve-backend-block-by-number
    #:eth-serve-backend-block-by-hash
    #:eth-serve-backend-pooled-transaction
+   #:eth-serve-backend-pooled-blob-sidecar
    #:eth-serve-backend-known-transaction-p
    #:eth-serve-backend-accept-transaction
+   #:eth-serve-backend-accept-blob-sidecar
    #:eth-serve-ancestor-hash
    #:eth-serve-headers
    #:eth-serve-bodies
@@ -786,6 +792,13 @@
    #:blob-sidecar-commitments
    #:blob-sidecar-proofs
    #:blob-sidecar-versioned-hashes
+   #:+blob-sidecar-cell-proofs-per-blob+
+   #:blob-network-transaction
+   #:make-blob-network-transaction
+   #:blob-network-transaction-transaction
+   #:blob-network-transaction-sidecar
+   #:blob-network-transaction-encoding
+   #:blob-network-transaction-from-rlp
    #:set-code-authorization
    #:make-set-code-authorization
    #:set-code-authorization-chain-id
@@ -918,7 +931,10 @@
    #:engine-transaction-location-index
    #:engine-transaction-location-transaction
    #:engine-transaction-location-receipt
-   #:engine-transaction-location-log-index-start)
+   #:engine-transaction-location-log-index-start
+   #:engine-blob-and-proofs-blob
+   #:engine-blob-and-proofs-commitment
+   #:engine-blob-and-proofs-cell-proofs)
   (#:ethereum-lisp.node-state
    #:engine-payload-memory-store
    #:make-engine-payload-memory-store)

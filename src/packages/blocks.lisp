@@ -109,6 +109,7 @@
    #:block-header-rlp-object
    #:block-header-from-rlp
    #:block-header-from-rlp-object
+   #:block-transaction-rlp-object
    #:block-transactions-rlp-object
    #:block-transactions-from-rlp-object
    #:block-ommers-rlp-object

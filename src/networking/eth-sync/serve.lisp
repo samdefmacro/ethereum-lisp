@@ -26,7 +26,8 @@
 (defstruct (eth-serve-backend
             (:constructor make-eth-serve-backend
                 (&key block-by-number block-by-hash pooled-transaction
-                      known-transaction-p accept-transaction)))
+                      pooled-blob-sidecar known-transaction-p
+                      accept-transaction accept-blob-sidecar)))
   "What a peer's messages are answered from, as closures rather than a store.
 
 BLOCK-BY-NUMBER returns the canonical block at a block number; BLOCK-BY-HASH
@@ -34,15 +35,18 @@ returns any known block, canonical or not, by its 32-byte hash. Both return NIL
 for a block we do not have.
 
 The remaining three serve transaction gossip (see gossip.lisp).
-POOLED-TRANSACTION returns a pooled transaction by hash, KNOWN-TRANSACTION-P
-answers whether a hash is one we already hold anywhere, and
-ACCEPT-TRANSACTION offers a received transaction to the pool and may reject it
-by signalling. Any of them may be NIL, which turns off just that part."
+POOLED-TRANSACTION returns a pooled transaction by hash. POOLED-BLOB-SIDECAR
+returns its validated sidecar. KNOWN-TRANSACTION-P answers whether a hash is one
+we already hold anywhere. ACCEPT-TRANSACTION offers a received transaction to
+the pool and ACCEPT-BLOB-SIDECAR stores its validated blob data. Any callback
+may be NIL, which turns off just that part."
   block-by-number
   block-by-hash
   pooled-transaction
+  pooled-blob-sidecar
   known-transaction-p
-  accept-transaction)
+  accept-transaction
+  accept-blob-sidecar)
 
 (defun eth-serve-block-by-number (backend number)
   (let ((reader (eth-serve-backend-block-by-number backend)))

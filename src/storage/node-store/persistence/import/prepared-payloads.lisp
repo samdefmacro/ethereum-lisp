@@ -178,10 +178,7 @@
            payload-id-identifier record)))
     (validate-engine-prepared-payload prepared-payload)
     (let ((bundle (engine-prepared-payload-blobs-bundle prepared-payload)))
-      (when (and bundle
-                 (blob-sidecar-blobs bundle)
-                 (= (length (blob-sidecar-proofs bundle))
-                    (length (blob-sidecar-blobs bundle))))
+      (when (and bundle (blob-sidecar-blobs bundle))
         (validate-blob-sidecar-fields
          bundle :require-proof-verification t)))
     (let* ((block (engine-prepared-payload-block prepared-payload))

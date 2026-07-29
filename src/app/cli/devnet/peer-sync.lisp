@@ -28,6 +28,23 @@ addresses — the same rule go-ethereum's --txpool.locals uses."
    :local-addresses (devnet-node-txpool-local-addresses node)
    :no-local-exemptions-p (devnet-node-txpool-no-local-exemptions-p node)))
 
+(defun devnet-pooled-blob-sidecar (store transaction)
+  "Reassemble a version-1 network sidecar for pooled blob TRANSACTION."
+  (let ((entries
+          (loop for hash in
+                  (blob-transaction-blob-versioned-hashes transaction)
+                for entry =
+                  (engine-payload-store-blob-and-proofs-v2 store hash)
+                unless entry do (return nil)
+                collect entry)))
+    (when entries
+      (make-blob-sidecar
+       :blobs (mapcar #'engine-blob-and-proofs-blob entries)
+       :commitments (mapcar #'engine-blob-and-proofs-commitment entries)
+       :proofs (loop for entry in entries
+                     append
+                     (engine-blob-and-proofs-cell-proofs entry))))))
+
 (defun devnet-peer-serve-backend (node)
   "A serve backend answering a peer's requests and gossip from NODE's store.
 
@@ -56,6 +73,10 @@ take the guard for the whole admission, since that mutates the pool."
          (guarded (lambda ()
                     (engine-payload-store-pooled-transaction
                      store (make-hash32 hash)))))
+       :pooled-blob-sidecar
+       (lambda (transaction)
+         (guarded
+          (lambda () (devnet-pooled-blob-sidecar store transaction))))
        :known-transaction-p
        (lambda (hash)
          (guarded (lambda ()
@@ -69,7 +90,11 @@ take the guard for the whole admission, since that mutates the pool."
          (guarded (lambda ()
                     (txpool-admit-transaction
                      transaction store config policy
-                     :admitted-at (unix-time)))))))))
+                     :admitted-at (unix-time)))))
+       :accept-blob-sidecar
+       (lambda (sidecar)
+         (guarded
+          (lambda () (engine-payload-store-put-blob-sidecar store sidecar))))))))
 
 (defconstant +devnet-broadcast-batch-limit+ 64
   "How many transactions we push to one peer in a single tick. Our policy: a
