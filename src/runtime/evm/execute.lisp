@@ -1,9 +1,10 @@
 (in-package #:ethereum-lisp.evm.internal)
 
-(defun %execute-bytecode-frame (code context gas-limit step-budget)
+(defun %execute-bytecode-frame (code context gas-limit step-budget gas-budget)
   (let* ((*evm-step-budget* step-budget)
          (*evm-step-budget-policy-active-p* t)
-         (machine (make-evm-machine code context gas-limit step-budget))
+         (machine (make-evm-machine
+                   code context gas-limit step-budget gas-budget))
          (*evm-stack-depth-cell*
            (evm-machine-stack-depth-cell machine)))
     (loop until (or (evm-machine-halted-p machine)
@@ -13,7 +14,8 @@
     (evm-machine-result machine)))
 
 (defun execute-bytecode
-    (code &key context gas-limit (max-steps nil max-steps-supplied-p))
+    (code &key context gas-limit gas-budget
+               (max-steps nil max-steps-supplied-p))
   "Execute CODE in a fresh EVM call frame and return its EVM-RESULT.
 
 Gas-limited frames rely on protocol gas for termination.  Gasless tooling keeps
@@ -46,9 +48,11 @@ disables the diagnostic guard for that tree."
                 (capture-root-execution-snapshot state context))))
     (if budget-owner-p
         (handler-case
-            (%execute-bytecode-frame code context gas-limit step-budget)
+            (%execute-bytecode-frame
+             code context gas-limit step-budget gas-budget)
           (evm-step-limit-error (condition)
             (when snapshot
               (restore-root-execution-snapshot state context snapshot))
             (error condition)))
-        (%execute-bytecode-frame code context gas-limit step-budget))))
+        (%execute-bytecode-frame
+         code context gas-limit step-budget gas-budget))))

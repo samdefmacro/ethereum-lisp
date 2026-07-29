@@ -266,16 +266,16 @@
              12 32)))
          (allowed-tx (make-legacy-transaction :nonce 0
                                               :gas-price 1
-                                              :gas-limit 6000000
+                                              :gas-limit 50000000
                                               :to nil
                                               :data allowed-initcode))
          (oversized-tx (make-legacy-transaction :nonce 1
                                                 :gas-price 1
-                                                :gas-limit 20000000
+                                                :gas-limit 50000000
                                                 :to nil
                                                 :data oversized-initcode)))
     (state-db-set-account state sender
-                          (make-state-account :balance 50000000))
+                          (make-state-account :balance 120000000))
     (let ((receipt (apply-message state sender allowed-tx
                                   :chain-config config
                                   :timestamp 0)))
@@ -286,7 +286,8 @@
                                   :chain-config config
                                   :timestamp 0)))
       (is (= 0 (receipt-status receipt)))
-      (is (= 20000000 (receipt-cumulative-gas-used receipt))))))
+      (is (= +transaction-gas-limit-cap-eip7825+
+             (receipt-cumulative-gas-used receipt))))))
 
 (deftest legacy-message-contract-creation-rejects-oversized-initcode
   (let* ((state (make-state-db))

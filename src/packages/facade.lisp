@@ -1164,6 +1164,8 @@
    #:receipt-type
    #:receipt-status
    #:receipt-cumulative-gas-used
+   #:receipt-regular-gas-used
+   #:receipt-state-gas-used
    #:receipt-logs
    #:receipt-rlp
    #:receipt-encoding
@@ -1236,7 +1238,17 @@
    #:evm-result-logs
    #:evm-result-pc
    #:evm-result-gas-used
+   #:evm-result-regular-gas-used
+   #:evm-result-state-gas-used
+   #:evm-result-gas-budget
    #:evm-result-refund-counter
+   #:evm-gas-budget
+   #:make-evm-gas-budget
+   #:evm-gas-budget-regular
+   #:evm-gas-budget-state
+   #:evm-gas-budget-used-regular
+   #:evm-gas-budget-used-state
+   #:evm-gas-budget-spilled
    #:execute-bytecode)
   (#:ethereum-lisp.state
    #:state-db

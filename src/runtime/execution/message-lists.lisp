@@ -21,17 +21,31 @@
   (let ((effective-chain-rules
           (execution-chain-rules chain-rules chain-config block-number timestamp))
         (receipts '())
-        (cumulative-gas 0))
+        (cumulative-gas 0)
+        (cumulative-regular-gas 0)
+        (cumulative-state-gas 0))
     (validate-execution-transaction-list-fields transactions
                                                 effective-chain-rules
                                                 blob-base-fee)
     (loop for tx in transactions
           for block-access-index from 1
           do
-      (when (and block-gas-limit
-                 (> (+ cumulative-gas (transaction-gas-limit tx))
-                    block-gas-limit))
-        (error 'block-validation-error :message "Block gas limit exceeded"))
+      (when block-gas-limit
+        (if (execution-amsterdam-p effective-chain-rules)
+            (when (or
+                   (> (+ cumulative-regular-gas
+                         (min +transaction-gas-limit-cap-eip7825+
+                              (transaction-gas-limit tx)))
+                      block-gas-limit)
+                   (> (+ cumulative-state-gas
+                         (transaction-gas-limit tx))
+                      block-gas-limit))
+              (error 'block-validation-error
+                     :message "Amsterdam block gas dimension unavailable"))
+            (when (> (+ cumulative-gas (transaction-gas-limit tx))
+                     block-gas-limit)
+              (error 'block-validation-error
+                     :message "Block gas limit exceeded"))))
       (let ((receipt
               (call-with-block-access-phase
                block-access-list-construction state block-access-index
@@ -53,12 +67,25 @@
                                 :context-gas-limit context-gas-limit
                                 :block-hashes block-hashes)))))
         (incf cumulative-gas (receipt-cumulative-gas-used receipt))
+        (incf cumulative-regular-gas (receipt-regular-gas-used receipt))
+        (incf cumulative-state-gas (receipt-state-gas-used receipt))
+        (when (and block-gas-limit
+                   (execution-amsterdam-p effective-chain-rules)
+                   (or (> cumulative-regular-gas block-gas-limit)
+                       (> cumulative-state-gas block-gas-limit)))
+          (error 'block-validation-error
+                 :message "Amsterdam block gas dimension exceeded"))
         (push (make-receipt :type (transaction-type tx)
                             :status (receipt-status receipt)
                             :cumulative-gas-used cumulative-gas
+                            :regular-gas-used
+                            (receipt-regular-gas-used receipt)
+                            :state-gas-used
+                            (receipt-state-gas-used receipt)
                             :logs (receipt-logs receipt))
               receipts)))
-    (values (nreverse receipts) cumulative-gas)))
+    (values (nreverse receipts) cumulative-gas
+            cumulative-regular-gas cumulative-state-gas)))
 
 (defun apply-signed-message-list
     (state transactions
@@ -81,7 +108,9 @@
   (let ((effective-chain-rules
           (execution-chain-rules chain-rules chain-config block-number timestamp))
         (receipts '())
-        (cumulative-gas 0))
+        (cumulative-gas 0)
+        (cumulative-regular-gas 0)
+        (cumulative-state-gas 0))
     (validate-execution-transaction-list-fields transactions
                                                 effective-chain-rules
                                                 blob-base-fee)
@@ -93,10 +122,22 @@
             for sender in senders
             for block-access-index from 1
             do
-        (when (and block-gas-limit
-                   (> (+ cumulative-gas (transaction-gas-limit tx))
-                      block-gas-limit))
-          (error 'block-validation-error :message "Block gas limit exceeded"))
+        (when block-gas-limit
+          (if (execution-amsterdam-p effective-chain-rules)
+              (when (or
+                     (> (+ cumulative-regular-gas
+                           (min +transaction-gas-limit-cap-eip7825+
+                                (transaction-gas-limit tx)))
+                        block-gas-limit)
+                     (> (+ cumulative-state-gas
+                           (transaction-gas-limit tx))
+                        block-gas-limit))
+                (error 'block-validation-error
+                       :message "Amsterdam block gas dimension unavailable"))
+              (when (> (+ cumulative-gas (transaction-gas-limit tx))
+                       block-gas-limit)
+                (error 'block-validation-error
+                       :message "Block gas limit exceeded"))))
         (let ((receipt
                 (call-with-block-access-phase
                  block-access-list-construction state block-access-index
@@ -119,12 +160,25 @@
                     :context-gas-limit context-gas-limit
                     :block-hashes block-hashes)))))
           (incf cumulative-gas (receipt-cumulative-gas-used receipt))
+          (incf cumulative-regular-gas (receipt-regular-gas-used receipt))
+          (incf cumulative-state-gas (receipt-state-gas-used receipt))
+          (when (and block-gas-limit
+                     (execution-amsterdam-p effective-chain-rules)
+                     (or (> cumulative-regular-gas block-gas-limit)
+                         (> cumulative-state-gas block-gas-limit)))
+            (error 'block-validation-error
+                   :message "Amsterdam block gas dimension exceeded"))
           (push (make-receipt :type (transaction-type tx)
                               :status (receipt-status receipt)
                               :cumulative-gas-used cumulative-gas
+                              :regular-gas-used
+                              (receipt-regular-gas-used receipt)
+                              :state-gas-used
+                              (receipt-state-gas-used receipt)
                               :logs (receipt-logs receipt))
                 receipts))))
-    (values (nreverse receipts) cumulative-gas)))
+    (values (nreverse receipts) cumulative-gas
+            cumulative-regular-gas cumulative-state-gas)))
 
 (defun apply-legacy-message-list (state sender transactions)
   (apply-message-list state sender transactions))

@@ -59,6 +59,8 @@
    #:receipt-type
    #:receipt-status
    #:receipt-cumulative-gas-used
+   #:receipt-regular-gas-used
+   #:receipt-state-gas-used
    #:receipt-logs
    #:receipt-status-bytes
    #:receipt-rlp

@@ -23,6 +23,7 @@ hiding them in one large lexical scope."
   (jump-destinations #* :type simple-bit-vector)
   context
   gas-limit
+  gas-budget
   step-budget
   (pc 0 :type (integer 0 *))
   (steps 0 :type (integer 0 *))
@@ -40,12 +41,15 @@ hiding them in one large lexical scope."
   (status :stopped)
   (halted-p nil :type boolean))
 
-(defun make-evm-machine (code context gas-limit step-budget)
+(defun make-evm-machine (code context gas-limit step-budget &optional gas-budget)
   (%make-evm-machine
    :code (ensure-byte-vector code)
    :jump-destinations (jump-destination-bitmap (ensure-byte-vector code))
    :context context
    :gas-limit gas-limit
+   :gas-budget
+   (or gas-budget
+       (make-evm-gas-budget :regular (or gas-limit 0)))
    :step-budget step-budget
    :return-data-buffer
    (if context
@@ -74,18 +78,41 @@ hiding them in one large lexical scope."
      (if (funcall predicate left right) 1 0))))
 
 (defun evm-machine-charge-gas (machine amount)
+  (unless (evm-machine-gas-limit machine)
+    (incf (evm-machine-gas-used machine) amount)
+    (incf (evm-gas-budget-used-regular
+           (evm-machine-gas-budget machine))
+          amount)
+    (return-from evm-machine-charge-gas amount))
+  (unless (evm-gas-budget-charge-regular
+           (evm-machine-gas-budget machine) amount)
+    (fail "EVM out of gas (regular dimension) at pc ~D"
+          (evm-machine-pc machine)))
   (incf (evm-machine-gas-used machine) amount)
-  (when (and (evm-machine-gas-limit machine)
-             (> (evm-machine-gas-used machine)
-                (evm-machine-gas-limit machine)))
-    (fail "EVM out of gas at pc ~D" (evm-machine-pc machine))))
+  amount)
+
+(defun evm-machine-charge-state-gas (machine amount)
+  (unless (evm-gas-budget-charge-state
+           (evm-machine-gas-budget machine) amount)
+    (fail "EVM out of state gas at pc ~D" (evm-machine-pc machine)))
+  (incf (evm-machine-gas-used machine) amount)
+  amount)
+
+(defun evm-machine-refill-state-gas (machine amount)
+  (evm-gas-budget-refill-state (evm-machine-gas-budget machine) amount)
+  (decf (evm-machine-gas-used machine) amount)
+  amount)
+
+(defun evm-machine-regular-gas-left (machine)
+  (if (evm-machine-gas-limit machine)
+      (evm-gas-budget-regular (evm-machine-gas-budget machine))
+      0))
 
 (defun evm-machine-charge-call-value-gas (machine required charged)
   ;; The OOG boundary uses the undiscounted cost.  A successful call can still
   ;; receive the value-transfer stipend discount.
   (if (and (evm-machine-gas-limit machine)
-           (> (+ (evm-machine-gas-used machine) required)
-              (evm-machine-gas-limit machine)))
+           (> required (evm-machine-regular-gas-left machine)))
       (evm-machine-charge-gas machine required)
       (evm-machine-charge-gas machine charged)))
 
@@ -116,11 +143,17 @@ hiding them in one large lexical scope."
      :logs (nreverse (evm-machine-logs machine))
      :pc (evm-machine-pc machine)
      :gas-used (evm-machine-gas-used machine)
+     :regular-gas-used
+     (evm-gas-budget-used-regular (evm-machine-gas-budget machine))
+     :state-gas-used
+     (max 0 (evm-gas-budget-used-state
+             (evm-machine-gas-budget machine)))
+     :gas-budget (copy-evm-gas-budget (evm-machine-gas-budget machine))
      :refund-counter (evm-machine-refund-counter machine))))
 
 (defmacro with-evm-machine-state ((machine) &body body)
   "Bind the mutable frame fields used by an opcode handler."
-  `(with-slots (code jump-destinations context gas-limit step-budget
+  `(with-slots (code jump-destinations context gas-limit gas-budget step-budget
                 pc steps gas-used stack memory
                 return-data return-data-buffer frame-snapshot
                 original-storage-values cleared-storage-slots logs

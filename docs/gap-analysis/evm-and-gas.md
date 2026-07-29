@@ -43,17 +43,21 @@ what the `gap/evm-gas` remediation changed afterward.
   counter.
 - Partially completed: the fork matrix now pins all four Amsterdam opcode costs,
   pre-Amsterdam rejection, Osaka/Amsterdam precompile count, code limits, and
-  transfer-log behavior. A full all-opcode matrix and pinned Amsterdam EEST
-  corpus are still unavailable.
-- Deliberately gated and not implemented: EIP-8037/8038 multidimensional gas.
-  It changes transaction/block accounting and the scalar machine gas model, so
-  it crosses the execution and block ownership boundary. Consequently
-  `amsterdam-execution-available-p` remains false and Amsterdam Engine methods
-  are neither advertised nor dispatched.
+  transfer-log behavior. It now also pins EIP-8037/8038 regular/state budget
+  conservation, the complete SSTORE cases table, every account and call-family
+  opcode, CREATE/CREATE2/code deposit, SELFDESTRUCT, refunds, access-list
+  pricing, transaction receipts, and Osaka/Amsterdam prices. A pinned Amsterdam
+  EEST corpus is still unavailable.
+- Completed: EIP-8037/8038 multidimensional gas is wired through EVM frames,
+  transactions, receipts, transaction lists, and block gas accounting.
+  `amsterdam-execution-available-p` is now true. Engine Amsterdam methods are
+  advertised and dispatched only when the independent KZG and BLS dependencies
+  are also available.
 
-The Docker unit layer completed with 937 tests passed and 3 skipped after these
-changes. Integration and e2e verification are recorded with the branch handoff,
-not retroactively as evidence for the original audit.
+The final isolated Docker verification completed with 948 unit tests passed
+(3 skipped), 304 integration tests passed (2 skipped), 59 e2e tests passed, and
+the documentation transcript check passed. These are remediation results, not
+retroactive evidence for the original audit.
 
 ## Executive summary
 
@@ -797,7 +801,7 @@ available.
 Protects: **derived, not trusted** — receipts, log order, and bloom values are
 computed, never taken from input.
 
-**5 — Implement EIP-8037 and EIP-8038 as one change. (L)**
+**5 — Implement EIP-8037 and EIP-8038 as one change. (L) — COMPLETED**
 Dependencies: item 6 (the fork-matrix gas test) should exist first, for the same
 reason `docs/gas-parity.md` makes 3.2 a prerequisite of its 4.1: this change
 touches the pricing of instructions that are correct today. It also wants
@@ -809,6 +813,16 @@ charging.
 Verification: a fork-matrix table extended with an Amsterdam column; EEST
 Amsterdam fixtures. Do not attempt this without the table.
 Protects: **derived, not trusted**.
+
+Remediation result (2026-07-29): `evm-gas-costs` and `evm-gas-budget` carry
+regular gas, state gas, signed net state use, and regular spill. LIFO state
+refunds repay spill before the state reservoir. The model is propagated across
+CALL/CREATE child frames and transaction/block accounting. Tests transcribe
+geth v1.17.5's SSTORE cases and pin SLOAD, all account reads, all four call
+variants, CREATE/CREATE2 and code deposit, SELFDESTRUCT, access-list pricing,
+refund/failure paths, receipt dimensions, and Engine capability/dispatch
+gating. The external Amsterdam EEST corpus named above remains unavailable; it
+is not an unimplemented semantic item.
 
 **6 — Extend the fork-matrix gas test to Amsterdam and pin Osaka. (M)**
 Dependencies: none, and it should start before item 5. This is

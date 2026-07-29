@@ -21,7 +21,8 @@
 (defun call-transaction-context-base-fee (gas-price base-fee)
   (if (zerop gas-price) 0 base-fee))
 
-(defun transaction-intrinsic-gas (transaction &key (eip3860-p t))
+(defun transaction-intrinsic-gas
+    (transaction &key (eip3860-p t) chain-rules)
   (let ((gas (if (transaction-to transaction)
                  +transaction-gas+
                  +contract-creation-transaction-gas+))
@@ -34,8 +35,18 @@
                    (ceiling (length (ensure-byte-vector
                                      (transaction-data transaction)))
                             32))))
-    (incf gas (* 2400 (length access-list)))
-    (incf gas (* 1900 (access-list-storage-key-count access-list)))
+    (incf gas
+          (* (if (and chain-rules
+                      (chain-rules-amsterdam-p chain-rules))
+                 +access-list-address-gas-amsterdam+
+                 2400)
+             (length access-list)))
+    (incf gas
+          (* (if (and chain-rules
+                      (chain-rules-amsterdam-p chain-rules))
+                 +access-list-storage-key-gas-amsterdam+
+                 1900)
+             (access-list-storage-key-count access-list)))
     (incf gas (* +set-code-authorization-intrinsic-gas+
                  (length authorization-list)))
     gas))
@@ -43,7 +54,21 @@
 (defun execution-transaction-intrinsic-gas (tx rules)
   (transaction-intrinsic-gas
    tx
-   :eip3860-p (chain-rules-initcode-metering-p rules)))
+   :eip3860-p (chain-rules-initcode-metering-p rules)
+   :chain-rules rules))
+
+(defun transaction-runtime-gas-budget (tx rules)
+  "Split post-intrinsic gas into EIP-8037 regular gas and state reservoir."
+  (let* ((intrinsic (execution-transaction-intrinsic-gas tx rules))
+         (execution-gas (- (transaction-gas-limit tx) intrinsic))
+         (regular-gas
+           (if (and rules (chain-rules-amsterdam-p rules))
+               (min (- +transaction-gas-limit-cap-eip7825+ intrinsic)
+                    execution-gas)
+               execution-gas)))
+    (make-evm-gas-budget
+     :regular regular-gas
+     :state (- execution-gas regular-gas))))
 
 (defun transaction-calldata-tokens (transaction)
   "EIP-7623 token count: 1 per zero calldata byte, 4 per nonzero byte."
@@ -68,7 +93,18 @@
   ;; Pre-floor execution gas. The EIP-7623 floor is applied after the refund
   ;; in finalize-transaction-receipt, so the refund cap uses this value.
   (+ (execution-transaction-intrinsic-gas tx rules)
-     (evm-result-gas-used result)))
+     (evm-result-regular-gas-used result)
+     (evm-result-state-gas-used result)))
+
+(defun transaction-evm-regular-gas-used (tx result rules)
+  (+ (execution-transaction-intrinsic-gas tx rules)
+     (evm-result-regular-gas-used result)))
+
+(defun transaction-exceptional-regular-gas-used (tx rules)
+  (if (and rules (chain-rules-amsterdam-p rules))
+      (min (transaction-gas-limit tx)
+           +transaction-gas-limit-cap-eip7825+)
+      (transaction-gas-limit tx)))
 
 (defun contract-code-deposit-gas (code)
   (* +create-data-gas+ (length (ensure-byte-vector code))))

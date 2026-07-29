@@ -1,5 +1,13 @@
 (in-package #:ethereum-lisp.execution)
 
+(defun execution-empty-account-p (state address)
+  (let ((account (state-db-get-account state address)))
+    (or (null account)
+        (and (zerop (state-account-nonce account))
+             (zerop (state-account-balance account))
+             (bytes= (hash32-bytes (state-account-code-hash account))
+                     (hash32-bytes +empty-code-hash+))))))
+
 (defun execution-account-or-empty (state address)
   (or (state-db-get-account state address)
       (make-state-account)))

@@ -15,10 +15,13 @@ Remediation update (2026-07-29): `gap/evm-gas` closes item 4.3's account
 predicate and item 5.5's corrected EIP-7954 code/initcode limits. It also adds
 Amsterdam opcode and transfer-log coverage, typed KZG backend refusal, Prague
 delegation gating, per-frame jump analysis, geometric EVM memory growth, and an
-O(1) stack-depth guard. The broad fork-aware gas schedule in item 4.1 and
-Amsterdam EIP-8037/8038 multidimensional gas are still open; the latter keeps
-Amsterdam Engine capability advertisement and dispatch disabled. The detailed
-status and dependency boundary are in `docs/gap-analysis/evm-and-gas.md`.
+O(1) stack-depth guard. EIP-8037/8038 multidimensional gas is now implemented
+through EVM, transaction, receipt, and block accounting, with geth v1.17.5
+opcode/refund vectors and capability tests. Amsterdam Engine methods therefore
+open when Amsterdam execution plus KZG and BLS are all available, and remain
+closed when either verifier backend is missing. The broader historical
+fork-aware gas schedule in item 4.1 remains separate; detailed status is in
+`docs/gap-analysis/evm-and-gas.md`.
 
 The most important thing a reader can take from this document is not the fix
 list but the section on what is already correct. Several apparent bugs in this

@@ -330,7 +330,7 @@
          (config (make-chain-config :london-block 0
                                     :amsterdam-time 10))
          (header (make-block-header :timestamp 10
-                                    :gas-limit 50000
+                                    :gas-limit 250000
                                     :base-fee-per-gas 1))
          (transaction (make-legacy-transaction :nonce 0
                                                :gas-price 1
@@ -406,11 +406,11 @@
          (config (make-chain-config :london-block 0
                                     :amsterdam-time 10))
          (header (make-block-header :timestamp 10
-                                    :gas-limit 50000
+                                    :gas-limit 250000
                                     :base-fee-per-gas 1))
          (transaction (make-legacy-transaction :nonce 0
                                                :gas-price 1
-                                               :gas-limit 21000
+                                               :gas-limit 250000
                                                :to recipient
                                                :value 1)))
     (state-db-set-account state sender
@@ -433,11 +433,11 @@
          (config (make-chain-config :london-block 0
                                     :amsterdam-time 10))
          (header (make-block-header :timestamp 10
-                                    :gas-limit 50000
+                                    :gas-limit 250000
                                     :base-fee-per-gas 1))
          (transaction (make-legacy-transaction :nonce 0
                                                :gas-price 1
-                                               :gas-limit 21000
+                                               :gas-limit 250000
                                                :to recipient
                                                :value 1)))
     (state-db-set-account state sender

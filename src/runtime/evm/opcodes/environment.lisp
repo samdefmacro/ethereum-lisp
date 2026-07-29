@@ -111,6 +111,9 @@
               context
               address
               (lambda (amount) (evm-machine-charge-gas machine amount)))
+             (when (amsterdam-context-p context)
+               (evm-machine-charge-gas
+                machine +warm-account-access-amsterdam+))
              (setf stack
                    (stack-push
                     rest
@@ -130,6 +133,9 @@
                 context
                 address
                 (lambda (amount) (evm-machine-charge-gas machine amount)))
+               (when (amsterdam-context-p context)
+                 (evm-machine-charge-gas
+                  machine +warm-account-access-amsterdam+))
              (evm-machine-charge-copy-gas machine memory-offset size)
              (setf memory
                    (copy-into-memory

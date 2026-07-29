@@ -189,7 +189,26 @@
    #:evm-result-logs
    #:evm-result-pc
    #:evm-result-gas-used
+   #:evm-result-regular-gas-used
+   #:evm-result-state-gas-used
+   #:evm-result-gas-budget
    #:evm-result-refund-counter
+   #:evm-gas-budget
+   #:make-evm-gas-budget
+   #:evm-gas-costs
+   #:make-evm-gas-costs
+   #:evm-gas-budget-regular
+   #:evm-gas-budget-state
+   #:evm-gas-budget-used-regular
+   #:evm-gas-budget-used-state
+   #:evm-gas-budget-spilled
+   #:evm-gas-budget-charge-state
+   #:evm-gas-budget-charge
+   #:+new-account-state-gas+
+   #:+cost-per-state-byte+
+   #:+keccak256-word-gas+
+   #:+access-list-address-gas-amsterdam+
+   #:+access-list-storage-key-gas-amsterdam+
    #:finalize-evm-selfdestructs
    #:mark-created-account
    #:execute-bytecode))
@@ -260,7 +279,26 @@
    #:evm-result-logs
    #:evm-result-pc
    #:evm-result-gas-used
+   #:evm-result-regular-gas-used
+   #:evm-result-state-gas-used
+   #:evm-result-gas-budget
    #:evm-result-refund-counter
+   #:evm-gas-budget
+   #:make-evm-gas-budget
+   #:evm-gas-costs
+   #:make-evm-gas-costs
+   #:evm-gas-budget-regular
+   #:evm-gas-budget-state
+   #:evm-gas-budget-used-regular
+   #:evm-gas-budget-used-state
+   #:evm-gas-budget-spilled
+   #:evm-gas-budget-charge-state
+   #:evm-gas-budget-charge
+   #:+new-account-state-gas+
+   #:+cost-per-state-byte+
+   #:+keccak256-word-gas+
+   #:+access-list-address-gas-amsterdam+
+   #:+access-list-storage-key-gas-amsterdam+
    #:finalize-evm-selfdestructs
    #:mark-created-account
    #:execute-bytecode))

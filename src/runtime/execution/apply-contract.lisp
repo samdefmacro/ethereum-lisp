@@ -26,19 +26,44 @@
                     sender
                     (state-account-nonce sender-account)))
          (gas-limit (transaction-gas-limit tx))
-         (gas-price (transaction-effective-gas-price tx :base-fee base-fee)))
+         (gas-price (transaction-effective-gas-price tx :base-fee base-fee))
+         (runtime-budget
+           (transaction-runtime-gas-budget tx effective-chain-rules))
+         (new-account-state-p
+           (and (execution-amsterdam-p effective-chain-rules)
+                (execution-empty-account-p state contract))))
     (validate-contract-initcode-size tx effective-chain-rules)
     (charge-sender-upfront state sender tx
                            :base-fee base-fee
                            :blob-base-fee blob-base-fee
                            :chain-rules effective-chain-rules)
+    (when (and new-account-state-p
+               (not (evm-gas-budget-charge-state
+                     runtime-budget +new-account-state-gas+)))
+      (let ((used
+              (transaction-exceptional-regular-gas-used
+               tx effective-chain-rules)))
+        (return-from apply-contract-creation
+          (finalize-transaction-receipt
+           state sender coinbase tx
+           (make-receipt :status 0
+                         :cumulative-gas-used used
+                         :regular-gas-used used)
+           base-fee))))
     (let ((snapshot (state-db-snapshot state))
           (transfer-log nil))
       (handler-case
           (if (execution-contract-address-collision-p state contract)
               (finalize-transaction-receipt
                state sender coinbase tx
-               (make-receipt :status 0 :cumulative-gas-used gas-limit)
+               (make-receipt
+                :status 0
+                :cumulative-gas-used
+                (transaction-exceptional-regular-gas-used
+                 tx effective-chain-rules)
+                :regular-gas-used
+                (transaction-exceptional-regular-gas-used
+                 tx effective-chain-rules))
                base-fee)
               (progn
                 (setf transfer-log
@@ -80,7 +105,9 @@
                            (execute-bytecode
                             (transaction-data tx)
                             :context context
-                            :gas-limit (- gas-limit intrinsic-gas)))))
+                            :gas-limit
+                            (evm-gas-budget-regular runtime-budget)
+                            :gas-budget runtime-budget))))
                   (if (eq (evm-result-status result) :reverted)
                       (progn
                         (state-db-revert-to-snapshot state snapshot)
@@ -89,24 +116,57 @@
                          (make-receipt :status 0
                                                :cumulative-gas-used
                                                (transaction-evm-gas-used
-                                            tx result effective-chain-rules))
+                                            tx result effective-chain-rules)
+                                               :regular-gas-used
+                                               (transaction-evm-regular-gas-used
+                                                tx result
+                                                effective-chain-rules)
+                                               :state-gas-used
+                                               (evm-result-state-gas-used result))
                          base-fee))
                       (progn
                         (let* ((runtime-code (evm-result-return-data result))
-                                       (gas-used (+ (transaction-evm-gas-used
-                                                  tx result effective-chain-rules)
-                                                    (contract-code-deposit-gas
-                                                     runtime-code))))
+                               (amsterdam-p
+                                 (execution-amsterdam-p
+                                  effective-chain-rules))
+                               (deposit-regular
+                                 (if amsterdam-p
+                                     (* +keccak256-word-gas+
+                                        (ceiling (length runtime-code) 32))
+                                     (contract-code-deposit-gas runtime-code)))
+                               (deposit-state
+                                 (if amsterdam-p
+                                     (* +cost-per-state-byte+
+                                        (length runtime-code))
+                                     0))
+                               (deposit-ok-p
+                                 (if amsterdam-p
+                                     (evm-gas-budget-charge
+                                      runtime-budget
+                                      (make-evm-gas-costs
+                                       :regular deposit-regular
+                                       :state deposit-state))
+                                     t))
+                               (gas-used
+                                 (+ (transaction-evm-gas-used
+                                     tx result effective-chain-rules)
+                                    deposit-regular deposit-state)))
                           (if (or (invalid-contract-runtime-code-p
                                    runtime-code
                                    (evm-context-chain-rules context))
+                                  (not deposit-ok-p)
                                   (> gas-used gas-limit))
                               (progn
                                 (state-db-revert-to-snapshot state snapshot)
                                 (finalize-transaction-receipt
                                  state sender coinbase tx
                                  (make-receipt :status 0
-                                               :cumulative-gas-used gas-limit)
+                                               :cumulative-gas-used
+                                               (transaction-exceptional-regular-gas-used
+                                                tx effective-chain-rules)
+                                               :regular-gas-used
+                                               (transaction-exceptional-regular-gas-used
+                                                tx effective-chain-rules))
                                  base-fee))
                               (progn
                                 (state-db-set-code state contract runtime-code)
@@ -116,6 +176,14 @@
                                          (make-receipt
                                           :status 1
                                           :cumulative-gas-used gas-used
+                                          :regular-gas-used
+                                          (+ (transaction-evm-regular-gas-used
+                                              tx result
+                                              effective-chain-rules)
+                                             deposit-regular)
+                                          :state-gas-used
+                                          (+ (evm-result-state-gas-used result)
+                                             deposit-state)
                                           :logs
                                           (if transfer-log
                                               (cons transfer-log
@@ -130,5 +198,12 @@
           (state-db-revert-to-snapshot state snapshot)
           (finalize-transaction-receipt
            state sender coinbase tx
-           (make-receipt :status 0 :cumulative-gas-used gas-limit)
+           (make-receipt
+            :status 0
+            :cumulative-gas-used
+            (transaction-exceptional-regular-gas-used
+             tx effective-chain-rules)
+            :regular-gas-used
+            (transaction-exceptional-regular-gas-used
+             tx effective-chain-rules))
            base-fee))))))

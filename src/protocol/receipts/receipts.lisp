@@ -127,11 +127,15 @@
                              (type 0)
                              (status 1)
                              (cumulative-gas-used 0)
+                             (regular-gas-used 0)
+                             (state-gas-used 0)
                              (logs '()))))
   post-state
   (type 0 :type (integer 0 127))
   (status 1 :type (integer 0 1))
   (cumulative-gas-used 0 :type (integer 0 *))
+  (regular-gas-used 0 :type (integer 0 *))
+  (state-gas-used 0 :type (integer 0 *))
   (logs '() :type list))
 
 (defun receipt-status-bytes (receipt)

@@ -33,12 +33,31 @@
                  (transaction-effective-gas-price tx :base-fee base-fee))
                (intrinsic-gas
                  (execution-transaction-intrinsic-gas
-                  tx effective-chain-rules)))
+                  tx effective-chain-rules))
+               (runtime-budget
+                 (transaction-runtime-gas-budget tx effective-chain-rules))
+               (new-account-state-p
+                 (and (execution-amsterdam-p effective-chain-rules)
+                      (plusp (transaction-value tx))
+                      (execution-empty-account-p state recipient))))
           (state-db-touch-account state recipient)
           (charge-sender-upfront state sender tx
                                  :base-fee base-fee
                                  :blob-base-fee blob-base-fee
                                  :chain-rules effective-chain-rules)
+          (when (and new-account-state-p
+                     (not (evm-gas-budget-charge-state
+                           runtime-budget +new-account-state-gas+)))
+            (let ((used
+                    (transaction-exceptional-regular-gas-used
+                     tx effective-chain-rules)))
+              (return-from apply-message
+                (finalize-transaction-receipt
+                 state sender coinbase tx
+                 (make-receipt :status 0
+                               :cumulative-gas-used used
+                               :regular-gas-used used)
+                 base-fee))))
           (let* ((refund-counter
                    (apply-set-code-authorizations state tx chain-id))
                  (code (execution-resolved-code
@@ -67,7 +86,12 @@
                         (make-receipt
                          :status 1
                          :cumulative-gas-used
+                         (+ intrinsic-gas precompile-gas-used
+                            (evm-gas-budget-used-state runtime-budget))
+                         :regular-gas-used
                          (+ intrinsic-gas precompile-gas-used)
+                         :state-gas-used
+                         (evm-gas-budget-used-state runtime-budget)
                          :logs (if transfer-log
                                    (list transfer-log)
                                    '()))
@@ -78,7 +102,16 @@
                      (finalize-transaction-receipt
                       state sender coinbase tx
                       (make-receipt :status 0
-                                    :cumulative-gas-used gas-limit)
+                                    :cumulative-gas-used
+                                    (if (execution-amsterdam-p
+                                         effective-chain-rules)
+                                        +transaction-gas-limit-cap-eip7825+
+                                        gas-limit)
+                                    :regular-gas-used
+                                    (if (execution-amsterdam-p
+                                         effective-chain-rules)
+                                        +transaction-gas-limit-cap-eip7825+
+                                        gas-limit))
                       base-fee
                       :refund-counter refund-counter)))))
               ((zerop (length code))
@@ -90,7 +123,12 @@
                   state sender coinbase tx
                   (make-receipt
                    :status 1
-                   :cumulative-gas-used intrinsic-gas
+                   :cumulative-gas-used
+                   (+ intrinsic-gas
+                      (evm-gas-budget-used-state runtime-budget))
+                   :regular-gas-used intrinsic-gas
+                   :state-gas-used
+                   (evm-gas-budget-used-state runtime-budget)
                    :logs (if transfer-log (list transfer-log) '()))
                   base-fee
                   :refund-counter refund-counter)))
@@ -123,7 +161,9 @@
                               (execute-bytecode
                                code
                                :context context
-                               :gas-limit (- gas-limit intrinsic-gas))))
+                               :gas-limit
+                               (evm-gas-budget-regular runtime-budget)
+                               :gas-budget runtime-budget)))
                        (if (eq (evm-result-status result) :reverted)
                            (progn
                              (state-db-revert-to-snapshot state snapshot)
@@ -133,7 +173,12 @@
                                :status 0
                                :cumulative-gas-used
                                (transaction-evm-gas-used
-                                tx result effective-chain-rules))
+                                tx result effective-chain-rules)
+                               :regular-gas-used
+                               (transaction-evm-regular-gas-used
+                                tx result effective-chain-rules)
+                               :state-gas-used
+                               (evm-result-state-gas-used result))
                               base-fee
                               :refund-counter refund-counter))
                            (let ((receipt
@@ -144,6 +189,11 @@
                                      :cumulative-gas-used
                                      (transaction-evm-gas-used
                                       tx result effective-chain-rules)
+                                     :regular-gas-used
+                                     (transaction-evm-regular-gas-used
+                                      tx result effective-chain-rules)
+                                     :state-gas-used
+                                     (evm-result-state-gas-used result)
                                      :logs
                                      (if transfer-log
                                          (cons transfer-log
@@ -160,7 +210,16 @@
                      (finalize-transaction-receipt
                       state sender coinbase tx
                       (make-receipt :status 0
-                                    :cumulative-gas-used gas-limit)
+                                    :cumulative-gas-used
+                                    (if (execution-amsterdam-p
+                                         effective-chain-rules)
+                                        +transaction-gas-limit-cap-eip7825+
+                                        gas-limit)
+                                    :regular-gas-used
+                                    (if (execution-amsterdam-p
+                                         effective-chain-rules)
+                                        +transaction-gas-limit-cap-eip7825+
+                                        gas-limit))
                       base-fee
                       :refund-counter refund-counter))))))))
             (apply-contract-creation state sender tx
