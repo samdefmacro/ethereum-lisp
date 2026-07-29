@@ -43,7 +43,7 @@ rejects execution failure for protocol calls whose EIPs mandate both."
        "Required protocol system contract ~A has no code"
        (address-to-hex target)))
     (when (plusp (length code))
-      (let* ((snapshot (state-db-copy state))
+      (let* ((snapshot (state-db-snapshot state))
              (context
                (make-evm-context
                 :state state
@@ -72,7 +72,7 @@ rejects execution failure for protocol calls whose EIPs mandate both."
                 :accessed-addresses
                 (protocol-system-call-accessed-addresses target))))
         (flet ((rollback-failed-call (&optional result)
-                 (state-db-restore state snapshot)
+                 (state-db-revert-to-snapshot state snapshot)
                  (when require-success-p
                    (block-validation-fail
                     "Protocol system call to ~A failed"

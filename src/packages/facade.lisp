@@ -1216,6 +1216,10 @@
    #:state-db-get-code-hash
    #:state-db-copy
    #:state-db-restore
+   #:state-db-snapshot
+   #:state-db-revert-to-snapshot
+   #:state-db-finalize-transaction
+   #:state-db-touch-account
    #:state-db-set-storage
    #:state-db-get-storage
    #:state-db-get-storage-root

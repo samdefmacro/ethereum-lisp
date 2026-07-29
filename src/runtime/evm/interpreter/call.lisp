@@ -63,6 +63,7 @@ merging are deliberately not configurable; those are shared EVM invariants."
          code-address
          (lambda (amount)
            (evm-machine-charge-gas machine amount)))
+        (state-db-touch-account state child-address)
         ;; EIP-7702 (Prague+): calling a delegated account also accesses and
         ;; warms the delegation target, at the EIP-2929 cold/warm account cost.
         (let ((rules (evm-context-chain-rules context)))

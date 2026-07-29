@@ -21,6 +21,10 @@
 
 (defstruct (state-db (:constructor make-state-db ()))
   (objects (make-hash-table :test #'equal))
+  ;; Per-mutation before-images make snapshots integer marks rather than
+  ;; whole-world copies. Entries are replayed backwards on revert.
+  (journal (make-array 16 :adjustable t :fill-pointer 0))
+  (reverting-p nil :type boolean)
   ;; Incremental account-root support (wave 3b). DIRTY is the set of address
   ;; keys whose account changed since the last root flush; CACHED-ROOT is the
   ;; memoized account state root.
@@ -45,6 +49,10 @@
   (dirty (make-hash-table :test #'equal))
   (cached-root nil)
   (trie nil))
+
+(defstruct state-journal-entry
+  key
+  previous-object)
 
 (defstruct (state-storage-proof
             (:constructor make-state-storage-proof

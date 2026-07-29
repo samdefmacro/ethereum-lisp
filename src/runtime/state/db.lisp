@@ -3,6 +3,47 @@
 (defun state-db-get-object (state address)
   (gethash (address-key address) (state-db-objects state)))
 
+(declaim (ftype (function (t) t) clone-state-object))
+
+(defun state-db-record-change (state key)
+  (unless (state-db-reverting-p state)
+    (let ((object (gethash key (state-db-objects state))))
+      (vector-push-extend
+       (make-state-journal-entry
+        :key key
+        :previous-object (and object (clone-state-object object)))
+       (state-db-journal state))))
+  state)
+
+(defun state-db-snapshot (state)
+  "Return an O(1) mark for reverting subsequent state mutations."
+  (fill-pointer (state-db-journal state)))
+
+(defun state-db-touch-account (state address)
+  "Journal an EIP-161 touch without otherwise mutating the account."
+  (state-db-record-change state (address-key address)))
+
+(defun state-db-revert-to-snapshot (state snapshot)
+  "Replay journal entries backwards to SNAPSHOT and discard them."
+  (let ((journal (state-db-journal state)))
+    (unless (and (integerp snapshot)
+                 (<= 0 snapshot (fill-pointer journal)))
+      (error "State snapshot mark is invalid: ~S" snapshot))
+    (let ((previous-reverting-p (state-db-reverting-p state)))
+      (unwind-protect
+           (progn
+             (setf (state-db-reverting-p state) t)
+             (loop while (> (fill-pointer journal) snapshot)
+                   for entry = (vector-pop journal)
+                   for key = (state-journal-entry-key entry)
+                   for previous = (state-journal-entry-previous-object entry)
+                   do (if previous
+                          (setf (gethash key (state-db-objects state)) previous)
+                          (remhash key (state-db-objects state)))
+                      (mark-account-dirty state key)))
+        (setf (state-db-reverting-p state) previous-reverting-p))))
+  state)
+
 (defun state-db-get-account (state address)
   (let ((object (state-db-get-object state address)))
     (and object
@@ -30,6 +71,29 @@ recomputes. See the STATE-DB DIRTY/CACHED-ROOT invariant."
        (zerop (length (state-object-code object)))
        (zerop (hash-table-count (state-object-storage object)))))
 
+(defun state-db-finalize-transaction (state snapshot delete-empty-objects-p)
+  "Finalize accounts touched since SNAPSHOT.
+
+When DELETE-EMPTY-OBJECTS-P is false (pre-EIP-158), touched empty accounts are
+retained. The journal remains intact so an enclosing block snapshot can still
+revert the transaction."
+  (when delete-empty-objects-p
+    (let ((journal (state-db-journal state))
+          (keys (make-hash-table :test #'equal)))
+      (loop for index from snapshot below (fill-pointer journal)
+            for entry = (aref journal index)
+            do (setf (gethash (state-journal-entry-key entry) keys) t))
+      (maphash
+       (lambda (key ignored)
+         (declare (ignore ignored))
+         (let ((object (gethash key (state-db-objects state))))
+           (when (empty-state-object-p object)
+             (state-db-record-change state key)
+             (remhash key (state-db-objects state))
+             (mark-account-dirty state key))))
+       keys)))
+  state)
+
 (defun prune-empty-state-object (state key object)
   (when (empty-state-object-p object)
     (remhash key (state-db-objects state))
@@ -49,14 +113,15 @@ recomputes. See the STATE-DB DIRTY/CACHED-ROOT invariant."
    :code-hash (state-object-code-hash object account)))
 
 (defun state-db-set-account (state address account)
-  (let* ((key (address-key address))
-         (object (or (gethash key (state-db-objects state))
-                     (setf (gethash key (state-db-objects state))
-                           (make-state-object)))))
-    (setf (state-object-account object)
-          (state-account-with-object-commitments object account))
-    (mark-account-dirty state key)
-    state))
+  (let ((key (address-key address)))
+    (state-db-record-change state key)
+    (let ((object (or (gethash key (state-db-objects state))
+                      (setf (gethash key (state-db-objects state))
+                            (make-state-object)))))
+      (setf (state-object-account object)
+            (state-account-with-object-commitments object account))
+      (mark-account-dirty state key)
+      state)))
 
 (defun state-db-account-or-empty (state address)
   (or (state-db-get-account state address)
@@ -101,17 +166,21 @@ recomputes. See the STATE-DB DIRTY/CACHED-ROOT invariant."
 
 (defun state-db-clear-account (state address)
   (let ((key (address-key address)))
+    (state-db-record-change state key)
     (remhash key (state-db-objects state))
     (mark-account-dirty state key))
   state)
 
 (defun state-db-set-code (state address code)
   (let* ((key (address-key address))
-         (code (ensure-byte-vector code))
-         (object (or (gethash key (state-db-objects state))
-                     (and (plusp (length code))
-                          (setf (gethash key (state-db-objects state))
-                                (make-state-object))))))
+         (code (ensure-byte-vector code)))
+    (when (or (gethash key (state-db-objects state))
+              (plusp (length code)))
+      (state-db-record-change state key))
+    (let ((object (or (gethash key (state-db-objects state))
+                      (and (plusp (length code))
+                           (setf (gethash key (state-db-objects state))
+                                 (make-state-object))))))
     (when object
       (setf (state-object-code object) code)
       (let ((account (or (state-object-account object) (make-state-account))))
@@ -121,9 +190,8 @@ recomputes. See the STATE-DB DIRTY/CACHED-ROOT invariant."
                :balance (state-account-balance account)
                :storage-root (state-account-storage-root account)
                :code-hash (keccak-256-hash code))))
-      (mark-account-dirty state key)
-      (prune-empty-state-object state key object))
-    state))
+      (mark-account-dirty state key))
+      state)))
 
 (defun state-db-get-code (state address)
   (let ((object (state-db-get-object state address)))
@@ -198,14 +266,17 @@ recomputes. See the STATE-DB DIRTY/CACHED-ROOT invariant."
 
 (defun state-db-set-storage (state address slot value)
   (let* ((key (address-key address))
-         (value (ensure-state-uint256 value "Storage value"))
-         (object (or (gethash key (state-db-objects state))
-                     (and (not (zerop value))
-                          (setf (gethash key (state-db-objects state))
-                                (make-state-object
-                                 :account (make-state-account))))))
-         (storage-key (storage-key slot))
-         (storage (and object (state-object-storage object))))
+         (value (ensure-state-uint256 value "Storage value")))
+    (when (or (gethash key (state-db-objects state))
+              (not (zerop value)))
+      (state-db-record-change state key))
+    (let* ((object (or (gethash key (state-db-objects state))
+                       (and (not (zerop value))
+                            (setf (gethash key (state-db-objects state))
+                                  (make-state-object
+                                   :account (make-state-account))))))
+           (storage-key (storage-key slot))
+           (storage (and object (state-object-storage object))))
     ;; The one place STORAGE changes: drop the object's memoized storage root
     ;; AND mark the account dirty -- the account leaf embeds the storage root
     ;; (state-account-with-object-commitments), so a storage-only write changes
@@ -217,11 +288,10 @@ recomputes. See the STATE-DB DIRTY/CACHED-ROOT invariant."
     (cond
       ((zerop value)
        (when object
-         (remhash storage-key storage)
-         (prune-empty-state-object state key object)))
+         (remhash storage-key storage)))
       (t
        (setf (gethash storage-key storage) value)))
-    state))
+      state)))
 
 (defun state-db-get-storage (state address slot)
   (let ((object (state-db-get-object state address)))
