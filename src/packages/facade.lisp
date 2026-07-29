@@ -90,6 +90,7 @@
    #:keccak-256-digest
    #:keccak-256-hash
    #:keccak-256-hex
+   #:keccak-512
    #:sha256
    #:sha256-hash
    #:sha256-hex
@@ -169,6 +170,7 @@
    #:block-header-block-access-list-hash
    #:block-header-slot-number
    #:block-header-rlp
+   #:block-header-seal-hash
    #:block-header-from-rlp
    #:block-header-hash
    #:ethereum-block
@@ -210,6 +212,12 @@
    #:block-header-amsterdam-fields-present-p
    #:validate-block-amsterdam-fields
    #:validate-block-amsterdam-slot-number
+   #:*ethash-seal-verifier*
+   #:ethash-seal-verification-available-p
+   #:verify-ethash-seal
+   #:expected-ethash-difficulty
+   #:validate-ethash-header
+   #:validate-block-dao-extra-data
    #:validate-block-header-basics
    #:validate-block-header-against-config
    #:validate-blob-versioned-hash
@@ -219,6 +227,7 @@
    #:validate-withdrawal-list-fields
    #:validate-block-transactions-against-config
    #:validate-block-body-against-config
+   #:validate-block-ommers-against-config
    #:validate-block-against-config
    #:validate-block-body-roots
    #:blob-gas-used
@@ -1246,6 +1255,7 @@
    #:state-storage-range-entry-slot
    #:state-storage-range-entry-value
    #:state-db-get-account
+   #:state-db-account-or-empty
    #:state-db-set-account
    #:state-db-clear-account
    #:state-db-set-code
@@ -1268,7 +1278,8 @@
    #:state-db-root
    #:state-db-root-hex
    #:+wei-per-gwei+
-   #:state-db-add-balance)
+   #:state-db-add-balance
+   #:state-db-transfer-value)
   (#:ethereum-lisp.state-proof-json
    #:state-proof-result-rpc-object
    #:state-proof-result-from-rpc-object)
@@ -1313,6 +1324,10 @@
    #:apply-signed-message-list
    #:execute-legacy-messages
    #:execute-signed-messages
+   #:block-reward-for-rules
+   #:apply-block-rewards-for-header
+   #:apply-dao-hard-fork
+   #:apply-dao-hard-fork-if-needed
    #:execute-legacy-block
    #:execute-signed-block)
   (#:ethereum-lisp.execution-service

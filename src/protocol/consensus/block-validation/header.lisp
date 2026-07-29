@@ -172,23 +172,18 @@
 
 (defun validate-block-header-against-config (parent-header header config)
   (let ((number (block-header-number header))
-        (timestamp (block-header-timestamp header)))
-    (unless (chain-config-post-merge-p config number)
-      (block-validation-fail
-       "Pre-Merge block validation is unsupported"))
-    (when (and (plusp (block-header-difficulty parent-header))
-               (not (chain-config-terminal-total-difficulty-passed config))
-               (not (eql 0
-                         (chain-config-terminal-total-difficulty config))))
-      (block-validation-fail
-       "Merge transition validation is unsupported"))
+        (timestamp (block-header-timestamp header))
+        (post-merge-p (chain-config-post-merge-p config
+                                                  (block-header-number header))))
     (multiple-value-bind (target-blob-gas max-blob-gas update-fraction)
         (chain-config-blob-schedule config number timestamp)
       (validate-block-header-basics
        parent-header header
        :validate-base-fee-p (chain-config-london-p config number)
-       :london-parent-p (chain-config-london-p
-                         config (block-header-number parent-header))
+       :london-parent-p
+       (or (not (chain-config-london-p config number))
+           (chain-config-london-p
+            config (block-header-number parent-header)))
        :withdrawals-enabled-p (chain-config-shanghai-p config number timestamp)
        :cancun-enabled-p (chain-config-cancun-p config number timestamp)
        :requests-enabled-p (chain-config-prague-p config number timestamp)
@@ -199,4 +194,8 @@
        :blob-schedule-target-gas target-blob-gas
        :blob-schedule-max-gas max-blob-gas
        :blob-schedule-update-fraction update-fraction
-       :post-merge-p t))))
+       :post-merge-p post-merge-p))
+    (validate-block-dao-extra-data header config)
+    (unless post-merge-p
+      (validate-ethash-header parent-header header config))
+    t))

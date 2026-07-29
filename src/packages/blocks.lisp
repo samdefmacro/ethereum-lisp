@@ -107,6 +107,7 @@
    #:block-header-slot-number
    #:block-header-rlp
    #:block-header-rlp-object
+   #:block-header-seal-hash
    #:block-header-from-rlp
    #:block-header-from-rlp-object
    #:block-transaction-rlp-object

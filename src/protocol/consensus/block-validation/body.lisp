@@ -39,6 +39,53 @@
     (unless (block-header-p ommer)
       (block-validation-fail "Block ommer must be a block header"))))
 
+(defun block-header-list-find-by-hash (headers hash)
+  (find hash headers
+        :test #'hash32=
+        :key #'block-header-hash))
+
+(defun validate-block-ommers-against-config
+    (block parent-header config &key (ancestor-blocks '()))
+  (let ((ommers (block-ommers block)))
+    (validate-block-ommer-list-fields ommers)
+    (when (> (length ommers) 2)
+      (block-validation-fail "Block contains more than two ommers"))
+    (when ommers
+      (unless (listp ancestor-blocks)
+        (block-validation-fail "Ommer ancestor history must be a list"))
+      (let* ((ancestor-headers
+               (cons parent-header (mapcar #'block-header ancestor-blocks)))
+             (ancestor-hashes (mapcar #'block-header-hash ancestor-headers))
+             (seen
+               (append
+                ancestor-hashes
+                (loop for ancestor in ancestor-blocks
+                      append (mapcar #'block-header-hash
+                                     (block-ommers ancestor))))))
+        (dolist (ommer ommers)
+          (let ((ommer-hash (block-header-hash ommer)))
+            (when (find ommer-hash seen :test #'hash32=)
+              (block-validation-fail
+               "Duplicate ommer or canonical ancestor included as ommer"))
+            (let ((ommer-parent
+                    (block-header-list-find-by-hash
+                     ancestor-headers
+                     (block-header-parent-hash ommer))))
+              (unless ommer-parent
+                (block-validation-fail
+                 "Ommer parent is not in the recent canonical ancestry"))
+              (unless (and (< (block-header-number ommer)
+                              (block-header-number (block-header block)))
+                           (>= (block-header-number ommer)
+                               (max 0
+                                    (- (block-header-number
+                                        (block-header block))
+                                       6))))
+                (block-validation-fail "Ommer depth is outside the valid range"))
+              (validate-block-header-against-config ommer-parent ommer config))
+            (push ommer-hash seen)))))
+    t))
+
 (defun validate-block-body-commitment-fields (header)
   (unless (hash32-p (block-header-ommers-hash header))
     (block-validation-fail "Header ommers hash must be a hash32"))
@@ -110,7 +157,10 @@
                                  :block-access-list-max-code-size
                                  block-access-list-max-code-size))))
 
-(defun validate-block-against-config (parent-header block config)
+(defun validate-block-against-config
+    (parent-header block config &key (ancestor-blocks '()))
   (validate-block-header-against-config parent-header (block-header block)
                                         config)
-  (validate-block-body-against-config block config))
+  (validate-block-body-against-config block config)
+  (validate-block-ommers-against-config
+   block parent-header config :ancestor-blocks ancestor-blocks))

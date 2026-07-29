@@ -37,6 +37,7 @@
    #:state-storage-range-entry-value
    #:*state-access-recorder*
    #:state-db-get-account
+   #:state-db-account-or-empty
    #:state-db-set-account
    #:state-db-clear-account
    #:state-db-set-code
@@ -59,7 +60,8 @@
    #:state-db-root
    #:state-db-root-hex
    #:+wei-per-gwei+
-   #:state-db-add-balance))
+   #:state-db-add-balance
+   #:state-db-transfer-value))
 
 (defpackage #:ethereum-lisp.state-proof-json
   (:use #:cl
@@ -301,6 +303,10 @@
    #:apply-signed-message-list
    #:execute-legacy-messages
    #:execute-signed-messages
+   #:block-reward-for-rules
+   #:apply-block-rewards-for-header
+   #:apply-dao-hard-fork
+   #:apply-dao-hard-fork-if-needed
    #:execute-legacy-block
    #:execute-signed-block))
 

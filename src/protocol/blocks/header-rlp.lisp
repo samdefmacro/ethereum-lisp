@@ -73,6 +73,16 @@
 (defun block-header-rlp (header)
   (rlp-encode (block-header-rlp-object header)))
 
+(defun block-header-seal-hash (header)
+  "Return the Ethash sealing hash, excluding MIX-HASH and NONCE.
+Fork fields after NONCE, notably London's BASE-FEE-PER-GAS, remain covered."
+  (let ((fields (header-fields header)))
+    (keccak-256-hash
+     (rlp-encode
+      (apply #'make-rlp-list
+             (append (subseq fields 0 13)
+                     (subseq fields 15)))))))
+
 (defun block-header-hash (header)
   (keccak-256-hash (block-header-rlp header)))
 

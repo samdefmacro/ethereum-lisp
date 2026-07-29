@@ -425,21 +425,69 @@
                   (state-db-get-account state contract))))
         (is (not (state-db-get-account state created-address)))))))
 
-(deftest block-execution-refuses-proof-of-work-rewards
+(deftest block-execution-applies-proof-of-work-rewards
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
          (coinbase (address-from-hex "0x00000000000000000000000000000000000000cb"))
          (header (make-block-header :beneficiary coinbase
-                                    :difficulty 1
+                                    :difficulty #x20000
                                     :number 12
                                     :gas-limit 100000))
          (rules (make-chain-rules :chain-id 1 :byzantium-p t)))
-    (signals block-validation-error
-      (execute-legacy-block state sender '()
-                            :header header
-                            :chain-rules rules
-                            :apply-block-rewards-p t))
-    (is (null (state-db-get-account state coinbase)))))
+    (execute-legacy-block state sender '()
+                          :header header
+                          :chain-rules rules
+                          :apply-block-rewards-p t)
+    (is (= 3000000000000000000
+           (state-account-balance
+            (state-db-get-account state coinbase))))))
+
+(deftest block-execution-applies-dao-balance-transition
+  (let* ((state (make-state-db))
+         (sender
+           (address-from-hex
+            "0x0000000000000000000000000000000000000001"))
+         (drain
+           (address-from-hex
+            "0xd4fe7bc31cedb7bfb8a345f31e668033056b2728"))
+         (refund
+           (address-from-hex
+            "0xbf4ed7b27f1d666546e30d74d50d173d20bca754"))
+         (header (make-block-header :number 12 :gas-limit 100000))
+         (config (make-chain-config :dao-fork-block 12
+                                    :dao-fork-support t)))
+    (state-db-set-account state drain (make-state-account :balance 7))
+    (state-db-set-account state refund (make-state-account :balance 5))
+    (execute-legacy-block state sender '()
+                          :header header
+                          :chain-config config)
+    (is (zerop
+         (state-account-balance (state-db-get-account state drain))))
+    (is (= 12
+           (state-account-balance (state-db-get-account state refund))))))
+
+(deftest proof-of-work-rewards-include-valid-ommer-payouts
+  (let* ((state (make-state-db))
+         (miner
+           (address-from-hex
+            "0x00000000000000000000000000000000000000c1"))
+         (ommer-beneficiary
+           (address-from-hex
+            "0x00000000000000000000000000000000000000c2"))
+         (header (make-block-header :beneficiary miner
+                                    :difficulty #x20000
+                                    :number 10))
+         (ommer (make-block-header :beneficiary ommer-beneficiary
+                                   :difficulty #x20000
+                                   :number 9))
+         (rules (make-chain-rules :byzantium-p t)))
+    (apply-block-rewards-for-header state header (list ommer) rules)
+    (is (= (+ 3000000000000000000
+              (floor 3000000000000000000 32))
+           (state-account-balance (state-db-get-account state miner))))
+    (is (= (floor (* 7 3000000000000000000) 8)
+           (state-account-balance
+            (state-db-get-account state ommer-beneficiary))))))
 
 (deftest block-execution-refuses-ommers-before-state-mutation
   (let* ((state (make-state-db))

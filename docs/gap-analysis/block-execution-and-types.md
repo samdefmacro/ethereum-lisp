@@ -7,30 +7,39 @@ revision; the remediation status below records the later implementation.
 
 ## Remediation status
 
-- **EXEC-01, EXEC-02, EXEC-03:** EIP-7918 now evaluates parent excess with the
-  child schedule, including payload building and devnet block production.
-  Boundary unit tests cover schedule transitions, and late-fork EEST selection
-  is parameterized for external vectors.
-- **EXEC-04, EXEC-05, EXEC-10:** unsupported historical proof-of-work replay,
-  DAO transition, ommers, rewards, and allocation-less built-in network presets
-  now fail explicitly. A supplied trusted genesis remains the supported startup
-  path.
-- **EXEC-06:** receipts retain their transaction type, so the general receipt
-  root API produces EIP-2718 typed roots without a parallel transaction list.
-- **EXEC-07:** EIP-4844 sidecars are proof-verified on live store and persisted
-  import paths. EIP-7594 cell-proof entry points remain unadvertised until a
-  cell-proof verifier exists.
+- **EXEC-01:** EIP-7918 evaluates parent excess with the child schedule,
+  including payload building and devnet block production.
+- **EXEC-02, EXEC-03:** proof-of-work bodies enforce the two-ommer limit,
+  duplicate/ancestor/depth rules, and per-ommer header validation against
+  supplied recent ancestry. Configured post-Merge status, rather than a
+  header-controlled difficulty test, selects proof-of-stake rules.
+- **EXEC-04:** every proof-of-work header is checked against the fork-specific
+  Frontier-through-Gray-Glacier difficulty formula and the in-tree light Ethash
+  backend verifies its mix digest and target without a native dependency.
+  Keccak-512 and Hashimoto are pinned against the official `ethereum/tests`
+  PoW vector at commit `c67e485ff8b5be9abc8ad15345ec21aa22e290d9`.
+- **EXEC-05:** the ten-block DAO extra-data rule and the canonical drain-list
+  balance transition are implemented.
+- **EXEC-06, EXEC-07:** Amsterdam execution derives and validates EIP-7928 block
+  access lists, performs EIP-7997 activation, and includes EIP-8282 request
+  types 0x03 and 0x04.
+- **EXEC-11:** EIP-4844 and EIP-7594 pooled network wrappers are decoded on the
+  live gossip path, and blob or cell proofs are verified on live store and
+  persisted import paths.
 - **EXEC-08, EXEC-09:** EIP-2935 system-call failure is consensus-fatal while
   EIP-4788 failure remains rolled back and non-fatal; regression tests pin both
   behaviours.
-- **EXEC-11:** EEST state-test fork selection is controlled by
-  `ETHEREUM_LISP_PHASE_A_STATE_TEST_FORKS`, with late-fork discovery enabled.
-- **EXEC-12:** dead proof-of-work reward and ommer-payout paths were removed.
+- **EXEC-10:** withdrawals precede Prague request-system-call processing.
+- **EXEC-12:** Mainnet, Sepolia, Holesky, and Hoodi presets embed their
+  allocations and reproduce the published genesis hashes.
 - **EXEC-13, EXEC-14:** optional header fields are encoded positionally, and
   RLP decoding enforces a configurable nesting-depth limit.
-- **EXEC-15, EXEC-16:** Amsterdam header/execution and Engine methods are
-  capability-gated until EIP-7997, EIP-8282, and block-access-list derivation
-  are implemented.
+- **EXEC-15:** the checksum-pinned EEST v5.4.0 corpus has a non-skipping gate
+  that executes Cancun, Prague, and Osaka-directory state-test families. That
+  archive contains no Amsterdam directory; its Osaka vectors are pre-activation
+  and therefore carry Prague post-state rules.
+- **EXEC-16:** receipts retain their transaction type, so the general receipt
+  root API produces EIP-2718 typed roots.
 
 ## Sources read
 

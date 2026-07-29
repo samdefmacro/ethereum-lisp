@@ -51,12 +51,19 @@
    #:block-header-amsterdam-fields-present-p
    #:validate-block-amsterdam-fields
    #:validate-block-amsterdam-slot-number
+   #:*ethash-seal-verifier*
+   #:ethash-seal-verification-available-p
+   #:verify-ethash-seal
+   #:expected-ethash-difficulty
+   #:validate-ethash-header
+   #:validate-block-dao-extra-data
    #:validate-block-header-basics
    #:validate-block-header-against-config
    #:validate-withdrawal-fields
    #:validate-withdrawal-list-fields
    #:validate-block-transactions-against-config
    #:validate-block-body-against-config
+   #:validate-block-ommers-against-config
    #:validate-block-against-config
    #:validate-block-body-roots
    #:transaction-blob-count

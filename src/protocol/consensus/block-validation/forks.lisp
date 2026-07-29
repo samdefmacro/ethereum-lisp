@@ -2,6 +2,29 @@
 
 ;;;; Fork-specific block header field presence and merge transition checks.
 
+(defparameter +dao-fork-extra-data+
+  (ethereum-lisp.hex:hex-to-bytes
+   "0x64616f2d686172642d666f726b"))
+(defconstant +dao-fork-extra-range+ 10)
+
+(defun validate-block-dao-extra-data (header config)
+  (let ((fork-block (chain-config-dao-fork-block config)))
+    (when (and fork-block
+               (<= fork-block (block-header-number header))
+               (< (block-header-number header)
+                  (+ fork-block +dao-fork-extra-range+)))
+      (let ((matches-p
+              (bytes= (ensure-byte-vector (block-header-extra-data header))
+                      +dao-fork-extra-data+)))
+        (if (chain-config-dao-fork-support config)
+            (unless matches-p
+              (block-validation-fail
+               "DAO-supporting header is missing dao-hard-fork extra data"))
+            (when matches-p
+              (block-validation-fail
+               "DAO-opposing header contains dao-hard-fork extra data"))))))
+  t)
+
 (defun block-header-cancun-fields-present-p (header)
   (or (block-header-blob-gas-used header)
       (block-header-excess-blob-gas header)))

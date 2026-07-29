@@ -132,6 +132,120 @@
       (validate-block-header-against-config
        parent child pre-merge-config))))
 
+(deftest ethash-difficulty-and-seal-capability-are-enforced
+  (let* ((parent (make-block-header :number 0
+                                    :difficulty #x20000
+                                    :ommers-hash +empty-ommers-hash+
+                                    :gas-limit 100000
+                                    :timestamp 100))
+         (config (make-chain-config :terminal-total-difficulty 100))
+         (difficulty (expected-ethash-difficulty config 105 parent))
+         (child (make-block-header :parent-hash (block-header-hash parent)
+                                   :ommers-hash +empty-ommers-hash+
+                                   :difficulty difficulty
+                                   :number 1
+                                   :gas-limit 100000
+                                   :timestamp 105)))
+    (is (= #x20040 difficulty))
+    (let ((*ethash-seal-verifier* (lambda (header)
+                                    (declare (ignore header))
+                                    t)))
+      (is (validate-block-header-against-config parent child config)))
+    (is (ethash-seal-verification-available-p))
+    (let ((*ethash-seal-verifier* nil))
+      (signals block-validation-error
+        (validate-block-header-against-config parent child config)))
+    (let ((*ethash-seal-verifier* (lambda (header)
+                                    (declare (ignore header))
+                                    t)))
+      (setf (block-header-difficulty child) (1+ difficulty))
+      (signals block-validation-error
+        (validate-block-header-against-config parent child config)))))
+
+(deftest keccak-512-matches-ethash-empty-input-vector
+  (is (string=
+       "0x0eab42de4c3ceb9235fc91acffe746b29c29a8c366b7c60e4e67c466f36a4304c00fa9caf9d87976ba469bcbe06713b435f091ef2769fb160cdab33d3670680e"
+       (bytes-to-hex (keccak-512 #())))))
+
+(deftest ethash-light-hashimoto-matches-official-vector
+  (:layer :integration :module :block-validation :estimated-seconds 10)
+  ;; ethereum/tests c67e485ff8b5be9abc8ad15345ec21aa22e290d9,
+  ;; PoWTests/ethash_tests.json, case "first".
+  (let ((header
+          (block-header-from-rlp
+           (hex-to-bytes
+            "0xf901f3a00000000000000000000000000000000000000000000000000000000000000000a01dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347940000000000000000000000000000000000000000a09178d0f23c965d81f0834a4c72c6253ce6830f4022b1359aaebfc1ecba442d4ea056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421b90100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008302000080830f4240808080a058f759ede17a706c93f13030328bcea40c1d1341fb26f2facd21ceb0dae57017884242424242424242"))))
+    (is (string=
+         "0x2a8de2adf89af77358250bf908bf04ba94a6e8c3ba87775564a41d269a05e4ce"
+         (hash32-to-hex (block-header-seal-hash header))))
+    (let ((legacy-seal-hash (block-header-seal-hash header)))
+      (setf (block-header-base-fee-per-gas header) +initial-base-fee+)
+      (is (not (string=
+                (hash32-to-hex legacy-seal-hash)
+                (hash32-to-hex (block-header-seal-hash header)))))
+      (setf (block-header-base-fee-per-gas header) nil))
+    (multiple-value-bind (mix result)
+        (ethereum-lisp.consensus::ethash-hashimoto-light header)
+      (is (string=
+           "0x58f759ede17a706c93f13030328bcea40c1d1341fb26f2facd21ceb0dae57017"
+           (bytes-to-hex mix)))
+      (is (string=
+           "0xdd47fd2d98db51078356852d7c4014e6a5d6c387c35f40e2875b74a256ed7906"
+           (bytes-to-hex result))))))
+
+(deftest dao-header-extra-data-follows-configured-side
+  (let ((pro (make-chain-config :dao-fork-block 10
+                                :dao-fork-support t))
+        (anti (make-chain-config :dao-fork-block 10
+                                 :dao-fork-support nil))
+        (marker
+          (ethereum-lisp.hex:hex-to-bytes
+           "0x64616f2d686172642d666f726b")))
+    (is (validate-block-dao-extra-data
+         (make-block-header :number 10 :extra-data marker) pro))
+    (signals block-validation-error
+      (validate-block-dao-extra-data
+       (make-block-header :number 10) pro))
+    (signals block-validation-error
+      (validate-block-dao-extra-data
+       (make-block-header :number 19 :extra-data marker) anti))
+    (is (validate-block-dao-extra-data
+         (make-block-header :number 20 :extra-data marker) anti))))
+
+(deftest proof-of-work-ommer-validation-requires-recent-ancestry
+  (let* ((config (make-chain-config :terminal-total-difficulty 100))
+         (grandparent (make-block-header :number 8
+                                         :difficulty #x20000
+                                         :ommers-hash +empty-ommers-hash+
+                                         :gas-limit 100000
+                                         :timestamp 100))
+         (ommer-difficulty
+           (expected-ethash-difficulty config 105 grandparent))
+         (ommer
+           (make-block-header
+            :parent-hash (block-header-hash grandparent)
+            :ommers-hash +empty-ommers-hash+
+            :difficulty ommer-difficulty
+            :number 9
+            :gas-limit 100000
+            :timestamp 105))
+         (parent (make-block-header :number 9
+                                    :difficulty ommer-difficulty
+                                    :ommers-hash +empty-ommers-hash+
+                                    :gas-limit 100000
+                                    :timestamp 106))
+         (block (make-block
+                 :header (make-block-header :number 10)
+                 :ommers (list ommer)))
+         (ancestor (make-block :header grandparent)))
+    (let ((*ethash-seal-verifier* (lambda (header)
+                                    (declare (ignore header))
+                                    t)))
+      (is (validate-block-ommers-against-config
+           block parent config :ancestor-blocks (list ancestor))))
+    (signals block-validation-error
+      (validate-block-ommers-against-config block parent config))))
+
 (deftest block-header-basic-parent-validation
   (let* ((parent (make-block-header :number 7
                                     :gas-limit 1024000

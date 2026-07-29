@@ -104,6 +104,8 @@
             (call-with-block-access-phase
              block-access-list-construction state 0
              (lambda ()
+               (apply-dao-hard-fork-if-needed
+                state header chain-config)
                (apply-amsterdam-activation-transition
                 state header parent-header chain-config)
                (process-parent-beacon-block-root

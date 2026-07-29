@@ -15,9 +15,10 @@
 (defun chain-config-post-merge-p (config block-number)
   "Whether CONFIG requires proof-of-stake header rules at BLOCK-NUMBER.
 
-A config without transition metadata is treated as post-Merge because this
-client does not implement proof-of-work validation. A positive, unpassed TTD is
-pre-Merge until an explicit merge netsplit block is reached."
+A config without transition metadata is treated as post-Merge. A positive,
+unpassed TTD is pre-Merge until an explicit merge netsplit block is reached;
+callers replaying a TTD transition must mark it passed from chain total
+difficulty before validating the first proof-of-stake header."
   (or (chain-config-terminal-total-difficulty-passed config)
       (let ((terminal-total-difficulty
               (chain-config-terminal-total-difficulty config)))

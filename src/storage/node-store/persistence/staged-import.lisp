@@ -585,6 +585,22 @@
        (1- (node-store-stage-progress-number progress))
        (block-header-parent-hash header)))))
 
+(defun node-store-staged-import-recent-ancestor-blocks
+    (database state progress &optional (limit 7))
+  (let ((anchor (node-store-staged-import-state-anchor state))
+        (current
+          (node-store-staged-import-parent-progress database state progress))
+        (blocks '()))
+    (loop repeat limit
+          do (push (node-store-staged-import-block database state current)
+                   blocks)
+             (when (node-store-stage-progress= current anchor)
+               (return))
+             (setf current
+                   (node-store-staged-import-parent-progress
+                    database state current)))
+    (nreverse blocks)))
+
 (defun node-store-staged-import-ancestor-p
     (database state ancestor descendant)
   (let ((ancestor-number (node-store-stage-progress-number ancestor))
@@ -1341,6 +1357,15 @@ When STAGE is NIL, the persisted control state selects the next legal stage."
              (block-validation-fail
               "Staged block does not match the staged header")))
          (validate-block-body-against-config source-block chain-config)
+         (when (block-ommers source-block)
+           (let ((ancestors
+                   (node-store-staged-import-recent-ancestor-blocks
+                    database state block-progress)))
+             (validate-block-ommers-against-config
+              source-block
+              (block-header (first ancestors))
+              chain-config
+              :ancestor-blocks (rest ancestors))))
          (node-store-staged-import-put-body
           database batch source-block))
         (:execution
