@@ -121,6 +121,8 @@
     (if (null preset)
         options
         (let ((resolved (copy-list options)))
+          (when (getf resolved :genesis-path)
+            (error "Public chain presets cannot be combined with --genesis"))
           (unless (getf resolved :network-id)
             (setf (getf resolved :network-id)
                   (devnet-chain-preset-network-id preset)))
@@ -163,9 +165,11 @@
         (explicit-jwt-secret-path (getf options :jwt-secret-path))
         (jwt-secret-path nil))
     (unless genesis-path
-      (error "init requires a genesis file"))
+      (error 'devnet-cli-usage-error
+             :cause "init requires a genesis file"))
     (unless database-path
-      (error "init requires --datadir or --database"))
+      (error 'devnet-cli-usage-error
+             :cause "init requires --datadir or --database"))
     (when datadir-path
       (devnet-cli-copy-file-string
        genesis-path

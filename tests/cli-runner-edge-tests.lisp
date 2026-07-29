@@ -233,7 +233,9 @@
            (is (= 1 status))
            (is (string= "" stdout))
            (is (search error-substring stderr))
-           (is (search usage-substring stderr))
+           (if usage-substring
+               (is (search usage-substring stderr))
+               (is (null (search "Usage: ethereum-lisp" stderr))))
            (let* ((log-records (devnet-cli-file-forms log-path))
                   (record (first log-records))
                   (fields (getf record :fields))
@@ -306,7 +308,8 @@
                   "--authrpc.jwtsecret"
                   (namestring bad-jwt-path)
                   "--no-serve")
-            "--jwt-secret/--authrpc.jwtsecret must name a readable file containing a 32-byte hex secret")
+            "--jwt-secret/--authrpc.jwtsecret must name a readable file containing a 32-byte hex secret"
+            :usage-substring nil)
            (devnet-cli-assert-script-error-telemetry
             (list "devnet"
                   "--genesis"
@@ -314,7 +317,8 @@
                   "--authrpc.jwtsecret"
                   (namestring missing-jwt-path)
                   "--no-serve")
-            "--jwt-secret/--authrpc.jwtsecret must name a readable file containing a 32-byte hex secret")
+            "--jwt-secret/--authrpc.jwtsecret must name a readable file containing a 32-byte hex secret"
+            :usage-substring nil)
            (devnet-cli-assert-script-error-telemetry
             (list "init" "--json")
             "init requires a genesis file"
@@ -330,7 +334,7 @@
                   genesis)
             "--jwt-secret/--authrpc.jwtsecret must name a readable file containing a 32-byte hex secret"
             :event-name "init.error"
-            :usage-substring "Usage: ethereum-lisp init")
+            :usage-substring nil)
            (devnet-cli-assert-script-error-telemetry
             (list "init"
                   "--datadir"
@@ -341,7 +345,7 @@
                   genesis)
             "--jwt-secret/--authrpc.jwtsecret must name a readable file containing a 32-byte hex secret"
             :event-name "init.error"
-            :usage-substring "Usage: ethereum-lisp init"))
+            :usage-substring nil))
       (when (probe-file bad-jwt-path)
         (delete-file bad-jwt-path))
       (when (probe-file missing-jwt-path)
