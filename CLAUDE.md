@@ -9,11 +9,11 @@ validation policy in docs/validation.md.
 ## Operating constraints
 
 **Commit identity.** Author AND committer must be `samdefmacro
-<samnewstart2026@outlook.com>`; `imnisen` / `imnisen@gmail.com` must appear
-nowhere in this repo. History was rewritten on 2026-07-26 to remove it. The
-repo-local git config is correct, but this machine's GLOBAL config still
-carries the old identity, so a fresh clone or a new worktree picks up the wrong
-one. `git log -1 --format='%an <%ae>'` after committing is the cheap guard.
+<samnewstart2026@outlook.com>`; prior identities must appear nowhere in this
+repo. History was rewritten on 2026-07-26 to remove them. The repo-local git
+config is correct, but this machine's GLOBAL config still carries an old
+identity, so a fresh clone or a new worktree can pick up the wrong one.
+`git log -1 --format='%an <%ae>'` after committing is the cheap guard.
 
 **No tool attribution in commits.** Do not add `Co-Authored-By` or
 generated-with trailers naming Claude, Cursor, or any other agent, and do not
