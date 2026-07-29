@@ -1,5 +1,8 @@
 (in-package #:ethereum-lisp.execution)
 
+(defun execution-amsterdam-p (rules)
+  (and rules (chain-rules-amsterdam-p rules)))
+
 (defun execution-chain-rules (chain-rules chain-config block-number timestamp)
   (or chain-rules
       (when chain-config

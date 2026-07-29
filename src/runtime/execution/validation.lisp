@@ -16,7 +16,15 @@
 (defun validate-execution-transaction-gas-cap (tx rules)
   "Enforce the EIP-7825 (Osaka) per-transaction gas-limit cap of 2^24."
   (when (and rules
+             (chain-rules-amsterdam-p rules)
+             (> (max (execution-transaction-intrinsic-gas tx rules)
+                     (transaction-effective-floor-gas tx rules))
+                +transaction-gas-limit-cap-eip7825+))
+    (error 'transaction-validation-error
+           :message "Amsterdam intrinsic gas exceeds the execution-gas cap"))
+  (when (and rules
              (chain-rules-osaka-p rules)
+             (not (chain-rules-amsterdam-p rules))
              (> (transaction-gas-limit tx)
                 +transaction-gas-limit-cap-eip7825+))
     (error 'transaction-validation-error

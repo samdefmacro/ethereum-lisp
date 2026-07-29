@@ -330,21 +330,21 @@
          (config (make-chain-config :london-block 0
                                     :amsterdam-time 10))
          (header (make-block-header :timestamp 10
-                                    :gas-limit 50000
+                                    :gas-limit 250000
                                     :base-fee-per-gas 1))
          (transaction (make-legacy-transaction :nonce 0
                                                :gas-price 1
-                                               :gas-limit 21000
+                                               :gas-limit 250000
                                                :to recipient
                                                :value 1)))
     (state-db-set-account state sender
-                          (make-state-account :balance 100000))
+                          (make-state-account :balance 500000))
     (signals block-validation-error
       (execute-legacy-block state sender (list transaction)
                             :header header
                             :chain-config config))
     (is (= 0 (state-account-nonce (state-db-get-account state sender))))
-    (is (= 100000
+    (is (= 500000
            (state-account-balance (state-db-get-account state sender))))
     (is (null (state-db-get-account state recipient)))))
 
@@ -397,15 +397,15 @@
          (config (make-chain-config :london-block 0
                                     :amsterdam-time 10))
          (header (make-block-header :timestamp 10
-                                    :gas-limit 50000
+                                    :gas-limit 250000
                                     :base-fee-per-gas 1))
          (transaction (make-legacy-transaction :nonce 0
                                                :gas-price 1
-                                               :gas-limit 21000
+                                               :gas-limit 250000
                                                :to recipient
                                                :value 1)))
     (state-db-set-account state sender
-                          (make-state-account :balance 100000))
+                          (make-state-account :balance 500000))
     (multiple-value-bind (block receipts)
         (execute-legacy-block state sender (list transaction)
                               :header header
@@ -413,6 +413,10 @@
                               :block-access-list '())
       (is (= 1 (length receipts)))
       (is (= 1 (receipt-status (first receipts))))
+      (is (= 21000 (receipt-regular-gas-used (first receipts))))
+      (is (= 183600 (receipt-state-gas-used (first receipts))))
+      (is (= 204600 (receipt-cumulative-gas-used (first receipts))))
+      (is (= 183600 (block-header-gas-used (block-header block))))
       (is (block-block-access-list-present-p block))
       (is (null (block-block-access-list block)))
       (is (string= (hash32-to-hex (block-access-list-hash '()))
@@ -431,15 +435,15 @@
          (config (make-chain-config :london-block 0
                                     :amsterdam-time 10))
          (header (make-block-header :timestamp 10
-                                    :gas-limit 50000
+                                    :gas-limit 250000
                                     :base-fee-per-gas 1))
          (transaction (make-legacy-transaction :nonce 0
                                                :gas-price 1
-                                               :gas-limit 21000
+                                               :gas-limit 250000
                                                :to recipient
                                                :value 1)))
     (state-db-set-account state sender
-                          (make-state-account :balance 100000))
+                          (make-state-account :balance 500000))
     (multiple-value-bind (block receipts)
         (execute-legacy-block state sender (list transaction)
                               :header header

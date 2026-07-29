@@ -78,7 +78,12 @@
            (= 1 (sbit bitmap destination))
            (code-position-p code destination))))
 
-(defun opcode-base-gas (op)
+(defun opcode-base-gas (op &optional context)
+  (let ((amsterdam-p
+          (and context
+               (evm-context-chain-rules context)
+               (chain-rules-amsterdam-p
+                (evm-context-chain-rules context)))))
   (cond
     ((= op #x00) 0)
     ((member op '(#x01 #x03 #x10 #x11 #x12 #x13 #x14 #x15 #x16 #x17 #x18 #x19
@@ -114,8 +119,9 @@
     ((<= #x80 op #x9f) 3)
     ((member op '(#xe6 #xe7 #xe8) :test #'=) 3)
     ((<= #xa0 op #xa4) 375)
-    ((member op '(#xf0 #xf5) :test #'=) 32000)
+    ((member op '(#xf0 #xf5) :test #'=)
+     (if amsterdam-p +create-access-amsterdam+ 32000))
     ((member op '(#xf1 #xf2 #xf4 #xfa) :test #'=) 100)
     ((member op '(#xf3 #xfd) :test #'=) 0)
     ((= op #xff) 5000)
-    (t 0)))
+    (t 0))))

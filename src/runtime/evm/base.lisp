@@ -26,7 +26,7 @@ Keep this false until EIP-7708, EIP-7843, EIP-7954, EIP-8024, EIP-8037,
 EIP-8038, and EIP-8246 are all active on the execution path.  The Engine API
 uses this capability boundary to refuse Amsterdam payload methods rather than
 executing them with an older fork's semantics."
-  nil)
+  t)
 
 (defvar *evm-stack-depth-cell* nil
   "Dynamically bound to the current machine's mutable stack-depth cell.")

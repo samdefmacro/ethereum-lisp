@@ -7,6 +7,20 @@
 (defun account-access-key (address)
   (address-bytes address))
 
+(defun amsterdam-context-p (context)
+  (let ((rules (and context (evm-context-chain-rules context))))
+    (and rules (chain-rules-amsterdam-p rules))))
+
+(defun context-cold-account-access-cost (context)
+  (if (amsterdam-context-p context)
+      +cold-account-access-amsterdam+
+      +cold-account-access-cost-eip2929+))
+
+(defun context-cold-storage-access-cost (context)
+  (if (amsterdam-context-p context)
+      +cold-storage-access-amsterdam+
+      +cold-sload-cost-eip2929+))
+
 (defun copy-accessed-storage (context)
   (let ((copy (make-hash-table :test 'equalp)))
     (when context
@@ -43,7 +57,7 @@
   (if (gethash (account-access-key address)
                (evm-context-accessed-addresses context))
       0
-      (- +cold-account-access-cost-eip2929+
+      (- (context-cold-account-access-cost context)
          +warm-storage-read-cost-eip2929+)))
 
 (defun mark-account-accessed (context address)
@@ -59,20 +73,20 @@
 (defun charge-cold-account-access-gas (context address charge-extra-gas)
   (unless (gethash (account-access-key address)
                    (evm-context-accessed-addresses context))
-    (funcall charge-extra-gas +cold-account-access-cost-eip2929+)
+    (funcall charge-extra-gas (context-cold-account-access-cost context))
     (mark-account-accessed context address)))
 
 (defun storage-access-cost (context address slot)
   (let ((key (storage-access-key address slot)))
     (if (gethash key (evm-context-accessed-storage context))
         +warm-storage-read-cost-eip2929+
-        +cold-sload-cost-eip2929+)))
+        (context-cold-storage-access-cost context))))
 
 (defun storage-cold-access-surcharge (context address slot)
   (let ((key (storage-access-key address slot)))
     (if (gethash key (evm-context-accessed-storage context))
         0
-        +cold-sload-cost-eip2929+)))
+        (context-cold-storage-access-cost context))))
 
 (defun mark-storage-accessed (context address slot)
   (setf (gethash (storage-access-key address slot)

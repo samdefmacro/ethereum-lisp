@@ -32,3 +32,10 @@
                +cold-sload-cost-eip2929+))))
     (t
      (+ access-cost +warm-storage-read-cost-eip2929+))))
+
+(defun sstore-amsterdam-regular-gas
+    (access-cost original-value current-value new-value)
+  (if (and (/= current-value new-value)
+           (= original-value current-value))
+      (+ access-cost +storage-write-amsterdam+)
+      access-cost))

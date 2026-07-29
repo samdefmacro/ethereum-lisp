@@ -67,7 +67,7 @@
          (when (evm-context-read-only-p context)
            (fail "SSTORE is not allowed in read-only EVM context"))
          (when (and gas-limit
-                    (<= (remaining-gas gas-limit gas-used)
+                    (<= (evm-gas-budget-regular gas-budget)
                         +sstore-sentry-gas-eip2200+))
            (fail "SSTORE requires more than the EIP-2200 sentry gas"))
          (multiple-value-bind (slot value rest) (pop2 stack)
@@ -86,40 +86,76 @@
                                 original-storage-values))
                (setf (gethash refund-key original-storage-values)
                      current-value))
-             (let ((original-value
-                     (gethash refund-key original-storage-values)))
-               (evm-machine-charge-gas machine
-                (sstore-dynamic-gas
-                 (storage-cold-access-surcharge
-                  context
-                  (evm-context-address context)
-                  slot-hash)
-                 original-value
-                 current-value
-                 value))
-               (mark-storage-accessed
-                context
-                (evm-context-address context)
-                slot-hash)
-               (when (and (not (zerop original-value))
-                          (not (zerop current-value))
-                          (zerop value))
-               (setf (gethash refund-key cleared-storage-slots) t)
-               (incf refund-counter
-                     +sstore-clears-schedule-refund-eip3529+))
-             (when (and (not (zerop original-value))
-                        (zerop current-value)
-                        (not (zerop value))
-                        (gethash refund-key cleared-storage-slots))
-               (remhash refund-key cleared-storage-slots)
-               (decf refund-counter
-                     +sstore-clears-schedule-refund-eip3529+))
-             (when (and (/= current-value original-value)
-                        (= value original-value))
-               (incf refund-counter
-                     (if (zerop original-value)
-                         +sstore-reset-original-zero-refund-eip3529+
-                         +sstore-reset-original-refund-eip3529+))))
+            (let ((original-value
+                    (gethash refund-key original-storage-values)))
+              (if (amsterdam-context-p context)
+                  (let ((access-cost
+                          (storage-access-cost
+                           context
+                           (evm-context-address context)
+                           slot-hash)))
+                    (evm-machine-charge-gas
+                     machine
+                     (sstore-amsterdam-regular-gas
+                      access-cost original-value current-value value))
+                    (when (and (zerop original-value)
+                               (zerop current-value)
+                               (not (zerop value)))
+                      (evm-machine-charge-state-gas
+                       machine +storage-set-state-gas+))
+                    (when (and (zerop original-value)
+                               (not (zerop current-value))
+                               (zerop value))
+                      (evm-machine-refill-state-gas
+                       machine +storage-set-state-gas+))
+                    (when (and (not (zerop original-value))
+                               (not (zerop current-value))
+                               (zerop value))
+                      (incf refund-counter
+                            +storage-clear-refund-amsterdam+))
+                    (when (and (not (zerop original-value))
+                               (zerop current-value)
+                               (not (zerop value)))
+                      (decf refund-counter
+                            +storage-clear-refund-amsterdam+))
+                    (when (and (/= current-value original-value)
+                               (= value original-value))
+                      (incf refund-counter
+                            +storage-write-amsterdam+)))
+                  (progn
+                    (evm-machine-charge-gas
+                     machine
+                     (sstore-dynamic-gas
+                      (storage-cold-access-surcharge
+                       context
+                       (evm-context-address context)
+                       slot-hash)
+                      original-value
+                      current-value
+                      value))
+                    (when (and (not (zerop original-value))
+                               (not (zerop current-value))
+                               (zerop value))
+                      (setf (gethash refund-key cleared-storage-slots) t)
+                      (incf refund-counter
+                            +sstore-clears-schedule-refund-eip3529+))
+                    (when (and (not (zerop original-value))
+                               (zerop current-value)
+                               (not (zerop value))
+                               (gethash refund-key cleared-storage-slots))
+                      (remhash refund-key cleared-storage-slots)
+                      (decf refund-counter
+                            +sstore-clears-schedule-refund-eip3529+))
+                    (when (and (/= current-value original-value)
+                               (= value original-value))
+                      (incf refund-counter
+                            (if (zerop original-value)
+                                +sstore-reset-original-zero-refund-eip3529+
+                                +sstore-reset-original-refund-eip3529+)))))
+              (mark-storage-accessed
+               context
+               (evm-context-address context)
+               slot-hash))
              (state-db-set-storage
               (evm-context-state context)
               (evm-context-address context)
@@ -135,7 +171,9 @@
          (incf pc))
         ((= op #x5a)
          (setf stack (stack-push stack
-                                 (remaining-gas gas-limit gas-used)))
+                                 (if gas-limit
+                                     (evm-gas-budget-regular gas-budget)
+                                     0)))
          (incf pc))
         ((= op #x5b)
          (incf pc))

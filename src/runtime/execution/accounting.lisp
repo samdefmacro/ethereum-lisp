@@ -63,6 +63,8 @@
                           (floor gas-used +refund-quotient-eip3529+))))
         (make-receipt :status (receipt-status receipt)
                       :cumulative-gas-used (- gas-used refund)
+                      :regular-gas-used (receipt-regular-gas-used receipt)
+                      :state-gas-used (receipt-state-gas-used receipt)
                       :logs (receipt-logs receipt)))
       receipt))
 
@@ -77,6 +79,9 @@
   (if (> floor-gas (receipt-cumulative-gas-used receipt))
       (make-receipt :status (receipt-status receipt)
                     :cumulative-gas-used floor-gas
+                    :regular-gas-used
+                    (max floor-gas (receipt-regular-gas-used receipt))
+                    :state-gas-used (receipt-state-gas-used receipt)
                     :logs (receipt-logs receipt))
       receipt))
 

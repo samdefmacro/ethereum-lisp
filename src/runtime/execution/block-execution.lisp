@@ -104,7 +104,8 @@
              state header effective-chain-rules
              :blob-base-fee block-blob-base-fee
              :block-hashes block-hashes)
-            (multiple-value-bind (receipts gas-used)
+            (multiple-value-bind
+                  (receipts gas-used regular-gas-used state-gas-used)
                 (funcall
                  apply-transactions
                  state
@@ -155,9 +156,13 @@
                   (let ((computed-state-root (state-db-root state)))
                     (validate-supplied-block-execution-roots
                      header transactions receipts computed-state-root
-                     :expected-block-hash expected-block-hash)
+                     :expected-block-hash expected-block-hash
+                     :chain-rules effective-chain-rules)
                     (setf (block-header-state-root header) computed-state-root
-                          (block-header-gas-used header) gas-used))
+                          (block-header-gas-used header)
+                          (if (execution-amsterdam-p effective-chain-rules)
+                              (max regular-gas-used state-gas-used)
+                              gas-used)))
                   (let ((executed-block
                           (apply #'make-block
                                  (append

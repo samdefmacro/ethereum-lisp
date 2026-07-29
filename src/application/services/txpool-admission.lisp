@@ -126,7 +126,8 @@
               (ethereum-lisp.execution:transaction-intrinsic-gas
                transaction
                :eip3860-p (or (null rules)
-                               (chain-rules-shanghai-p rules)))))
+                               (chain-rules-shanghai-p rules))
+               :chain-rules rules)))
         (when (< (transaction-gas-limit transaction) intrinsic-gas)
           (block-validation-fail
            "eth_sendRawTransaction gas limit below intrinsic gas")))
@@ -137,6 +138,7 @@
          "eth_sendRawTransaction gas limit exceeds block gas limit"))
       (when (and rules
                  (chain-rules-osaka-p rules)
+                 (not (chain-rules-amsterdam-p rules))
                  (> (transaction-gas-limit transaction)
                     +transaction-gas-limit-cap-eip7825+))
         (block-validation-fail

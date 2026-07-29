@@ -27,11 +27,14 @@
                   (initcode (memory-slice memory offset size)))
              (multiple-value-bind
                    (success-address child-return-data child-gas-used
-                    child-logs child-refund-counter)
+                    child-logs child-refund-counter child-state-gas-used)
                  (execute-contract-creation
                   state context creator new-address value initcode
-                  gas-limit gas-used "CREATE")
+                  machine "CREATE")
                (evm-machine-charge-gas machine child-gas-used)
+               (when (plusp child-state-gas-used)
+                 (evm-machine-charge-state-gas
+                  machine child-state-gas-used))
                (incf refund-counter child-refund-counter)
                (setf return-data-buffer child-return-data
                      logs (prepend-child-logs child-logs logs)
@@ -61,11 +64,14 @@
                       (create2-address creator salt initcode)))
                (multiple-value-bind
                      (success-address child-return-data child-gas-used
-                      child-logs child-refund-counter)
+                      child-logs child-refund-counter child-state-gas-used)
                    (execute-contract-creation
                     state context creator new-address value initcode
-                    gas-limit gas-used "CREATE2")
+                    machine "CREATE2")
                  (evm-machine-charge-gas machine child-gas-used)
+                 (when (plusp child-state-gas-used)
+                   (evm-machine-charge-state-gas
+                    machine child-state-gas-used))
                  (incf refund-counter child-refund-counter)
                  (setf return-data-buffer child-return-data
                        logs (prepend-child-logs child-logs logs)
@@ -197,11 +203,24 @@
               context
               beneficiary
               (lambda (amount) (evm-machine-charge-gas machine amount)))
-             (evm-machine-charge-gas machine
-              (selfdestruct-extra-gas
-               (evm-context-state context)
-               (evm-context-address context)
-               beneficiary))
+            (if (and (amsterdam-context-p context)
+                     (plusp
+                      (account-balance
+                       (evm-context-state context)
+                       (evm-context-address context)))
+                     (empty-account-p
+                      (evm-context-state context) beneficiary))
+                (progn
+                  (evm-machine-charge-gas
+                   machine +account-write-amsterdam+)
+                  (evm-machine-charge-state-gas
+                   machine +new-account-state-gas+))
+                (unless (amsterdam-context-p context)
+                  (evm-machine-charge-gas machine
+                   (selfdestruct-extra-gas
+                    (evm-context-state context)
+                    (evm-context-address context)
+                    beneficiary))))
              (let ((transfer-log
                      (selfdestruct-account
                       (evm-context-state context)
@@ -239,6 +258,9 @@
          (multiple-value-bind (offset size rest) (pop2 stack)
            (evm-machine-charge-memory-gas machine offset size)
            (restore-frame-snapshot context frame-snapshot)
+           (let ((state-used (max 0 (evm-gas-budget-used-state gas-budget))))
+             (when (plusp state-used)
+               (evm-machine-refill-state-gas machine state-used)))
            (setf return-data (memory-slice memory offset size)
                  stack rest
                  refund-counter 0

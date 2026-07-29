@@ -122,11 +122,18 @@
     actual-blob-gas-used))
 
 (defun validate-supplied-block-execution-roots
-    (header transactions receipts state-root &key expected-block-hash)
+    (header transactions receipts state-root
+     &key expected-block-hash chain-rules)
   (let ((receipts-root (transaction-receipt-list-root transactions receipts))
-        (gas-used (if receipts
-                      (receipt-cumulative-gas-used (car (last receipts)))
-                      0))
+        (gas-used
+          (if (execution-amsterdam-p chain-rules)
+              (max (loop for receipt in receipts
+                         sum (receipt-regular-gas-used receipt))
+                   (loop for receipt in receipts
+                         sum (receipt-state-gas-used receipt)))
+              (if receipts
+                  (receipt-cumulative-gas-used (car (last receipts)))
+                  0)))
         (logs-bloom (bloom-bytes
                      (receipt-bloom
                       (loop for receipt in receipts

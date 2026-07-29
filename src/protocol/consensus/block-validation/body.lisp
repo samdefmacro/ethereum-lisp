@@ -77,6 +77,7 @@
       (validate-transaction-type-for-config
        transaction config number timestamp)
       (when (and osaka-p
+                 (not (chain-config-amsterdam-p config number timestamp))
                  (> (transaction-gas-limit transaction)
                     +transaction-gas-limit-cap-eip7825+))
         (block-validation-fail

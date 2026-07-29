@@ -50,6 +50,8 @@
       :post-state (maybe-copy-bytes (receipt-post-state receipt))
       :status (receipt-status receipt)
       :cumulative-gas-used (receipt-cumulative-gas-used receipt)
+      :regular-gas-used (receipt-regular-gas-used receipt)
+      :state-gas-used (receipt-state-gas-used receipt)
       :logs (mapcar #'engine-payload-store-copy-log-entry
                     (receipt-logs receipt))))
     (t receipt)))

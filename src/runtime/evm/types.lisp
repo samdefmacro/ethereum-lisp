@@ -72,6 +72,24 @@
 (defun make-initial-accessed-addresses (&optional rules)
   (prewarm-precompile-addresses (make-hash-table :test 'equalp) rules))
 
+(defstruct (evm-gas-costs
+            (:constructor make-evm-gas-costs
+                (&key (regular 0) (state 0))))
+  "One EIP-8037 regular/state gas charge."
+  (regular 0 :type (integer 0 *))
+  (state 0 :type (integer 0 *)))
+
+(defstruct (evm-gas-budget
+            (:constructor make-evm-gas-budget
+                (&key (regular 0) (state 0)
+                      (used-regular 0) (used-state 0) (spilled 0))))
+  "Running EIP-8037 frame budget and usage counters."
+  (regular 0 :type (integer 0 *))
+  (state 0 :type (integer 0 *))
+  (used-regular 0 :type (integer 0 *))
+  (used-state 0 :type integer)
+  (spilled 0 :type (integer 0 *)))
+
 (defstruct evm-result
   (status :stopped)
   (stack '() :type list)
@@ -80,6 +98,9 @@
   (logs '() :type list)
   (pc 0 :type (integer 0 *))
   (gas-used 0 :type (integer 0 *))
+  (regular-gas-used 0 :type (integer 0 *))
+  (state-gas-used 0 :type (integer 0 *))
+  gas-budget
   (refund-counter 0 :type integer))
 
 (defstruct (evm-context (:constructor make-evm-context
@@ -177,6 +198,24 @@
 (defconstant +cold-account-access-cost-eip2929+ 2600)
 (defconstant +cold-sload-cost-eip2929+ 2100)
 (defconstant +warm-storage-read-cost-eip2929+ 100)
+(defconstant +cold-account-access-amsterdam+ 3000)
+(defconstant +warm-account-access-amsterdam+ 100)
+(defconstant +account-write-amsterdam+ 8000)
+(defconstant +call-value-transfer-amsterdam+ 10300)
+(defconstant +cold-storage-access-amsterdam+ 3000)
+(defconstant +warm-storage-access-amsterdam+ 100)
+(defconstant +storage-write-amsterdam+ 10000)
+(defconstant +storage-clear-refund-amsterdam+ 12480)
+(defconstant +create-access-amsterdam+ 11000)
+(defconstant +access-list-address-gas-amsterdam+ 3000)
+(defconstant +access-list-storage-key-gas-amsterdam+ 3000)
+(defconstant +state-bytes-per-storage-set+ 64)
+(defconstant +state-bytes-per-new-account+ 120)
+(defconstant +cost-per-state-byte+ 1530)
+(defconstant +storage-set-state-gas+
+  (* +state-bytes-per-storage-set+ +cost-per-state-byte+))
+(defconstant +new-account-state-gas+
+  (* +state-bytes-per-new-account+ +cost-per-state-byte+))
 (defconstant +sstore-sentry-gas-eip2200+ 2300)
 (defconstant +sstore-set-gas-eip2200+ 20000)
 (defconstant +sstore-reset-gas-eip2200+ 5000)

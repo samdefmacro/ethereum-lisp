@@ -1,17 +1,20 @@
 (in-package #:ethereum-lisp.evm.internal)
 
 (defun apply-child-execution-result (state context snapshot child-result)
-  (let ((child-gas-used (evm-result-gas-used child-result))
+  (let ((child-gas-used (evm-result-regular-gas-used child-result))
+        (child-state-gas-used (evm-result-state-gas-used child-result))
         (child-return-data (evm-result-return-data child-result)))
     (if (eq (evm-result-status child-result) :reverted)
         (progn
           (restore-execution-snapshot state context snapshot)
-          (values 0 child-gas-used child-return-data '() 0))
+          (values 0 child-gas-used child-return-data '() 0
+                  child-state-gas-used))
         (values 1
                 child-gas-used
                 child-return-data
                 (evm-result-logs child-result)
-                (evm-result-refund-counter child-result)))))
+                (evm-result-refund-counter child-result)
+                child-state-gas-used))))
 
 (defun failed-precompile-child-gas-used (condition child-gas-limit)
   ;; A precompile's scheduled gas remains useful on the condition for direct
