@@ -1,8 +1,18 @@
 (in-package #:ethereum-lisp.test)
 
-(deftest devnet-cli-gates-unembedded-network-presets
+(deftest devnet-cli-selects-embedded-network-presets
+  (is (eq :mainnet
+          (getf (ethereum-lisp.cli::devnet-cli-options '("--mainnet"))
+                :genesis-preset)))
+  (is (eq :sepolia
+          (getf (ethereum-lisp.cli::devnet-cli-options '("--sepolia"))
+                :genesis-preset)))
   (signals error
-    (ethereum-lisp.cli::devnet-cli-options '("--mainnet")))
+    (ethereum-lisp.cli::devnet-cli-options
+     '("--mainnet" "--holesky")))
+  (signals error
+    (ethereum-lisp.cli::devnet-cli-options
+     '("--mainnet" "--genesis" "custom.json")))
   (is (listp
        (ethereum-lisp.cli::devnet-cli-options '("--mainnet=false")))))
 

@@ -696,7 +696,20 @@
    #:genesis-block-from-genesis-header
    #:genesis-block-from-genesis-object
    #:genesis-block-from-genesis-json-string
-   #:genesis-block-from-genesis-json-file)
+   #:genesis-block-from-genesis-json-file
+   #:built-in-genesis-preset
+   #:built-in-genesis-preset-name
+   #:built-in-genesis-preset-config
+   #:built-in-genesis-preset-expected-hash
+   #:built-in-genesis-preset-allocation-path
+   #:mainnet-genesis-preset
+   #:sepolia-genesis-preset
+   #:holesky-genesis-preset
+   #:hoodi-genesis-preset
+   #:find-built-in-genesis-preset
+   #:built-in-genesis-alloc
+   #:built-in-genesis-header
+   #:built-in-genesis-block)
   (#:ethereum-lisp.json
    #:parse-json
    #:json-encode)
@@ -1265,9 +1278,11 @@
    #:state-db-from-genesis-alloc
    #:state-db-from-genesis-json-string
    #:state-db-from-genesis-json-file
+   #:state-db-from-built-in-genesis-preset
    #:genesis-state-root-from-genesis-alloc
    #:genesis-state-root-from-genesis-json-string
    #:genesis-state-root-from-genesis-json-file
+   #:genesis-state-root-from-built-in-genesis-preset
    #:validate-genesis-state-root
    #:validate-genesis-json-state-root
    #:genesis-header-from-state-genesis-object
@@ -1275,7 +1290,8 @@
    #:genesis-header-from-state-genesis-json-file
    #:genesis-block-from-state-genesis-object
    #:genesis-block-from-state-genesis-json-string
-   #:genesis-block-from-state-genesis-json-file)
+   #:genesis-block-from-state-genesis-json-file
+   #:genesis-block-from-built-in-genesis-preset)
   (#:ethereum-lisp.execution
    #:execute-message-call
    #:apply-withdrawal

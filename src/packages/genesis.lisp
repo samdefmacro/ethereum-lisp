@@ -6,6 +6,7 @@
         #:ethereum-lisp.crypto
         #:ethereum-lisp.validation
         #:ethereum-lisp.json
+        #:ethereum-lisp.rlp
         #:ethereum-lisp.chain-config
         #:ethereum-lisp.receipts
         #:ethereum-lisp.execution-requests
@@ -35,4 +36,17 @@
    #:genesis-block-from-genesis-header
    #:genesis-block-from-genesis-object
    #:genesis-block-from-genesis-json-string
-   #:genesis-block-from-genesis-json-file))
+   #:genesis-block-from-genesis-json-file
+   #:built-in-genesis-preset
+   #:built-in-genesis-preset-name
+   #:built-in-genesis-preset-config
+   #:built-in-genesis-preset-expected-hash
+   #:built-in-genesis-preset-allocation-path
+   #:mainnet-genesis-preset
+   #:sepolia-genesis-preset
+   #:holesky-genesis-preset
+   #:hoodi-genesis-preset
+   #:find-built-in-genesis-preset
+   #:built-in-genesis-alloc
+   #:built-in-genesis-header
+   #:built-in-genesis-block))

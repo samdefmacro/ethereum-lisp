@@ -788,3 +788,19 @@
     (is (string= (hash32-to-hex (block-access-list-hash '()))
                  (hash32-to-hex
                   (block-header-block-access-list-hash header))))))
+
+(deftest built-in-public-network-genesis-hashes-match-published-values
+  (:layer :integration :module :genesis)
+  ;; Published by go-ethereum params/config.go at pinned commit
+  ;; 38271784c2b31926563806da9a2e023b88f5e7a8.
+  (dolist (preset (list (mainnet-genesis-preset)
+                        (sepolia-genesis-preset)
+                        (holesky-genesis-preset)
+                        (hoodi-genesis-preset)))
+    (let* ((alloc (built-in-genesis-alloc preset))
+           (root (genesis-state-root-from-genesis-alloc alloc))
+           (block (built-in-genesis-block preset :state-root root))
+           (actual (block-hash block))
+           (expected (built-in-genesis-preset-expected-hash preset)))
+      (is (plusp (length alloc)))
+      (is (bytes= (hash32-bytes expected) (hash32-bytes actual))))))

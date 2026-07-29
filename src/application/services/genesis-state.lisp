@@ -27,6 +27,9 @@
   (state-db-from-genesis-alloc
    (genesis-alloc-from-genesis-json-file path)))
 
+(defun state-db-from-built-in-genesis-preset (preset)
+  (state-db-from-genesis-alloc (built-in-genesis-alloc preset)))
+
 (defun genesis-state-root-from-genesis-alloc (alloc)
   (state-db-root (state-db-from-genesis-alloc alloc)))
 
@@ -37,6 +40,10 @@
 (defun genesis-state-root-from-genesis-json-file (path)
   (genesis-state-root-from-genesis-alloc
    (genesis-alloc-from-genesis-json-file path)))
+
+(defun genesis-state-root-from-built-in-genesis-preset (preset)
+  (genesis-state-root-from-genesis-alloc
+   (built-in-genesis-alloc preset)))
 
 (defun validate-genesis-state-root (computed-root expected-root)
   (unless (hash32-p computed-root)
@@ -97,3 +104,9 @@
        (read-sequence string stream)
        string))
    :config config))
+
+(defun genesis-block-from-built-in-genesis-preset (preset)
+  (built-in-genesis-block
+   preset
+   :state-root
+   (genesis-state-root-from-built-in-genesis-preset preset)))

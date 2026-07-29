@@ -122,6 +122,7 @@
        (:file "genesis-chain-config" :pathname "genesis/chain-config")
        (:file "genesis-io" :pathname "genesis/io")
        (:file "genesis-block" :pathname "genesis/block")
+       (:file "genesis-presets" :pathname "genesis/presets")
        (:file "kzg-verifier-hooks" :pathname "kzg/verifier-hooks")
        (:file "kzg-cffi-verifier" :pathname "kzg/cffi-verifier")
        (:file "kzg-validation" :pathname "kzg/validation")

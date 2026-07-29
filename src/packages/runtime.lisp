@@ -86,9 +86,11 @@
    #:state-db-from-genesis-alloc
    #:state-db-from-genesis-json-string
    #:state-db-from-genesis-json-file
+   #:state-db-from-built-in-genesis-preset
    #:genesis-state-root-from-genesis-alloc
    #:genesis-state-root-from-genesis-json-string
    #:genesis-state-root-from-genesis-json-file
+   #:genesis-state-root-from-built-in-genesis-preset
    #:validate-genesis-state-root
    #:validate-genesis-json-state-root
    #:genesis-header-from-state-genesis-object
@@ -96,7 +98,8 @@
    #:genesis-header-from-state-genesis-json-file
    #:genesis-block-from-state-genesis-object
    #:genesis-block-from-state-genesis-json-string
-   #:genesis-block-from-state-genesis-json-file))
+   #:genesis-block-from-state-genesis-json-file
+   #:genesis-block-from-built-in-genesis-preset))
 
 (defpackage #:ethereum-lisp.evm.internal
   (:use #:cl
