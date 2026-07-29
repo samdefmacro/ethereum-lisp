@@ -229,7 +229,7 @@
     (is (string= "" (get-output-stream-string output)))
     (let ((stderr (get-output-stream-string errors)))
       (is (search "--genesis is required" stderr))
-      (is (null (search "Usage: ethereum-lisp devnet" stderr))))))
+      (is (search "Usage: ethereum-lisp devnet" stderr)))))
 
 (deftest devnet-cli-main-log-file-records-option-parse-error-event
   (let ((log-path (devnet-cli-temp-path "ethereum-lisp-devnet-parse-error"
