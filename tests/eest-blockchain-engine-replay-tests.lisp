@@ -156,7 +156,15 @@
                   (engine-fixture-payload-request 301 payload)
                   store config
                   :import-function #'execute-and-commit-engine-payload))
-               (result (field response "result")))
+               (result (field response "result"))
+               (expected-status (fixture-object-field expect "status"))
+               (actual-status (field result "status")))
+          (unless (string= expected-status actual-status)
+            (error "EEST blockchain replay ~A expected status ~A, got ~A (validationError: ~S)"
+                   (fixture-object-field case "name")
+                   expected-status
+                   actual-status
+                   (field result "validationError")))
           (is (string= (fixture-object-field expect "status")
                        (field result "status")))
           (is (string= (hash32-to-hex (block-hash child-block))

@@ -210,6 +210,29 @@
       (is (= 0 (state-db-get-storage state address slot)))
       (is (ethereum-lisp.types:hash32= root (state-db-root state))))))
 
+(deftest state-journal-touch-restores-lazily-loaded-account
+  (let* ((address (address-from-hex
+                   "0x0000000000000000000000000000000000000011"))
+         (state
+           (make-lazy-state-db
+            (lambda (requested)
+              (if (bytes= (address-bytes requested) (address-bytes address))
+                  (values (make-state-account :balance 7)
+                          (make-byte-vector 0)
+                          t
+                          '())
+                  (values nil nil nil)))
+            (lambda (requested slot)
+              (declare (ignore requested slot))
+              0)
+            (lambda (state)
+              (declare (ignore state))))))
+    (let ((snapshot (state-db-snapshot state)))
+      (state-db-touch-account state address)
+      (is (= 7 (state-account-balance (state-db-get-account state address))))
+      (state-db-revert-to-snapshot state snapshot))
+    (is (= 7 (state-account-balance (state-db-get-account state address))))))
+
 (deftest state-finalization-is-fork-gated
   (let ((state (make-state-db))
         (address (address-from-hex

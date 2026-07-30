@@ -65,7 +65,12 @@ Writes are reported before mutation so a recorder can retain the pre-value.")
 
 (defun state-db-touch-account (state address)
   "Journal an EIP-161 touch without otherwise mutating the account."
-  (state-db-record-change state (address-key address)))
+  (let ((key (address-key address)))
+    ;; A lazy account must be present before its before-image is journaled.
+    ;; Otherwise a later load followed by rollback removes the account while
+    ;; leaving it marked loaded, so full materialization cannot restore it.
+    (state-db-get-object state address)
+    (state-db-record-change state key)))
 
 (defun state-db-revert-to-snapshot (state snapshot)
   "Replay journal entries backwards to SNAPSHOT and discard them."
