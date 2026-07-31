@@ -22,11 +22,16 @@
 (defun amsterdam-execution-available-p ()
   "Return whether every consensus-critical Amsterdam EVM rule is implemented.
 
-Keep this false until EIP-7708, EIP-7843, EIP-7954, EIP-8024, EIP-8037,
-EIP-8038, and EIP-8246 are all active on the execution path.  The Engine API
-uses this capability boundary to refuse Amsterdam payload methods rather than
-executing them with an older fork's semantics."
-  t)
+Amsterdam execution is NOT yet available: EIP-2780, EIP-7778, EIP-7976, and
+EIP-7981 are unimplemented, the EIP-8037/EIP-8038 system-call gas accounting is
+still stale, and EIP-8246 is incomplete.  Until all of those land on the
+execution path this must stay NIL.
+
+This is purely a capability boundary the Engine API consults to advertise and
+dispatch the Amsterdam payload methods; refusing them is safer than executing a
+payload with an older fork's semantics.  It is deliberately decoupled from
+CHAIN-RULES-AMSTERDAM-P, which gates execution -- do not conflate the two."
+  nil)
 
 (defvar *evm-stack-depth-cell* nil
   "Dynamically bound to the current machine's mutable stack-depth cell.")
