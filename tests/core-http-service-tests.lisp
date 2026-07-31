@@ -361,6 +361,41 @@ Content-Type: application/json
               (make-chain-config))))
       (is (= 400 (http-status response))))))
 
+(deftest engine-rpc-http-accepts-ip-literal-hosts
+  ;; geth's virtualHostHandler auto-accepts a Host header that parses as an IP,
+  ;; so a client using the default IP-literal Engine URL (http://127.0.0.1:PORT)
+  ;; is not answered with 403 even though vhosts default to ("localhost"). A DNS
+  ;; name that is neither configured nor a literal is still rejected.
+  (labels ((http-status (response)
+             (let* ((line-end (position #\Return response))
+                    (status-line (subseq response 0 line-end)))
+               (parse-integer status-line :start 9 :end 12)))
+           (status-for-host (host-header)
+             (let ((request
+                     (format nil
+                             "POST / HTTP/1.1~%Host: ~A~%Content-Type: application/json~%Content-Length: 2~%~%{}"
+                             host-header)))
+               (http-status
+                (engine-rpc-handle-http-request-string
+                 request
+                 (make-engine-payload-memory-store)
+                 (make-chain-config)
+                 :allowed-hosts '("localhost"))))))
+    ;; IPv4 literal, with and without a port.
+    (is (= 200 (status-for-host "127.0.0.1:8551")))
+    (is (= 200 (status-for-host "127.0.0.1")))
+    ;; Bracketed IPv6 literal, with and without a port.
+    (is (= 200 (status-for-host "[::1]:8551")))
+    (is (= 200 (status-for-host "[2001:db8::1]:8551")))
+    (is (= 200 (status-for-host "[::1]")))
+    ;; The configured name still works.
+    (is (= 200 (status-for-host "localhost")))
+    ;; An unrelated DNS name is neither a literal nor configured: rejected.
+    (is (= 403 (status-for-host "evil.example")))
+    (is (= 403 (status-for-host "evil.example:8551")))
+    ;; A non-literal that superficially resembles one is still not accepted.
+    (is (= 403 (status-for-host "999.999.999.999")))))
+
 (deftest engine-rpc-http-validates-jwt-bearer-auth
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))
