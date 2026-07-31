@@ -34,6 +34,13 @@ ifneq ($(strip $(ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_SELECTORS)),)
 DOCKER_SELECTOR_ARGS += \
 	--env ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_SELECTORS="$(ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_SELECTORS)"
 endif
+# Blockchain replay defaults to Shanghai only; this widens the materializable
+# network set the same way STATE_TEST_FORKS widens state-test discovery. Left
+# unset it stays unset in the container, so the default gate is unchanged.
+ifneq ($(strip $(ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_FORKS)),)
+DOCKER_SELECTOR_ARGS += \
+	--env ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_FORKS="$(ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_FORKS)"
+endif
 
 DOCKER_TEST_RUN = $(DOCKER) run --rm --init --network none \
 	--volume "$(CURDIR):$(DOCKER_TEST_WORKDIR):ro" \
@@ -55,7 +62,8 @@ endif
 
 .PHONY: test-unit test-integration test-e2e test-all \
 	docker-test-image docker-test-unit docker-test-integration \
-	docker-test-e2e docker-test-all docker-sbcl eest-fixtures
+	docker-test-e2e docker-test-all docker-sbcl \
+	eest-fixtures eest-fixtures-stable eest-fixtures-amsterdam
 
 test-unit:
 	$(SBCL) --script tests/run-tests.lisp --layer unit
@@ -69,11 +77,24 @@ test-e2e:
 test-all:
 	SBCL="$(SBCL)" E2E_JOBS="$(E2E_JOBS)" scripts/run-test-layers.sh
 
-# Fetch the pinned execution-spec-tests corpus and print the root to export as
+# Fetch a pinned execution-spec-tests corpus and print the root to export as
 # ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT. Idempotent: a corpus already
-# extracted at the pinned release is reused rather than re-downloaded.
+# extracted at the pinned release is reused rather than re-downloaded. Each
+# baseline extracts to its own release-named subdirectory of EEST_FIXTURE_DIR,
+# so the three can coexist. The checksum in the script is what makes reuse safe.
 eest-fixtures:
 	@scripts/fetch-eest-fixtures.sh $(EEST_FIXTURE_DIR)
+
+# Current stable execution corpus (tests@v20.0.1); the Cancun/Prague/Osaka
+# late-fork surface lives here. Per the plan, PROJECT.md's pin is bumped only
+# after this corpus is green under central verification.
+eest-fixtures-stable:
+	@EEST_BASELINE=stable-v20.0.1 scripts/fetch-eest-fixtures.sh $(EEST_FIXTURE_DIR)
+
+# Amsterdam feature corpus (tests-glamsterdam-devnet@v7.2.1). Staged for the
+# Amsterdam burn-down (plan section 8); the current gates do not execute it.
+eest-fixtures-amsterdam:
+	@EEST_BASELINE=amsterdam-v7.2.1 scripts/fetch-eest-fixtures.sh $(EEST_FIXTURE_DIR)
 
 docker-test-image:
 	$(DOCKER) build --file Dockerfile --tag "$(DOCKER_TEST_IMAGE)" .
