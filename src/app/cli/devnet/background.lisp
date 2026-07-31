@@ -26,7 +26,13 @@
                        (engine-rpc-improve-open-payloads
                         (devnet-node-store node)
                         (devnet-node-config node))))))
-       (error (condition)
+       ;; MANDATORY, not defensive: the node runs as `sbcl --script`, which
+       ;; implies --disable-debugger, so an unhandled SERIOUS-CONDITION here
+       ;; (a STORAGE-CONDITION such as control-stack exhaustion is a
+       ;; serious-condition that is NOT an ERROR, so an ERROR handler never
+       ;; sees it) exits the whole process rather than fail-stopping the node.
+       ;; Catch SERIOUS-CONDITION like every other worker in this file.
+       (serious-condition (condition)
          (funcall error-callback condition)
          (devnet-shutdown-request shutdown-controller))))
    :name "ethereum-lisp-devnet-payload-improvement"))
@@ -61,7 +67,13 @@
                             (txpool-local-transaction-predicate
                              (devnet-node-config node)
                              (devnet-peer-txpool-policy node)))))))
-           (error (condition)
+           ;; MANDATORY, not defensive: the node runs as `sbcl --script`, which
+           ;; implies --disable-debugger, so an unhandled SERIOUS-CONDITION here
+           ;; (a STORAGE-CONDITION such as control-stack exhaustion is a
+           ;; serious-condition that is NOT an ERROR, so an ERROR handler never
+           ;; sees it) exits the whole process rather than fail-stopping the
+           ;; node. Catch SERIOUS-CONDITION like every other worker in this file.
+           (serious-condition (condition)
              (funcall error-callback condition)
              (devnet-shutdown-request shutdown-controller))))
        :name "ethereum-lisp-devnet-txpool-maintenance"))))
