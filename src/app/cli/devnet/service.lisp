@@ -335,6 +335,10 @@
     (error "Devnet shutdown controller must be devnet-shutdown-controller"))
   (when (and on-listeners-ready (not (functionp on-listeners-ready)))
     (error "Devnet listener-ready callback must be a function"))
+  ;; Serving is the moment the Engine endpoint becomes reachable, so this is
+  ;; where an unauthenticated non-loopback bind must be refused -- node
+  ;; construction alone (e.g. --no-serve, which never listens) is not exposure.
+  (devnet-cli-require-engine-authentication node)
   (let ((shutdown-controller
           (or shutdown-controller (make-devnet-shutdown-controller)))
         (engine-listener nil)

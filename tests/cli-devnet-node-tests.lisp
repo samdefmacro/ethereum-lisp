@@ -1321,3 +1321,91 @@ loop cannot block on a message that never comes."
     (is (integerp (ethereum-lisp.cli::devnet-node-node-key
                    (ethereum-lisp.cli:make-devnet-node
                     :genesis-path +devnet-cli-genesis-fixture+ :port 0))))))
+
+#+sbcl
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (require :sb-posix))
+
+#+sbcl
+(deftest devnet-cli-write-private-file-is-fail-closed-and-0600
+  ;; A JWT secret or node key created with WITH-OPEN-FILE is 0666 & ~umask and
+  ;; follows a symlink at the target, so a planted file or link receives the
+  ;; secret. DEVNET-CLI-WRITE-PRIVATE-FILE must open with O_EXCL|O_NOFOLLOW and
+  ;; mode 0600. Asserting the final mode alone is not sufficient (a restrictive
+  ;; umask or a chmod-after-write bug satisfies it too), so the load-bearing
+  ;; assertions are that O_EXCL refuses a pre-existing path and O_NOFOLLOW
+  ;; refuses a symlink without writing through it.
+  (let ((fresh (devnet-cli-temp-path "ethereum-lisp-private-fresh" "hex"))
+        (planted (devnet-cli-temp-path "ethereum-lisp-private-planted" "hex"))
+        (link (devnet-cli-temp-path "ethereum-lisp-private-link" "hex"))
+        (decoy (devnet-cli-temp-path "ethereum-lisp-private-decoy" "hex")))
+    (unwind-protect
+         (progn
+           ;; A fresh path is created with the exact contents and mode 0600.
+           (ethereum-lisp.cli::devnet-cli-write-private-file
+            fresh
+            (lambda (stream) (write-string "deadbeef" stream)))
+           (is (string= "deadbeef" (devnet-cli-file-string fresh)))
+           (is (= #o600
+                  (logand #o777
+                          (sb-posix:stat-mode
+                           (sb-posix:stat (namestring fresh))))))
+           ;; O_EXCL fails closed on a pre-existing regular file rather than
+           ;; truncating it and writing the secret into it.
+           (devnet-cli-write-temp-file planted "attacker owned")
+           (signals error
+             (ethereum-lisp.cli::devnet-cli-write-private-file
+              planted
+              (lambda (stream) (write-string "secret" stream))))
+           (is (string= "attacker owned" (devnet-cli-file-string planted)))
+           ;; O_NOFOLLOW refuses a symlink: the decoy target is never created,
+           ;; proving the secret was not written through the link.
+           (sb-posix:symlink (namestring decoy) (namestring link))
+           (signals error
+             (ethereum-lisp.cli::devnet-cli-write-private-file
+              link
+              (lambda (stream) (write-string "secret" stream))))
+           (is (not (probe-file decoy))))
+      (dolist (path (list fresh planted decoy))
+        (when (probe-file path)
+          (ignore-errors (delete-file path))))
+      (ignore-errors (sb-posix:unlink (namestring link))))))
+
+(deftest devnet-cli-non-loopback-engine-bind-requires-jwt
+  ;; The Engine HTTP handler enforces JWT auth only inside (when jwt-secret ...):
+  ;; with no secret, a non-loopback bind exposes forkchoice and payload control
+  ;; to the whole network, so serving must fail closed. Loopback, and a
+  ;; configured secret, are both fine.
+  (labels ((node (&key (host "127.0.0.1") jwt-secret-path)
+             (ethereum-lisp.cli:make-devnet-node
+              :genesis-path +devnet-cli-genesis-fixture+
+              :host host :port 0
+              :jwt-secret-path jwt-secret-path)))
+    ;; Loopback classification: 0.0.0.0/:: bind every interface and a bare name
+    ;; is treated as routable.
+    (is (ethereum-lisp.cli::devnet-cli-loopback-host-p "127.0.0.1"))
+    (is (ethereum-lisp.cli::devnet-cli-loopback-host-p "127.0.0.5"))
+    (is (ethereum-lisp.cli::devnet-cli-loopback-host-p "localhost"))
+    (is (ethereum-lisp.cli::devnet-cli-loopback-host-p "::1"))
+    (is (ethereum-lisp.cli::devnet-cli-loopback-host-p "[::1]"))
+    (is (not (ethereum-lisp.cli::devnet-cli-loopback-host-p "0.0.0.0")))
+    (is (not (ethereum-lisp.cli::devnet-cli-loopback-host-p "192.0.2.10")))
+    (is (not (ethereum-lisp.cli::devnet-cli-loopback-host-p "engine.runner")))
+    ;; Loopback without a secret is allowed (nil = no error).
+    (is (null (ethereum-lisp.cli::devnet-cli-require-engine-authentication
+               (node))))
+    ;; A non-loopback bind without a secret is refused.
+    (signals error
+      (ethereum-lisp.cli::devnet-cli-require-engine-authentication
+       (node :host "192.0.2.10")))
+    ;; A non-loopback bind with a configured secret is allowed.
+    (let ((jwt-path (devnet-cli-temp-path "ethereum-lisp-engine-jwt" "hex")))
+      (unwind-protect
+           (progn
+             (devnet-cli-write-temp-file jwt-path +devnet-cli-jwt-secret+)
+             (is (null
+                  (ethereum-lisp.cli::devnet-cli-require-engine-authentication
+                   (node :host "192.0.2.10"
+                         :jwt-secret-path (namestring jwt-path))))))
+        (when (probe-file jwt-path)
+          (delete-file jwt-path))))))

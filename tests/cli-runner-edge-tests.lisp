@@ -392,7 +392,7 @@
                  "--no-serve=0"
                  "--http=true"
                  "--graphql=0"
-                 "--nodiscover=0"
+                 "--nousb=0"
                  "--mine=false"
                  "--dev=false"
                  "--metrics=0"
@@ -572,9 +572,9 @@
                 (run-error (list "devnet"
                                  "--http=maybe"
                                  "--no-serve"))))
-    (is (search "--nodiscover boolean value must be true or false"
+    (is (search "--nousb boolean value must be true or false"
                 (run-error (list "devnet"
-                                 "--nodiscover"
+                                 "--nousb"
                                  "maybe"
                                  "--no-serve"))))
     (is (search "--ws boolean value must be true or false"
@@ -808,9 +808,9 @@
                 (run-error (list "devnet"
                                  "--etherbase=not-address"
                                  "--no-serve"))))
-    (is (search "--db.engine requires a value"
+    (is (search "--cache requires a value"
                 (run-error (list "devnet"
-                                 "--db.engine"
+                                 "--cache"
                                  "--no-serve"))))
     (is (search "--override.terminaltotaldifficulty requires a value"
                 (run-error (list "devnet"

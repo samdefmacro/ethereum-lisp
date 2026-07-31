@@ -46,13 +46,58 @@
              (subseq host 0 colon)
              host))))))
 
+(defun engine-rpc-http-ipv4-literal-p (host)
+  "True when HOST is a dotted-decimal IPv4 literal: four 0-255 octets."
+  (and (plusp (length host))
+       (loop with start = 0
+             with octets = 0
+             for dot = (position #\. host :start start)
+             for end = (or dot (length host))
+             for field = (subseq host start end)
+             do (unless (and (plusp (length field))
+                             (<= (length field) 3)
+                             (every #'digit-char-p field)
+                             (<= (parse-integer field) 255))
+                  (return nil))
+                (incf octets)
+                (if dot
+                    (setf start (1+ dot))
+                    (return (= octets 4))))))
+
+(defun engine-rpc-http-bracketed-ipv6-literal-p (host)
+  "True when HOST is a bracketed IPv6 literal such as \"[::1]\". ENGINE-RPC-HTTP-
+HOST-NAME preserves the brackets, so an IPv6 Host header arrives in this form."
+  (let ((length (length host)))
+    (and (>= length 4)
+         (char= #\[ (char host 0))
+         (char= #\] (char host (1- length)))
+         (let ((inner (subseq host 1 (1- length))))
+           (and (find #\: inner)
+                (every (lambda (character)
+                         (or (digit-char-p character 16)
+                             (char= character #\:)
+                             (char= character #\.)
+                             (char= character #\%)))
+                       inner))))))
+
+(defun engine-rpc-http-ip-literal-host-p (host)
+  "True when HOST is a raw IP literal -- an IPv4 address or a bracketed IPv6
+address. geth's virtualHostHandler accepts a parsed IP regardless of the
+configured virtual hosts, because an IP in the Host header is not a DNS-rebinding
+vector. Mirror that, so the default IP-literal Engine URL http://127.0.0.1:PORT
+is not answered with 403 when vhosts default to (\"localhost\")."
+  (and host
+       (or (engine-rpc-http-ipv4-literal-p host)
+           (engine-rpc-http-bracketed-ipv6-literal-p host))))
+
 (defun engine-rpc-http-host-allowed-p (headers allowed-hosts)
   (or (null allowed-hosts)
       (engine-rpc-http-host-wildcard-p allowed-hosts)
       (let ((host (engine-rpc-http-host-name
                    (engine-rpc-http-header headers "host"))))
         (and host
-             (member host allowed-hosts :test #'string-equal)))))
+             (or (engine-rpc-http-ip-literal-host-p host)
+                 (member host allowed-hosts :test #'string-equal))))))
 
 (defun engine-rpc-http-response-string (status-code reason body
                                         &key

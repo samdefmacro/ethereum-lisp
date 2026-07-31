@@ -330,6 +330,19 @@
                                  "--rpc.txfeecap")
                         :test #'string=)
                 (error "~A is not configurable in this client" option))
+               ;; Reject rather than ignore: these three flags each SELECT node
+               ;; behaviour, so accepting-and-discarding them silently runs a
+               ;; configuration the operator did not ask for (a different sync
+               ;; strategy, a different database backend, discovery disabled).
+               ;; None of those behaviours is implemented, so fail loudly. The
+               ;; remaining compatibility flags below only tune values we already
+               ;; honour or genuinely no-op, and keep their ignored-option
+               ;; warning.
+               ((member option '("--syncmode" "--db.engine" "--nodiscover")
+                        :test #'string=)
+                (error
+                 "~A is not supported: this client does not implement it, and silently ignoring it would change node behaviour"
+                 option))
                ((member option *devnet-cli-value-options* :test #'string=)
                 (consume-value-option option)
                 (push option ignored-options))

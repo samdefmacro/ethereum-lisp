@@ -1,13 +1,19 @@
 # Storage substrate decision
 
-Status: implemented.
+Status: RocksDB adapter implemented and passing the shared backend contract; NOT
+yet the wired production default. The CLI still opens the CRC-framed log (file)
+backend, so no node runs on RocksDB today. Making it the default is gated on the
+crash-injection and restart proofs in "Migration and rollout" below.
 
 ## Decision
 
 Public-network operation is a project goal, so the RAM-resident log database is
-not the production substrate. The production adapter uses RocksDB through
-its stable C API and CFFI. The existing memory and CRC-framed log backends remain
-as deterministic reference implementations and durability-test oracles.
+not the intended production substrate. The chosen production adapter uses
+RocksDB through its stable C API and CFFI; that adapter exists and passes the
+backend-neutral contract, but the CLI has not been switched onto it and still
+runs on the file/log backend. The existing memory and CRC-framed log backends
+remain as deterministic reference implementations and durability-test oracles,
+and the log backend is additionally the current production path.
 
 The implementation pins RocksDB 11.1.2 (`v11.1.2`, released
 2026-06-25). Integration must pin the source archive and its SHA-256 in the

@@ -63,21 +63,27 @@ absent; the paths below are useful when it is available.
   `eth/protocols/eth/handlers.go`
 - `admin_*` RPC shapes: `go-ethereum/node/api.go`
 
-**No `references/` checkout exists on this machine.** The peering work therefore
-makes NO parity claim: every constant it introduces — the peer limit, the accept
-tick, the handshake budget, the keepalive interval, the idle timeout — is
-documented in its own docstring as our policy, not as matching another client.
-Under the project contract a parity claim must name an exact version or commit
-and the code path exercised, so checking these against a pinned clone is
-separate work that must come before any such wording.
+Pinned `references/` checkouts are present on this machine — go-ethereum
+1.17.6-unstable (`38271784c2b31926563806da9a2e023b88f5e7a8`) and Nethermind
+1.40.0 (`e52dc19a56a46f58170a730822580774d403c838`, sparse `src/Nethermind`) —
+so the peering work now carries an explicit parity comparison. Each constant it
+introduces — the peer limit, the accept tick, the handshake budget, the
+keepalive interval, the idle timeout — is compared against those two pinned
+commits in the "Peering-constant parity table" of
+`docs/gap-analysis/networking-and-sync.md`, which names the exact versions and
+records where a reference has no equivalent constant rather than asserting a
+false match.
 
 ## Upstream versions actually fetched and read
 
-No `references/` checkout exists on this machine, so reference source has been
-fetched over the network into scratch space for the duration of a specific piece
-of work. Scratch space is not durable, so the record of which version a
-comparison read lives in the document that makes the claim, not alongside the
-fetched copies.
+Pinned `references/` checkouts now exist on this machine — go-ethereum
+`38271784c2b31926563806da9a2e023b88f5e7a8` and Nethermind
+`e52dc19a56a46f58170a730822580774d403c838` (sparse `src/Nethermind`) — and back
+the gap-analysis comparisons and the discv5 interop gate. Earlier comparisons
+predate those pins and read source fetched over the network into scratch space
+for the duration of a specific piece of work. Scratch space is not durable, so
+the record of which version such a comparison read lives in the document that
+makes the claim, not alongside the fetched copies.
 
 The gas-accounting comparison recorded in `docs/gas-parity.md` read
 go-ethereum `v1.17.5` (`9621c6ad10934a01b5514886fb6fbd87640b6c05`), `v1.16.6`

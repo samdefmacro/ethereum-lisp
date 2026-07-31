@@ -153,7 +153,10 @@ Non-obvious properties the implementation relies on:
   via a temp-file rename, and migration of v1 whole-file s-expression databases.
   Opens are pure reads; torn-tail truncation and v1 migration happen on the
   first durable write, so a rejected or read-only artifact is never modified.
-  Concurrent handles on one path are not serialized.
+  Concurrent handles on one path are not serialized. This file backend is the
+  wired production default: the RocksDB adapter (`docs/storage-substrate.md`)
+  exists and passes the backend-neutral contract but the CLI is not yet switched
+  onto it, so no node runs on RocksDB today.
 - **State storage: diff vs baseline.** A block's state is either a full baseline
   snapshot in block-prefixed flat tables or a hash-addressed diff against its
   parent, resolved by walking the diff chain to the nearest baseline; stored

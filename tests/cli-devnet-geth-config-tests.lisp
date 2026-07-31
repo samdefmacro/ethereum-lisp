@@ -374,7 +374,6 @@ HTTPPort = 1945
                    (list "devnet"
                          (format nil "--genesis=~A"
                                  +devnet-cli-genesis-fixture+)
-                         "--db.engine=pebble"
                          "--state.scheme=hash"
                          "--datadir.ancient=/tmp/ethereum-lisp-ancient"
                          "--rpc.allow-unprotected-txs=true"
@@ -475,4 +474,56 @@ HTTPPort = 1945
     (is (string= "" (get-output-stream-string output)))
     (is (search "--rpc.gascap is not configurable"
                 (get-output-stream-string errors)))))
+
+(deftest devnet-cli-rejects-behavior-changing-noop-flags
+  ;; --syncmode, --db.engine and --nodiscover each SELECT node behaviour (a sync
+  ;; strategy, a database backend, whether discovery runs). Accepting and then
+  ;; discarding them silently ran a configuration the operator never asked for.
+  ;; None is implemented, so parsing must reject them with a clear message.
+  (labels ((parse-error (args)
+             (handler-case
+                 (progn
+                   (ethereum-lisp.cli::devnet-cli-options
+                    (append (list "devnet") args (list "--no-serve")))
+                   nil)
+               (error (condition) (princ-to-string condition)))))
+    (dolist (case '(("--syncmode" "full")
+                    ("--db.engine" "pebble")
+                    ("--nodiscover" "true")))
+      (let ((message (parse-error case)))
+        (is (stringp message) "~A must be rejected at parse time" (first case))
+        (when (stringp message)
+          (is (search (first case) message))
+          (is (search "not supported" message)))))))
+
+(deftest devnet-cli-config-rejects-unknown-toml-key
+  ;; A key the loader does not map used to be dropped, turning a typo (or a real
+  ;; geth setting we do not honour) into a silent default. It must now be a hard
+  ;; error so the operator learns their setting was not applied.
+  (let* ((root (devnet-cli-temp-directory
+                "ethereum-lisp-devnet-geth-unknown-key"))
+         (config-path (merge-pathnames "geth.toml" root))
+         (output (make-string-output-stream))
+         (errors (make-string-output-stream)))
+    (unwind-protect
+         (progn
+           (ensure-directories-exist root)
+           (devnet-cli-write-temp-file
+            config-path
+            (format nil "[Eth]~%NetworkId = 4242~%SyncMode = \"snap\"~%"))
+           (is (not
+                (= 0
+                   (ethereum-lisp.cli:main
+                    (list "devnet"
+                          "--config" (namestring config-path)
+                          "--genesis" +devnet-cli-genesis-fixture+
+                          "--json"
+                          "--no-serve")
+                    :output-stream output
+                    :error-stream errors))))
+           (is (string= "" (get-output-stream-string output)))
+           (is (search "Unknown TOML config key"
+                       (get-output-stream-string errors))))
+      (when (probe-file config-path)
+        (delete-file config-path)))))
 

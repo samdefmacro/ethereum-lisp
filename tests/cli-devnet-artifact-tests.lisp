@@ -207,8 +207,6 @@
                          "--holesky=false"
                          "--hoodi=false"
                          "--goerli=false"
-                         "--syncmode=full"
-                         "--nodiscover=false"
                          "--verbosity=3"
                          "--maxpeers=0"
                          "--nat=none"
