@@ -391,6 +391,7 @@
    #:verify-kzg-cell-proofs
    #:make-kzg-cffi-verifier
    #:kzg-cffi-verifier-available-p
+   #:kzg-cell-computation-available-p
    #:compute-kzg-cell-proofs
    #:+cell-proofs-per-blob+
    #:+bytes-per-cell+

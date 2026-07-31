@@ -145,6 +145,16 @@ verify-kzg-blob-proof wrapper."
   "True when the CFFI verifier can be built (library and setup both present)."
   (and *libethckzg-loaded-p* (kzg-cffi-settings) t))
 
+(defun kzg-cell-computation-available-p ()
+  "True when EIP-7594 cell-and-proof computation is callable.
+
+KZG-COMPUTE-CELLS-AND-PROOFS is backed only by c-kzg through CFFI -- unlike
+proof verification there is no *KZG-VERIFIER* hook to compute cells -- so its
+availability tracks the loaded CFFI trusted setup, not the point/blob proof
+functions.  Callers that only verify proofs must not assume cell computation
+from KZG-PROOF-VERIFICATION-AVAILABLE-P; consult this predicate instead."
+  (kzg-cffi-verifier-available-p))
+
 (defun make-kzg-cffi-verifier ()
   "Return a KZG-VERIFIER backed by c-kzg-4844, or NIL when unavailable."
   (when (kzg-cffi-verifier-available-p)
