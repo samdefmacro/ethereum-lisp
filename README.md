@@ -32,7 +32,22 @@ provider boundaries, EVM behavior, txpool, RPC, and Engine API work.
   byte ownership for hashes and addresses, and typed node configuration
 - extensible chain-store, transaction-pool, persistence, and execution-service
   boundaries; application-level admission; capability-gated Engine methods;
-  and restart/reorg coverage over the development KV snapshot format
+  and restart/reorg coverage over the storage substrate
+- a RocksDB-backed storage substrate (pinned 11.1.2, reached through its C API
+  and CFFI), with the memory and CRC-framed log backends retained as
+  deterministic reference implementations and durability-test oracles
+- historical proof-of-work support: fork-specific difficulty, light Ethash seal
+  verification, ommer rules and rewards, and the DAO-fork state transition,
+  with the Merge boundary taken from chain configuration rather than a header
+- devp2p networking: RLPx with Snappy compression, discv4 and authenticated
+  discv5 discovery with NAT traversal, peer scoring and inbound admission
+  limits, `eth` wire sync pipelined across multiple peers, and `snap` range
+  serving from persistent state
+- EIP-4844 and EIP-7594 blob transactions end to end: network-wrapper decoding,
+  KZG-verified pool admission and gossip relay, blob-aware selection, and a
+  `blobsBundle` assembled from stored sidecars
+- embedded mainnet, Sepolia, Holesky, and Hoodi presets that reproduce their
+  published genesis hashes
 - synchronous record-scoped persistence for successful canonical forkchoice
   transitions, including direct-key canonical reconciliation, coupled txpool
   dirty tracking, in-memory rollback on write failure, cross-service mutation
@@ -82,9 +97,10 @@ make docker-test-unit DOCKER_TEST_ARGS="--match TRANSACTION"
 make docker-sbcl DOCKER_SBCL_ARGS="--script scripts/phase-a-smoke-gate.lisp -- --json"
 ```
 
-The Docker image includes SBCL, Go 1.24 for the vendored KZG verifier, and the
-small set of process tools exercised by the suite. Each test invocation first
-loads all test definitions once, preventing concurrent ASDF compilation races.
+The Docker image includes SBCL, a pinned RocksDB build, the c-kzg-4844 and blst
+shared libraries the KZG and BLS12-381 bindings dlopen, and the small set of
+process tools exercised by the suite. Each test invocation first loads all test
+definitions once, preventing concurrent ASDF compilation races.
 
 Inside CI or an already isolated Linux container, the underlying commands are
 shown below. Never invoke these directly on the macOS development host:
@@ -96,10 +112,10 @@ sbcl --script tests/run-tests.lisp --layer e2e
 sbcl --script tests/run-tests.lisp --layer all
 ```
 
-`integration` includes persistence, fixture adapters, and external KZG
-verification. `e2e` launches standalone SBCL processes and may bind local
-sockets. During development, prefer the smallest layer directly related to the
-change; use every layer for release/CI work or a genuinely broad high-risk
+`integration` includes persistence, fixture adapters, and KZG verification
+through the CFFI binding. `e2e` launches standalone SBCL processes and may bind
+local sockets. During development, prefer the smallest layer directly related to
+the change; use every layer for release/CI work or a genuinely broad high-risk
 change.
 
 Focused runs and discovery remain Docker-isolated:
@@ -127,8 +143,9 @@ make test-all                 # runs the three layers concurrently
 ```
 
 `unit` requires only SBCL and should complete in about one minute.
-`integration` also exercises file persistence, local sockets, and the vendored
-Go KZG verifier, so it requires Go and permission to bind loopback sockets.
+`integration` also exercises file persistence, local sockets, and the KZG CFFI
+verifier, so it requires the c-kzg shared library and permission to bind
+loopback sockets.
 `e2e` launches standalone SBCL processes, uses isolated temporary roots per
 worker, and requires the same loopback/process permissions. Optional external
 EEST fixture tests remain controlled by

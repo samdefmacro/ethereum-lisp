@@ -19,8 +19,8 @@ make docker-test-all
 ```
 
 - `unit` covers process-free domain behavior.
-- `integration` covers persistence, sockets, fixture adapters, and KZG command
-  integration.
+- `integration` covers persistence, sockets, fixture adapters, and the KZG CFFI
+  verifier.
 - `e2e` covers standalone CLI, restart, signals, and devnet processes.
 - `all` composes every layer and is intentionally the most expensive option.
 
@@ -44,6 +44,14 @@ three when they are set. State-test auto-discovery defaults to London and
 Shanghai; set `ETHEREUM_LISP_PHASE_A_STATE_TEST_FORKS` to a comma-separated
 fork list such as `Cancun,Prague,Osaka` to opt into later-fork vectors.
 
+What the pinned corpus cannot cover: EEST `v5.4.0` contains no `amsterdam/`
+directory, and its Osaka vectors predate Amsterdam activation, so they carry
+Prague post-state rules. Amsterdam execution is therefore pinned only by the
+in-tree fork matrix and unit tests, not by fixtures anyone else wrote. Nothing
+in this tree has been checked against a running reference client either; every
+parity claim rests on source comparison against the versions named in
+`docs/reference-map.md`.
+
 `DOCKER_TEST_IMAGE_PREBUILT=1` runs the layers against an existing image instead
 of rebuilding it. CI sets it because it builds the image with buildx against a
 shared layer cache that a plain `docker build` would not reuse.
@@ -55,12 +63,25 @@ to do so.
 
 ## Historical proof-of-work scope
 
-Block import and execution are post-Merge only. The client does not validate an
-Ethash seal, calculate proof-of-work difficulty, validate ommers, pay
-proof-of-work rewards, or apply the DAO-fork state transition. It therefore
-refuses pre-Merge headers, Merge-transition parents, and every non-empty ommer
-list instead of treating unverified historical blocks as valid.
+Pre-Merge blocks are validated rather than refused. The Merge boundary is taken
+from the chain configuration instead of from a header's difficulty field, so a
+header below that boundary is checked against the fork-specific
+Frontier-through-Gray-Glacier difficulty formula and its Ethash seal is
+verified. Ommer lists are checked against the two-ommer cap, the six-block depth
+window, duplicate and canonical-ancestor rejection, and full header validation
+of each ommer against the supplied recent ancestry; block and ommer rewards are
+paid. The DAO fork's ten-block extra-data rule and its drain-list balance
+transition are applied.
+
+Seal verification runs through `*ethash-seal-verifier*`, which defaults to an
+in-tree light backend: it reconstructs the dataset items a header touches from
+an epoch cache rather than materializing the multi-gigabyte DAG. Keccak-512 and
+Hashimoto are pinned against the official `ethereum/tests` proof-of-work vector
+at commit `c67e485ff8b5be9abc8ad15345ec21aa22e290d9`. The hook is replaceable by
+an accelerated backend, and validation fails closed when no backend is
+configured rather than accepting an unverified seal. Verifying a long pre-Merge
+range is slow in proportion to the epochs it spans, and there is no mining or
+full-DAG path.
 
 Genesis parsing retains historical fork fields because they are part of public
-network configurations and the EIP-2124 fork-id schedule. Parsing those fields
-does not advertise historical replay support.
+network configurations and the EIP-2124 fork-id schedule.
