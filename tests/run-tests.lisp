@@ -187,6 +187,14 @@
   (unless (and (= 1 (length layers))
                (string-equal "e2e" (first layers)))
     (error "--jobs greater than 1 is supported only with --layer e2e"))
+  ;; Validate the aggregate selection BEFORE spawning workers. Each worker
+  ;; reruns this same selection and then takes its shard, so without this a
+  ;; focused --match with no matches spawns N workers that each run zero tests
+  ;; and exit 0 -- a release gate that passes having verified nothing.
+  (unless (ethereum-lisp.test::selected-tests
+           :match matches :exclude excludes :layer layers)
+    (error "No e2e tests matched the requested filters; refusing to spawn ~D shard worker~:P that would each run zero tests"
+           jobs))
   (let ((workers '()))
     (unwind-protect
          (progn

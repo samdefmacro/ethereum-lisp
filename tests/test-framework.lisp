@@ -714,6 +714,13 @@
         (skipped 0)
         (failures '())
         (results '()))
+    ;; A sharded worker computes the whole selection and then takes its slice,
+    ;; so an individual shard is legitimately empty when there are fewer tests
+    ;; than shards. An empty AGGREGATE is not: it means a focused --match
+    ;; matched nothing, and letting every empty shard report "passed" is exactly
+    ;; the vacuous release gate this guard closes.
+    (when (and shard-count (null selected))
+      (error "No tests matched the requested filters"))
     (unless (or tests shard-count)
       (error "No tests matched the requested filters"))
     (dolist (test tests)
