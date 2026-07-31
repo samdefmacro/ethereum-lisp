@@ -323,6 +323,38 @@
           enode)))
       node)))
 
+(defun devnet-cli-loopback-host-p (host)
+  "True when HOST is a loopback bind address, so an unauthenticated Engine
+endpoint bound to it is reachable only from this machine.
+
+0.0.0.0 and :: bind every interface and are therefore NOT loopback. Any hostname
+other than \"localhost\" is treated as non-loopback: we do not resolve names, and
+a name that happens to resolve to loopback still deserves an explicit secret."
+  (and (stringp host)
+       (let ((name (string-trim "[]" host)))
+         (or (string-equal name "localhost")
+             (string-equal name "::1")
+             (and (>= (length name) 4)
+                  (string= "127." name :end2 4))))))
+
+(defun devnet-cli-require-engine-authentication (node)
+  "Refuse to serve the Engine (authrpc) API unauthenticated on a non-loopback
+address.
+
+The HTTP handler only checks the JWT bearer token inside (when jwt-secret ...),
+so with no secret every Engine request -- forkchoice, payload submission -- is
+accepted. That is acceptable on loopback, where the endpoint is reachable only
+from this machine and an `init`-derived --datadir secret still satisfies the
+check, but binding a routable host with no secret hands chain control to anyone
+who can reach the port. Fail startup with a clear message instead of serving it."
+  (let ((host (devnet-endpoint-config-host
+               (devnet-node-engine-endpoint-config node))))
+    (when (and (not (devnet-cli-loopback-host-p host))
+               (null (devnet-node-jwt-secret-path node)))
+      (error
+       "Engine (authrpc) endpoint binds non-loopback host ~A without a JWT secret; refusing to serve the Engine API unauthenticated. Provide --authrpc.jwtsecret PATH (or --jwt-secret PATH), use a --datadir whose JWT secret was initialised, or bind the Engine endpoint to a loopback address."
+       host))))
+
 (defun devnet-cli-apply-merge-overrides
     (config &key terminal-total-difficulty
                   terminal-total-difficulty-passed

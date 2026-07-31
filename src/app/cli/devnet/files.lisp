@@ -104,19 +104,78 @@ The public-key derivation validates the [1, n-1] range."
     (error ()
       (error "~A requires a 32-byte hex secp256k1 private key" option))))
 
+(defun devnet-cli-write-private-file (path writer)
+  "Create PATH as a private, mode-0600 regular file and write its contents with
+WRITER, a function of one character output stream.
+
+WITH-OPEN-FILE cannot create a secret file: it has no mode argument, so a new
+file is 0666 & ~umask (group- or world-readable under the usual umask), and its
+:IF-EXISTS behaviour follows symlinks and truncates an existing inode -- a
+planted file or a symlink at PATH would then receive the secret. Open PATH
+directly with O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW and mode #o600 instead, so the
+descriptor is private from open(2) and a pre-existing file or symlink at PATH is
+refused (fail closed) rather than followed or truncated. Every caller only
+reaches this on the create branch of a not-present check, so O_EXCL refusing an
+existing PATH is the intended fail-closed outcome.
+
+CLOSE on an fd-stream closes the underlying fd, so close the stream OR the fd,
+never both -- a double close can land on an unrelated recycled descriptor."
+  #-sbcl
+  (declare (ignore path writer))
+  #-sbcl
+  (error "Creating a private file requires SBCL")
+  #+sbcl
+  (let ((namestring
+          (sb-ext:native-namestring
+           (devnet-cli-ensure-path-parent-directory path)))
+        (fd nil)
+        (stream nil)
+        (stream-open-p nil))
+    (unwind-protect
+         (progn
+           (setf fd
+                 (sb-posix:open
+                  namestring
+                  (logior sb-posix:o-wronly sb-posix:o-creat
+                          sb-posix:o-excl sb-posix:o-nofollow)
+                  #o600))
+           (setf stream
+                 (sb-sys:make-fd-stream
+                  fd
+                  :output t
+                  :element-type 'character
+                  :external-format :utf-8))
+           ;; The stream now owns the descriptor: null FD so cleanup never
+           ;; closes it a second time behind the stream's own CLOSE.
+           (setf fd nil
+                 stream-open-p t)
+           (funcall writer stream)
+           (finish-output stream)
+           (close stream)
+           (setf stream-open-p nil))
+      (when stream-open-p
+        (ignore-errors (close stream)))
+      (when fd
+        (ignore-errors (sb-posix:close fd))))
+    path))
+
 (defun devnet-cli-read-node-key (path)
   "Load the node's secp256k1 private key from PATH, or generate and persist a
-fresh one when the file does not exist (go-ethereum --nodekey semantics)."
+fresh one when the file does not exist (go-ethereum --nodekey semantics).
+
+The fresh key is written through DEVNET-CLI-WRITE-PRIVATE-FILE so the nodekey
+lands as a mode-0600 file the operator's process alone can read, rather than the
+world-readable file WITH-OPEN-FILE would have produced."
   (if (probe-file path)
       (devnet-cli-parse-node-key-hex
        (string-trim '(#\Space #\Tab #\Newline #\Return)
                     (devnet-cli-read-file-string path))
        "--nodekey")
       (let ((scalar (secp256k1-random-private-key)))
-        (with-open-file (out (devnet-cli-ensure-path-parent-directory path)
-                             :direction :output
-                             :if-does-not-exist :create :if-exists :error)
-          (write-string (devnet-cli-node-key-hex scalar) out))
+        (devnet-cli-write-private-file
+         path
+         (lambda (out)
+           (write-string (devnet-cli-node-key-hex scalar) out)))
         scalar)))
 
 (defun devnet-cli-empty-file-p (path)
@@ -330,43 +389,49 @@ than replaying the log, so those callers must not share the live handle."
       (write-string contents stream))))
 
 (defun devnet-cli-random-bytes (length)
-  (let ((bytes (make-array length :element-type '(unsigned-byte 8))))
-    (handler-case
-        (with-open-file (stream #P"/dev/urandom"
-                                :direction :input
-                                :element-type '(unsigned-byte 8))
-          (unless (= length (read-sequence bytes stream))
-            (error "Unable to read enough bytes from /dev/urandom"))
-          bytes)
-      (error ()
-        (let ((state (make-random-state t)))
-          (dotimes (index length bytes)
-            (setf (aref bytes index) (random 256 state))))))))
+  "LENGTH cryptographically secure random bytes from the OS CSPRNG, failing
+closed when it is unavailable.
+
+Formerly fell back to CL:RANDOM on any /dev/urandom failure. CL:RANDOM is not a
+cryptographic generator, and *RANDOM-STATE* is seeded deterministically at image
+build time, so that fallback would silently mint a guessable JWT secret or node
+identity -- worse than refusing to start. SECURE-RANDOM-BYTES already errors when
+the OS CSPRNG cannot be read, which is the behaviour we want here."
+  (secure-random-bytes length))
 
 (defun devnet-cli-ensure-datadir-jwt-secret (datadir &key source-path)
   (when datadir
     (if source-path
         (let ((path (devnet-cli-datadir-jwt-secret-path datadir))
               (secret (devnet-cli-read-jwt-secret source-path)))
-          (with-open-file (stream (devnet-cli-ensure-path-parent-directory path)
-                                  :direction :output
-                                  :if-exists :supersede
-                                  :if-does-not-exist :create)
-            (write-string (bytes-to-hex secret :prefix nil) stream)
-            (terpri stream))
+          ;; Copying an operator-provided secret into the datadir is still a
+          ;; secret-file creation, so write it privately (mode 0600, O_NOFOLLOW)
+          ;; rather than through WITH-OPEN-FILE's world-readable,
+          ;; symlink-following :SUPERSEDE. Re-initialising an existing datadir
+          ;; replaces the previous secret, so drop any current file before the
+          ;; O_EXCL create.
+          (when (probe-file path)
+            (ignore-errors (delete-file path)))
+          (devnet-cli-write-private-file
+           path
+           (lambda (stream)
+             (write-string (bytes-to-hex secret :prefix nil) stream)
+             (terpri stream)))
           path)
         (or (devnet-cli-existing-datadir-jwt-secret-path datadir)
             (let ((path (devnet-cli-datadir-jwt-secret-path datadir)))
-              (with-open-file
-                  (stream (devnet-cli-ensure-path-parent-directory path)
-                          :direction :output
-                          :if-exists nil
-                          :if-does-not-exist :create)
-                (when stream
-                  (write-string
-                   (bytes-to-hex (devnet-cli-random-bytes 32) :prefix nil)
-                   stream)
-                  (terpri stream)))
+              ;; No existing secret was found above, so create one privately.
+              ;; DEVNET-CLI-WRITE-PRIVATE-FILE opens with O_EXCL|O_NOFOLLOW and
+              ;; mode 0600: a JWT secret must never be world-readable, and a
+              ;; file or symlink that appeared since the check must fail the
+              ;; write rather than be followed or clobbered.
+              (devnet-cli-write-private-file
+               path
+               (lambda (stream)
+                 (write-string
+                  (bytes-to-hex (devnet-cli-random-bytes 32) :prefix nil)
+                  stream)
+                 (terpri stream)))
               path)))))
 
 (defun devnet-cli-validate-imported-genesis (store genesis-block database-path)
