@@ -188,7 +188,7 @@
   (execution-spec-tests-discovery-path-p
    root
    path
-   +phase-a-eest-blockchain-replay-discovery-feature-directories+
+   (phase-a-eest-blockchain-replay-active-feature-directories)
    +phase-a-eest-blockchain-replay-discovery-max-file-bytes+))
 
 (defun phase-a-eest-state-test-discovery-path-p (root path)
@@ -328,6 +328,37 @@
             (error "~A must name at least one fork"
                    +phase-a-eest-state-test-forks-env+))
           forks))))
+
+(defun phase-a-eest-blockchain-replay-supported-networks ()
+  "The networks a materialized replay case may carry, from the fork env var or
+the Shanghai default. This gates both discovery (which late-fork trees to open)
+and validation (which networks a loaded case may report)."
+  (let ((value
+          (funcall *fixture-root-environment-reader*
+                   +phase-a-eest-blockchain-replay-forks-env+)))
+    (if (or (null value) (blank-string-p value))
+        (copy-list +phase-a-eest-blockchain-replay-supported-networks+)
+        (let ((networks
+                (remove-if
+                 #'blank-string-p
+                 (mapcar #'eest-fixture-trim-string
+                         (eest-fixture-split-string value #\,)))))
+          (unless networks
+            (error "~A must name at least one network"
+                   +phase-a-eest-blockchain-replay-forks-env+))
+          networks))))
+
+(defun phase-a-eest-blockchain-replay-active-feature-directories ()
+  "The pre-Shanghai..Shanghai feature trees plus one late-fork tree per active
+network. With the Shanghai default this is exactly the base set, so discovery
+never descends into an unsupported-fork directory."
+  (let ((networks (phase-a-eest-blockchain-replay-supported-networks)))
+    (append
+     +phase-a-eest-blockchain-replay-discovery-feature-directories+
+     (loop for (network . directory)
+             in +phase-a-eest-blockchain-replay-late-fork-directories+
+           when (member network networks :test #'string=)
+             collect directory))))
 
 (defun parse-phase-a-eest-state-test-selectors (value)
   (unless (stringp value)
@@ -524,7 +555,9 @@
              (network (fixture-object-field fixture "network"))
              (kind (eest-blockchain-replay-materialization-kind case)))
         (when (and (stringp network)
-                   (string= "Shanghai" network))
+                   (member network
+                           (phase-a-eest-blockchain-replay-supported-networks)
+                           :test #'string=))
           (cond
             ((string= "engineNewPayloadV2" kind)
              (if (fixture-field-present-p fixture "engineNewPayloadV2")
@@ -638,8 +671,17 @@
                  name
                  kind
                  (eest-blockchain-replay-materialization-kind case)))))
-    (unless (= count (or (fixture-object-field network-counts "Shanghai") 0))
-      (error "Phase A EEST blockchain replay must load only Shanghai cases"))
+    ;; Every loaded case must carry a network this build gates on. Default that
+    ;; is Shanghai only, so the original "only Shanghai" guarantee is unchanged;
+    ;; ..._BLOCKCHAIN_REPLAY_FORKS widens it to the late forks. A network outside
+    ;; the set means discovery opened a directory it should not have -- fail
+    ;; rather than silently count it.
+    (let ((supported (phase-a-eest-blockchain-replay-supported-networks)))
+      (dolist (entry network-counts)
+        (unless (member (car entry) supported :test #'string=)
+          (error "Phase A EEST blockchain replay loaded unsupported network ~A; set ~A to include it"
+                 (car entry)
+                 +phase-a-eest-blockchain-replay-forks-env+))))
     (unless (plusp (or (fixture-object-field kind-counts "engineNewPayloadV2")
                        0))
       (error "Phase A EEST blockchain replay is missing embedded Engine coverage"))

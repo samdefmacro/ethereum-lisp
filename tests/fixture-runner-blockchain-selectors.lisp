@@ -756,3 +756,22 @@
 (defconstant +phase-a-eest-blockchain-replay-discovery-max-file-bytes+
   (* 2 1024 1024))
 
+(defconstant +phase-a-eest-blockchain-replay-forks-env+
+  "ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_FORKS")
+
+;; Which networks a materialized replay case may carry. Shanghai only by
+;; default, so the existing gate is unchanged; the env var above widens it to
+;; the late forks the same way ..._STATE_TEST_FORKS widens state discovery.
+;; Amsterdam is deliberately absent: it is gated out until plan section 8.
+(defparameter +phase-a-eest-blockchain-replay-supported-networks+
+  '("Shanghai"))
+
+;; The network FIELD, not the directory, decides a replay case's fork -- a
+;; pre-Shanghai feature materialized at a late fork still lives under its
+;; feature directory (berlin/, frontier/, ...). These late-fork trees hold
+;; features INTRODUCED at that fork and are only traversed when the network is
+;; active, so the default Shanghai gate never opens a Cancun/Prague/Osaka
+;; directory (preserving the discovery-skips-unsupported-fork-roots contract).
+(defparameter +phase-a-eest-blockchain-replay-late-fork-directories+
+  '(("Cancun" . "cancun") ("Prague" . "prague") ("Osaka" . "osaka")))
+

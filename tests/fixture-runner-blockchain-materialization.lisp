@@ -72,9 +72,11 @@
      fixture
      +eest-blockchain-engine-newpayloads-fixture-fields+
      label)
-    (unless (string= "Shanghai" (fixture-required-field fixture "network"))
-      (error "~A engineNewPayloads materializer currently supports Shanghai V2"
-             label))
+    (unless (member (fixture-required-field fixture "network")
+                    (phase-a-eest-blockchain-replay-supported-networks)
+                    :test #'string=)
+      (error "~A engineNewPayloads V2 materializer only handles active networks; set ~A"
+             label +phase-a-eest-blockchain-replay-forks-env+))
     (let ((entries (fixture-required-field fixture "engineNewPayloads")))
       (unless (and (listp entries) entries)
         (error "~A engineNewPayloads must be a non-empty JSON array" label))
@@ -315,9 +317,11 @@ with numbers it was supposed to reject."
      fixture
      +eest-blockchain-standard-fixture-fields+
      label)
-    (unless (string= "Shanghai" (fixture-required-field fixture "network"))
-      (error "~A standard replay materializer currently supports Shanghai"
-             label))
+    (unless (member (fixture-required-field fixture "network")
+                    (phase-a-eest-blockchain-replay-supported-networks)
+                    :test #'string=)
+      (error "~A standard replay materializer only handles active networks; set ~A"
+             label +phase-a-eest-blockchain-replay-forks-env+))
     (let ((blocks (validate-eest-blockchain-json-array-field
                    fixture
                    "blocks"
@@ -389,6 +393,15 @@ that is valid."
     (list (cons "name" (fixture-required-field case "name"))
           (cons "network" (fixture-required-field fixture "network"))
           (cons "chainId" "0x1")
+          ;; TODO(plan Phase 7): this config activates forks only through
+          ;; Shanghai, and engine-fixture-chain-config reads no key past
+          ;; shanghaiTime, so a Cancun/Prague/Osaka case admitted by the widened
+          ;; network gate still EXECUTES under Shanghai rules. That mis-execution
+          ;; is exactly the late-fork divergence the non-blocking conformance job
+          ;; is meant to surface; wiring per-network activation (cancunTime,
+          ;; pragueTime, osakaTime) through the runtime is Phase 7's job, not a
+          ;; change to make blind here. The network field is still carried
+          ;; through so the count manifest attributes the case to its real fork.
           (cons "config"
                 '(("berlinBlock" . "0x0")
                   ("londonBlock" . "0x0")

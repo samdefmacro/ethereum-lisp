@@ -1114,5 +1114,15 @@
           (assert-eest-state-test-case case :fork fork))))))
 
 (deftest optional-phase-a-eest-state-test-root-vectors-execute
-  (dolist (case (load-optional-phase-a-eest-state-test-root-cases))
-    (assert-eest-state-test-case case)))
+  ;; Execute only the forks this build implements. A post map from the stable
+  ;; corpus can also carry a not-yet-implemented fork (e.g. Amsterdam, which is
+  ;; deliberately gated out of this wave); running EVERY fork name would turn
+  ;; the gate red on a fork we never claimed to execute rather than on a real
+  ;; divergence. Discovery already guarantees at least one supported fork per
+  ;; case, so the intersection is non-empty and nothing is silently skipped.
+  (let ((supported (phase-a-eest-state-test-supported-forks)))
+    (dolist (case (load-optional-phase-a-eest-state-test-root-cases))
+      (dolist (fork (intersection supported
+                                  (eest-state-test-case-fork-names case)
+                                  :test #'string=))
+        (assert-eest-state-test-case case :fork fork)))))
