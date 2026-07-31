@@ -36,6 +36,7 @@
    #:verify-kzg-cell-proofs
    #:make-kzg-cffi-verifier
    #:kzg-cffi-verifier-available-p
+   #:kzg-cell-computation-available-p
    #:compute-kzg-cell-proofs
    #:kzg-compute-cells-and-proofs
    #:validate-blob-sidecar-fields))

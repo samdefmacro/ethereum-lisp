@@ -189,16 +189,18 @@
                     (capabilities (field response "result")))
                (is (member "engine_newPayloadV3" capabilities :test #'string=))
                (is (member "engine_newPayloadV4" capabilities :test #'string=))
-               (is (member "engine_newPayloadV5"
-                           capabilities
-                           :test #'string=))
-               (is (member "engine_forkchoiceUpdatedV4"
-                           capabilities
-                           :test #'string=))
-               (is (member "engine_getPayloadV6"
-                           capabilities
-                           :test #'string=))
-               (is (engine-rpc-engine-method-p "engine_newPayloadV5"))
+               ;; Amsterdam execution is unavailable, so its Engine methods stay
+               ;; unadvertised even with every KZG/BLS backend mocked in.
+               (is (not (member "engine_newPayloadV5"
+                                capabilities
+                                :test #'string=)))
+               (is (not (member "engine_forkchoiceUpdatedV4"
+                                capabilities
+                                :test #'string=)))
+               (is (not (member "engine_getPayloadV6"
+                                capabilities
+                                :test #'string=)))
+               (is (not (engine-rpc-engine-method-p "engine_newPayloadV5")))
                (let* ((dispatch-response
                         (parse-json
                          (engine-rpc-handle-request-json
@@ -206,10 +208,10 @@
                           store config
                           :allowed-method-p #'engine-rpc-engine-method-p)))
                       (dispatch-error (field dispatch-response "error")))
-                 ;; The method reached its parameter validator; a closed
-                 ;; capability would have returned JSON-RPC method-not-found.
+                 ;; A refused capability returns JSON-RPC method-not-found before
+                 ;; the parameter validator ever runs.
                  (is dispatch-error)
-                 (is (/= -32601 (field dispatch-error "code"))))
+                 (is (= -32601 (field dispatch-error "code"))))
                (is (member "engine_getPayloadBodiesByHashV2"
                            capabilities
                            :test #'string=))
@@ -221,8 +223,13 @@
                            capabilities :test #'string=))
                (is (member "engine_getBlobsV3"
                            capabilities :test #'string=))
-               (is (member "engine_getBlobsV4"
-                           capabilities :test #'string=))
+               ;; getBlobsV4 additionally needs cell COMPUTATION, which only the
+               ;; c-kzg CFFI backend supplies -- mocked proof verifiers do not
+               ;; satisfy it -- so its advertisement tracks cell availability.
+               (is (eq (kzg-cell-computation-available-p)
+                       (and (member "engine_getBlobsV4"
+                                    capabilities :test #'string=)
+                            t)))
                (is (member "engine_hasBlobs"
                            capabilities :test #'string=))))
         (setf ethereum-lisp.core:*kzg-point-proof-verifier* old-point-verifier
@@ -274,7 +281,43 @@
                        capabilities
                        :test #'string=)))
       (is (not (engine-rpc-engine-method-p "engine_newPayloadV5")))))
-  (is (amsterdam-execution-available-p)))
+  (is (not (amsterdam-execution-available-p))))
+
+(deftest amsterdam-engine-methods-refused-while-execution-unavailable
+  ;; Capability honesty: while AMSTERDAM-EXECUTION-AVAILABLE-P is NIL the Engine
+  ;; API must neither advertise nor dispatch the Amsterdam payload methods, even
+  ;; with every KZG/BLS backend they otherwise need mocked in -- so the only
+  ;; remaining blocker under test is the Amsterdam execution gate itself.
+  (is (not (amsterdam-execution-available-p)))
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let ((*kzg-point-proof-verifier*
+            (lambda (&rest arguments) (declare (ignore arguments)) t))
+          (*kzg-blob-proof-verifier*
+            (lambda (&rest arguments) (declare (ignore arguments)) t))
+          (*bls12381-backend*
+            (lambda (&rest arguments) (declare (ignore arguments)) t)))
+      (let ((capabilities (engine-rpc-capabilities)))
+        (dolist (method '("engine_newPayloadV5"
+                          "engine_getPayloadV6"
+                          "engine_forkchoiceUpdatedV4"))
+          (is (not (member method capabilities :test #'string=)))
+          (is (not (engine-rpc-engine-method-p method)))
+          (let* ((request-json
+                   (format nil
+                           "{\"jsonrpc\":\"2.0\",\"id\":91,\"method\":~S,\"params\":[]}"
+                           method))
+                 (response
+                   (parse-json
+                    (engine-rpc-handle-request-json
+                     request-json
+                     (make-engine-payload-memory-store)
+                     (make-chain-config)
+                     :allowed-method-p #'engine-rpc-engine-method-p)))
+                 (error (field response "error")))
+            (is error)
+            (is (= -32601 (field error "code")))
+            (is (not (field response "result")))))))))
 
 (deftest engine-rpc-get-client-version-returns-local-identity
   (labels ((field (object name)

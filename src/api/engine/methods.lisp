@@ -25,12 +25,25 @@
     ("engine_getBlobsV1" :advertised-p t :kzg-p t)
     ("engine_getBlobsV2" :advertised-p t :kzg-p t)
     ("engine_getBlobsV3" :advertised-p t :kzg-p t)
-    ("engine_getBlobsV4" :advertised-p t :kzg-p t)
+    ("engine_getBlobsV4" :advertised-p t :kzg-p t :cell-p t)
     ("engine_hasBlobs" :advertised-p t :kzg-p t)
     ("engine_newPayloadV3" :advertised-p t :kzg-p t)
     ("engine_newPayloadV4" :advertised-p t :kzg-p t :bls-p t)
     ("engine_newPayloadV5" :advertised-p t :kzg-p t :bls-p t
-     :amsterdam-p t)))
+     :amsterdam-p t))
+  "Engine methods and the backends each requires to be honestly callable.
+
+Availability flags (see ENGINE-RPC-METHOD-AVAILABLE-P):
+  :kzg-p       needs KZG point/blob proof verification.
+  :cell-p      needs EIP-7594 cell-and-proof COMPUTATION, which is a strictly
+               stronger requirement than :kzg-p -- proof verification can be
+               satisfied by a mock verifier, but computation only by the c-kzg
+               CFFI backend.  engine_getBlobsV4 is the only method whose handler
+               computes cells (KZG-COMPUTE-CELLS-AND-PROOFS).
+  :bls-p       needs the BLS12-381 backend.
+  :amsterdam-p needs Amsterdam execution semantics (AMSTERDAM-EXECUTION-
+               AVAILABLE-P), currently NIL, so these methods stay unadvertised
+               and are refused by dispatch.")
 
 (defun engine-rpc-method-spec (method)
   (assoc method +engine-rpc-method-registry+ :test #'string=))
@@ -69,6 +82,8 @@
         (and (not (getf properties :unsupported-p))
              (or (not (getf properties :kzg-p))
                  (kzg-proof-verification-available-p))
+             (or (not (getf properties :cell-p))
+                 (kzg-cell-computation-available-p))
              (or (not (getf properties :bls-p))
                  (bls12381-backend-available-p))
              (or (not (getf properties :amsterdam-p))
