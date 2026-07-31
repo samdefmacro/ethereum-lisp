@@ -50,7 +50,6 @@
                              "--cache.database=64"
                              "--gcmode" "archive"
                              "--state.scheme=hash"
-                             "--db.engine=pebble"
                              "--snapshot=false"
                              "--networkid" "7331"
                              "--sepolia=false"

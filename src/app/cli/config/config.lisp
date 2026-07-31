@@ -2,6 +2,41 @@
 
 ;;;; Geth-style TOML config conversion into devnet CLI options.
 
+(defparameter *devnet-cli-config-known-keys*
+  '(("Node" . "DataDir")
+    ("Node" . "HTTPHost")
+    ("Node" . "HTTPPort")
+    ("Node" . "HTTPModules")
+    ("Node" . "HTTPCors")
+    ("Node" . "HTTPVirtualHosts")
+    ("Node" . "HTTPPathPrefix")
+    ("Node" . "AuthAddr")
+    ("Node" . "AuthPort")
+    ("Node" . "AuthVirtualHosts")
+    ("Node" . "JWTSecret")
+    ("Eth" . "NetworkId")
+    ("Eth.TxPool" . "PriceLimit")
+    ("Eth.TxPool" . "PriceBump")
+    ("Eth.TxPool" . "AccountSlots")
+    ("Eth.TxPool" . "GlobalSlots")
+    ("Eth.TxPool" . "AccountQueue")
+    ("Eth.TxPool" . "GlobalQueue")
+    ("Eth.TxPool" . "Lifetime")
+    ("Eth.TxPool" . "Journal")
+    ("Eth.TxPool" . "Rejournal")
+    ("Eth.TxPool" . "Locals")
+    ("Eth.TxPool" . "NoLocals")
+    ("Eth.Miner" . "GasCeil"))
+  "Every geth TOML (section . key) pair DEVNET-CLI-CONFIG-OPTION-ARGS maps onto a
+CLI option. It must list exactly the keys that function recognises: an unknown
+key is rejected rather than silently ignored, so a typo cannot quietly leave the
+node on a default the operator meant to change.")
+
+(defun devnet-cli-config-known-key-p (section key)
+  (loop for (known-section . known-key) in *devnet-cli-config-known-keys*
+        thereis (and (string= section known-section)
+                     (string= key known-key))))
+
 (defun devnet-cli-config-list-string (value)
   (cond
     ((null value) nil)
@@ -131,6 +166,13 @@
                                (subseq line 0 separator)))
                          (value (devnet-cli-toml-parse-value
                                  (subseq line (1+ separator)))))
+                     ;; Reject keys we do not map rather than dropping them:
+                     ;; silently returning NIL turned a typo (or a real geth
+                     ;; setting we do not honour) into a default the operator
+                     ;; never chose.
+                     (unless (devnet-cli-config-known-key-p section key)
+                       (error "Unknown TOML config key in ~A: [~A] ~A"
+                              path section key))
                      (devnet-cli-config-option-args
                       section
                       key
