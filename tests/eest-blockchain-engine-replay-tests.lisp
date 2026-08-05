@@ -195,3 +195,27 @@
      (materialize-eest-blockchain-engine-newpayload-v2-case source-case)
      :source-case source-case)))
 
+(deftest eest-blockchain-replay-standard-config-activates-network-fork
+  ;; The standard block-RLP materializer must hand each case a config that
+  ;; activates its OWN fork, not Shanghai -- otherwise a Cancun/Prague/Osaka
+  ;; case executes under the wrong ruleset, which is precisely the mis-execution
+  ;; the non-blocking late-fork conformance job exists to surface. Drive
+  ;; engine-fixture-chain-config the way the replay path does and assert
+  ;; cumulative activation at the block.
+  (labels ((rules-at (network)
+             (let ((config
+                     (engine-fixture-chain-config
+                      (list (cons "chainId" "0x1")
+                            (cons "config"
+                                  (eest-blockchain-replay-network-config
+                                   network))))))
+               (list (chain-config-shanghai-p config 1 1)
+                     (chain-config-cancun-p config 1 1)
+                     (chain-config-prague-p config 1 1)
+                     (chain-config-osaka-p config 1 1)))))
+    ;; (shanghai cancun prague osaka), each T only once its network is reached.
+    (is (equal '(t nil nil nil) (rules-at "Shanghai")))
+    (is (equal '(t t nil nil) (rules-at "Cancun")))
+    (is (equal '(t t t nil) (rules-at "Prague")))
+    (is (equal '(t t t t) (rules-at "Osaka")))))
+

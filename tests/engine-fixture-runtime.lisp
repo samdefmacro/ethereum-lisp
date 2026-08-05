@@ -9,6 +9,15 @@
 (defun fixture-optional-quantity-field (object name default)
   (hex-to-quantity (or (fixture-object-field object name) default)))
 
+(defun fixture-optional-time-field (config name)
+  "Parse a time-based fork activation key, or NIL when it is absent.
+
+A missing key must stay NIL rather than default to 0: FORK-TIME-ACTIVE-P
+treats a NIL activation time as never-active, so an absent CANCUNTIME leaves
+Cancun off, whereas a 0 would activate it at genesis."
+  (let ((value (fixture-object-field config name)))
+    (when value (hex-to-quantity value))))
+
 (defun engine-fixture-chain-config (case)
   (let ((config (fixture-object-field case "config")))
     (make-chain-config
@@ -23,7 +32,10 @@
      :istanbul-block 0
      :berlin-block (fixture-quantity-field config "berlinBlock")
      :london-block (fixture-quantity-field config "londonBlock")
-     :shanghai-time (fixture-quantity-field config "shanghaiTime"))))
+     :shanghai-time (fixture-quantity-field config "shanghaiTime")
+     :cancun-time (fixture-optional-time-field config "cancunTime")
+     :prague-time (fixture-optional-time-field config "pragueTime")
+     :osaka-time (fixture-optional-time-field config "osakaTime"))))
 
 (defun engine-fixture-parent-state (parent)
   (let ((state (make-state-db)))

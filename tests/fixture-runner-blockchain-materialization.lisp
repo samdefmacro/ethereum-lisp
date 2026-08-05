@@ -386,6 +386,26 @@ that is valid."
          (fixture-field-present-p block-case "expectException")
          (fixture-object-field block-case "expectException"))))
 
+(defun eest-blockchain-replay-network-config (network)
+  "Config activating every fork up through NETWORK at genesis.
+
+Mirrors the fork ordering EEST-STATE-TEST-CHAIN-RULES uses on the state path:
+London and Shanghai are always on, and Cancun/Prague/Osaka switch on
+cumulatively so a case executes under the exact ruleset its network names
+rather than under Shanghai.  ENGINE-FIXTURE-CHAIN-CONFIG reads a missing time
+key as NIL, so a Shanghai case (which emits no late-fork key) yields the same
+config the standard path emitted before this became fork-aware."
+  (append
+   '(("berlinBlock" . "0x0")
+     ("londonBlock" . "0x0")
+     ("shanghaiTime" . "0x0"))
+   (when (member network '("Cancun" "Prague" "Osaka") :test #'string=)
+     '(("cancunTime" . "0x0")))
+   (when (member network '("Prague" "Osaka") :test #'string=)
+     '(("pragueTime" . "0x0")))
+   (when (member network '("Osaka") :test #'string=)
+     '(("osakaTime" . "0x0")))))
+
 (defun materialize-eest-blockchain-standard-newpayload-v2-case (case)
   (let* ((fixture (fixture-required-field case "fixture"))
          (exception (eest-blockchain-case-exception case))
@@ -393,19 +413,17 @@ that is valid."
     (list (cons "name" (fixture-required-field case "name"))
           (cons "network" (fixture-required-field fixture "network"))
           (cons "chainId" "0x1")
-          ;; TODO(plan Phase 7): this config activates forks only through
-          ;; Shanghai, and engine-fixture-chain-config reads no key past
-          ;; shanghaiTime, so a Cancun/Prague/Osaka case admitted by the widened
-          ;; network gate still EXECUTES under Shanghai rules. That mis-execution
-          ;; is exactly the late-fork divergence the non-blocking conformance job
-          ;; is meant to surface; wiring per-network activation (cancunTime,
-          ;; pragueTime, osakaTime) through the runtime is Phase 7's job, not a
-          ;; change to make blind here. The network field is still carried
-          ;; through so the count manifest attributes the case to its real fork.
+          ;; The config activates the case's real fork: engine-fixture-chain-config
+          ;; reads the cancunTime/pragueTime/osakaTime this emits, so a
+          ;; Cancun/Prague/Osaka case admitted by the widened network gate now
+          ;; EXECUTES under its own ruleset instead of Shanghai. Any divergence
+          ;; that then surfaces is genuine, and stays absorbed by the non-blocking
+          ;; late-fork conformance job. The V3+ engine-payload path (blob gas,
+          ;; parent beacon root, requests) is still not materialized and remains a
+          ;; counted skip, per readiness-plan section 2.
           (cons "config"
-                '(("berlinBlock" . "0x0")
-                  ("londonBlock" . "0x0")
-                  ("shanghaiTime" . "0x0")))
+                (eest-blockchain-replay-network-config
+                 (fixture-required-field fixture "network")))
           (cons "parent"
                 (eest-blockchain-standard-parent
                  fixture
@@ -445,9 +463,8 @@ that is valid."
                        "chainid")
                       "0x1"))))
           (cons "config"
-                '(("berlinBlock" . "0x0")
-                  ("londonBlock" . "0x0")
-                  ("shanghaiTime" . "0x0")))
+                (eest-blockchain-replay-network-config
+                 (fixture-required-field fixture "network")))
           (cons "parent"
                 (mapcar
                  (lambda (entry)
