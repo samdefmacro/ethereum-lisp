@@ -21,12 +21,14 @@
     (unless block
       (block-validation-fail
        "Engine account balance block must be known by the memory store"))
-    (setf (gethash (engine-payload-store-account-key block-hash address)
-                   (memory-chain-store-account-balances store))
-          balance
-          (gethash (engine-payload-store-key block-hash)
-                   (memory-chain-store-state-blocks store))
-          :baseline)
+    (chain-store-journal-puthash
+     (memory-chain-store-account-balances store)
+     (engine-payload-store-account-key block-hash address)
+     balance)
+    (chain-store-journal-puthash
+     (memory-chain-store-state-blocks store)
+     (engine-payload-store-key block-hash)
+     :baseline)
     balance))
 
 (defun engine-payload-store-account-balance (store block-hash address)
@@ -49,12 +51,14 @@
     (unless block
       (block-validation-fail
        "Engine account nonce block must be known by the memory store"))
-    (setf (gethash (engine-payload-store-account-key block-hash address)
-                   (memory-chain-store-account-nonces store))
-          nonce
-          (gethash (engine-payload-store-key block-hash)
-                   (memory-chain-store-state-blocks store))
-          :baseline)
+    (chain-store-journal-puthash
+     (memory-chain-store-account-nonces store)
+     (engine-payload-store-account-key block-hash address)
+     nonce)
+    (chain-store-journal-puthash
+     (memory-chain-store-state-blocks store)
+     (engine-payload-store-key block-hash)
+     :baseline)
     nonce))
 
 (defun engine-payload-store-account-nonce (store block-hash address)
@@ -76,12 +80,14 @@
     (unless block
       (block-validation-fail
        "Engine account code block must be known by the memory store"))
-    (setf (gethash (engine-payload-store-account-key block-hash address)
-                   (memory-chain-store-account-codes store))
-          (copy-seq code)
-          (gethash (engine-payload-store-key block-hash)
-                   (memory-chain-store-state-blocks store))
-          :baseline)
+    (chain-store-journal-puthash
+     (memory-chain-store-account-codes store)
+     (engine-payload-store-account-key block-hash address)
+     (copy-seq code))
+    (chain-store-journal-puthash
+     (memory-chain-store-state-blocks store)
+     (engine-payload-store-key block-hash)
+     :baseline)
     code))
 
 (defun engine-payload-store-account-code (store block-hash address)
@@ -110,13 +116,14 @@
     (unless block
       (block-validation-fail
        "Engine account storage block must be known by the memory store"))
-    (setf (gethash
-           (engine-payload-store-account-storage-key block-hash address slot)
-           (memory-chain-store-account-storage store))
-          value
-          (gethash (engine-payload-store-key block-hash)
-                   (memory-chain-store-state-blocks store))
-          :baseline)
+    (chain-store-journal-puthash
+     (memory-chain-store-account-storage store)
+     (engine-payload-store-account-storage-key block-hash address slot)
+     value)
+    (chain-store-journal-puthash
+     (memory-chain-store-state-blocks store)
+     (engine-payload-store-key block-hash)
+     :baseline)
     value))
 
 (defun engine-payload-store-account-storage (store block-hash address slot)

@@ -18,16 +18,18 @@
   (setf store (chain-store-require-memory-store store))
   (unless (typep block 'ethereum-block)
     (block-validation-fail "Engine remote block cache value must be a block"))
-  (setf (gethash (engine-payload-store-key (block-hash block))
-                 (memory-chain-store-remote-blocks store))
-        (engine-payload-store-copy-block block))
+  (chain-store-journal-puthash
+   (memory-chain-store-remote-blocks store)
+   (engine-payload-store-key (block-hash block))
+   (engine-payload-store-copy-block block))
   block)
 
 (defun engine-payload-store-remove-remote-block
     (store hash)
   (setf store (chain-store-require-memory-store store))
-  (remhash (engine-payload-store-key hash)
-           (memory-chain-store-remote-blocks store)))
+  (chain-store-journal-remhash
+   (memory-chain-store-remote-blocks store)
+   (engine-payload-store-key hash)))
 
 (defun engine-payload-store-put-forkchoice-sync-target (store hash)
   (setf store (chain-store-require-memory-store store))
@@ -59,8 +61,8 @@
          (push payload-id-key stale-payload-id-keys)))
      (memory-chain-store-prepared-payloads store))
     (dolist (payload-id-key stale-payload-id-keys)
-      (remhash payload-id-key
-               (memory-chain-store-prepared-payloads store)))))
+      (chain-store-journal-remhash
+       (memory-chain-store-prepared-payloads store) payload-id-key))))
 
 (defun engine-payload-store-mark-invalid
     (store invalid-block &key head-hash)
@@ -151,11 +153,11 @@ transient or raced verdict can be retried without restarting the node."
   (validate-engine-prepared-payload prepared-payload)
   (let ((stored-payload
           (engine-payload-store-copy-prepared-payload prepared-payload)))
-    (setf (gethash
-           (engine-payload-id-key
-            (engine-prepared-payload-payload-id stored-payload))
-           (memory-chain-store-prepared-payloads store))
-          stored-payload))
+    (chain-store-journal-puthash
+     (memory-chain-store-prepared-payloads store)
+     (engine-payload-id-key
+      (engine-prepared-payload-payload-id stored-payload))
+     stored-payload))
   prepared-payload)
 
 (defun engine-payload-store-prepared-payload (store payload-id)
@@ -222,17 +224,17 @@ transient or raced verdict can be retried without restarting the node."
                                       (* index +cell-proofs-per-blob+)
                                       (* (1+ index)
                                          +cell-proofs-per-blob+)))
-          do (setf (gethash
-                    (engine-payload-store-key versioned-hash)
-                    (memory-chain-store-blob-sidecars store))
-                   (make-engine-blob-and-proofs
-                    :blob (maybe-copy-bytes blob)
-                    :commitment
-                    (maybe-copy-bytes
-                     (nth index (blob-sidecar-commitments sidecar)))
-                    :proof (maybe-copy-bytes proof)
-                    :cell-proofs (mapcar #'maybe-copy-bytes
-                                         cell-proofs)))))
+          do (chain-store-journal-puthash
+              (memory-chain-store-blob-sidecars store)
+              (engine-payload-store-key versioned-hash)
+              (make-engine-blob-and-proofs
+               :blob (maybe-copy-bytes blob)
+               :commitment
+               (maybe-copy-bytes
+                (nth index (blob-sidecar-commitments sidecar)))
+               :proof (maybe-copy-bytes proof)
+               :cell-proofs (mapcar #'maybe-copy-bytes
+                                    cell-proofs)))))
   sidecar)
 
 (defun engine-payload-store-blob-and-proofs-v1

@@ -298,3 +298,121 @@
            (state-db-get-storage state contract slot)))
     (is (/= (bytes-to-integer (hash32-bytes (block-hash canonical-ancestor)))
             (state-db-get-storage state contract slot)))))
+
+(defun chain-store-test-slot-counts (chain-store)
+  "Entry counts of every growing chain-store table, for asserting a failed
+commit left the store byte-for-byte as its pre-commit baseline. A mutator the
+undo journal fails to cover shows up here as a changed count."
+  (mapcar
+   (lambda (reader) (hash-table-count (funcall reader chain-store)))
+   (list #'ethereum-lisp.chain-store.state:memory-chain-store-blocks
+         #'ethereum-lisp.chain-store.state:memory-chain-store-number-blocks
+         #'ethereum-lisp.chain-store.state:memory-chain-store-canonical-hashes
+         #'ethereum-lisp.chain-store.state:memory-chain-store-transaction-locations
+         #'ethereum-lisp.chain-store.state:memory-chain-store-account-balances
+         #'ethereum-lisp.chain-store.state:memory-chain-store-account-nonces
+         #'ethereum-lisp.chain-store.state:memory-chain-store-account-codes
+         #'ethereum-lisp.chain-store.state:memory-chain-store-account-storage
+         #'ethereum-lisp.chain-store.state:memory-chain-store-state-blocks
+         #'ethereum-lisp.chain-store.state:memory-chain-store-state-diffs)))
+
+(deftest chain-store-atomic-commit-rolls-back-touched-keys-completely
+  ;; The changed-key undo journal replaces the old whole-store deep copy, so a
+  ;; failed commit must still restore the chain store exactly. Establish a
+  ;; committed baseline, then run a commit that installs a child block
+  ;; (canonicalizing it, bumping the head) and writes new account state before
+  ;; failing; every growing table and the head must return to the baseline. A
+  ;; mutator missed by the journal leaves a slot count or value changed.
+  (let* ((store (make-engine-payload-memory-store))
+         (state (make-state-db))
+         (sender
+           (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (recipient
+           (address-from-hex "0x00000000000000000000000000000000000000f2"))
+         (transaction
+           (make-legacy-transaction :nonce 0
+                                    :gas-price 1
+                                    :gas-limit 21000
+                                    :to recipient
+                                    :value 10))
+         (header (make-block-header :number 0
+                                    :parent-hash (zero-hash32)
+                                    :gas-limit 50000)))
+    (state-db-set-account state sender (make-state-account :balance 100000))
+    (let ((block0
+            (execute-and-commit-block
+             store state
+             (lambda ()
+               (execute-legacy-block state sender (list transaction)
+                                     :header header)))))
+      (let* ((chain-store
+               (ethereum-lisp.chain-store.state:chain-store-require-memory-store
+                store))
+             (baseline-counts (chain-store-test-slot-counts chain-store))
+             (baseline-head (chain-store-head-number store))
+             (baseline-sender-balance
+               (chain-store-account-balance store (block-hash block0) sender))
+             (child (make-block
+                     :header (make-block-header
+                              :number 1
+                              :parent-hash (block-hash block0)
+                              :gas-limit 50000))))
+        (is (= 0 baseline-head))
+        (signals error
+          (chain-store-atomic-commit
+           store
+           (lambda ()
+             (engine-payload-store-put-block store child
+                                             :state-available-p t)
+             (chain-store-put-account-balance
+              store (block-hash child) sender 55555)
+             (chain-store-put-account-balance
+              store (block-hash child) recipient 777)
+             (error "rollback the whole commit"))))
+        (is (equal baseline-counts (chain-store-test-slot-counts chain-store)))
+        (is (= baseline-head (chain-store-head-number store)))
+        (is (null (chain-store-known-block store (block-hash child))))
+        (is (null (chain-store-canonical-hash store 1)))
+        (is (= baseline-sender-balance
+               (chain-store-account-balance store (block-hash block0)
+                                            sender)))))))
+
+(deftest chain-store-atomic-commit-journal-work-tracks-touched-keys
+  ;; Per-commit rollback work must scale with the keys a commit touches, not
+  ;; the store size -- the whole point of the journal over the old copy. Seed a
+  ;; block with N committed accounts, then a transaction that rewrites three of
+  ;; them records the same handful of undos whether N is small or large.
+  (labels ((address-for (index)
+             (address-from-hex (format nil "0x~40,'0X" (1+ index))))
+           (undo-count-for (prior-accounts)
+             (let* ((store (make-engine-payload-memory-store))
+                    (block0
+                      (make-block
+                       :header (make-block-header :number 0
+                                                  :parent-hash (zero-hash32)
+                                                  :gas-limit 50000)))
+                    (block-hash (block-hash block0))
+                    (count nil))
+               (engine-payload-store-put-block store block0
+                                               :state-available-p t)
+               (dotimes (index prior-accounts)
+                 (chain-store-put-account-balance
+                  store block-hash (address-for index) 100))
+               (call-with-chain-store-transaction
+                (lambda (journal)
+                  (dotimes (index 3)
+                    (chain-store-put-account-balance
+                     store block-hash (address-for index) 999))
+                  (setf count (chain-store-journal-undo-count journal))
+                  (chain-store-journal-rollback journal)))
+               ;; Rollback must restore the seeded value, not the touched 999.
+               (is (= 100
+                      (chain-store-account-balance
+                       store block-hash (address-for 0))))
+               count)))
+    (let ((small (undo-count-for 5))
+          (large (undo-count-for 50)))
+      ;; Three touched accounts share one state-blocks baseline marker key, so
+      ;; the journal records three balance keys plus that one marker.
+      (is (= small large))
+      (is (= 4 small)))))

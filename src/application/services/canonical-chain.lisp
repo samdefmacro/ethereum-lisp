@@ -55,12 +55,10 @@
   (dolist (block path)
     (let* ((number (canonical-chain-block-number block))
            (key (engine-payload-store-key (block-hash block))))
-      (setf (gethash number
-                     (memory-chain-store-canonical-hashes chain-store))
-            key
-            (gethash number
-                     (memory-chain-store-number-blocks chain-store))
-            block)
+      (chain-store-journal-puthash
+       (memory-chain-store-canonical-hashes chain-store) number key)
+      (chain-store-journal-puthash
+       (memory-chain-store-number-blocks chain-store) number block)
       (engine-payload-store-index-block-transactions
        chain-store block :force t)
       (engine-payload-store-remove-included-block-transactions
@@ -79,15 +77,16 @@
          (push number stale-numbers)))
      (memory-chain-store-canonical-hashes store))
     (dolist (number stale-numbers)
-      (remhash number
-               (memory-chain-store-canonical-hashes store)))
+      (chain-store-journal-remhash
+       (memory-chain-store-canonical-hashes store) number))
     displaced-blocks))
 
 (defun canonical-chain-set-head-metadata (store head-block)
   (let ((hash (block-hash head-block)))
-    (setf (memory-chain-store-head-number store)
-          (canonical-chain-block-number head-block)
-          (memory-chain-store-head-checkpoint store)
+    (chain-store-journaled-set-head-number
+     store (canonical-chain-block-number head-block))
+    ;; Checkpoints are covered by the volatile wholesale copy, not the journal.
+    (setf (memory-chain-store-head-checkpoint store)
           (make-chain-store-checkpoint :label :head :block-hash hash))))
 
 (defun canonical-chain-reinsert-displaced-transactions

@@ -240,6 +240,7 @@
        (:file "txpool-index-copy" :pathname "txpool/index/copy")
        (:file "chain-store-copy-locations" :pathname "chain-store/service/copy/locations")
        (:file "chain-store-copy-state" :pathname "chain-store/service/copy/state")
+       (:file "chain-store-journal" :pathname "chain-store/service/journal")
        (:file "node-store-snapshots" :pathname "node-store/snapshots")
        (:file "chain-store-filters" :pathname "chain-store/service/filters")
        (:file "chain-store-cache" :pathname "chain-store/service/cache")

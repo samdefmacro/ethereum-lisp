@@ -17,13 +17,14 @@
               (null existing-location)
               (engine-payload-store-canonical-block-p store block)
               (not existing-canonical-p))
-      (setf (gethash transaction-key locations)
-            (make-engine-transaction-location
-             :block block
-             :index index
-             :transaction transaction
-             :receipt receipt
-             :log-index-start log-index-start)))))
+      (chain-store-journal-puthash
+       locations transaction-key
+       (make-engine-transaction-location
+        :block block
+        :index index
+        :transaction transaction
+        :receipt receipt
+        :log-index-start log-index-start)))))
 
 (defun engine-payload-store-index-block-transactions
     (store block &key force)
@@ -58,7 +59,7 @@
                    (hash32= (block-hash block)
                              (block-hash
                               (engine-transaction-location-block location))))
-          (remhash transaction-key locations)))))
+          (chain-store-journal-remhash locations transaction-key)))))
   block)
 
 (defun engine-payload-store-transaction-location (store hash)

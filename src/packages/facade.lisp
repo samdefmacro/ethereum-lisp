@@ -1066,7 +1066,15 @@
    #:chain-store-prepared-payload
    #:engine-payload-store-put-blob-sidecar
    #:engine-payload-store-blob-and-proofs-v1
-   #:engine-payload-store-blob-and-proofs-v2)
+   #:engine-payload-store-blob-and-proofs-v2
+   #:call-with-chain-store-transaction
+   #:chain-store-journal-rollback
+   #:chain-store-journal-undo-count
+   #:chain-store-journal-puthash
+   #:chain-store-journal-remhash
+   #:chain-store-journaled-set-head-number
+   #:chain-store-capture-volatile-slots
+   #:chain-store-restore-volatile-slots)
   (#:ethereum-lisp.node-store
    #:chain-store-atomic-commit
    #:engine-payload-store-put-block)

@@ -139,15 +139,16 @@ tombstones; zero storage values tombstone their slots."
     (unless (hash32-p parent-hash)
       (block-validation-fail "State diff parent must be a hash32"))
     (let ((block-key (engine-payload-store-key block-hash)))
-      (setf (gethash block-key (memory-chain-store-state-diffs store))
-            (make-chain-state-diff
-             :parent-key (engine-payload-store-key parent-hash)
-             :balances (or balances (make-hash-table :test 'equal))
-             :nonces (or nonces (make-hash-table :test 'equal))
-             :codes (or codes (make-hash-table :test 'equal))
-             :storage (or storage (make-hash-table :test 'equal)))
-            (gethash block-key (memory-chain-store-state-blocks store))
-            :diff))
+      (chain-store-journal-puthash
+       (memory-chain-store-state-diffs store) block-key
+       (make-chain-state-diff
+        :parent-key (engine-payload-store-key parent-hash)
+        :balances (or balances (make-hash-table :test 'equal))
+        :nonces (or nonces (make-hash-table :test 'equal))
+        :codes (or codes (make-hash-table :test 'equal))
+        :storage (or storage (make-hash-table :test 'equal))))
+      (chain-store-journal-puthash
+       (memory-chain-store-state-blocks store) block-key :diff))
     store))
 
 ;;; Full-view reconstruction.
@@ -274,17 +275,19 @@ can be pruned. Returns T on success, NIL when the view is unresolvable."
       (return-from engine-payload-store-promote-state-to-baseline nil))
     (flet ((publish (view table)
              (maphash (lambda (suffix value)
-                        (setf (gethash (format nil "~A:~A" block-key suffix)
-                                       table)
-                              value))
+                        (chain-store-journal-puthash
+                         table
+                         (format nil "~A:~A" block-key suffix)
+                         value))
                       view)))
       (publish balances (memory-chain-store-account-balances store))
       (publish nonces (memory-chain-store-account-nonces store))
       (publish codes (memory-chain-store-account-codes store))
       (publish storage (memory-chain-store-account-storage store)))
-    (remhash block-key (memory-chain-store-state-diffs store))
-    (setf (gethash block-key (memory-chain-store-state-blocks store))
-          :baseline)
+    (chain-store-journal-remhash
+     (memory-chain-store-state-diffs store) block-key)
+    (chain-store-journal-puthash
+     (memory-chain-store-state-blocks store) block-key :baseline)
     t))
 
 (defun engine-payload-store-remove-prefixed-keys (table prefix)
@@ -296,14 +299,16 @@ can be pruned. Returns T on success, NIL when the view is unresolvable."
          (push key keys)))
      table)
     (dolist (key keys)
-      (remhash key table))
+      (chain-store-journal-remhash table key))
     (length keys)))
 
 (defun engine-payload-store-prune-state-snapshot (store block-key)
   (setf store (chain-store-require-memory-store store))
   (let ((prefix (format nil "~A:" block-key)))
-    (remhash block-key (memory-chain-store-state-blocks store))
-    (remhash block-key (memory-chain-store-state-diffs store))
+    (chain-store-journal-remhash
+     (memory-chain-store-state-blocks store) block-key)
+    (chain-store-journal-remhash
+     (memory-chain-store-state-diffs store) block-key)
     (+ (engine-payload-store-remove-prefixed-keys
         (memory-chain-store-account-balances store)
         prefix)

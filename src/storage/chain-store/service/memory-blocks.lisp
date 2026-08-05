@@ -11,29 +11,28 @@
         (key (engine-payload-store-key (block-hash block)))
         (canonicalized-p nil)
         (notify-head-p nil))
-    (remhash key (memory-chain-store-remote-blocks store))
+    (chain-store-journal-remhash (memory-chain-store-remote-blocks store) key)
     (remhash key (memory-chain-store-forkchoice-sync-targets store))
-    (setf (gethash key (memory-chain-store-blocks store)) stored-block)
+    (chain-store-journal-puthash (memory-chain-store-blocks store) key
+                                 stored-block)
     (engine-payload-store-prune-prepared-payloads-for-block store key)
     (let ((number (block-header-number (block-header stored-block))))
       (when (and (integerp number) (not (minusp number)))
-        (setf (gethash number
-                       (memory-chain-store-number-blocks store))
-              stored-block)
+        (chain-store-journal-puthash
+         (memory-chain-store-number-blocks store) number stored-block)
         (when (and canonicalize-p
                    (not (gethash
                          number
                          (memory-chain-store-canonical-hashes store)))
                    (engine-payload-store-canonical-parent-p
                     store stored-block))
-          (setf (gethash number
-                         (memory-chain-store-canonical-hashes store))
-                key
-                canonicalized-p t))
+          (chain-store-journal-puthash
+           (memory-chain-store-canonical-hashes store) number key)
+          (setf canonicalized-p t))
         (when (and canonicalized-p
                    (> number (memory-chain-store-head-number store)))
-          (setf notify-head-p t
-                (memory-chain-store-head-number store) number))))
+          (setf notify-head-p t)
+          (chain-store-journaled-set-head-number store number))))
     (loop with receipts = (block-receipts stored-block)
           with log-index-start = 0
           for transaction in (block-transactions stored-block)
@@ -47,11 +46,13 @@
         ;; Availability without committed entries denotes an empty baseline;
         ;; a following state commit refines the kind.
         (unless (gethash key (memory-chain-store-state-blocks store))
-          (setf (gethash key (memory-chain-store-state-blocks store))
-                :baseline))
+          (chain-store-journal-puthash
+           (memory-chain-store-state-blocks store) key :baseline))
         (progn
-          (remhash key (memory-chain-store-state-blocks store))
-          (remhash key (memory-chain-store-state-diffs store))))
+          (chain-store-journal-remhash
+           (memory-chain-store-state-blocks store) key)
+          (chain-store-journal-remhash
+           (memory-chain-store-state-diffs store) key)))
     (when notify-head-p
       (engine-payload-store-notify-block-filters store stored-block))
     block))
@@ -154,6 +155,9 @@
                     (block-header-number (block-header finalized-block))))
         (block-validation-fail
          "forkchoice safe block is older than finalized block"))))
+  ;; Checkpoints are protected by the volatile wholesale copy in
+  ;; CHAIN-STORE-ATOMIC-COMMIT, not the changed-key journal, so a plain SETF is
+  ;; correct here even inside a transaction.
   (setf (memory-chain-store-head-checkpoint store)
         (make-chain-store-checkpoint
          :label :head

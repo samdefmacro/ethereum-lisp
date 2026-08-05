@@ -143,6 +143,14 @@
    #:engine-payload-store-copy-transaction-location
    #:engine-payload-store-copy-transaction-location-table
    #:copy-memory-chain-store
+   #:call-with-chain-store-transaction
+   #:chain-store-journal-rollback
+   #:chain-store-journal-undo-count
+   #:chain-store-journal-puthash
+   #:chain-store-journal-remhash
+   #:chain-store-journaled-set-head-number
+   #:chain-store-capture-volatile-slots
+   #:chain-store-restore-volatile-slots
    #:engine-payload-store-notify-block-filters
    #:engine-log-filter-record-change
    #:engine-payload-store-notify-log-filters

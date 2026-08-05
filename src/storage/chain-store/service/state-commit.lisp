@@ -4,8 +4,9 @@
 ;;; baseline interval, otherwise store a full baseline.
 
 (defun engine-payload-store-commit-baseline (store block-hash iterate-accounts)
-  (remhash (engine-payload-store-key block-hash)
-           (memory-chain-store-state-diffs store))
+  (chain-store-journal-remhash
+   (memory-chain-store-state-diffs store)
+   (engine-payload-store-key block-hash))
   (funcall
    iterate-accounts
    (lambda (address balance nonce code storage-entries)
