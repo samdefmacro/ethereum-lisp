@@ -491,7 +491,11 @@ HTTPPort = 1945
                     ("--db.engine" "pebble")
                     ("--nodiscover" "true")))
       (let ((message (parse-error case)))
-        (is (stringp message) "~A must be rejected at parse time" (first case))
+        ;; A non-nil string means parsing raised, i.e. the flag was rejected.
+        ;; This framework's IS takes exactly one form and carries no message
+        ;; slot, so the failing flag is identified by the SEARCH assertion
+        ;; below rather than an IS description.
+        (is (stringp message))
         (when (stringp message)
           (is (search (first case) message))
           (is (search "not supported" message)))))))
