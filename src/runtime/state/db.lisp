@@ -171,7 +171,9 @@ revert the transaction."
 
 (defun state-object-code-hash (object account)
   (if (plusp (length (state-object-code object)))
-      (keccak-256-hash (state-object-code object))
+      (or (state-object-cached-code-hash object)
+          (setf (state-object-cached-code-hash object)
+                (keccak-256-hash (state-object-code object))))
       (state-account-code-hash account)))
 
 (defun state-account-with-object-commitments (object account)
@@ -257,14 +259,16 @@ revert the transaction."
                            (setf (gethash key (state-db-objects state))
                                  (make-state-object))))))
     (when object
-      (setf (state-object-code object) code)
-      (let ((account (or (state-object-account object) (make-state-account))))
-        (setf (state-object-account object)
-              (make-state-account
-               :nonce (state-account-nonce account)
-               :balance (state-account-balance account)
-               :storage-root (state-account-storage-root account)
-               :code-hash (keccak-256-hash code))))
+      (let ((code-hash (keccak-256-hash code)))
+        (setf (state-object-code object) code
+              (state-object-cached-code-hash object) code-hash)
+        (let ((account (or (state-object-account object) (make-state-account))))
+          (setf (state-object-account object)
+                (make-state-account
+                 :nonce (state-account-nonce account)
+                 :balance (state-account-balance account)
+                 :storage-root (state-account-storage-root account)
+                 :code-hash code-hash))))
       (mark-account-dirty state key))
       state)))
 
@@ -300,7 +304,12 @@ revert the transaction."
 (defun clone-state-object (object)
   (make-state-object
    :account (copy-state-account (state-object-account object))
-   :code (subseq (state-object-code object) 0)
+   ;; CODE is shared, not copied: see the STATE-OBJECT CODE contract. The hash
+   ;; memo therefore describes the clone's code exactly as it did the
+   ;; original's, so carrying it is sound and saves re-hashing the contract on
+   ;; every journal entry and call frame.
+   :code (state-object-code object)
+   :cached-code-hash (state-object-cached-code-hash object)
    :storage (copy-hash-table (state-object-storage object))
    ;; The clone's storage is EQUAL to the original's, so a root already proved
    ;; for those contents is equally true here. Carrying it matters: snapshots
