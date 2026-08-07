@@ -700,14 +700,14 @@ validity axis even though nothing executes it."
            t)))
 
 (defun eest-blockchain-replay-materialization-kind (case)
-  (let ((fixture (fixture-required-field case "fixture")))
+  (let ((fixture (fixture-required-field case "fixture"))
+        (entry (eest-blockchain-engine-newpayloads-single-entry case)))
     (cond
       ((fixture-field-present-p fixture "engineNewPayloadV2")
        "engineNewPayloadV2")
-      ((eest-blockchain-engine-newpayloads-single-entry case)
+      (entry
        (or (eest-blockchain-engine-newpayload-kind-name
-            (eest-blockchain-engine-newpayload-version
-             (eest-blockchain-engine-newpayloads-single-entry case)))
+            (eest-blockchain-engine-newpayload-version entry))
            "unsupported"))
       ((and (fixture-field-present-p fixture "engineNewPayloads")
             (eest-blockchain-engine-newpayloads-v2-entry case))
