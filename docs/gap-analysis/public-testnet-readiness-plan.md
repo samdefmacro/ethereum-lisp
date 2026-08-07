@@ -135,6 +135,15 @@ flowchart LR
 - Unify Engine, P2P, staged import, local building, and dev-period publication
   behind one service that validates parent/header/body/sidecars, executes,
   derives roots/receipts/requests, commits atomically, then publishes visibility.
+- The `:accept-block` handler in `src/app/cli/devnet/peer-sync.lisp` calls
+  `engine-new-payload-memory-status` with three arguments where it takes four
+  required positionals, passing a block where `version` belongs and `config`
+  where `payload` belongs. Peer block propagation therefore always signals, and
+  the worker's `serious-condition` handler swallows it, so the comment claiming
+  peer blocks take the Engine validation path is false at runtime. Correct it
+  when that path is unified: select the version from the block's fork and
+  convert through `block-to-executable-data`, as `src/api/engine/new-payload.lisp`
+  already does.
 - P2P imports remain hash-addressed candidates; only Engine forkchoice may
   update post-Merge canonical/safe/finalized views. Peer-supplied tips cannot
   become canonical merely because they execute.
