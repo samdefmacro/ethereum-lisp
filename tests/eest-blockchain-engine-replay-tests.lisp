@@ -190,7 +190,18 @@
              source-case)))))))
 
 (deftest optional-phase-a-eest-blockchain-replay-executes
-  (dolist (source-case (load-optional-phase-a-eest-blockchain-replay-cases))
+  ;; Cancun-and-later cases are deliberately NOT run here. This harness rebuilds
+  ;; the block and submits it through a hardcoded newPayloadV2, which cannot
+  ;; express a V3/V4 call: it dies on the first Cancun vector with "Header is
+  ;; missing parent beacon root", and even if it got past that it would be
+  ;; submitting a structurally different request from the one the fixture
+  ;; describes. Those cases are covered by
+  ;; OPTIONAL-PHASE-A-EEST-ENGINE-LATE-PAYLOAD-REPLAY-EXECUTES, which submits the
+  ;; fixture's own parameters through the fixture's own method -- so this filter
+  ;; is what keeps the two from either double-covering or, if it were simply
+  ;; deleted, reddening every late-fork run for a harness limitation.
+  (dolist (source-case (phase-a-eest-blockchain-non-late-payload-cases
+                        (load-optional-phase-a-eest-blockchain-replay-cases)))
     (assert-eest-blockchain-engine-newpayload-v2-replay
      (materialize-eest-blockchain-engine-newpayload-v2-case source-case)
      :source-case source-case)))

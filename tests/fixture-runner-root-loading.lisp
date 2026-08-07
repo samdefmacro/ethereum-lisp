@@ -720,6 +720,23 @@ validity axis even though nothing executes it."
       (t
        "unsupported"))))
 
+(defun phase-a-eest-blockchain-late-payload-case-p (case)
+  "Whether CASE is a Cancun-or-later payload the late-payload test submits.
+
+The two replay tests partition the selector list on this predicate -- the
+late-payload test takes these, the V2 replay test takes the complement -- so
+neither can double-cover a case and neither can drop one."
+  (and (member (eest-blockchain-replay-materialization-kind case)
+               +phase-a-eest-blockchain-late-payload-kind-names+
+               :test #'string=)
+       t))
+
+(defun phase-a-eest-blockchain-late-payload-cases (cases)
+  (remove-if-not #'phase-a-eest-blockchain-late-payload-case-p cases))
+
+(defun phase-a-eest-blockchain-non-late-payload-cases (cases)
+  (remove-if #'phase-a-eest-blockchain-late-payload-case-p cases))
+
 (defun phase-a-eest-blockchain-replay-skip-category (case)
   "Why CASE is not in the replay set, as a name the count manifest can report.
 

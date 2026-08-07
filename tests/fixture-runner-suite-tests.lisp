@@ -541,6 +541,29 @@
                 (list (cons "name" "synthetic/case.json")
                       (cons "fixture" (list (cons "blocks" '()))))))))
 
+(deftest phase-a-eest-blockchain-replay-tests-partition-the-selector-list
+  ;; Two replay tests share one selector list: the V2 harness rebuilds the block
+  ;; and submits newPayloadV2, the late-payload harness submits the fixture's own
+  ;; parameters through V3/V4. Each must take exactly the cases the other does
+  ;; not -- an overlap double-counts a vector, and a gap drops one silently. Both
+  ;; filters key on +PHASE-A-EEST-BLOCKCHAIN-LATE-PAYLOAD-KIND-NAMES+, so this
+  ;; asserts the partition rather than restating the set a third time.
+  (let* ((v2 (phase-a-eest-blockchain-synthetic-engine-case :version "2"))
+         (v3 (phase-a-eest-blockchain-synthetic-engine-case :version "3"))
+         (v4 (phase-a-eest-blockchain-synthetic-engine-case :version "4"))
+         (cases (list v2 v3 v4))
+         (late (phase-a-eest-blockchain-late-payload-cases cases))
+         (rest (phase-a-eest-blockchain-non-late-payload-cases cases)))
+    (is (equal (list v3 v4) late))
+    (is (equal (list v2) rest))
+    (is (= (length cases) (+ (length late) (length rest))))
+    (is (null (intersection late rest)))
+    (is (every (lambda (kind)
+                 (member kind
+                         +phase-a-eest-blockchain-replay-materialization-kind-names+
+                         :test #'string=))
+               +phase-a-eest-blockchain-late-payload-kind-names+))))
+
 (deftest phase-a-eest-blockchain-invalid-vectors-leave-the-replay-set
   ;; The replay path derives what it asserts by EXECUTING the block, so it has
   ;; no expectation to offer for a payload the node must refuse. Letting one in

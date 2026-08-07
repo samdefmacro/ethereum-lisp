@@ -8,13 +8,23 @@
 (defconstant +phase-a-eest-blockchain-replay-pinned-selector+
   "pinned-v5.4.0")
 
+;; Cancun and later payloads: the kinds the late-payload test submits itself,
+;; through their own Engine method and with their own parameters. Two callers
+;; key on this set from opposite sides -- one runs exactly these, the other runs
+;; exactly the rest -- so it lives here rather than as a literal in either, where
+;; the two could drift into overlapping or, worse, into a gap.
+(defparameter +phase-a-eest-blockchain-late-payload-kind-names+
+  '("engineNewPayloadV3" "engineNewPayloadV4"))
+
 ;; The stable corpus tops out at newPayloadV4: Osaka fixtures still submit V4
 ;; payloads, and no fixture in tests@v20.0.1 carries a V5 entry. There is
 ;; therefore no V5 materializer to write yet -- adding one would be a kind no
 ;; corpus can select, i.e. exactly the vacuous coverage this file exists to
 ;; prevent.
 (defparameter +phase-a-eest-blockchain-replay-materialization-kind-names+
-  '("engineNewPayloadV2" "engineNewPayloadV3" "engineNewPayloadV4" "blockRlp"))
+  (append '("engineNewPayloadV2")
+          +phase-a-eest-blockchain-late-payload-kind-names+
+          '("blockRlp")))
 
 ;; An EEST engine fixture states its expectation for a payload the node must
 ;; REFUSE as a validationError on the newPayloads entry (a spec exception name)

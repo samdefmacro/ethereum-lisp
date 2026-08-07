@@ -154,25 +154,16 @@ still exposes the block's state has not rejected it."
                 store
                 (hash32-from-hex block-hash)))))))
 
-(defun phase-a-eest-blockchain-late-replay-selectors (cases)
-  (remove-if-not
-   (lambda (case)
-     (member (eest-blockchain-replay-materialization-kind case)
-             '("engineNewPayloadV3" "engineNewPayloadV4")
-             :test #'string=))
-   cases))
-
 (deftest optional-phase-a-eest-engine-late-payload-replay-executes
   ;; Cancun and Prague payloads, submitted as newPayloadV3/V4 with their blob
   ;; versioned hashes, parent beacon root and execution requests intact. Empty
   ;; under the default Shanghai gate -- widening
   ;; ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_FORKS is what selects them -- and
   ;; the count manifest is what reports the emptiness rather than hiding it.
-  (let ((cases (phase-a-eest-blockchain-late-replay-selectors
-                (load-optional-phase-a-eest-blockchain-replay-cases))))
-    (dolist (source-case cases)
-      (assert-eest-engine-payload-accepted
-       (materialize-eest-blockchain-engine-newpayload-late-case source-case)))))
+  (dolist (source-case (phase-a-eest-blockchain-late-payload-cases
+                        (load-optional-phase-a-eest-blockchain-replay-cases)))
+    (assert-eest-engine-payload-accepted
+     (materialize-eest-blockchain-engine-newpayload-late-case source-case))))
 
 (deftest optional-phase-a-eest-engine-payload-rejection-executes
   (dolist (source-case (load-optional-phase-a-eest-blockchain-rejection-cases))
