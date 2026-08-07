@@ -240,6 +240,50 @@
       (when (probe-file path)
         (uiop:delete-directory-tree path :validate t)))))
 
+#+sbcl
+(deftest rocksdb-database-survives-a-process-kill-with-no-clean-close
+  (:layer :e2e :module :database)
+  ;; docs/storage-substrate.md gate: a WAL-synced batch reopens all-or-none
+  ;; across a process CRASH, not merely across a clean close. A child writes a
+  ;; synced batch, records a marker, and blocks; the parent SIGKILLs it (no
+  ;; clean shutdown, database left open) and reopens the directory, which must
+  ;; contain every key from the batch. This is the kill the existing
+  ;; rocksdb-key-value-database-persists-atomic-batches close/reopen test cannot
+  ;; inject from a single process.
+  (let* ((dir (namestring
+               (devnet-cli-temp-directory "ethereum-lisp-rocksdb-crash")))
+         (marker (namestring
+                  (devnet-cli-temp-path
+                   "ethereum-lisp-rocksdb-crash-marker" "flag")))
+         (script (namestring (truename "scripts/rocksdb-crash-writer.lisp"))))
+    (unwind-protect
+         (let ((process
+                 (test-launch-program
+                  (list "sbcl" "--script" script dir marker))))
+           (wait-for-test-condition
+            "rocksdb crash writer commits its WAL-synced batch"
+            180
+            (lambda () (probe-file marker)))
+           ;; SIGKILL: the writer never gets to close the database. Reap it so
+           ;; the kernel has torn the process down and released the RocksDB
+           ;; directory lock before the crash-recovery reopen below.
+           (uiop:terminate-process process :urgent t)
+           (uiop:wait-process process)
+           (let ((database (make-rocksdb-key-value-database dir)))
+             (unwind-protect
+                  (dotimes (i 16)
+                    (multiple-value-bind (value present-p)
+                        (kv-get database (vector i))
+                      (is present-p)
+                      (is (bytes= (vector (+ 100 i)) value))))
+               (close-rocksdb-key-value-database database))))
+      (when (probe-file marker)
+        (ignore-errors (delete-file marker)))
+      (when (probe-file (uiop:ensure-directory-pathname dir))
+        (uiop:delete-directory-tree
+         (uiop:ensure-directory-pathname dir)
+         :validate t :if-does-not-exist :ignore)))))
+
 (deftest chain-record-keys-namespace-chain-data
   (let ((database (make-memory-key-value-database))
         (block-hash (make-byte-vector 32 :initial-element #xaa))
