@@ -179,19 +179,23 @@ jobs:
           if-no-files-found: error
 
   # Late-fork conformance: Cancun, Prague, and Osaka (the newest implemented
-  # fork). SEPARATE from the blocking job above ON PURPOSE. Widening the fork
-  # set exercises execution paths that will surface real divergences a later
-  # wave must fix -- the standard replay materializer still emits a Shanghai
-  # config and engine-fixture-chain-config reads no key past shanghaiTime, so a
-  # late-fork case executes under Shanghai rules -- and this job must not fail
-  # the build before that work lands. It therefore runs continue-on-error, while
-  # the count-manifest guard (which makes the coverage gap VISIBLE rather than
-  # silent) and the shard guard run here exactly as everywhere else.
+  # fork). SEPARATE from the blocking job above ON PURPOSE. Since f78b991d the
+  # standard replay materializer derives each case's chain config from its own
+  # network and engine-fixture-chain-config reads cancunTime/pragueTime/
+  # osakaTime, so a late-fork case admitted by the widened network gate now
+  # EXECUTES under its own ruleset instead of under Shanghai. That is what makes
+  # this job worth running, and equally why it cannot block yet: every genuine
+  # Cancun/Prague/Osaka divergence now surfaces as a real failure, and burning
+  # those down is plan section 7 rather than a prerequisite for reaching it. The
+  # V3+ engine-payload path (blob gas, parent beacon root, requests) is still
+  # not materialized and stays an honest counted skip. It therefore runs
+  # continue-on-error, while the count-manifest guard (which makes the coverage
+  # gap VISIBLE rather than silent) and the shard guard run here exactly as
+  # everywhere else, and the report step archives the counts either way.
   #
   # TODO(plan Phase 7 -- docs/gap-analysis/public-testnet-readiness-plan.md):
-  # once Cancun/Prague/Osaka execution parity lands, wire per-network fork
-  # activation through the replay runtime and DROP continue-on-error so this
-  # becomes a required gate. Amsterdam stays gated out until plan section 8.
+  # once Cancun/Prague/Osaka execution parity lands, DROP continue-on-error so
+  # this becomes a required gate. Amsterdam stays gated out until plan section 8.
   conformance-late-forks:
     runs-on: ubuntu-latest
     continue-on-error: true
