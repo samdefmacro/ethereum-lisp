@@ -62,7 +62,7 @@ endif
 
 .PHONY: test-unit test-integration test-e2e test-all \
 	docker-test-image docker-test-unit docker-test-integration \
-	docker-test-e2e docker-test-all docker-sbcl \
+	docker-test-e2e docker-test-all docker-docs-check docker-sbcl \
 	eest-fixtures eest-fixtures-stable eest-fixtures-amsterdam
 
 test-unit:
@@ -110,6 +110,17 @@ docker-test-e2e: $(DOCKER_TEST_IMAGE_DEP)
 
 docker-test-all: $(DOCKER_TEST_IMAGE_DEP)
 	$(DOCKER_TEST_RUN) sh scripts/docker-test.sh all
+
+# The cl-transcript examples in docs/*.lisp are re-executed and compared against
+# what they claim, so a drifted transcript is a red build -- but only where this
+# runs, and until now that was solely `scripts/dev.sh docs-check` on a developer
+# machine. Same container shape as the test layers above (read-only workspace,
+# tmpfs caches, --network none: mgl-pax/full is baked into the image, so
+# quickload needs no network). scripts/docs-check.lisp carries its own RED gate
+# -- the deliberately wrong @DOCS-CHECK-SELFTEST section must FAIL -- so this
+# target proves the checker is switched on, not merely quiet.
+docker-docs-check: $(DOCKER_TEST_IMAGE_DEP)
+	$(DOCKER_TEST_RUN) sbcl --non-interactive --load scripts/docs-check.lisp
 
 docker-sbcl: $(DOCKER_TEST_IMAGE_DEP)
 	$(if $(strip $(DOCKER_SBCL_ARGS)),,$(error DOCKER_SBCL_ARGS is required))
