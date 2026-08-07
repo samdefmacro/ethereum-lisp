@@ -79,6 +79,13 @@ cat > "$tmpdir/genesis.json" <<JSON
 }
 JSON
 printf '%s\n' "$jwt_hex" > "$tmpdir/jwtsecret"
+# The image runs as uid 10001, so it must be able to traverse this directory,
+# not merely read the files in it. mktemp -d gives 0700 owned by the invoking
+# user, which on Linux denies that traversal and surfaces inside the client as
+# a genesis that "does not exist". Docker Desktop's file sharing remaps
+# ownership and hides the problem, so omitting this passes on macOS and fails
+# on any Linux runner.
+chmod 755 "$tmpdir"
 chmod 644 "$tmpdir/genesis.json" "$tmpdir/jwtsecret"
 
 # The built-in presets resolve their allocation RLP through
