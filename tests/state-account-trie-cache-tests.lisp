@@ -124,3 +124,51 @@ STATE-DB-ROOT regardless."
       (state-db-set-storage state (account-trie-address 0) (account-trie-slot 1) 5)
       (is (plusp (hash-table-count (ethereum-lisp.state::state-db-dirty state))))
       (is (not (account-trie-root= root (state-db-root state)))))))
+
+(defun account-trie-flush-encodings (account-count)
+  "Trie node encodings for a cold root and for a root after ONE account changed.
+
+*VERIFY-INCREMENTAL-ROOT* must stay NIL across the measurement: the oracle
+rebuilds the whole trie on every flush, which is O(accounts) deliberately, and
+would swamp the quantity being measured. The caller asserts correctness
+separately with the oracle on."
+  (let ((state (make-state-db))
+        (cold 0)
+        (warm 0))
+    (dotimes (index account-count)
+      (ethereum-lisp.state::state-db-put-account-values
+       state (account-trie-address index) 1 (1+ index)
+       (account-trie-code-hash index)))
+    (let ((ethereum-lisp.trie::*node-encoding-count* 0))
+      (state-db-root state)
+      (setf cold ethereum-lisp.trie::*node-encoding-count*))
+    (ethereum-lisp.state::state-db-add-balance state (account-trie-address 0) 1)
+    (let ((ethereum-lisp.trie::*node-encoding-count* 0))
+      (state-db-root state)
+      (setf warm ethereum-lisp.trie::*node-encoding-count*))
+    (cons cold warm)))
+
+(deftest account-trie-flush-cost-is-independent-of-account-count
+  ;; STORE-08 is about FLUSH-ACCOUNT-TRIE, not the bare trie: the per-block cost
+  ;; that mattered is a state root taken over every account. The trie module has
+  ;; its own guard (TRIE-REHASH-COST-IS-INDEPENDENT-OF-TRIE-SIZE); nothing
+  ;; guarded this path, so a flush that stopped retaining STATE-DB-TRIE would
+  ;; restore the O(accounts) cost with every other test still green.
+  (let ((small (account-trie-flush-encodings 512))
+        (large (account-trie-flush-encodings 4096)))
+    ;; Positive control: a cold root really is linear in the account count.
+    (is (< (* 4 (car small)) (car large)))
+    ;; Eight times the accounts must not cost eight times the encodings.
+    (is (< (cdr large) (* 2 (cdr small))))
+    (is (< (cdr large) 16)))
+  ;; The cheap flush must still produce the oracle's root, not merely a fast one.
+  (with-verified-account-root
+    (let ((state (make-state-db)))
+      (dotimes (index 64)
+        (ethereum-lisp.state::state-db-put-account-values
+         state (account-trie-address index) 1 (1+ index)
+         (account-trie-code-hash index)))
+      (state-db-root state)
+      (ethereum-lisp.state::state-db-add-balance state (account-trie-address 0) 1)
+      (is (eq t (account-trie-root= (state-db-root state)
+                                    (account-trie-full-root state)))))))

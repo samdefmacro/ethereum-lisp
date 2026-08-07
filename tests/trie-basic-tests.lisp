@@ -169,6 +169,39 @@
     (is (< 512 initial-encodings))
     (is (< update-encodings 16))))
 
+(deftest trie-rehash-cost-is-independent-of-trie-size
+  ;; The test above bounds the update at a single size, which a rebuild that
+  ;; happened to stay under the bound would also satisfy. The contract is that
+  ;; the bound does not move with the entry count, and only two sizes can show
+  ;; that, so measure an octave apart and compare.
+  (flet ((measure (entry-count)
+           (let ((trie (make-mpt))
+                 (cold 0)
+                 (warm 0))
+             (dotimes (index entry-count)
+               (mpt-put trie
+                        (vector (ldb (byte 8 8) index)
+                                (ldb (byte 8 0) index))
+                        (integer-to-minimal-bytes (1+ index))))
+             (let ((ethereum-lisp.trie::*node-encoding-count* 0))
+               (mpt-root-hash trie)
+               (setf cold ethereum-lisp.trie::*node-encoding-count*))
+             (mpt-put trie (vector 0 0) (integer-to-minimal-bytes 999))
+             (let ((ethereum-lisp.trie::*node-encoding-count* 0))
+               (mpt-root-hash trie)
+               (setf warm ethereum-lisp.trie::*node-encoding-count*))
+             (cons cold warm))))
+    (let ((small (measure 512))
+          (large (measure 4096)))
+      ;; Positive control: the cold build really is linear in the entry count,
+      ;; so the warm comparison below is measuring a live quantity rather than
+      ;; a counter that stopped being incremented.
+      (is (< (* 4 (car small)) (car large)))
+      ;; Eight times the entries must not cost more than the one extra level of
+      ;; trie depth they add.
+      (is (< (cdr large) (* 2 (cdr small))))
+      (is (< (cdr large) 16)))))
+
 (deftest trie-node-store-persists-root-and-descendants
   (let ((trie (make-mpt))
         (database (make-memory-key-value-database)))
