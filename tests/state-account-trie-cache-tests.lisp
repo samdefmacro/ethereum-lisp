@@ -128,11 +128,13 @@ STATE-DB-ROOT regardless."
 (defun account-trie-flush-encodings (account-count)
   "Trie node encodings for a cold root and for a root after ONE account changed.
 
-*VERIFY-INCREMENTAL-ROOT* must stay NIL across the measurement: the oracle
-rebuilds the whole trie on every flush, which is O(accounts) deliberately, and
-would swamp the quantity being measured. The caller asserts correctness
-separately with the oracle on."
-  (let ((state (make-state-db))
+*VERIFY-INCREMENTAL-ROOT* is bound NIL across the measurement rather than merely
+assumed NIL: the oracle rebuilds the whole trie on every flush, which is
+O(accounts) deliberately, so leaving it on would swamp the quantity being
+measured and fail this test wherever the suite turns the oracle on globally.
+The caller asserts correctness separately with the oracle on."
+  (let ((ethereum-lisp.state::*verify-incremental-root* nil)
+        (state (make-state-db))
         (cold 0)
         (warm 0))
     (dotimes (index account-count)
