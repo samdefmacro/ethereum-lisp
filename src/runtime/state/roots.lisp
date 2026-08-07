@@ -23,9 +23,17 @@
 (defvar *verify-incremental-root* nil
   "When true, every account-root flush also computes the full-rebuild root from
 STATE-DB-STATE-TRIE and asserts byte-equality with the memoized result. This
-catches a missed dirty-hook (a stale memo returned on the fast path). The test
-suite and fixture runs bind it true; production leaves it nil. STATE-DB-STATE-
-TRIE is retained forever as the reference oracle.")
+catches a missed dirty-hook (a stale memo returned on the fast path).
+
+Production leaves it nil, and so, contrary to what this docstring said until the
+claim was checked, does most of the test suite: only the tests in
+tests/state-account-trie-cache-tests.lisp bind it, through
+WITH-VERIFIED-ACCOUNT-ROOT. Binding it true across the whole unit and
+integration layers passes and costs nothing measurable, so widening it is
+available; the e2e layer has not been measured. A test that counts trie node
+encodings must bind it NIL, since the rebuild here is O(accounts) by design.
+
+STATE-DB-STATE-TRIE is retained forever as the reference oracle.")
 
 (defun state-db-apply-dirty-accounts (state trie)
   "Update TRIE to match STATE for the dirty addresses only, and return it.

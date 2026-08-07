@@ -6,9 +6,14 @@ substrate, chain store, reorg handling, pruning, and crash recovery). It
 compares that area against two reference clients and lists what is missing,
 what diverges, and what could not be established.
 
-Nothing here has been implemented. Every remediation item describes work that
-remains to be done. No statement below should be read as a claim that a fix is
-in the tree.
+This was written as a read-only audit, and its findings are phrased in the tense
+of the day it was written: nothing had been implemented then. That is no longer
+true of the whole document, and the two status claims inside it disagree with
+each other — see the banner in the remediation section. As of 2026-08-07 only
+STORE-08 has been re-verified by running the code; it is resolved, and its
+section records the measurements. Every other finding is as-audited text whose
+current accuracy has not been re-established, so read it as evidence of what was
+true on 2026-07-28 rather than as a description of the tree today.
 
 ## Sources read
 
@@ -404,6 +409,40 @@ Keccak over each reconstructed node. This is the single largest fixed cost in
 block processing after the copies in STORE-01 and STORE-16, and it is the one
 whose fix is most localised: memoizing encodings and hashes on retained nodes
 does not require changing the storage substrate.
+
+**Resolved (verified by execution, 2026-08-07).** Unlike the rest of this
+document, this finding has been re-checked by running the code rather than by
+reading it. `mpt` now retains a `root` node beside the entry table and each node
+caches its RLP object, encoding, reference and hash
+(`src/foundation/trie/types.lisp`); `mpt-put` and `mpt-delete` rewrite only one
+root-to-leaf path and retain untouched subtrees
+(`trie-put-node`, `trie-delete-node`, `src/foundation/trie/store.lisp`), so the
+caches on retained nodes stay valid without an invalidation protocol.
+
+Measured in the warm image with `*node-encoding-count*`, changing one leaf costs
+a constant number of node encodings while the cold build stays linear:
+
+| Entries | Cold build | One-leaf change |
+| --- | --- | --- |
+| 512 | 548 | 5 |
+| 4096 | 4370 | 5 |
+| 16384 | 17477 | 5 |
+
+The same holds through `flush-account-trie`: at 512 accounts a cold root costs
+689 encodings and a one-account change costs 4; at 4096 accounts, 5589 and 5.
+
+Two tests guard this at the two layers, both comparing sizes rather than
+bounding one size: `trie-rehash-cost-is-independent-of-trie-size` and
+`account-trie-flush-cost-is-independent-of-account-count`. Reverting either
+layer separately was confirmed to turn the corresponding test red.
+
+**What this did not fix.** A root over a lazily-backed `state-db` still
+materialises every account, because `state-db-state-trie` calls
+`state-db-materialize`: reading one account loads one, taking a root loads all
+of them (measured: 0 of 500 backing accounts loaded by a single read, 500 by the
+first root). STORE-23's cost profile is therefore improved on repeat roots and
+unchanged on the first one, and nothing here should be read as a bounded-memory
+import.
 
 #### STORE-09 — No secure-trie layer; key hashing is the caller's job and no preimages are kept
 
@@ -913,13 +952,21 @@ Ordered by what unblocks the most, with the `PROJECT.md` principle each item
 protects. Sizes are S (under a day of focused work), M (a few days), L (a week
 or more, or a design document first).
 
-**Implementation status (2026-07-29): complete.** Items 1–10 are implemented
-on `gap/state-storage`: immutable cached trie paths, state journaling and
-fork-gated finalisation, hash-indexed proofs, bounded retention, ordered schema
-v2 records, the pinned RocksDB 11.1.2 CFFI backend, startup rewind,
-account-scoped lazy historical reads, content-addressed trie nodes, complete
-range witnesses, and resumable iteration. The original findings remain below
-as the evidence and acceptance criteria that motivated the changes.
+**Implementation status — partly verified.** A banner added on 2026-07-29
+declared items 1–10 complete on `gap/state-storage`: immutable cached trie
+paths, state journaling and fork-gated finalisation, hash-indexed proofs,
+bounded retention, ordered schema v2 records, the pinned RocksDB 11.1.2 CFFI
+backend, startup rewind, account-scoped lazy historical reads,
+content-addressed trie nodes, complete range witnesses, and resumable
+iteration. That banner contradicts the note at the top of this document and was
+never re-established item by item.
+
+As of 2026-08-07, item 1 has been verified by execution and is resolved, with
+measurements recorded under STORE-08. The code backing several other items is
+visibly present in the tree, but present is not verified, and the claim covers
+correctness rather than existence. Treat items 2–10 as unconfirmed until each is
+re-checked the way item 1 was. The original findings remain below as the
+evidence and acceptance criteria that motivated the changes.
 
 ### 1. Memoize node encodings and hashes; hash only dirty paths — M
 
@@ -938,6 +985,9 @@ encodings performed for a one-account change is independent of total account
 count, so the optimisation cannot silently regress.
 *Protects:* state-root memoization; derived-not-trusted (the root stays derived,
 just not re-derived wholesale).
+*Status:* done and verified by execution on 2026-08-07 — see the resolution note
+under STORE-08 for the measurements, the two size-comparison tests that hold the
+contract, and the materialisation caveat that this item does not address.
 
 ### 2. Journal state mutations and revert by replaying entries backwards — L
 

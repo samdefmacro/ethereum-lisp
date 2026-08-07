@@ -1,34 +1,45 @@
 ---
-description: The MPT is a flat table rather than a node tree, and what that costs any state-root work
+description: The MPT is a memoized node tree; what a state root actually costs and which guards protect that
 globs: src/foundation/trie/**,src/runtime/state/**
 alwaysApply: false
 ---
 
 # Trie and state roots
 
-**`mpt` is not a node tree.** `foundation/trie/types.lisp` defines it as a flat
-key→value hash table, and `mpt-put` / `mpt-delete` only touch that table. Every
-root call rebuilds the entire node tree from all entries and then recursively
-RLP-encodes the whole thing.
+**`mpt` is a node tree, and it memoizes.** `foundation/trie/types.lisp` retains a
+`root` node beside the entry table, and every node caches its RLP object, its
+encoding, its reference and its hash. `mpt-put` and `mpt-delete` rewrite only the
+nodes on one root-to-leaf path (`trie-put-node`, `trie-delete-node`) and retain
+the untouched subtrees. Nodes are immutable once built, so there is no
+invalidation protocol to get wrong: a node that was not replaced still has a
+valid cache.
 
-The consequence is that a state root costs O(all accounts) no matter how few
-changed, and no amount of caching at the state-db layer fixes it. Making leaf
-updates incremental bought roughly 27%; the residual is entirely the rebuild
-and re-encode.
+A root therefore costs the touched paths, not the whole state. Measured in the
+warm image: changing one leaf re-encodes 5 nodes at 512 entries and 5 nodes at
+16384, while cold builds of those same tries cost 548 and 17477.
 
-So **persistent trie nodes are an XL rewrite of the trie module**, not an
-M-sized optimisation of the state layer. It means turning `mpt` into a real
-node tree whose put and delete mutate nodes along a single path, and whose
-nodes cache their own encoding and hash, invalidated only along the dirty path.
-The trie backs state, storage, transactions, receipts and withdrawals, so the
-blast radius is every root in the system. It also unlocks range proofs, and
-therefore snap sync.
+**Do not turn this back into a rebuild.** Two tests exist to stop that, and they
+cover different layers. `trie-rehash-cost-is-independent-of-trie-size` guards the
+trie module. `account-trie-flush-cost-is-independent-of-account-count` guards
+`flush-account-trie`, which is where the per-block cost actually lives — a flush
+that stopped applying only the dirty accounts leaves the trie-level test green.
+Both compare two sizes rather than bounding one size, because a rebuild of a
+small enough tree satisfies any fixed bound.
 
-Guard rails if you attempt it: `*verify-incremental-root*` compares every flush
-against a full rebuild and is bound true by the suite, and the EEST fixture
-runs sit in the cold gates.
+**The root oracle is opt-in, not ambient.** `*verify-incremental-root*` compares
+every flush against a full rebuild, and it defaults to nil. Only
+`tests/state-account-trie-cache-tests.lisp` binds it true, through
+`with-verified-account-root`; the suite as a whole does not, despite older notes
+saying otherwise. Binding it true across the unit and integration layers passes
+and costs nothing measurable, but that has not been made the default and the e2e
+layer is unmeasured. Anything that counts node encodings must bind it nil
+explicitly, since the oracle rebuilds the world on purpose.
 
-**Settled — do not re-litigate without new measurements.** `state-db-copy` is
-not a bottleneck, at 0.05–0.75ms, despite deep-cloning the world on every
-CALL/CREATE through snapshots. It has already been suspected once and refuted
-by measurement.
+**Memoization did not remove materialization.** A root over a lazily-backed
+`state-db` still loads every account, because `state-db-state-trie` calls
+`state-db-materialize`. Reading one account loads one account; taking a root
+loads all of them. Cheap re-rooting is not a bounded-memory import.
+
+**Settled — do not re-litigate without new measurements.** `state-db-copy` is not
+a bottleneck, at 0.05–0.75ms, despite deep-cloning the world on every CALL/CREATE
+through snapshots. It has already been suspected once and refuted by measurement.
