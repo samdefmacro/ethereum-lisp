@@ -8,8 +8,22 @@
 (defconstant +phase-a-eest-blockchain-replay-pinned-selector+
   "pinned-v5.4.0")
 
+;; The stable corpus tops out at newPayloadV4: Osaka fixtures still submit V4
+;; payloads, and no fixture in tests@v20.0.1 carries a V5 entry. There is
+;; therefore no V5 materializer to write yet -- adding one would be a kind no
+;; corpus can select, i.e. exactly the vacuous coverage this file exists to
+;; prevent.
 (defparameter +phase-a-eest-blockchain-replay-materialization-kind-names+
-  '("engineNewPayloadV2" "blockRlp"))
+  '("engineNewPayloadV2" "engineNewPayloadV3" "engineNewPayloadV4" "blockRlp"))
+
+;; An EEST engine fixture states its expectation for a payload the node must
+;; REFUSE as a validationError on the newPayloads entry (a spec exception name)
+;; or an errorCode (a JSON-RPC error the Engine method itself must return).
+;; These cases cannot go through the replay path, which builds the block by
+;; executing it, so they carry their own kinds and their own assertion: the
+;; payload is submitted verbatim and the refusal is what gets checked.
+(defparameter +phase-a-eest-blockchain-rejection-kind-names+
+  '("engineNewPayloadV2" "engineNewPayloadV3" "engineNewPayloadV4"))
 
 (defparameter +phase-a-eest-blockchain-replay-materialization-kinds+
   '(("shanghai/phase-a-access-list-engine.json" . "engineNewPayloadV2")
@@ -748,10 +762,15 @@
     ("shanghai/eip4895_withdrawals/test_zero_amount.json/tests/shanghai/eip4895_withdrawals/test_withdrawals.py::test_zero_amount[fork_Shanghai-blockchain_test_engine-four_withdrawals_one_with_value_one_with_max_reversed_order]"
      . "engineNewPayloadV2")))
 
+;; tangerine_whistle/spurious_dragon are the stable corpus's spelling of the
+;; eip150/eip158 trees already listed here, so naming both spellings is what
+;; keeps the same feature coverage across the two corpus layouts rather than a
+;; widening. ported_static is deliberately absent -- the manifest counts what it
+;; excludes, so that gap is reported instead of hidden.
 (defparameter +phase-a-eest-blockchain-replay-discovery-feature-directories+
-  '("frontier" "homestead" "eip150" "eip158" "byzantium"
-    "constantinople" "constantinoplefix" "istanbul" "berlin" "london"
-    "paris" "shanghai"))
+  '("frontier" "homestead" "eip150" "eip158" "tangerine_whistle"
+    "spurious_dragon" "byzantium" "constantinople" "constantinoplefix"
+    "istanbul" "berlin" "london" "paris" "shanghai"))
 
 (defconstant +phase-a-eest-blockchain-replay-discovery-max-file-bytes+
   (* 2 1024 1024))
@@ -774,4 +793,12 @@
 ;; directory (preserving the discovery-skips-unsupported-fork-roots contract).
 (defparameter +phase-a-eest-blockchain-replay-late-fork-directories+
   '(("Cancun" . "cancun") ("Prague" . "prague") ("Osaka" . "osaka")))
+
+;; BPO IS NOT A NETWORK IN THIS CORPUS. tests@v20.0.1 has no `for_bpo2' tree and
+;; no fixture whose network is `BPO2'; the blob-parameter-only forks appear only
+;; as the transitions OsakaToBPO1AtTime15k, BPO1ToBPO2AtTime15k,
+;; BPO2ToBPO3AtTime15k and BPO3ToBPO4AtTime15k. So the plan's "Osaka/BPO2" is
+;; reachable only through the transition category below, and adding a standalone
+;; "BPO2" to the supported set would select nothing.
+(defparameter +eest-transition-network-infixes+ '("AtTime" "AtBlock"))
 

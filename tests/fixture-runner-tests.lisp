@@ -15,5 +15,6 @@
            "tests/fixture-runner-root-loading.lisp"
            "tests/fixture-runner-blockchain-materialization.lisp"
            "tests/fixture-runner-suite-tests.lisp"
+           "tests/fixture-runner-engine-payload-tests.lisp"
            "tests/fixture-runner-conformance-manifest.lisp"))
   (load-fixture-runner-test-file relative-path))

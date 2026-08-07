@@ -54,6 +54,35 @@
        (format nil "~A payload" label))
       engine)))
 
+(defun validate-eest-blockchain-rpc-payload-object (payload fields label)
+  "Field-check one Engine executionPayload as it will be submitted.
+
+FIELDS differs by newPayload version -- Cancun carries blobGasUsed and
+excessBlobGas inside the payload -- but every version shares these shapes, so
+one check covers them all and an unknown field is still a hard failure."
+  (unless (listp payload)
+    (error "~A must be a JSON object" label))
+  (validate-fixture-object-fields payload fields label)
+  (dolist (field '("parentHash" "stateRoot" "receiptsRoot"
+                   "prevRandao" "blockHash"))
+    (validate-eest-blockchain-hash-string
+     (fixture-required-field payload field)
+     (format nil "~A ~A" label field)))
+  (validate-eest-blockchain-address-string
+   (fixture-required-field payload "feeRecipient")
+   (format nil "~A feeRecipient" label))
+  (dolist (field '("blockNumber" "gasLimit" "gasUsed" "timestamp"
+                   "baseFeePerGas"))
+    (validate-eest-blockchain-quantity-string
+     (fixture-required-field payload field)
+     (format nil "~A ~A" label field)))
+  (validate-eest-blockchain-hex-string
+   (fixture-required-field payload "extraData")
+   (format nil "~A extraData" label))
+  (validate-eest-blockchain-json-array-field payload "transactions" label)
+  (validate-eest-blockchain-json-array-field payload "withdrawals" label)
+  payload)
+
 (defun eest-blockchain-engine-newpayloads-v2-entry (case)
   (let* ((fixture (fixture-required-field case "fixture"))
          (entries (fixture-object-field fixture "engineNewPayloads")))
@@ -96,36 +125,9 @@
             (error "~A engineNewPayloads V2 params must contain one payload"
                    label))
           (let ((payload (first params)))
-            (unless (listp payload)
-              (error "~A engineNewPayloads V2 payload must be a JSON object"
-                     label))
-            (validate-fixture-object-fields
+            (validate-eest-blockchain-rpc-payload-object
              payload
              +eest-blockchain-rpc-payload-v2-fields+
-             (format nil "~A engineNewPayloads V2 payload" label))
-            (dolist (field '("parentHash" "stateRoot" "receiptsRoot"
-                             "prevRandao" "blockHash"))
-              (validate-eest-blockchain-hash-string
-               (fixture-required-field payload field)
-               (format nil "~A payload ~A" label field)))
-            (validate-eest-blockchain-address-string
-             (fixture-required-field payload "feeRecipient")
-             (format nil "~A payload feeRecipient" label))
-            (dolist (field '("blockNumber" "gasLimit" "gasUsed" "timestamp"
-                             "baseFeePerGas"))
-              (validate-eest-blockchain-quantity-string
-               (fixture-required-field payload field)
-               (format nil "~A payload ~A" label field)))
-            (validate-eest-blockchain-hex-string
-             (fixture-required-field payload "extraData")
-             (format nil "~A payload extraData" label))
-            (validate-eest-blockchain-json-array-field
-             payload
-             "transactions"
-             (format nil "~A payload" label))
-            (validate-eest-blockchain-json-array-field
-             payload
-             "withdrawals"
              (format nil "~A payload" label))
             (let ((last-block-hash
                     (fixture-required-field fixture "lastblockhash"))
@@ -434,20 +436,33 @@ config the standard path emitted before this became fork-aware."
                           block :exception exception)))))
 
 (defun materialize-eest-blockchain-engine-newpayload-v2-case (case)
-  (let* ((fixture (fixture-required-field case "fixture")))
-    (if (fixture-field-present-p fixture "engineNewPayloadV2")
-        (let ((engine (validate-eest-blockchain-engine-newpayload-v2-case
-                       case)))
-          (list (cons "name" (fixture-required-field case "name"))
-                (cons "network" (fixture-required-field fixture "network"))
-                (cons "chainId" (fixture-required-field engine "chainId"))
-                (cons "config" (fixture-required-field engine "config"))
-                (cons "parent" (fixture-required-field engine "parent"))
-                (cons "payload" (fixture-required-field engine "payload"))
-                (cons "expect" (fixture-required-field engine "expect"))))
-        (if (fixture-field-present-p fixture "engineNewPayloads")
-            (materialize-eest-blockchain-engine-newpayloads-v2-case case)
-            (materialize-eest-blockchain-standard-newpayload-v2-case case)))))
+  "Materialize CASE under whichever replay kind it was selected for.
+
+Kept under its V2 name because it is the entry point the existing replay tests
+call; the dispatch below is what lets one selector list mix V2, Cancun/Prague
+engine payloads and standard RLP blocks. A Cancun-or-later case returns a
+SUPERSET of the V2 shape -- same parent/payload/expect keys plus the RPC
+parameters and genesis the V3/V4 Engine call needs -- so a caller that only
+knows V2 still finds everything it reads."
+  (let* ((fixture (fixture-required-field case "fixture"))
+         (kind (eest-blockchain-replay-materialization-kind case)))
+    (cond
+      ((fixture-field-present-p fixture "engineNewPayloadV2")
+       (let ((engine (validate-eest-blockchain-engine-newpayload-v2-case case)))
+         (list (cons "name" (fixture-required-field case "name"))
+               (cons "network" (fixture-required-field fixture "network"))
+               (cons "chainId" (fixture-required-field engine "chainId"))
+               (cons "config" (fixture-required-field engine "config"))
+               (cons "parent" (fixture-required-field engine "parent"))
+               (cons "payload" (fixture-required-field engine "payload"))
+               (cons "expect" (fixture-required-field engine "expect")))))
+      ((or (string= "engineNewPayloadV3" kind)
+           (string= "engineNewPayloadV4" kind))
+       (materialize-eest-blockchain-engine-newpayload-late-case case))
+      ((fixture-field-present-p fixture "engineNewPayloads")
+       (materialize-eest-blockchain-engine-newpayloads-v2-case case))
+      (t
+       (materialize-eest-blockchain-standard-newpayload-v2-case case)))))
 
 (defun materialize-eest-blockchain-engine-newpayloads-v2-case (case)
   (let* ((fixture (fixture-required-field case "fixture"))
@@ -509,6 +524,282 @@ config the standard path emitted before this became fork-aware."
                        (quantity-to-hex
                         (hex-to-quantity
                          (fixture-required-field payload "gasUsed")))))))))
+
+;;;; Cancun and later engine payloads.
+;;;;
+;;;; Through V2 an engine vector was a single object -- one payload, one RPC
+;;;; parameter -- so the materializer could flatten it. From Cancun the payload
+;;;; stops being self-contained: newPayloadV3 carries the blob versioned hashes
+;;;; and the parent beacon block root as separate parameters, and newPayloadV4
+;;;; adds the execution requests. Flattening those away would submit a
+;;;; structurally different call from the one the fixture describes, so the
+;;;; whole parameter list is carried through and handed to the node verbatim.
+
+(defparameter +eest-blockchain-engine-newpayload-param-counts+
+  '(("2" . 1) ("3" . 3) ("4" . 4)))
+
+(defun eest-blockchain-engine-newpayload-param-count (version label)
+  (or (cdr (assoc version +eest-blockchain-engine-newpayload-param-counts+
+                  :test #'string=))
+      (error "~A newPayloadVersion ~A has no known parameter shape"
+             label version)))
+
+(defun validate-eest-blockchain-engine-newpayloads-entry-params (entry label)
+  "Check ENTRY's RPC parameters against its newPayloadVersion and return them."
+  (let* ((version (fixture-required-field entry "newPayloadVersion"))
+         (params (fixture-required-field entry "params"))
+         (expected (eest-blockchain-engine-newpayload-param-count
+                    version label)))
+    (unless (and (listp params) (= expected (length params)))
+      (error "~A newPayloadV~A must carry exactly ~D parameter~:P"
+             label version expected))
+    (validate-eest-blockchain-rpc-payload-object
+     (first params)
+     (if (string= "2" version)
+         +eest-blockchain-rpc-payload-v2-fields+
+         +eest-blockchain-rpc-payload-v3-fields+)
+     (format nil "~A newPayloadV~A payload" label version))
+    (unless (string= "2" version)
+      (let ((versioned-hashes (second params)))
+        (unless (listp versioned-hashes)
+          (error "~A blobVersionedHashes must be a JSON array" label))
+        (dolist (hash versioned-hashes)
+          (validate-eest-blockchain-hash-string
+           hash
+           (format nil "~A blobVersionedHash" label))))
+      (validate-eest-blockchain-hash-string
+       (third params)
+       (format nil "~A parentBeaconBlockRoot" label))
+      (dolist (field '("blobGasUsed" "excessBlobGas"))
+        (validate-eest-blockchain-quantity-string
+         (fixture-required-field (first params) field)
+         (format nil "~A payload ~A" label field))))
+    (when (string= "4" version)
+      (let ((requests (fourth params)))
+        (unless (listp requests)
+          (error "~A executionRequests must be a JSON array" label))
+        (dolist (request requests)
+          (validate-eest-blockchain-hex-string
+           request
+           (format nil "~A executionRequest" label)))))
+    params))
+
+(defun validate-eest-blockchain-engine-newpayloads-entry (case label)
+  "The one engineNewPayloads entry CASE materializes, fully field-checked."
+  (let ((fixture (fixture-required-field case "fixture")))
+    (validate-fixture-object-fields
+     fixture
+     +eest-blockchain-engine-newpayloads-fixture-fields+
+     label)
+    (unless (member (fixture-required-field fixture "network")
+                    (phase-a-eest-blockchain-replay-supported-networks)
+                    :test #'string=)
+      (error "~A engine materializer only handles active networks; set ~A"
+             label +phase-a-eest-blockchain-replay-forks-env+))
+    (let ((entry (eest-blockchain-engine-newpayloads-single-entry case)))
+      (unless entry
+        (error "~A does not carry exactly one engineNewPayloads entry" label))
+      (validate-fixture-object-fields
+       entry
+       +eest-blockchain-engine-newpayloads-late-entry-fields+
+       (format nil "~A engineNewPayloads entry" label))
+      entry)))
+
+(defun validate-eest-blockchain-engine-newpayloads-late-case (case)
+  "Validate a Cancun-or-later engine vector the node must ACCEPT."
+  (let* ((case-name (fixture-required-field case "name"))
+         (fixture (fixture-required-field case "fixture"))
+         (label (format nil "EEST blockchain case ~A" case-name))
+         (entry (validate-eest-blockchain-engine-newpayloads-entry case label))
+         (params (validate-eest-blockchain-engine-newpayloads-entry-params
+                  entry label))
+         (last-block-hash (fixture-required-field fixture "lastblockhash")))
+    (when (eest-blockchain-case-rejection-expectation case)
+      (error "~A expects a refusal and is not a replay case" label))
+    (validate-eest-blockchain-hash-string
+     last-block-hash
+     (format nil "~A lastblockhash" label))
+    (unless (string= last-block-hash
+                     (fixture-required-field (first params) "blockHash"))
+      (error "~A lastblockhash does not match engine payload blockHash" label))
+    params))
+
+(defun validate-eest-blockchain-engine-newpayloads-rejection-case (case)
+  "Validate an engine vector the node must REFUSE.
+
+lastblockhash is deliberately NOT the payload's hash here: the chain ends at the
+block that was accepted, which for a single-payload vector is the genesis. A
+fixture whose lastblockhash IS the rejected payload would be claiming the node
+both refused and adopted it, so that shape is a fixture error, not a refusal."
+  (let* ((case-name (fixture-required-field case "name"))
+         (fixture (fixture-required-field case "fixture"))
+         (label (format nil "EEST blockchain case ~A" case-name))
+         (entry (validate-eest-blockchain-engine-newpayloads-entry case label))
+         (params (validate-eest-blockchain-engine-newpayloads-entry-params
+                  entry label))
+         (expectation (eest-blockchain-case-rejection-expectation case))
+         (last-block-hash (fixture-required-field fixture "lastblockhash")))
+    (unless expectation
+      (error "~A expects acceptance and is not a rejection case" label))
+    (validate-eest-blockchain-hash-string
+     last-block-hash
+     (format nil "~A lastblockhash" label))
+    (when (string= last-block-hash
+                   (fixture-required-field (first params) "blockHash"))
+      (error "~A expects a refusal but lastblockhash is the rejected payload, ~
+              so nothing was refused"
+             label))
+    params))
+
+(defun eest-blockchain-engine-genesis-header (fixture label)
+  "The fixture genesis as a header this build can hash.
+
+The payload names its parent by hash, so the parent has to be reconstructed
+field for field rather than approximated: an approximation hashes to something
+else and the node answers SYNCING instead of judging the payload. Callers check
+the reconstruction against the fixture's own genesis hash, which makes this
+double as a header-encoding conformance check."
+  (let ((header (fixture-required-field fixture "genesisBlockHeader")))
+    (unless (listp header)
+      (error "~A genesisBlockHeader must be a JSON object" label))
+    (flet ((hash-field (name)
+             (hash32-from-hex (fixture-required-field header name)))
+           (optional-hash-field (name)
+             (let ((value (fixture-object-field header name)))
+               (when value (hash32-from-hex value))))
+           (quantity-field (name)
+             (hex-to-quantity (fixture-required-field header name)))
+           (optional-quantity-field (name)
+             (let ((value (fixture-object-field header name)))
+               (when value (hex-to-quantity value)))))
+      (make-block-header
+       :parent-hash (hash-field "parentHash")
+       :ommers-hash (hash-field "uncleHash")
+       :beneficiary (address-from-hex
+                     (fixture-required-field header "coinbase"))
+       :state-root (hash-field "stateRoot")
+       :transactions-root (hash-field "transactionsTrie")
+       :receipts-root (hash-field "receiptTrie")
+       :logs-bloom (hex-to-bytes (fixture-required-field header "bloom"))
+       :difficulty (quantity-field "difficulty")
+       :number (quantity-field "number")
+       :gas-limit (quantity-field "gasLimit")
+       :gas-used (quantity-field "gasUsed")
+       :timestamp (quantity-field "timestamp")
+       :extra-data (hex-to-bytes (fixture-required-field header "extraData"))
+       :mix-hash (hash-field "mixHash")
+       :nonce (hex-to-bytes (fixture-required-field header "nonce"))
+       :base-fee-per-gas (optional-quantity-field "baseFeePerGas")
+       :withdrawals-root (optional-hash-field "withdrawalsRoot")
+       :blob-gas-used (optional-quantity-field "blobGasUsed")
+       :excess-blob-gas (optional-quantity-field "excessBlobGas")
+       :parent-beacon-root (optional-hash-field "parentBeaconBlockRoot")
+       :requests-hash (optional-hash-field "requestsHash")))))
+
+(defun eest-blockchain-engine-case-chain-id (fixture)
+  (quantity-to-hex
+   (hex-to-quantity
+    (or (fixture-object-field (fixture-object-field fixture "config") "chainid")
+        "0x1"))))
+
+(defun eest-blockchain-engine-submission (case params entry expect)
+  "The shape both the late-fork replay and the rejection tests submit.
+
+Everything the node needs to be driven through the real Engine method is here:
+the version, the verbatim RPC parameters, the genesis the payload's parentHash
+points at, and the pre-state that genesis commits to."
+  (let* ((fixture (fixture-required-field case "fixture"))
+         (name (fixture-required-field case "name"))
+         (label (format nil "EEST blockchain case ~A" name))
+         (payload (first params)))
+    (list (cons "name" name)
+          (cons "network" (fixture-required-field fixture "network"))
+          (cons "chainId" (eest-blockchain-engine-case-chain-id fixture))
+          (cons "config"
+                (eest-blockchain-replay-network-config
+                 (fixture-required-field fixture "network")))
+          (cons "newPayloadVersion"
+                (fixture-required-field entry "newPayloadVersion"))
+          (cons "params" params)
+          (cons "genesisHeader"
+                (eest-blockchain-engine-genesis-header fixture label))
+          (cons "genesisHash"
+                (fixture-required-field
+                 (fixture-required-field fixture "genesisBlockHeader")
+                 "hash"))
+          (cons "parent" (eest-blockchain-standard-parent fixture label))
+          (cons "payload"
+                (list
+                 (cons "number"
+                       (quantity-to-hex
+                        (hex-to-quantity
+                         (fixture-required-field payload "blockNumber"))))
+                 (cons "gasLimit"
+                       (quantity-to-hex
+                        (hex-to-quantity
+                         (fixture-required-field payload "gasLimit"))))
+                 (cons "timestamp"
+                       (quantity-to-hex
+                        (hex-to-quantity
+                         (fixture-required-field payload "timestamp"))))
+                 (cons "baseFeePerGas"
+                       (quantity-to-hex
+                        (hex-to-quantity
+                         (fixture-required-field payload "baseFeePerGas"))))
+                 (cons "blockHash" (fixture-required-field payload "blockHash"))
+                 (cons "transactions"
+                       (fixture-required-field payload "transactions"))
+                 (cons "withdrawals"
+                       (fixture-required-field payload "withdrawals"))))
+          (cons "expect" expect))))
+
+(defun materialize-eest-blockchain-engine-newpayload-late-case (case)
+  "A Cancun-or-later engine vector the node must accept, ready to submit."
+  (let* ((params (validate-eest-blockchain-engine-newpayloads-late-case case))
+         (payload (first params))
+         (entry (eest-blockchain-engine-newpayloads-single-entry case)))
+    (eest-blockchain-engine-submission
+     case params entry
+     (list (cons "status" "VALID")
+           (cons "stateRoot" (fixture-required-field payload "stateRoot"))
+           (cons "receiptsRoot" (fixture-required-field payload "receiptsRoot"))
+           (cons "gasUsed"
+                 (quantity-to-hex
+                  (hex-to-quantity
+                   (fixture-required-field payload "gasUsed"))))))))
+
+(defun materialize-eest-blockchain-engine-rejection-case (case)
+  "An engine vector the node must refuse, ready to submit.
+
+The expectation is the refusal and nothing else -- no state root, no receipts
+root, no gas used. A rejected payload was never executed, so carrying the
+numbers it claims would assert agreement with values the node was supposed to
+throw away."
+  (let* ((params (validate-eest-blockchain-engine-newpayloads-rejection-case
+                  case))
+         (entry (eest-blockchain-engine-newpayloads-single-entry case))
+         (expectation (eest-blockchain-case-rejection-expectation case)))
+    (eest-blockchain-engine-submission
+     case params entry
+     (list (cons "status" "INVALID")
+           (cons "validationError"
+                 (fixture-object-field expectation "validationError"))
+           (cons "errorCode"
+                 (fixture-object-field expectation "errorCode"))))))
+
+(defun materialize-eest-blockchain-engine-newpayload-v3-case (case)
+  (let ((params (validate-eest-blockchain-engine-newpayloads-late-case case)))
+    (unless (= 3 (length params))
+      (error "EEST blockchain case ~A is not a newPayloadV3 vector"
+             (fixture-required-field case "name")))
+    (materialize-eest-blockchain-engine-newpayload-late-case case)))
+
+(defun materialize-eest-blockchain-engine-newpayload-v4-case (case)
+  (let ((params (validate-eest-blockchain-engine-newpayloads-late-case case)))
+    (unless (= 4 (length params))
+      (error "EEST blockchain case ~A is not a newPayloadV4 vector"
+             (fixture-required-field case "name")))
+    (materialize-eest-blockchain-engine-newpayload-late-case case)))
 
 (defun load-handwritten-fixture-file (path)
   (parse-json (fixture-file-string path)))

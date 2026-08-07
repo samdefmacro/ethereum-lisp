@@ -127,27 +127,61 @@
           (setf (gethash relative seen) t)
           (push path paths))))))
 
+(defun eest-selector-source-style-name-p (name)
+  "Whether NAME is a usable EEST selector: <relative>.json[/<case id>].
+
+The traversal guards apply to the path PREFIX and only to it, because that is
+the only part MERGE-PATHNAMES ever sees -- EEST-SELECTOR-RELATIVE-JSON-PATH cuts
+the name at its first `.json'. The case id after that is a pytest node id, i.e.
+arbitrary parametrization text, and real fixtures contain ids like
+`test_bad_v_r_s[...-s=SECP256K1N//2+1]'. Refusing those for containing `//'
+would drop genuine vectors out of discovery with no trace, which is the silent
+gap this whole selector layer exists to prevent."
+  (and (stringp name)
+       (not (blank-string-p name))
+       (let* ((json-position (search ".json" name :test #'char-equal))
+              (after-json (and json-position (+ json-position 5))))
+         (and json-position
+              (plusp json-position)
+              (not (char= (char name (1- json-position)) #\/))
+              (let ((path (subseq name 0 after-json)))
+                (and (not (char= (char path 0) #\/))
+                     (null (search ".." path))
+                     (null (search "//" path))))
+              (or (= after-json (length name))
+                  (and (< after-json (length name))
+                       (char= (char name after-json) #\/)
+                       (< (1+ after-json) (length name))))))))
+
+(defun validate-eest-selector-list (names label)
+  (unless (listp names)
+    (error "~A selector list must be a list" label))
+  (unless names
+    (error "~A selector list must not be empty" label))
+  (let ((seen (make-hash-table :test 'equal)))
+    (dolist (name names)
+      (unless (stringp name)
+        (error "~A selector name must be a string" label))
+      (when (blank-string-p name)
+        (error "~A selector name must be present" label))
+      (unless (eest-selector-source-style-name-p name)
+        (error "~A selector ~A must be a source-style JSON case name"
+               label name))
+      (when (gethash name seen)
+        (error "~A selector list has duplicate name ~A" label name))
+      (setf (gethash name seen) t))))
+
 (defun validate-eest-blockchain-selector-list (names)
-  (validate-execution-spec-tests-selector-list
-   names
-   "EEST blockchain"
-   :allow-nested-case-name t))
+  (validate-eest-selector-list names "EEST blockchain"))
 
 (defun validate-eest-state-selector-list (names)
-  (validate-execution-spec-tests-selector-list
-   names
-   "EEST state"
-   :allow-nested-case-name t))
+  (validate-eest-selector-list names "EEST state"))
 
 (defun eest-blockchain-selector-source-style-p (name)
-  (execution-spec-tests-source-style-name-p
-   name
-   :allow-nested-case-name t))
+  (eest-selector-source-style-name-p name))
 
 (defun eest-state-selector-source-style-p (name)
-  (execution-spec-tests-source-style-name-p
-   name
-   :allow-nested-case-name t))
+  (eest-selector-source-style-name-p name))
 
 (defun load-eest-blockchain-test-root-cases (root &key names)
   (when names
@@ -172,16 +206,42 @@
    names
    "EEST state test"))
 
-(defun execution-spec-tests-discovery-path-p
-    (root path feature-directories max-file-bytes)
+(defun eest-fixture-discovery-directories (root path)
+  "Split PATH's position under ROOT into (VALUES network-directory feature).
+
+A `for_<network>/' first component is the stable corpus stating the fork in the
+path; NETWORK-DIRECTORY is then the bare network name and FEATURE is the tree
+below it. The legacy layout has no such prefix, so NETWORK-DIRECTORY is NIL and
+the fork is only knowable from the fixture body."
   (let* ((relative (enough-namestring (truename path) (truename root)))
          (slash (position #\/ relative))
-         (feature-directory (if slash
-                                (subseq relative 0 slash)
-                                relative)))
+         (first-directory (if slash (subseq relative 0 slash) relative))
+         (prefix-length (length +eest-fixture-network-directory-prefix+)))
+    (if (and slash
+             (eql 0 (search +eest-fixture-network-directory-prefix+
+                            first-directory))
+             (> (length first-directory) prefix-length))
+        (let* ((remainder (subseq relative (1+ slash)))
+               (next (position #\/ remainder)))
+          (values (subseq first-directory prefix-length)
+                  (if next (subseq remainder 0 next) remainder)))
+        (values nil first-directory))))
+
+(defun execution-spec-tests-discovery-path-p
+    (root path feature-directories max-file-bytes networks)
+  "Whether PATH is a fixture file this run should open at all.
+
+On a `for_<network>/' corpus the fork gate applies to the path, so a run
+configured for Shanghai never descends into a Cancun tree and never parses a
+byte of it. On the legacy layout there is no fork in the path and the gate stays
+where it always was, on the loaded case's network field."
+  (multiple-value-bind (network-directory feature-directory)
+      (eest-fixture-discovery-directories root path)
     (and (member (string-downcase feature-directory)
                  feature-directories
                  :test #'string=)
+         (or (null network-directory)
+             (member network-directory networks :test #'string-equal))
          (<= (eest-fixture-file-byte-size path) max-file-bytes))))
 
 (defun phase-a-eest-blockchain-replay-discovery-path-p (root path)
@@ -189,38 +249,67 @@
    root
    path
    (phase-a-eest-blockchain-replay-active-feature-directories)
-   +phase-a-eest-blockchain-replay-discovery-max-file-bytes+))
+   +phase-a-eest-blockchain-replay-discovery-max-file-bytes+
+   (phase-a-eest-blockchain-replay-supported-networks)))
 
 (defun phase-a-eest-state-test-discovery-path-p (root path)
   (execution-spec-tests-discovery-path-p
    root
    path
    +phase-a-eest-state-test-discovery-feature-directories+
-   +phase-a-eest-state-test-discovery-max-file-bytes+))
+   +phase-a-eest-state-test-discovery-max-file-bytes+
+   (phase-a-eest-state-test-supported-forks)))
 
 (defun eest-fixture-file-byte-size (path)
   (with-open-file (stream path :direction :input
                                :element-type '(unsigned-byte 8))
     (file-length stream)))
 
-(defun load-phase-a-eest-blockchain-discovery-cases (root)
+;;; Discovery streams. One active fork's engine tree is a few thousand cases and
+;;; each carries a full pre-state and payload, so materializing the whole
+;;; discovered set at once exhausts the heap the moment
+;;; ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_FORKS names more than one network --
+;;; and it dies without a manifest, which is the report that was supposed to
+;;; explain what ran. Every caller here only needs a small summary per case, so
+;;; the file's cases are handed over and dropped one file at a time.
+
+(defun map-phase-a-eest-blockchain-discovery-cases (function root)
   (loop for path in (eest-blockchain-test-root-json-paths root)
         when (phase-a-eest-blockchain-replay-discovery-path-p root path)
-          append (load-eest-blockchain-test-root-file-cases root path)))
+          do (dolist (case (load-eest-blockchain-test-root-file-cases
+                            root path))
+               (funcall function case))))
 
-(defun load-phase-a-eest-state-discovery-cases (root)
+(defun load-phase-a-eest-blockchain-discovery-cases (root)
+  (let ((cases '()))
+    (map-phase-a-eest-blockchain-discovery-cases
+     (lambda (case) (push case cases))
+     root)
+    (nreverse cases)))
+
+(defun map-phase-a-eest-state-discovery-cases (function root)
   (loop for path in (eest-state-test-root-json-paths root)
         when (and
               (phase-a-eest-state-test-discovery-path-p root path)
-              (let* ((relative
-                       (enough-namestring (truename path) (truename root)))
-                     (slash (position #\/ relative))
-                     (fork-directory
-                       (if slash (subseq relative 0 slash) relative)))
-                (member fork-directory
-                        (phase-a-eest-state-test-supported-forks)
-                        :test #'string-equal)))
-          append (load-eest-state-test-root-file-cases root path)))
+              ;; On the legacy layout the top directory doubles as the fork
+              ;; name, and reading it that way is the only fork signal a path
+              ;; carries. A `for_<fork>/' corpus states it outright and the
+              ;; discovery predicate has already applied the same gate.
+              (multiple-value-bind (network-directory feature-directory)
+                  (eest-fixture-discovery-directories root path)
+                (or network-directory
+                    (member feature-directory
+                            (phase-a-eest-state-test-supported-forks)
+                            :test #'string-equal))))
+          do (dolist (case (load-eest-state-test-root-file-cases root path))
+               (funcall function case))))
+
+(defun load-phase-a-eest-state-discovery-cases (root)
+  (let ((cases '()))
+    (map-phase-a-eest-state-discovery-cases
+     (lambda (case) (push case cases))
+     root)
+    (nreverse cases)))
 
 (defun eest-state-test-case-fork-names (case)
   (let ((post (fixture-required-field
@@ -267,9 +356,13 @@
     (error () nil)))
 
 (defun discover-phase-a-eest-state-test-selectors (root)
-  (loop for case in (load-phase-a-eest-state-discovery-cases root)
-        when (phase-a-eest-state-materializable-case-p case)
-          collect (fixture-required-field case "name")))
+  (let ((selectors '()))
+    (map-phase-a-eest-state-discovery-cases
+     (lambda (case)
+       (when (phase-a-eest-state-materializable-case-p case)
+         (push (fixture-required-field case "name") selectors)))
+     root)
+    (nreverse selectors)))
 
 (defun eest-state-test-root-summary (cases)
   (let ((fork-counts (make-hash-table :test 'equal))
@@ -533,11 +626,89 @@ never descends into an unsupported-fork directory."
                    bounded-selectors)))
     (format nil "~{~A~^,~}" entries)))
 
+(defun eest-transition-network-p (network)
+  "Whether NETWORK names a fork TRANSITION rather than one ruleset.
+
+EEST spells these `<From>To<To>AtTime<N>' (ShanghaiToCancunAtTime15k,
+OsakaToBPO1AtTime15k). They are not a fork the replay path can run: the whole
+point of the vector is a chain that crosses an activation boundary, so it has no
+single ruleset and, in this corpus, almost always more than one payload."
+  (and (stringp network)
+       (search "To" network)
+       (some (lambda (infix) (search infix network))
+             +eest-transition-network-infixes+)
+       t))
+
+(defun eest-blockchain-engine-newpayloads-entries (case)
+  (let ((entries (fixture-object-field
+                  (fixture-required-field case "fixture")
+                  "engineNewPayloads")))
+    (when (listp entries)
+      entries)))
+
+(defun eest-blockchain-engine-newpayloads-single-entry (case)
+  "CASE's only engineNewPayloads entry, or NIL when the chain is not one block.
+
+The replay harness builds one child on top of the fixture genesis, so a vector
+that feeds several payloads has no representation here. Returning NIL rather
+than the first entry is what keeps a multi-block chain from being scored as if
+its first block were the whole test."
+  (let ((entries (eest-blockchain-engine-newpayloads-entries case)))
+    (when (and entries (null (rest entries)) (listp (first entries)))
+      (first entries))))
+
+(defun eest-blockchain-engine-newpayload-version (entry)
+  (and (listp entry)
+       (fixture-object-field entry "newPayloadVersion")))
+
+(defun eest-blockchain-engine-newpayload-kind-name (version)
+  (let ((kind (format nil "engineNewPayloadV~A" version)))
+    (when (member kind
+                  +phase-a-eest-blockchain-replay-materialization-kind-names+
+                  :test #'string=)
+      kind)))
+
+(defun eest-blockchain-case-rejection-expectation (case)
+  "The refusal CASE demands, or NIL when it expects the payload to be accepted.
+
+A validationError is the spec exception the payload must be rejected for; an
+errorCode is a JSON-RPC error the Engine method itself must return (an
+unsupported-fork payload, for instance). Either makes this an invalid-payload
+vector, which the replay path cannot express because it derives its expectation
+by executing the block."
+  (let ((entry (eest-blockchain-engine-newpayloads-single-entry case)))
+    (when entry
+      (let ((validation-error (fixture-object-field entry "validationError"))
+            (error-code (fixture-object-field entry "errorCode")))
+        (when (or validation-error error-code)
+          (list (cons "validationError" validation-error)
+                (cons "errorCode" error-code)))))))
+
+(defun eest-blockchain-case-invalid-p (case)
+  "Whether CASE is an invalid vector, whatever shape it takes.
+
+Broader than EEST-BLOCKCHAIN-CASE-REJECTION-EXPECTATION, which only speaks for
+single-payload vectors this build can submit: a multi-payload chain whose third
+payload must be refused is still an invalid vector and has to be counted on the
+validity axis even though nothing executes it."
+  (or (and (eest-blockchain-case-exception case) t)
+      (and (some (lambda (entry)
+                   (and (listp entry)
+                        (or (fixture-object-field entry "validationError")
+                            (fixture-object-field entry "errorCode"))))
+                 (eest-blockchain-engine-newpayloads-entries case))
+           t)))
+
 (defun eest-blockchain-replay-materialization-kind (case)
-  (let ((fixture (fixture-required-field case "fixture")))
+  (let ((fixture (fixture-required-field case "fixture"))
+        (entry (eest-blockchain-engine-newpayloads-single-entry case)))
     (cond
       ((fixture-field-present-p fixture "engineNewPayloadV2")
        "engineNewPayloadV2")
+      (entry
+       (or (eest-blockchain-engine-newpayload-kind-name
+            (eest-blockchain-engine-newpayload-version entry))
+           "unsupported"))
       ((and (fixture-field-present-p fixture "engineNewPayloads")
             (eest-blockchain-engine-newpayloads-v2-entry case))
        "engineNewPayloadV2")
@@ -549,32 +720,115 @@ never descends into an unsupported-fork directory."
       (t
        "unsupported"))))
 
-(defun phase-a-eest-blockchain-replay-materializable-kind (case)
+(defun phase-a-eest-blockchain-replay-skip-category (case)
+  "Why CASE is not in the replay set, as a name the count manifest can report.
+
+Every discovered case that does not execute must land in one of these buckets.
+An unnamed skip is the failure mode plan section 2 exists to remove: a corpus
+mounted, a fork claimed, and nothing run."
   (handler-case
       (let* ((fixture (fixture-required-field case "fixture"))
              (network (fixture-object-field fixture "network"))
-             (kind (eest-blockchain-replay-materialization-kind case)))
+             (entries (eest-blockchain-engine-newpayloads-entries case)))
+        (cond
+          ((not (stringp network)) "missingNetwork")
+          ((eest-transition-network-p network) "transitionNetwork")
+          ((not (member network
+                        (phase-a-eest-blockchain-replay-supported-networks)
+                        :test #'string=))
+           "unsupportedNetwork")
+          ((eest-blockchain-case-rejection-expectation case) "invalidPayload")
+          ((and entries (rest entries)) "multiPayloadChain")
+          ((string= "unsupported"
+                    (eest-blockchain-replay-materialization-kind case))
+           "unsupportedPayloadVersion")
+          (t "unmaterializableShape")))
+    (error () "unreadableFixture")))
+
+(defun phase-a-eest-blockchain-replay-materializable-kind (case)
+  "CASE's replay kind, or NIL, plus the skip category when it is NIL.
+
+Only vectors that expect ACCEPTANCE belong here: the replay harness derives what
+it asserts by executing the block, so a payload the node is supposed to refuse
+has no expectation it could produce. Those go to the rejection set instead,
+where the refusal itself is the assertion."
+  (let ((kind
+          (handler-case
+              (let* ((fixture (fixture-required-field case "fixture"))
+                     (network (fixture-object-field fixture "network"))
+                     (kind (eest-blockchain-replay-materialization-kind case)))
+                (when (and (stringp network)
+                           (member
+                            network
+                            (phase-a-eest-blockchain-replay-supported-networks)
+                            :test #'string=)
+                           (not (eest-blockchain-case-rejection-expectation
+                                 case)))
+                  (cond
+                    ((string= "engineNewPayloadV2" kind)
+                     (if (fixture-field-present-p fixture "engineNewPayloadV2")
+                         (validate-eest-blockchain-engine-newpayload-v2-case
+                          case)
+                         (validate-eest-blockchain-engine-newpayloads-v2-case
+                          case))
+                     kind)
+                    ((or (string= "engineNewPayloadV3" kind)
+                         (string= "engineNewPayloadV4" kind))
+                     (validate-eest-blockchain-engine-newpayloads-late-case
+                      case)
+                     kind)
+                    ((string= "blockRlp" kind)
+                     (validate-eest-blockchain-standard-newpayload-v2-case case)
+                     kind)
+                    (t nil))))
+            (error () nil))))
+    (values kind
+            (unless kind
+              (phase-a-eest-blockchain-replay-skip-category case)))))
+
+(defun phase-a-eest-blockchain-rejection-kind (case)
+  "CASE's kind when it is an invalid-payload vector this build can submit.
+
+Same network gate as the replay set, so widening the fork env is still the only
+way new execution appears; the difference is what gets asserted."
+  (handler-case
+      (let* ((fixture (fixture-required-field case "fixture"))
+             (network (fixture-object-field fixture "network")))
         (when (and (stringp network)
                    (member network
                            (phase-a-eest-blockchain-replay-supported-networks)
-                           :test #'string=))
-          (cond
-            ((string= "engineNewPayloadV2" kind)
-             (if (fixture-field-present-p fixture "engineNewPayloadV2")
-                 (validate-eest-blockchain-engine-newpayload-v2-case case)
-                 (validate-eest-blockchain-engine-newpayloads-v2-case case))
-             kind)
-            ((string= "blockRlp" kind)
-             (validate-eest-blockchain-standard-newpayload-v2-case case)
-             kind)
-            (t nil))))
+                           :test #'string=)
+                   (eest-blockchain-case-rejection-expectation case))
+          (let ((kind (eest-blockchain-engine-newpayload-kind-name
+                       (eest-blockchain-engine-newpayload-version
+                        (eest-blockchain-engine-newpayloads-single-entry
+                         case)))))
+            (when (and kind
+                       (member kind +phase-a-eest-blockchain-rejection-kind-names+
+                               :test #'string=))
+              (validate-eest-blockchain-engine-newpayloads-rejection-case case)
+              kind))))
     (error () nil)))
 
+(defun discover-phase-a-eest-blockchain-rejection-selectors (root)
+  (let ((selectors '()))
+    (map-phase-a-eest-blockchain-discovery-cases
+     (lambda (case)
+       (let ((kind (phase-a-eest-blockchain-rejection-kind case)))
+         (when kind
+           (push (cons (fixture-required-field case "name") kind) selectors))))
+     root)
+    (nreverse selectors)))
+
 (defun discover-phase-a-eest-blockchain-replay-selectors (root)
-  (loop for case in (load-phase-a-eest-blockchain-discovery-cases root)
-        for kind = (phase-a-eest-blockchain-replay-materializable-kind case)
-        when kind
-          collect (cons (fixture-required-field case "name") kind)))
+  (let ((selectors '()))
+    (map-phase-a-eest-blockchain-discovery-cases
+     (lambda (case)
+       (let ((kind (phase-a-eest-blockchain-replay-materializable-kind case)))
+         (when kind
+           (push (cons (fixture-required-field case "name") kind) selectors))))
+     root)
+    (nreverse selectors)))
 
 (defun validate-phase-a-eest-blockchain-discovered-replay-selectors
     (root expected-kinds)
@@ -682,8 +936,13 @@ never descends into an unsupported-fork directory."
           (error "Phase A EEST blockchain replay loaded unsupported network ~A; set ~A to include it"
                  (car entry)
                  +phase-a-eest-blockchain-replay-forks-env+))))
-    (unless (plusp (or (fixture-object-field kind-counts "engineNewPayloadV2")
-                       0))
+    ;; Engine coverage means SOME newPayload version ran, not V2 specifically: a
+    ;; selector set confined to Cancun or Prague carries no V2 payload at all
+    ;; and would fail a V2-only check while being fully covered.
+    (unless (plusp (loop for kind in '("engineNewPayloadV2"
+                                       "engineNewPayloadV3"
+                                       "engineNewPayloadV4")
+                         sum (or (fixture-object-field kind-counts kind) 0)))
       (error "Phase A EEST blockchain replay is missing embedded Engine coverage"))
     (when (find "blockRlp" expected-kinds :key #'cdr :test #'string=)
       (unless (plusp (or (fixture-object-field kind-counts "blockRlp") 0))
@@ -727,4 +986,35 @@ never descends into an unsupported-fork directory."
       (load-phase-a-eest-blockchain-replay-cases
        root
        :expected-kinds expected-kinds))))
+
+(defun load-optional-phase-a-eest-blockchain-rejection-cases ()
+  "The invalid-payload vectors this run should submit, or a skip.
+
+Keyed on the same selector env as the replay set, but only its `auto' setting:
+an explicit selector list names replay cases and a pinned list is a replay pin,
+so neither can say which refusals to run. The count manifest reports invalid
+cases discovered against invalid cases executed, which is what keeps this
+narrower switch from becoming another silent gap."
+  (with-execution-spec-tests-blockchain-test-root (root)
+    (let ((value (funcall *fixture-root-environment-reader*
+                          +phase-a-eest-blockchain-replay-selectors-env+)))
+      (unless (and (stringp value)
+                   (string= +phase-a-eest-blockchain-replay-auto-selector+
+                            (string-downcase
+                             (eest-fixture-trim-string value))))
+        (skip-test
+         (format nil
+                 "Set ~A to ~A to run Phase A blockchain invalid-payload refusal against this external root"
+                 +phase-a-eest-blockchain-replay-selectors-env+
+                 +phase-a-eest-blockchain-replay-auto-selector+)))
+      (let ((selectors
+              (discover-phase-a-eest-blockchain-rejection-selectors root)))
+        (unless selectors
+          (skip-test
+           (format nil
+                   "This EEST blockchain root carries no invalid-payload vectors for the networks ~A selects"
+                   +phase-a-eest-blockchain-replay-forks-env+)))
+        (load-eest-blockchain-test-root-cases
+         root
+         :names (mapcar #'car selectors))))))
 
