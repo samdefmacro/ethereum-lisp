@@ -284,10 +284,9 @@ canonical body-only representation."
      (chain-store-export-block-record-to-kv batch block))
    (memory-chain-store-blocks store))
   ;; Publishing this marker in the same batch makes v1 -> v2 migration
-  ;; all-or-nothing. Legacy hash keys remain readable during rollout.
-  (kv-batch-put-chain-record
-   batch :schema-version "chain"
-   (kv-chain-record-uint64-bytes +kv-chain-schema-version+)))
+  ;; all-or-nothing. Legacy hash keys remain readable during rollout. The
+  ;; import path refuses a marker newer than this client understands.
+  (kv-batch-put-chain-schema-version batch))
 
 (defun chain-store-export-block-records-to-kv (store database)
   (chain-store-apply-export-batch

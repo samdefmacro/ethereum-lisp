@@ -9,6 +9,9 @@
     (block-validation-fail "Node import target requires a txpool component"))
   (unless (typep database 'key-value-database)
     (block-validation-fail "Node import source must be a key-value database"))
+  ;; Refuse an on-disk schema newer than this client understands before reading
+  ;; any record, rather than misinterpreting a future layout.
+  (node-store-require-supported-schema-version database)
   (let ((staging (make-engine-payload-memory-store)))
     (chain-store-import-block-records-from-kv staging database)
     (chain-store-import-header-records-from-kv staging database)

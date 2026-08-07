@@ -1009,3 +1009,97 @@
                (kv-put database #(3) #(30)))))
       (when (probe-file path)
         (delete-file path)))))
+
+;;;; Backend-neutral iteration contract.
+;;;;
+;;;; docs/storage-substrate.md requires ordered prefix iteration and range
+;;;; deletion of every backend before height-ordered chain keys depend on them.
+;;;; The same assertions run against the memory, log-file, and RocksDB backends
+;;;; so the [START, END) semantics -- START inclusive, END exclusive, in both
+;;;; directions -- cannot diverge between the reference backends and RocksDB.
+
+(defun kv-drain-iterator (iterator)
+  "Collect (KEY . VALUE) pairs from ITERATOR, then assert that an exhausted
+iterator keeps reporting absence rather than erroring or crashing when pulled
+again (a RocksDB iterator frees its native cursor on exhaustion)."
+  (let ((pairs '()))
+    (loop
+      (multiple-value-bind (key value present-p) (funcall iterator)
+        (unless present-p
+          (multiple-value-bind (extra-key extra-value extra-present-p)
+              (funcall iterator)
+            (declare (ignore extra-key extra-value))
+            (is (not extra-present-p)))
+          (return (nreverse pairs)))
+        (push (cons key value) pairs)))))
+
+(defun kv-iterator-keys (database &rest arguments)
+  (mapcar #'car (kv-drain-iterator (apply #'kv-iterator database arguments))))
+
+(defun kv-key-list= (expected actual)
+  (and (= (length expected) (length actual))
+       (every #'bytes= expected actual)))
+
+(defun assert-kv-iterator-range-contract (database)
+  (let ((a1 #(#x10 #x01)) (a2 #(#x10 #x02)) (a3 #(#x10 #x03))
+        (b1 #(#x20 #x01)) (b2 #(#x20 #x02))
+        (a-start #(#x10)) (a-end #(#x11)) (b-start #(#x20)))
+    (dolist (key (list a3 a1 b2 a2 b1))
+      (kv-put database key #(0)))
+    ;; Forward iteration is ordered across the whole store and within a prefix.
+    (is (kv-key-list= (list a1 a2 a3 b1 b2) (kv-iterator-keys database)))
+    (is (kv-key-list= (list a1 a2 a3)
+                      (kv-iterator-keys database :start a-start :end a-end)))
+    ;; START is inclusive and END exclusive; an open bound scans to the edge.
+    (is (kv-key-list= (list b1 b2) (kv-iterator-keys database :start b-start)))
+    (is (kv-key-list= (list a1 a2 a3) (kv-iterator-keys database :end b-start)))
+    ;; Reverse iteration yields the same membership as forward, descending.
+    (is (kv-key-list= (list b2 b1 a3 a2 a1)
+                      (kv-iterator-keys database :reverse-p t)))
+    (is (kv-key-list= (list a3 a2 a1)
+                      (kv-iterator-keys database
+                                        :start a-start :end a-end :reverse-p t)))
+    (is (kv-key-list= (list b2 b1)
+                      (kv-iterator-keys database :start b-start :reverse-p t)))
+    (is (kv-key-list= (list a3 a2 a1)
+                      (kv-iterator-keys database :end b-start :reverse-p t)))
+    ;; An empty range yields nothing in either direction.
+    (is (null (kv-iterator-keys database :start #(#x30) :end #(#x40))))
+    (is (null (kv-iterator-keys database
+                                :start #(#x30) :end #(#x40) :reverse-p t)))
+    ;; Range deletion: enumerate the A prefix, delete each key, and prove the
+    ;; range is gone while the neighbouring prefix is untouched.
+    (let ((a-keys (kv-iterator-keys database :start a-start :end a-end)))
+      (is (= 3 (length a-keys)))
+      (dolist (key a-keys)
+        (is (kv-delete database key))))
+    (is (null (kv-iterator-keys database :start a-start :end a-end)))
+    (is (kv-key-list= (list b1 b2) (kv-iterator-keys database)))
+    database))
+
+(deftest memory-key-value-database-iterator-range-contract
+  (assert-kv-iterator-range-contract (make-memory-key-value-database)))
+
+(deftest file-key-value-database-iterator-range-contract
+  (:layer :integration :module :database)
+  (let ((path (kv-log-test-path "ethereum-lisp-kv-iterator-contract")))
+    (unwind-protect
+         (assert-kv-iterator-range-contract (make-file-key-value-database path))
+      (when (probe-file path)
+        (delete-file path)))))
+
+(deftest rocksdb-key-value-database-iterator-range-contract
+  (:layer :integration :module :database)
+  (let ((path
+          (merge-pathnames
+           (make-pathname
+            :directory
+            `(:relative ,(format nil "ethereum-lisp-rocks-iter-~A" (gensym))))
+           #P"/private/tmp/")))
+    (unwind-protect
+         (let ((database (make-rocksdb-key-value-database path)))
+           (unwind-protect
+                (assert-kv-iterator-range-contract database)
+             (close-rocksdb-key-value-database database)))
+      (when (probe-file path)
+        (uiop:delete-directory-tree path :validate t)))))

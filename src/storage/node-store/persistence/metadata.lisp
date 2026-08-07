@@ -167,3 +167,33 @@
      +node-store-persistence-metadata-identifier+
      (node-store-persistence-metadata-record-rlp metadata)))
   batch)
+
+(defconstant +node-store-minimum-supported-schema-version+ 1
+  "The oldest on-disk chain schema this client reads. Databases predating the
+versioned schema marker carry no :SCHEMA-VERSION record and are read as this
+version.")
+
+(defun node-store-require-supported-schema-version (database)
+  "Read the on-disk chain schema-version marker and refuse a version this
+client does not understand.
+
+A database written by a newer client is rejected outright rather than
+misinterpreted -- derived-not-trusted applied to the storage format itself.
+Absence of the marker is treated as the pre-marker schema and allowed, so a
+legacy or forkchoice-delta-only database still opens. Returns the version and
+a presence flag."
+  (unless (typep database 'key-value-database)
+    (block-validation-fail
+     "Schema version check requires a key-value database"))
+  (multiple-value-bind (version present-p)
+      (kv-get-chain-schema-version database)
+    (when present-p
+      (unless (<= +node-store-minimum-supported-schema-version+
+                  version
+                  +kv-chain-schema-version+)
+        (block-validation-fail
+         "On-disk chain schema version ~D is unsupported; this client reads ~D through ~D"
+         version
+         +node-store-minimum-supported-schema-version+
+         +kv-chain-schema-version+)))
+    (values version present-p)))

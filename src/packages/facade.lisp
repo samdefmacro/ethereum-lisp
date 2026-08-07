@@ -53,7 +53,11 @@
    #:kv-delete-chain-checkpoint
    #:kv-batch-put-chain-checkpoint
    #:kv-batch-delete-chain-checkpoint
-   #:kv-chain-checkpoints)
+   #:kv-chain-checkpoints
+   #:+kv-chain-schema-version+
+   #:kv-put-chain-schema-version
+   #:kv-batch-put-chain-schema-version
+   #:kv-get-chain-schema-version)
   (#:ethereum-lisp.snappy
    #:snappy-compress
    #:snappy-decompress)
