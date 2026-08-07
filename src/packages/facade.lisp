@@ -1089,6 +1089,8 @@
   (#:ethereum-lisp.canonical-chain
    #:chain-store-set-canonical-head)
   (#:ethereum-lisp.node-store.persistence
+   #:node-store-chain-schema-version
+   #:node-store-migrate-chain-schema
    #:node-store-stage-progress
    #:node-store-stage-progress-p
    #:node-store-stage-progress-number

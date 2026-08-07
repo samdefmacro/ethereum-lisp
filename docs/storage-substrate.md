@@ -51,6 +51,30 @@ allowed only after tests establish their lifecycle; the initial adapter uses one
 shared handle. Column families are deferred until measured schema pressure
 justifies them.
 
+## On-disk schema versioning
+
+The record layout inside a datadir is named by a single `:SCHEMA-VERSION`
+marker, written in the same batch as the records it describes. A client refuses
+a version it does not understand rather than reinterpreting it, and brings an
+older one forward when it adopts the datadir: `node-store-import-from-kv` runs
+`node-store-migrate-chain-schema` before reading, so every later write path may
+assume the current layout. The migration is one atomic batch — a crash leaves
+either the whole old layout under the old marker or the whole new one under the
+new marker. It is therefore not resumable, and its batch is proportional to the
+retained state.
+
+Version 3 made contract code content-addressed. A body is stored once under
+`:CODE` keyed by its Keccak hash, and `:STATE`, `:STAGED-STATE` and
+`:STATE-DIFF` account records carry the 32-byte reference instead of the body;
+an empty reference means the account has no code. Reading a reference re-hashes
+the body it names, and a reference with no record fails the read rather than
+producing an account without code. `:CODE` records are never deleted: code is
+immutable and shared by every block that references it, so no single block's
+retention can decide a body is unreachable.
+
+The two layouts are indistinguishable by inspection, since a pre-v3 body can
+itself be 32 bytes long. Which one a record uses is decided by the marker alone.
+
 ## Migration and rollout
 
 1. The backend-neutral protocol remains unchanged.

@@ -1,6 +1,6 @@
 (in-package #:ethereum-lisp.database)
 
-(defconstant +kv-chain-schema-version+ 2)
+(defconstant +kv-chain-schema-version+ 3)
 
 (defparameter +kv-chain-schema-version-identifier+ "chain"
   "The single :SCHEMA-VERSION record identifier. One marker names the on-disk

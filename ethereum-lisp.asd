@@ -306,6 +306,7 @@
       :serial t
       :components
       ((:file "node-store-persistence-metadata" :pathname "metadata")
+       (:file "node-store-persistence-code-store" :pathname "code-store")
        (:file "chain-store-export-indexes" :pathname "export/indexes")
        (:file "chain-store-export-blocks" :pathname "export/blocks")
        (:file "chain-store-export-transactions" :pathname "export/transactions")

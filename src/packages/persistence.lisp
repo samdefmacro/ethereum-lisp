@@ -37,6 +37,9 @@
    #:node-store-persistence-metadata-authority-id
    #:node-store-persistence-metadata-base-chain-generation
    #:node-store-read-persistence-metadata
+   #:+node-store-content-addressed-code-schema-version+
+   #:node-store-chain-schema-version
+   #:node-store-migrate-chain-schema
    #:node-store-stage-progress
    #:node-store-stage-progress-p
    #:node-store-stage-progress-number

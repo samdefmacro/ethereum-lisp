@@ -625,7 +625,14 @@
                      (is (bytes= (address-bytes address-a) address))
                      (is (= 11 balance))
                      (is (= 7 nonce))
-                     (is (bytes= #(1 2) code))
+                     ;; Schema v3: the account carries the content address and
+                     ;; the body lives once under :CODE.
+                     (is (bytes= (hash32-bytes (keccak-256-hash #(1 2)))
+                                 code))
+                     (multiple-value-bind (body body-present-p)
+                         (kv-get-chain-record database :code code)
+                       (is body-present-p)
+                       (is (bytes= #(1 2) body)))
                      (is (= 1 (length storage)))
                      (multiple-value-bind (slot value)
                          (storage-entry-fields (first storage))
@@ -636,6 +643,8 @@
                      (is (bytes= (address-bytes address-b) address))
                      (is (= 0 balance))
                      (is (= 0 nonce))
+                     ;; An account with no code needs no record, so its
+                     ;; reference is empty rather than the empty-code hash.
                      (is (bytes= #() code))
                      (is (= 1 (length storage)))
                      (multiple-value-bind (slot value)

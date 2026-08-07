@@ -1,7 +1,7 @@
 (in-package #:ethereum-lisp.node-store.persistence)
 
 (defun node-store-put-state-record
-    (chain-store database batch hash identifier record-label)
+    (chain-store database batch hash identifier record-label code-sink)
   "Write HASH's state under its stored kind — a full :STATE snapshot for a
 baseline, a :STATE-DIFF record for a diff — and drop the other kind's stale
 record. Returns T when the batch changed."
@@ -11,7 +11,8 @@ record. Returns T when the batch changed."
       (:baseline
        (when (node-store-put-immutable-record
               database batch :state identifier
-              (chain-store-state-record-rlp chain-store hash)
+              (chain-store-state-record-rlp
+               chain-store hash :code-sink code-sink)
               record-label)
          (setf changed-p t))
        (when (node-store-sync-chain-record
@@ -21,7 +22,7 @@ record. Returns T when the batch changed."
        (when (node-store-put-immutable-record
               database batch :state-diff identifier
               (chain-store-state-diff-record-rlp
-               chain-store (bytes-to-hex identifier))
+               chain-store (bytes-to-hex identifier) :code-sink code-sink)
               record-label)
          (setf changed-p t))
        (when (node-store-sync-chain-record
@@ -295,9 +296,10 @@ same-head forkchoice call without reintroducing a full-store scan."
       (unless (chain-store-state-available-p chain-store candidate-hash)
         (block-validation-fail
          "Payload candidate export requires available state"))
-      (let ((batch (make-kv-write-batch))
-            (changed-p nil)
-            (current stored-candidate))
+      (let* ((batch (make-kv-write-batch))
+             (code-sink (make-node-store-code-sink batch))
+             (changed-p nil)
+             (current stored-candidate))
         (loop
           (let* ((hash (block-hash current))
                  (header (block-header current))
@@ -309,7 +311,7 @@ same-head forkchoice call without reintroducing a full-store scan."
             (when (chain-store-state-available-p chain-store hash)
               (when (node-store-put-state-record
                      chain-store database batch hash identifier
-                     "Payload candidate")
+                     "Payload candidate" code-sink)
                 (setf changed-p t)))
             (when (or (zerop number)
                       (hash32= (block-header-parent-hash header)
@@ -345,10 +347,17 @@ same-head forkchoice call without reintroducing a full-store scan."
              store)
       (block-validation-fail
        "Forkchoice export requires txpool database change tracking"))
+    ;; This path is direct-key by contract and must not scan the database, so
+    ;; it does not migrate. It writes records in the current layout beside
+    ;; records it does not touch; an older on-disk layout therefore surfaces as
+    ;; NODE-STORE-PUT-IMMUTABLE-RECORD refusing the conflict. Bringing the
+    ;; database forward is NODE-STORE-IMPORT-FROM-KV's job, which every node
+    ;; runs before it ever exports.
     (multiple-value-bind
         (reconciled-numbers reconciled-blocks persisted-displaced-blocks)
         (node-store-canonical-difference chain-store database)
       (let* ((batch (make-kv-write-batch))
+             (code-sink (make-node-store-code-sink batch))
              (changed-p nil)
              (installed-blocks
                (node-store-unique-blocks
@@ -396,7 +405,7 @@ same-head forkchoice call without reintroducing a full-store scan."
             (when (chain-store-state-available-p chain-store hash)
               (when (node-store-put-state-record
                      chain-store database batch hash identifier
-                     "Forkchoice transition")
+                     "Forkchoice transition" code-sink)
                 (setf changed-p t)))))
         (dolist (transaction-hash transaction-hashes)
           (let* ((identifier (hash32-bytes transaction-hash))
@@ -471,6 +480,10 @@ also remain live."
       (block-validation-fail "Node export target must be a key-value database"))
     (node-store-require-persistence-metadata-for-versioned-target
      database persistence-metadata "Node")
+    ;; The full export rewrites :STATE and :STATE-DIFF itself but leaves the
+    ;; staged area alone, so an unmigrated staged record would survive beside
+    ;; the new layout under the new marker.
+    (node-store-migrate-chain-schema database)
     (let ((batch (make-kv-write-batch)))
       (chain-store-populate-index-export-batch chain-store database batch)
       (chain-store-populate-block-record-export-batch
