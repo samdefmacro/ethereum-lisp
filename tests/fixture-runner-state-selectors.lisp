@@ -3,6 +3,14 @@
 (defparameter +minimal-blockchain-fixture-path+
   "tests/fixtures/execution-spec-tests/minimal-blockchain.json")
 
+;; Two corpus layouts have to discover. The legacy v5.4.0 release puts the
+;; feature tree at the top (`berlin/eip2930_access_list/...') and names the fork
+;; only inside the fixture; the current stable release (tests@v20.0.1) repeats
+;; the whole feature tree under one `for_<network>/' directory per fork. Reading
+;; the prefix rather than assuming a shape is what lets the fork gate apply to a
+;; path before any of its JSON is parsed.
+(defparameter +eest-fixture-network-directory-prefix+ "for_")
+
 (defparameter +eest-blockchain-engine-fixture-fields+
   '("fixture-format" "network" "blocks" "engineNewPayloadV2"))
 
@@ -21,9 +29,21 @@
     "blockNumber" "gasLimit" "gasUsed" "timestamp" "extraData"
     "prevRandao" "baseFeePerGas" "blockHash" "transactions" "withdrawals"))
 
+;; Cancun adds the two blob-gas header fields to the payload itself; the
+;; versioned hashes and the parent beacon root travel as separate newPayloadV3
+;; parameters, and Prague's execution requests as a fourth. V4 reuses this same
+;; payload object, so one field list serves both.
+(defparameter +eest-blockchain-rpc-payload-v3-fields+
+  (append +eest-blockchain-rpc-payload-v2-fields+
+          '("blobGasUsed" "excessBlobGas")))
+
+(defparameter +eest-blockchain-engine-newpayloads-late-entry-fields+
+  '("params" "newPayloadVersion" "forkchoiceUpdatedVersion"
+    "validationError" "errorCode"))
+
 (defparameter +eest-blockchain-standard-fixture-fields+
   '("network" "genesisBlockHeader" "pre" "postState" "lastblockhash"
-    "sealEngine" "blocks"))
+    "sealEngine" "blocks" "config" "genesisRLP" "_info"))
 
 (defparameter +eest-blockchain-standard-block-fields+
   '("rlp" "blockHeader" "expectException" "uncleHeaders"))
@@ -34,7 +54,8 @@
 (defparameter +eest-state-test-transaction-fields+
   '("data" "gasLimit" "gasPrice" "nonce" "to" "value" "secretKey"
     "sender" "accessLists" "maxFeePerGas" "maxPriorityFeePerGas"
-    "maxFeePerBlobGas" "blobVersionedHashes" "authorizationList"))
+    "maxFeePerBlobGas" "blobVersionedHashes" "authorizationList"
+    "chainId"))
 
 (defconstant +phase-a-eest-state-test-selectors-env+
   "ETHEREUM_LISP_PHASE_A_STATE_TEST_SELECTORS")

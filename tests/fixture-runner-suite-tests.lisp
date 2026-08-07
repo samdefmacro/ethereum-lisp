@@ -482,6 +482,146 @@
                     . "0x1"))
                  (fixture-required-field account "storage"))))))
 
+(defun phase-a-eest-blockchain-synthetic-engine-case (&key (network "Shanghai")
+                                                          (entries 1)
+                                                          (version "2")
+                                                          validation-error)
+  "A minimal engineNewPayloads case, for classification tests that need no corpus."
+  (let ((entry
+          (append
+           (list (cons "newPayloadVersion" version)
+                 (cons "forkchoiceUpdatedVersion" version)
+                 (cons "params" (list (list (cons "blockHash" "0x00")))))
+           (when validation-error
+             (list (cons "validationError" validation-error))))))
+    (list (cons "name" "synthetic/case.json")
+          (cons "fixture"
+                (list (cons "network" network)
+                      (cons "lastblockhash" "0x01")
+                      (cons "engineNewPayloads"
+                            (loop repeat entries collect entry)))))))
+
+(deftest eest-transition-networks-are-recognized-not-guessed
+  ;; The exact-match network gate silently drops every transition vector, and a
+  ;; drop with no name is the failure plan section 2 exists to remove. These are
+  ;; the spellings the stable corpus actually ships, including the four BPO
+  ;; transitions -- which is the ONLY form BPO takes in tests@v20.0.1, since it
+  ;; has no standalone BPO fork directory and no fixture whose network is BPO2.
+  (is (every #'eest-transition-network-p
+             '("ParisToShanghaiAtTime15k" "ShanghaiToCancunAtTime15k"
+               "CancunToPragueAtTime15k" "PragueToOsakaAtTime15k"
+               "OsakaToBPO1AtTime15k" "BPO1ToBPO2AtTime15k"
+               "BPO2ToBPO3AtTime15k" "BPO3ToBPO4AtTime15k")))
+  (is (notany #'eest-transition-network-p
+              '("Shanghai" "Cancun" "Prague" "Osaka" "Paris" "Amsterdam"))))
+
+(deftest phase-a-eest-blockchain-skips-are-named-not-anonymous
+  ;; Every discovered case that does not execute has to land in a named bucket,
+  ;; because the count manifest is only worth reading if a zero can be explained.
+  (is (string= "transitionNetwork"
+               (phase-a-eest-blockchain-replay-skip-category
+                (phase-a-eest-blockchain-synthetic-engine-case
+                 :network "ShanghaiToCancunAtTime15k"))))
+  (is (string= "unsupportedNetwork"
+               (phase-a-eest-blockchain-replay-skip-category
+                (phase-a-eest-blockchain-synthetic-engine-case
+                 :network "Cancun"))))
+  (is (string= "invalidPayload"
+               (phase-a-eest-blockchain-replay-skip-category
+                (phase-a-eest-blockchain-synthetic-engine-case
+                 :validation-error "BlockException.INVALID_GASLIMIT"))))
+  (is (string= "multiPayloadChain"
+               (phase-a-eest-blockchain-replay-skip-category
+                (phase-a-eest-blockchain-synthetic-engine-case :entries 3))))
+  (is (string= "unsupportedPayloadVersion"
+               (phase-a-eest-blockchain-replay-skip-category
+                (phase-a-eest-blockchain-synthetic-engine-case :version "9"))))
+  (is (string= "missingNetwork"
+               (phase-a-eest-blockchain-replay-skip-category
+                (list (cons "name" "synthetic/case.json")
+                      (cons "fixture" (list (cons "blocks" '()))))))))
+
+(deftest phase-a-eest-blockchain-invalid-vectors-leave-the-replay-set
+  ;; The replay path derives what it asserts by EXECUTING the block, so it has
+  ;; no expectation to offer for a payload the node must refuse. Letting one in
+  ;; would score "execution threw something" as coverage; the rejection set is
+  ;; where the refusal itself gets asserted.
+  (let ((invalid (phase-a-eest-blockchain-synthetic-engine-case
+                  :validation-error "BlockException.INVALID_GASLIMIT")))
+    (is (null (phase-a-eest-blockchain-replay-materializable-kind invalid)))
+    (is (equal '(("validationError" . "BlockException.INVALID_GASLIMIT")
+                 ("errorCode"))
+               (eest-blockchain-case-rejection-expectation invalid)))
+    (is (eest-blockchain-case-invalid-p invalid)))
+  (is (null (eest-blockchain-case-rejection-expectation
+             (phase-a-eest-blockchain-synthetic-engine-case)))))
+
+(deftest eest-selector-names-keep-pytest-node-ids-intact
+  ;; Real EEST ids carry arbitrary parametrization text, and one of them is
+  ;; `s=SECP256K1N//2+1'. Refusing a `//' anywhere would drop that vector out of
+  ;; discovery with no trace; the traversal guard belongs on the path prefix,
+  ;; which is the only part that ever reaches MERGE-PATHNAMES.
+  (is (eest-selector-source-style-name-p
+       "for_shanghai/frontier/validation/transaction/bad_v_r_s.json/tests/frontier/validation/test_transaction.py::test_bad_v_r_s[fork_Shanghai-tx_type_0-blockchain_test_engine_from_state_test-s=SECP256K1N//2+1]"))
+  (is (string=
+       "for_shanghai/frontier/validation/transaction/bad_v_r_s.json"
+       (eest-selector-relative-json-path
+        "for_shanghai/frontier/validation/transaction/bad_v_r_s.json/tests/x.py::t[s=SECP256K1N//2+1]"
+        "EEST blockchain test")))
+  (is (not (eest-selector-source-style-name-p "for_shanghai//a.json")))
+  (is (not (eest-selector-source-style-name-p "../escape/a.json")))
+  (is (not (eest-selector-source-style-name-p "/absolute/a.json")))
+  (is (not (eest-selector-source-style-name-p "no-json-here"))))
+
+(deftest phase-a-eest-blockchain-discovery-reads-for-network-corpus-layout
+  ;; The legacy corpus names the fork only inside the fixture; the stable corpus
+  ;; (tests@v20.0.1) repeats the feature tree under one `for_<network>/'
+  ;; directory per fork. Discovery has to read both, and on the stable layout the
+  ;; fork gate must apply to the PATH -- a Shanghai run must not even open the
+  ;; Cancun tree. Before this, the whole stable corpus discovered zero cases,
+  ;; because `for_shanghai' matched no feature directory.
+  (let* ((root
+           (merge-pathnames
+            (format nil "ethereum-lisp-for-network-root-~A/" (gensym))
+            #P"/private/tmp/"))
+         (shanghai-path
+           (merge-pathnames "for_shanghai/shanghai/phase-a-empty-engine.json"
+                            root))
+         (cancun-path
+           (merge-pathnames "for_cancun/cancun/eip4844_blobs/invalid.json"
+                            root)))
+    (labels ((file-string (path)
+               (with-open-file (stream path :direction :input)
+                 (let ((string (make-string (file-length stream))))
+                   (read-sequence string stream)
+                   string)))
+             (write-file (path contents)
+               (ensure-directories-exist path)
+               (with-open-file (stream path
+                                       :direction :output
+                                       :if-exists :supersede
+                                       :if-does-not-exist :create)
+                 (write-string contents stream))))
+      (write-file
+       shanghai-path
+       (file-string
+        "tests/fixtures/execution-spec-tests-root/fixtures/blockchain_tests_engine/shanghai/phase-a-empty-engine.json"))
+      ;; Unparseable on purpose: reaching it at all is the failure, so a Cancun
+      ;; tree that is merely rejected after being read would still pass.
+      (write-file cancun-path "{")
+      (is (equal
+           '(("for_shanghai/shanghai/phase-a-empty-engine.json"
+              . "engineNewPayloadV2"))
+           (discover-phase-a-eest-blockchain-replay-selectors root)))
+      (is (equal '(nil "shanghai")
+                 (multiple-value-list
+                  (eest-fixture-discovery-directories
+                   "tests/fixtures/execution-spec-tests-root/fixtures/blockchain_tests_engine/"
+                   "tests/fixtures/execution-spec-tests-root/fixtures/blockchain_tests_engine/shanghai/phase-a-empty-engine.json"))))
+      (is (equal '("shanghai" "shanghai")
+                 (multiple-value-list
+                  (eest-fixture-discovery-directories root shanghai-path)))))))
+
 (deftest eest-state-test-forks-are-environment-parameterized
   (let ((*fixture-root-environment-reader*
           (lambda (name)
