@@ -5,10 +5,10 @@ What exists, what is pinned, and what each un-gated Hive suite is waiting on.
 This covers plan section 2's "add a runtime client image and pinned Hive
 adapter; gate Engine/auth, EELS consume-engine/consume-rlp, `rpc-compat`,
 devp2p, full-sync, and snap suites in CI"
-(`docs/gap-analysis/public-testnet-readiness-plan.md`). Two of those six are
-wired and non-blocking; four are not wired at all, for reasons that are client
-gaps rather than harness gaps. Both facts are recorded here rather than implied
-by the presence of a YAML file.
+(`docs/gap-analysis/public-testnet-readiness-plan.md`). That is seven suites.
+Two of them are wired and non-blocking; the other five are not wired at all,
+for reasons that are client gaps rather than harness gaps. Both facts are
+recorded here rather than implied by the presence of a YAML file.
 
 ## Pins
 
@@ -35,7 +35,7 @@ changes and re-diffing `tools/hive/mapper.jq` against
   time and written out with `SAVE-LISP-AND-DIE :executable t`, so the shipped
   layer has no SBCL, no compiler, no Quicklisp and no test tree: one executable,
   `librocksdb`, `libethckzg`, `libethbls`, `libsecp256k1`, and the KZG trusted
-  setup. Runs under `--read-only` given a writable datadir.
+  setup.
 - **`tools/hive/`** — the Hive client definition: `Dockerfile` (layers `jq` and
   `curl` onto the runtime image), `ethereum-lisp.sh` (the `HIVE_*` contract),
   `mapper.jq` (genesis translation), `enode.sh`, `hive.yaml`.
@@ -43,7 +43,9 @@ changes and re-diffing `tools/hive/mapper.jq` against
   `tools/hive` as `clients/ethereum-lisp`, writes the client file, runs a suite.
 - **`scripts/hive-runtime-smoke.sh`** — starts the runtime image and asserts
   over the wire that it answers `eth_chainId`, refuses an unauthenticated
-  `engine_*` call with 401, and answers a JWT-signed one.
+  `engine_*` call with 401, and answers a JWT-signed one. It also builds a
+  `--hoodi` genesis, which is the only check that the packaged allocation files
+  still resolve from inside a saved image.
 - **`scripts/hive-adapter-smoke.sh`** — starts the adapter the way Hive starts
   it (uploaded `/genesis.json`, `HIVE_*` in the environment, no arguments) and
   checks that the genesis translation reaches the client, that Hive's fixed JWT
@@ -187,10 +189,24 @@ a pinned consensus client, which is a separate change.
 
 ## What has actually been run
 
-At the time of writing: `Dockerfile.runtime` builds, and
-`scripts/hive-runtime-smoke.sh` passes against the resulting image — the client
-starts non-root under a read-only root filesystem, serves `eth_chainId`,
-rejects an unauthenticated `engine_exchangeCapabilities` with 401, and answers
-the JWT-signed one. The Hive suites themselves have **not** been run here: Hive
-cannot run on this macOS development host for the reason above. No claim is made
-in this document, or in any commit message, about which Hive tests pass.
+At the time of writing, on a macOS development host:
+
+- `Dockerfile.runtime` builds, and `scripts/hive-runtime-smoke.sh` passes
+  against the resulting image — the client starts non-root under a read-only
+  root filesystem, builds a `--hoodi` genesis, serves `eth_chainId` and
+  `web3_clientVersion`, rejects an unauthenticated
+  `engine_exchangeCapabilities` with 401, and answers
+  `engine_exchangeCapabilities`, `engine_getClientVersionV1` and `eth_syncing`
+  under a JWT.
+- `scripts/hive-adapter-smoke.sh` passes — the client image builds on top of
+  the runtime image and starts the way Hive starts it, the genesis translation
+  reaches the client, Hive's fixed JWT secret authenticates, and each refused
+  variable exits naming itself. `enode.sh` returns `null`, reported as gap 2.
+- `scripts/hive-run.sh --prepare-only` checks out Hive
+  `dde4f59d04ff0ff8b6585670b08cea1b6c8ab65c`, verifies the commit, and installs
+  `clients/ethereum-lisp`.
+
+**No Hive suite has been run.** Hive cannot run on this host for the reason
+above, so nothing in this document or in any commit message says which Hive
+tests pass. The first run will be the CI job, and its counts belong in this
+section when it produces them.
