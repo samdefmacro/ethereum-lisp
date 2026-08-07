@@ -1,0 +1,150 @@
+name: hive
+
+# External conformance against ethereum/hive, pinned to
+# dde4f59d04ff0ff8b6585670b08cea1b6c8ab65c -- the baseline in
+# docs/gap-analysis/public-testnet-readiness-plan.md. The pin lives in
+# scripts/hive-run.sh, which verifies the checked-out tree really is that
+# commit before running anything, because a Hive result that cannot name its
+# commit is not evidence (PROJECT.md).
+#
+# Separate from tests.yml on purpose. That workflow is the blocking gate for
+# in-tree layers; this one runs an external harness against a client image and
+# is, today, mostly a way to find out how far short we fall.
+#
+# WHAT IS GATED HERE, AND WHAT IS NOT
+#
+# Blocking:
+#   runtime-image  Builds Dockerfile.runtime and proves the image serves
+#                  eth_chainId and an authenticated engine_* call, and refuses
+#                  an unauthenticated one. Depends on nothing external, passes
+#                  today, and must keep passing.
+#
+# Non-blocking (continue-on-error), because they do not pass yet:
+#   ethereum/engine      includes the engine-auth suite. Expected to run and to
+#                        fail tests; the client starts, authenticates, and
+#                        answers, so the failures are real conformance signal.
+#   ethereum/rpc-compat  expected to fail nearly everything for one known
+#                        reason: the simulator uploads /chain.rlp and this
+#                        client has no block-import command, so the chain the
+#                        tests query is never loaded. The adapter says so in
+#                        its log rather than failing silently.
+#
+# NOT WIRED AT ALL, and why (each needs client work, not workflow work):
+#   ethereum/eels/consume-rlp     needs /chain.rlp and /blocks import.
+#   ethereum/eels/consume-engine  needs the fixture-driven Engine harness to
+#                                 pass on the Cancun/Prague/Osaka surface that
+#                                 conformance-late-forks in tests.yml still
+#                                 runs continue-on-error.
+#   devp2p                        needs admin_nodeInfo to advertise a dialable
+#                                 address: --nat is parsed and then dropped
+#                                 before MAKE-DEVNET-NODE, so the enode reports
+#                                 127.0.0.1 and no simulator can reach us.
+#   ethereum/sync (full-sync)     needs the above plus a peer-sync path that
+#                                 goes through the validated import boundary
+#                                 (plan section 4).
+#   snap                          needs snap/1 advertised by a real capability
+#                                 negotiation (plan section 5); tools/hive/
+#                                 hive.yaml deliberately does not claim the
+#                                 eth1_snap role.
+#
+# BEFORE THE GATE BECOMES BLOCKING, per suite: the suite must have a run whose
+# failures are all understood, the client must not crash or hang in it, and the
+# reason for every remaining skip must be recorded. Drop continue-on-error one
+# suite at a time -- a matrix-wide flip would hide which one regressed.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+# Actions are referenced by major-version tag, matching tests.yml. Pinning both
+# workflows to action digests is plan section 10 work and should land as one
+# change across the repository rather than diverging here.
+env:
+  RUNTIME_IMAGE: ethereum-lisp-runtime
+  RUNTIME_TAG: ci
+
+jobs:
+  # The one part of this file that is a real gate today.
+  runtime-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      # Shared gha cache: RocksDB and c-kzg compile once per Dockerfile.runtime
+      # change rather than once per job. load: true puts the image in the local
+      # daemon under the tag the scripts expect.
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.runtime
+          tags: ${{ env.RUNTIME_IMAGE }}:${{ env.RUNTIME_TAG }}
+          load: true
+          build-args: REVISION=${{ github.sha }}
+          cache-from: type=gha,scope=runtime
+          cache-to: type=gha,mode=max,scope=runtime
+      - name: Smoke-test the runtime image
+        run: scripts/hive-runtime-smoke.sh "$RUNTIME_IMAGE:$RUNTIME_TAG"
+      # Builds tools/hive on top of the image and drives it the way Hive does.
+      # Catches an adapter that maps a flag the CLI rejects, or a genesis
+      # translation that stops reaching the client, without waiting for a suite.
+      - name: Smoke-test the hive adapter
+        run: scripts/hive-adapter-smoke.sh
+
+  suites:
+    needs: runtime-image
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    continue-on-error: true
+    env:
+      HIVE_RESULTS: ${{ github.workspace }}/hive-results
+    strategy:
+      fail-fast: false
+      matrix:
+        sim:
+          - ethereum/engine
+          - ethereum/rpc-compat
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.runtime
+          tags: ${{ env.RUNTIME_IMAGE }}:${{ env.RUNTIME_TAG }}
+          load: true
+          build-args: REVISION=${{ github.sha }}
+          cache-from: type=gha,scope=runtime
+          cache-to: type=gha,mode=max,scope=runtime
+      # Hive is a Go program and must run on the same host as dockerd: it
+      # dials each client container's bridge address for its liveness check.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+      - name: Run suite
+        env:
+          RUNTIME_PREBUILT: '1'
+        run: scripts/hive-run.sh --sim "${{ matrix.sim }}"
+      # Runs even when the suite failed -- especially then. The counts are the
+      # artifact that makes "partial" a measurement instead of an adjective.
+      - name: Summarize
+        if: always()
+        run: |
+          shopt -s nullglob
+          total=0; passed=0
+          for f in "$GITHUB_WORKSPACE"/hive-results/*.json; do
+            case "$(basename "$f")" in hive.json) continue ;; esac
+            n=$(jq '[.testCases[]?] | length' "$f" 2>/dev/null || echo 0)
+            p=$(jq '[.testCases[]? | select(.summaryResult.pass)] | length' "$f" 2>/dev/null || echo 0)
+            total=$((total + n)); passed=$((passed + p))
+          done
+          echo "hive dde4f59d04ff0ff8b6585670b08cea1b6c8ab65c :: ${{ matrix.sim }} :: $passed/$total passed" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hive-${{ strategy.job-index }}
+          path: hive-results
+          if-no-files-found: warn
