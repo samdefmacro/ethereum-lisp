@@ -65,6 +65,8 @@
   (iterator :pointer) (key-length :pointer))
 (cffi:defcfun ("rocksdb_iter_value" %rocks-iterator-value) :pointer
   (iterator :pointer) (value-length :pointer))
+(cffi:defcfun ("rocksdb_iter_get_error" %rocks-iterator-get-error) :void
+  (iterator :pointer) (error :pointer))
 
 (defclass rocksdb-key-value-database (key-value-database)
   ((handle :initarg :handle :accessor rocksdb-handle)
@@ -200,43 +202,88 @@
       (%rocks-batch-destroy native)))
   database)
 
+(defun rocksdb-iterator-check-error (iterator)
+  "Signal if the iterator carries a non-OK status.
+RocksDB surfaces IO and corruption errors through the iterator's status rather
+than through a per-step return, so a caller that never checks it would treat a
+faulted scan as a clean end of range."
+  (cffi:with-foreign-object (error :pointer)
+    (setf (cffi:mem-ref error :pointer) (cffi:null-pointer))
+    (%rocks-iterator-get-error iterator error)
+    (let ((pointer (cffi:mem-ref error :pointer)))
+      (unless (cffi:null-pointer-p pointer)
+        (unwind-protect
+             (error "RocksDB iterator: ~A"
+                    (cffi:foreign-string-to-lisp pointer))
+          (%rocks-free pointer))))))
+
+(defun rocksdb-iterator-finish (iterator)
+  "Propagate any iterator error, then release the native iterator exactly once."
+  (unwind-protect
+       (rocksdb-iterator-check-error iterator)
+    (%rocks-iterator-destroy iterator)))
+
 (defmethod kv-iterator ((database rocksdb-key-value-database)
                         &key start end reverse-p)
+  ;; The range is [START, END): START is the inclusive lower bound and END the
+  ;; exclusive upper bound in BOTH directions, so a reverse scan yields exactly
+  ;; the same keys as a forward scan of the same range, descending. This
+  ;; matches the memory backend contract (KV-ENTRY-IN-RANGE-P), which the
+  ;; height-ordered chain-record range scans depend on.
   (let ((iterator (%rocks-iterator-create
                    (rocksdb-handle database)
                    (rocksdb-read-options database)))
+        (start-id (and start (kv-key-string start)))
         (end-id (and end (kv-key-string end))))
     (cond
       (reverse-p
-       (%rocks-iterator-last iterator))
+       (cond
+         (end
+          ;; SEEK lands on the first key >= END; step back to the last key
+          ;; strictly below the exclusive upper bound. When no key reaches END,
+          ;; the largest key overall is in range, so fall back to SEEK-TO-LAST.
+          (with-rocks-bytes (pointer length end)
+            (%rocks-iterator-seek iterator pointer length))
+          (if (zerop (%rocks-iterator-valid iterator))
+              (%rocks-iterator-last iterator)
+              (%rocks-iterator-previous iterator)))
+         (t
+          (%rocks-iterator-last iterator))))
       (start
        (with-rocks-bytes (pointer length start)
          (%rocks-iterator-seek iterator pointer length)))
       (t
        (%rocks-iterator-first iterator)))
-    (lambda ()
-      (if (zerop (%rocks-iterator-valid iterator))
-          (progn
-            (%rocks-iterator-destroy iterator)
-            (setf iterator (cffi:null-pointer))
-            (values nil nil nil))
-          (cffi:with-foreign-objects ((key-length :size)
-                                      (value-length :size))
-            (let* ((key-pointer (%rocks-iterator-key iterator key-length))
-                   (value-pointer (%rocks-iterator-value iterator value-length))
-                   (key (rocksdb-copy-foreign-bytes
-                         key-pointer (cffi:mem-ref key-length :size))))
-              (if (and end-id
-                       (not (string< (kv-key-string key) end-id)))
-                  (progn
-                    (%rocks-iterator-destroy iterator)
-                    (setf iterator (cffi:null-pointer))
-                    (values nil nil nil))
-                  (let ((value
-                          (rocksdb-copy-foreign-bytes
-                           value-pointer
-                           (cffi:mem-ref value-length :size))))
-                    (if reverse-p
-                        (%rocks-iterator-previous iterator)
-                        (%rocks-iterator-next iterator))
-                    (values key value t)))))))))
+    (flet ((finish ()
+             ;; Null the handle before finishing so a later call is a safe
+             ;; no-op even if error propagation unwinds through here.
+             (let ((it iterator))
+               (setf iterator (cffi:null-pointer))
+               (rocksdb-iterator-finish it))
+             (values nil nil nil)))
+      (lambda ()
+        (cond
+          ((cffi:null-pointer-p iterator)
+           (values nil nil nil))
+          ((zerop (%rocks-iterator-valid iterator))
+           (finish))
+          (t
+           (cffi:with-foreign-objects ((key-length :size)
+                                       (value-length :size))
+             (let* ((key-pointer (%rocks-iterator-key iterator key-length))
+                    (key (rocksdb-copy-foreign-bytes
+                          key-pointer (cffi:mem-ref key-length :size)))
+                    (key-id (kv-key-string key)))
+               (if (or (and reverse-p start-id (string< key-id start-id))
+                       (and (not reverse-p) end-id
+                            (not (string< key-id end-id))))
+                   (finish)
+                   (let* ((value-pointer
+                            (%rocks-iterator-value iterator value-length))
+                          (value (rocksdb-copy-foreign-bytes
+                                  value-pointer
+                                  (cffi:mem-ref value-length :size))))
+                     (if reverse-p
+                         (%rocks-iterator-previous iterator)
+                         (%rocks-iterator-next iterator))
+                     (values key value t)))))))))))
