@@ -19,6 +19,7 @@
            "tests/core-chain-store-import-validation-tests.lisp"
            "tests/core-chain-store-state-diff-tests.lisp"
            "tests/core-node-store-code-store-tests.lisp"
+           "tests/core-node-store-verify-tests.lisp"
            "tests/core-chain-store-state-db-tests.lisp"
            "tests/core-chain-store-atomic-commit-tests.lisp"))
   (load-core-chain-store-test-file relative-path))

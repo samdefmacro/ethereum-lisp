@@ -40,6 +40,13 @@
    #:+node-store-content-addressed-code-schema-version+
    #:node-store-chain-schema-version
    #:node-store-migrate-chain-schema
+   #:node-store-database-finding
+   #:node-store-database-finding-p
+   #:node-store-database-finding-kind
+   #:node-store-database-finding-identifier
+   #:node-store-database-finding-message
+   #:node-store-database-finding-description
+   #:node-store-verify-chain-database
    #:node-store-stage-progress
    #:node-store-stage-progress-p
    #:node-store-stage-progress-number

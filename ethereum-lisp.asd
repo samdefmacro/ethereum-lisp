@@ -326,6 +326,7 @@
        (:file "chain-store-persistence-blobs" :pathname "import/blobs")
        (:file "chain-store-persistence-prepared-payloads" :pathname "import/prepared-payloads")
        (:file "chain-store-persistence" :pathname "import/orchestrator")
+       (:file "node-store-persistence-verify" :pathname "verify")
        (:file "node-store-staged-import" :pathname "staged-import")))
      (:module "api"
       :pathname "api/"

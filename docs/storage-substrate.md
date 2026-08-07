@@ -75,6 +75,17 @@ retention can decide a body is unreachable.
 The two layouts are indistinguishable by inspection, since a pre-v3 body can
 itself be 32 bytes long. Which one a record uses is decided by the marker alone.
 
+## Auditing a datadir
+
+`node-store-verify-chain-database` is a read-only audit that reports every
+record-level defect it finds instead of stopping at the first, which is what
+the import path does. It checks that every record decodes, that hash-keyed
+records are filed under the hash they claim, and that every cross-record
+reference — block, canonical index, checkpoint, height-ordered mirror, and
+contract-code address — has a target. It does not re-execute blocks, recompute
+state roots, or prove that a diff chain resolves, and it neither migrates nor
+repairs: it is meant to describe a datadir the node has already refused.
+
 ## Migration and rollout
 
 1. The backend-neutral protocol remains unchanged.
