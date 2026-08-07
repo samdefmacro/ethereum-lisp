@@ -569,3 +569,105 @@ STORAGE-ENTRIES) — as BLOCK's post-state and return the stored kind."
          (hash32-bytes (block-hash (fourth blocks))))
       (declare (ignore value))
       (is present-p))))
+
+;;; Touched-only commit: COMMIT-STATE-DB-TO-CHAIN-STORE over a lazily-backed
+;;; post-state diffs only the accounts the block mutated, and must install a
+;;; diff resolving to exactly the same state as the proven full-iteration diff.
+
+(defparameter +touched-commit-slot-1+ (state-diff-test-slot 1))
+(defparameter +touched-commit-slot-2+ (state-diff-test-slot 2))
+(defparameter +touched-commit-slot-3+ (state-diff-test-slot 3))
+(defparameter +touched-commit-slot-4+ (state-diff-test-slot 4))
+(defparameter +touched-commit-slot-5+ (state-diff-test-slot 5))
+(defparameter +touched-commit-slot-6+ (state-diff-test-slot 6))
+
+(defun touched-commit-parent-accounts ()
+  "Parent baseline covering every case the mutation set exercises: an account
+with code and several slots, an account destroyed later, a bare account grown
+later, and an account left wholly untouched."
+  (list (list (state-diff-test-address 1) 100 1 #(1 2 3)
+              (list (cons +touched-commit-slot-1+ 5)
+                    (cons +touched-commit-slot-2+ 7)))
+        (list (state-diff-test-address 2) 50 2 #()
+              (list (cons +touched-commit-slot-1+ 9)))
+        (list (state-diff-test-address 3) 30 0 #() '())
+        (list (state-diff-test-address 4) 200 5 #(9)
+              (list (cons +touched-commit-slot-3+ 3)))))
+
+(defun touched-commit-apply-mutations (state)
+  "Mutate STATE the way a block would: change one account and edit its slots,
+destroy another, grow a third, create a fourth, and never read the fifth. Runs
+identically against the touched-commit and full-commit states so their
+post-states are byte-for-byte the same input to each commit strategy."
+  (let ((a (state-diff-test-address 1))
+        (b (state-diff-test-address 2))
+        (c (state-diff-test-address 3))
+        (e (state-diff-test-address 5)))
+    ;; A: read a slot, bump balance (nonce and code unchanged), delete slot 1,
+    ;; add slot 4.
+    (state-db-get-storage state a +touched-commit-slot-2+)
+    (state-db-add-balance state a 11)
+    (state-db-set-storage state a +touched-commit-slot-1+ 0)
+    (state-db-set-storage state a +touched-commit-slot-4+ 8)
+    ;; B: destroy outright.
+    (state-db-clear-account state b)
+    ;; C: grow a previously bare account with code and a slot.
+    (state-db-set-code state c #(7 7))
+    (state-db-set-storage state c +touched-commit-slot-5+ 6)
+    ;; E: brand-new account with every field set.
+    (state-db-set-account state e (make-state-account :nonce 3 :balance 77))
+    (state-db-set-code state e #(4 5))
+    (state-db-set-storage state e +touched-commit-slot-6+ 2))
+  state)
+
+(defun touched-commit-full-iterator (state)
+  "The pre-existing whole-world commit input: every live account, in full."
+  (lambda (visit)
+    (state-db-for-each-account
+     state
+     (lambda (address account code storage-entries)
+       (funcall visit address
+                (state-account-balance account)
+                (state-account-nonce account)
+                code storage-entries)))))
+
+(deftest commit-touched-matches-full-iteration-diff
+  ;; The touched-set diff and the full-iteration diff must resolve to the
+  ;; identical post-state. Any divergence here would be a consensus divergence,
+  ;; since COMMIT-STATE-DB-TO-CHAIN-STORE is on the block-import path.
+  (let* ((touched-store (make-engine-payload-memory-store))
+         (full-store (make-engine-payload-memory-store))
+         (touched-blocks (state-diff-test-chain touched-store 2))
+         (full-blocks (state-diff-test-chain full-store 2))
+         (address-d (state-diff-test-address 4)))
+    (destructuring-bind (touched-0 touched-1) touched-blocks
+      (destructuring-bind (full-0 full-1) full-blocks
+        (state-diff-test-commit touched-store touched-0
+                                (touched-commit-parent-accounts))
+        (state-diff-test-commit full-store full-0
+                                (touched-commit-parent-accounts))
+        ;; Touched path: COMMIT-STATE-DB-TO-CHAIN-STORE picks it for a lazy state.
+        (let ((state (chain-store-state-db touched-store
+                                           (block-hash touched-0))))
+          (is (state-db-lazy-p state))
+          (touched-commit-apply-mutations state)
+          (commit-state-db-to-chain-store
+           touched-store (block-hash touched-1) state)
+          ;; Touched-proportional work: the commit never materialized the world,
+          ;; so the untouched account D was never even loaded.
+          (is (not (null (ethereum-lisp.state::state-db-materializer state))))
+          (is (not (state-db-account-loaded-p state address-d))))
+        ;; Reference path: the proven full-iteration diff over the same
+        ;; post-state, which materializes and enumerates every account.
+        (let ((state (chain-store-state-db full-store (block-hash full-0))))
+          (touched-commit-apply-mutations state)
+          (ethereum-lisp.chain-store:chain-store-commit-post-state
+           full-store (block-hash full-1)
+           (touched-commit-full-iterator state)))
+        ;; Both stored a diff, and both resolve to the same accounts.
+        (is (eq :diff (ethereum-lisp.chain-store:chain-store-state-kind
+                       touched-store (block-hash touched-1))))
+        (is (eq :diff (ethereum-lisp.chain-store:chain-store-state-kind
+                       full-store (block-hash full-1))))
+        (is (equalp (state-diff-test-collect-accounts touched-store touched-1)
+                    (state-diff-test-collect-accounts full-store full-1)))))))

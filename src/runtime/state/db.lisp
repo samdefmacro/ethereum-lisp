@@ -32,12 +32,25 @@ Writes are reported before mutation so a recorder can retain the pre-value.")
                       (state-db-loaded-accounts state)))))
 
 (defun state-db-materialize (state)
-  "Load the complete backing state only for operations that require iteration."
+  "Load the complete backing state only for operations that require iteration.
+
+Filling untouched backing accounts runs the ordinary mutators, so LOADING-P is
+bound across the fill to keep those loads out of TOUCHED: materializing state
+that already existed is not a mutation the block made."
   (let ((materializer (state-db-materializer state)))
     (when materializer
       (setf (state-db-materializer state) nil)
-      (funcall materializer state)))
+      (setf (state-db-loading-p state) t)
+      (unwind-protect
+           (funcall materializer state)
+        (setf (state-db-loading-p state) nil))))
   state)
+
+(defun state-db-lazy-p (state)
+  "True when STATE resolves its backing lazily. Only then is TOUCHED a complete
+record of what changed relative to that backing, so only then may the commit
+diff the touched set instead of the whole world."
+  (not (null (state-db-account-loader state))))
 
 (defun make-lazy-state-db (account-loader storage-loader materializer)
   "Create a state whose historical backing is resolved on first access."
@@ -111,8 +124,14 @@ Writes are reported before mutation so a recorder can retain the pre-value.")
 
 (defun mark-account-dirty (state key)
   "Record that the account at address KEY changed, so the next STATE-DB-ROOT
-recomputes. See the STATE-DB DIRTY/CACHED-ROOT invariant."
+recomputes. See the STATE-DB DIRTY/CACHED-ROOT invariant.
+
+This is also the single choke point every account mutator passes through, so it
+records KEY in TOUCHED for the block commit -- except while materializing, when
+LOADING-P suppresses it (revealing existing backing state is not a mutation)."
   (setf (gethash key (state-db-dirty state)) t)
+  (unless (state-db-loading-p state)
+    (setf (gethash key (state-db-touched state)) t))
   state)
 
 (defun empty-state-object-p (object)
@@ -305,7 +324,11 @@ revert the transaction."
           (state-db-loaded-accounts copy)
           (copy-hash-table (state-db-loaded-accounts state))
           (state-db-loaded-storage copy)
-          (copy-hash-table (state-db-loaded-storage state)))
+          (copy-hash-table (state-db-loaded-storage state))
+          ;; Carry the commit's changed-account set so a snapshot taken for
+          ;; block-level rollback restores it exactly with the rest.
+          (state-db-touched copy) (copy-hash-table (state-db-touched state))
+          (state-db-loading-p copy) (state-db-loading-p state))
     ;; The copy gets NO trie. Sharing one would let a frame that is later
     ;; reverted leave its mutations in the parent's trie, which is a wrong state
     ;; root and so a consensus divergence; copying one on every CALL frame would
@@ -333,6 +356,8 @@ revert the transaction."
         (copy-hash-table (state-db-loaded-accounts snapshot))
         (state-db-loaded-storage state)
         (copy-hash-table (state-db-loaded-storage snapshot))
+        (state-db-touched state) (copy-hash-table (state-db-touched snapshot))
+        (state-db-loading-p state) (state-db-loading-p snapshot)
         (state-db-trie state) nil)
   state)
 

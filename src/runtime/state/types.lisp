@@ -55,7 +55,25 @@
   ;; rather than by an argument about when flushes happen.
   (dirty (make-hash-table :test #'equal))
   (cached-root nil)
-  (trie nil))
+  (trie nil)
+  ;; TOUCHED is the set of address keys a block actually MUTATED (as opposed to
+  ;; merely read or lazily loaded), accumulated across the whole block and never
+  ;; cleared by a root flush. It is the commit's changed-account set: the block
+  ;; commit diffs only these against the parent instead of iterating the whole
+  ;; materialized world (see COMMIT-STATE-DB-TO-CHAIN-STORE). It is a correct
+  ;; SUPERSET of what changed -- a reverted write may leave a key in it, which
+  ;; only produces an empty per-account diff -- because every account mutator
+  ;; funnels through MARK-ACCOUNT-DIRTY, the one place that records it.
+  ;;
+  ;; INVARIANT: an account whose committed value differs from the parent's must
+  ;; be in TOUCHED. This holds only for a lazily-backed state (STATE-DB-LAZY-P),
+  ;; where the untouched remainder equals the parent by construction; the commit
+  ;; therefore uses the touched set only for such states.
+  (touched (make-hash-table :test #'equal))
+  ;; True only within STATE-DB-MATERIALIZE, so filling untouched backing state
+  ;; through the ordinary mutators does not pollute TOUCHED. Purely additive:
+  ;; nothing else observes it, so existing behaviour is unchanged.
+  (loading-p nil :type boolean))
 
 (defstruct state-journal-entry
   key

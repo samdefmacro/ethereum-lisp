@@ -48,6 +48,12 @@ so execution only fails if EVM code actually queries unavailable history."
     block-hashes))
 
 (defun commit-state-db-to-chain-store (store block-hash state)
+  ;; A lazily-backed post-state carries a TOUCHED set that is a complete record
+  ;; of what the block changed relative to its parent, so the diff path commits
+  ;; only those accounts instead of materializing and iterating the whole world.
+  ;; The full iterator remains for the baseline path (which needs every account)
+  ;; and for non-lazy states, whose untouched remainder is not known to equal
+  ;; the parent -- there the proven full-iteration diff is preserved exactly.
   (chain-store-commit-post-state
    store block-hash
    (lambda (visit)
@@ -59,7 +65,21 @@ so execution only fails if EVM code actually queries unavailable history."
                  (state-account-balance account)
                  (state-account-nonce account)
                  code
-                 storage-entries)))))
+                 storage-entries))))
+   :iterate-touched
+   (when (state-db-lazy-p state)
+     (lambda (visit)
+       (state-db-for-each-touched-account
+        state
+        (lambda (address present-p account code storage-entries)
+          (if present-p
+              (funcall visit
+                       address t
+                       (state-account-balance account)
+                       (state-account-nonce account)
+                       code
+                       storage-entries)
+              (funcall visit address nil nil nil nil nil)))))))
   store)
 
 (defun chain-store-state-db (store block-hash)

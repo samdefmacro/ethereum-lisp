@@ -91,3 +91,20 @@
            (storage-entries (state-object-storage-entries object)))
       (funcall function address account code storage-entries)))
   state)
+
+(defun state-db-for-each-touched-account (state function)
+  "Call FUNCTION with (ADDRESS PRESENT-P ACCOUNT CODE STORAGE-ENTRIES) for each
+account the block MUTATED, addresses sorted by key, WITHOUT materializing the
+untouched world. PRESENT-P is NIL for an account destroyed during the block, in
+which case ACCOUNT, CODE and STORAGE-ENTRIES are NIL. See STATE-DB TOUCHED."
+  (dolist (address-key (state-db-sorted-hash-keys (state-db-touched state)))
+    (let ((object (gethash address-key (state-db-objects state)))
+          (address (address-from-hex address-key)))
+      (if object
+          (funcall function
+                   address t
+                   (account-with-storage-root object)
+                   (copy-seq (state-object-code object))
+                   (state-object-storage-entries object))
+          (funcall function address nil nil nil nil))))
+  state)

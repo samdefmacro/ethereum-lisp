@@ -63,6 +63,8 @@
    #:state-db-account-range
    #:state-db-storage-range
    #:state-db-for-each-account
+   #:state-db-for-each-touched-account
+   #:state-db-lazy-p
    #:state-db-root
    #:state-db-state-trie
    #:state-db-root-hex
