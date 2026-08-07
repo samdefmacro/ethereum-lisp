@@ -273,7 +273,8 @@ the deterministic address order is kept."
                 (lambda (metadata)
                   (node-store-export-to-kv
                    (devnet-node-store node)
-                   (devnet-cli-make-output-kv-database database-path)
+                   (devnet-cli-make-output-kv-database
+                    database-path (devnet-node-db-engine node))
                    :persistence-metadata metadata)))
              (declare (ignore result))
              (setf database-generation generation))

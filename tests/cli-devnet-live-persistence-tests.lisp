@@ -47,6 +47,52 @@ diff; either satisfies a state-persisted assertion."
       (when (probe-file database-path)
         (delete-file database-path)))))
 
+(deftest devnet-live-persistence-round-trips-on-rocksdb
+  ;; --db.engine rocksdb persists the chain into a datadir DIRECTORY database and
+  ;; a fresh node hydrates its head from it. The node-lifetime handle cache is
+  ;; held across the whole body because RocksDB permits a single open handle per
+  ;; process -- exactly as the CLI serve path holds it (cli.lisp) -- so the first
+  ;; node's export and the second node's import share one directory lock.
+  (let ((dir (namestring
+              (devnet-cli-temp-directory "ethereum-lisp-devnet-rocksdb"))))
+    (unwind-protect
+         (ethereum-lisp.cli::call-with-devnet-cli-kv-database-cache
+          (lambda ()
+            (let* ((first-node
+                     (ethereum-lisp.cli:make-devnet-node
+                      :genesis-path +devnet-cli-genesis-fixture+
+                      :database-path dir
+                      :db-engine :rocksdb))
+                   (head-hash
+                     (block-hash
+                      (ethereum-lisp.cli:devnet-node-genesis-block first-node))))
+              (ethereum-lisp.cli::devnet-node-export-database first-node)
+              (is (ethereum-lisp.cli::devnet-cli-rocksdb-directory-initialized-p
+                   dir))
+              (let* ((second-node
+                       (ethereum-lisp.cli:make-devnet-node
+                        :genesis-path +devnet-cli-genesis-fixture+
+                        :database-path dir
+                        :db-engine :rocksdb))
+                     (restored-store
+                       (ethereum-lisp.cli:devnet-node-store second-node)))
+                (is (ethereum-lisp.txpool:engine-payload-store-txpool-database-change-tracking-enabled-p
+                     restored-store))
+                (is (bytes=
+                     (hash32-bytes head-hash)
+                     (hash32-bytes
+                      (block-hash
+                       (chain-store-head-block restored-store))))))
+              ;; Release the single directory handle before the tree is deleted.
+              (let ((database
+                      (ethereum-lisp.cli::devnet-cli-cached-kv-database dir)))
+                (when database
+                  (ethereum-lisp.database:close-rocksdb-key-value-database
+                   database))))))
+      (uiop:delete-directory-tree
+       (uiop:ensure-directory-pathname dir)
+       :validate t :if-does-not-exist :ignore))))
+
 (deftest devnet-live-persistence-restores-forkchoice-before-lifecycle-export
   (let ((database-path
           (devnet-cli-temp-path

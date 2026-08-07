@@ -19,6 +19,7 @@
   (let ((genesis-path nil)
         (database-path nil)
         (datadir-path nil)
+        (db-engine :file)
         (jwt-secret-path nil)
         (ready-file nil)
         (log-file nil)
@@ -39,6 +40,11 @@
                ((string= option "--datadir")
                 (multiple-value-setq (datadir-path args)
                   (devnet-cli-next-value args option)))
+               ((string= option "--db.engine")
+                (multiple-value-bind (value rest)
+                    (devnet-cli-next-value args option)
+                  (setf db-engine (devnet-cli-parse-db-engine value)
+                        args rest)))
                ((or (string= option "--jwt-secret")
                     (string= option "--authrpc.jwtsecret"))
                 (multiple-value-setq (jwt-secret-path args)
@@ -79,10 +85,11 @@
                 (error "Unexpected init argument ~A" option))))
     (list :genesis-path genesis-path
           :datadir-path datadir-path
+          :db-engine db-engine
           :database-path (or database-path
                              (and datadir-path
                                   (devnet-cli-datadir-database-path
-                                   datadir-path)))
+                                   datadir-path db-engine)))
           :jwt-secret-path jwt-secret-path
           :ready-file ready-file
           :log-file log-file
@@ -182,10 +189,17 @@
      options
      output-stream
      (lambda (telemetry-sink)
+       ;; One shared handle across the init import and its single export, so a
+       ;; RocksDB datadir -- which permits only one open handle per process --
+       ;; can be re-initialised without the export colliding with the import's
+       ;; open handle on the same directory lock.
+       (call-with-devnet-cli-kv-database-cache
+        (lambda ()
        (let ((node
                (make-devnet-node
                 :genesis-path genesis-path
                 :database-path database-path
+                :db-engine (or (getf options :db-engine) :file)
                 :jwt-secret-path jwt-secret-path
                 :log-path (getf options :log-file)
                 :pid-file-path (getf options :pid-file)
@@ -204,4 +218,4 @@
           output-stream
           :format (getf options :summary-format))
          (when (getf options :log-file)
-           (devnet-cli-log-event node "init.shutdown")))))))
+           (devnet-cli-log-event node "init.shutdown")))))))))

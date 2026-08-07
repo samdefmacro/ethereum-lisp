@@ -64,13 +64,14 @@
              (devnet-persistence-state-current-generation state)))
   generation)
 
-(defun devnet-cli-new-payload-persistence-function (database-path)
+(defun devnet-cli-new-payload-persistence-function
+    (database-path &optional (engine :file))
   (when database-path
     (lambda (store candidate)
       ;; Construct/load first so malformed persisted data remains a permanent
       ;; startup/runtime invariant failure rather than a retry loop.
       (let ((database
-              (devnet-cli-make-output-kv-database database-path)))
+              (devnet-cli-make-output-kv-database database-path engine)))
         (devnet-cli-call-with-retryable-file-write
          "New payload persistence"
          (lambda ()
@@ -78,14 +79,14 @@
             store candidate database)))))))
 
 (defun devnet-cli-forkchoice-persistence-function
-    (database-path persistence-state)
+    (database-path persistence-state &optional (engine :file))
   (when database-path
     (lambda (store transition)
       ;; Export validation and database-corruption conditions pass through and
       ;; fail-stop.  Only an actual write/open/rename stream failure becomes a
       ;; STORAGE-ERROR eligible for dev-period retry.
       (let ((database
-              (devnet-cli-make-output-kv-database database-path)))
+              (devnet-cli-make-output-kv-database database-path engine)))
         (devnet-cli-call-with-next-persistence-generation
          persistence-state
          :database
@@ -99,19 +100,31 @@
                database
                :persistence-metadata metadata)))))))))
 
-(defun devnet-cli-existing-persistence-database (path)
+(defun devnet-cli-existing-persistence-database (path &optional (engine :file))
   (when path
     (or (devnet-cli-cached-kv-database path)
-        (let ((existing-path (probe-file path)))
-          (when (and existing-path
-                     (not (devnet-cli-empty-file-p existing-path)))
-            ;; Cached under PATH, not EXISTING-PATH: the file exists, so both
-            ;; canonicalize to the same truename, and the import's read handle
-            ;; is then the very handle the rewrite below writes through.
-            (devnet-cli-cache-kv-database
-             path
-             (ethereum-lisp.database:make-file-key-value-database
-              existing-path)))))))
+        (ecase engine
+          (:file
+           (let ((existing-path (probe-file path)))
+             (when (and existing-path
+                        (not (devnet-cli-empty-file-p existing-path)))
+               ;; Cached under PATH, not EXISTING-PATH: the file exists, so both
+               ;; canonicalize to the same truename, and the import's read handle
+               ;; is then the very handle the rewrite below writes through.
+               (devnet-cli-cache-kv-database
+                path
+                (ethereum-lisp.database:make-file-key-value-database
+                 existing-path)))))
+          (:rocksdb
+           ;; A directory that RocksDB has already initialized is imported from;
+           ;; a fresh datadir has nothing to import. The handle is cached so the
+           ;; later export reuses it -- RocksDB's exclusive directory lock allows
+           ;; only one open handle per process.
+           (when (devnet-cli-rocksdb-directory-initialized-p path)
+             (devnet-cli-cache-kv-database
+              path
+              (ethereum-lisp.database:make-rocksdb-key-value-database
+               path :create-if-missing-p nil))))))))
 
 (defun devnet-cli-validated-persistence-metadata
     (database expected-role persistence-state path)
@@ -254,8 +267,8 @@
         :finalized-block-hash (zero-hash32))))))
 
 (defun devnet-cli-export-database-at-generation
-    (store database-path persistence-state generation)
-  (let ((database (devnet-cli-make-output-kv-database database-path)))
+    (store database-path persistence-state generation &optional (engine :file))
+  (let ((database (devnet-cli-make-output-kv-database database-path engine)))
     (node-store-export-to-kv
      store
      database
@@ -285,9 +298,11 @@
 
 (defun devnet-cli-import-persistent-state
     (store database-path txpool-journal-path config genesis-block
-     persistence-state)
+     persistence-state &optional (engine :file))
   (let* ((database
-           (devnet-cli-existing-persistence-database database-path))
+           (devnet-cli-existing-persistence-database database-path engine))
+         ;; The txpool journal is always the single-file recovery artifact
+         ;; regardless of the chain database backend.
          (journal
            (devnet-cli-existing-persistence-database txpool-journal-path))
          (database-chain-p
@@ -366,7 +381,8 @@
              store
              database-path
              persistence-state
-             (node-store-persistence-metadata-generation journal-metadata))
+             (node-store-persistence-metadata-generation journal-metadata)
+             engine)
             (multiple-value-bind (result generation)
                 (devnet-cli-call-with-next-persistence-generation
                  persistence-state
@@ -374,7 +390,7 @@
                  (lambda (metadata)
                    (node-store-export-to-kv
                     store
-                    (devnet-cli-make-output-kv-database database-path)
+                    (devnet-cli-make-output-kv-database database-path engine)
                     :persistence-metadata metadata)))
               (declare (ignore result))
               (unless
@@ -384,7 +400,7 @@
                     ;; Deliberately re-read from disk rather than reuse the
                     ;; handle that just wrote: this asserts the export is
                     ;; genuinely restartable, and it runs once at startup.
-                    (devnet-cli-reread-kv-database database-path)
+                    (devnet-cli-reread-kv-database database-path engine)
                     :head))
                 (error
                  "Devnet database has no restartable head checkpoint: ~A"

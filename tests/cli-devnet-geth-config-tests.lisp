@@ -476,10 +476,12 @@ HTTPPort = 1945
                 (get-output-stream-string errors)))))
 
 (deftest devnet-cli-rejects-behavior-changing-noop-flags
-  ;; --syncmode, --db.engine and --nodiscover each SELECT node behaviour (a sync
-  ;; strategy, a database backend, whether discovery runs). Accepting and then
-  ;; discarding them silently ran a configuration the operator never asked for.
-  ;; None is implemented, so parsing must reject them with a clear message.
+  ;; --syncmode and --nodiscover each SELECT node behaviour (a sync strategy,
+  ;; whether discovery runs). Accepting and then discarding them silently ran a
+  ;; configuration the operator never asked for. Neither is implemented, so
+  ;; parsing must reject them with a clear message. --db.engine used to be
+  ;; rejected here too but is now an implemented selector; see
+  ;; devnet-cli-db-engine-selects-a-real-backend.
   (labels ((parse-error (args)
              (handler-case
                  (progn
@@ -488,7 +490,6 @@ HTTPPort = 1945
                    nil)
                (error (condition) (princ-to-string condition)))))
     (dolist (case '(("--syncmode" "full")
-                    ("--db.engine" "pebble")
                     ("--nodiscover" "true")))
       (let ((message (parse-error case)))
         ;; A non-nil string means parsing raised, i.e. the flag was rejected.
@@ -499,6 +500,37 @@ HTTPPort = 1945
         (when (stringp message)
           (is (search (first case) message))
           (is (search "not supported" message)))))))
+
+(deftest devnet-cli-db-engine-selects-a-real-backend
+  ;; --db.engine is honoured rather than ignored: it selects the on-disk backend
+  ;; and the datadir database path that goes with it. "file" (the default) keeps
+  ;; the single CRC-framed log file; "rocksdb" names a datadir directory
+  ;; database; an unsupported value (geth's "pebble"/"leveldb") is rejected
+  ;; rather than silently running the default backend the operator did not ask
+  ;; for.
+  (labels ((options (args)
+             (ethereum-lisp.cli::devnet-cli-options
+              (append (list "devnet") args (list "--no-serve"))))
+           (parse-error (args)
+             (handler-case (progn (options args) nil)
+               (error (condition) (princ-to-string condition)))))
+    ;; Default backend is the file log; the datadir names the single file.
+    (let ((parsed (options (list "--datadir" "/tmp/eth-db-engine-file"))))
+      (is (eq :file (getf parsed :db-engine)))
+      (is (search "ethereum-lisp-chain.sexp" (getf parsed :database-path))))
+    ;; rocksdb is accepted and names a datadir directory instead of a file.
+    (let ((parsed (options (list "--datadir" "/tmp/eth-db-engine-rocksdb"
+                                 "--db.engine" "rocksdb"))))
+      (is (eq :rocksdb (getf parsed :db-engine)))
+      (is (search "chaindata" (getf parsed :database-path))))
+    ;; The default backend can also be named explicitly.
+    (is (eq :file (getf (options (list "--db.engine" "file")) :db-engine)))
+    ;; An unsupported engine is rejected, naming the flag and a supported value.
+    (let ((message (parse-error (list "--db.engine" "pebble"))))
+      (is (stringp message))
+      (when (stringp message)
+        (is (search "--db.engine" message))
+        (is (search "rocksdb" message))))))
 
 (deftest devnet-cli-config-rejects-unknown-toml-key
   ;; A key the loader does not map used to be dropped, turning a typo (or a real

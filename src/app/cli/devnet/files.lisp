@@ -203,16 +203,55 @@ world-readable file WITH-OPEN-FILE would have produced."
 (defun devnet-cli-store-txpool-records-present-p (store)
   (not (null (engine-payload-store-pooled-transactions store))))
 
-(defun devnet-cli-make-output-kv-database (path)
+(defun devnet-cli-parse-db-engine (value)
+  "Parse a --db.engine VALUE into a backend keyword.
+
+Accepts the backends this client actually implements -- \"file\" (the
+CRC-framed log, the default) and \"rocksdb\" -- and rejects any other value,
+including geth's \"pebble\"/\"leveldb\", because selecting a backend we do not
+have would silently run a different one than the operator asked for."
+  (cond
+    ((string-equal value "file") :file)
+    ((string-equal value "rocksdb") :rocksdb)
+    (t
+     (error
+      "--db.engine ~A is not supported: this client implements only \"file\" (the default CRC-framed log) and \"rocksdb\""
+      value))))
+
+(defun devnet-cli-rocksdb-directory-initialized-p (path)
+  "True when PATH is a directory holding an initialized RocksDB database.
+
+RocksDB writes a CURRENT file naming the live MANIFEST as soon as a database
+exists, so its presence distinguishes an already-opened datadir (which the
+hydration path must import from) from a fresh datadir (nothing to import)."
+  (let ((directory (uiop:ensure-directory-pathname path)))
+    (and (probe-file directory)
+         (probe-file (merge-pathnames "CURRENT" directory))
+         t)))
+
+(defun devnet-cli-make-output-kv-database (path &optional (engine :file))
+  "Open (or return the cached handle for) the key-value database at PATH.
+
+ENGINE selects the on-disk backend, defaulting to :FILE so every existing
+caller keeps the CRC-framed log backend unchanged. :ROCKSDB opens PATH as a
+RocksDB directory instead: it owns a directory of SST/WAL files, so there is no
+single-file emptiness probe -- an empty RocksDB directory is a valid, openable
+database that RocksDB populates create-if-missing."
   (or (devnet-cli-cached-kv-database path)
-      (progn
-        (ensure-directories-exist (pathname path))
-        (let ((existing-path (probe-file path)))
-          (when (and existing-path (devnet-cli-empty-file-p existing-path))
-            (delete-file existing-path)))
-        (devnet-cli-cache-kv-database
-         path
-         (ethereum-lisp.database:make-file-key-value-database path)))))
+      (ecase engine
+        (:file
+         (ensure-directories-exist (pathname path))
+         (let ((existing-path (probe-file path)))
+           (when (and existing-path (devnet-cli-empty-file-p existing-path))
+             (delete-file existing-path)))
+         (devnet-cli-cache-kv-database
+          path
+          (ethereum-lisp.database:make-file-key-value-database path)))
+        (:rocksdb
+         (ensure-directories-exist (uiop:ensure-directory-pathname path))
+         (devnet-cli-cache-kv-database
+          path
+          (ethereum-lisp.database:make-rocksdb-key-value-database path))))))
 
 (defun devnet-cli-normalize-absolute-directory-components (components)
   (let ((normalized (list (first components))))
@@ -315,13 +354,24 @@ of reopening on every write."
       (setf (gethash (devnet-cli-kv-database-cache-key path) cache) database)))
   database)
 
-(defun devnet-cli-reread-kv-database (path)
+(defun devnet-cli-reread-kv-database (path &optional (engine :file))
   "Open PATH fresh, bypassing the node-lifetime handle cache.
 
-For the checks whose whole point is that the bytes reached the disk. A cached
-handle would answer out of the table it just wrote, which is a weaker claim
-than replaying the log, so those callers must not share the live handle."
-  (ethereum-lisp.database:make-file-key-value-database path))
+For the :FILE backend, whose whole point is that the bytes reached the disk: a
+fresh handle replays the CRC-framed log, a stronger claim than a cached table
+that just wrote them, so those callers must not share the live handle.
+
+For :ROCKSDB the claim already holds through the live handle -- a batch is
+WAL-synced before the write returns, and RocksDB holds an exclusive directory
+lock, so a second handle cannot be opened while the node owns the first. Reusing
+the cached handle reads the committed, durable state rather than deadlocking on
+the lock."
+  (ecase engine
+    (:file (ethereum-lisp.database:make-file-key-value-database path))
+    (:rocksdb
+     (or (devnet-cli-cached-kv-database path)
+         (ethereum-lisp.database:make-rocksdb-key-value-database
+          path :create-if-missing-p nil)))))
 
 (defun call-with-devnet-cli-kv-database-cache (thunk)
   "Run THUNK with node-lifetime caching of open key-value database handles."
@@ -345,10 +395,16 @@ than replaying the log, so those callers must not share the live handle."
    (namestring (devnet-cli-canonical-output-pathname left))
    (namestring (devnet-cli-canonical-output-pathname right))))
 
-(defun devnet-cli-datadir-database-path (datadir)
+(defun devnet-cli-datadir-database-path (datadir &optional (engine :file))
+  "The chain database path inside DATADIR for the selected backend ENGINE.
+
+:FILE (the default) names the single CRC-framed log file; :ROCKSDB names the
+RocksDB directory. Both are datadir-relative so a datadir stays self-contained."
   (namestring
    (merge-pathnames
-    +devnet-datadir-database-file+
+    (ecase engine
+      (:file +devnet-datadir-database-file+)
+      (:rocksdb +devnet-datadir-rocksdb-directory+))
     (uiop:ensure-directory-pathname datadir))))
 
 (defun devnet-cli-datadir-genesis-path (datadir)

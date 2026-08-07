@@ -15,6 +15,7 @@
        (public-rpc-prefix "/")
        log-path
        database-path
+       (db-engine :file)
        pid-file-path
        network-id
        ;; Inbound peering. P2P-PORT NIL means no listener: a devnet that binds a
@@ -169,10 +170,10 @@
          (store-guard-function (first store-guard-pair))
          (store-guard-try-function (second store-guard-pair))
          (new-payload-persistence-function
-           (devnet-cli-new-payload-persistence-function database-path))
+           (devnet-cli-new-payload-persistence-function database-path db-engine))
          (forkchoice-persistence-function
            (devnet-cli-forkchoice-persistence-function
-            database-path persistence-state))
+            database-path persistence-state db-engine))
          (jwt-secret (and jwt-secret-path
                           (devnet-cli-read-jwt-secret jwt-secret-path)))
          (service
@@ -251,7 +252,8 @@
      txpool-journal-path
      config
      genesis-block
-     persistence-state)
+     persistence-state
+     db-engine)
     (setf (first node-box)
           (%make-devnet-node
        :genesis-path
@@ -268,6 +270,7 @@
        :jwt-secret-path jwt-secret-path
        :log-path log-path
        :database-path database-path
+       :db-engine db-engine
        :pid-file-path pid-file-path
        :network-id effective-network-id
        :public-api-modules (and public-api-modules

@@ -16,6 +16,7 @@
         (public-rpc-prefix "/")
         (database-path nil)
         (datadir-path nil)
+        (db-engine :file)
         (network-id nil)
         (chain-preset nil)
         (http-api-modules nil)
@@ -330,15 +331,22 @@
                                  "--rpc.txfeecap")
                         :test #'string=)
                 (error "~A is not configurable in this client" option))
-               ;; Reject rather than ignore: these three flags each SELECT node
+               ;; --db.engine SELECTS the on-disk backend, so it is honoured
+               ;; rather than ignored: the value chooses the CRC-framed log
+               ;; ("file", the default) or RocksDB, and an unsupported value is
+               ;; rejected rather than silently running a backend the operator
+               ;; did not ask for.
+               ((string= option "--db.engine")
+                (setf db-engine
+                      (devnet-cli-parse-db-engine (next-value option))))
+               ;; Reject rather than ignore: these flags each SELECT node
                ;; behaviour, so accepting-and-discarding them silently runs a
                ;; configuration the operator did not ask for (a different sync
-               ;; strategy, a different database backend, discovery disabled).
-               ;; None of those behaviours is implemented, so fail loudly. The
-               ;; remaining compatibility flags below only tune values we already
-               ;; honour or genuinely no-op, and keep their ignored-option
-               ;; warning.
-               ((member option '("--syncmode" "--db.engine" "--nodiscover")
+               ;; strategy, discovery disabled). Neither behaviour is
+               ;; implemented, so fail loudly. The remaining compatibility flags
+               ;; below only tune values we already honour or genuinely no-op,
+               ;; and keep their ignored-option warning.
+               ((member option '("--syncmode" "--nodiscover")
                         :test #'string=)
                 (error
                  "~A is not supported: this client does not implement it, and silently ignoring it would change node behaviour"
@@ -367,10 +375,11 @@
           :engine-rpc-prefix engine-rpc-prefix
           :public-rpc-prefix public-rpc-prefix
           :datadir-path datadir-path
+          :db-engine db-engine
           :database-path (or database-path
                              (and datadir-path
                                   (devnet-cli-datadir-database-path
-                                   datadir-path)))
+                                   datadir-path db-engine)))
           :network-id network-id
           :chain-preset chain-preset
           :http-api-modules http-api-modules

@@ -47,6 +47,7 @@
    :public-rpc-prefix (getf options :public-rpc-prefix)
    :log-path (getf options :log-file)
    :database-path (getf options :database-path)
+   :db-engine (or (getf options :db-engine) :file)
    :pid-file-path (getf options :pid-file)
    :network-id (getf options :network-id)
    :public-api-modules (getf options :http-api-modules)

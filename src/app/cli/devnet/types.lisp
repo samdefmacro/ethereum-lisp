@@ -77,7 +77,7 @@
             (:constructor %make-devnet-node
                 (&key genesis-path store config genesis-block service
                       public-service telemetry-sink jwt-secret-path log-path
-                      database-path pid-file-path network-id
+                      database-path (db-engine :file) pid-file-path network-id
                       public-api-modules engine-endpoint-config
                       public-endpoint-config txpool-policy
                       dev-mode-p coinbase store-guard-function
@@ -115,6 +115,7 @@
   jwt-secret-path
   log-path
   database-path
+  (db-engine :file)
   pid-file-path
   network-id
   public-api-modules
@@ -390,6 +391,10 @@ loopback rather than advertising 0.0.0.0, which is not an address."
 
 (defconstant +devnet-default-public-rpc-port+ 8545)
 (defparameter +devnet-datadir-database-file+ "ethereum-lisp-chain.sexp")
+(defparameter +devnet-datadir-rocksdb-directory+ "chaindata/"
+  "Datadir-relative directory holding the RocksDB chain database when the
+--db.engine=rocksdb backend is selected. RocksDB owns a directory of SST and
+WAL files rather than the single CRC-framed log file the default backend uses.")
 (defparameter +devnet-datadir-genesis-file+ "genesis.json")
 (defparameter +devnet-datadir-jwt-secret-file+ "jwtsecret")
 (defparameter +devnet-geth-datadir-directory+ "geth/")
