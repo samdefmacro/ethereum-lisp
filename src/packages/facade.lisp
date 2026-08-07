@@ -1089,6 +1089,13 @@
   (#:ethereum-lisp.canonical-chain
    #:chain-store-set-canonical-head)
   (#:ethereum-lisp.node-store.persistence
+   #:node-store-chain-schema-version
+   #:node-store-migrate-chain-schema
+   #:node-store-database-finding-kind
+   #:node-store-database-finding-identifier
+   #:node-store-database-finding-message
+   #:node-store-database-finding-description
+   #:node-store-verify-chain-database
    #:node-store-stage-progress
    #:node-store-stage-progress-p
    #:node-store-stage-progress-number

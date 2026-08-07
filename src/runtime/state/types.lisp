@@ -4,7 +4,20 @@
 
 (defstruct state-object
   account
+  ;; CODE is content-addressed and immutable: it is only ever REPLACED by
+  ;; STATE-DB-SET-CODE, never written through. Every reader
+  ;; (STATE-DB-GET-CODE and the EVM code loaders) already relies on that, so
+  ;; CLONE-STATE-OBJECT shares the vector instead of copying it -- a clone
+  ;; happens per journal entry and per call frame, and contract code is the
+  ;; largest thing on the object.
   (code (make-byte-vector 0) :type byte-vector)
+  ;; Memoized (KECCAK-256-HASH CODE), or NIL when it must be recomputed.
+  ;;
+  ;; INVARIANT: this must be NIL whenever CODE could have changed since it was
+  ;; filled. STATE-DB-SET-CODE is the only writer of CODE and refills it in the
+  ;; same step. A stale entry is a wrong account leaf, i.e. a consensus
+  ;; divergence. A clone may carry it because it shares the very same CODE.
+  (cached-code-hash nil)
   (storage (make-hash-table :test #'equal))
   ;; Memoized STORAGE-ROOT, or NIL when it must be recomputed.
   ;;

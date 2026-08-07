@@ -322,33 +322,50 @@ can be pruned. Returns T on success, NIL when the view is unresolvable."
         (memory-chain-store-account-storage store)
         prefix))))
 
-(defun chain-store-prune-state-before (store block-number)
+(defun chain-store-head-state-key (store)
+  "The block key of the head whose state pruning must never drop. Falls back to
+the canonical head for a store that has never seen a forkchoice update."
+  (let* ((checkpoint (memory-chain-store-head-checkpoint store))
+         (hash (and checkpoint
+                    (chain-store-checkpoint-block-hash checkpoint))))
+    (if hash
+        (engine-payload-store-key hash)
+        (gethash (memory-chain-store-head-number store)
+                 (memory-chain-store-canonical-hashes store)))))
+
+(defun chain-store-forkchoice-anchor-state-keys (store)
+  "Head, safe and finalized as block keys, ignoring the ones not set.
+
+These are the three states a consumer can still name after a prune, so the
+automatic retention policy keeps them even when they fall outside its window.
+Doing so leaves retention bounded -- at most two snapshots beyond the window,
+each promoted to a baseline when its own baseline is dropped -- while a
+retention depth shorter than the distance to finality shortens history instead
+of discarding the finalized anchor."
+  (let ((keys (list (chain-store-head-state-key store))))
+    (dolist (checkpoint (list (memory-chain-store-safe-checkpoint store)
+                              (memory-chain-store-finalized-checkpoint store)))
+      (let ((hash (and checkpoint
+                       (chain-store-checkpoint-block-hash checkpoint))))
+        (when hash
+          (push (engine-payload-store-key hash) keys))))
+    (remove nil keys)))
+
+(defun chain-store-prune-state-keeping (store block-number anchor-keys)
+  "Drop every state below BLOCK-NUMBER except the states at ANCHOR-KEYS."
   (let ((store (chain-store-require-memory-store store)))
     (unless (and (integerp block-number) (not (minusp block-number)))
       (block-validation-fail
        "Chain state pruning block number must be a non-negative integer"))
     (let ((block-keys '())
-          (kept-keys '())
-          (head-block-key
-            (let ((checkpoint
-                    (memory-chain-store-head-checkpoint store)))
-              (let ((hash (and checkpoint
-                               (chain-store-checkpoint-block-hash
-                                checkpoint))))
-                (if hash
-                    (engine-payload-store-key hash)
-                    (gethash
-                     (memory-chain-store-head-number store)
-                     (memory-chain-store-canonical-hashes
-                      store)))))))
+          (kept-keys '()))
       (maphash
        (lambda (block-key state-available-p)
          (when state-available-p
            (let ((block (gethash block-key
                                   (memory-chain-store-blocks store))))
              (if (and block
-                      (or (null head-block-key)
-                          (not (string= block-key head-block-key)))
+                      (not (member block-key anchor-keys :test #'string=))
                       (< (block-header-number (block-header block))
                          block-number))
                  (push block-key block-keys)
@@ -381,10 +398,27 @@ can be pruned. Returns T on success, NIL when the view is unresolvable."
         (engine-payload-store-prune-state-snapshot store block-key))
       (length block-keys))))
 
+(defun chain-store-prune-state-before (store block-number)
+  "Drop every state below BLOCK-NUMBER except the head's.
+
+Only the head is spared: an explicit number is an operator instruction, so the
+safe and finalized states go with the rest of the history below it. The
+automatic retention policy is the one that additionally keeps those anchors."
+  (chain-store-prune-state-keeping
+   store block-number
+   (remove nil
+           (list (chain-store-head-state-key
+                  (chain-store-require-memory-store store))))))
+
 (defun chain-store-prune-state-to-retention-depth (store)
-  "Prune state outside STORE's configured distance from its canonical head."
+  "Prune state outside STORE's configured distance from its canonical head.
+
+The safe and finalized anchors survive the window (see
+CHAIN-STORE-FORKCHOICE-ANCHOR-STATE-KEYS), so a depth shorter than the distance
+to finality shortens history rather than destroying the anchor."
   (let* ((store (chain-store-require-memory-store store))
          (head-number (memory-chain-store-head-number store))
          (depth (memory-chain-store-state-retention-depth store))
          (first-kept (max 0 (1+ (- head-number depth)))))
-    (chain-store-prune-state-before store first-kept)))
+    (chain-store-prune-state-keeping
+     store first-kept (chain-store-forkchoice-anchor-state-keys store))))

@@ -244,6 +244,43 @@ STORAGE-ENTRIES) — as BLOCK's post-state and return the stored kind."
     (is (= 7 (chain-store-account-balance
               store (block-hash (seventh blocks)) address)))))
 
+(deftest chain-store-retention-keeps-the-safe-and-finalized-anchors
+  (let* ((store
+           (make-engine-payload-memory-store
+            :chain-store
+            (ethereum-lisp.chain-store.state:make-memory-chain-store
+             :state-retention-depth 3)))
+         (blocks (state-diff-test-chain store 7))
+         (address (state-diff-test-address 1)))
+    (loop for block in blocks
+          for balance from 1
+          do (state-diff-test-commit
+              store block (list (list address balance 0 #() '()))))
+    ;; Finality is further back than the retention window. The window bounds
+    ;; how much history is kept; it must not consume the anchors themselves,
+    ;; which are the states a consumer can still ask for by name.
+    (chain-store-update-forkchoice-checkpoints
+     store
+     (make-forkchoice-state
+      :head-block-hash (block-hash (seventh blocks))
+      :safe-block-hash (block-hash (third blocks))
+      :finalized-block-hash (block-hash (second blocks))))
+    (chain-store-set-canonical-head store (block-hash (seventh blocks)))
+    (dolist (index '(0 3))
+      (is (not (chain-store-state-available-p
+                store (block-hash (nth index blocks))))))
+    (dolist (index '(1 2 4 5 6))
+      (is (chain-store-state-available-p
+           store (block-hash (nth index blocks)))))
+    ;; A retained anchor must still resolve, not merely be marked available:
+    ;; its baseline was pruned, so it had to be promoted.
+    (is (= 2 (chain-store-account-balance
+              store (block-hash (second blocks)) address)))
+    (is (= 3 (chain-store-account-balance
+              store (block-hash (third blocks)) address)))
+    (is (= 7 (chain-store-account-balance
+              store (block-hash (seventh blocks)) address)))))
+
 (deftest historical-state-db-loads-only-touched-accounts
   (let* ((store (make-engine-payload-memory-store))
          (blocks (state-diff-test-chain store 2))

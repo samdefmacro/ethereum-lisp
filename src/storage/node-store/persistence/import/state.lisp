@@ -9,7 +9,7 @@
           (rlp-uint-field (second fields)
                           "State storage snapshot value"))))
 
-(defun state-account-snapshot-from-rlp-object (value)
+(defun state-account-snapshot-from-rlp-object (value code-resolver)
   (let ((fields (rlp-list-field value "State account snapshot")))
     (unless (= (length fields) 5)
       (block-validation-fail
@@ -18,7 +18,10 @@
      (rlp-address-field (first fields) "State account snapshot address")
      (rlp-uint-field (second fields) "State account snapshot balance")
      (rlp-uint-field (third fields) "State account snapshot nonce")
-     (rlp-bytes-field (fourth fields) "State account snapshot code")
+     (node-store-resolve-code
+      code-resolver
+      (rlp-bytes-field (fourth fields) "State account snapshot code")
+      "State account snapshot")
      (mapcar #'state-storage-entry-from-rlp-object
              (rlp-list-field (fifth fields)
                              "State account snapshot storage")))))
@@ -68,7 +71,12 @@
          "KV state record root does not match block header")))))
 
 (defun chain-store-import-state-record-from-kv
-    (store block-identifier state-record)
+    (store block-identifier state-record &key code-resolver)
+  "Install a full account snapshot.
+
+CODE-RESOLVER names the record's layout: a resolver reads content-addressed
+code (schema v3+), NIL reads the pre-v3 inline bodies. The caller must derive
+it from the source database's schema marker, never from the record."
   (setf store (chain-store-require-memory-store store))
   (let ((block-hash (make-hash32 block-identifier)))
     (unless (chain-store-known-block store block-hash)
@@ -81,7 +89,7 @@
           (dolist (account (rlp-list-field (rlp-decode-one state-record)
                                            "State snapshot"))
             (multiple-value-bind (address balance nonce code storage-entries)
-                (state-account-snapshot-from-rlp-object account)
+                (state-account-snapshot-from-rlp-object account code-resolver)
               (chain-store-put-account-balance store block-hash address balance)
               (chain-store-put-account-nonce store block-hash address nonce)
               (chain-store-put-account-code store block-hash address code)
@@ -102,7 +110,7 @@ the parsed value."
     (2 :absent)))
 
 (defun chain-store-import-state-diff-account
-    (account balances nonces codes storage)
+    (account balances nonces codes storage code-resolver)
   (let ((fields (rlp-list-field account "State diff account")))
     (unless (= (length fields) 8)
       (block-validation-fail "State diff account must contain 8 fields"))
@@ -124,7 +132,10 @@ the parsed value."
         (setf (gethash address-hex nonces) nonce))
       (when code
         (setf (gethash address-hex codes)
-              (if (eq code :absent) :absent (ensure-byte-vector code))))
+              (if (eq code :absent)
+                  :absent
+                  (node-store-resolve-code
+                   code-resolver code "State diff code"))))
       (dolist (entry (rlp-list-field (eighth fields)
                                      "State diff storage"))
         (let ((entry (state-storage-entry-from-rlp-object entry)))
@@ -135,7 +146,7 @@ the parsed value."
                 (cdr entry)))))))
 
 (defun chain-store-import-state-diff-record-from-kv
-    (store block-identifier record)
+    (store block-identifier record &key code-resolver)
   (setf store (chain-store-require-memory-store store))
   (let ((block-hash (make-hash32 block-identifier)))
     (unless (chain-store-known-block store block-hash)
@@ -156,7 +167,7 @@ the parsed value."
             (dolist (account (rlp-list-field (second fields)
                                              "State diff accounts"))
               (chain-store-import-state-diff-account
-               account balances nonces codes storage))
+               account balances nonces codes storage code-resolver))
             (chain-store-put-state-diff
              store block-hash parent-hash
              :balances balances
@@ -169,14 +180,16 @@ the parsed value."
          "Invalid KV state diff record RLP: ~A" condition)))))
 
 (defun chain-store-import-state-records-from-kv (store database)
-  (dolist (entry (kv-chain-record-entries database :state))
-    (chain-store-import-state-record-from-kv store (car entry) (cdr entry)))
-  ;; Diff records may arrive in any order, so their roots are only
-  ;; checkable once every diff is installed.
-  (let ((diff-hashes '()))
-    (dolist (entry (kv-chain-record-entries database :state-diff))
-      (push (chain-store-import-state-diff-record-from-kv
-             store (car entry) (cdr entry))
-            diff-hashes))
-    (dolist (block-hash (nreverse diff-hashes))
-      (chain-store-validate-imported-state-root store block-hash))))
+  (let ((code-resolver (node-store-code-resolver-for-database database)))
+    (dolist (entry (kv-chain-record-entries database :state))
+      (chain-store-import-state-record-from-kv
+       store (car entry) (cdr entry) :code-resolver code-resolver))
+    ;; Diff records may arrive in any order, so their roots are only
+    ;; checkable once every diff is installed.
+    (let ((diff-hashes '()))
+      (dolist (entry (kv-chain-record-entries database :state-diff))
+        (push (chain-store-import-state-diff-record-from-kv
+               store (car entry) (cdr entry) :code-resolver code-resolver)
+              diff-hashes))
+      (dolist (block-hash (nreverse diff-hashes))
+        (chain-store-validate-imported-state-root store block-hash)))))

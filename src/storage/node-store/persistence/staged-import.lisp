@@ -637,11 +637,12 @@
     receipts))
 
 (defun node-store-validate-staged-state-record
-    (block record)
+    (block record code-resolver)
   (let ((store (make-engine-payload-memory-store))
         (identifier (hash32-bytes (block-hash block))))
     (chain-store-put-block store block)
-    (chain-store-import-state-record-from-kv store identifier record)
+    (chain-store-import-state-record-from-kv
+     store identifier record :code-resolver code-resolver)
     t))
 
 (defun node-store-staged-transaction-index-identifier
@@ -777,7 +778,9 @@
        "Public staged import anchor records are inconsistent"))
     (node-store-validate-staged-block-body block)
     (node-store-validate-staged-receipt-record block receipt-record)
-    (node-store-validate-staged-state-record block state-record)
+    (node-store-validate-staged-state-record
+     block state-record
+     (node-store-code-resolver-for-database database))
     (unless (and (hash32= (block-hash supplied-block)
                           (block-hash block))
                  (chain-store-persisted-block= supplied-block block)
@@ -804,7 +807,9 @@
             "Pinned staged import anchor state")))
     (node-store-validate-staged-import-anchor-index database anchor)
     (node-store-validate-staged-receipt-record block receipt-record)
-    (node-store-validate-staged-state-record block state-record)
+    (node-store-validate-staged-state-record
+     block state-record
+     (node-store-code-resolver-for-database database))
     block))
 
 (defun node-store-validate-staged-import-chain-identity
@@ -946,7 +951,9 @@
               database :staged-state identifier
               "Staged execution state")))
       (node-store-validate-staged-receipt-record block receipt-record)
-      (node-store-validate-staged-state-record block state-record)))
+      (node-store-validate-staged-state-record
+       block state-record
+       (node-store-code-resolver-for-database database))))
   (dolist (progress
            (node-store-staged-import-path
             database state
@@ -1052,6 +1059,9 @@ cross-handle file-database serialization."
   (unless (typep database 'key-value-database)
     (block-validation-fail
      "Staged import target must be a key-value database"))
+  ;; Staged records share the public snapshot layout and are promoted into it
+  ;; byte for byte, so staging cannot begin against an older on-disk schema.
+  (node-store-migrate-chain-schema database)
   (let ((anchor (node-store-stage-progress-for-block anchor-block))
         (chain-config-fingerprint
           (node-store-chain-config-fingerprint chain-config)))
@@ -1198,13 +1208,18 @@ cross-handle file-database serialization."
         (block-validation-fail
          "Staged execution parent progress is inconsistent"))
       (let* ((identifier (hash32-bytes (block-hash executed-block)))
+             (code-sink (make-node-store-code-sink batch))
              (state-record
                (chain-store-state-record-rlp
-                execution-store (block-hash executed-block)))
+                execution-store (block-hash executed-block)
+                :code-sink code-sink))
              (receipt-record
                (block-receipts-record-rlp executed-block)))
+        ;; The bodies this record references are still only in BATCH, so the
+        ;; read-back has to see the sink before the database.
         (node-store-validate-staged-state-record
-         executed-block state-record)
+         executed-block state-record
+         (node-store-code-sink-resolver code-sink database))
         (node-store-validate-staged-receipt-record
          executed-block receipt-record)
         (node-store-put-immutable-record

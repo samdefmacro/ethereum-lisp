@@ -306,6 +306,7 @@
       :serial t
       :components
       ((:file "node-store-persistence-metadata" :pathname "metadata")
+       (:file "node-store-persistence-code-store" :pathname "code-store")
        (:file "chain-store-export-indexes" :pathname "export/indexes")
        (:file "chain-store-export-blocks" :pathname "export/blocks")
        (:file "chain-store-export-transactions" :pathname "export/transactions")
@@ -325,6 +326,7 @@
        (:file "chain-store-persistence-blobs" :pathname "import/blobs")
        (:file "chain-store-persistence-prepared-payloads" :pathname "import/prepared-payloads")
        (:file "chain-store-persistence" :pathname "import/orchestrator")
+       (:file "node-store-persistence-verify" :pathname "verify")
        (:file "node-store-staged-import" :pathname "staged-import")))
      (:module "api"
       :pathname "api/"
