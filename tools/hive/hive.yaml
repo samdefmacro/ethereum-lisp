@@ -1,0 +1,6 @@
+# Only "eth1". Not "eth1_snap": the snap/1 server and client exist in the tree
+# but have no production caller and the live Hello advertises eth only
+# (docs/gap-analysis/public-testnet-readiness-plan.md, section 5), so claiming
+# the role would enter this client into snap suites it cannot serve.
+roles:
+  - "eth1"
