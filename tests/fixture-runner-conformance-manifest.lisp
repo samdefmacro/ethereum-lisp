@@ -253,6 +253,45 @@ destroy the very report that explains what ran."
      root)
     (nreverse records)))
 
+(defun phase-a-eest-blockchain-rlp-conformance-records (root)
+  "One record per discovered standard RLP case, executed or not.
+
+Separate from the replay family because the two trees hold the same test ids in
+two formats: their relative names collide, so they cannot share a selector
+namespace. Keeping them apart is also what lets the format axis carry a real
+blockchain_test count instead of only whatever the in-tree fixture root holds."
+  (let ((records '()))
+    (map-phase-a-eest-blockchain-discovery-cases
+     (lambda (case)
+       (let ((acceptance-kind (phase-a-eest-blockchain-rlp-acceptance-kind case))
+             (rejection-kind (phase-a-eest-blockchain-rlp-rejection-kind case))
+             (network (fixture-object-field
+                       (fixture-required-field case "fixture")
+                       "network")))
+         (push
+          (list (cons "name" (fixture-required-field case "name"))
+                (cons "network" network)
+                (cons "inScope"
+                      (and (stringp network)
+                           (member network
+                                   (phase-a-eest-blockchain-rlp-supported-networks)
+                                   :test #'string=)
+                           t))
+                (cons "format" (eest-fixture-case-format case))
+                (cons "validity"
+                      (if (eest-blockchain-case-invalid-p case)
+                          "invalid"
+                          "valid"))
+                (cons "executed" (and (or acceptance-kind rejection-kind) t))
+                (cons "category"
+                      (cond (acceptance-kind "executed")
+                            (rejection-kind "executedRejection")
+                            (t (phase-a-eest-blockchain-rlp-skip-category
+                                case)))))
+          records)))
+     root)
+    (nreverse records)))
+
 (defun phase-a-eest-conformance-family-report
     (family records fork-field forks exclusions)
   (let ((selected (count-if (lambda (record)
@@ -350,6 +389,19 @@ formats that fork ships in, and per-fork counts alone call that a pass."
     +phase-a-eest-state-test-discovery-feature-directories+
     +phase-a-eest-state-test-discovery-max-file-bytes+
     (phase-a-eest-state-test-supported-forks))))
+
+(defun phase-a-eest-blockchain-rlp-conformance-report (root)
+  (phase-a-eest-conformance-family-report
+   "blockchain_rlp"
+   (phase-a-eest-blockchain-rlp-conformance-records root)
+   "network"
+   (phase-a-eest-blockchain-rlp-supported-networks)
+   (eest-conformance-discovery-exclusions
+    root
+    (eest-blockchain-test-root-json-paths root)
+    (phase-a-eest-blockchain-replay-active-feature-directories)
+    +phase-a-eest-blockchain-replay-discovery-max-file-bytes+
+    (phase-a-eest-blockchain-replay-supported-networks))))
 
 (defun phase-a-eest-blockchain-conformance-report (root)
   (phase-a-eest-conformance-family-report
@@ -456,5 +508,20 @@ formats that fork ships in, and per-fork counts alone call that a pass."
 (deftest phase-a-eest-blockchain-conformance-is-non-vacuous
   (with-execution-spec-tests-blockchain-test-root (root)
     (let ((report (phase-a-eest-blockchain-conformance-report root)))
+      (phase-a-eest-report-conformance-family report)
+      (phase-a-eest-assert-conformance-report-non-vacuous report))))
+
+(deftest phase-a-eest-blockchain-rlp-conformance-is-non-vacuous
+  ;; The standard RLP tree is the one the engine tree hid, so "we cover
+  ;; blockchain_test" rested entirely on the nine in-tree sample fixtures until
+  ;; this family existed. Skips when the corpus offers only one blockchain tree,
+  ;; because then the replay family already walked it.
+  (let ((root (phase-a-eest-blockchain-rlp-test-root)))
+    (unless root
+      (skip-test
+       (format nil
+               "Set ~A to a fixture root whose blockchain_tests tree is distinct from its engine tree to measure standard RLP conformance"
+               +execution-spec-tests-fixture-root-env+)))
+    (let ((report (phase-a-eest-blockchain-rlp-conformance-report root)))
       (phase-a-eest-report-conformance-family report)
       (phase-a-eest-assert-conformance-report-non-vacuous report))))

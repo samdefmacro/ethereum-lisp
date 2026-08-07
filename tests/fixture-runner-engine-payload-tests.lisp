@@ -169,3 +169,16 @@ still exposes the block's state has not rejected it."
   (dolist (source-case (load-optional-phase-a-eest-blockchain-rejection-cases))
     (assert-eest-engine-payload-refused
      (materialize-eest-blockchain-engine-rejection-case source-case))))
+
+(deftest optional-phase-a-eest-blockchain-rlp-replay-executes
+  ;; Standard RLP blocks, from the blockchain_tests tree the engine tree used to
+  ;; hide. Same two assertions as the engine vectors and the same harness, which
+  ;; is the point of materializing both into one submission shape: a block the
+  ;; fixture says is valid must be accepted with its roots, one it says is
+  ;; invalid must be refused with a reason and leave no state behind.
+  (dolist (source-case (load-optional-phase-a-eest-blockchain-rlp-cases))
+    (let ((submission
+            (materialize-eest-blockchain-standard-rlp-submission source-case)))
+      (if (eest-blockchain-case-invalid-p source-case)
+          (assert-eest-engine-payload-refused submission)
+          (assert-eest-engine-payload-accepted submission)))))

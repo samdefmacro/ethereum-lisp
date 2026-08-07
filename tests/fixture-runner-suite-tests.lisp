@@ -564,6 +564,63 @@
                          :test #'string=))
                +phase-a-eest-blockchain-late-payload-kind-names+))))
 
+(deftest execution-spec-tests-resolve-the-standard-blockchain-tree
+  ;; A corpus ships blockchain_tests_engine/ AND blockchain_tests/, and the
+  ;; single-root resolver prefers the engine tree -- so the standard RLP
+  ;; fixtures, a whole EEST format, were unreachable on every downloaded corpus.
+  ;; The standard resolver has to find them while the single-root resolver keeps
+  ;; answering exactly what it answered before.
+  (let* ((root
+           (merge-pathnames
+            (format nil "ethereum-lisp-blockchain-format-root-~A/" (gensym))
+            #P"/private/tmp/"))
+         (engine-path
+           (merge-pathnames
+            "blockchain_tests_engine/shanghai/phase-a-empty-engine.json" root))
+         (standard-path
+           (merge-pathnames
+            "blockchain_tests/shanghai/phase-a-empty-standard.json" root)))
+    (labels ((file-string (path)
+               (with-open-file (stream path :direction :input)
+                 (let ((string (make-string (file-length stream))))
+                   (read-sequence string stream)
+                   string)))
+             (write-file (path source)
+               (ensure-directories-exist path)
+               (with-open-file (stream path
+                                       :direction :output
+                                       :if-exists :supersede
+                                       :if-does-not-exist :create)
+                 (write-string (file-string source) stream))))
+      (write-file
+       engine-path
+       "tests/fixtures/execution-spec-tests-root/fixtures/blockchain_tests_engine/shanghai/phase-a-empty-engine.json")
+      (write-file
+       standard-path
+       "tests/fixtures/execution-spec-tests-root/fixtures/blockchain_tests_engine/shanghai/phase-a-empty-standard.json")
+      (is (search "blockchain_tests_engine"
+                  (namestring
+                   (truename (execution-spec-tests-blockchain-test-root root)))))
+      (is (equal
+           (namestring
+            (truename (merge-pathnames "blockchain_tests/" root)))
+           (namestring
+            (truename
+             (execution-spec-tests-blockchain-rlp-test-root root)))))
+      ;; An empty tree is not a format the corpus offers, so it must not be
+      ;; reported as one -- otherwise the caller resolves a directory it then
+      ;; fails to read.
+      (is (null (execution-spec-tests-first-json-subdirectory
+                 root '("trie_tests/"))))
+      (is (equal '("blockchain_tests/"
+                   "fixtures/blockchain_tests/"
+                   "spec-tests/fixtures/blockchain_tests/")
+                 (execution-spec-tests-blockchain-test-format-subdirs nil)))
+      (is (equal '("blockchain_tests_engine/"
+                   "fixtures/blockchain_tests_engine/"
+                   "spec-tests/fixtures/blockchain_tests_engine/")
+                 (execution-spec-tests-blockchain-test-format-subdirs t))))))
+
 (deftest phase-a-eest-blockchain-invalid-vectors-leave-the-replay-set
   ;; The replay path derives what it asserts by EXECUTING the block, so it has
   ;; no expectation to offer for a payload the node must refuse. Letting one in

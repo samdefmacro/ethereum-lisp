@@ -45,8 +45,14 @@
   '("network" "genesisBlockHeader" "pre" "postState" "lastblockhash"
     "sealEngine" "blocks" "config" "genesisRLP" "_info"))
 
+;; A valid standard block carries its decoded header, body and receipts beside
+;; the RLP; an invalid one carries only the RLP, the expected exception, and the
+;; partially decoded form EEST kept for diagnostics. The RLP is what gets
+;; executed either way -- the rest is EEST showing its work -- but every field
+;; has to be listed or the shape check rejects a real fixture.
 (defparameter +eest-blockchain-standard-block-fields+
-  '("rlp" "blockHeader" "expectException" "uncleHeaders"))
+  '("rlp" "blockHeader" "expectException" "uncleHeaders"
+    "transactions" "withdrawals" "receipts" "blocknumber" "rlp_decoded"))
 
 (defparameter +eest-state-test-case-fields+
   '("env" "pre" "transaction" "post" "config" "_info"))

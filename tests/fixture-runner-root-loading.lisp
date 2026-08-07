@@ -827,6 +827,151 @@ way new execution appears; the difference is what gets asserted."
               kind))))
     (error () nil)))
 
+;;; Standard RLP blocks.
+;;;
+;;; The engine tree and the standard tree hold the SAME test ids filled in two
+;;; formats, so their relative case names collide and they cannot be merged into
+;;; one selector namespace. They are therefore a second family, resolved against
+;;; their own root and counted separately -- which is also what lets the format
+;;; axis report a real blockchain_test number instead of only what the in-tree
+;;; fixture root happens to contain.
+
+(defun phase-a-eest-blockchain-rlp-test-root ()
+  "The standard blockchain_tests/ root, or NIL when the replay family owns it.
+
+A corpus that ships only one blockchain tree resolves both families to the same
+directory; running the standard family over it as well would count and execute
+every case twice."
+  (let ((rlp-root (execution-spec-tests-blockchain-rlp-test-root))
+        (replay-root (execution-spec-tests-blockchain-test-root)))
+    (when (and rlp-root
+               (or (null replay-root)
+                   (not (equal (namestring (truename rlp-root))
+                               (namestring (truename replay-root))))))
+      rlp-root)))
+
+(defun eest-blockchain-standard-newpayload-version (network)
+  "The Engine method a block from NETWORK must be submitted through, or NIL.
+
+Prague and Osaka answer NIL unless the caller can show the block carries no
+execution requests: newPayloadV4 takes them as a parameter and a block RLP does
+not contain them, only their hash. Guessing an empty list for a block that had
+requests would submit a call the fixture never described and score whatever came
+back, so those cases are refused here and counted as a named skip instead."
+  (cond
+    ((string= "Shanghai" network) "2")
+    ((string= "Cancun" network) "3")
+    ((member network '("Prague" "Osaka") :test #'string=) "4")
+    (t nil)))
+
+(defun phase-a-eest-blockchain-rlp-supported-networks ()
+  "The configured networks whose standard blocks this build can submit at all.
+
+Transitions drop out because they have no single Engine version. Prague and
+Osaka stay: whether a block is submittable there is a per-case fact about
+whether it carries execution requests, and the ones that do are counted by name
+rather than removed from the fork the run claims."
+  (remove-if-not #'eest-blockchain-standard-newpayload-version
+                 (phase-a-eest-blockchain-replay-supported-networks)))
+
+(defun eest-blockchain-standard-requests-recoverable-p (block)
+  (let ((requests-hash (block-header-requests-hash (block-header block))))
+    (or (null requests-hash)
+        (equalp (hash32-bytes requests-hash)
+                (hash32-bytes (execution-requests-hash '()))))))
+
+(defun phase-a-eest-blockchain-rlp-submittable-p (case)
+  "Whether this build can submit CASE's block as an Engine payload at all."
+  (handler-case
+      (let* ((fixture (fixture-required-field case "fixture"))
+             (network (fixture-object-field fixture "network"))
+             (version (and (stringp network)
+                           (member network
+                                   (phase-a-eest-blockchain-replay-supported-networks)
+                                   :test #'string=)
+                           (eest-blockchain-standard-newpayload-version
+                            network))))
+        (and version
+             (let ((block (validate-eest-blockchain-standard-newpayload-v2-case
+                           case)))
+               (or (not (string= "4" version))
+                   (eest-blockchain-standard-requests-recoverable-p block)))))
+    (error () nil)))
+
+(defun phase-a-eest-blockchain-rlp-acceptance-kind (case)
+  (when (and (not (eest-blockchain-case-invalid-p case))
+             (phase-a-eest-blockchain-rlp-submittable-p case))
+    "blockRlp"))
+
+(defun phase-a-eest-blockchain-rlp-rejection-kind (case)
+  (when (and (eest-blockchain-case-invalid-p case)
+             (phase-a-eest-blockchain-rlp-submittable-p case))
+    "blockRlp"))
+
+(defun phase-a-eest-blockchain-rlp-skip-category (case)
+  (handler-case
+      (let* ((fixture (fixture-required-field case "fixture"))
+             (network (fixture-object-field fixture "network"))
+             (blocks (fixture-object-field fixture "blocks")))
+        (cond
+          ((not (stringp network)) "missingNetwork")
+          ((eest-transition-network-p network) "transitionNetwork")
+          ((not (member network
+                        (phase-a-eest-blockchain-replay-supported-networks)
+                        :test #'string=))
+           "unsupportedNetwork")
+          ((not (and (listp blocks) (= 1 (length blocks)))) "multiBlockChain")
+          ((null (eest-blockchain-standard-newpayload-version network))
+           "unsupportedPayloadVersion")
+          ((not (phase-a-eest-blockchain-rlp-submittable-p case))
+           "requestsNotInBlockRlp")
+          (t "unmaterializableShape")))
+    (error () "unreadableFixture")))
+
+(defun discover-phase-a-eest-blockchain-rlp-selectors (root)
+  (let ((selectors '()))
+    (map-phase-a-eest-blockchain-discovery-cases
+     (lambda (case)
+       (let ((kind (or (phase-a-eest-blockchain-rlp-acceptance-kind case)
+                       (phase-a-eest-blockchain-rlp-rejection-kind case))))
+         (when kind
+           (push (cons (fixture-required-field case "name") kind) selectors))))
+     root)
+    (nreverse selectors)))
+
+(defun load-optional-phase-a-eest-blockchain-rlp-cases ()
+  "The standard RLP vectors this run should submit, or a skip.
+
+Keyed on the replay selector env's `auto' setting, like the rejection set: an
+explicit selector list names engine cases and cannot say which standard blocks
+to run."
+  (let ((root (phase-a-eest-blockchain-rlp-test-root)))
+    (unless root
+      (skip-test
+       (format nil
+               "Set ~A to a fixture root whose blockchain_tests tree is distinct from its engine tree to run Phase A standard RLP replay"
+               +execution-spec-tests-fixture-root-env+)))
+    (let ((value (funcall *fixture-root-environment-reader*
+                          +phase-a-eest-blockchain-replay-selectors-env+)))
+      (unless (and (stringp value)
+                   (string= +phase-a-eest-blockchain-replay-auto-selector+
+                            (string-downcase
+                             (eest-fixture-trim-string value))))
+        (skip-test
+         (format nil
+                 "Set ~A to ~A to run Phase A standard RLP replay against this external root"
+                 +phase-a-eest-blockchain-replay-selectors-env+
+                 +phase-a-eest-blockchain-replay-auto-selector+)))
+      (let ((selectors (discover-phase-a-eest-blockchain-rlp-selectors root)))
+        (unless selectors
+          (skip-test
+           (format nil
+                   "This EEST blockchain_tests root carries no submittable standard RLP blocks for the networks ~A selects"
+                   +phase-a-eest-blockchain-replay-forks-env+)))
+        (load-eest-blockchain-test-root-cases
+         root
+         :names (mapcar #'car selectors))))))
+
 (defun discover-phase-a-eest-blockchain-rejection-selectors (root)
   (let ((selectors '()))
     (map-phase-a-eest-blockchain-discovery-cases

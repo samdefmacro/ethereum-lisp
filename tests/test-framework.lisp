@@ -36,6 +36,9 @@
    #:skip-test
    #:execution-spec-tests-fixture-root
    #:execution-spec-tests-blockchain-test-root
+   #:execution-spec-tests-blockchain-rlp-test-root
+   #:execution-spec-tests-blockchain-test-format-subdirs
+   #:execution-spec-tests-first-json-subdirectory
    #:execution-spec-tests-transaction-test-root
    #:execution-spec-tests-state-test-root
    #:execution-spec-tests-trie-test-root
@@ -48,6 +51,7 @@
    #:filter-execution-spec-tests-root-cases
    #:with-execution-spec-tests-fixture-root
    #:with-execution-spec-tests-blockchain-test-root
+   #:with-execution-spec-tests-blockchain-rlp-test-root
    #:with-execution-spec-tests-transaction-test-root
    #:with-execution-spec-tests-state-test-root
    #:with-execution-spec-tests-trie-test-root))
@@ -164,6 +168,9 @@
     "fixtures/blockchain_tests/"
     "spec-tests/fixtures/blockchain_tests_engine/"
     "spec-tests/fixtures/blockchain_tests/"))
+
+(defparameter +execution-spec-tests-blockchain-test-engine-marker+
+  "blockchain_tests_engine/")
 
 (defun default-environment-reader (name)
   #+sbcl (sb-ext:posix-getenv name)
@@ -418,6 +425,46 @@
      +execution-spec-tests-blockchain-test-subdirs+
      :require-json-p t)))
 
+(defun execution-spec-tests-blockchain-test-format-subdirs (engine-p)
+  "The blockchain subdirectory candidates for one fixture format.
+
+Derived from the single candidate list above rather than restated, so the two
+formats keep its preference order and cannot drift out of step with it."
+  (remove-if-not
+   (lambda (subdir)
+     (eq engine-p
+         (and (search +execution-spec-tests-blockchain-test-engine-marker+
+                      subdir)
+              t)))
+   +execution-spec-tests-blockchain-test-subdirs+))
+
+(defun execution-spec-tests-first-json-subdirectory (root subdirs)
+  "The first of SUBDIRS under ROOT that exists AND holds fixture JSON.
+
+EXECUTION-SPEC-TESTS-FIRST-EXISTING-SUBDIRECTORY falls back to an empty
+directory when no candidate has JSON, which is the right answer for a caller
+that needs somewhere to look and the wrong one for a caller asking which
+formats a corpus actually ships."
+  (when root
+    (dolist (subdir subdirs)
+      (when (execution-spec-tests-subdirectory-json-p root subdir)
+        (return (execution-spec-tests-subdirectory root subdir))))))
+
+(defun execution-spec-tests-blockchain-rlp-test-root (&optional root)
+  "The standard blockchain_tests/ tree, which the engine tree otherwise hides.
+
+EXECUTION-SPEC-TESTS-BLOCKCHAIN-TEST-ROOT answers with ONE directory and prefers
+blockchain_tests_engine/. Both pinned corpora ship both trees, so on any real
+corpus the standard RLP fixtures are never opened and the `blockchain_test'
+format cannot execute at all -- the coverage manifest can only ever report it
+from the small in-tree fixture root. Resolving the standard tree separately
+fixes that without touching the single-root function, so every existing caller
+still resolves exactly what it resolved before."
+  (let ((base (execution-spec-tests-resolved-root root)))
+    (execution-spec-tests-first-json-subdirectory
+     base
+     (execution-spec-tests-blockchain-test-format-subdirs nil))))
+
 (defun execution-spec-tests-transaction-test-root (&optional root)
   (let ((base (execution-spec-tests-resolved-root root)))
     (execution-spec-tests-first-existing-subdirectory
@@ -454,6 +501,15 @@
        (skip-test
         (format nil
                 "Set ~A to an execution-spec-tests fixture root containing blockchain_tests_engine or blockchain_tests to run this test"
+                +execution-spec-tests-fixture-root-env+)))
+     ,@body))
+
+(defmacro with-execution-spec-tests-blockchain-rlp-test-root ((root) &body body)
+  `(let ((,root (execution-spec-tests-blockchain-rlp-test-root)))
+     (unless ,root
+       (skip-test
+        (format nil
+                "Set ~A to an execution-spec-tests fixture root containing blockchain_tests to run this test"
                 +execution-spec-tests-fixture-root-env+)))
      ,@body))
 

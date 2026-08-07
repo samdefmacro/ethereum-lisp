@@ -702,12 +702,14 @@ double as a header-encoding conformance check."
     (or (fixture-object-field (fixture-object-field fixture "config") "chainid")
         "0x1"))))
 
-(defun eest-blockchain-engine-submission (case params entry expect)
-  "The shape both the late-fork replay and the rejection tests submit.
+(defun eest-blockchain-engine-submission (case version params expect)
+  "The shape every Engine-submitting replay test consumes.
 
 Everything the node needs to be driven through the real Engine method is here:
 the version, the verbatim RPC parameters, the genesis the payload's parentHash
-points at, and the pre-state that genesis commits to."
+points at, and the pre-state that genesis commits to. Engine fixtures supply the
+parameters directly; standard RLP fixtures derive them from their decoded block,
+and both arrive here so one harness asserts on both."
   (let* ((fixture (fixture-required-field case "fixture"))
          (name (fixture-required-field case "name"))
          (label (format nil "EEST blockchain case ~A" name))
@@ -718,8 +720,7 @@ points at, and the pre-state that genesis commits to."
           (cons "config"
                 (eest-blockchain-replay-network-config
                  (fixture-required-field fixture "network")))
-          (cons "newPayloadVersion"
-                (fixture-required-field entry "newPayloadVersion"))
+          (cons "newPayloadVersion" version)
           (cons "params" params)
           (cons "genesisHeader"
                 (eest-blockchain-engine-genesis-header fixture label))
@@ -759,7 +760,9 @@ points at, and the pre-state that genesis commits to."
          (payload (first params))
          (entry (eest-blockchain-engine-newpayloads-single-entry case)))
     (eest-blockchain-engine-submission
-     case params entry
+     case
+     (fixture-required-field entry "newPayloadVersion")
+     params
      (list (cons "status" "VALID")
            (cons "stateRoot" (fixture-required-field payload "stateRoot"))
            (cons "receiptsRoot" (fixture-required-field payload "receiptsRoot"))
@@ -780,12 +783,71 @@ throw away."
          (entry (eest-blockchain-engine-newpayloads-single-entry case))
          (expectation (eest-blockchain-case-rejection-expectation case)))
     (eest-blockchain-engine-submission
-     case params entry
+     case
+     (fixture-required-field entry "newPayloadVersion")
+     params
      (list (cons "status" "INVALID")
            (cons "validationError"
                  (fixture-object-field expectation "validationError"))
            (cons "errorCode"
                  (fixture-object-field expectation "errorCode"))))))
+
+(defun eest-blockchain-block-versioned-hashes (block)
+  (loop for transaction in (block-transactions block)
+        append (map 'list
+                    #'hash32-to-hex
+                    (transaction-blob-versioned-hashes transaction))))
+
+(defun materialize-eest-blockchain-standard-rlp-submission (case)
+  "A standard RLP vector as an Engine submission, decoded from its own block.
+
+Submitting the block the fixture encoded, rather than one rebuilt by executing
+its transactions, is what makes these vectors test anything on this path: the
+RLP decode, the header hashing and the execution all sit between the fixture and
+the answer. It is also the only way an invalid block is expressible at all --
+rebuilding one means executing it, and it is precisely the thing that must not
+execute.
+
+Cancun adds the blob versioned hashes and the parent beacon root, both of which
+the block itself carries. Prague's execution requests it does NOT carry, only
+their hash, so a block with requests is refused upstream rather than submitted
+with a guessed empty list."
+  (let* ((fixture (fixture-required-field case "fixture"))
+         (network (fixture-required-field fixture "network"))
+         (version (eest-blockchain-standard-newpayload-version network))
+         (block (validate-eest-blockchain-standard-newpayload-v2-case case))
+         (header (block-header block))
+         (exception (eest-blockchain-case-exception case))
+         (payload
+           (engine-rpc-executable-data-object
+            (execution-payload-envelope-execution-payload
+             (block-to-executable-data block))))
+         (params
+           (if (string= "2" version)
+               (list payload)
+               (append
+                (list payload
+                      (eest-blockchain-block-versioned-hashes block)
+                      (hash32-to-hex
+                       (or (block-header-parent-beacon-root header)
+                           (zero-hash32))))
+                (when (string= "4" version) (list '()))))))
+    (unless version
+      (error "EEST blockchain case ~A network ~A has no submittable newPayload version"
+             (fixture-required-field case "name") network))
+    (eest-blockchain-engine-submission
+     case version params
+     (if exception
+         (list (cons "status" "INVALID")
+               (cons "validationError" exception)
+               (cons "errorCode" nil))
+         (list (cons "status" "VALID")
+               (cons "stateRoot"
+                     (hash32-to-hex (block-header-state-root header)))
+               (cons "receiptsRoot"
+                     (hash32-to-hex (block-header-receipts-root header)))
+               (cons "gasUsed"
+                     (quantity-to-hex (block-header-gas-used header))))))))
 
 (defun materialize-eest-blockchain-engine-newpayload-v3-case (case)
   (let ((params (validate-eest-blockchain-engine-newpayloads-late-case case)))
