@@ -1,0 +1,219 @@
+# Runtime client image: a non-root container whose entrypoint IS the client.
+#
+# Deliberately separate from ./Dockerfile, which is a *test* image: that one
+# carries a Go toolchain, build-essential, RocksDB sources, Quicklisp and the
+# test tree, bind-mounts the workspace, and never runs the client as an
+# artifact. Nothing in this image can compile Lisp or C. What ships is one
+# executable with the SBCL runtime embedded in it, the shared libraries the
+# client dlopens, and the KZG trusted setup.
+#
+# The build stages are:
+#   native  -- compile RocksDB, libethckzg and libethbls; stage trusted_setup
+#   lisp    -- load the system under SBCL and SAVE-LISP-AND-DIE an executable
+#   runtime -- debian-slim plus the artifacts, non-root, no toolchain
+#
+# Base images are pinned by digest (plan section 10). Refresh them with
+#   docker buildx imagetools inspect debian:bookworm-slim
+# and update BOTH occurrences; they must stay identical so the runtime stage
+# links against exactly the libc the natives were compiled on.
+#
+# Build:
+#   docker build --file Dockerfile.runtime --tag ethereum-lisp-runtime:dev .
+# Run with a read-only root filesystem; the datadir must be writable by uid
+# 10001, which for a tmpfs means saying so:
+#   docker run --rm --read-only \
+#     --mount type=tmpfs,destination=/data,tmpfs-mode=1777 \
+#     ethereum-lisp-runtime:dev --hoodi --datadir /data
+
+# ---------------------------------------------------------------------------
+# Stage 1: native libraries.
+# ---------------------------------------------------------------------------
+FROM debian:bookworm-slim@sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639d36e7456b0b229241 AS native
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        build-essential \
+        ca-certificates \
+        git \
+        libbz2-dev \
+        libgflags-dev \
+        liblz4-dev \
+        libsnappy-dev \
+        libzstd-dev \
+        zlib1g-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# RocksDB from the same checksummed archive the test image vendors, so both
+# images run against one storage-engine version. Keep the version synchronized
+# with docs/storage-substrate.md, ./Dockerfile and the CFFI backend.
+# -j2, not -j$(nproc): several agents build on this machine at once and cc1plus
+# on RocksDB's larger translation units is a gigabyte apiece, so a wide build
+# gets OOM-killed rather than going faster.
+COPY tools/rocksdb/rocksdb-11.1.2.tar.gz /opt/rocksdb-11.1.2.tar.gz
+RUN --network=none \
+    echo "d5e78b69e0fb2960576fd5f21c9f3d1a02f635da61159b01942ff285e891c9c0  /opt/rocksdb-11.1.2.tar.gz" \
+        | sha256sum -c - \
+    && mkdir /opt/rocksdb \
+    && tar -xzf /opt/rocksdb-11.1.2.tar.gz -C /opt/rocksdb --strip-components=1 \
+    && make -C /opt/rocksdb -j2 shared_lib PORTABLE=1 DISABLE_WARNING_AS_ERROR=1 \
+    && cp -a /opt/rocksdb/librocksdb.so* /usr/local/lib/ \
+    && strip --strip-unneeded /usr/local/lib/librocksdb.so.*.*.* \
+    && ldconfig \
+    && rm -rf /opt/rocksdb /opt/rocksdb-11.1.2.tar.gz
+
+# c-kzg-4844 (which bundles blst) behind the two stable byte-pointer shims, as
+# in ./Dockerfile: libethckzg for KZG, libethbls for EIP-2537. Pinned to a tag.
+# Every new shim.c must also be un-ignored in .dockerignore or it silently
+# vanishes from the build context.
+COPY tools/ckzg-ffi/shim.c /opt/ckzg-shim.c
+COPY tools/bls-ffi/shim.c /opt/bls-shim.c
+RUN git clone --depth 1 --branch v2.1.1 --recurse-submodules \
+        https://github.com/ethereum/c-kzg-4844.git /opt/c-kzg \
+    && cd /opt/c-kzg/blst && ./build.sh -fPIC \
+    && cd /opt/c-kzg \
+    && gcc -shared -fPIC -O2 -o /usr/local/lib/libethckzg.so \
+        /opt/ckzg-shim.c src/ckzg.c -Isrc -Iblst/bindings blst/libblst.a \
+    && gcc -shared -fPIC -O2 -o /usr/local/lib/libethbls.so \
+        /opt/bls-shim.c -Iblst/bindings blst/libblst.a \
+    && strip --strip-unneeded /usr/local/lib/libethckzg.so /usr/local/lib/libethbls.so \
+    && ldconfig \
+    && mkdir -p /usr/local/share/eth-kzg \
+    && cp src/trusted_setup.txt /usr/local/share/eth-kzg/trusted_setup.txt \
+    && rm -rf /opt/c-kzg /opt/ckzg-shim.c /opt/bls-shim.c
+
+# ---------------------------------------------------------------------------
+# Stage 2: the client executable.
+# ---------------------------------------------------------------------------
+FROM native AS lisp
+
+# libsecp256k1-1, NOT libsecp256k1-dev, and the distinction is load-bearing.
+# SAVE-LISP-AND-DIE records the exact namestring each shared object was opened
+# under and re-dlopens that string on startup. The binding tries
+# (:or "libsecp256k1.so" "libsecp256k1.so.1" ...), so a builder carrying the
+# -dev package's unversioned symlink bakes "libsecp256k1.so" into the core, and
+# the runtime layer -- which has only the versioned soname -- then dies before
+# main with "cannot open shared object file". Nothing here compiles against the
+# headers; CFFI dlopens at runtime.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        curl \
+        libsecp256k1-1 \
+        sbcl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Quicklisp supplies the two systems the .asd declares. mgl-pax is NOT fetched:
+# it exists only for scripts/docs-check.lisp, which is not part of a running
+# node. Dist pinned to the same date as ./Dockerfile.
+RUN curl -fsSL https://beta.quicklisp.org/quicklisp.lisp -o /tmp/quicklisp.lisp \
+    && sbcl --non-interactive \
+            --load /tmp/quicklisp.lisp \
+            --eval '(quicklisp-quickstart:install)' \
+            --eval '(ql-dist:install-dist "http://beta.quicklisp.org/dist/quicklisp/2026-01-01/distinfo.txt" :replace t :prompt nil)' \
+            --eval '(ql:quickload :ironclad :silent t)' \
+            --eval '(ql:quickload :cffi :silent t)' \
+    && rm -f /tmp/quicklisp.lisp
+
+ENV CL_SOURCE_REGISTRY=/root/quicklisp/dists/quicklisp/software//:
+
+# /opt/ethereum-lisp is load-bearing, not arbitrary: GENESIS-ALLOCATION-PATH
+# resolves the built-in mainnet/sepolia/holesky/hoodi allocations through
+# ASDF:SYSTEM-RELATIVE-PATHNAME at call time, so the saved image looks for them
+# under the directory the .asd was loaded from. The runtime stage recreates
+# exactly this path with the .asd and alloc-data in it; change one and change
+# the other, or every --mainnet/--hoodi start dies looking for an RLP file.
+WORKDIR /opt/ethereum-lisp
+COPY ethereum-lisp.asd ./ethereum-lisp.asd
+COPY src ./src
+
+# --disable-debugger is set inside the toplevel because the whole tree is
+# written for `sbcl --script` semantics: CLAUDE.md's rule that every thread body
+# handles its own conditions assumes an unhandled one kills the process rather
+# than dropping a headless container into the debugger.
+#
+# COPY-then-load rather than piping the forms into `--load /dev/stdin`: SBCL's
+# source loader wants a seekable stream and dies reading form 1 from a pipe.
+COPY <<'LISP' /opt/build-core.lisp
+(require :asdf)
+(asdf:load-asd #p"/opt/ethereum-lisp/ethereum-lisp.asd")
+(asdf:load-system :ethereum-lisp)
+(defun runtime-toplevel ()
+  (sb-ext:disable-debugger)
+  (let ((code (ethereum-lisp.cli:main (cdr sb-ext:*posix-argv*))))
+    (finish-output *standard-output*)
+    (finish-output *error-output*)
+    (sb-ext:exit :code code :abort nil)))
+(sb-ext:save-lisp-and-die "/opt/ethereum-lisp/ethereum-lisp"
+                          :executable t
+                          :toplevel #'runtime-toplevel
+                          :save-runtime-options t)
+LISP
+RUN sbcl --non-interactive --load /opt/build-core.lisp
+
+# :save-runtime-options t means the SBCL runtime parses NO argv of its own, so
+# `ethereum-lisp --version` is the client's flag and not SBCL's, and the heap
+# size is frozen at what this build used. Prove the artifact runs before it is
+# copied into an image with no compiler to diagnose it.
+RUN /opt/ethereum-lisp/ethereum-lisp version
+
+# ---------------------------------------------------------------------------
+# Stage 3: runtime.
+# ---------------------------------------------------------------------------
+FROM debian:bookworm-slim@sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639d36e7456b0b229241 AS runtime
+
+ARG REVISION=unknown
+
+LABEL org.opencontainers.image.title="ethereum-lisp" \
+      org.opencontainers.image.description="Common Lisp Ethereum execution-layer client" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.revision="${REVISION}"
+
+# Runtime shared-library closure only: no compiler, no headers, no sbcl (the
+# SBCL runtime is inside the executable), no Quicklisp, no source tree beyond
+# the two files the genesis presets resolve against.
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        libbz2-1.0 \
+        libgflags2.2 \
+        liblz4-1 \
+        libsecp256k1-1 \
+        libsnappy1v5 \
+        libstdc++6 \
+        libzstd1 \
+        zlib1g \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=native /usr/local/lib/librocksdb.so* /usr/local/lib/
+COPY --from=native /usr/local/lib/libethckzg.so /usr/local/lib/libethckzg.so
+COPY --from=native /usr/local/lib/libethbls.so /usr/local/lib/libethbls.so
+COPY --from=native /usr/local/share/eth-kzg/trusted_setup.txt /usr/local/share/eth-kzg/trusted_setup.txt
+RUN ldconfig
+
+COPY --from=lisp /opt/ethereum-lisp/ethereum-lisp /usr/local/bin/ethereum-lisp
+COPY --from=lisp /opt/ethereum-lisp/ethereum-lisp.asd /opt/ethereum-lisp/ethereum-lisp.asd
+COPY --from=lisp /opt/ethereum-lisp/src/protocol/genesis/alloc-data /opt/ethereum-lisp/src/protocol/genesis/alloc-data
+
+# Non-root with a fixed uid so a bind-mounted datadir has a predictable owner.
+# No VOLUME declaration: an implicit anonymous volume per container outlives
+# `docker run` without --rm and is worse than making the caller say -v.
+RUN groupadd --system --gid 10001 ethereum \
+    && useradd --system --uid 10001 --gid 10001 --home-dir /data --shell /usr/sbin/nologin ethereum \
+    && mkdir -p /data \
+    && chown ethereum:ethereum /data
+USER ethereum:ethereum
+WORKDIR /data
+
+# Start the client once, as the user that will run it, in the filesystem it will
+# run in. This is not a formality: the core re-dlopens every shared object it
+# recorded at save time, so a library present in the builder and absent here
+# fails exactly at this line instead of at a container start nobody is watching.
+RUN /usr/local/bin/ethereum-lisp version
+
+# 8545 public JSON-RPC, 8551 authenticated Engine API, 30303 devp2p (TCP only:
+# there is no discovery listener, see docs/hive-gate.md).
+EXPOSE 8545 8551 30303
+
+ENTRYPOINT ["/usr/local/bin/ethereum-lisp"]
