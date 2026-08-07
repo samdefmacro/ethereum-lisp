@@ -47,6 +47,37 @@ jobs:
           DOCKER_TEST_IMAGE_PREBUILT: 1
         run: make "docker-test-${{ matrix.layer }}"
 
+  # PAX documentation transcripts are executable verification, not prose: the
+  # cl-transcript examples in docs/*.lisp are re-run and compared against what
+  # they claim. scripts/docs-check.lisp has done that since the manuals landed,
+  # but nothing ever invoked it outside `scripts/dev.sh docs-check` on a
+  # developer machine -- so a drifted transcript was a red LOCAL build and a
+  # green CI one, which inverts the entire point of the mechanism. It is cheap
+  # (one container, no fixtures) and it is a first-class objective per
+  # PROJECT.md, so it blocks like any other layer.
+  #
+  # The script's own RED gate is what makes this more than a formality:
+  # @DOCS-CHECK-SELFTEST in docs/rlp-manual.lisp is deliberately wrong and MUST
+  # fail, so a run in which transcript checking has silently switched itself off
+  # reports FAILED instead of passing quietly. Do not "fix" that section.
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          tags: ${{ env.TEST_IMAGE }}
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Check documentation transcripts
+        env:
+          DOCKER_TEST_IMAGE_PREBUILT: 1
+        run: make docker-docs-check
+
   # The layers above run with no fixture corpus, so every execution-spec-tests
   # case reports itself SKIPPED -- which in a green build reads exactly like
   # passing. This job is the one that actually measures conformance.
@@ -89,13 +120,63 @@ jobs:
       # suite. Late-fork EXECUTION is deliberately NOT enabled here; it lives in
       # the separate conformance-late-forks job below.
       - name: Run conformance layers
+        id: layers
+        # tee so the report step below can read the count manifest. `shell: bash`
+        # selects `bash --noprofile --norc -eo pipefail`; the default `bash -e`
+        # does NOT set pipefail, so a bare pipe would report tee's status and a
+        # red conformance run would go green -- the exact inversion this job
+        # exists to prevent.
+        shell: bash
         env:
           DOCKER_TEST_IMAGE_PREBUILT: 1
           ETHEREUM_LISP_PHASE_A_STATE_TEST_SELECTORS: auto
           ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_SELECTORS: auto
         run: |
-          make docker-test-unit
-          make docker-test-integration
+          mkdir -p "$RUNNER_TEMP/conformance"
+          make docker-test-unit 2>&1 | tee "$RUNNER_TEMP/conformance/run.log"
+          make docker-test-integration 2>&1 | tee -a "$RUNNER_TEMP/conformance/run.log"
+      # The EEST-CONFORMANCE count manifest is the only record of WHAT this job
+      # measured, and until now it lived solely in a log that ages out. Pair it
+      # with the identity of the corpus that produced it -- release, upstream
+      # commit, pinned SHA-256, re-hashed archive -- and the revision under
+      # test, then archive it: plan section 2 asks for versioned conformance
+      # reports and the release exit criteria require archived count manifests.
+      #
+      # always(), because a failing run is when the counts are worth most.
+      # --require-manifest only when the layers completed: the manifest tests
+      # are integration-layer, so a run that died in the unit layer never
+      # reaches them and is already red for a better reason. Where it does
+      # apply, it turns "passed having measured nothing" -- corpus absent, or no
+      # selector -- into a failure instead of an evidence-free green.
+      - name: Build conformance report
+        if: always()
+        shell: bash
+        run: |
+          report="$RUNNER_TEMP/conformance/eest-conformance-report.txt"
+          args=(--job conformance
+                --log "$RUNNER_TEMP/conformance/run.log"
+                --fixture-root "${ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT:-}"
+                --output "$report")
+          if [ "${{ steps.layers.outcome }}" = "success" ]; then
+            args+=(--require-manifest)
+          fi
+          rc=0
+          scripts/conformance-report.sh "${args[@]}" || rc=$?
+          {
+            echo '### EEST conformance report'
+            echo
+            echo '```'
+            cat "$report" 2>/dev/null || echo '(no report was written)'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
+      - name: Archive conformance report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eest-conformance-report
+          path: ${{ runner.temp }}/conformance/eest-conformance-report.txt
+          if-no-files-found: error
 
   # Late-fork conformance: Cancun, Prague, and Osaka (the newest implemented
   # fork). SEPARATE from the blocking job above ON PURPOSE. Widening the fork
@@ -144,6 +225,11 @@ jobs:
       # fork actually executed at least one case (a zero is a red -- absorbed
       # here by continue-on-error until Phase 7).
       - name: Run late-fork conformance layers
+        id: layers
+        # See the blocking job: tee under `shell: bash` (-eo pipefail) so the
+        # report step gets the manifest without the pipeline swallowing make's
+        # exit status.
+        shell: bash
         env:
           DOCKER_TEST_IMAGE_PREBUILT: 1
           ETHEREUM_LISP_PHASE_A_STATE_TEST_SELECTORS: auto
@@ -151,5 +237,42 @@ jobs:
           ETHEREUM_LISP_PHASE_A_STATE_TEST_FORKS: "London,Shanghai,Cancun,Prague,Osaka"
           ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_FORKS: "Shanghai,Cancun,Prague,Osaka"
         run: |
-          make docker-test-unit
-          make docker-test-integration
+          mkdir -p "$RUNNER_TEMP/conformance"
+          make docker-test-unit 2>&1 | tee "$RUNNER_TEMP/conformance/run.log"
+          make docker-test-integration 2>&1 | tee -a "$RUNNER_TEMP/conformance/run.log"
+      # This job is expected to be red for a while, which is exactly why its
+      # counts must outlive the log: the per-fork executed=[...] numbers across
+      # releases are the record of the late-fork surface closing. always() is
+      # load-bearing here -- continue-on-error keeps a failed job from failing
+      # the workflow, but it does not keep a failed STEP from skipping the ones
+      # after it. Distinct artifact name and corpus (tests@v20.0.1) from the
+      # blocking job's report.
+      - name: Build late-fork conformance report
+        if: always()
+        shell: bash
+        run: |
+          report="$RUNNER_TEMP/conformance/eest-conformance-report-late-forks.txt"
+          args=(--job conformance-late-forks
+                --log "$RUNNER_TEMP/conformance/run.log"
+                --fixture-root "${ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT:-}"
+                --output "$report")
+          if [ "${{ steps.layers.outcome }}" = "success" ]; then
+            args+=(--require-manifest)
+          fi
+          rc=0
+          scripts/conformance-report.sh "${args[@]}" || rc=$?
+          {
+            echo '### EEST late-fork conformance report'
+            echo
+            echo '```'
+            cat "$report" 2>/dev/null || echo '(no report was written)'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
+      - name: Archive late-fork conformance report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eest-conformance-report-late-forks
+          path: ${{ runner.temp }}/conformance/eest-conformance-report-late-forks.txt
+          if-no-files-found: error

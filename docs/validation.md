@@ -61,6 +61,76 @@ maintenance, repeated baselines, or a second development objective. Report an
 unrelated failure separately and continue the requested feature when it is safe
 to do so.
 
+## Documentation Transcripts
+
+```sh
+make docker-docs-check      # cold, same container shape as the test layers
+scripts/dev.sh docs-check   # warm image, for the edit loop
+```
+
+The `cl-transcript` examples in `docs/*.lisp` are re-executed and compared
+against the values they record, so a transcript that has drifted from the code
+is a failing build rather than stale prose. Both commands run
+`scripts/docs-check.lisp`, which prints `docs-check PASSED` only when two gates
+both hold:
+
+- **GREEN** — every section in `*CHECKED-SECTIONS*` documents cleanly. A
+  recorded value that no longer matches reality signals a transcription
+  consistency error and fails the run.
+- **RED** — `@DOCS-CHECK-SELFTEST` in `docs/rlp-manual.lisp` is deliberately
+  wrong and must FAIL. Were it ever to pass, transcript checking would have
+  silently switched off, and the run fails on that alone. Do not "fix" that
+  section.
+
+Adding a manual means adding its section to `*CHECKED-SECTIONS*`; the authoring
+rules for transcripts are in the header of `docs/rlp-manual.lisp`. The `docs`
+job in `.github/workflows/test.yml` runs `make docker-docs-check`, so a drifted
+transcript now blocks a merge instead of being visible only to whoever happened
+to run the check locally.
+
+## Archived Conformance Reports
+
+A conformance run prints one count manifest per family, and those counts are the
+only record of what it actually measured:
+
+```text
+EEST-CONFORMANCE state_tests: selected=12 skipped=3 executed=[London:7 Shanghai:5]
+```
+
+`scripts/conformance-report.sh` copies those lines verbatim into a report that
+also names the corpus that produced them and the revision under test:
+
+```sh
+# pipefail matters: without it the pipeline reports tee's status, and a failed
+# run reads as a passing one.
+set -o pipefail
+make docker-test-integration 2>&1 | tee run.log
+scripts/conformance-report.sh \
+  --log run.log \
+  --fixture-root "$ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT" \
+  --output eest-conformance-report.txt
+```
+
+Release, archive name and pinned SHA-256 are read out of
+`scripts/fetch-eest-fixtures.sh` rather than restated, the baseline is derived
+from the fixture root that was really mounted, and the archive on disk is
+re-hashed — so the report describes the corpus that was measured rather than one
+the caller asserts. The upstream commit is keyed by archive digest, so bumping a
+pin can never leave the previous commit attached to the new corpus.
+
+Exit 1 means the report was written but is not trustworthy as evidence: the
+corpus could not be identified, the archive digest disagrees with the pin, or
+`--require-manifest` was given and the run emitted no counts at all. Missing
+metadata that still leaves the report usable is recorded as `report-gaps` and
+exits 0.
+
+CI archives one report per conformance job with `actions/upload-artifact`:
+`eest-conformance-report` from the blocking job (the `legacy-v5.4.0` corpus) and
+`eest-conformance-report-late-forks` from the non-blocking late-fork job
+(`tests@v20.0.1`). Both steps run under `if: always()`, because a run that
+failed is when its counts are worth the most, and both are echoed into the job
+summary.
+
 ## Historical proof-of-work scope
 
 Pre-Merge blocks are validated rather than refused. The Merge boundary is taken
