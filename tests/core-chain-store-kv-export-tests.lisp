@@ -1224,3 +1224,47 @@
                       restored (block-hash branch-a-2) recipient slot))))
       (when (probe-file path)
         (delete-file path)))))
+
+(deftest node-store-export-to-kv-writes-current-schema-version-marker
+  (let* ((path
+           (merge-pathnames
+            (make-pathname
+             :name (format nil "ethereum-lisp-chain-schema-marker-~A"
+                           (gensym))
+             :type "sexp")
+            #P"/private/tmp/"))
+         (store (make-engine-payload-memory-store))
+         (block
+           (make-block
+            :header
+            (make-block-header :number 1
+                               :parent-hash (zero-hash32)
+                               :state-root +empty-trie-hash+
+                               :timestamp 1
+                               :gas-limit 30000000))))
+    (unwind-protect
+         (progn
+           ;; A database predating the versioned marker carries no record, and
+           ;; absence reads as NIL rather than a default version.
+           (let ((database (make-file-key-value-database path)))
+             (multiple-value-bind (version present-p)
+                 (kv-get-chain-schema-version database)
+               (is (null version))
+               (is (not present-p))))
+           (chain-store-put-block store block :state-available-p t)
+           (let ((database (make-file-key-value-database path)))
+             (node-store-export-to-kv store database))
+           (let ((database (make-file-key-value-database path)))
+             ;; Export publishes the current marker; it round-trips exactly.
+             (multiple-value-bind (version present-p)
+                 (kv-get-chain-schema-version database)
+               (is present-p)
+               (is (= +kv-chain-schema-version+ version)))
+             ;; An explicit version round-trips through put/get as well.
+             (kv-put-chain-schema-version database 1)
+             (multiple-value-bind (version present-p)
+                 (kv-get-chain-schema-version database)
+               (is present-p)
+               (is (= 1 version)))))
+      (when (probe-file path)
+        (delete-file path)))))

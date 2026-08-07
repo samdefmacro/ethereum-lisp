@@ -2,6 +2,11 @@
 
 (defconstant +kv-chain-schema-version+ 2)
 
+(defparameter +kv-chain-schema-version-identifier+ "chain"
+  "The single :SCHEMA-VERSION record identifier. One marker names the on-disk
+schema of the whole chain database, written in the same batch as the block
+records so a version bump is all-or-nothing.")
+
 (defparameter +kv-chain-record-kind-prefixes+
   '((:block . #x01)
     (:header . #x02)

@@ -82,3 +82,25 @@
      (cons (kv-chain-checkpoint-label (car entry))
            (cdr entry)))
    (kv-chain-record-entries database :checkpoint)))
+
+(defun kv-put-chain-schema-version
+    (database &optional (version +kv-chain-schema-version+))
+  (kv-put-chain-record
+   database :schema-version +kv-chain-schema-version-identifier+
+   (kv-chain-record-uint64-bytes version)))
+
+(defun kv-batch-put-chain-schema-version
+    (batch &optional (version +kv-chain-schema-version+))
+  (kv-batch-put-chain-record
+   batch :schema-version +kv-chain-schema-version-identifier+
+   (kv-chain-record-uint64-bytes version)))
+
+(defun kv-get-chain-schema-version (database)
+  "Return the persisted on-disk chain schema version and a presence flag.
+Absence means a database written before the versioned schema marker existed."
+  (multiple-value-bind (value present-p)
+      (kv-get-chain-record
+       database :schema-version +kv-chain-schema-version-identifier+)
+    (if present-p
+        (values (kv-chain-record-uint64-identifier value) t)
+        (values nil nil))))

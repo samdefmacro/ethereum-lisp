@@ -81,7 +81,10 @@
    #:kv-delete-chain-checkpoint
    #:kv-batch-put-chain-checkpoint
    #:kv-batch-delete-chain-checkpoint
-   #:kv-chain-checkpoints))
+   #:kv-chain-checkpoints
+   #:kv-put-chain-schema-version
+   #:kv-batch-put-chain-schema-version
+   #:kv-get-chain-schema-version))
 
 (defpackage #:ethereum-lisp.telemetry
   (:use #:cl)

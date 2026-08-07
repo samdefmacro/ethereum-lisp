@@ -795,3 +795,61 @@
       (when (probe-file path)
         (delete-file path)))))
 
+(deftest node-store-import-from-kv-refuses-newer-schema-version
+  (let* ((path
+           (merge-pathnames
+            (make-pathname
+             :name (format nil "ethereum-lisp-chain-import-schema-~A"
+                           (gensym))
+             :type "sexp")
+            #P"/private/tmp/"))
+         (source (make-engine-payload-memory-store))
+         (target (make-engine-payload-memory-store))
+         (source-block
+           (make-block
+            :header
+            (make-block-header :number 1
+                               :parent-hash (zero-hash32)
+                               :state-root +empty-trie-hash+
+                               :timestamp 1
+                               :gas-limit 30000000)))
+         (target-block
+           (make-block
+            :header
+            (make-block-header :number 9
+                               :parent-hash (zero-hash32)
+                               :state-root +empty-trie-hash+
+                               :timestamp 9
+                               :gas-limit 30000000))))
+    (unwind-protect
+         (progn
+           (chain-store-put-block source source-block :state-available-p t)
+           (chain-store-set-canonical-head source (block-hash source-block))
+           (chain-store-update-forkchoice-checkpoints
+            source
+            (make-forkchoice-state
+             :head-block-hash (block-hash source-block)
+             :safe-block-hash (zero-hash32)
+             :finalized-block-hash (zero-hash32)))
+           (chain-store-put-block target target-block :state-available-p t)
+           (let ((database (make-file-key-value-database path)))
+             (node-store-export-to-kv source database)
+             ;; A database written by a newer client carries a marker this
+             ;; client does not understand.  Overwriting the exported marker
+             ;; makes the exported database otherwise valid, so the newer
+             ;; version is the only reason import can fail.
+             (kv-put-chain-schema-version
+              database (1+ +kv-chain-schema-version+)))
+           (signals block-validation-error
+             (node-store-import-from-kv
+              target
+              (make-file-key-value-database path)))
+           ;; Refusal happens before any record is read: the target keeps its
+           ;; own readable head and never learns the source block.
+           (is (= 9 (chain-store-head-number target)))
+           (is (not (chain-store-known-block
+                     target
+                     (block-hash source-block)))))
+      (when (probe-file path)
+        (delete-file path)))))
+
