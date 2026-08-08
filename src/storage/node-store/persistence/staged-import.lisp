@@ -1208,7 +1208,7 @@ cross-handle file-database serialization."
         (block-validation-fail
          "Staged execution parent progress is inconsistent"))
       (let* ((identifier (hash32-bytes (block-hash executed-block)))
-             (code-sink (make-node-store-code-sink batch))
+             (code-sink (make-node-store-code-sink batch database))
              (state-record
                (chain-store-state-record-rlp
                 execution-store (block-hash executed-block)

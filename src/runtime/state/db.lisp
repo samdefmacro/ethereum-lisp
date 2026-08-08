@@ -16,15 +16,22 @@ Writes are reported before mutation so a recorder can retain the pre-value.")
       (setf (gethash key (state-db-loaded-accounts state)) t)
       (let ((loader (state-db-account-loader state)))
         (when loader
-          (multiple-value-bind (account code present-p storage-entries)
+          (multiple-value-bind
+              (account code present-p storage-entries storage-trie)
               (funcall loader address)
             (when present-p
               (let ((storage (make-hash-table :test #'equal)))
                 (dolist (entry storage-entries)
                   (setf (gethash (storage-key (car entry)) storage) (cdr entry)))
                 (setf (gethash key (state-db-objects state))
-                      (make-state-object :account account :code code
-                                         :storage storage))))))))
+                      (make-state-object
+                       :account account
+                       :code code
+                       :storage storage
+                       :trie storage-trie
+                       :cached-storage-root
+                       (and storage-trie
+                            (state-account-storage-root account))))))))))
     (gethash key (state-db-objects state))))
 
 (defun state-db-account-loaded-p (state address)
@@ -52,15 +59,25 @@ record of what changed relative to that backing, so only then may the commit
 diff the touched set instead of the whole world."
   (not (null (state-db-account-loader state))))
 
-(defun make-lazy-state-db (account-loader storage-loader materializer)
+(defun make-lazy-state-db
+    (account-loader storage-loader materializer
+     &key trie cached-root direct-trie-p)
   "Create a state whose historical backing is resolved on first access."
+  (when (and direct-trie-p (null trie))
+    (error "A direct state database requires its persisted account trie"))
   (let ((state (make-state-db)))
     (setf (state-db-account-loader state) account-loader
           (state-db-storage-loader state) storage-loader
-          (state-db-materializer state) materializer)
+          (state-db-materializer state) materializer
+          (state-db-direct-trie-p state) (not (null direct-trie-p))
+          (state-db-trie state) trie
+          (state-db-cached-root state) cached-root)
     state))
 
 (declaim (ftype (function (t) t) clone-state-object))
+(declaim (ftype (function (t) t) state-db-storage-proof-key))
+(declaim (ftype (function (t) t) copy-hash-table))
+(declaim (ftype (function (t t) t) state-db-revert-to-snapshot))
 
 (defun state-db-record-change (state key)
   (unless (state-db-reverting-p state)
@@ -75,6 +92,41 @@ diff the touched set instead of the whole world."
 (defun state-db-snapshot (state)
   "Return an O(1) mark for reverting subsequent state mutations."
   (fill-pointer (state-db-journal state)))
+
+(defun state-db-transaction-snapshot (state)
+  "Capture rollback state without copying loaded accounts or storage.
+
+The before-images themselves are appended lazily to STATE's mutation journal.
+Only the existing changed-account metadata is copied here; the account trie is
+an O(1) immutable-root snapshot.  Read caches intentionally survive rollback."
+  (make-state-transaction-snapshot
+   :journal-mark (state-db-snapshot state)
+   :cached-root (state-db-cached-root state)
+   :trie (and (state-db-trie state)
+              (copy-mpt-root (state-db-trie state)))
+   :dirty (copy-hash-table (state-db-dirty state))
+   :touched (copy-hash-table (state-db-touched state))))
+
+(defun state-db-revert-transaction-snapshot (state snapshot)
+  "Revert STATE to a bounded transaction SNAPSHOT.
+
+Mutation before-images are replayed in changed-key order.  Root and change-set
+metadata are then restored exactly, including the case where a root flush or a
+successful persistence staging step cleared DIRTY or TOUCHED before failing."
+  (unless (state-transaction-snapshot-p snapshot)
+    (error "State transaction snapshot is invalid: ~S" snapshot))
+  (state-db-revert-to-snapshot
+   state (state-transaction-snapshot-journal-mark snapshot))
+  (setf (state-db-cached-root state)
+        (state-transaction-snapshot-cached-root snapshot)
+        (state-db-trie state)
+        (let ((trie (state-transaction-snapshot-trie snapshot)))
+          (and trie (copy-mpt-root trie)))
+        (state-db-dirty state)
+        (copy-hash-table (state-transaction-snapshot-dirty snapshot))
+        (state-db-touched state)
+        (copy-hash-table (state-transaction-snapshot-touched snapshot)))
+  state)
 
 (defun state-db-touch-account (state address)
   "Journal an EIP-161 touch without otherwise mutating the account."
@@ -311,13 +363,23 @@ revert the transaction."
    :code (state-object-code object)
    :cached-code-hash (state-object-cached-code-hash object)
    :storage (copy-hash-table (state-object-storage object))
+   :trie (and (state-object-trie object)
+              ;; The root graph is immutable.  Avoid copying an account's
+              ;; optional loaded-slot leaf cache into every journal before-
+              ;; image; a lazy wrapper enumerates the same authoritative root.
+              (copy-mpt-root (state-object-trie object)))
    ;; The clone's storage is EQUAL to the original's, so a root already proved
    ;; for those contents is equally true here. Carrying it matters: snapshots
    ;; are taken per call frame, and dropping it would re-hash the world after
    ;; every one.
    :cached-storage-root (state-object-cached-storage-root object)))
 
+(defvar *state-db-copy-observer* nil
+  "Internal test hook called when the deliberate full STATE-DB-COPY API runs.")
+
 (defun state-db-copy (state)
+  (when *state-db-copy-observer*
+    (funcall *state-db-copy-observer* state))
   (let ((copy (make-state-db)))
     (maphash (lambda (address object)
                (setf (gethash address (state-db-objects copy))
@@ -330,6 +392,7 @@ revert the transaction."
           (state-db-account-loader copy) (state-db-account-loader state)
           (state-db-storage-loader copy) (state-db-storage-loader state)
           (state-db-materializer copy) (state-db-materializer state)
+          (state-db-direct-trie-p copy) (state-db-direct-trie-p state)
           (state-db-loaded-accounts copy)
           (copy-hash-table (state-db-loaded-accounts state))
           (state-db-loaded-storage copy)
@@ -337,12 +400,9 @@ revert the transaction."
           ;; Carry the commit's changed-account set so a snapshot taken for
           ;; block-level rollback restores it exactly with the rest.
           (state-db-touched copy) (copy-hash-table (state-db-touched state))
-          (state-db-loading-p copy) (state-db-loading-p state))
-    ;; The copy gets NO trie. Sharing one would let a frame that is later
-    ;; reverted leave its mutations in the parent's trie, which is a wrong state
-    ;; root and so a consensus divergence; copying one on every CALL frame would
-    ;; cost more than the rebuild it saves. The copy rebuilds if it ever flushes.
-    (setf (state-db-trie copy) nil)
+          (state-db-loading-p copy) (state-db-loading-p state)
+          (state-db-trie copy)
+          (and (state-db-trie state) (copy-mpt (state-db-trie state))))
     copy))
 
 (defun state-db-restore (state snapshot)
@@ -354,20 +414,23 @@ revert the transaction."
   ;; Wholesale-reset the memo to the snapshot's: OBJECTS now equals the
   ;; snapshot's, so its DIRTY/CACHED-ROOT are exactly right for the restored
   ;; state. (A fold that ran inside the snapshot bracket is undone here.)
-  ;; The trie is dropped rather than reconciled: whatever it holds now describes
-  ;; the objects we just discarded.
+  ;; Restore the snapshot's independent MPT wrapper. Immutable subtrees remain
+  ;; shared; later writes replace only STATE's wrapper root.
   (setf (state-db-dirty state) (copy-hash-table (state-db-dirty snapshot))
         (state-db-cached-root state) (state-db-cached-root snapshot)
         (state-db-account-loader state) (state-db-account-loader snapshot)
         (state-db-storage-loader state) (state-db-storage-loader snapshot)
         (state-db-materializer state) (state-db-materializer snapshot)
+        (state-db-direct-trie-p state) (state-db-direct-trie-p snapshot)
         (state-db-loaded-accounts state)
         (copy-hash-table (state-db-loaded-accounts snapshot))
         (state-db-loaded-storage state)
         (copy-hash-table (state-db-loaded-storage snapshot))
         (state-db-touched state) (copy-hash-table (state-db-touched snapshot))
         (state-db-loading-p state) (state-db-loading-p snapshot)
-        (state-db-trie state) nil)
+        (state-db-trie state)
+        (and (state-db-trie snapshot)
+             (copy-mpt (state-db-trie snapshot))))
   state)
 
 (defun state-db-set-storage (state address slot value)
@@ -398,9 +461,18 @@ revert the transaction."
     (cond
       ((zerop value)
        (when object
-         (remhash storage-key storage)))
+         (remhash storage-key storage)
+         (when (state-object-trie object)
+           (mpt-delete
+            (state-object-trie object)
+            (state-db-storage-proof-key slot)))))
       (t
-       (setf (gethash storage-key storage) value)))
+       (setf (gethash storage-key storage) value)
+       (when (state-object-trie object)
+         (mpt-put
+          (state-object-trie object)
+          (state-db-storage-proof-key slot)
+          (rlp-encode value)))))
       state)))
 
 (defun state-db-get-storage (state address slot)
@@ -414,11 +486,24 @@ revert the transaction."
           (unless (or (nth-value 1 (gethash slot-key storage))
                       (gethash loaded-key (state-db-loaded-storage state)))
             (setf (gethash loaded-key (state-db-loaded-storage state)) t)
-            (let ((loader (state-db-storage-loader state)))
-              (when loader
-                (let ((value (funcall loader address slot)))
-                  (unless (zerop value)
-                    (setf (gethash slot-key storage) value))))))
+            (cond
+              ((state-object-trie object)
+               (multiple-value-bind (encoded present-p)
+                   (mpt-get (state-object-trie object)
+                            (state-db-storage-proof-key slot))
+                 (when present-p
+                   (let ((value
+                           (rlp-uint-field
+                            (rlp-decode-one encoded)
+                            "Persisted account storage value")))
+                     (unless (zerop value)
+                       (setf (gethash slot-key storage) value))))))
+              (t
+               (let ((loader (state-db-storage-loader state)))
+                 (when loader
+                   (let ((value (funcall loader address slot)))
+                     (unless (zerop value)
+                       (setf (gethash slot-key storage) value))))))))
           (gethash slot-key storage 0))
         0)))
 
@@ -432,14 +517,17 @@ revert the transaction."
   (keccak-256 (hash32-bytes slot)))
 
 (defun state-object-storage-trie (object)
-  (let ((trie (make-mpt)))
-    (when object
-      (maphash (lambda (slot value)
-                 (mpt-put trie
-                          (state-db-storage-proof-key (hash32-from-hex slot))
-                          (rlp-encode value)))
-               (state-object-storage object)))
-    trie))
+  (if (null object)
+      (make-mpt)
+      (or (state-object-trie object)
+          (let ((trie (make-mpt)))
+            (maphash (lambda (slot value)
+                       (mpt-put
+                        trie
+                        (state-db-storage-proof-key (hash32-from-hex slot))
+                        (rlp-encode value)))
+                     (state-object-storage object))
+            (setf (state-object-trie object) trie)))))
 
 (defun storage-root (object)
   (or (and object (state-object-cached-storage-root object))

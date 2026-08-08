@@ -68,11 +68,15 @@
                 #:node-store-persistence-metadata-authority-id
                 #:node-store-persistence-metadata-base-chain-generation
                 #:node-store-read-persistence-metadata
+                #:node-store-migrate-chain-schema
+                #:make-database-engine-payload-store
+                #:database-engine-payload-store-p
                 #:node-store-export-payload-candidate-to-kv
                 #:node-store-export-forkchoice-to-kv
                 #:node-store-export-to-kv
                 #:node-store-export-txpool-records-to-kv
                 #:node-store-import-txpool-records-from-kv
+                #:node-store-import-txpool-blob-sidecars-from-kv
                 #:node-store-restore-txpool-consistency)
   (:import-from #:ethereum-lisp.validation
                 #:block-validation-fail

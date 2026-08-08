@@ -1,6 +1,6 @@
 (in-package #:ethereum-lisp.database)
 
-(defconstant +kv-chain-schema-version+ 3)
+(defconstant +kv-chain-schema-version+ 4)
 
 (defparameter +kv-chain-schema-version-identifier+ "chain"
   "The single :SCHEMA-VERSION record identifier. One marker names the on-disk
@@ -35,7 +35,8 @@ records so a version bump is all-or-nothing.")
     (:trie-node . #x19)
     (:code . #x1a)
     (:state-history . #x1b)
-    (:schema-version . #x1c)))
+    (:schema-version . #x1c)
+    (:ordered-state-history . #x1d)))
 
 (defparameter +kv-chain-checkpoint-labels+
   '((:head . "head")
@@ -121,6 +122,16 @@ records so a version bump is all-or-nothing.")
                  (= (aref bytes 0) prefix))
       (error "Chain record key does not match kind ~S" kind))
     (subseq bytes 1)))
+
+(defun kv-chain-record-key-kind (key)
+  "Return the chain record kind named by KEY's one-byte namespace prefix."
+  (let* ((bytes (ensure-byte-vector key))
+         (prefix (and (plusp (length bytes)) (aref bytes 0)))
+         (entry (and prefix
+                     (rassoc prefix +kv-chain-record-kind-prefixes+))))
+    (unless entry
+      (error "Unknown chain record key prefix: ~S" prefix))
+    (car entry)))
 
 (defun kv-chain-record-kind-start-key (kind)
   (vector (kv-chain-record-kind-prefix kind)))

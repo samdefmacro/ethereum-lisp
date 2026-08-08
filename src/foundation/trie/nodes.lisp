@@ -75,6 +75,19 @@ miss. Tests use this to guard the dirty-path complexity contract.")
 
 (declaim (ftype (function (t) t) node-reference))
 
+(defun trie-resolve-node (node)
+  "Resolve one HASH-NODE, validating that its loader returns a concrete node."
+  (if (hash-node-p node)
+      (or (hash-node-resolved node)
+          (let ((resolved (funcall (hash-node-resolver node)
+                                   (hash-node-hash node))))
+            (unless (or (leaf-node-p resolved)
+                        (extension-node-p resolved)
+                        (branch-node-p resolved))
+              (error "Persisted trie resolver returned an invalid node"))
+            (setf (hash-node-resolved node) resolved)))
+      node))
+
 (defun node-cache-value (node leaf-reader extension-reader branch-reader)
   (etypecase node
     (leaf-node (funcall leaf-reader node))
@@ -90,6 +103,8 @@ miss. Tests use this to guard the dirty-path complexity contract.")
   value)
 
 (defun node-rlp-object (node)
+  (when (hash-node-p node)
+    (setf node (trie-resolve-node node)))
   (or (node-cache-value node
                         #'leaf-node-cached-rlp-object
                         #'extension-node-cached-rlp-object
@@ -118,6 +133,8 @@ miss. Tests use this to guard the dirty-path complexity contract.")
                        (list (branch-node-value node)))))))))
 
 (defun encoded-node (node)
+  (when (hash-node-p node)
+    (setf node (trie-resolve-node node)))
   (or (node-cache-value node
                         #'leaf-node-cached-encoded
                         #'extension-node-cached-encoded
@@ -135,38 +152,42 @@ miss. Tests use this to guard the dirty-path complexity contract.")
               (rlp-encode (node-rlp-object node))))))
 
 (defun node-reference (node)
-  (or (node-cache-value node
-                        #'leaf-node-cached-reference
-                        #'extension-node-cached-reference
-                        #'branch-node-cached-reference)
-      (let* ((encoded (encoded-node node))
-             (reference (if (< (length encoded) 32)
-                            (node-rlp-object node)
-                            (keccak-256 encoded))))
-        (setf (node-cache-value
-               node
-               (lambda (value object)
-                 (setf (leaf-node-cached-reference object) value))
-               (lambda (value object)
-                 (setf (extension-node-cached-reference object) value))
-               (lambda (value object)
-                 (setf (branch-node-cached-reference object) value)))
-              reference))))
+  (if (hash-node-p node)
+      (hash-node-hash node)
+      (or (node-cache-value node
+                            #'leaf-node-cached-reference
+                            #'extension-node-cached-reference
+                            #'branch-node-cached-reference)
+          (let* ((encoded (encoded-node node))
+                 (reference (if (< (length encoded) 32)
+                                (node-rlp-object node)
+                                (keccak-256 encoded))))
+            (setf (node-cache-value
+                   node
+                   (lambda (value object)
+                     (setf (leaf-node-cached-reference object) value))
+                   (lambda (value object)
+                     (setf (extension-node-cached-reference object) value))
+                   (lambda (value object)
+                     (setf (branch-node-cached-reference object) value)))
+                  reference)))))
 
 (defun node-hash (node)
-  (or (node-cache-value node
-                        #'leaf-node-cached-hash
-                        #'extension-node-cached-hash
-                        #'branch-node-cached-hash)
-      (setf (node-cache-value
-             node
-             (lambda (value object)
-               (setf (leaf-node-cached-hash object) value))
-             (lambda (value object)
-               (setf (extension-node-cached-hash object) value))
-             (lambda (value object)
-               (setf (branch-node-cached-hash object) value)))
-            (keccak-256 (encoded-node node)))))
+  (if (hash-node-p node)
+      (hash-node-hash node)
+      (or (node-cache-value node
+                            #'leaf-node-cached-hash
+                            #'extension-node-cached-hash
+                            #'branch-node-cached-hash)
+          (setf (node-cache-value
+                 node
+                 (lambda (value object)
+                   (setf (leaf-node-cached-hash object) value))
+                 (lambda (value object)
+                   (setf (extension-node-cached-hash object) value))
+                 (lambda (value object)
+                   (setf (branch-node-cached-hash object) value)))
+                (keccak-256 (encoded-node node))))))
 
 (defun mpt-root-node (trie)
   (mpt-root trie))
@@ -177,7 +198,8 @@ miss. Tests use this to guard the dirty-path complexity contract.")
           (length prefix))))
 
 (defun node-reference-hashed-p (node)
-  (>= (length (encoded-node node)) 32))
+  (or (hash-node-p node)
+      (>= (length (encoded-node node)) 32)))
 
 (defun mpt-root-hash (trie)
   (let ((root (mpt-root-node trie)))

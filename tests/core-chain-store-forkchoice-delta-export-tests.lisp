@@ -273,6 +273,10 @@
                  (transaction-hash unrelated-transaction))))
       (forkchoice-delta-test-export-without-iteration
        store transition database)
+      (is (= 1
+             (length
+              (forkchoice-delta-test-database-applied-operation-batches
+               database))))
       (is (equal expected
                  (forkchoice-delta-test-operation-signatures database)))
       (is (null

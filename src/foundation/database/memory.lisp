@@ -57,10 +57,14 @@
                        (kv-entry< right left))
                      #'kv-entry<)))
          (remaining sorted))
-    (lambda ()
-      (let ((entry (pop remaining)))
-        (if entry
-            (values (kv-copy-bytes (kv-memory-entry-key entry))
-                    (kv-copy-bytes (kv-memory-entry-value entry))
-                    t)
-            (values nil nil nil))))))
+    (values
+     (lambda ()
+       (let ((entry (pop remaining)))
+         (if entry
+             (values (kv-copy-bytes (kv-memory-entry-key entry))
+                     (kv-copy-bytes (kv-memory-entry-value entry))
+                     t)
+             (values nil nil nil))))
+     (lambda ()
+       (setf remaining nil)
+       nil))))

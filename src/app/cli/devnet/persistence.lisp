@@ -160,6 +160,38 @@
     (devnet-cli-validate-imported-genesis
      store genesis-block database-path)))
 
+(defun devnet-cli-direct-database-ready-p (database)
+  "True when DATABASE's durable head has a persisted account-trie root."
+  (when database
+    (multiple-value-bind (head-hash head-present-p)
+        (kv-get-chain-checkpoint database :head)
+      (and head-present-p
+           (= 32 (length head-hash))
+           (nth-value 1
+                      (kv-get-chain-record
+                       database :state-history head-hash))))))
+
+(defun devnet-cli-import-direct-chain-database
+    (database database-path config genesis-block &key import-txpool-p)
+  "Open DATABASE without hydrating chain/state and restore only bounded txpool."
+  (let ((store (make-database-engine-payload-store database)))
+    (devnet-cli-validate-imported-genesis
+     store genesis-block database-path)
+    (when import-txpool-p
+      (node-store-import-txpool-records-from-kv
+       store database
+       :expected-chain-id (chain-config-chain-id config)
+       :chain-config config)
+      (node-store-import-txpool-blob-sidecars-from-kv store database))
+    ;; As in the legacy importer, normalization after this point is part of the
+    ;; next changed-key database delta rather than an invisible startup edit.
+    (engine-payload-store-enable-txpool-database-change-tracking store)
+    (node-store-restore-txpool-consistency
+     store
+     :expected-chain-id (chain-config-chain-id config)
+     :chain-config config)
+    store))
+
 (defun devnet-cli-import-txpool-journal (store journal config)
   ;; A selected journal is a complete snapshot, including the valid empty
   ;; snapshot represented by metadata with no :TXPOOL records.
@@ -170,6 +202,7 @@
      :expected-chain-id (chain-config-chain-id config)
      :chain-config config
      :skip-indexed-transactions-p t)
+    (node-store-import-txpool-blob-sidecars-from-kv store journal)
     (node-store-restore-txpool-consistency
      store
      :expected-chain-id (chain-config-chain-id config)
@@ -307,6 +340,12 @@
            (devnet-cli-existing-persistence-database txpool-journal-path))
          (database-chain-p
            (and database (devnet-cli-kv-chain-records-present-p database)))
+         (database-schema-version
+           (and database-chain-p
+                (node-store-migrate-chain-schema database)))
+         (database-direct-ready-p
+           (and database-schema-version
+                (devnet-cli-direct-database-ready-p database)))
          (database-txpool-p
            (and database (devnet-cli-kv-txpool-records-present-p database)))
          (database-head-present-p
@@ -351,34 +390,47 @@
                   (or (not database-chain-p)
                       (null database-metadata)
                       (not database-head-present-p)
-                      journal-authoritative-p))))
+                      journal-authoritative-p)))
+           (direct-start-p
+             (and (eq engine :rocksdb)
+                  database-chain-p
+                  database-direct-ready-p
+                  (not database-rewrite-p)))
+           (effective-store
+             (if direct-start-p
+                 (devnet-cli-import-direct-chain-database
+                  database database-path config genesis-block
+                  :import-txpool-p (not journal-authoritative-p))
+                 store)))
       (when database-chain-p
-        (devnet-cli-import-chain-database
-         store
-         database
-         database-path
-         config
-         genesis-block
-         :import-txpool-p (not journal-authoritative-p)))
+        (unless direct-start-p
+          (devnet-cli-import-chain-database
+           effective-store
+           database
+           database-path
+           config
+           genesis-block
+           :import-txpool-p (not journal-authoritative-p))))
       ;; Tracking must begin before a selected journal is imported so its
       ;; normalized full replacement can be caught up to the chain database.
       (when (and database-path
                  (not
                   (engine-payload-store-txpool-database-change-tracking-enabled-p
-                   store)))
-        (engine-payload-store-enable-txpool-database-change-tracking store))
+                   effective-store)))
+        (engine-payload-store-enable-txpool-database-change-tracking
+         effective-store))
       (when journal-authoritative-p
-        (devnet-cli-import-txpool-journal store journal config))
+        (devnet-cli-import-txpool-journal effective-store journal config))
       (when (and database-chain-p (not database-head-present-p))
         (devnet-cli-ensure-imported-head-checkpoint
-         store database-path database-head-present-p))
+         effective-store database-path database-head-present-p))
       (when database-rewrite-p
         (if (and journal-authoritative-p journal-metadata)
             ;; Copy the already-published journal snapshot to the database at
             ;; the same generation.  This is acknowledgement, not a new
             ;; txpool publication.
             (devnet-cli-export-database-at-generation
-             store
+             effective-store
              database-path
              persistence-state
              (node-store-persistence-metadata-generation journal-metadata)
@@ -389,7 +441,7 @@
                  :database
                  (lambda (metadata)
                    (node-store-export-to-kv
-                    store
+                    effective-store
                     (devnet-cli-make-output-kv-database database-path engine)
                     :persistence-metadata metadata)))
               (declare (ignore result))
@@ -406,7 +458,7 @@
                  "Devnet database has no restartable head checkpoint: ~A"
                  database-path))
               (engine-payload-store-clear-txpool-database-dirty-transaction-hashes
-               store)
+               effective-store)
               (devnet-cli-confirm-database-generation
                persistence-state generation))))
       ;; Rewrite an existing legacy or selected journal after DB catch-up so
@@ -416,7 +468,7 @@
                  journal
                  (or (null journal-metadata) database-rewrite-p))
         (devnet-cli-export-journal-at-chain-generation
-         store txpool-journal-path persistence-state))
+         effective-store txpool-journal-path persistence-state))
       ;; Journal-only legacy mode has no chain generation to copy.  Publish its
       ;; imported snapshot as generation one with base generation zero.
       (when (and (null database-path)
@@ -427,7 +479,20 @@
          :journal
          (lambda (metadata)
            (node-store-export-txpool-records-to-kv
-            store
+            effective-store
             (devnet-cli-make-output-kv-database txpool-journal-path)
-            :persistence-metadata metadata))))))
-  store)
+            :persistence-metadata metadata))))
+      ;; A fresh RocksDB bootstrap was exported from the genesis memory oracle.
+      ;; Switch to the same direct provider an ordinary restart uses before any
+      ;; RPC service receives the store.
+      (when (and (eq engine :rocksdb)
+                 database-path
+                 (not (database-engine-payload-store-p effective-store)))
+        (let ((current-database
+                (devnet-cli-make-output-kv-database database-path engine)))
+          (when (devnet-cli-direct-database-ready-p current-database)
+            (setf effective-store
+                  (devnet-cli-import-direct-chain-database
+                   current-database database-path config genesis-block
+                   :import-txpool-p t)))))
+      effective-store)))

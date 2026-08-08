@@ -52,7 +52,13 @@
           (chain-store-journal-remhash
            (memory-chain-store-state-blocks store) key)
           (chain-store-journal-remhash
-           (memory-chain-store-state-diffs store) key)))
+           (memory-chain-store-state-diffs store) key)
+          (chain-store-journal-remhash
+           (memory-chain-store-state-roots store) key)
+          (chain-store-journal-remhash
+           (memory-chain-store-state-tries store) key)
+          (chain-store-journal-remhash
+           (memory-chain-store-state-code-bodies store) key)))
     (when notify-head-p
       (engine-payload-store-notify-block-filters store stored-block))
     block))
@@ -60,8 +66,25 @@
 (defun engine-payload-store-known-block
     (store hash)
   (setf store (chain-store-require-memory-store store))
-  (gethash (engine-payload-store-key hash)
-           (memory-chain-store-blocks store)))
+  (let* ((key (engine-payload-store-key hash))
+         (blocks (memory-chain-store-blocks store)))
+    (multiple-value-bind (block present-p) (gethash key blocks)
+      (cond
+        (present-p block)
+        (t
+         (multiple-value-bind (persisted persisted-p)
+             (chain-store-backing-block store hash)
+           (when persisted-p
+             (unless (and (typep persisted 'ethereum-block)
+                          (hash32= hash (block-hash persisted)))
+               (block-validation-fail
+                "Durable chain-store block does not match its lookup hash"))
+             (if (chain-store-cache-backing-read-p store)
+                 ;; A read-through cache is not part of the transaction's
+                 ;; logical write set. A rollback may retain immutable data.
+                 (setf (gethash key blocks)
+                       (engine-payload-store-copy-block persisted))
+                 (engine-payload-store-copy-block persisted)))))))))
 
 (defun engine-payload-store-checkpoint-number
     (store checkpoint &key label fallback-to-head-p)

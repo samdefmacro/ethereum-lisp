@@ -1,20 +1,35 @@
 (in-package #:ethereum-lisp.state)
 
+(declaim (ftype (function (t) t) flush-account-trie))
+
 (defun state-db-state-trie (state)
-  (state-db-materialize state)
-  (let ((trie (make-mpt)))
-    (maphash (lambda (address object)
-               (let* ((address-hash (keccak-256 (address-bytes (address-from-hex address))))
-                      (account (account-with-storage-root object)))
-                 (mpt-put trie address-hash (state-account-rlp account))))
-             (state-db-objects state))
-    trie))
+  ;; A directly persisted Ethereum trie contains hashed address keys, so an
+  ;; address preimage cannot be recovered by enumerating it. Such a state has
+  ;; no whole-world materializer; its already-open trie is the authoritative
+  ;; view. Flat/oracle states retain the full rebuild below.
+  (if (state-db-direct-trie-p state)
+      (progn
+        (flush-account-trie state)
+        (copy-mpt (state-db-trie state)))
+      (progn
+        (state-db-materialize state)
+        (let ((trie (make-mpt)))
+          (maphash
+           (lambda (address object)
+             (let* ((address-hash
+                      (keccak-256
+                       (address-bytes (address-from-hex address))))
+                    (account (account-with-storage-root object)))
+               (mpt-put trie address-hash (state-account-rlp account))))
+           (state-db-objects state))
+          trie))))
 
 (defun state-db-account-proof-key (address)
   (keccak-256 (address-bytes address)))
 
 (defun state-db-get-account-proof (state address)
-  (mpt-get-proof (state-db-state-trie state)
+  (flush-account-trie state)
+  (mpt-get-proof (state-db-trie state)
                  (state-db-account-proof-key address)))
 
 (defun state-db-verify-account-proof (state-root address proof)
@@ -23,7 +38,10 @@
 (defvar *verify-incremental-root* nil
   "When true, every account-root flush also computes the full-rebuild root from
 STATE-DB-STATE-TRIE and asserts byte-equality with the memoized result. This
-catches a missed dirty-hook (a stale memo returned on the fast path).
+catches a missed dirty-hook (a stale memo returned on the fast path). A direct
+secure-key state has no address preimages from which to rebuild the whole trie,
+so verification skips that explicitly marked state and still verifies every
+enumerable flat/oracle state.
 
 Production leaves it nil, and so, contrary to what this docstring said until the
 claim was checked, does most of the test suite: only the tests in
@@ -70,7 +88,8 @@ trustworthy iff DIRTY is empty; see STATE-DB."
       (setf (state-db-trie state) trie)
       (setf (state-db-cached-root state) (make-hash32 (mpt-root-hash trie))))
     (clrhash (state-db-dirty state)))
-  (when *verify-incremental-root*
+  (when (and *verify-incremental-root*
+             (not (state-db-direct-trie-p state)))
     (let ((full (make-hash32 (mpt-root-hash (state-db-state-trie state)))))
       (unless (hash32= (state-db-cached-root state) full)
         (error "Account state root ~A diverged from a full rebuild ~A ~
@@ -84,3 +103,25 @@ trustworthy iff DIRTY is empty; see STATE-DB."
 
 (defun state-db-root-hex (state)
   (hash32-to-hex (state-db-root state)))
+
+(defun state-db-persistence-ready-p (state)
+  "True when STATE already has an account trie that can be persisted boundedly."
+  (not (null (state-db-trie state))))
+
+(defun state-db-persistence-tries (state)
+  "Return the account trie plus touched accounts' storage tries.
+
+No untouched account is loaded or enumerated. MPT-POPULATE-DIRTY-BATCH skips
+clean hash subtrees, so the returned set can be handed directly to one durable
+block batch."
+  (flush-account-trie state)
+  (let ((tries (list (state-db-trie state))))
+    (maphash
+     (lambda (address-key ignored)
+       (declare (ignore ignored))
+       (let* ((object (gethash address-key (state-db-objects state)))
+              (storage-trie (and object (state-object-trie object))))
+         (when storage-trie
+           (pushnew storage-trie tries :test #'eq))))
+     (state-db-touched state))
+    (nreverse tries)))

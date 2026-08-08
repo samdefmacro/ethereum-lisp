@@ -147,23 +147,25 @@ Non-obvious properties the implementation relies on:
   dropped; deleting an account drops the whole object, and a clone keeps the
   memo because its storage is `equal`. A stale memo would be a wrong state root,
   so differential tests compare the memoized root against a cold recomputation.
-- **Log-structured database.** The file backend is an append-only file of
+- **Storage providers.** The file backend is an append-only file of
   CRC-framed records replayed into an in-memory table on open, with
   fsync-per-write durability, torn-tail recovery, threshold-triggered compaction
   via a temp-file rename, and migration of v1 whole-file s-expression databases.
   Opens are pure reads; torn-tail truncation and v1 migration happen on the
   first durable write, so a rejected or read-only artifact is never modified.
-  Concurrent handles on one path are not serialized. This file backend is the
-  wired production default: the RocksDB adapter (`docs/storage-substrate.md`)
-  exists and passes the backend-neutral contract but the CLI is not yet switched
-  onto it, so no node runs on RocksDB today.
-- **State storage: diff vs baseline.** A block's state is either a full baseline
-  snapshot in block-prefixed flat tables or a hash-addressed diff against its
-  parent, resolved by walking the diff chain to the nearest baseline; stored
-  defaults and `:ABSENT` markers tombstone zeroed slots and destroyed accounts.
-  Commit policy writes a diff while the chain stays under the store's baseline
-  interval (default 128) and a fresh baseline otherwise; pruning promotes a kept
-  diff to a baseline before its ancestors drop.
+  Concurrent handles on one path are not serialized. It remains the local/test
+  durability oracle. Public-network presets instead select the RocksDB adapter
+  and schema-v4 direct provider described in `docs/storage-substrate.md`; the
+  provider retains only a bounded memory overlay and point-reads durable chain,
+  trie, code, sidecar, and transaction-location records.
+- **State storage: production trie vs oracle diffs.** Schema-v4 RocksDB state is
+  authoritative at each retained account-trie root. Execution opens that root
+  lazily, resolves hash-addressed account/storage paths on demand, and persists
+  only dirty paths plus the touched-account change set. Memory/file oracles keep
+  the older flat baseline-or-parent-diff representation for deterministic
+  comparison and migration: stored defaults and `:ABSENT` markers tombstone
+  zeroed slots and destroyed accounts, while pruning promotes a kept diff to a
+  baseline before its ancestors drop.
 - **Staged import boundary.** Staged import is a private, versioned, offline,
   block-serial, single-writer path. It binds authority/chain/genesis and the
   full chain configuration, pins a finalized anchor, advances header, body,

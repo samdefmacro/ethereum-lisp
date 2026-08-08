@@ -81,4 +81,7 @@
    #:engine-pending-txpool-basefee-count
    #:engine-pending-txpool-blob-count
    #:engine-pending-txpool-empty-p
-   #:engine-pending-txpool-copy))
+   #:engine-pending-txpool-copy
+   #:call-with-engine-pending-txpool-undo-recording
+   #:engine-pending-txpool-transaction-snapshot
+   #:engine-pending-txpool-restore-transaction-snapshot))

@@ -202,6 +202,15 @@
                (progn
                  (devnet-cli-run-init options output-stream)
                  0))))
+        ((devnet-cli-db-command-p args)
+         (let ((options
+                 (devnet-cli-parse-options-or-usage-error
+                  #'devnet-cli-db-options args)))
+           (if (getf options :help-p)
+               (progn
+                 (devnet-cli-print-db-usage output-stream)
+                 0)
+               (devnet-cli-run-db options output-stream))))
         (t
          (let ((options
                  (devnet-cli-apply-chain-preset
@@ -260,9 +269,13 @@
       (ignore-errors
        (devnet-cli-log-error-event args condition))
       (format error-stream "~A~%" condition)
-      (if (devnet-cli-init-command-p args)
-          (devnet-cli-print-init-usage error-stream)
-          (devnet-cli-print-usage error-stream))
+      (cond
+        ((devnet-cli-init-command-p args)
+         (devnet-cli-print-init-usage error-stream))
+        ((devnet-cli-db-command-p args)
+         (devnet-cli-print-db-usage error-stream))
+        (t
+         (devnet-cli-print-usage error-stream)))
       1)
     (error (condition)
       (ignore-errors

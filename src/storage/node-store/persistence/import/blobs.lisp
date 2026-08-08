@@ -79,3 +79,24 @@
   (dolist (entry (kv-chain-record-entries database :blob-sidecar))
     (chain-store-import-blob-sidecar-from-kv
      store (car entry) (cdr entry))))
+
+(defun node-store-import-txpool-blob-sidecars-from-kv (store database)
+  "Point-read exactly the sidecars referenced by STORE's bounded txpool."
+  (let ((seen (make-hash-table :test 'equal)))
+    (dolist (transaction (node-store-current-txpool-transactions store))
+      (loop for versioned-hash across
+              (transaction-blob-versioned-hashes transaction)
+            for identifier = (hash32-bytes versioned-hash)
+            for key = (bytes-to-hex identifier)
+            unless (gethash key seen)
+              do (setf (gethash key seen) t)
+                 (multiple-value-bind (record present-p)
+                     (kv-get-chain-record
+                      database :blob-sidecar identifier)
+                   (unless present-p
+                     (block-validation-fail
+                      "Persisted blob transaction is missing sidecar ~A"
+                      key))
+                   (chain-store-import-blob-sidecar-from-kv
+                    store identifier record))))
+  store))

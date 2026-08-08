@@ -27,11 +27,12 @@ Prefer fast-forward when the branch is a linear descendant. This does not
 extend to deleting remote branches, force-pushing, or rewriting published
 history; ask for those.
 
-**Get a go-ahead before running Docker, SBCL, or make.** Other agents run their
-own builds and containers on this machine, and concurrent runs race on compiler
-caches, images, CPU and loopback ports. This is on top of the never-kill /
-never-clear rules below: ask before `make docker-test-*` or any container run,
-not only before touching a process someone else started.
+**Docker-isolated builds and tests are pre-authorized.** Run ordinary in-scope
+Docker, containerized SBCL, wrapper, and `make` commands without asking for a
+separate go-ahead. Other agents run their own builds and containers on this
+machine, so keep this checkout's containers and caches isolated and obey the
+never-kill / never-clear rules below. This authorization does not extend to
+destructive shared-Docker cleanup or to running an interpreter on the host.
 
 **No interpreters on the host, ever.** Not sbcl, not python3, not scratch
 scripting — anything that executes code runs in a container. Plain `git`, `rg`

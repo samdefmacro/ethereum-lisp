@@ -7,6 +7,7 @@
         #:ethereum-lisp.rlp
         #:ethereum-lisp.crypto
         #:ethereum-lisp.trie
+        #:ethereum-lisp.trie.encoding
         #:ethereum-lisp.validation
         #:ethereum-lisp.chain-config
         #:ethereum-lisp.accounts
@@ -47,6 +48,23 @@
    #:node-store-database-finding-message
    #:node-store-database-finding-description
    #:node-store-verify-chain-database
+   #:node-store-database-copy-progress
+   #:node-store-database-copy-progress-p
+   #:node-store-database-copy-progress-operation
+   #:node-store-database-copy-progress-source-schema-version
+   #:node-store-database-copy-progress-copied-count
+   #:node-store-database-copy-progress-cursor
+   #:node-store-copy-chain-database
+   #:node-store-backup-chain-database
+   #:node-store-restore-chain-database
+   #:node-store-rebuild-chain-database
+   #:node-store-repair-chain-database
+   #:database-chain-store
+   #:database-chain-store-p
+   #:database-chain-store-database
+   #:database-engine-payload-store-p
+   #:database-engine-payload-store-database
+   #:make-database-engine-payload-store
    #:node-store-stage-progress
    #:node-store-stage-progress-p
    #:node-store-stage-progress-number
@@ -81,5 +99,6 @@
    #:node-store-export-forkchoice-to-kv
    #:node-store-export-to-kv
    #:node-store-import-txpool-records-from-kv
+   #:node-store-import-txpool-blob-sidecars-from-kv
    #:node-store-restore-txpool-consistency
    #:node-store-import-from-kv))

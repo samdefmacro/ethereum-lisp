@@ -37,6 +37,7 @@
    #:state-storage-range-entry-value
    #:*state-access-recorder*
    #:state-db-get-account
+   #:decode-state-account-rlp
    #:make-lazy-state-db
    #:state-db-account-loaded-p
    #:state-db-account-or-empty
@@ -49,6 +50,8 @@
    #:state-db-restore
    #:state-db-snapshot
    #:state-db-revert-to-snapshot
+   #:state-db-transaction-snapshot
+   #:state-db-revert-transaction-snapshot
    #:state-db-finalize-transaction
    #:state-db-touch-account
    #:state-db-set-storage
@@ -64,9 +67,12 @@
    #:state-db-storage-range
    #:state-db-for-each-account
    #:state-db-for-each-touched-account
+   #:state-db-clear-touched-accounts
    #:state-db-lazy-p
    #:state-db-root
    #:state-db-state-trie
+   #:state-db-persistence-ready-p
+   #:state-db-persistence-tries
    #:state-db-root-hex
    #:+wei-per-gwei+
    #:state-db-add-balance
@@ -363,11 +369,15 @@
 
 (defpackage #:ethereum-lisp.execution-service
   (:use #:cl
+        #:ethereum-lisp.bytes
         #:ethereum-lisp.types
+        #:ethereum-lisp.crypto
+        #:ethereum-lisp.trie
         #:ethereum-lisp.validation
         #:ethereum-lisp.chain-config
         #:ethereum-lisp.accounts
         #:ethereum-lisp.blocks
+        #:ethereum-lisp.chain-store.state
         #:ethereum-lisp.chain-store
         #:ethereum-lisp.node-store
         #:ethereum-lisp.state

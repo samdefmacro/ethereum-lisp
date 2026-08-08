@@ -14,49 +14,52 @@
         (null parent-block)
         (/= (block-header-number (block-header parent-block))
             (1- number))
-        (let ((parent-key
-                (gethash (1- number)
-                         (memory-chain-store-canonical-hashes
-                          store))))
-          (and parent-key
-               (string= parent-key
-                        (engine-payload-store-key parent-hash)))))))
+        (let ((canonical-parent
+                (engine-payload-store-canonical-hash store (1- number))))
+          (and canonical-parent
+               (hash32= canonical-parent parent-hash))))))
 
 (defun engine-payload-store-block-by-number (store number)
   (setf store (chain-store-require-memory-store store))
   (unless (and (integerp number) (not (minusp number)))
     (block-validation-fail "Engine payload store block number must be non-negative"))
-  (let ((canonical-key
-          (gethash number
-                   (memory-chain-store-canonical-hashes store))))
-    (when canonical-key
-      (gethash canonical-key
-               (memory-chain-store-blocks store)))))
+  (let ((canonical-hash
+          (engine-payload-store-canonical-hash store number)))
+    (and canonical-hash
+         (engine-payload-store-known-block store canonical-hash))))
 
 (defun engine-payload-store-canonical-hash (store number)
   (setf store (chain-store-require-memory-store store))
   (unless (and (integerp number) (not (minusp number)))
     (block-validation-fail
      "Engine payload store canonical block number must be non-negative"))
-  (let ((canonical-key
-          (gethash number
-                   (memory-chain-store-canonical-hashes store))))
-    (when canonical-key
-      (hash32-from-hex canonical-key))))
+  (let ((hashes (memory-chain-store-canonical-hashes store)))
+    (multiple-value-bind (canonical-key cached-p) (gethash number hashes)
+      (cond
+        (cached-p
+         (and canonical-key (hash32-from-hex canonical-key)))
+        (t
+         (multiple-value-bind (persisted persisted-p)
+             (chain-store-backing-canonical-hash store number)
+           (when persisted-p
+             (unless (hash32-p persisted)
+               (block-validation-fail
+                "Durable canonical index does not contain a hash32"))
+             (when (chain-store-cache-backing-read-p store)
+               (setf (gethash number hashes)
+                     (engine-payload-store-key persisted)))
+             persisted)))))))
 
 (defun engine-payload-store-canonical-block-p (store block)
   (setf store (chain-store-require-memory-store store))
   (let* ((header (block-header block))
          (number (block-header-number header))
-         (canonical-key
+         (canonical-hash
            (and (integerp number)
                 (not (minusp number))
-                (gethash number
-                         (memory-chain-store-canonical-hashes
-                          store)))))
-    (and canonical-key
-         (string= canonical-key
-                  (engine-payload-store-key (block-hash block))))))
+                (engine-payload-store-canonical-hash store number))))
+    (and canonical-hash
+         (hash32= canonical-hash (block-hash block)))))
 
 (defun engine-payload-store-ancestor-p (store ancestor-hash head-hash)
   (setf store (chain-store-require-memory-store store))

@@ -1103,3 +1103,53 @@ again (a RocksDB iterator frees its native cursor on exhaustion)."
              (close-rocksdb-key-value-database database)))
       (when (probe-file path)
         (uiop:delete-directory-tree path :validate t)))))
+
+(defun assert-kv-iterator-explicit-close-contract (database)
+  (kv-put database #(1) #(10))
+  (kv-put database #(2) #(20))
+  (multiple-value-bind (iterator close-iterator)
+      (kv-iterator database)
+    (is (functionp close-iterator))
+    (multiple-value-bind (key value present-p)
+        (funcall iterator)
+      (is present-p)
+      (is (bytes= #(1) key))
+      (is (bytes= #(10) value)))
+    ;; Early close releases a native cursor, is idempotent, and makes all
+    ;; later pulls report normal exhaustion rather than touching freed state.
+    (funcall close-iterator)
+    (funcall close-iterator)
+    (multiple-value-bind (key value present-p)
+        (funcall iterator)
+      (declare (ignore key value))
+      (is (not present-p))))
+  database)
+
+(deftest memory-key-value-database-iterator-explicit-close-contract
+  (assert-kv-iterator-explicit-close-contract
+   (make-memory-key-value-database)))
+
+(deftest file-key-value-database-iterator-explicit-close-contract
+  (:layer :integration :module :database)
+  (let ((path (kv-log-test-path "ethereum-lisp-kv-iterator-close")))
+    (unwind-protect
+         (assert-kv-iterator-explicit-close-contract
+          (make-file-key-value-database path))
+      (when (probe-file path)
+        (delete-file path)))))
+
+(deftest rocksdb-key-value-database-iterator-explicit-close-contract
+  (:layer :integration :module :database)
+  (let ((path
+          (merge-pathnames
+           (make-pathname
+            :directory
+            `(:relative ,(format nil "ethereum-lisp-rocks-close-~A" (gensym))))
+           #P"/private/tmp/")))
+    (unwind-protect
+         (let ((database (make-rocksdb-key-value-database path)))
+           (unwind-protect
+                (assert-kv-iterator-explicit-close-contract database)
+             (close-rocksdb-key-value-database database)))
+      (when (probe-file path)
+        (uiop:delete-directory-tree path :validate t)))))

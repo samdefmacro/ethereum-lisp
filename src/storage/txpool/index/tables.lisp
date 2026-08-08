@@ -14,9 +14,10 @@
          (nonce (engine-pending-txpool-nonce-key transaction))
          (sender-transactions
            (or (gethash sender sender-index)
-               (setf (gethash sender sender-index)
-                     (make-hash-table :test 'equalp)))))
-    (setf (gethash nonce sender-transactions) transaction)))
+               (engine-pending-txpool-journal-puthash
+                sender-index sender (make-hash-table :test 'equalp)))))
+    (engine-pending-txpool-journal-puthash
+     sender-transactions nonce transaction)))
 
 (defun engine-pending-txpool-unindex-transaction
     (sender-index transaction)
@@ -30,9 +31,9 @@
       (when (and indexed-transaction
                  (hash32= (transaction-hash indexed-transaction)
                           (transaction-hash transaction)))
-        (remhash nonce sender-transactions)
+        (engine-pending-txpool-journal-remhash sender-transactions nonce)
         (when (zerop (hash-table-count sender-transactions))
-          (remhash sender sender-index))))))
+          (engine-pending-txpool-journal-remhash sender-index sender))))))
 
 (defun engine-pending-txpool-sender-index-count (sender-index transaction)
   (let ((sender-transactions
@@ -51,7 +52,7 @@
        sender-index
        transaction)
       (engine-pending-txpool-clear-admission-time txpool hash)
-      (remhash key transactions)
+      (engine-pending-txpool-journal-remhash transactions key)
       (engine-pending-txpool-record-transaction-change
        txpool transaction))
     transaction))

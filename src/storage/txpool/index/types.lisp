@@ -48,7 +48,34 @@
 
 (defvar *engine-pending-txpool-change-recorder* nil)
 
+(defvar *engine-pending-txpool-undo-recorder* nil
+  "Dynamically injected recorder called with TABLE and KEY before mutation.")
+
 (defconstant +engine-pending-txpool-change-log-limit+ 8192)
+
+(defun call-with-engine-pending-txpool-undo-recording (recorder thunk)
+  "Call THUNK while RECORDER observes each mutable txpool table/key write.
+
+The node-store transaction boundary supplies its changed-key journal here so
+the txpool and chain store remain sibling domains instead of depending on one
+another. Nested calls compose: both the inner and outer transaction frames
+are preserved because the inner node-store frame records the write and merges
+its before-image into the outer frame on success."
+  (unless (and (functionp recorder) (functionp thunk))
+    (block-validation-fail
+     "Txpool undo recording requires recorder and thunk functions"))
+  (let ((*engine-pending-txpool-undo-recorder* recorder))
+    (funcall thunk)))
+
+(defun engine-pending-txpool-journal-puthash (table key value)
+  (when *engine-pending-txpool-undo-recorder*
+    (funcall *engine-pending-txpool-undo-recorder* table key))
+  (setf (gethash key table) value))
+
+(defun engine-pending-txpool-journal-remhash (table key)
+  (when *engine-pending-txpool-undo-recorder*
+    (funcall *engine-pending-txpool-undo-recorder* table key))
+  (remhash key table))
 
 (defun engine-pending-txpool-configure-promotion-policy
     (txpool account-slot-limit global-slot-limit local-transaction-predicate)
@@ -71,10 +98,10 @@
                (engine-pending-txpool-change-log txpool)
                0 +engine-pending-txpool-change-log-limit+))))
     (when (engine-pending-txpool-database-change-tracking-enabled-p txpool)
-      (setf (gethash (hash32-to-hex hash)
-                     (engine-pending-txpool-database-dirty-transaction-keys
-                      txpool))
-            t))
+      (engine-pending-txpool-journal-puthash
+       (engine-pending-txpool-database-dirty-transaction-keys txpool)
+       (hash32-to-hex hash)
+       t))
     (when *engine-pending-txpool-change-recorder*
       (funcall *engine-pending-txpool-change-recorder* hash))))
 
@@ -106,7 +133,13 @@
       (funcall thunk))))
 
 (defun engine-pending-txpool-enable-database-change-tracking (txpool)
-  (clrhash (engine-pending-txpool-database-dirty-transaction-keys txpool))
+  (dolist (key
+            (loop for key being the hash-keys of
+                    (engine-pending-txpool-database-dirty-transaction-keys
+                     txpool)
+                  collect key))
+    (engine-pending-txpool-journal-remhash
+     (engine-pending-txpool-database-dirty-transaction-keys txpool) key))
   (setf (engine-pending-txpool-database-change-tracking-enabled-p txpool) t)
   txpool)
 
@@ -123,11 +156,16 @@
     (txpool &optional hashes)
   (if hashes
       (dolist (hash hashes)
-        (remhash (hash32-to-hex hash)
-                 (engine-pending-txpool-database-dirty-transaction-keys
-                  txpool)))
-      (clrhash
-       (engine-pending-txpool-database-dirty-transaction-keys txpool)))
+        (engine-pending-txpool-journal-remhash
+         (engine-pending-txpool-database-dirty-transaction-keys txpool)
+         (hash32-to-hex hash)))
+      (dolist (key
+                (loop for key being the hash-keys of
+                        (engine-pending-txpool-database-dirty-transaction-keys
+                         txpool)
+                      collect key))
+        (engine-pending-txpool-journal-remhash
+         (engine-pending-txpool-database-dirty-transaction-keys txpool) key)))
   txpool)
 
 (defgeneric txpool-component (store)

@@ -16,7 +16,7 @@
 marked availability with T, which denotes a baseline."
   (let ((kind (gethash block-key (memory-chain-store-state-blocks store))))
     (case kind
-      ((:baseline :diff nil) kind)
+      ((:baseline :diff :trie nil) kind)
       (t :baseline))))
 
 (defun chain-store-state-kind (store block-hash)
@@ -309,6 +309,12 @@ can be pruned. Returns T on success, NIL when the view is unresolvable."
      (memory-chain-store-state-blocks store) block-key)
     (chain-store-journal-remhash
      (memory-chain-store-state-diffs store) block-key)
+    (chain-store-journal-remhash
+     (memory-chain-store-state-roots store) block-key)
+    (chain-store-journal-remhash
+     (memory-chain-store-state-tries store) block-key)
+    (chain-store-journal-remhash
+     (memory-chain-store-state-code-bodies store) block-key)
     (+ (engine-payload-store-remove-prefixed-keys
         (memory-chain-store-account-balances store)
         prefix)

@@ -196,3 +196,143 @@
     (is (= 10
            (state-account-balance
             (state-db-get-account state address))))))
+
+(deftest nested-chain-store-journal-deduplicates-equalp-keys
+  ;; A nested transaction can be the first frame to touch a byte-vector key.
+  ;; After it merges, a fresh but EQUALP key in the parent must still share the
+  ;; same first-touch before-image; otherwise rollback work grows with writes
+  ;; rather than distinct changed keys.
+  (let ((table (make-hash-table :test 'equalp))
+        (key #(1 2 3 4)))
+    (setf (gethash key table) :before)
+    (ethereum-lisp.chain-store::call-with-chain-store-transaction
+     (lambda (outer-journal)
+       (ethereum-lisp.chain-store::call-with-chain-store-transaction
+        (lambda (inner-journal)
+          (declare (ignore inner-journal))
+          (ethereum-lisp.chain-store::chain-store-journal-puthash
+           table (copy-seq key) :inner)))
+       (ethereum-lisp.chain-store::chain-store-journal-puthash
+        table (copy-seq key) :outer)
+       (is (= 1
+              (ethereum-lisp.chain-store::chain-store-journal-undo-count
+               outer-journal)))
+       (ethereum-lisp.chain-store::chain-store-journal-rollback
+        outer-journal)))
+    (is (eq :before (gethash key table)))))
+
+(deftest execute-atomic-block-commit-rollback-scales-with-changed-state
+  ;; A block/commit snapshot must not clone the already loaded state.  Seed a
+  ;; materially larger baseline, mutate one account, flush the account trie and
+  ;; clear the commit change set before injecting failure.  Rollback must still
+  ;; restore the root, journal boundary, and touched set exactly without ever
+  ;; invoking the deliberate full-copy API.
+  (labels ((address-for (index)
+             (address-from-hex (format nil "0x~40,'0X" (1+ index)))))
+    (let* ((store (make-engine-payload-memory-store))
+           (state (make-state-db))
+           (changed-address (address-for 7))
+           (untouched-address (address-for 191))
+           (full-copy-count 0))
+      (dotimes (index 192)
+        (state-db-set-account
+         state (address-for index)
+         (make-state-account :balance (+ 1000 index))))
+      (let ((baseline-root (state-db-root state))
+            (baseline-journal-size
+              (fill-pointer (ethereum-lisp.state::state-db-journal state))))
+        (state-db-clear-touched-accounts state)
+        (let ((ethereum-lisp.state::*state-db-copy-observer*
+                (lambda (copied-state)
+                  (declare (ignore copied-state))
+                  (incf full-copy-count))))
+          (signals error
+            (execute-atomic-block-commit
+             store state
+             (lambda ()
+               (state-db-set-account
+                state changed-address (make-state-account :balance 999999))
+               (state-db-root state)
+               ;; Simulate the live persistence path consuming the change set
+               ;; before a durable commit failure is reported.
+               (state-db-clear-touched-accounts state)
+               (error "Injected bounded state rollback failure")))))
+        (is (= 0 full-copy-count))
+        (is (= baseline-journal-size
+               (fill-pointer (ethereum-lisp.state::state-db-journal state))))
+        (is (= 1007
+               (state-account-balance
+                (state-db-get-account state changed-address))))
+        (is (= 1191
+               (state-account-balance
+                (state-db-get-account state untouched-address))))
+        (is (ethereum-lisp.types:hash32= baseline-root
+                                          (state-db-root state)))
+        (let ((touched-count 0))
+          (state-db-for-each-touched-account
+           state
+           (lambda (&rest ignored)
+             (declare (ignore ignored))
+             (incf touched-count)))
+          (is (= 0 touched-count)))
+        (let ((ethereum-lisp.state::*state-db-copy-observer*
+                (lambda (copied-state)
+                  (declare (ignore copied-state))
+                  (incf full-copy-count))))
+          (state-db-copy state))
+        (is (= 1 full-copy-count))))))
+
+(deftest chain-store-atomic-commit-txpool-rollback-scales-with-changed-keys
+  ;; The production atomic boundary must not clone the retained txpool. The
+  ;; explicit snapshot call at the end is the positive control proving that
+  ;; the copy observer is wired to the costly path this test excludes.
+  (labels ((transaction-for (nonce)
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :nonce nonce
+               :gas-price (+ 100 nonce)
+               :gas-limit 21000
+               :to
+               (address-from-hex
+                "0x3535353535353535353535353535353535353535"))
+              1
+              1)))
+    (let* ((store (make-engine-payload-memory-store))
+           (retained-count 64)
+           (new-transaction (transaction-for retained-count))
+           (new-hash (transaction-hash new-transaction))
+           (full-copy-count 0))
+      (dotimes (nonce retained-count)
+        (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
+         store (transaction-for nonce)))
+      (let ((baseline-cursor
+              (nth-value
+               1
+               (ethereum-lisp.txpool:engine-payload-store-txpool-changes-since
+                store 0))))
+        (let ((ethereum-lisp.txpool.index::*engine-pending-txpool-copy-observer*
+                (lambda (copied-txpool)
+                  (declare (ignore copied-txpool))
+                  (incf full-copy-count))))
+          (signals error
+            (chain-store-atomic-commit
+             store
+             (lambda ()
+               (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
+                store new-transaction)
+               (error "Injected bounded txpool rollback failure"))))
+          (is (= 0 full-copy-count))
+          (is (= retained-count
+                 (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
+                  store)))
+          (is (null
+               (ethereum-lisp.txpool:engine-payload-store-pending-transaction
+                store new-hash)))
+          (multiple-value-bind (changes current overflow-p)
+              (ethereum-lisp.txpool:engine-payload-store-txpool-changes-since
+               store baseline-cursor)
+            (is (null changes))
+            (is (= baseline-cursor current))
+            (is (null overflow-p)))
+          (ethereum-lisp.node-store:engine-payload-store-snapshot store)
+          (is (= 1 full-copy-count)))))))

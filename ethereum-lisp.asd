@@ -325,8 +325,10 @@
        (:file "chain-store-persistence-side-data" :pathname "import/side-data")
        (:file "chain-store-persistence-blobs" :pathname "import/blobs")
        (:file "chain-store-persistence-prepared-payloads" :pathname "import/prepared-payloads")
+       (:file "node-store-direct-store" :pathname "direct-store")
        (:file "chain-store-persistence" :pathname "import/orchestrator")
        (:file "node-store-persistence-verify" :pathname "verify")
+       (:file "node-store-persistence-operations" :pathname "operations")
        (:file "node-store-staged-import" :pathname "staged-import")))
      (:module "api"
       :pathname "api/"
@@ -431,6 +433,7 @@
        (:file "cli-parsers" :pathname "cli/options/parsers")
        (:file "cli-options" :pathname "cli/options/options")
        (:file "cli-output" :pathname "cli/output")
+       (:file "cli-db" :pathname "cli/db")
        (:file "cli-kzg" :pathname "cli/kzg")
        (:file "cli-bls12381" :pathname "cli/bls12381")
        (:file "cli-http-limits" :pathname "cli/http-limits")

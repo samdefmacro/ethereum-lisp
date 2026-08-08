@@ -16,6 +16,9 @@ snapshot with two accounts sharing one contract -- and return the database."
            (address-from-hex "0x0000000000000000000000000000000000000021"))
          (twin
            (address-from-hex "0x0000000000000000000000000000000000000022"))
+         (storage-slot
+           (hash32-from-hex
+            "0x0000000000000000000000000000000000000000000000000000000000000023"))
          (genesis
            (make-block
             :header
@@ -24,27 +27,33 @@ snapshot with two accounts sharing one contract -- and return the database."
                                :timestamp 0
                                :gas-limit 30000000)))
          (head
-           (make-block
-            :header
-            (make-block-header :number 1
-                               :parent-hash (block-hash genesis)
-                               :timestamp 1
-                               :gas-limit 30000000)))
+           nil)
+         (state (make-state-db))
          (database (make-memory-key-value-database)))
-    (dolist (block (list genesis head))
-      (chain-store-put-block store block :state-available-p t))
     (dolist (address (list contract twin))
-      (chain-store-put-account-balance store (block-hash head) address 5)
-      (chain-store-put-account-code
-       store (block-hash head) address *code-store-test-contract-a*))
+      (state-db-set-account
+       state address (make-state-account :balance 5))
+      (state-db-set-code state address *code-store-test-contract-a*))
+    (state-db-set-storage state contract storage-slot 77)
+    (setf head
+          (make-block
+           :header
+           (make-block-header :number 1
+                              :parent-hash (block-hash genesis)
+                              :state-root (state-db-root state)
+                              :timestamp 1
+                              :gas-limit 30000000)))
+    (chain-store-put-block store genesis :state-available-p nil)
+    (chain-store-put-block store head :state-available-p t)
+    (commit-state-db-to-chain-store store (block-hash head) state)
     (chain-store-update-forkchoice-checkpoints
      store
      (make-forkchoice-state
       :head-block-hash (block-hash head)
-      :safe-block-hash (block-hash genesis)
-      :finalized-block-hash (block-hash genesis)))
+      :safe-block-hash (block-hash head)
+      :finalized-block-hash (block-hash head)))
     (node-store-export-to-kv store database)
-    (values database store head)))
+    (values database store head (state-db-get-storage-root state contract))))
 
 (deftest node-store-verify-reports-nothing-for-a-consistent-database
   (let ((database (verify-test-database)))
@@ -70,10 +79,58 @@ snapshot with two accounts sharing one contract -- and return the database."
     (let ((findings
             (ethereum-lisp.node-store.persistence:node-store-verify-chain-database
              database)))
-      (is (equal '(:state) (verify-test-finding-kinds findings)))
-      (is (search "not stored"
-                  (ethereum-lisp.node-store.persistence:node-store-database-finding-message
-                   (first findings)))))))
+      ;; The flat oracle record and the direct account-trie leaf independently
+      ;; expose the missing body.  The latter remains detectable after flat
+      ;; state retention removes the former.
+      (is (member :state (verify-test-finding-kinds findings)))
+      (is (member :code (verify-test-finding-kinds findings)))
+      (is (find-if
+           (lambda (finding)
+             (search "not stored"
+                     (ethereum-lisp.node-store.persistence:node-store-database-finding-message
+                      finding)))
+           findings)))))
+
+(deftest node-store-verify-finds-code-missing-from-trie-only-state
+  (let ((database (verify-test-database)))
+    ;; Remove the redundant flat snapshot first, then remove the shared code.
+    ;; Verification must still reach the code hash through :STATE-HISTORY and
+    ;; account-trie leaf payloads.
+    (dolist (entry (kv-chain-record-entries database :state))
+      (kv-delete-chain-record database :state (car entry)))
+    (dolist (entry (kv-chain-record-entries database :code))
+      (kv-delete-chain-record database :code (car entry)))
+    (let ((findings
+            (ethereum-lisp.node-store.persistence:node-store-verify-chain-database
+             database)))
+      (is (member :code (verify-test-finding-kinds findings)))
+      (is (find-if
+           (lambda (finding)
+             (search "referenced by state root"
+                     (ethereum-lisp.node-store.persistence:node-store-database-finding-message
+                      finding)))
+           findings)))))
+
+(deftest node-store-verify-finds-storage-root-missing-from-account-leaf
+  (multiple-value-bind (database store head storage-root)
+      (verify-test-database)
+    (declare (ignore store head))
+    ;; A storage root is account-leaf payload, not an MPT child pointer.  Only
+    ;; walking the retained account state can reveal this missing subtree.
+    (kv-delete-chain-record
+     database :trie-node (hash32-bytes storage-root))
+    (let ((findings
+            (ethereum-lisp.node-store.persistence:node-store-verify-chain-database
+             database)))
+      (is (find-if
+           (lambda (finding)
+             (and (eq :trie-node
+                      (ethereum-lisp.node-store.persistence:node-store-database-finding-kind
+                       finding))
+                  (search "storage trie referenced by state root"
+                          (ethereum-lisp.node-store.persistence:node-store-database-finding-message
+                           finding))))
+           findings)))))
 
 (deftest node-store-verify-reports-references-to-a-deleted-block
   (multiple-value-bind (database store head) (verify-test-database)
@@ -108,6 +165,44 @@ snapshot with two accounts sharing one contract -- and return the database."
             (ethereum-lisp.node-store.persistence:node-store-verify-chain-database
              database)))
       (is (equal '(:schema-version) (verify-test-finding-kinds findings))))))
+
+(deftest node-store-verify-reports-corrupt-and-missing-trie-nodes
+  (let ((database (verify-test-database)))
+    (let ((entries (kv-chain-record-entries database :trie-node)))
+      (is entries)
+      (when entries
+        (kv-put-chain-record database :trie-node (caar entries) #(#xc0)))
+      (let ((findings
+              (ethereum-lisp.node-store.persistence:node-store-verify-chain-database
+               database)))
+        (is (member :trie-node (verify-test-finding-kinds findings)))))))
+
+(deftest node-store-verify-reports-state-history-root-mismatch
+  (multiple-value-bind (database store head) (verify-test-database)
+    (declare (ignore store))
+    (kv-put-chain-record
+     database :state-history (hash32-bytes (block-hash head))
+     (hash32-bytes (zero-hash32)))
+    (let ((findings
+            (ethereum-lisp.node-store.persistence:node-store-verify-chain-database
+             database)))
+      (is (member :state-history (verify-test-finding-kinds findings))))))
+
+(deftest node-store-verify-reports-missing-direct-state-history
+  (multiple-value-bind (database store head) (verify-test-database)
+    (declare (ignore store))
+    (kv-delete-chain-record
+     database :state-history (hash32-bytes (block-hash head)))
+    (let ((findings
+            (ethereum-lisp.node-store.persistence:node-store-verify-chain-database
+             database)))
+      (is (member :state-history (verify-test-finding-kinds findings)))
+      (is (find-if
+           (lambda (finding)
+             (search "persisted trie root"
+                     (ethereum-lisp.node-store.persistence:node-store-database-finding-message
+                      finding)))
+           findings)))))
 
 (deftest node-store-verify-reads-a-legacy-inline-code-database
   (multiple-value-bind (database store) (verify-test-database)

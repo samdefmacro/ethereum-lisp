@@ -271,11 +271,20 @@ the deterministic address order is kept."
                 persistence-state
                 :database
                 (lambda (metadata)
-                  (node-store-export-to-kv
-                   (devnet-node-store node)
-                   (devnet-cli-make-output-kv-database
-                    database-path (devnet-node-db-engine node))
-                   :persistence-metadata metadata)))
+                  (let ((store (devnet-node-store node))
+                        (database
+                          (devnet-cli-make-output-kv-database
+                           database-path (devnet-node-db-engine node))))
+                    (if (database-engine-payload-store-p store)
+                        ;; Chain/state/block deltas were already published in
+                        ;; their request batches. Shutdown only needs the
+                        ;; bounded txpool snapshot plus its authority record;
+                        ;; treating the point-read overlay as a full database
+                        ;; would delete history it never hydrated.
+                        (node-store-export-txpool-records-to-kv
+                         store database :persistence-metadata metadata)
+                        (node-store-export-to-kv
+                         store database :persistence-metadata metadata)))))
              (declare (ignore result))
              (setf database-generation generation))
            (engine-payload-store-clear-txpool-database-dirty-transaction-hashes

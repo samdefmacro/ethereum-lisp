@@ -1,5 +1,9 @@
 (in-package #:ethereum-lisp.node-store.persistence)
 
+(declaim
+ (ftype (function (t t t t &key (:require-all-p t)) t)
+        node-store-populate-blob-sidecars-for-transactions-batch))
+
 (defparameter +chain-store-txpool-subpool-labels+
   '((:pending . "pending")
     (:queued . "queued")
@@ -58,12 +62,23 @@
       (unless (gethash (bytes-to-hex (car entry)) current-transaction-keys)
         (kv-batch-delete-chain-record batch :txpool (car entry))))))
 
+(defun node-store-current-txpool-transactions (store)
+  (append
+   (engine-payload-store-pending-transactions store)
+   (engine-payload-store-queued-transactions store)
+   (engine-payload-store-basefee-transactions store)
+   (engine-payload-store-blob-transactions store)))
+
 (defun node-store-export-txpool-records-to-kv
     (store database &key persistence-metadata)
   (chain-store-apply-export-batch
    store database "txpool"
    (lambda (source target batch)
      (chain-store-populate-txpool-record-export-batch source target batch)
+     (node-store-populate-blob-sidecars-for-transactions-batch
+      source target batch
+      (node-store-current-txpool-transactions source)
+      :require-all-p t)
      (node-store-populate-persistence-metadata-batch
       batch persistence-metadata))
    :persistence-metadata persistence-metadata))

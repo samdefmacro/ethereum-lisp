@@ -19,6 +19,10 @@
   ;; divergence. A clone may carry it because it shares the very same CODE.
   (cached-code-hash nil)
   (storage (make-hash-table :test #'equal))
+  ;; Persistent storage trie. A database-backed account starts with a lazy
+  ;; hash root; writes replace only its touched path. The flat STORAGE table is
+  ;; then merely the loaded-value cache used by the EVM and journal.
+  trie
   ;; Memoized STORAGE-ROOT, or NIL when it must be recomputed.
   ;;
   ;; Rebuilding a storage trie is most of the cost of a state root, and the
@@ -39,6 +43,11 @@
   account-loader
   storage-loader
   materializer
+  ;; True only when TRIE is the authoritative secure-key account view and no
+  ;; address preimages exist for a whole-world rebuild.  This is deliberately
+  ;; explicit: after an enumerable lazy state consumes its MATERIALIZER, the
+  ;; absence of that function alone cannot distinguish it from a direct trie.
+  (direct-trie-p nil :type boolean)
   (loaded-accounts (make-hash-table :test #'equal))
   (loaded-storage (make-hash-table :test #'equal))
   ;; Per-mutation before-images make snapshots integer marks rather than
@@ -62,10 +71,10 @@
   ;; TRIE is the persistent account trie the root is taken over, kept across
   ;; flushes so a flush applies only the DIRTY accounts instead of rebuilding a
   ;; trie over every account. NIL means "no trustworthy trie": the next flush
-  ;; rebuilds from OBJECTS and keeps the result. It is set to NIL by both
-  ;; STATE-DB-COPY and STATE-DB-RESTORE, so a trie can never be shared between
-  ;; two state-dbs or outlive a reverted frame -- correctness by construction
-  ;; rather than by an argument about when flushes happen.
+  ;; rebuilds from OBJECTS and keeps the result. Trie nodes are immutable and an
+  ;; MPT update replaces only the wrapper's root, so transaction snapshots keep
+  ;; an O(1) root-only wrapper and safely share clean subtrees without sharing a
+  ;; mutable wrapper.
   (dirty (make-hash-table :test #'equal))
   (cached-root nil)
   (trie nil)
@@ -91,6 +100,20 @@
 (defstruct state-journal-entry
   key
   previous-object)
+
+(defstruct (state-transaction-snapshot
+            (:constructor make-state-transaction-snapshot
+                (&key journal-mark cached-root trie dirty touched)))
+  "Bounded block/commit rollback metadata.
+
+Objects are restored by STATE-DB's changed-key journal.  TRIE is only an O(1)
+wrapper over the immutable pre-transaction root graph, while DIRTY and TOUCHED
+contain only already changed account keys rather than the loaded state."
+  journal-mark
+  cached-root
+  trie
+  dirty
+  touched)
 
 (defstruct (state-storage-proof
             (:constructor make-state-storage-proof

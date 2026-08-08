@@ -22,18 +22,20 @@
 (defun engine-pending-txpool-note-admission-time
     (txpool transaction admitted-at)
   (when admitted-at
-    (setf (gethash (engine-pending-txpool-transaction-hash-key transaction)
-                   (engine-pending-txpool-transaction-admitted-at txpool))
-          admitted-at))
+    (engine-pending-txpool-journal-puthash
+     (engine-pending-txpool-transaction-admitted-at txpool)
+     (engine-pending-txpool-transaction-hash-key transaction)
+     admitted-at))
   transaction)
 
 (defun engine-pending-txpool-clear-admission-time
     (txpool transaction-or-hash)
-  (remhash (engine-pending-txpool-hash-key
-            (if (hash32-p transaction-or-hash)
-                transaction-or-hash
-                (transaction-hash transaction-or-hash)))
-           (engine-pending-txpool-transaction-admitted-at txpool)))
+  (engine-pending-txpool-journal-remhash
+   (engine-pending-txpool-transaction-admitted-at txpool)
+   (engine-pending-txpool-hash-key
+    (if (hash32-p transaction-or-hash)
+        transaction-or-hash
+        (transaction-hash transaction-or-hash)))))
 
 (defun engine-pending-txpool-admission-time (txpool transaction)
   (gethash (engine-pending-txpool-transaction-hash-key transaction)

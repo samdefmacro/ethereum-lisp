@@ -261,29 +261,34 @@ faulted scan as a clean end of range."
                (setf iterator (cffi:null-pointer))
                (rocksdb-iterator-finish it))
              (values nil nil nil)))
-      (lambda ()
-        (cond
-          ((cffi:null-pointer-p iterator)
-           (values nil nil nil))
-          ((zerop (%rocks-iterator-valid iterator))
+      (values
+       (lambda ()
+         (cond
+           ((cffi:null-pointer-p iterator)
+            (values nil nil nil))
+           ((zerop (%rocks-iterator-valid iterator))
+            (finish))
+           (t
+            (cffi:with-foreign-objects ((key-length :size)
+                                        (value-length :size))
+              (let* ((key-pointer (%rocks-iterator-key iterator key-length))
+                     (key (rocksdb-copy-foreign-bytes
+                           key-pointer (cffi:mem-ref key-length :size)))
+                     (key-id (kv-key-string key)))
+                (if (or (and reverse-p start-id (string< key-id start-id))
+                        (and (not reverse-p) end-id
+                             (not (string< key-id end-id))))
+                    (finish)
+                    (let* ((value-pointer
+                             (%rocks-iterator-value iterator value-length))
+                           (value (rocksdb-copy-foreign-bytes
+                                   value-pointer
+                                   (cffi:mem-ref value-length :size))))
+                      (if reverse-p
+                          (%rocks-iterator-previous iterator)
+                          (%rocks-iterator-next iterator))
+                      (values key value t))))))))
+       (lambda ()
+         (unless (cffi:null-pointer-p iterator)
            (finish))
-          (t
-           (cffi:with-foreign-objects ((key-length :size)
-                                       (value-length :size))
-             (let* ((key-pointer (%rocks-iterator-key iterator key-length))
-                    (key (rocksdb-copy-foreign-bytes
-                          key-pointer (cffi:mem-ref key-length :size)))
-                    (key-id (kv-key-string key)))
-               (if (or (and reverse-p start-id (string< key-id start-id))
-                       (and (not reverse-p) end-id
-                            (not (string< key-id end-id))))
-                   (finish)
-                   (let* ((value-pointer
-                            (%rocks-iterator-value iterator value-length))
-                          (value (rocksdb-copy-foreign-bytes
-                                  value-pointer
-                                  (cffi:mem-ref value-length :size))))
-                     (if reverse-p
-                         (%rocks-iterator-previous iterator)
-                         (%rocks-iterator-next iterator))
-                     (values key value t)))))))))))
+         nil)))))

@@ -1,6 +1,6 @@
 (in-package #:ethereum-lisp.test)
 
-;;;; Content-addressed contract code (chain schema v3): deduplication, the
+;;;; Content-addressed contract code (chain schema v3+): deduplication, the
 ;;;; round trip through :STATE and :STATE-DIFF records, the refusal of a
 ;;;; reference with no body, and the forward migration from the pre-v3 layout
 ;;;; that inlined the body in every account record.
@@ -18,43 +18,68 @@
        database :code (hash32-bytes (keccak-256-hash code)))
     (and present-p body)))
 
+(defun code-store-test-state (accounts)
+  (let ((state (make-state-db)))
+    (dolist (entry accounts state)
+      (destructuring-bind
+          (address balance nonce code storage-entries)
+          entry
+        (state-db-set-account
+         state address (make-state-account :nonce nonce :balance balance))
+        (state-db-set-code state address code)
+        (dolist (storage-entry storage-entries)
+          (state-db-set-storage
+           state address (car storage-entry) (cdr storage-entry)))))))
+
 (defun code-store-test-chain (store)
   "Put three chained blocks and commit a post-state to each.
 
 Two accounts share CONTRACT-A so deduplication has something to collapse, one
 carries CONTRACT-B, and one has no code at all. Block 0 becomes a baseline and
 the later blocks become diffs, so both record kinds are exercised."
-  (let ((blocks (state-diff-test-chain store 3))
-        (contract-a (state-diff-test-address 1))
+  (let ((contract-a (state-diff-test-address 1))
         (contract-b (state-diff-test-address 2))
         (twin (state-diff-test-address 3))
         (plain (state-diff-test-address 4))
-        (slot (state-diff-test-slot 1)))
-    (destructuring-bind (block-0 block-1 block-2) blocks
-      (state-diff-test-commit
-       store block-0
-       (list (list contract-a 10 1 *code-store-test-contract-a*
-                   (list (cons slot 5)))
-             (list contract-b 20 2 *code-store-test-contract-b* '())
-             (list twin 30 3 *code-store-test-contract-a* '())
-             (list plain 40 4 #() '())))
-      ;; A diff that leaves code untouched, then one that installs code on the
-      ;; account that had none.
-      (state-diff-test-commit
-       store block-1
-       (list (list contract-a 11 1 *code-store-test-contract-a*
-                   (list (cons slot 5)))
-             (list contract-b 20 2 *code-store-test-contract-b* '())
-             (list twin 30 3 *code-store-test-contract-a* '())
-             (list plain 41 4 #() '())))
-      (state-diff-test-commit
-       store block-2
-       (list (list contract-a 11 1 *code-store-test-contract-a*
-                   (list (cons slot 5)))
-             (list contract-b 20 2 *code-store-test-contract-b* '())
-             (list twin 30 3 *code-store-test-contract-a* '())
-             (list plain 41 5 *code-store-test-contract-b* '())))
-      blocks)))
+        (slot (state-diff-test-slot 1))
+        (parent-hash (zero-hash32))
+        (blocks nil))
+    (dolist
+        (accounts
+          (list
+           (list (list contract-a 10 1 *code-store-test-contract-a*
+                       (list (cons slot 5)))
+                 (list contract-b 20 2 *code-store-test-contract-b* '())
+                 (list twin 30 3 *code-store-test-contract-a* '())
+                 (list plain 40 4 #() '()))
+           ;; A diff that leaves code untouched, then one that installs code
+           ;; on the account that had none.
+           (list (list contract-a 11 1 *code-store-test-contract-a*
+                       (list (cons slot 5)))
+                 (list contract-b 20 2 *code-store-test-contract-b* '())
+                 (list twin 30 3 *code-store-test-contract-a* '())
+                 (list plain 41 4 #() '()))
+           (list (list contract-a 11 1 *code-store-test-contract-a*
+                       (list (cons slot 5)))
+                 (list contract-b 20 2 *code-store-test-contract-b* '())
+                 (list twin 30 3 *code-store-test-contract-a* '())
+                 (list plain 41 5 *code-store-test-contract-b* '()))))
+      (let* ((state (code-store-test-state accounts))
+             (number (length blocks))
+             (block
+               (make-block
+                :header
+                (make-block-header
+                 :number number
+                 :parent-hash parent-hash
+                 :state-root (state-db-root state)
+                 :timestamp (1+ number)
+                 :gas-limit 30000000))))
+        (chain-store-put-block store block :state-available-p t)
+        (commit-state-db-to-chain-store store (block-hash block) state)
+        (push block blocks)
+        (setf parent-hash (block-hash block))))
+    (nreverse blocks)))
 
 (defun code-store-test-database-entries (database)
   "Every key/value pair in DATABASE as an alist keyed by key hex."
@@ -98,7 +123,21 @@ approximation."
         memory-store (bytes-to-hex (car entry))))))
   (dolist (entry (kv-chain-record-entries database :code))
     (kv-delete-chain-record database :code (car entry)))
+  ;; Schema v2 had no persisted secure tries.  Removing both namespaces makes
+  ;; this a real migration fixture rather than a v2 marker pasted onto v4 data.
+  (dolist (kind '(:state-history :ordered-state-history :trie-node))
+    (dolist (entry (kv-chain-record-entries database kind))
+      (kv-delete-chain-record database kind (car entry))))
   (kv-put-chain-schema-version database 2)
+  database)
+
+(defun code-store-test-downgrade-to-v1 (store database)
+  "Rewrite DATABASE to the complete pre-v2/pre-v3 shape."
+  (code-store-test-downgrade-to-inline-code store database)
+  (dolist (kind '(:ordered-block :ordered-header :ordered-receipt))
+    (dolist (entry (kv-chain-record-entries database kind))
+      (kv-delete-chain-record database kind (car entry))))
+  (kv-put-chain-schema-version database 1)
   database)
 
 (deftest node-store-code-store-writes-each-contract-body-once
@@ -184,8 +223,8 @@ approximation."
          (current (make-memory-key-value-database))
          (legacy (make-memory-key-value-database)))
     (declare (ignore blocks))
-    (chain-store-export-state-records-to-kv store current)
-    (chain-store-export-state-records-to-kv store legacy)
+    (node-store-export-to-kv store current)
+    (node-store-export-to-kv store legacy)
     (code-store-test-downgrade-to-inline-code store legacy)
     (is (= 2 (ethereum-lisp.node-store.persistence:node-store-chain-schema-version
               legacy)))
@@ -207,12 +246,56 @@ approximation."
       (is (not migrated-p)))
     (is (code-store-test-databases-equal-p current legacy))))
 
+(deftest node-store-chain-schema-migration-resumes-after-a-durable-chunk
+  (let* ((store (make-engine-payload-memory-store))
+         (current (make-memory-key-value-database))
+         (legacy (make-memory-key-value-database))
+         (batch-count 0))
+    (code-store-test-chain store)
+    (node-store-export-to-kv store current)
+    (node-store-export-to-kv store legacy)
+    (code-store-test-downgrade-to-v1 store legacy)
+    ;; The first callback records the progress marker; the second follows the
+    ;; first rewritten record. Signalling there models a process that vanished
+    ;; after RocksDB made that batch durable but before migration continued.
+    (signals error
+      (ethereum-lisp.node-store.persistence:node-store-migrate-chain-schema
+       legacy
+       :batch-size 1
+       :after-batch
+       (lambda (progress)
+         (declare (ignore progress))
+         (incf batch-count)
+         (when (= batch-count 2)
+           (error "injected migration interruption")))))
+    (is (= 2 batch-count))
+    (multiple-value-bind (version present-p)
+        (kv-get-chain-schema-version legacy)
+      (is present-p)
+      (is (= 1 version)))
+    ;; Mixed old/new records are never interpreted under the old marker.
+    (signals block-validation-error
+      (ethereum-lisp.node-store.persistence:node-store-chain-schema-version
+       legacy))
+    (multiple-value-bind (version migrated-p)
+        (ethereum-lisp.node-store.persistence:node-store-migrate-chain-schema
+         legacy :batch-size 1)
+      (is migrated-p)
+      (is (= +kv-chain-schema-version+ version)))
+    ;; Resumption filled both the v2 height mirrors and the v3 code store, and
+    ;; removed the private progress record in the final marker batch.
+    (is (code-store-test-databases-equal-p current legacy))
+    (multiple-value-bind (progress present-p)
+        (kv-get-chain-record legacy :metadata "schema-migration")
+      (declare (ignore progress))
+      (is (not present-p)))))
+
 (deftest node-store-chain-schema-migration-preserves-state-roots
   (let* ((store (make-engine-payload-memory-store))
          (blocks (code-store-test-chain store))
          (restored (make-engine-payload-memory-store))
          (legacy (make-memory-key-value-database)))
-    (chain-store-export-state-records-to-kv store legacy)
+    (node-store-export-to-kv store legacy)
     (code-store-test-downgrade-to-inline-code store legacy)
     (ethereum-lisp.node-store.persistence:node-store-migrate-chain-schema legacy)
     (dolist (block blocks)

@@ -37,6 +37,9 @@ reads treat absence as that same default."
                       (head-number 0)
                       (state-blocks (make-hash-table :test 'equalp))
                       (state-diffs (make-hash-table :test 'equalp))
+                      (state-roots (make-hash-table :test 'equalp))
+                      (state-tries (make-hash-table :test 'equalp))
+                      (state-code-bodies (make-hash-table :test 'equalp))
                       (state-baseline-interval
                        +chain-store-default-state-baseline-interval+)
                       (state-retention-depth
@@ -66,6 +69,13 @@ reads treat absence as that same default."
   (head-number 0 :type (integer 0 *))
   state-blocks
   state-diffs
+  ;; Optional persisted-MPT commit data. STATE-ROOTS maps block key to root;
+  ;; STATE-TRIES maps it to the account trie plus touched storage tries whose
+  ;; dirty paths must join the block's durable batch. STATE-CODE-BODIES carries
+  ;; only touched immutable contract bodies until that same batch succeeds.
+  state-roots
+  state-tries
+  state-code-bodies
   (state-baseline-interval +chain-store-default-state-baseline-interval+
    :type (integer 1 *))
   (state-retention-depth +chain-store-default-state-retention-depth+

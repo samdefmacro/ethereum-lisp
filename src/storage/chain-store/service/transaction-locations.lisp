@@ -64,10 +64,21 @@
 
 (defun engine-payload-store-transaction-location (store hash)
   (setf store (chain-store-require-memory-store store))
-  (let ((location
-          (gethash (engine-payload-store-key hash)
-                   (memory-chain-store-transaction-locations
-                    store))))
+  (let* ((key (engine-payload-store-key hash))
+         (locations (memory-chain-store-transaction-locations store))
+         (location
+           (multiple-value-bind (cached cached-p) (gethash key locations)
+             (if cached-p
+                 cached
+                 (multiple-value-bind (persisted persisted-p)
+                     (chain-store-backing-transaction-location store hash)
+                   (when persisted-p
+                     (unless (typep persisted 'engine-transaction-location)
+                       (block-validation-fail
+                        "Durable transaction location has an invalid type"))
+                     (if (chain-store-cache-backing-read-p store)
+                         (setf (gethash key locations) persisted)
+                         persisted)))))))
     (when (and location
                (engine-payload-store-canonical-block-p
                 store

@@ -9,8 +9,15 @@
   (node-store-require-persistence-metadata-for-versioned-target
    database persistence-metadata record-label)
   (let ((batch (make-kv-write-batch)))
-    (funcall populate-batch store database batch)
-    (kv-apply-batch database batch)))
+    (multiple-value-bind (ignored pending-trie-nodes state-hashes)
+        (funcall populate-batch store database batch)
+      (declare (ignore ignored))
+      (kv-apply-batch database batch)
+      (when pending-trie-nodes
+        (mpt-mark-nodes-persisted pending-trie-nodes))
+      (dolist (hash state-hashes)
+        (chain-store-clear-state-persistence-pending store hash))
+      database)))
 
 (defun chain-store-export-checkpoint-to-kv (batch checkpoint)
   (let ((label (and checkpoint

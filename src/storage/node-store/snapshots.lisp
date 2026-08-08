@@ -29,20 +29,27 @@ Rather than deep-copying the whole store up front, the growing tables record a
 changed-key undo journal while the transaction is active, so a failed commit
 rolls back in time proportional to the keys it touched. The small side slots
 whose values are mutated in place (or that a journal cannot cheaply protect)
-are captured as a bounded wholesale copy, and the txpool keeps its cheap copy."
+are captured as a bounded wholesale copy. Txpool tables join the same journal;
+only their constant-size scalar/change-log heads are snapshotted."
   (let* ((store (node-store-require-memory-state store))
          (chain-store (chain-store-require-memory-store store))
+         (txpool (engine-payload-memory-store-txpool store))
          (txpool-snapshot
-           (engine-pending-txpool-copy
-            (engine-payload-memory-store-txpool store)))
+           (engine-pending-txpool-transaction-snapshot txpool))
          (volatile-snapshot
            (chain-store-capture-volatile-slots chain-store)))
     (call-with-chain-store-transaction
      (lambda (journal)
-       (handler-case
-           (funcall thunk)
-         (error (condition)
-           (chain-store-journal-rollback journal)
-           (chain-store-restore-volatile-slots chain-store volatile-snapshot)
-           (setf (engine-payload-memory-store-txpool store) txpool-snapshot)
-           (error condition)))))))
+       (call-with-engine-pending-txpool-undo-recording
+        (lambda (table key)
+          (chain-store-journal-record-key journal table key))
+        (lambda ()
+          (handler-case
+              (funcall thunk)
+            (error (condition)
+              (chain-store-journal-rollback journal)
+              (chain-store-restore-volatile-slots
+               chain-store volatile-snapshot)
+              (engine-pending-txpool-restore-transaction-snapshot
+               txpool txpool-snapshot)
+              (error condition)))))))))

@@ -13,8 +13,9 @@
   ;; any record, rather than misinterpreting a future layout, and bring an older
   ;; one forward. Adopting a datadir is the one point where a node is certainly
   ;; its single writer, so it is where the forward migration belongs: every
-  ;; later write path may then assume the current layout. The migration is one
-  ;; atomic batch and a single key read when there is nothing to do.
+  ;; later write path may then assume the current layout. Migration advances in
+  ;; bounded, resumable batches; an already-current database needs only the
+  ;; marker read and performs no write.
   (node-store-migrate-chain-schema database)
   (let ((staging (make-engine-payload-memory-store)))
     (chain-store-import-block-records-from-kv staging database)

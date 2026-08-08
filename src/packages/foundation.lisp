@@ -59,8 +59,13 @@
    #:kv-apply-batch
    #:kv-iterator
    #:kv-chain-record-key
+   #:kv-chain-record-key-kind
+   #:kv-chain-record-key-identifier
+   #:kv-chain-record-kind-start-key
+   #:kv-chain-record-kind-end-key
    #:+kv-chain-schema-version+
    #:kv-chain-record-uint64-bytes
+   #:kv-chain-record-uint64-identifier
    #:kv-chain-height-hash-identifier
    #:kv-chain-height-hash-identifier-values
    #:kv-put-chain-record
@@ -248,6 +253,9 @@
   (:export
    #:mpt
    #:make-mpt
+   #:copy-mpt
+   #:copy-mpt-root
+   #:make-persisted-mpt
    #:mpt-put
    #:mpt-delete
    #:mpt-get
@@ -259,6 +267,8 @@
    #:mpt-root-hex
    #:mpt-root-node
    #:mpt-persist
+   #:mpt-populate-dirty-batch
+   #:mpt-mark-nodes-persisted
    #:trie-node-store-get
    #:make-mpt-iterator
    #:mpt-get-range-proof

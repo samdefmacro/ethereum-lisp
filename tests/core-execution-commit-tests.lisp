@@ -74,6 +74,7 @@
              (assert-rejected-header (header)
                (let* ((store (make-engine-payload-memory-store))
                       (state (make-state-db))
+                      (full-copy-count 0)
                       (transaction
                         (make-legacy-transaction
                          :nonce 0
@@ -83,12 +84,19 @@
                          :value 10)))
                  (state-db-set-account state sender
                                        (make-state-account :balance 100000))
-                 (signals error
-                   (execute-and-commit-block
-                    store state
-                    (lambda ()
-                      (execute-legacy-block state sender (list transaction)
-                                            :header header))))
+                 (let ((ethereum-lisp.state::*state-db-copy-observer*
+                         (lambda (copied-state)
+                           (declare (ignore copied-state))
+                           (incf full-copy-count))))
+                   (signals error
+                     (execute-and-commit-block
+                      store state
+                      (lambda ()
+                        (execute-legacy-block state sender (list transaction)
+                                              :header header)))))
+                 ;; Both execution validation and the surrounding store commit
+                 ;; must use changed-key rollback, even with a populated state.
+                 (is (= 0 full-copy-count))
                  (is (null (chain-store-block-by-number store 0)))
                  (is (null (chain-store-canonical-hash store 0)))
                  (is (null (chain-store-transaction-location

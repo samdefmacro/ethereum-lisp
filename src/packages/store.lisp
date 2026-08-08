@@ -73,6 +73,9 @@
    #:memory-chain-store-head-number
    #:memory-chain-store-state-blocks
    #:memory-chain-store-state-diffs
+   #:memory-chain-store-state-roots
+   #:memory-chain-store-state-tries
+   #:memory-chain-store-state-code-bodies
    #:memory-chain-store-state-baseline-interval
    #:memory-chain-store-state-retention-depth
    #:chain-state-diff
@@ -143,7 +146,20 @@
    #:engine-payload-store-copy-transaction-location
    #:engine-payload-store-copy-transaction-location-table
    #:copy-memory-chain-store
+   #:chain-store-backing-block
+   #:chain-store-backing-canonical-hash
+   #:chain-store-backing-transaction-location
+   #:chain-store-backing-state-root
+   #:chain-store-backing-account-state
+   #:chain-store-backing-account-storage
+   #:chain-store-backing-trie-node
+   #:chain-store-backing-code
+   #:chain-store-backing-blob-sidecar
+   #:chain-store-durable-state-provider-p
+   #:chain-store-cache-backing-read-p
+   #:chain-store-release-durable-block-overlay
    #:call-with-chain-store-transaction
+   #:chain-store-journal-record-key
    #:chain-store-journal-rollback
    #:chain-store-journal-undo-count
    #:chain-store-journal-puthash
@@ -190,6 +206,11 @@
    #:engine-payload-store-update-forkchoice-checkpoints
    #:engine-payload-store-state-available-p
    #:chain-store-state-available-p
+   #:chain-store-state-root
+   #:chain-store-put-state-persistence
+   #:chain-store-state-persistence-tries
+   #:chain-store-state-persistence-code-bodies
+   #:chain-store-clear-state-persistence-pending
    #:engine-payload-store-prune-state-snapshot
    #:chain-store-prune-state-before
    #:chain-store-prune-state-to-retention-depth

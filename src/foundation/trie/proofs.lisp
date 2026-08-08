@@ -9,6 +9,8 @@
        (mpt-proof-for-node child nibbles (node-reference-hashed-p child))))
 
 (defun mpt-proof-for-node (node nibbles include-current-p)
+  (when (hash-node-p node)
+    (setf node (trie-resolve-node node)))
   (let ((proof (if include-current-p
                    (list (encoded-node node))
                    nil)))

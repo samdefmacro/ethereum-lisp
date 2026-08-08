@@ -35,6 +35,11 @@
    #:kv-apply-batch
    #:kv-iterator
    #:kv-chain-record-key
+   #:kv-chain-record-key-kind
+   #:kv-chain-record-key-identifier
+   #:kv-chain-record-kind-start-key
+   #:kv-chain-record-kind-end-key
+   #:kv-chain-record-uint64-identifier
    #:kv-put-chain-record
    #:kv-get-chain-record
    #:kv-delete-chain-record
@@ -137,6 +142,9 @@
   (#:ethereum-lisp.trie
    #:mpt
    #:make-mpt
+   #:copy-mpt
+   #:copy-mpt-root
+   #:make-persisted-mpt
    #:mpt-put
    #:mpt-delete
    #:mpt-get
@@ -148,6 +156,8 @@
    #:mpt-root-hex
    #:mpt-root-node
    #:mpt-persist
+   #:mpt-populate-dirty-batch
+   #:mpt-mark-nodes-persisted
    #:trie-node-store-get
    #:make-mpt-iterator
    #:mpt-get-range-proof
@@ -1096,6 +1106,23 @@
    #:node-store-database-finding-message
    #:node-store-database-finding-description
    #:node-store-verify-chain-database
+   #:node-store-database-copy-progress
+   #:node-store-database-copy-progress-p
+   #:node-store-database-copy-progress-operation
+   #:node-store-database-copy-progress-source-schema-version
+   #:node-store-database-copy-progress-copied-count
+   #:node-store-database-copy-progress-cursor
+   #:node-store-copy-chain-database
+   #:node-store-backup-chain-database
+   #:node-store-restore-chain-database
+   #:node-store-rebuild-chain-database
+   #:node-store-repair-chain-database
+   #:database-chain-store
+   #:database-chain-store-p
+   #:database-chain-store-database
+   #:database-engine-payload-store-p
+   #:database-engine-payload-store-database
+   #:make-database-engine-payload-store
    #:node-store-stage-progress
    #:node-store-stage-progress-p
    #:node-store-stage-progress-number
@@ -1126,7 +1153,10 @@
    #:chain-store-export-transaction-locations-to-kv
    #:chain-store-export-state-records-to-kv
    #:node-store-export-payload-candidate-to-kv
+   #:node-store-export-forkchoice-to-kv
    #:node-store-export-to-kv
+   #:node-store-import-txpool-records-from-kv
+   #:node-store-import-txpool-blob-sidecars-from-kv
    #:node-store-import-from-kv)
   (#:ethereum-lisp.engine-api
    #:+engine-rpc-capabilities+
@@ -1344,6 +1374,7 @@
    #:state-storage-range-entry-slot
    #:state-storage-range-entry-value
    #:state-db-get-account
+   #:decode-state-account-rlp
    #:make-lazy-state-db
    #:state-db-account-loaded-p
    #:state-db-account-or-empty
@@ -1356,6 +1387,8 @@
    #:state-db-restore
    #:state-db-snapshot
    #:state-db-revert-to-snapshot
+   #:state-db-transaction-snapshot
+   #:state-db-revert-transaction-snapshot
    #:state-db-finalize-transaction
    #:state-db-touch-account
    #:state-db-set-storage
@@ -1371,8 +1404,10 @@
    #:state-db-storage-range
    #:state-db-for-each-account
    #:state-db-for-each-touched-account
+   #:state-db-clear-touched-accounts
    #:state-db-lazy-p
    #:state-db-root
+   #:state-db-persistence-tries
    #:state-db-root-hex
    #:+wei-per-gwei+
    #:state-db-add-balance

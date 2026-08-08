@@ -108,3 +108,8 @@ which case ACCOUNT, CODE and STORAGE-ENTRIES are NIL. See STATE-DB TOUCHED."
                    (state-object-storage-entries object))
           (funcall function address nil nil nil nil))))
   state)
+
+(defun state-db-clear-touched-accounts (state)
+  "Begin a new block change set without dropping lazy trie/account caches."
+  (clrhash (state-db-touched state))
+  state)

@@ -19,8 +19,9 @@
               "KV transaction location references a missing receipt"))
         sum (length (receipt-logs receipt))))
 
-(defun chain-store-import-transaction-location-from-kv
+(defun chain-store-transaction-location-from-kv
     (store transaction-identifier location-record)
+  "Decode and fully validate one durable canonical transaction location."
   (setf store (chain-store-require-memory-store store))
   (let ((transaction-hash (make-hash32 transaction-identifier)))
     (multiple-value-bind (block-hash index log-index-start)
@@ -49,15 +50,23 @@
                      (chain-store-expected-log-index-start receipts index))
             (block-validation-fail
              "KV transaction location log index is inconsistent"))
-          (setf (gethash (hash32-to-hex transaction-hash)
-                         (memory-chain-store-transaction-locations
-                          store))
-                (make-engine-transaction-location
-                 :block block
-                 :index index
-                 :transaction transaction
-                 :receipt receipt
-                 :log-index-start log-index-start)))))))
+          (make-engine-transaction-location
+           :block block
+           :index index
+           :transaction transaction
+           :receipt receipt
+           :log-index-start log-index-start))))))
+
+(defun chain-store-import-transaction-location-from-kv
+    (store transaction-identifier location-record)
+  (setf store (chain-store-require-memory-store store))
+  (let ((location
+          (chain-store-transaction-location-from-kv
+           store transaction-identifier location-record)))
+    (setf (gethash (bytes-to-hex transaction-identifier)
+                   (memory-chain-store-transaction-locations store))
+          location)
+    location))
 
 (defun chain-store-import-transaction-locations-from-kv (store database)
   (dolist (entry (kv-chain-record-entries database :transaction-location))

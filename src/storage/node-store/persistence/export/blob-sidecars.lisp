@@ -17,6 +17,53 @@
    (hex-to-bytes versioned-hash-key)
    (chain-store-blob-sidecar-record-rlp blob-and-proofs)))
 
+(defun node-store-put-immutable-blob-sidecar
+    (database batch identifier blob-and-proofs)
+  (let ((record (chain-store-blob-sidecar-record-rlp blob-and-proofs)))
+    (multiple-value-bind (existing present-p)
+        (kv-get-chain-record database :blob-sidecar identifier)
+      (cond
+        ((not present-p)
+         (kv-batch-put-chain-record batch :blob-sidecar identifier record)
+         t)
+        ((bytes= existing record) nil)
+        (t
+         (block-validation-fail
+          "Blob sidecar conflicts with its persisted versioned hash"))))))
+
+(defun node-store-populate-blob-sidecars-for-transactions-batch
+    (store database batch transactions &key require-all-p)
+  "Add TRANSACTIONS' available blob sidecars to BATCH by versioned hash.
+
+REQUIRE-ALL-P is used for a txpool snapshot: a pooled blob transaction without
+its sidecar is not restartable and is refused.  Imported blocks legitimately
+arrive without blob bodies, so live block batches leave it false.  Sidecars are
+immutable shared content: this helper never sweeps the common namespace because
+a transaction leaving the pool does not mean its canonical block stopped
+referencing the sidecar.  Offline rebuild is the compaction path."
+  (let ((identifiers (make-hash-table :test 'equal))
+        (changed-p nil))
+    (dolist (transaction transactions)
+      (loop for versioned-hash across
+              (transaction-blob-versioned-hashes transaction)
+            for identifier = (hash32-bytes versioned-hash)
+            for key = (bytes-to-hex identifier)
+            unless (gethash key identifiers)
+              do (setf (gethash key identifiers) t)
+                 (let ((blob-and-proofs
+                         (engine-payload-store-blob-and-proofs-v1
+                          store versioned-hash)))
+                   (cond
+                     (blob-and-proofs
+                      (when (node-store-put-immutable-blob-sidecar
+                             database batch identifier blob-and-proofs)
+                        (setf changed-p t)))
+                     (require-all-p
+                      (block-validation-fail
+                       "Pooled blob transaction is missing sidecar ~A"
+                       key))))))
+    changed-p))
+
 (defun chain-store-populate-blob-sidecar-export-batch
     (store database batch)
   (setf store (chain-store-require-memory-store store))

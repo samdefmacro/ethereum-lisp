@@ -10,6 +10,11 @@
 ;;;; entries. Rollback work is then proportional to the keys the commit changed,
 ;;;; not to the size of the whole store.
 ;;;;
+;;;; The node-store composition boundary injects this same first-touch recorder
+;;;; into txpool table writes.  Txpool remains independent of chain-store while
+;;;; its top-level and nested sender-index keys participate in the same savepoint
+;;;; and rollback order.
+;;;;
 ;;;; The journal only protects tables whose VALUES are immutable once stored:
 ;;;; blocks are copied on write and read out by copy, account values are
 ;;;; integers or freshly copied byte vectors, state diffs are immutable once
@@ -37,7 +42,7 @@ is NIL, so reads and non-transactional writes pay nothing.")
   (hash-undos nil :type list)
   ;; Each entry (RESTORE . OLD-VALUE) restores one scalar or struct slot.
   (slot-undos nil :type list)
-  ;; First-touch dedupe: mutated TABLE -> EQUAL set of already-recorded keys.
+  ;; First-touch dedupe: mutated TABLE -> a set using TABLE's equality test.
   (seen-tables (make-hash-table :test 'eq) :type hash-table)
   ;; First-touch dedupe for slots, keyed by the slot's accessor symbol.
   (seen-slots (make-hash-table :test 'eq) :type hash-table))
@@ -47,7 +52,10 @@ is NIL, so reads and non-transactional writes pay nothing.")
   (let ((seen (or (gethash table (chain-store-journal-seen-tables journal))
                   (setf (gethash table
                                  (chain-store-journal-seen-tables journal))
-                        (make-hash-table :test 'equal)))))
+                        ;; Match TABLE's equality contract. In particular,
+                        ;; byte-vector keys in EQUALP tables must deduplicate
+                        ;; even when a later write supplies a fresh vector.
+                        (make-hash-table :test (hash-table-test table))))))
     (unless (gethash key seen)
       (setf (gethash key seen) t)
       (multiple-value-bind (old present-p) (gethash key table)
@@ -137,7 +145,8 @@ subsequent parent write to the same key does not record over the child's undo."
                  (or (gethash table (chain-store-journal-seen-tables parent))
                      (setf (gethash table
                                     (chain-store-journal-seen-tables parent))
-                           (make-hash-table :test 'equal)))))
+                           (make-hash-table
+                            :test (hash-table-test child-seen))))))
            (maphash (lambda (key value)
                       (declare (ignore value))
                       (setf (gethash key parent-seen) t))

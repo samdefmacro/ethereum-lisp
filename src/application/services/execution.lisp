@@ -54,32 +54,55 @@ so execution only fails if EVM code actually queries unavailable history."
   ;; The full iterator remains for the baseline path (which needs every account)
   ;; and for non-lazy states, whose untouched remainder is not known to equal
   ;; the parent -- there the proven full-iteration diff is preserved exactly.
-  (chain-store-commit-post-state
-   store block-hash
-   (lambda (visit)
-     (state-db-for-each-account
-      state
-      (lambda (address account code storage-entries)
-        (funcall visit
-                 address
-                 (state-account-balance account)
-                 (state-account-nonce account)
-                 code
-                 storage-entries))))
-   :iterate-touched
-   (when (state-db-lazy-p state)
-     (lambda (visit)
-       (state-db-for-each-touched-account
-        state
-        (lambda (address present-p account code storage-entries)
-          (if present-p
-              (funcall visit
-                       address t
-                       (state-account-balance account)
-                       (state-account-nonce account)
-                       code
-                       storage-entries)
-              (funcall visit address nil nil nil nil nil)))))))
+  (let* ((chain-store (chain-store-require-memory-store store))
+         (direct-p (chain-store-durable-state-provider-p chain-store))
+         (persist-p
+           (or direct-p
+               (not (state-db-lazy-p state))
+               (state-db-persistence-ready-p state))))
+    (unless direct-p
+      (chain-store-commit-post-state
+       store block-hash
+       (lambda (visit)
+         (state-db-for-each-account
+          state
+          (lambda (address account code storage-entries)
+            (funcall visit
+                     address
+                     (state-account-balance account)
+                     (state-account-nonce account)
+                     code
+                     storage-entries))))
+       :iterate-touched
+       (when (state-db-lazy-p state)
+         (lambda (visit)
+           (state-db-for-each-touched-account
+            state
+            (lambda (address present-p account code storage-entries)
+              (if present-p
+                  (funcall visit
+                           address t
+                           (state-account-balance account)
+                           (state-account-nonce account)
+                           code
+                           storage-entries)
+                  (funcall visit address nil nil nil nil nil))))))))
+    (when persist-p
+      (let ((root (state-db-root state))
+            (code-bodies nil))
+        (state-db-for-each-touched-account
+         state
+         (lambda (address present-p account code storage-entries)
+           (declare (ignore address account storage-entries))
+           (when (and present-p (plusp (length code)))
+             (pushnew code code-bodies :test #'bytes=))))
+        (chain-store-put-state-persistence
+         store block-hash root
+         (state-db-persistence-tries state) code-bodies)))
+    ;; The root and exact dirty trie set are now owned by the chain-store
+    ;; journal. Reusing STATE for another block must start a fresh touched set;
+    ;; lazy account/trie caches remain available and bounded by actual access.
+    (state-db-clear-touched-accounts state))
   store)
 
 (defun chain-store-state-db (store block-hash)
@@ -97,43 +120,105 @@ so execution only fails if EVM code actually queries unavailable history."
                   (state-db-set-code state address code))
                 (dolist (entry storage-entries)
                   (state-db-set-storage
-                   state address (car entry) (cdr entry))))))))
-      (make-lazy-state-db
-       (lambda (address)
-         (multiple-value-bind (balance balance-present-p)
-             (chain-store-account-balance store block-hash address)
-           (let ((storage-entries
-                   (chain-store-account-storage-entries
-                    store block-hash address))
-                 (code (chain-store-account-code store block-hash address)))
-             (multiple-value-bind (nonce nonce-present-p)
-                 (chain-store-account-nonce store block-hash address)
-               (if (or balance-present-p nonce-present-p storage-entries
-                       (plusp (length code)))
-                   (values
-                    (make-state-account
-                     :nonce nonce
-                     :balance balance
-                     :code-hash
-                     (ethereum-lisp.crypto:keccak-256-hash code))
-                    code
-                    t
-                    storage-entries)
-                   (values nil nil nil))))))
-       (lambda (address slot)
-         (chain-store-account-storage store block-hash address slot))
-       #'load-all))))
+                   state address (car entry) (cdr entry)))))))
+         (trie-node-loader (hash)
+           (chain-store-backing-trie-node
+            (chain-store-require-memory-store store) hash)))
+      (let* ((root (chain-store-state-root store block-hash))
+             (committed-tries
+               (chain-store-state-persistence-tries store block-hash)))
+        (if (and root
+                 (chain-store-durable-state-provider-p
+                  (chain-store-require-memory-store store)))
+            (let ((account-trie
+                    (if committed-tries
+                        (copy-mpt (first committed-tries))
+                        (make-persisted-mpt root #'trie-node-loader))))
+              (make-lazy-state-db
+               (lambda (address)
+                 (multiple-value-bind (account-record present-p)
+                     (mpt-get account-trie
+                              (keccak-256 (address-bytes address)))
+                   (if present-p
+                       (let* ((account
+                                (decode-state-account-rlp account-record))
+                              (code-hash (state-account-code-hash account))
+                              (code
+                                (if (hash32= code-hash +empty-code-hash+)
+                                    (make-byte-vector 0)
+                                    (multiple-value-bind
+                                        (persisted-code code-present-p)
+                                        (chain-store-backing-code
+                                         (chain-store-require-memory-store store)
+                                         code-hash)
+                                      (cond
+                                        (code-present-p persisted-code)
+                                        (committed-tries
+                                         (chain-store-account-code
+                                          store block-hash address))
+                                        (t
+                                         (block-validation-fail
+                                          "Persisted account code is missing"))))))
+                              (storage-root
+                                (state-account-storage-root account))
+                              (storage-trie
+                                (or
+                                 (and committed-tries
+                                      (find-if
+                                       (lambda (trie)
+                                         (hash32=
+                                          (make-hash32 (mpt-root-hash trie))
+                                          storage-root))
+                                       (rest committed-tries)))
+                                 (make-persisted-mpt
+                                  storage-root #'trie-node-loader))))
+                         (values account code t nil storage-trie))
+                       (values nil nil nil))))
+               nil
+               ;; Hashed account keys have no reversible whole-world
+               ;; materializer. Memory/file oracles take the flat branch below.
+               nil
+               :trie account-trie
+               :cached-root root
+               :direct-trie-p t))
+            (make-lazy-state-db
+             (lambda (address)
+               (multiple-value-bind (balance balance-present-p)
+                   (chain-store-account-balance store block-hash address)
+                 (let ((storage-entries
+                         (chain-store-account-storage-entries
+                          store block-hash address))
+                       (code
+                         (chain-store-account-code
+                          store block-hash address)))
+                   (multiple-value-bind (nonce nonce-present-p)
+                       (chain-store-account-nonce store block-hash address)
+                     (if (or balance-present-p nonce-present-p storage-entries
+                             (plusp (length code)))
+                         (values
+                          (make-state-account
+                           :nonce nonce
+                           :balance balance
+                           :code-hash
+                           (ethereum-lisp.crypto:keccak-256-hash code))
+                          code
+                          t
+                          storage-entries)
+                         (values nil nil nil))))))
+             (lambda (address slot)
+               (chain-store-account-storage store block-hash address slot))
+             #'load-all))))))
 
 (defun execute-atomic-block-commit (store state thunk)
-  (let ((state-snapshot (state-db-copy state)))
-    (chain-store-atomic-commit
-     store
-     (lambda ()
-       (handler-case
-           (funcall thunk)
-         (error (condition)
-           (state-db-restore state state-snapshot)
-           (error condition)))))))
+  (let ((state-snapshot (state-db-transaction-snapshot state)))
+    ;; Keep the handler around the complete store transaction, not merely its
+    ;; callback.  A durable batch may fail after THUNK has staged state and
+    ;; cleared TOUCHED; that failure must restore both state and store.
+    (handler-case
+        (chain-store-atomic-commit store thunk)
+      (error (condition)
+        (state-db-revert-transaction-snapshot state state-snapshot)
+        (error condition)))))
 
 (defun execute-and-commit-block
     (store state executor

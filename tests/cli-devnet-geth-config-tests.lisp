@@ -525,6 +525,16 @@ HTTPPort = 1945
       (is (search "chaindata" (getf parsed :database-path))))
     ;; The default backend can also be named explicitly.
     (is (eq :file (getf (options (list "--db.engine" "file")) :db-engine)))
+    ;; Public-network presets use RocksDB unless an explicit oracle override is
+    ;; present; local/dev invocations above retain their file default.
+    (let ((parsed
+            (options (list "--mainnet"
+                           "--datadir" "/tmp/eth-db-engine-mainnet"))))
+      (is (eq :rocksdb (getf parsed :db-engine)))
+      (is (search "chaindata" (getf parsed :database-path))))
+    (let ((parsed (options (list "--mainnet" "--db.engine" "file"))))
+      (is (eq :file (getf parsed :db-engine)))
+      (is (getf parsed :db-engine-specified-p)))
     ;; An unsupported engine is rejected, naming the flag and a supported value.
     (let ((message (parse-error (list "--db.engine" "pebble"))))
       (is (stringp message))
@@ -562,4 +572,3 @@ HTTPPort = 1945
                        (get-output-stream-string errors))))
       (when (probe-file config-path)
         (delete-file config-path)))))
-

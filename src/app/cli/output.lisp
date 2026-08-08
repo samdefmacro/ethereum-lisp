@@ -10,10 +10,11 @@
   (format stream "Commands:~%")
   (format stream "  init        Initialize a datadir from a genesis file.~%")
   (format stream "  devnet      Run a local Engine/public JSON-RPC devnet node.~%")
+  (format stream "  db          Verify, back up, restore, repair, or rebuild a database.~%")
   (format stream "  help        Print this help.~%")
   (format stream "  version     Print the local client version.~%")
   (format stream "~%")
-  (format stream "Use `ethereum-lisp init --help` or `ethereum-lisp devnet --help` for command options.~%"))
+  (format stream "Use `ethereum-lisp init --help`, `ethereum-lisp devnet --help`, or `ethereum-lisp db --help` for command options.~%"))
 
 (defun devnet-cli-version-string ()
   (let ((version (engine-rpc-client-version)))

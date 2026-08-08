@@ -1,5 +1,61 @@
 (in-package #:ethereum-lisp.txpool.index)
 
+(defvar *engine-pending-txpool-copy-observer* nil
+  "Internal test hook called when the deliberate full txpool copy API runs.")
+
+(defstruct (engine-pending-txpool-rollback-snapshot
+            (:constructor make-engine-pending-txpool-rollback-snapshot
+                (&key account-slot-limit global-slot-limit
+                      local-transaction-predicate
+                      database-change-tracking-enabled-p
+                      change-sequence change-log)))
+  account-slot-limit
+  global-slot-limit
+  local-transaction-predicate
+  database-change-tracking-enabled-p
+  change-sequence
+  change-log)
+
+(defun engine-pending-txpool-transaction-snapshot (txpool)
+  "Capture only constant-size txpool metadata for changed-key rollback.
+
+All transaction, sender-index, admission-time, and database-dirty table writes
+participate in the enclosing chain-store journal. CHANGE-LOG is a persistent
+list updated by PUSH/SUBSEQ, so retaining its old head is O(1) and exact."
+  (make-engine-pending-txpool-rollback-snapshot
+   :account-slot-limit
+   (engine-pending-txpool-account-slot-limit txpool)
+   :global-slot-limit
+   (engine-pending-txpool-global-slot-limit txpool)
+   :local-transaction-predicate
+   (engine-pending-txpool-local-transaction-predicate txpool)
+   :database-change-tracking-enabled-p
+   (engine-pending-txpool-database-change-tracking-enabled-p txpool)
+   :change-sequence
+   (engine-pending-txpool-change-sequence txpool)
+   :change-log
+   (engine-pending-txpool-change-log txpool)))
+
+(defun engine-pending-txpool-restore-transaction-snapshot (txpool snapshot)
+  (unless (engine-pending-txpool-rollback-snapshot-p snapshot)
+    (error "Txpool transaction snapshot is invalid: ~S" snapshot))
+  (setf
+   (engine-pending-txpool-account-slot-limit txpool)
+   (engine-pending-txpool-rollback-snapshot-account-slot-limit snapshot)
+   (engine-pending-txpool-global-slot-limit txpool)
+   (engine-pending-txpool-rollback-snapshot-global-slot-limit snapshot)
+   (engine-pending-txpool-local-transaction-predicate txpool)
+   (engine-pending-txpool-rollback-snapshot-local-transaction-predicate
+    snapshot)
+   (engine-pending-txpool-database-change-tracking-enabled-p txpool)
+   (engine-pending-txpool-rollback-snapshot-database-change-tracking-enabled-p
+    snapshot)
+   (engine-pending-txpool-change-sequence txpool)
+   (engine-pending-txpool-rollback-snapshot-change-sequence snapshot)
+   (engine-pending-txpool-change-log txpool)
+   (engine-pending-txpool-rollback-snapshot-change-log snapshot))
+  txpool)
+
 (defun engine-pending-txpool-copy-transaction (transaction transaction-copies)
   (or (gethash transaction transaction-copies)
       (setf (gethash transaction transaction-copies)
@@ -41,6 +97,8 @@
     copy))
 
 (defun engine-pending-txpool-copy (txpool)
+  (when *engine-pending-txpool-copy-observer*
+    (funcall *engine-pending-txpool-copy-observer* txpool))
   (let ((transaction-copies (make-hash-table :test 'eq)))
     (make-engine-pending-txpool
      :transactions

@@ -217,6 +217,53 @@
                     (ethereum-lisp.trie::encoded-node
                      (mpt-root-node trie))))))))
 
+(deftest persisted-trie-opens-lazily-and-writes-only-dirty-paths
+  (let ((trie (make-mpt))
+        (database (make-memory-key-value-database)))
+    (dotimes (index 512)
+      (mpt-put trie
+               (vector (ldb (byte 8 8) index)
+                       (ldb (byte 8 0) index))
+               (integer-to-minimal-bytes (1+ index))))
+    (let* ((old-root (mpt-persist database trie))
+           (stored-node-count
+             (length (kv-chain-record-entries database :trie-node)))
+           (resolved-count 0)
+           (lazy
+             (make-persisted-mpt
+              old-root
+              (lambda (hash)
+                (incf resolved-count)
+                (trie-node-store-get database hash)))))
+      ;; Positive control: the source really has a large persisted node set.
+      (is (> stored-node-count 100))
+      (is (= 0 resolved-count))
+      (multiple-value-bind (value present-p) (mpt-get lazy #(1 1))
+        (is present-p)
+        (is (bytes= value (integer-to-minimal-bytes 258))))
+      (is (< resolved-count (/ stored-node-count 4)))
+      (mpt-put lazy #(1 1) (integer-to-minimal-bytes 9999))
+      (let ((encoded-count 0)
+            (new-root nil))
+        (let ((ethereum-lisp.trie::*node-encoding-count* 0))
+          (setf new-root (mpt-persist database lazy)
+                encoded-count ethereum-lisp.trie::*node-encoding-count*))
+        ;; A full rewrite would encode hundreds of nodes. The changed leaf and
+        ;; its ancestors are the only cache misses on the durable write path.
+        (is (< encoded-count 32))
+        (is (not (ethereum-lisp.types:hash32= old-root new-root)))
+        (let ((reopened
+                (make-persisted-mpt
+                 new-root
+                 (lambda (hash)
+                   (trie-node-store-get database hash)))))
+          (multiple-value-bind (changed present-p) (mpt-get reopened #(1 1))
+            (is present-p)
+            (is (bytes= changed (integer-to-minimal-bytes 9999))))
+          (multiple-value-bind (untouched present-p) (mpt-get reopened #(0 7))
+            (is present-p)
+            (is (bytes= untouched (integer-to-minimal-bytes 8)))))))))
+
 (deftest trie-iterator-resumes-after-cursor
   (let ((trie (make-mpt)))
     (dolist (entry '((#(1) . #(10)) (#(2) . #(20)) (#(3) . #(30))))
@@ -247,4 +294,3 @@
         (mpt-verify-range-proof
          (mpt-root-hash trie) (rest entries) proof
          :start #(1) :end #(4))))))
-

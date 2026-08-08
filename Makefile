@@ -63,6 +63,7 @@ endif
 .PHONY: test-unit test-integration test-e2e test-all \
 	docker-test-image docker-test-unit docker-test-integration \
 	docker-test-e2e docker-test-all docker-docs-check docker-sbcl \
+	docker-direct-store-scale \
 	eest-fixtures eest-fixtures-stable eest-fixtures-amsterdam
 
 test-unit:
@@ -125,3 +126,32 @@ docker-docs-check: $(DOCKER_TEST_IMAGE_DEP)
 docker-sbcl: $(DOCKER_TEST_IMAGE_DEP)
 	$(if $(strip $(DOCKER_SBCL_ARGS)),,$(error DOCKER_SBCL_ARGS is required))
 	$(DOCKER_TEST_RUN) sbcl $(DOCKER_SBCL_ARGS)
+
+# Section 3 production-store acceptance gate.  An unconstrained preparation
+# container cold-compiles the current source into an ephemeral Docker volume;
+# compiler peak memory is not part of the datastore-runtime claim. A fresh
+# 384 MiB-limited container then streams a 512 MiB incompressible RocksDB and a
+# fresh SBCL process opens it through the direct provider. The asserted 256 MiB
+# RSS bound and 30-second whole-process restart bound leave the dataset larger
+# than both the effective RAM limit and the accepted resident working set.
+docker-direct-store-scale: $(DOCKER_TEST_IMAGE_DEP)
+	@scale_cache="ethereum-lisp-direct-store-scale-cache-$$$$"; \
+	cleanup() { $(DOCKER) volume rm "$$scale_cache" >/dev/null 2>&1 || true; }; \
+	trap cleanup EXIT HUP INT TERM; \
+	$(DOCKER) volume create "$$scale_cache" >/dev/null; \
+	$(DOCKER) run --rm --init --network none \
+		--volume "$(CURDIR):$(DOCKER_TEST_WORKDIR):ro" \
+		--mount "type=volume,source=$$scale_cache,target=/tmp/ethereum-lisp-asdf-cache" \
+		--workdir "$(DOCKER_TEST_WORKDIR)" \
+		--env XDG_CACHE_HOME=/tmp/ethereum-lisp-asdf-cache \
+		$(DOCKER_TEST_IMAGE) sbcl --non-interactive \
+		--eval '(require :asdf)' \
+		--eval '(asdf:load-asd #P"/workspace/ethereum-lisp.asd")' \
+		--eval '(asdf:load-system :ethereum-lisp)'; \
+	$(DOCKER) run --rm --init --network none \
+		--memory 384m --memory-swap 384m \
+		--volume "$(CURDIR):$(DOCKER_TEST_WORKDIR):ro" \
+		--mount "type=volume,source=$$scale_cache,target=/tmp/ethereum-lisp-asdf-cache" \
+		--workdir "$(DOCKER_TEST_WORKDIR)" \
+		--env XDG_CACHE_HOME=/tmp/ethereum-lisp-asdf-cache \
+		$(DOCKER_TEST_IMAGE) sh scripts/direct-store-scale-gate.sh

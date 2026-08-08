@@ -20,12 +20,10 @@
           for header = (block-header current)
           for number = (block-header-number header)
           for current-hash = (block-hash current)
-          for canonical-key =
-            (gethash number
-                     (memory-chain-store-canonical-hashes store))
-          do (when (and canonical-key
-                        (string= canonical-key
-                                 (engine-payload-store-key current-hash)))
+          for canonical-hash =
+            (engine-payload-store-canonical-hash store number)
+          do (when (and canonical-hash
+                        (hash32= canonical-hash current-hash))
                (return path))
              (push current path)
              (when (zerop number)
@@ -65,21 +63,18 @@
        txpool block))))
 
 (defun canonical-chain-prune-descendants (store new-head-number)
-  (let ((stale-numbers nil)
-        (displaced-blocks nil))
-    (maphash
-     (lambda (number key)
-       (declare (ignore key))
-       (when (> number new-head-number)
-         (let ((block (engine-payload-store-block-by-number store number)))
-           (when block
-             (push block displaced-blocks)))
-         (push number stale-numbers)))
-     (memory-chain-store-canonical-hashes store))
-    (dolist (number stale-numbers)
+  (let ((displaced-blocks nil))
+    ;; A database-backed store caches indexes on demand, so MAPHASH would see
+    ;; only the subset read since startup.  The current head is bounded control
+    ;; state; walk that numeric range and point-read each descendant instead.
+    (loop for number from (1+ new-head-number)
+            to (memory-chain-store-head-number store)
+          for block = (engine-payload-store-block-by-number store number)
+          when block do (push block displaced-blocks)
+          do
       (chain-store-journal-remhash
        (memory-chain-store-canonical-hashes store) number))
-    displaced-blocks))
+    (nreverse displaced-blocks)))
 
 (defun canonical-chain-set-head-metadata (store head-block)
   (let ((hash (block-hash head-block)))

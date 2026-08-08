@@ -163,7 +163,7 @@
             :genesis-hash (block-hash genesis-block)
             :authority-id (devnet-cli-new-persistence-authority-id)))
          (effective-network-id (or network-id (chain-config-chain-id config)))
-         (store (make-engine-payload-memory-store))
+         (initial-store (make-engine-payload-memory-store))
          ;; The blocking guard and its give-up-instead companion share one
          ;; mutex, so they have to be taken from one call.
          (store-guard-pair (multiple-value-list (make-devnet-store-guard-function)))
@@ -174,6 +174,20 @@
          (forkchoice-persistence-function
            (devnet-cli-forkchoice-persistence-function
             database-path persistence-state db-engine))
+         (store
+           (progn
+             (chain-store-put-block
+              initial-store genesis-block :state-available-p t)
+             (commit-state-db-to-chain-store
+              initial-store (block-hash genesis-block) state)
+             (devnet-cli-import-persistent-state
+              initial-store
+              database-path
+              txpool-journal-path
+              config
+              genesis-block
+              persistence-state
+              db-engine)))
          (jwt-secret (and jwt-secret-path
                           (devnet-cli-read-jwt-secret jwt-secret-path)))
          (service
@@ -244,16 +258,6 @@
             (devnet-txpool-policy-lifetime-seconds txpool-policy)
             :admin-backend admin-backend
             :telemetry-sink telemetry-sink)))
-    (chain-store-put-block store genesis-block :state-available-p t)
-    (commit-state-db-to-chain-store store (block-hash genesis-block) state)
-    (devnet-cli-import-persistent-state
-     store
-     database-path
-     txpool-journal-path
-     config
-     genesis-block
-     persistence-state
-     db-engine)
     (setf (first node-box)
           (%make-devnet-node
        :genesis-path

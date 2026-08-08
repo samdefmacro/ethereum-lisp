@@ -33,12 +33,18 @@
 
 (defun engine-payload-store-account-balance (store block-hash address)
   (setf store (chain-store-require-memory-store store))
-  (engine-payload-store-resolve-state-value
-   store block-hash
-   #'chain-state-diff-balances
-   (address-to-hex address)
-   (memory-chain-store-account-balances store)
-   0))
+  (multiple-value-bind
+      (balance nonce code-hash storage-root account-present-p state-present-p)
+      (chain-store-backing-account-state store block-hash address)
+    (declare (ignore nonce code-hash storage-root))
+    (if state-present-p
+        (values balance account-present-p)
+        (engine-payload-store-resolve-state-value
+         store block-hash
+         #'chain-state-diff-balances
+         (address-to-hex address)
+         (memory-chain-store-account-balances store)
+         0))))
 
 (defun engine-payload-store-put-account-nonce
     (store block-hash address nonce)
@@ -63,12 +69,18 @@
 
 (defun engine-payload-store-account-nonce (store block-hash address)
   (setf store (chain-store-require-memory-store store))
-  (engine-payload-store-resolve-state-value
-   store block-hash
-   #'chain-state-diff-nonces
-   (address-to-hex address)
-   (memory-chain-store-account-nonces store)
-   0))
+  (multiple-value-bind
+      (balance nonce code-hash storage-root account-present-p state-present-p)
+      (chain-store-backing-account-state store block-hash address)
+    (declare (ignore balance code-hash storage-root))
+    (if state-present-p
+        (values nonce account-present-p)
+        (engine-payload-store-resolve-state-value
+         store block-hash
+         #'chain-state-diff-nonces
+         (address-to-hex address)
+         (memory-chain-store-account-nonces store)
+         0))))
 
 (defun engine-payload-store-put-account-code
     (store block-hash address code)
@@ -92,16 +104,36 @@
 
 (defun engine-payload-store-account-code (store block-hash address)
   (setf store (chain-store-require-memory-store store))
-  (let ((code
-          (engine-payload-store-resolve-state-value
-           store block-hash
-           #'chain-state-diff-codes
-           (address-to-hex address)
-           (memory-chain-store-account-codes store)
-           nil)))
-    (if code
-        (copy-seq code)
-        (make-byte-vector 0))))
+  (multiple-value-bind
+      (balance nonce code-hash storage-root account-present-p state-present-p)
+      (chain-store-backing-account-state store block-hash address)
+    (declare (ignore balance nonce storage-root))
+    (cond
+      ((and state-present-p account-present-p)
+       (unless (hash32-p code-hash)
+         (block-validation-fail
+          "Trie-backed account code hash must be a hash32"))
+       (if (hash32= code-hash +empty-code-hash+)
+           (make-byte-vector 0)
+           (multiple-value-bind (code present-p)
+               (chain-store-backing-code store code-hash)
+             (unless present-p
+               (block-validation-fail
+                "Trie-backed account code is missing"))
+             (copy-seq code))))
+      (state-present-p
+       (make-byte-vector 0))
+      (t
+       (let ((code
+               (engine-payload-store-resolve-state-value
+                store block-hash
+                #'chain-state-diff-codes
+                (address-to-hex address)
+                (memory-chain-store-account-codes store)
+                nil)))
+         (if code
+             (copy-seq code)
+             (make-byte-vector 0)))))))
 
 (defun engine-payload-store-put-account-storage
     (store block-hash address slot value)
@@ -128,12 +160,17 @@
 
 (defun engine-payload-store-account-storage (store block-hash address slot)
   (setf store (chain-store-require-memory-store store))
-  (engine-payload-store-resolve-state-value
-   store block-hash
-   #'chain-state-diff-storage
-   (format nil "~A:~A" (address-to-hex address) (hash32-to-hex slot))
-   (memory-chain-store-account-storage store)
-   0))
+  (multiple-value-bind (value present-p state-present-p)
+      (chain-store-backing-account-storage
+       store block-hash address slot)
+    (if state-present-p
+        (values value present-p)
+        (engine-payload-store-resolve-state-value
+         store block-hash
+         #'chain-state-diff-storage
+         (format nil "~A:~A" (address-to-hex address) (hash32-to-hex slot))
+         (memory-chain-store-account-storage store)
+         0))))
 
 (defun chain-store-put-account-balance
     (store block-hash address balance)

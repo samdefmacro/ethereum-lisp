@@ -17,6 +17,7 @@
         (database-path nil)
         (datadir-path nil)
         (db-engine :file)
+        (db-engine-specified-p nil)
         (network-id nil)
         (chain-preset nil)
         (http-api-modules nil)
@@ -338,7 +339,8 @@
                ;; did not ask for.
                ((string= option "--db.engine")
                 (setf db-engine
-                      (devnet-cli-parse-db-engine (next-value option))))
+                      (devnet-cli-parse-db-engine (next-value option))
+                      db-engine-specified-p t))
                ;; Reject rather than ignore: these flags each SELECT node
                ;; behaviour, so accepting-and-discarding them silently runs a
                ;; configuration the operator did not ask for (a different sync
@@ -362,6 +364,11 @@
                 (error "Unknown option ~A" option))))
     (when (and genesis-path genesis-preset)
       (error "--genesis cannot be combined with a public network preset"))
+    ;; Public networks select the production substrate unless the operator
+    ;; explicitly asks for a test-oracle backend. Local/dev invocations retain
+    ;; the file default for compatibility and deterministic tests.
+    (when (and genesis-preset (not db-engine-specified-p))
+      (setf db-engine :rocksdb))
     (list :genesis-path genesis-path
           :genesis-preset genesis-preset
           :host host
@@ -376,6 +383,7 @@
           :public-rpc-prefix public-rpc-prefix
           :datadir-path datadir-path
           :db-engine db-engine
+          :db-engine-specified-p db-engine-specified-p
           :database-path (or database-path
                              (and datadir-path
                                   (devnet-cli-datadir-database-path

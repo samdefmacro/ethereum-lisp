@@ -2,9 +2,10 @@
 
 (defun devnet-live-state-record-present-p (database identifier)
   "A block's state persists as :STATE for a baseline or :STATE-DIFF for a
-diff; either satisfies a state-persisted assertion."
+diff in an oracle, or as :STATE-HISTORY for the direct trie provider."
   (or (nth-value 1 (kv-get-chain-record database :state identifier))
-      (nth-value 1 (kv-get-chain-record database :state-diff identifier))))
+      (nth-value 1 (kv-get-chain-record database :state-diff identifier))
+      (nth-value 1 (kv-get-chain-record database :state-history identifier))))
 
 (deftest devnet-live-persistence-migrates-headless-chain-baseline
   (let ((database-path
@@ -49,7 +50,7 @@ diff; either satisfies a state-persisted assertion."
 
 (deftest devnet-live-persistence-round-trips-on-rocksdb
   ;; --db.engine rocksdb persists the chain into a datadir DIRECTORY database and
-  ;; a fresh node hydrates its head from it. The node-lifetime handle cache is
+  ;; both the fresh bootstrap and restart use its direct provider. The handle is
   ;; held across the whole body because RocksDB permits a single open handle per
   ;; process -- exactly as the CLI serve path holds it (cli.lisp) -- so the first
   ;; node's export and the second node's import share one directory lock.
@@ -66,6 +67,8 @@ diff; either satisfies a state-persisted assertion."
                    (head-hash
                      (block-hash
                       (ethereum-lisp.cli:devnet-node-genesis-block first-node))))
+              (is (database-engine-payload-store-p
+                   (ethereum-lisp.cli:devnet-node-store first-node)))
               (ethereum-lisp.cli::devnet-node-export-database first-node)
               (is (ethereum-lisp.cli::devnet-cli-rocksdb-directory-initialized-p
                    dir))
@@ -76,6 +79,7 @@ diff; either satisfies a state-persisted assertion."
                         :db-engine :rocksdb))
                      (restored-store
                        (ethereum-lisp.cli:devnet-node-store second-node)))
+                (is (database-engine-payload-store-p restored-store))
                 (is (ethereum-lisp.txpool:engine-payload-store-txpool-database-change-tracking-enabled-p
                      restored-store))
                 (is (bytes=

@@ -36,6 +36,15 @@
    :state-diffs
    (engine-payload-store-copy-table
     (memory-chain-store-state-diffs store))
+   :state-roots
+   (engine-payload-store-copy-table
+    (memory-chain-store-state-roots store))
+   :state-tries
+   (engine-payload-store-copy-table
+    (memory-chain-store-state-tries store))
+   :state-code-bodies
+   (engine-payload-store-copy-table
+    (memory-chain-store-state-code-bodies store))
    :state-baseline-interval
    (memory-chain-store-state-baseline-interval store)
    :state-retention-depth

@@ -240,9 +240,15 @@ transient or raced verdict can be retried without restarting the node."
 (defun engine-payload-store-blob-and-proofs-v1
     (store versioned-hash)
   (setf store (chain-store-require-memory-store store))
-  (engine-payload-store-copy-blob-and-proofs
-   (gethash (engine-payload-store-key versioned-hash)
-            (memory-chain-store-blob-sidecars store))))
+  (let ((cached
+          (gethash (engine-payload-store-key versioned-hash)
+                   (memory-chain-store-blob-sidecars store))))
+    (if cached
+        (engine-payload-store-copy-blob-and-proofs cached)
+        (multiple-value-bind (persisted present-p)
+            (chain-store-backing-blob-sidecar store versioned-hash)
+          (and present-p
+               (engine-payload-store-copy-blob-and-proofs persisted))))))
 
 (defun engine-payload-store-blob-and-proofs-v2
     (store versioned-hash)

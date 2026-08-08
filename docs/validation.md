@@ -61,6 +61,25 @@ maintenance, repeated baselines, or a second development objective. Report an
 unrelated failure separately and continue the requested feature when it is safe
 to do so.
 
+## Production-store scale gate
+
+```sh
+make docker-direct-store-scale
+```
+
+This Docker-only acceptance gate writes a checkpointed canonical block and
+account trie plus 512 MiB of distinct, hash-addressed code records into RocksDB
+while the container is limited to 384 MiB. A fresh SBCL process opens the
+current-schema database through the direct provider and point-reads the
+persisted account, code, and storage before measuring. It fails unless restart
+RSS stays below 256 MiB and whole-process restart time stays below 30 seconds;
+the wrapper also requires RocksDB's physical on-disk size to exceed 384 MiB.
+An unconstrained preparation container first cold-compiles the current source
+into an ephemeral cache volume, so the 384 MiB limit measures datastore runtime
+rather than compiler peak memory. The limited seeding process is intentionally
+separate from the measured restart process, so allocator state from constructing
+the dataset cannot make a memory-mirrored restart look bounded.
+
 ## Documentation Transcripts
 
 ```sh

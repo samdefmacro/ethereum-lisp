@@ -97,7 +97,7 @@
      :requests-supplied-p requests-supplied-p
      :block-access-list-supplied-p block-access-list-supplied-p
      :max-blob-gas max-blob-gas)
-    (let ((snapshot (state-db-copy state))
+    (let ((snapshot (state-db-transaction-snapshot state))
           (header-snapshot (copy-block-header-for-execution header)))
       (handler-case
           (progn
@@ -228,7 +228,7 @@
                              :message "Executed block hash mismatch"))
                     (values executed-block receipts))))))
         (error (condition)
-          (state-db-restore state snapshot)
+          (state-db-revert-transaction-snapshot state snapshot)
           (restore-block-header-for-execution header header-snapshot)
           (error condition)))))))
 

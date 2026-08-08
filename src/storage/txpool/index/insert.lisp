@@ -24,9 +24,9 @@
                     (transaction-max-priority-fee-per-gas victim)))
       (block-validation-fail failure-message))
     (engine-pending-txpool-unindex-transaction sender-index victim)
-    (remhash
-     (engine-pending-txpool-hash-key (transaction-hash victim))
-     transactions)
+    (engine-pending-txpool-journal-remhash
+     transactions
+     (engine-pending-txpool-hash-key (transaction-hash victim)))
     (engine-pending-txpool-clear-admission-time txpool victim)
     (engine-pending-txpool-record-transaction-change txpool victim)
     victim))
@@ -80,16 +80,18 @@
               (engine-pending-txpool-unindex-pending-transaction
                txpool
                conflict)
-              (remhash
-               (engine-pending-txpool-hash-key (transaction-hash conflict))
-               transactions)
+              (engine-pending-txpool-journal-remhash
+               transactions
+               (engine-pending-txpool-hash-key
+                (transaction-hash conflict)))
               (engine-pending-txpool-clear-admission-time txpool conflict)
               (engine-pending-txpool-record-transaction-change
                txpool conflict)))
           (engine-pending-txpool-remove-replacement-conflicts
            txpool
            cross-subpool-conflicts)
-          (setf (gethash key transactions) transaction)
+          (engine-pending-txpool-journal-puthash
+           transactions key transaction)
           (engine-pending-txpool-note-admission-time
            txpool transaction admitted-at)
           (engine-pending-txpool-index-pending-transaction
@@ -149,16 +151,18 @@
               (engine-pending-txpool-unindex-queued-transaction
                txpool
                conflict)
-              (remhash
-               (engine-pending-txpool-hash-key (transaction-hash conflict))
-               transactions)
+              (engine-pending-txpool-journal-remhash
+               transactions
+               (engine-pending-txpool-hash-key
+                (transaction-hash conflict)))
               (engine-pending-txpool-clear-admission-time txpool conflict)
               (engine-pending-txpool-record-transaction-change
                txpool conflict)))
           (engine-pending-txpool-remove-replacement-conflicts
            txpool
            cross-subpool-conflicts)
-          (setf (gethash key transactions) transaction)
+          (engine-pending-txpool-journal-puthash
+           transactions key transaction)
           (engine-pending-txpool-note-admission-time
            txpool transaction admitted-at)
           (engine-pending-txpool-index-queued-transaction
@@ -207,16 +211,18 @@
               (engine-pending-txpool-unindex-transaction
                sender-index
                conflict)
-              (remhash
-               (engine-pending-txpool-hash-key (transaction-hash conflict))
-               transactions)
+              (engine-pending-txpool-journal-remhash
+               transactions
+               (engine-pending-txpool-hash-key
+                (transaction-hash conflict)))
               (engine-pending-txpool-clear-admission-time txpool conflict)
               (engine-pending-txpool-record-transaction-change
                txpool conflict)))
           (engine-pending-txpool-remove-replacement-conflicts
            txpool
            cross-subpool-conflicts)
-          (setf (gethash key transactions) transaction)
+          (engine-pending-txpool-journal-puthash
+           transactions key transaction)
           (engine-pending-txpool-note-admission-time
            txpool transaction admitted-at)
           (engine-pending-txpool-index-transaction

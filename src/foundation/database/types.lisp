@@ -64,7 +64,13 @@ and recovery on reopen drops any partially written record. If the durable
 sync itself fails after the bytes reached the operating system, whether the
 record survives a crash is filesystem-dependent; the handle refuses further
 writes either way and must be reopened."))
-(defgeneric kv-iterator (database &key start end reverse-p))
+(defgeneric kv-iterator (database &key start end reverse-p)
+  (:documentation
+   "Return an iterator function and, as a second value, an idempotent closer.
+
+The iterator returns KEY, VALUE, PRESENT-P and closes itself at end of range.
+Callers that intentionally stop before exhaustion must call the closer so a
+native backend can release its iterator and surface any deferred IO error."))
 
 (defun make-memory-key-value-database ()
   (make-instance 'memory-key-value-database))
