@@ -27,6 +27,13 @@ Prefer fast-forward when the branch is a linear descendant. This does not
 extend to deleting remote branches, force-pushing, or rewriting published
 history; ask for those.
 
+**Completed development branches must land on `main`.** After verified work on
+a temporary or development branch is finished, merge it into local `main`
+(fast-forward when possible), push `main` to `origin`, and delete the local
+development branch. Do not leave completed work published only on a
+development branch. Keep the remote development branch unless its deletion is
+explicitly requested.
+
 **Docker-isolated builds and tests are pre-authorized.** Run ordinary in-scope
 Docker, containerized SBCL, wrapper, and `make` commands without asking for a
 separate go-ahead. Other agents run their own builds and containers on this
