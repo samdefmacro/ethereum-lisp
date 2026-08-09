@@ -41,58 +41,66 @@ machine, so keep this checkout's containers and caches isolated and obey the
 never-kill / never-clear rules below. This authorization does not extend to
 destructive shared-Docker cleanup or to running an interpreter on the host.
 
-**No interpreters on the host, ever.** Not sbcl, not python3, not scratch
-scripting — anything that executes code runs in a container. Plain `git`, `rg`
-and `curl` on the host are fine. This rule outranks any checked-in doc that
-appears to sanction a host path; when one conflicts, fix the doc.
+**No application toolchains on the host, ever.** Not SBCL, Python, Go, Node, or
+scratch scripting — builds, tests, evals, deployable processes, and generated
+code run in a reviewed container. Plain control-plane tools such as `git`, `rg`,
+`curl`, and Docker are fine. `make test-*` and inner test scripts fail closed
+outside the project image. This rule outranks any checked-in doc that appears to
+sanction a host path; when one conflicts, fix the doc.
 
 ## The development loop (warm image, not cold sbcl runs)
 
-**SBCL never runs on the macOS host** (PROJECT.md; the machine is shared with
-other agents). `scripts/dev.sh` runs the warm image inside a container and
-`docker exec`s each eval, so the Swank port is never published to the host.
+**Application code never runs on the macOS host** (PROJECT.md; the machine is
+shared with other agents). Common Lisp Workbench is the public development
+entry point. Its project adapter delegates to `scripts/dev.sh`, whose warm
+image keeps Swank on container loopback; no port is published to the host.
 
 ```
-scripts/dev.sh start                     # container w/ project + tests loaded, Swank inside (once)
-scripts/dev.sh eval '(+ 1 2)'            # ~0.2s per eval against the warm image
-scripts/dev.sh test trie-fixture-vectors # one test by name
-scripts/dev.sh test-all                  # full suite in the warm image
-scripts/dev.sh docs-check                # verify PAX doc transcripts
-scripts/dev.sh logs / shell / status     # container output, a shell inside, state
+cl-workbench doctor --strict             # contract + Docker/container boundary
+cl-workbench repl start                  # project + tests loaded, Swank inside
+cl-workbench repl eval '(+ 1 2)'         # canonical client streamed into container
+cl-workbench test trie-fixture-vectors   # one warm-image test by name
+cl-workbench test                        # full suite in the warm image
+cl-workbench docs verify                 # verify PAX doc transcripts
+cl-workbench repl status / stop          # owned checkout lifecycle
+scripts/dev.sh logs / shell              # low-level container inspection only
 make docker-test-unit / docker-test-integration / docker-test-e2e
                                          # cold layered runs — final verification
 ```
 
-The dev image is tagged `ethereum-lisp-dev:go1.24-bookworm`, deliberately
-separate from `DOCKER_TEST_IMAGE`, so rebuilding it never disturbs another
-agent's `make docker-test-*`. Set `ETHEREUM_LISP_DEV_CONTAINER` to run two
-warm images side by side. The workspace is mounted read-only with the same
-tmpfs shape as the cold gates — edits land on the host and are visible
-immediately; nothing in the container can write to your working tree.
+The dev image tag derives from pinned Docker build inputs and is deliberately
+separate from `DOCKER_TEST_IMAGE`; identical inputs may share an immutable
+image. The container and session IDs derive from the physical checkout, so two
+worktrees run side by side without manual names. Ownership labels prevent a
+checkout from reusing or deleting another checkout's container. The rootfs and
+workspace are read-only, capabilities are dropped, `no-new-privileges` is set,
+the Docker socket is absent, and tmpfs supplies the only writable runtime paths.
 
 Workflow discipline (in order):
 1. **Ground before writing**: check that symbols/APIs actually exist —
-   `dev.sh eval '(describe (quote some:symbol))'`, `(apropos "enr")`. Do not
+   `cl-workbench repl eval '(describe (quote some:symbol))'`, `(apropos "enr")`. Do not
    guess APIs.
 2. **Develop in small evals** against the warm image.
-3. **Edit files, then re-load and verify**: `dev.sh eval '(load "src/...")'`
+3. **Edit files, then re-load and verify**:
+   `cl-workbench repl eval '(load "src/...")'`
    or reload the affected system, then re-run the relevant test by name.
    Reload is YOUR job — the image does not watch files.
 4. `defstruct`/`defconstant` layout changes cannot be hot-patched: restart
-   (`dev.sh stop && dev.sh start`).
+   (`cl-workbench repl stop && cl-workbench repl start`).
 5. Finish with the cold `make docker-test-*` layer runs — the warm image is a
    development convenience, not the verification of record.
 
-Eval contract (scripts/dev-swank-eval.lisp): exit 0 ok / 1 lisp error (with
-backtrace frames) / 2 connection error (image down — NOT your code; run
-dev.sh start) / 3 timed out and interrupted (default 20s, image survived;
-raise DEV_EVAL_TIMEOUT for long forms) / 4 hard hang (restart the image).
-Output is capped at 10k chars with an explicit TRUNCATED marker. Every eval
-is logged to .dev-runtime/swank-dev/eval-metrics.log — do not delete it; it
-is the agent-productivity metric stream.
+Eval contract (`repl.eval.container.v1`): exit 0 ok / 1 Lisp error (with
+backtrace frames) / 2 local preflight or connection error / 3 timed out and
+interrupted (image survived) / 4 hard hang. The sole eval client belongs to
+Common Lisp Workbench and is streamed into the owned container; the project
+does not carry a copy. Workbench records payload-free operation outcomes under
+`.cl-workbench/state/`. Historical raw `.dev-runtime` metrics remain private:
+do not read, delete, import, or commit them.
 
-A PostToolUse hook (scripts/paren-hook.sh) checks delimiter balance on every
-.lisp/.asd edit and feeds errors straight back — fix them in the same turn.
+The PostToolUse hook calls `cl-workbench hook claude-code parens`; its lexical
+checker runs in the Workbench tool container and feeds delimiter errors straight
+back. Fix them in the same turn.
 
 ## Verification traps
 

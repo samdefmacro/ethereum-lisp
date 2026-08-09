@@ -81,11 +81,27 @@ provider boundaries, EVM behavior, txpool, RPC, and Engine API work.
 
 ## Run tests
 
-Local SBCL builds and tests run inside Docker so compiler caches, temporary
+Local application builds and tests run inside Docker so compiler caches, temporary
 artifacts, child processes, and loopback listeners stay isolated from macOS.
 The repository is mounted read-only; only the container-local `.cache` tmpfs
 is writable. The container has no external network or published host ports;
 real socket tests use loopback only inside its network namespace:
+
+```sh
+cl-workbench doctor --strict
+cl-workbench repl start
+cl-workbench repl eval '(+ 1 2)'
+cl-workbench test trie-fixture-vectors
+cl-workbench docs verify
+cl-workbench repl stop
+```
+
+The managed adapter keeps the listener private to the project container and
+streams the canonical Workbench client into it. Runtime container names derive
+from the physical checkout, while image tags derive from pinned build inputs;
+ownership labels prevent one checkout from stopping another.
+
+Cold validation also stays container-only:
 
 ```sh
 make docker-test-unit
@@ -102,8 +118,8 @@ shared libraries the KZG and BLS12-381 bindings dlopen, and the small set of
 process tools exercised by the suite. Each test invocation first loads all test
 definitions once, preventing concurrent ASDF compilation races.
 
-Inside CI or an already isolated Linux container, the underlying commands are
-shown below. Never invoke these directly on the macOS development host:
+Inside CI or the marked project image, the underlying commands are shown below.
+They fail closed elsewhere; never invoke them directly on the macOS host:
 
 ```sh
 sbcl --script tests/run-tests.lisp

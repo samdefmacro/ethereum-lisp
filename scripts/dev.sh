@@ -3,7 +3,6 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUNTIME_DIR="$ROOT/.dev-runtime/swank-dev"
-METRICS_LOG="${DEV_EVAL_METRICS_LOG:-$RUNTIME_DIR/eval-metrics.log}"
 PORT="${ETHEREUM_LISP_SWANK_PORT:-4006}"
 
 DOCKER=docker
@@ -80,9 +79,9 @@ Environment:
                                interrupted and the image survives
   DEV_EVAL_MAX_OUTPUT          Output cap in chars, default 10000
 Eval exit codes: 0 ok, 1 lisp error, 2 connection error, 3 timed out
-(interrupted), 4 hard hang (restart the image). Every eval is logged to
-.dev-runtime/swank-dev/eval-metrics.log (timestamp, exit code, duration,
-form snippet).
+(interrupted), 4 hard hang (restart the image). Common Lisp Workbench records
+payload-free operation outcomes in .cl-workbench/state; it does not append raw
+forms to the historical .dev-runtime eval metrics file.
 
 Cold-image test layers stay in the Makefile (make docker-test-unit /
 docker-test-integration / docker-test-e2e) — use those for final
@@ -320,32 +319,6 @@ identity_field() {
   esac
 }
 
-# Automatic per-eval metrics: timestamp, exit code (0 ok / 1 lisp-error /
-# 2 connection / 3 timeout-interrupted / 4 hard-hang), duration, form snippet.
-log_metrics() { # $1 rc, $2 start_epoch, $3 form
-  local snip
-  snip=$(printf '%s' "$3" | tr '\n' ' ' | cut -c1-80)
-  mkdir -p "$RUNTIME_DIR"
-  printf '%s rc=%s dur_s=%s form=%s\n' \
-    "$(date '+%Y-%m-%dT%H:%M:%S')" "$1" "$(( $(date +%s) - $2 ))" "$snip" \
-    >> "$METRICS_LOG" 2>/dev/null || true
-}
-
-# The eval client runs inside the container too, so it reaches Swank over the
-# container's loopback and the port is never exposed to the host.
-exec_eval_client() {
-  local args=(--interactive=false --workdir /workspace
-              --env DEV_SWANK_HOST=127.0.0.1
-              --env DEV_SWANK_PORT="$PORT")
-  [[ -n "${DEV_EVAL_TIMEOUT:-}" ]] && args+=(--env DEV_EVAL_TIMEOUT="$DEV_EVAL_TIMEOUT")
-  [[ -n "${DEV_EVAL_MAX_OUTPUT:-}" ]] && args+=(--env DEV_EVAL_MAX_OUTPUT="$DEV_EVAL_MAX_OUTPUT")
-  # Read and evaluate in a domain package, so a form can use unqualified
-  # symbols the way the sources do (e.g. DEV_SWANK_PACKAGE=ETHEREUM-LISP.TEST).
-  [[ -n "${DEV_SWANK_PACKAGE:-}" ]] && args+=(--env DEV_SWANK_PACKAGE="$DEV_SWANK_PACKAGE")
-  "$DOCKER" exec "${args[@]}" "$CONTAINER" \
-    sbcl --script scripts/dev-swank-eval.lisp "$@"
-}
-
 # Workbench adapter-only path. The canonical client is streamed over stdin;
 # it is never copied into this project or persisted in the container.
 exec_workbench_eval_client() {
@@ -372,12 +345,17 @@ eval_form() {
     echo "eval requires a Lisp FORM argument" >&2
     return 2
   fi
-  require_running || return $?
-  local start rc=0
-  start=$(date +%s)
-  exec_eval_client "$@" || rc=$?
-  log_metrics "$rc" "$start" "$*"
-  return $rc
+  local workbench="${CL_WORKBENCH_BIN:-cl-workbench}"
+  if [[ "$workbench" = */* ]]; then
+    [ -x "$workbench" ] || {
+      echo "ERROR: Common Lisp Workbench CLI is not executable: $workbench" >&2
+      return 2
+    }
+  elif ! command -v "$workbench" >/dev/null 2>&1; then
+    echo "ERROR: cl-workbench is unavailable; host Lisp fallback is forbidden" >&2
+    return 2
+  fi
+  "$workbench" repl eval "$@"
 }
 
 test_one() {

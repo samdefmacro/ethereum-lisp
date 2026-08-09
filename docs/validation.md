@@ -6,8 +6,21 @@ The full suite is for an explicit user request, release/CI work, or a genuinely
 broad high-risk change; it is not a routine prerequisite for implementing a
 feature.
 
-Local SBCL builds and tests run inside Docker on macOS so compiler caches,
+All application toolchains run inside Docker on macOS so compiler caches,
 temporary artifacts, child processes, and loopback listeners remain isolated.
+Direct `make test-*` and inner runner invocation fail outside the project image;
+there is no host fallback.
+
+For the warm development loop, use the managed Workbench contract:
+
+```sh
+cl-workbench doctor --strict
+cl-workbench repl start
+cl-workbench repl eval '(+ 1 2)'
+cl-workbench test TEST-NAME     # omit TEST-NAME for the full warm suite
+cl-workbench docs verify
+cl-workbench repl stop
+```
 
 ## Test Layers
 
@@ -84,7 +97,7 @@ the dataset cannot make a memory-mirrored restart look bounded.
 
 ```sh
 make docker-docs-check      # cold, same container shape as the test layers
-scripts/dev.sh docs-check   # warm image, for the edit loop
+cl-workbench docs verify    # warm image, for the edit loop
 ```
 
 The `cl-transcript` examples in `docs/*.lisp` are re-executed and compared

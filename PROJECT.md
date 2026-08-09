@@ -88,6 +88,8 @@ a distraction from features:
 
 - the warm-image development loop (`scripts/dev.sh`) and its eval hardening,
   metrics, and delimiter guard;
+- the capability-negotiated Common Lisp Workbench adapter, container-only
+  execution contract, and payload-free cross-project feedback events;
 - agent-facing indexes (`CLAUDE.md`) that keep APIs discoverable;
 - mechanically verified documentation — MGL-PAX sections whose `cl-transcript`
   examples are re-executed by `scripts/docs-check.lisp` (see
@@ -95,9 +97,21 @@ a distraction from features:
   vectors and teaching corpus for agents; a transcript that drifts from the code
   is a red build.
 
-Keep this work additive and out of consensus paths. The day-to-day mechanics of
-the dev loop live in `CLAUDE.md`; verification commands live in
-`docs/validation.md`.
+Keep this work additive and out of consensus paths. Agent-neutral development
+and verification commands live in `docs/validation.md`; `CLAUDE.md` and
+`AGENTS.md` are thin host-agent entry points to this contract.
+
+## Local execution boundary
+
+On developer machines, application toolchains never execute on the host. Common
+Lisp eval/build/test/documentation, Go helpers, generated code, and deployable
+processes run through the managed Common Lisp Workbench adapter or an explicit
+Docker target. Missing Docker, a stale/foreign runtime, or an unavailable
+Workbench capability is a hard failure; it never authorizes an SBCL, Python,
+Go, or Node fallback. The local wrapper is a workflow boundary, not containment
+against hostile source: untrusted or unattended work requires the whole agent
+session to run in an outer Dev Container or remote sandbox. Reviewed CI/Hive
+release jobs are a separate remote-execution profile.
 
 ## How to work here
 
