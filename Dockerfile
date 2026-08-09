@@ -1,4 +1,4 @@
-FROM golang:1.24-bookworm
+FROM golang:1.24-bookworm@sha256:1a6d4452c65dea36aac2e2d606b01b4a029ec90cc1ae53890540ce6173ea77ac
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -81,3 +81,7 @@ RUN curl -fsSL https://beta.quicklisp.org/quicklisp.lisp -o /tmp/quicklisp.lisp 
 ENV CL_SOURCE_REGISTRY=/root/quicklisp/dists/quicklisp/software//:
 
 WORKDIR /workspace
+
+# Marker consumed by fail-closed project wrappers. Keep it after dependency
+# layers so policy-only changes do not invalidate the expensive native build.
+ENV ETHEREUM_LISP_CONTAINER_RUNTIME=1

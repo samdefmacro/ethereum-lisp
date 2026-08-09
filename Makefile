@@ -60,22 +60,28 @@ ifneq ($(strip $(DOCKER_TEST_IMAGE_PREBUILT)),)
 DOCKER_TEST_IMAGE_DEP =
 endif
 
-.PHONY: test-unit test-integration test-e2e test-all \
+.PHONY: require-container-runtime test-unit test-integration test-e2e test-all \
 	docker-test-image docker-test-unit docker-test-integration \
 	docker-test-e2e docker-test-all docker-docs-check docker-sbcl \
 	docker-direct-store-scale \
 	eest-fixtures eest-fixtures-stable eest-fixtures-amsterdam
 
-test-unit:
+require-container-runtime:
+	@test "$${ETHEREUM_LISP_CONTAINER_RUNTIME:-}" = 1 || { \
+		echo "ERROR: direct host toolchain targets are forbidden; use make docker-test-*" >&2; \
+		exit 2; \
+	}
+
+test-unit: require-container-runtime
 	$(SBCL) --script tests/run-tests.lisp --layer unit
 
-test-integration:
+test-integration: require-container-runtime
 	$(SBCL) --script tests/run-tests.lisp --layer integration
 
-test-e2e:
+test-e2e: require-container-runtime
 	$(SBCL) --script tests/run-tests.lisp --layer e2e --jobs $(E2E_JOBS) --worker-timeout $(E2E_WORKER_TIMEOUT)
 
-test-all:
+test-all: require-container-runtime
 	SBCL="$(SBCL)" E2E_JOBS="$(E2E_JOBS)" scripts/run-test-layers.sh
 
 # Fetch a pinned execution-spec-tests corpus and print the root to export as

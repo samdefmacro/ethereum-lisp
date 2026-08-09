@@ -24,7 +24,7 @@
 # Hive dials the client containers by their bridge address for its liveness
 # check. That rules out macOS + Docker Desktop, where the daemon lives in a VM
 # the host cannot route into, so this script prepares everything and stops
-# there unless HIVE_ALLOW_HOST_GO=1 says otherwise.
+# there. A real Hive run belongs on the reviewed Linux CI/remote-release path.
 
 set -euo pipefail
 
@@ -126,7 +126,7 @@ if [ "$prepare_only" = "1" ]; then
     exit 0
 fi
 
-if [ "$(uname -s)" = "Darwin" ] && [ "${HIVE_ALLOW_HOST_GO:-0}" != "1" ]; then
+if [ "$(uname -s)" = "Darwin" ]; then
     cat >&2 <<'MSG'
 Refusing to run hive on macOS.
 

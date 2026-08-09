@@ -1,6 +1,8 @@
 #!/bin/sh
 set -eu
 
+. "$(dirname "$0")/require-container-runtime.sh"
+
 # This wrapper runs inside the memory-limited container created by the
 # Makefile.  Separate SBCL processes make the second invocation a real restart.
 sbcl --script scripts/direct-store-scale-gate.lisp \

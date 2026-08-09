@@ -1,6 +1,7 @@
 /.cache/*
 !/.cache/.gitkeep
 /.dev-runtime/
+/.cl-workbench/state/
 /.worktrees/
 /references/go-ethereum/
 /references/nethermind/

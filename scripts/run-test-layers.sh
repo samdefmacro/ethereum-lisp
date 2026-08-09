@@ -1,6 +1,8 @@
 #!/bin/sh
 set -eu
 
+. "$(dirname "$0")/require-container-runtime.sh"
+
 sbcl_command=${SBCL:-sbcl}
 e2e_jobs=${E2E_JOBS:-4}
 root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)

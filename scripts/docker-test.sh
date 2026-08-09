@@ -1,6 +1,8 @@
 #!/bin/sh
 set -eu
 
+. "$(dirname "$0")/require-container-runtime.sh"
+
 layer=${1:-all}
 if [ "$#" -gt 0 ]; then
   shift

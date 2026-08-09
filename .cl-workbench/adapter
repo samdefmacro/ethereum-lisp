@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+# Thin Common Lisp Workbench adapter for ethereum-lisp. Application Lisp is
+# launched only by scripts/dev.sh inside its checkout-owned Docker container.
+set -euo pipefail
+
+: "${CL_WORKBENCH_PROJECT_ROOT:?}"
+: "${CL_WORKBENCH_CONFIG:?}"
+: "${CL_WORKBENCH_ROOT:?}"
+: "${CL_WORKBENCH_VERSION:?}"
+: "${CL_WORKBENCH_EXECUTION_PROFILE:?}"
+
+DEV="$CL_WORKBENCH_PROJECT_ROOT/scripts/dev.sh"
+DESCRIPTOR="$CL_WORKBENCH_PROJECT_ROOT/.cl-workbench/state/repl.json"
+
+[ "$PWD" = "$CL_WORKBENCH_PROJECT_ROOT" ] || {
+  echo "ERROR: Workbench adapter must run from the project root" >&2
+  exit 2
+}
+[ "$CL_WORKBENCH_EXECUTION_PROFILE" = container-required ] || {
+  echo "ERROR: ethereum-lisp requires execution.profile=container-required" >&2
+  exit 2
+}
+
+write_descriptor() {
+  local state_dir temporary session_id port
+  state_dir="$(dirname "$DESCRIPTOR")"
+  session_id="$($DEV identity session-id)"
+  port="$($DEV identity port)"
+  temporary="$DESCRIPTOR.tmp.$$"
+  umask 077
+  mkdir -p "$state_dir"
+  printf '%s\n' \
+    '{' \
+    '  "schema_version": 1,' \
+    '  "transport": "swank",' \
+    '  "host": "127.0.0.1",' \
+    "  \"port\": $port," \
+    '  "package": "COMMON-LISP-USER",' \
+    "  \"session_id\": \"$session_id\"" \
+    '}' >"$temporary"
+  mv "$temporary" "$DESCRIPTOR"
+}
+
+run_eval() {
+  [ "$#" -ge 1 ] || { echo "ERROR: repl eval requires FORM" >&2; return 2; }
+  : "${CL_WORKBENCH_REPL_CLIENT:?}"
+  : "${CL_WORKBENCH_REPL_HOST:?}"
+  : "${CL_WORKBENCH_REPL_PORT:?}"
+  : "${CL_WORKBENCH_REPL_PACKAGE:?}"
+  [ "$CL_WORKBENCH_REPL_HOST" = 127.0.0.1 ] || {
+    echo "ERROR: container-private REPL host must be 127.0.0.1" >&2
+    return 2
+  }
+  [ "$CL_WORKBENCH_REPL_PORT" = "$($DEV identity port)" ] || {
+    echo "ERROR: REPL descriptor port does not match the owned container" >&2
+    return 2
+  }
+  DEV_SWANK_PACKAGE="$CL_WORKBENCH_REPL_PACKAGE" \
+    exec "$DEV" adapter-eval "$CL_WORKBENCH_REPL_CLIENT" "$@"
+}
+
+run_test() {
+  : "${CL_WORKBENCH_REPL_CLIENT:?}"
+  case "$#" in
+    0)
+      DEV_EVAL_TIMEOUT="${DEV_EVAL_TIMEOUT:-3600}" \
+        exec "$DEV" adapter-eval "$CL_WORKBENCH_REPL_CLIENT" \
+          '(cl-user::run-ethereum-lisp-tests)'
+      ;;
+    1)
+      case "$1" in
+        *[!A-Za-z0-9._:/+-]*|'')
+          echo "ERROR: unsafe ethereum-lisp test selector: $1" >&2
+          return 2
+          ;;
+      esac
+      DEV_EVAL_TIMEOUT="${DEV_EVAL_TIMEOUT:-600}" \
+        exec "$DEV" adapter-eval "$CL_WORKBENCH_REPL_CLIENT" \
+          "(cl-user::run-ethereum-lisp-test \"$1\")"
+      ;;
+    *)
+      echo "ERROR: ethereum-lisp accepts at most one test selector" >&2
+      return 2
+      ;;
+  esac
+}
+
+case "${1:-}" in
+  doctor)
+    [ "$#" -eq 1 ] || exit 2
+    [ -x "$DEV" ] || { echo "ERROR: scripts/dev.sh is not executable" >&2; exit 1; }
+    [ -f "$CL_WORKBENCH_ROOT/tools/repl/agent-eval.lisp" ] || {
+      echo "ERROR: canonical Workbench eval client is unavailable" >&2
+      exit 1
+    }
+    exec "$DEV" doctor
+    ;;
+  repl)
+    [ "$#" -ge 2 ] || exit 2
+    action="$2"
+    shift 2
+    case "$action" in
+      start)
+        [ "$#" -eq 0 ] || exit 2
+        "$DEV" start
+        write_descriptor
+        ;;
+      stop)
+        [ "$#" -eq 0 ] || exit 2
+        "$DEV" stop
+        rm -f "$DESCRIPTOR"
+        ;;
+      status)
+        [ "$#" -eq 0 ] || exit 2
+        exec "$DEV" status
+        ;;
+      eval) run_eval "$@" ;;
+      *) echo "ERROR: unknown REPL adapter operation: $action" >&2; exit 2 ;;
+    esac
+    ;;
+  test)
+    shift
+    run_test "$@"
+    ;;
+  docs)
+    [ "$#" -eq 2 ] && [ "$2" = verify ] || exit 2
+    exec "$DEV" docs-check
+    ;;
+  *)
+    echo "ERROR: unsupported Workbench adapter operation: ${1:-<missing>}" >&2
+    exit 2
+    ;;
+esac
