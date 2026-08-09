@@ -104,13 +104,12 @@ ownership labels prevent one checkout from stopping another.
 Cold validation also stays container-only:
 
 ```sh
-make docker-test-unit
-make docker-test-integration
-make docker-test-e2e                 # two bounded workers by default
-make docker-test-e2e DOCKER_E2E_JOBS=4
-make docker-test-all                 # full validation when needed
-make docker-test-unit DOCKER_TEST_ARGS="--match TRANSACTION"
-make docker-sbcl DOCKER_SBCL_ARGS="--script scripts/phase-a-smoke-gate.lisp -- --json"
+scripts/dev.sh cold-test unit
+scripts/dev.sh cold-test integration
+scripts/dev.sh cold-test e2e                 # two bounded workers by default
+scripts/dev.sh cold-test e2e --jobs 4
+scripts/dev.sh cold-test all                 # full validation when needed
+scripts/dev.sh cold-test unit --match TRANSACTION
 ```
 
 The Docker image includes SBCL, a pinned RocksDB build, the c-kzg-4844 and blst
@@ -137,18 +136,18 @@ change.
 Focused runs and discovery remain Docker-isolated:
 
 ```sh
-make docker-test-unit DOCKER_TEST_ARGS="--list"
-make docker-test-integration DOCKER_TEST_ARGS="--list --verbose"
-make docker-test-unit DOCKER_TEST_ARGS="--match TRANSACTION"
-make docker-test-unit DOCKER_TEST_ARGS="--exclude SMOKE --exclude OPTIONAL"
-make docker-test-unit DOCKER_TEST_ARGS="--timing --slow 1"
+scripts/dev.sh cold-test unit --list
+scripts/dev.sh cold-test integration --list --verbose
+scripts/dev.sh cold-test unit --match TRANSACTION
+scripts/dev.sh cold-test unit --exclude SMOKE --exclude OPTIONAL
+scripts/dev.sh cold-test unit --timing --slow 1
 ```
 
 `--layer` may be repeated to compose layers. `--timing` reports execution
 totals and the ten slowest selected tests; `--slow SECONDS` limits that report
 to tests at or above the threshold.
 
-The corresponding inner Make targets used by CI and the Docker wrapper are:
+The corresponding inner Make targets are CI/container internals:
 
 ```sh
 make test-unit

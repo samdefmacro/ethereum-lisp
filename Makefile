@@ -43,8 +43,13 @@ DOCKER_SELECTOR_ARGS += \
 endif
 
 DOCKER_TEST_RUN = $(DOCKER) run --rm --init --network none \
+	--read-only \
+	--cap-drop ALL \
+	--security-opt no-new-privileges \
+	--pids-limit 4096 \
 	--volume "$(CURDIR):$(DOCKER_TEST_WORKDIR):ro" \
 	--tmpfs "$(DOCKER_TEST_WORKDIR)/.cache:exec,mode=1777" \
+	--tmpfs "/tmp:exec,mode=1777" \
 	--tmpfs "/private/tmp:exec,mode=1777" \
 	--workdir "$(DOCKER_TEST_WORKDIR)" \
 	--env E2E_JOBS="$(DOCKER_E2E_JOBS)" \
@@ -68,7 +73,7 @@ endif
 
 require-container-runtime:
 	@test "$${ETHEREUM_LISP_CONTAINER_RUNTIME:-}" = 1 || { \
-		echo "ERROR: direct host toolchain targets are forbidden; use make docker-test-*" >&2; \
+		echo "ERROR: direct host toolchain targets are forbidden; use scripts/dev.sh cold-test" >&2; \
 		exit 2; \
 	}
 

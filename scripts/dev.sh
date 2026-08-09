@@ -34,6 +34,7 @@ IMAGE_FINGERPRINT="$(
 )"
 IMAGE_SHORT="${IMAGE_FINGERPRINT:0:12}"
 IMAGE="${ETHEREUM_LISP_DEV_IMAGE:-ethereum-lisp-dev:go1.24-bookworm-$IMAGE_SHORT}"
+COLD_IMAGE="ethereum-lisp-sbcl-test:go1.24-bookworm-$IMAGE_SHORT"
 CONTAINER="${ETHEREUM_LISP_DEV_CONTAINER:-ethereum-lisp-dev-$CHECKOUT_SHORT}"
 PROJECT_LABEL="io.common-lisp-workbench.project"
 CHECKOUT_LABEL="io.common-lisp-workbench.checkout"
@@ -59,6 +60,9 @@ Commands:
   test NAME          Run one test: eval (run-ethereum-lisp-test "NAME")
   test-all           Run the full suite in the warm image (long timeout)
   docs-check         Verify PAX documentation transcripts (docs/*.lisp)
+  cold-test LAYER    Run unit, integration, e2e, or all in a fresh container
+  cold-docs          Verify PAX transcripts in a fresh container
+  cold-scale         Run the production-store scale gate in containers
   logs               Show the dev container's output
   build              Build the dev image
   shell              Open an interactive shell in the dev container
@@ -68,8 +72,8 @@ Environment:
   ETHEREUM_LISP_DEV_IMAGE      Dev image tag, default is build-input-specific
                                ethereum-lisp-dev:go1.24-bookworm-<input hash>. Kept
                                separate from the DOCKER_TEST_IMAGE tag so
-                               building it never disturbs a concurrent
-                               `make docker-test-*` run.
+                               building it never disturbs a concurrent cold
+                               verification run.
   ETHEREUM_LISP_DEV_CONTAINER  Container name, default is checkout-specific.
                                An override is accepted only when its ownership
                                labels match this physical checkout.
@@ -83,9 +87,10 @@ Eval exit codes: 0 ok, 1 lisp error, 2 connection error, 3 timed out
 payload-free operation outcomes in .cl-workbench/state; it does not append raw
 forms to the historical .dev-runtime eval metrics file.
 
-Cold-image test layers stay in the Makefile (make docker-test-unit /
-docker-test-integration / docker-test-e2e) — use those for final
-verification; use the warm image for the development loop.
+Cold-image verification is brokered by `scripts/dev.sh cold-test LAYER` and
+`scripts/dev.sh cold-docs`. The broker accepts only reviewed arguments and
+constructs Docker invocations without executing a host build system; use the
+warm image for the development loop.
 USAGE
 }
 
@@ -378,6 +383,250 @@ docs_check() {
     sbcl --non-interactive --load scripts/docs-check.lisp
 }
 
+build_cold_image() {
+  echo "Building $COLD_IMAGE ..."
+  "$DOCKER" build \
+    --label "$PROJECT_LABEL=ethereum-lisp" \
+    --label "$RUNTIME_LABEL=$IMAGE_FINGERPRINT" \
+    --file "$ROOT/Dockerfile" --tag "$COLD_IMAGE" "$ROOT"
+}
+
+run_cold_container() {
+  local fixture_root="${ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT:-}"
+  local args=(run --rm --init
+              --network none
+              --read-only
+              --cap-drop ALL
+              --security-opt no-new-privileges
+              --pids-limit 4096
+              --volume "$ROOT:/workspace:ro"
+              --tmpfs "/workspace/.cache:exec,mode=1777"
+              --tmpfs "/tmp:exec,mode=1777"
+              --tmpfs "/private/tmp:exec,mode=1777"
+              --workdir /workspace
+              --env "E2E_JOBS=${COLD_E2E_JOBS:-2}"
+              --env E2E_WORKER_TIMEOUT=900
+              --env XDG_CACHE_HOME=/tmp/ethereum-lisp-asdf-cache)
+  if [ -n "$fixture_root" ]; then
+    [ -d "$fixture_root" ] || {
+      echo "ERROR: execution-spec fixture root is not a directory: $fixture_root" >&2
+      return 2
+    }
+    fixture_root="$(cd "$fixture_root" && pwd -P)"
+    args+=(--mount "type=bind,source=$fixture_root,target=/fixtures/execution-spec-tests,readonly")
+    args+=(--env ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT=/fixtures/execution-spec-tests)
+  fi
+  local selector
+  for selector in \
+    ETHEREUM_LISP_PHASE_A_STATE_TEST_SELECTORS \
+    ETHEREUM_LISP_PHASE_A_STATE_TEST_FORKS \
+    ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_SELECTORS \
+    ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_FORKS
+  do
+    if [ -n "${!selector:-}" ]; then
+      args+=(--env "$selector=${!selector}")
+    fi
+  done
+  "$DOCKER" "${args[@]}" "$COLD_IMAGE" "$@"
+}
+
+validate_cold_value() {
+  [ "$#" -eq 2 ] || return 2
+  local option="$1" value="$2"
+  [ -n "$value" ] || {
+    echo "ERROR: $option requires a value" >&2
+    return 2
+  }
+  case "$value" in
+    *[!A-Za-z0-9_.:/+-]*)
+      echo "ERROR: unsafe $option value: $value" >&2
+      return 2
+      ;;
+  esac
+}
+
+cold_test() {
+  [ "$#" -ge 1 ] || {
+    echo "cold-test requires a layer: unit, integration, e2e, or all" >&2
+    return 2
+  }
+  local layer="$1" jobs="" has_test_args=0
+  local test_argv=()
+  shift
+  case "$layer" in
+    unit|integration|e2e|all) ;;
+    *)
+      echo "ERROR: unknown cold-test layer: $layer" >&2
+      return 2
+      ;;
+  esac
+
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --list|--verbose|--timing)
+        [ "$layer" != all ] || {
+          echo "ERROR: $1 is not supported with cold-test all" >&2
+          return 2
+        }
+        test_argv+=("$1")
+        has_test_args=1
+        ;;
+      --match|--exclude)
+        [ "$layer" != all ] || {
+          echo "ERROR: $1 is not supported with cold-test all" >&2
+          return 2
+        }
+        local option="$1"
+        shift
+        [ "$#" -gt 0 ] || {
+          echo "ERROR: $option requires a value" >&2
+          return 2
+        }
+        validate_cold_value "$option" "$1" || return $?
+        test_argv+=("$option" "$1")
+        has_test_args=1
+        ;;
+      --slow)
+        [ "$layer" != all ] || {
+          echo "ERROR: --slow is not supported with cold-test all" >&2
+          return 2
+        }
+        shift
+        [ "$#" -gt 0 ] || {
+          echo "ERROR: --slow requires a non-negative number" >&2
+          return 2
+        }
+        [[ "$1" =~ ^[0-9]+([.][0-9]+)?$ ]] || {
+          echo "ERROR: --slow requires a non-negative number" >&2
+          return 2
+        }
+        test_argv+=(--slow "$1")
+        has_test_args=1
+        ;;
+      --jobs)
+        [ "$layer" = e2e ] || [ "$layer" = all ] || {
+          echo "ERROR: --jobs is supported only for e2e or all" >&2
+          return 2
+        }
+        shift
+        [ "$#" -gt 0 ] || {
+          echo "ERROR: --jobs requires a positive integer" >&2
+          return 2
+        }
+        [[ "$1" =~ ^[1-9][0-9]*$ ]] && [ "$1" -le 16 ] || {
+          echo "ERROR: --jobs requires an integer from 1 through 16" >&2
+          return 2
+        }
+        jobs="$1"
+        ;;
+      *)
+        echo "ERROR: unsupported cold-test argument: $1" >&2
+        return 2
+        ;;
+    esac
+    shift
+  done
+
+  build_cold_image
+  if [ "$has_test_args" -eq 1 ]; then
+    COLD_E2E_JOBS="${jobs:-2}" run_cold_container \
+      sh scripts/docker-test.sh "$layer" "${test_argv[@]}"
+  else
+    COLD_E2E_JOBS="${jobs:-2}" run_cold_container \
+      sh scripts/docker-test.sh "$layer"
+  fi
+}
+
+cold_docs() {
+  [ "$#" -eq 0 ] || {
+    echo "ERROR: cold-docs accepts no arguments" >&2
+    return 2
+  }
+  build_cold_image
+  run_cold_container sbcl --non-interactive --load scripts/docs-check.lisp
+}
+
+run_cold_scale_gate() {
+  local scale_cache="ethereum-lisp-scale-cache-$CHECKOUT_SHORT-$$"
+  if "$DOCKER" volume inspect "$scale_cache" >/dev/null 2>&1; then
+    echo "ERROR: refusing pre-existing scale cache volume: $scale_cache" >&2
+    return 2
+  fi
+  "$DOCKER" volume create \
+    --label "$PROJECT_LABEL=ethereum-lisp" \
+    --label "$CHECKOUT_LABEL=$CHECKOUT_ID" \
+    --label "$MANAGED_LABEL=true" \
+    "$scale_cache" >/dev/null
+  cleanup_scale_cache() {
+    local project checkout managed
+    project="$("$DOCKER" volume inspect --format \
+      '{{ index .Labels "io.common-lisp-workbench.project" }}' "$scale_cache" 2>/dev/null || true)"
+    checkout="$("$DOCKER" volume inspect --format \
+      '{{ index .Labels "io.common-lisp-workbench.checkout" }}' "$scale_cache" 2>/dev/null || true)"
+    managed="$("$DOCKER" volume inspect --format \
+      '{{ index .Labels "io.common-lisp-workbench.managed" }}' "$scale_cache" 2>/dev/null || true)"
+    if [ "$project" = ethereum-lisp ] && [ "$checkout" = "$CHECKOUT_ID" ] && \
+       [ "$managed" = true ]; then
+      if ! "$DOCKER" volume rm "$scale_cache" >/dev/null 2>&1; then
+        echo "WARNING: could not remove owned scale cache: $scale_cache" >&2
+      fi
+    else
+      echo "WARNING: refusing cleanup of foreign scale cache: $scale_cache" >&2
+    fi
+  }
+  trap cleanup_scale_cache EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+
+  "$DOCKER" run --rm --init --network none \
+    --read-only \
+    --cap-drop ALL \
+    --security-opt no-new-privileges \
+    --pids-limit 4096 \
+    --volume "$ROOT:/workspace:ro" \
+    --mount "type=volume,source=$scale_cache,target=/tmp/ethereum-lisp-asdf-cache" \
+    --tmpfs "/tmp:exec,mode=1777" \
+    --tmpfs "/private/tmp:exec,mode=1777" \
+    --workdir /workspace \
+    --env XDG_CACHE_HOME=/tmp/ethereum-lisp-asdf-cache \
+    "$COLD_IMAGE" sbcl --non-interactive \
+    --eval '(require :asdf)' \
+    --eval '(asdf:load-asd #P"/workspace/ethereum-lisp.asd")' \
+    --eval '(asdf:load-system :ethereum-lisp)'
+
+  # The gate intentionally writes more than 384 MiB to /scale-db in the
+  # container's disposable writable layer. It never mounts that path to macOS.
+  "$DOCKER" run --rm --init --network none \
+    --memory 384m --memory-swap 384m \
+    --cap-drop ALL \
+    --security-opt no-new-privileges \
+    --pids-limit 4096 \
+    --volume "$ROOT:/workspace:ro" \
+    --mount "type=volume,source=$scale_cache,target=/tmp/ethereum-lisp-asdf-cache" \
+    --tmpfs "/tmp:exec,mode=1777" \
+    --tmpfs "/private/tmp:exec,mode=1777" \
+    --workdir /workspace \
+    --env XDG_CACHE_HOME=/tmp/ethereum-lisp-asdf-cache \
+    "$COLD_IMAGE" sh scripts/direct-store-scale-gate.sh
+
+  cleanup_scale_cache
+  if "$DOCKER" volume inspect "$scale_cache" >/dev/null 2>&1; then
+    echo "ERROR: owned scale cache remains after cleanup: $scale_cache" >&2
+    return 1
+  fi
+  trap - EXIT HUP INT TERM
+}
+
+cold_scale() {
+  [ "$#" -eq 0 ] || {
+    echo "ERROR: cold-scale accepts no arguments" >&2
+    return 2
+  }
+  build_cold_image
+  run_cold_scale_gate
+}
+
 show_logs() {
   require_owned_container
   "$DOCKER" logs "$CONTAINER" "$@"
@@ -402,6 +651,9 @@ case "$cmd" in
   test) test_one "$@" ;;
   test-all) test_all ;;
   docs-check) docs_check ;;
+  cold-test) cold_test "$@" ;;
+  cold-docs) cold_docs "$@" ;;
+  cold-scale) cold_scale "$@" ;;
   logs) show_logs "$@" ;;
   shell) open_shell ;;
   help|-h|--help) usage ;;

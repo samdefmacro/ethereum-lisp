@@ -35,10 +35,10 @@ development branch. Keep the remote development branch unless its deletion is
 explicitly requested.
 
 **Docker-isolated builds and tests are pre-authorized.** Run ordinary in-scope
-Docker, containerized SBCL, wrapper, and `make` commands without asking for a
-separate go-ahead. Other agents run their own builds and containers on this
-machine, so keep this checkout's containers and caches isolated and obey the
-never-kill / never-clear rules below. This authorization does not extend to
+`cl-workbench` and `scripts/dev.sh` container-broker commands without asking
+for a separate go-ahead. Other agents run their own builds and containers on
+this machine, so keep this checkout's containers and caches isolated and obey
+the never-kill / never-clear rules below. This authorization does not extend to
 destructive shared-Docker cleanup or to running an interpreter on the host.
 
 **No application toolchains on the host, ever.** Not SBCL, Python, Go, Node, or
@@ -64,8 +64,8 @@ cl-workbench test                        # full suite in the warm image
 cl-workbench docs verify                 # verify PAX doc transcripts
 cl-workbench repl status / stop          # owned checkout lifecycle
 scripts/dev.sh logs / shell              # low-level container inspection only
-make docker-test-unit / docker-test-integration / docker-test-e2e
-                                         # cold layered runs — final verification
+scripts/dev.sh cold-test unit|integration|e2e|all
+scripts/dev.sh cold-docs                  # cold final verification
 ```
 
 The dev image tag derives from pinned Docker build inputs and is deliberately
@@ -87,7 +87,7 @@ Workflow discipline (in order):
    Reload is YOUR job — the image does not watch files.
 4. `defstruct`/`defconstant` layout changes cannot be hot-patched: restart
    (`cl-workbench repl stop && cl-workbench repl start`).
-5. Finish with the cold `make docker-test-*` layer runs — the warm image is a
+5. Finish with `scripts/dev.sh cold-test LAYER` — the warm image is a
    development convenience, not the verification of record.
 
 Eval contract (`repl.eval.container.v1`): exit 0 ok / 1 Lisp error (with
@@ -113,7 +113,7 @@ back. Fix them in the same turn.
 - **Never pipe a verification run through `tail` or `grep`.** It destroys the
   record of which tests failed, and it masks the exit code — the pipeline
   reports `tail`'s status, so a run that exited 2 looks like a 0. Redirect,
-  then grep the file: `make docker-test-all > log 2>&1; echo "EXIT=$?";
+  then grep the file: `scripts/dev.sh cold-test all > log 2>&1; echo "EXIT=$?";
   grep -E "^not ok|tests passed" log`
 - **Every `sb-thread:make-thread` body must wrap its work in a `handler-case`.**
   The node and the whole suite run as `sbcl --script`, which implies

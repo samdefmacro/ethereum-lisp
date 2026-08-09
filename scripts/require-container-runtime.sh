@@ -4,7 +4,7 @@
 if [ "${ETHEREUM_LISP_CONTAINER_RUNTIME:-}" != 1 ]; then
   printf '%s\n' \
     'ERROR: ethereum-lisp application toolchains run only inside the project container.' \
-    'Use cl-workbench, scripts/dev.sh, or make docker-*; no host fallback is permitted.' \
+    'Use cl-workbench or a reviewed scripts/dev.sh command; no host fallback is permitted.' \
     >&2
   exit 2
 fi

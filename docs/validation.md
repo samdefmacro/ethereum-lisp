@@ -25,10 +25,10 @@ cl-workbench repl stop
 ## Test Layers
 
 ```sh
-make docker-test-unit
-make docker-test-integration
-make docker-test-e2e
-make docker-test-all
+scripts/dev.sh cold-test unit
+scripts/dev.sh cold-test integration
+scripts/dev.sh cold-test e2e
+scripts/dev.sh cold-test all
 ```
 
 - `unit` covers process-free domain behavior.
@@ -37,10 +37,10 @@ make docker-test-all
 - `e2e` covers standalone CLI, restart, signals, and devnet processes.
 - `all` composes every layer and is intentionally the most expensive option.
 
-Focused selection is available through `DOCKER_TEST_ARGS`, for example:
+Focused selection is exposed by the broker, for example:
 
 ```sh
-make docker-test-unit DOCKER_TEST_ARGS="--match TRANSACTION"
+scripts/dev.sh cold-test unit --match TRANSACTION
 ```
 
 Optional official fixtures use `ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT`. A
@@ -77,7 +77,7 @@ to do so.
 ## Production-store scale gate
 
 ```sh
-make docker-direct-store-scale
+scripts/dev.sh cold-scale
 ```
 
 This Docker-only acceptance gate writes a checkpointed canonical block and
@@ -96,7 +96,7 @@ the dataset cannot make a memory-mirrored restart look bounded.
 ## Documentation Transcripts
 
 ```sh
-make docker-docs-check      # cold, same container shape as the test layers
+scripts/dev.sh cold-docs    # cold, same container shape as the test layers
 cl-workbench docs verify    # warm image, for the edit loop
 ```
 
@@ -116,9 +116,9 @@ both hold:
 
 Adding a manual means adding its section to `*CHECKED-SECTIONS*`; the authoring
 rules for transcripts are in the header of `docs/rlp-manual.lisp`. The `docs`
-job in `.github/workflows/test.yml` runs `make docker-docs-check`, so a drifted
-transcript now blocks a merge instead of being visible only to whoever happened
-to run the check locally.
+job in `.github/workflows/test.yml` invokes the underlying
+`docker-docs-check` Make target, so a drifted transcript now blocks a merge
+instead of being visible only to whoever happened to run the check locally.
 
 ## Archived Conformance Reports
 
@@ -130,13 +130,13 @@ EEST-CONFORMANCE state_tests: selected=12 skipped=3 executed=[London:7 Shanghai:
 ```
 
 `scripts/conformance-report.sh` copies those lines verbatim into a report that
-also names the corpus that produced them and the revision under test:
+also names the corpus that produced them and the revision under test. Capture
+the run through the host-safe broker, then execute the report step inside the
+marked project image or the reviewed release job:
 
 ```sh
-# pipefail matters: without it the pipeline reports tee's status, and a failed
-# run reads as a passing one.
-set -o pipefail
-make docker-test-integration 2>&1 | tee run.log
+scripts/dev.sh cold-test integration > run.log 2>&1
+# Inside the marked project image or reviewed release job:
 scripts/conformance-report.sh \
   --log run.log \
   --fixture-root "$ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT" \
