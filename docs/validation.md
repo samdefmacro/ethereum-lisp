@@ -11,6 +11,27 @@ temporary artifacts, child processes, and loopback listeners remain isolated.
 Direct `make test-*` and inner runner invocation fail outside the project image;
 there is no host fallback.
 
+## Session preflight
+
+For every substantive session that will execute application tooling, run the
+following command from the physical repository root before the first build,
+eval, test, documentation verification, generated-code step, dependency
+operation, or deployable process:
+
+```sh
+cl-workbench doctor --strict
+```
+
+Treat a failure as a hard stop and report it; do not switch to a host
+interpreter/compiler or a portable fallback. A task limited to reading or
+editing files does not need this preflight. The doctor validates the declared
+Workbench capabilities, project adapter, Docker availability, and execution
+boundary; it does not start the warm REPL. Start the REPL only when the task
+needs warm evals or tests.
+
+Run the preflight again after changing checkout identity, Workbench or project
+configuration, image build inputs, or after recovering Docker from a failure.
+
 For the warm development loop, use the managed Workbench contract:
 
 ```sh

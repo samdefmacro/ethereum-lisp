@@ -55,6 +55,12 @@ shared with other agents). Common Lisp Workbench is the public development
 entry point. Its project adapter delegates to `scripts/dev.sh`, whose warm
 image keeps Swank on container loopback; no port is published to the host.
 
+At the start of each substantive session that will execute application tooling,
+run `cl-workbench doctor --strict` from the repository root before the first
+such operation. Stop and report if it fails; never use a host or portable
+fallback. Read-only and file-only tasks are exempt. The exact preflight and
+rerun conditions live in `docs/validation.md`.
+
 ```
 cl-workbench doctor --strict             # contract + Docker/container boundary
 cl-workbench repl start                  # project + tests loaded, Swank inside

@@ -1,0 +1,16 @@
+---
+description: Container-required session preflight and development entry points
+alwaysApply: true
+---
+
+# Container-required development
+
+Read `AGENTS.md` and `PROJECT.md` before substantive work, then follow
+`docs/validation.md` for the affected area.
+
+Before the first application-tooling operation in each substantive session,
+run `cl-workbench doctor --strict` from the repository root. If it fails, stop
+and report the failure; never use a host interpreter/compiler or a portable
+fallback. A task limited to reading or editing files is exempt. The exact
+scope, rerun conditions, and container entry points are defined in
+`docs/validation.md`.
