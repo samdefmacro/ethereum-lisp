@@ -37,7 +37,7 @@
    :genesis-path genesis-path
    :genesis-json genesis-json
    :genesis-preset (getf options :genesis-preset)
-   :dev-mode-p (and genesis-json (getf options :dev-mode-p))
+   :dev-mode-p (getf options :dev-mode-p)
    :host (getf options :host)
    :port (getf options :port)
    :public-host (getf options :public-host)

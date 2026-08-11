@@ -57,16 +57,32 @@ hash-table slot can start as NIL."
      (memory-chain-store-state-retention-depth defaults)
      (memory-chain-store-remote-blocks store)
      (memory-chain-store-remote-blocks defaults)
+     (memory-chain-store-remote-block-metadata store)
+     (memory-chain-store-remote-block-metadata defaults)
+     (memory-chain-store-remote-block-durable-deletions store)
+     (memory-chain-store-remote-block-durable-deletions defaults)
      (memory-chain-store-forkchoice-sync-targets store)
      (memory-chain-store-forkchoice-sync-targets defaults)
+     (memory-chain-store-forkchoice-sync-target-metadata store)
+     (memory-chain-store-forkchoice-sync-target-metadata defaults)
      (memory-chain-store-invalid-tipsets store)
      (memory-chain-store-invalid-tipsets defaults)
+     (memory-chain-store-invalid-tipset-metadata store)
+     (memory-chain-store-invalid-tipset-metadata defaults)
+     (memory-chain-store-invalid-tipset-durable-deletions store)
+     (memory-chain-store-invalid-tipset-durable-deletions defaults)
+     (memory-chain-store-durable-cache-change-tracking-enabled-p store)
+     (memory-chain-store-durable-cache-change-tracking-enabled-p defaults)
      (memory-chain-store-invalid-block-hits store)
      (memory-chain-store-invalid-block-hits defaults)
      (memory-chain-store-prepared-payloads store)
      (memory-chain-store-prepared-payloads defaults)
+     (memory-chain-store-prepared-payload-metadata store)
+     (memory-chain-store-prepared-payload-metadata defaults)
      (memory-chain-store-blob-sidecars store)
      (memory-chain-store-blob-sidecars defaults)
+     (memory-chain-store-blob-sidecar-metadata store)
+     (memory-chain-store-blob-sidecar-metadata defaults)
      (memory-chain-store-log-filters store)
      (memory-chain-store-log-filters defaults)
      (memory-chain-store-next-log-filter-id store)
@@ -99,13 +115,29 @@ hash-table slot can start as NIL."
     (multiple-value-bind (record present-p)
         (kv-get-chain-record database :block identifier)
       (if present-p
-          (let ((block
-                  (chain-store-block-from-persisted-record
-                   database identifier record "Durable block")))
-            (unless (hash32= hash (block-hash block))
-              (block-validation-fail
-               "Durable block key does not match its encoded block hash"))
-            (values block t))
+          (handler-case
+              (let ((block
+                      (chain-store-block-from-persisted-record
+                       database identifier record "Durable block")))
+                (unless (hash32= hash (block-hash block))
+                  (storage-fail
+                   "Durable block key does not match its encoded block hash"))
+                ;; Receipts live in their own record. Attach them on the same
+                ;; point read so a restarted candidate is byte-for-byte suitable
+                ;; for idempotent re-export and for execution of its child.
+                (multiple-value-bind (receipt-record receipt-present-p)
+                    (kv-get-chain-record database :receipt identifier)
+                  (cond
+                    (receipt-present-p
+                     (setf (block-receipts block)
+                           (block-receipts-from-record block receipt-record)))
+                    ((block-transactions block)
+                     (storage-fail
+                      "Durable block with transactions is missing receipts"))))
+                (values block t))
+            (storage-error (condition) (error condition))
+            (error (condition)
+              (storage-fail "Durable block record is invalid: ~A" condition)))
           (values nil nil)))))
 
 (defmethod chain-store-backing-canonical-hash
@@ -118,8 +150,9 @@ hash-table slot can start as NIL."
        (database-chain-store-database store) number)
     (if present-p
         (progn
-          (unless (= 32 (length identifier))
-            (block-validation-fail
+          (unless (and (byte-vector-p identifier)
+                       (= 32 (length identifier)))
+            (storage-fail
              "Durable canonical index must contain a 32-byte hash"))
           (values (make-hash32 identifier) t))
         (values nil nil))))
@@ -161,17 +194,17 @@ hash-table slot can start as NIL."
     (if present-p
         (progn
           (unless (= 32 (length root))
-            (block-validation-fail
+            (storage-fail
              "Durable state-history record must contain a 32-byte root"))
           (let* ((root (make-hash32 root))
                  (block (engine-payload-store-known-block store block-hash))
                  (header-root
                    (and block (block-header-state-root (block-header block)))))
             (unless block
-              (block-validation-fail
+              (storage-fail
                "Durable state-history record references an unknown block"))
             (unless (and header-root (hash32= root header-root))
-              (block-validation-fail
+              (storage-fail
                "Durable state-history root does not match the block header"))
             (values root t)))
         (values nil nil))))
@@ -215,7 +248,12 @@ without hydrating any other account."
             (mpt-get account-trie (keccak-256 (address-bytes address)))
           (if account-present-p
               (values
-               (ethereum-lisp.state:decode-state-account-rlp record)
+               (handler-case
+                   (ethereum-lisp.state:decode-state-account-rlp record)
+                 (storage-error (condition) (error condition))
+                 (error (condition)
+                   (storage-fail
+                    "Durable account record is invalid: ~A" condition)))
                pending-tries
                t
                t)
@@ -269,11 +307,17 @@ without hydrating any other account."
              (mpt-get storage-trie (keccak-256 (hash32-bytes slot)))
            (if present-p
                (let ((value
-                       (rlp-uint-field
-                        (rlp-decode-one encoded)
-                        "Durable account storage value")))
+                       (handler-case
+                           (rlp-uint-field
+                            (rlp-decode-one encoded)
+                            "Durable account storage value")
+                         (storage-error (condition) (error condition))
+                         (error (condition)
+                           (storage-fail
+                            "Durable account storage record is invalid: ~A"
+                            condition)))))
                  (unless (uint256-p value)
-                   (block-validation-fail
+                   (storage-fail
                     "Durable account storage value must be uint256"))
                  (values value t t))
                (values 0 nil t))))))))
@@ -321,7 +365,7 @@ without hydrating any other account."
             (when present-p
               (unless (bytes=
                        identifier (hash32-bytes (keccak-256-hash code)))
-                (block-validation-fail
+                (storage-fail
                  "Durable code record does not hash to its content address")))
             (values code present-p))))))
 
@@ -338,16 +382,32 @@ without hydrating any other account."
         (kv-get-chain-record
          (database-chain-store-database store) :blob-sidecar identifier)
       (if present-p
-          (let ((blob-and-proofs
-                  (chain-store-blob-sidecar-record-from-rlp record)))
-            (unless (bytes=
-                     identifier
-                     (hash32-bytes
-                      (kzg-commitment-to-versioned-hash
-                       (engine-blob-and-proofs-commitment blob-and-proofs))))
-              (block-validation-fail
-               "Durable blob-sidecar key does not match its commitment"))
-            (values blob-and-proofs t))
+          (handler-case
+              (let ((blob-and-proofs
+                      (chain-store-blob-sidecar-record-from-rlp record)))
+                (unless (bytes=
+                         identifier
+                         (hash32-bytes
+                          (kzg-commitment-to-versioned-hash
+                           (engine-blob-and-proofs-commitment
+                            blob-and-proofs))))
+                  (storage-fail
+                   "Durable blob-sidecar key does not match its commitment"))
+                ;; A content-addressed commitment does not authenticate the
+                ;; blob or proof bytes. Revalidate durable point reads before
+                ;; getBlobs/devp2p can observe them after restart.
+                (chain-store-validate-blob-and-proofs blob-and-proofs)
+                (values blob-and-proofs t))
+            (storage-error (condition)
+              (error condition))
+            (ethereum-lisp.kzg:kzg-unavailable-error (condition)
+              ;; A missing local verifier is a capability failure. It says
+              ;; nothing about the durable bytes and must not be relabeled as
+              ;; storage corruption by this adapter boundary.
+              (error condition))
+            (error (condition)
+              (storage-fail
+               "Durable blob-sidecar record is invalid: ~A" condition)))
           (values nil nil)))))
 
 (defmethod chain-store-durable-state-provider-p
@@ -360,8 +420,9 @@ without hydrating any other account."
       (kv-get-chain-checkpoint database label)
     (if present-p
         (progn
-          (unless (= 32 (length identifier))
-            (block-validation-fail
+          (unless (and (byte-vector-p identifier)
+                       (= 32 (length identifier)))
+            (storage-fail
              "Durable ~A checkpoint must contain a 32-byte hash" label))
           (values (make-hash32 identifier) t))
         (values nil nil))))
@@ -379,12 +440,12 @@ in the database and are point-read through the provider."
         (multiple-value-bind (finalized-hash finalized-p)
             (node-store-database-checkpoint-hash database :finalized)
           (when (and (or safe-p finalized-p) (not head-p))
-            (block-validation-fail
+            (storage-fail
              "Durable safe/finalized checkpoint requires a head checkpoint"))
           (flet ((require-checkpoint-block (hash label)
                    (when hash
                      (or (engine-payload-store-known-block store hash)
-                         (block-validation-fail
+                         (storage-fail
                           "Durable ~A checkpoint references an unknown block"
                           label)))))
             (let ((head-block (require-checkpoint-block head-hash "head"))
@@ -398,7 +459,7 @@ in the database and are point-read through the provider."
                          (engine-payload-store-canonical-hash
                           store head-number)))
                   (unless (and canonical (hash32= canonical head-hash))
-                    (block-validation-fail
+                    (storage-fail
                      "Durable head checkpoint is not the canonical head"))
                   (setf (memory-chain-store-head-number store) head-number)))
               (dolist (entry
@@ -409,7 +470,7 @@ in the database and are point-read through the provider."
                   (unless (nth-value
                            1
                            (chain-store-backing-state-root store (cdr entry)))
-                    (block-validation-fail
+                    (storage-fail
                      "Durable ~A checkpoint has no persisted state root"
                      (car entry)))))
               ;; Full ancestry verification is an offline VERIFY operation.
@@ -418,18 +479,18 @@ in the database and are point-read through the provider."
               (when (and head-block safe-block
                          (> (block-header-number (block-header safe-block))
                             (block-header-number (block-header head-block))))
-                (block-validation-fail
+                (storage-fail
                  "Durable safe checkpoint is newer than head"))
               (when (and head-block finalized-block
                          (> (block-header-number
                              (block-header finalized-block))
                             (block-header-number (block-header head-block))))
-                (block-validation-fail
+                (storage-fail
                  "Durable finalized checkpoint is newer than head"))
               (when (and safe-block finalized-block
                          (> (block-header-number (block-header finalized-block))
                             (block-header-number (block-header safe-block))))
-                (block-validation-fail
+                (storage-fail
                  "Durable finalized checkpoint is newer than safe"))
               (setf
                (memory-chain-store-head-checkpoint store)

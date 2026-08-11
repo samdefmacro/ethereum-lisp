@@ -53,7 +53,12 @@
           (block-hash (engine-prepared-payload-block prepared-payload))))
     (and (string= payload-id-key (engine-payload-id-key payload-id))
          (not (chain-store-known-block store block-hash))
-         (not (engine-payload-store-invalid-block store block-hash)))))
+         ;; The caller has already enforced cache policy for this transition.
+         ;; Persistence must not advance the invalid-cache clock as a side
+         ;; effect of deciding whether a private payload is exportable.
+         (not (gethash
+               (engine-payload-store-key block-hash)
+               (memory-chain-store-invalid-tipsets store))))))
 
 (defun chain-store-populate-prepared-payload-export-batch
     (store database batch)

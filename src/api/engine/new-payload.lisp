@@ -36,10 +36,11 @@
                version timestamp)))))
 
 (defun engine-rpc-persist-new-payload
-    (store candidate new-payload-persistence-function)
+    (store candidate new-payload-persistence-function &rest provenance)
   (when new-payload-persistence-function
     (handler-case
-        (funcall new-payload-persistence-function store candidate)
+        (apply new-payload-persistence-function
+               store candidate provenance)
       (storage-error (condition)
         (error condition))
       (error (condition)
@@ -73,45 +74,43 @@
                 (json-rpc-required-param
                  params 3 "executionRequests" "engine_newPayload")
                 "executionRequests"))))
-      (labels ((handle-payload ()
-                 (multiple-value-bind (status block)
-                     (cond
-                       ((<= version 2)
-                        (engine-new-payload-memory-status
-                         store version payload config
-                         :import-function import-function))
-                       ((= version 3)
-                        (engine-new-payload-memory-status
-                         store version payload config
-                         :versioned-hashes versioned-hashes
-                         :parent-beacon-root parent-beacon-root
-                         :import-function import-function))
-                       (t
-                        (engine-new-payload-memory-status
-                         store version payload config
-                         :versioned-hashes versioned-hashes
-                         :parent-beacon-root parent-beacon-root
-                         :requests requests
-                         :import-function import-function)))
-                   (when (string= +payload-status-valid+
-                                  (payload-status-status status))
-                     (unless block
-                       (storage-fail
-                        "VALID new payload did not publish a candidate block"))
-                     (engine-rpc-persist-new-payload
-                      store block new-payload-persistence-function))
-                   (engine-rpc-payload-status-object status))))
-        (let ((invalid-message
-                (engine-new-payload-version-invalid-p
-                 version payload config
-                 (>= version 3)
-                 (>= version 3)
-                 (>= version 4))))
-          (when invalid-message
-            (engine-rpc-fail -32602 invalid-message)))
-        (if new-payload-persistence-function
-            (chain-store-atomic-commit store #'handle-payload)
-            (handle-payload))))))
+      (let ((invalid-message
+              (engine-new-payload-version-invalid-p
+               version payload config
+               (>= version 3)
+               (>= version 3)
+               (>= version 4))))
+        (when invalid-message
+          (engine-rpc-fail -32602 invalid-message)))
+      (multiple-value-bind (status block receipts)
+          (apply
+           #'import-executable-payload
+           store version payload config
+           (append
+            (list
+             :source :engine
+             :import-function import-function
+             :durability-function
+             (and
+              new-payload-persistence-function
+              (lambda (callback-store candidate &rest provenance)
+                (apply
+                 #'engine-rpc-persist-new-payload
+                 callback-store candidate
+                 new-payload-persistence-function
+                 provenance))))
+            (when (>= version 3)
+              (list :versioned-hashes versioned-hashes
+                    :parent-beacon-root parent-beacon-root))
+            (when (>= version 4)
+              (list :requests requests))))
+        (declare (ignore receipts))
+        (when (and (string= +payload-status-valid+
+                            (payload-status-status status))
+                   (null block))
+          (storage-fail
+           "VALID new payload did not publish a candidate block"))
+        (engine-rpc-payload-status-object status)))))
 
 (defun engine-rpc-string-list-p (value)
   (and (not (stringp value))

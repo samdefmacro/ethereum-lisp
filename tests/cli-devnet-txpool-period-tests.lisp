@@ -689,6 +689,32 @@
       (ethereum-lisp.cli::devnet-cli-options
        (list "devnet" "--dev.period=bad" "--no-serve")))))
 
+(deftest devnet-cli-dev-period-requires-explicit-dev-authority
+  (signals error
+    (ethereum-lisp.cli:make-devnet-node
+     :genesis-path +devnet-cli-genesis-fixture+
+     :port 0 :dev-mode-p nil :dev-period-seconds 1))
+  ;; Zero is the documented disabled value and remains harmless without --dev.
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-path +devnet-cli-genesis-fixture+
+            :port 0 :dev-mode-p nil :dev-period-seconds 0))
+         (state
+           (ethereum-lisp.cli::make-devnet-dev-period-state node 0)))
+    (is (not (ethereum-lisp.cli::devnet-dev-period-state-enabled-p state)))))
+
+(deftest devnet-cli-local-amsterdam-builder-derives-bal
+  (let* ((config
+           (make-chain-config :chain-id 1 :london-block 0
+                              :shanghai-time 0 :prague-time 0
+                              :amsterdam-time 0))
+         (arguments
+           (ethereum-lisp.cli::devnet-local-fork-body-arguments
+            config 1 1)))
+    (is (member :withdrawals arguments))
+    (is (member :requests arguments))
+    (is (not (member :block-access-list arguments)))))
+
 (deftest devnet-cli-dev-period-tick-seals-public-txpool-transaction
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))
@@ -1080,6 +1106,50 @@
       (is (string= (hash32-to-hex (execution-requests-hash '()))
                    (hash32-to-hex
                     (block-header-requests-hash header)))))))
+
+(deftest devnet-cli-dev-period-tick-derives-blob-gas-from-selected-transactions
+  (let* ((now 0)
+         (node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json
+            (devnet-cli-funded-txpool-genesis-json
+             :config-fields (list (cons "cancunTime" "0x0")))
+            :port 0
+            :dev-mode-p t
+            :dev-period-seconds 1))
+         (config (ethereum-lisp.cli:devnet-node-config node))
+         (store (ethereum-lisp.cli:devnet-node-store node))
+         (transaction
+           (fixture-sign-blob-transaction
+            (make-blob-transaction
+             :chain-id (chain-config-chain-id config)
+             :nonce 0
+             :max-priority-fee-per-gas 2
+             :max-fee-per-gas 2000000000
+             :gas-limit 21000
+             :to (address-from-hex
+                  "0x0000000000000000000000000000000000003001")
+             :max-fee-per-blob-gas 20
+             :blob-versioned-hashes
+             (list
+              (hash32-from-hex
+               "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20")))
+            +devnet-cli-txpool-private-key+))
+         (state
+           (ethereum-lisp.cli::make-devnet-dev-period-state
+            node 1 :now-function (lambda () now))))
+    (ethereum-lisp.txpool:engine-payload-store-put-blob-transaction
+     store transaction)
+    (setf now 1)
+    (let* ((block
+             (ethereum-lisp.cli::devnet-dev-period-state-tick state))
+           (header (block-header block)))
+      (is (typep block 'ethereum-block))
+      (is (= 1 (length (block-transactions block))))
+      (is (= +blob-gas-per-blob+
+             (block-header-blob-gas-used header)))
+      (is (= (blob-gas-used (block-transactions block))
+             (block-header-blob-gas-used header))))))
 
 (deftest devnet-cli-txpool-journal-rejects-wrong-chain-transactions
   (let ((journal-path

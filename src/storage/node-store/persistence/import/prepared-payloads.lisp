@@ -171,7 +171,7 @@
        "Invalid KV prepared-payload record RLP: ~A" condition))))
 
 (defun chain-store-import-prepared-payload-from-kv
-    (store payload-id-identifier record)
+    (store payload-id-identifier record &key now)
   (setf store (chain-store-require-memory-store store))
   (let ((prepared-payload
           (chain-store-prepared-payload-from-rlp
@@ -190,16 +190,22 @@
     (let* ((block (engine-prepared-payload-block prepared-payload))
            (block-hash (block-hash block))
            (known-block (chain-store-known-block store block-hash)))
-      (unless (engine-payload-store-invalid-block store block-hash)
+      ;; The import orchestrator already pruned invalid verdicts with its one
+      ;; captured startup clock. Do not advance that clock through a public
+      ;; getter while restoring another namespace.
+      (unless (gethash
+               (engine-payload-store-key block-hash)
+               (memory-chain-store-invalid-tipsets store))
         (when (or (null known-block)
                   (chain-store-persisted-block= known-block block))
-          (setf (gethash
-                 (engine-payload-id-key
-                  (engine-prepared-payload-payload-id prepared-payload))
-                 (memory-chain-store-prepared-payloads store))
-                prepared-payload))))))
+          (if now
+              (engine-payload-store-put-prepared-payload
+               store prepared-payload :now now)
+              (engine-payload-store-put-prepared-payload
+               store prepared-payload)))))))
 
 (defun chain-store-import-prepared-payloads-from-kv (store database)
-  (dolist (entry (kv-chain-record-entries database :prepared-payload))
-    (chain-store-import-prepared-payload-from-kv
-     store (car entry) (cdr entry))))
+  (let ((now (unix-time)))
+    (dolist (entry (kv-chain-record-entries database :prepared-payload))
+      (chain-store-import-prepared-payload-from-kv
+       store (car entry) (cdr entry) :now now))))

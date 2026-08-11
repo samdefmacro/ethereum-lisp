@@ -67,7 +67,9 @@
 (defun devnet-cli-new-payload-persistence-function
     (database-path &optional (engine :file))
   (when database-path
-    (lambda (store candidate)
+    (lambda (store candidate
+             &key source (candidate-kind :executed) payload-status progress)
+      (declare (ignore source payload-status))
       ;; Construct/load first so malformed persisted data remains a permanent
       ;; startup/runtime invariant failure rather than a retry loop.
       (let ((database
@@ -75,8 +77,47 @@
         (devnet-cli-call-with-retryable-file-write
          "New payload persistence"
          (lambda ()
-           (node-store-export-payload-candidate-to-kv
-            store candidate database)))))))
+           (ecase candidate-kind
+             (:executed
+              (node-store-export-payload-candidate-to-kv
+               store candidate database :peer-sync-progress progress))
+             (:buffered
+              ;; A buffered block has neither derived state nor receipts.  It
+              ;; is durable as a future sync target, but must never advance a
+              ;; forward peer cursor until execution completes.
+              (when progress
+                (block-validation-fail
+                 "Buffered candidate cannot advance peer sync progress"))
+              (node-store-export-buffered-candidate-to-kv
+               store candidate database))
+             (:invalid
+              (when progress
+                (block-validation-fail
+                 "Invalid candidate cannot advance peer sync progress"))
+              (node-store-export-invalid-candidate-to-kv
+               store candidate database)))))))))
+
+(defun devnet-cli-peer-sync-progress-function
+    (database-path &optional (engine :file))
+  "Return a point reader for durable peer-sync cursors, or NIL without a DB."
+  (when database-path
+    (lambda (peer-id)
+      (node-store-read-peer-sync-progress
+       (devnet-cli-make-output-kv-database database-path engine)
+       (if (stringp peer-id)
+           (node-id-from-hex peer-id)
+           peer-id)))))
+
+(defun devnet-cli-peer-sync-progress-reset-function
+    (database-path &optional (engine :file))
+  "Return an atomic deleter for obsolete peer cursors, or NIL without a DB."
+  (when database-path
+    (lambda (peer-id)
+      (node-store-delete-peer-sync-progress
+       (devnet-cli-make-output-kv-database database-path engine)
+       (if (stringp peer-id)
+           (node-id-from-hex peer-id)
+           peer-id)))))
 
 (defun devnet-cli-forkchoice-persistence-function
     (database-path persistence-state &optional (engine :file))
@@ -173,10 +214,26 @@
 
 (defun devnet-cli-import-direct-chain-database
     (database database-path config genesis-block &key import-txpool-p)
-  "Open DATABASE without hydrating chain/state and restore only bounded txpool."
+  "Open DATABASE without hydrating chain/state and restore bounded live data."
   (let ((store (make-database-engine-payload-store database)))
     (devnet-cli-validate-imported-genesis
      store genesis-block database-path)
+    (let* ((now (unix-time))
+           (finalized (chain-store-finalized-block store))
+           (finalized-number
+             (and finalized
+                  (block-header-number (block-header finalized)))))
+      ;; Invalid verdicts and buffered candidates are bounded live import state,
+      ;; not chain history. Restore verdicts first so a conflicting legacy
+      ;; remote record cannot be re-admitted as a sync target.
+      (node-store-import-bounded-invalid-tipsets-from-kv
+       store database
+       :now now
+       :finalized-number finalized-number)
+      (node-store-import-bounded-remote-blocks-from-kv
+       store database
+       :now now
+       :finalized-number finalized-number))
     (when import-txpool-p
       (node-store-import-txpool-records-from-kv
        store database
@@ -190,6 +247,11 @@
      store
      :expected-chain-id (chain-config-chain-id config)
      :chain-config config)
+    ;; Recovery cleanup deliberately suppresses self-generated tombstones.
+    ;; Enable changed-key tracking before the bounded live store is returned,
+    ;; including the fresh-RocksDB handoff path whose caller has already passed
+    ;; its earlier tracking-enable point.
+    (engine-payload-store-enable-durable-cache-change-tracking store)
     store))
 
 (defun devnet-cli-import-txpool-journal (store journal config)
@@ -402,6 +464,9 @@
                   database database-path config genesis-block
                   :import-txpool-p (not journal-authoritative-p))
                  store)))
+      (when database-path
+        (engine-payload-store-enable-durable-cache-change-tracking
+         effective-store))
       (when database-chain-p
         (unless direct-start-p
           (devnet-cli-import-chain-database

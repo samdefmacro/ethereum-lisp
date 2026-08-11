@@ -1181,8 +1181,10 @@ cross-handle file-database serialization."
      :stage :execution
      :chain-config chain-config
      :import-txpool-p nil)
+    ;; Validation and execution use the shared application boundary, but the
+    ;; caller's private staged batch remains the only durability path here.
     (multiple-value-bind (executed-block receipts)
-        (ethereum-lisp.execution-service:execute-and-commit-engine-payload
+        (ethereum-lisp.block-import:import-block-candidate
          execution-store
          (chain-store-block-with-access-list-side-data
           database
@@ -1193,7 +1195,8 @@ cross-handle file-database serialization."
           (block-encoded-block-access-list block)
           :legacy-block-access-list-present-p
           (block-block-access-list-present-p block))
-         chain-config)
+         chain-config
+         :source :staged)
       (declare (ignore receipts))
       (unless (and (hash32= (block-hash executed-block)
                             (block-hash block))
@@ -1615,11 +1618,18 @@ When STAGE is NIL, the persisted control state selects the next legal stage."
             (memory-chain-store-state-blocks chain-store)
             (memory-chain-store-state-diffs chain-store)
             (memory-chain-store-remote-blocks chain-store)
+            (memory-chain-store-remote-block-metadata chain-store)
+            (memory-chain-store-remote-block-durable-deletions chain-store)
             (memory-chain-store-forkchoice-sync-targets chain-store)
+            (memory-chain-store-forkchoice-sync-target-metadata chain-store)
             (memory-chain-store-invalid-tipsets chain-store)
+            (memory-chain-store-invalid-tipset-metadata chain-store)
+            (memory-chain-store-invalid-tipset-durable-deletions chain-store)
             (memory-chain-store-invalid-block-hits chain-store)
             (memory-chain-store-prepared-payloads chain-store)
+            (memory-chain-store-prepared-payload-metadata chain-store)
             (memory-chain-store-blob-sidecars chain-store)
+            (memory-chain-store-blob-sidecar-metadata chain-store)
             (memory-chain-store-log-filters chain-store))))
          (zerop (memory-chain-store-head-number chain-store))
          (= 1 (memory-chain-store-next-log-filter-id chain-store))

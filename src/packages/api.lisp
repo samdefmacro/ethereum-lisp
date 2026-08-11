@@ -53,7 +53,8 @@
         #:ethereum-lisp.canonical-chain
         #:ethereum-lisp.engine
         #:ethereum-lisp.execution
-        #:ethereum-lisp.execution-service)
+        #:ethereum-lisp.execution-service
+        #:ethereum-lisp.block-import)
   (:export
    #:+engine-rpc-capabilities+
    #:engine-rpc-capabilities

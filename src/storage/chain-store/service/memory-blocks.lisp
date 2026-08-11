@@ -11,8 +11,9 @@
         (key (engine-payload-store-key (block-hash block)))
         (canonicalized-p nil)
         (notify-head-p nil))
-    (chain-store-journal-remhash (memory-chain-store-remote-blocks store) key)
-    (remhash key (memory-chain-store-forkchoice-sync-targets store))
+    (engine-payload-store-remove-remote-block store (block-hash block))
+    (engine-payload-store-remove-forkchoice-sync-target
+     store (block-hash block))
     (chain-store-journal-puthash (memory-chain-store-blocks store) key
                                  stored-block)
     (engine-payload-store-prune-prepared-payloads-for-block store key)

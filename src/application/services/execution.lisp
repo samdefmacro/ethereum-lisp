@@ -35,13 +35,11 @@ so execution only fails if EVM code actually queries unavailable history."
                       (let ((ancestor-header (block-header ancestor)))
                         (unless (= expected-number
                                    (block-header-number ancestor-header))
-                          (error 'block-validation-error
-                                 :message
-                                 "BLOCKHASH ancestor number is inconsistent"))
+                          (storage-fail
+                           "BLOCKHASH ancestor number is inconsistent"))
                         (unless (hash32= expected-hash (block-hash ancestor))
-                          (error 'block-validation-error
-                                 :message
-                                 "BLOCKHASH ancestor hash is inconsistent"))
+                          (storage-fail
+                           "BLOCKHASH ancestor hash is inconsistent"))
                         (setf expected-hash
                               (block-header-parent-hash
                                ancestor-header)))))))))))
@@ -141,7 +139,14 @@ so execution only fails if EVM code actually queries unavailable history."
                               (keccak-256 (address-bytes address)))
                    (if present-p
                        (let* ((account
-                                (decode-state-account-rlp account-record))
+                                (handler-case
+                                    (decode-state-account-rlp account-record)
+                                  (storage-error (condition)
+                                    (error condition))
+                                  (error (condition)
+                                    (storage-fail
+                                     "Persisted account record is invalid: ~A"
+                                     condition))))
                               (code-hash (state-account-code-hash account))
                               (code
                                 (if (hash32= code-hash +empty-code-hash+)
@@ -157,21 +162,26 @@ so execution only fails if EVM code actually queries unavailable history."
                                          (chain-store-account-code
                                           store block-hash address))
                                         (t
-                                         (block-validation-fail
+                                         (storage-fail
                                           "Persisted account code is missing"))))))
                               (storage-root
                                 (state-account-storage-root account))
                               (storage-trie
-                                (or
-                                 (and committed-tries
-                                      (find-if
-                                       (lambda (trie)
-                                         (hash32=
-                                          (make-hash32 (mpt-root-hash trie))
-                                          storage-root))
-                                       (rest committed-tries)))
-                                 (make-persisted-mpt
-                                  storage-root #'trie-node-loader))))
+                                (let ((committed-storage-trie
+                                        (and committed-tries
+                                             (find-if
+                                              (lambda (trie)
+                                                (hash32=
+                                                 (make-hash32
+                                                  (mpt-root-hash trie))
+                                                 storage-root))
+                                              (rest committed-tries)))))
+                                  ;; Proposal/private execution must never
+                                  ;; mutate the store-owned pending trie object.
+                                  (if committed-storage-trie
+                                      (copy-mpt committed-storage-trie)
+                                      (make-persisted-mpt
+                                       storage-root #'trie-node-loader)))))
                          (values account code t nil storage-trie))
                        (values nil nil nil))))
                nil
@@ -210,15 +220,17 @@ so execution only fails if EVM code actually queries unavailable history."
              #'load-all))))))
 
 (defun execute-atomic-block-commit (store state thunk)
-  (let ((state-snapshot (state-db-transaction-snapshot state)))
-    ;; Keep the handler around the complete store transaction, not merely its
-    ;; callback.  A durable batch may fail after THUNK has staged state and
-    ;; cleared TOUCHED; that failure must restore both state and store.
-    (handler-case
-        (chain-store-atomic-commit store thunk)
-      (error (condition)
-        (state-db-revert-transaction-snapshot state state-snapshot)
-        (error condition)))))
+  (let ((state-snapshot (state-db-transaction-snapshot state))
+        (completed-p nil))
+    ;; Keep the cleanup around the complete store transaction, not merely its
+    ;; callback. A durable batch may fail after THUNK has staged state and
+    ;; cleared TOUCHED; ERROR handlers alone would miss THROW/RETURN-FROM.
+    (unwind-protect
+         (multiple-value-prog1
+             (chain-store-atomic-commit store thunk)
+           (setf completed-p t))
+      (unless completed-p
+        (state-db-revert-transaction-snapshot state state-snapshot)))))
 
 (defun execute-and-commit-block
     (store state executor
@@ -301,8 +313,12 @@ so execution only fails if EVM code actually queries unavailable history."
                     (chain-store-state-db store parent-hash)
                     (make-state-db))))
     (unless state
-      (error 'block-validation-error
-             :message "Engine payload parent state is unavailable"))
+      (if (and (plusp number)
+               (chain-store-state-available-p store parent-hash))
+          (storage-fail
+           "Engine payload parent state marker has no readable state")
+          (state-unavailable-fail
+           "Engine payload parent state is unavailable")))
     (apply
      #'execute-and-commit-signed-block
      store

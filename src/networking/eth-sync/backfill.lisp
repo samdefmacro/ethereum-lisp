@@ -29,6 +29,16 @@
 bound rather than a target: a gap this large means we are not merely behind, and
 grinding backwards forever would be worse than reporting that.")
 
+(define-condition eth-sync-backfill-peer-error (simple-error) ()
+  (:documentation
+   "A peer-specific backfill refusal or malformed backfill response."))
+
+(defun eth-sync-backfill-peer-fail (control &rest arguments)
+  "Signal a peer-scoped backfill failure that another target may recover from."
+  (error 'eth-sync-backfill-peer-error
+         :format-control control
+         :format-arguments arguments))
+
 (defun eth-sync-collect-backfill-headers
     (peer target-hash known-hash-p
      &key (batch-size +eth-backfill-batch-size+)
@@ -45,29 +55,59 @@ because executing a chain whose base we cannot verify is exactly the thing the
 backwards walk exists to prevent."
   (when (funcall known-hash-p target-hash)
     (return-from eth-sync-collect-backfill-headers nil))
+  (unless (and (plusp batch-size) (plusp max-headers))
+    (error "backfill bounds must be positive"))
   (let ((collected '())
         (next-hash target-hash)
+        (next-number nil)
         (count 0))
     (loop
       (let ((headers (eth-peer-get-block-headers
                       peer :origin-hash next-hash :amount batch-size
                            :reverse t)))
         (when (null headers)
-          (error "peer stopped answering ~D headers into a backfill toward ~A"
-                 count (bytes-to-hex next-hash)))
+          (eth-sync-backfill-peer-fail
+           "peer stopped answering ~D headers into a backfill toward ~A"
+           count (bytes-to-hex next-hash)))
+        (unless (and (listp headers) (<= (length headers) batch-size))
+          (eth-sync-backfill-peer-fail
+           "peer exceeded the requested backfill header batch size"))
         ;; The peer answers newest-first; keep that order while walking and
-        ;; reverse once at the end.
+        ;; reverse once at the end. Validate the entire hash-linked reverse
+        ;; response before accepting any body: a hash-origin request does not
+        ;; authorize the peer to substitute an unrelated or repeated branch.
         (dolist (header headers)
+          (unless (block-header-p header)
+            (eth-sync-backfill-peer-fail
+             "peer returned a non-header during backfill"))
+          (unless (bytes= next-hash
+                          (hash32-bytes (block-header-hash header)))
+            (eth-sync-backfill-peer-fail
+             "peer backfill header does not match the requested hash"))
+          (when (and next-number
+                     (/= next-number (block-header-number header)))
+            (eth-sync-backfill-peer-fail
+             "peer backfill headers are not consecutive"))
+          (when (>= count max-headers)
+            (eth-sync-backfill-peer-fail
+             "backfill toward ~A exceeded ~D headers without reaching a ~
+              block we hold"
+             (bytes-to-hex target-hash) max-headers))
           (push header collected)
           (incf count)
           (let ((parent (hash32-bytes (block-header-parent-hash header))))
             (when (funcall known-hash-p parent)
               (return-from eth-sync-collect-backfill-headers collected))
-            (setf next-hash parent)))
+            (when (zerop (block-header-number header))
+              (eth-sync-backfill-peer-fail
+               "peer backfill reached genesis without common ground"))
+            (setf next-hash parent
+                  next-number (1- (block-header-number header)))))
         (when (>= count max-headers)
-          (error "backfill toward ~A exceeded ~D headers without reaching a ~
-                  block we hold"
-                 (bytes-to-hex target-hash) max-headers))))))
+          (eth-sync-backfill-peer-fail
+           "backfill toward ~A exceeded ~D headers without reaching a ~
+            block we hold"
+           (bytes-to-hex target-hash) max-headers))))))
 
 (defun eth-sync-import-headers-with-bodies
     (peer headers import-block &key (batch-size +eth-backfill-batch-size+)
@@ -83,12 +123,31 @@ parent has been. Returns how many were imported."
                                       (hash32-bytes (block-header-hash header)))
                                     batch))
                     (bodies (eth-peer-get-block-bodies peer hashes)))
+               (unless (listp bodies)
+                 (eth-sync-backfill-peer-fail
+                  "peer returned a non-list body response during backfill"))
                (unless (= (length bodies) (length batch))
-                 (error "peer returned ~D bodies for ~D headers during backfill"
-                        (length bodies) (length batch)))
+                 (eth-sync-backfill-peer-fail
+                  "peer returned ~D bodies for ~D headers during backfill"
+                  (length bodies) (length batch)))
                (loop for header in batch
                      for body in bodies
-                     do (let ((block (eth-sync-assemble-block header body)))
+                     do (unless (typep body 'eth-block-body)
+                          (eth-sync-backfill-peer-fail
+                           "peer returned a non-body during backfill"))
+                        ;; This is the peer-owned bundle boundary.  Translate
+                        ;; only its deterministic commitment failure; assembly
+                        ;; and IMPORT-BLOCK remain outside the handler so local
+                        ;; storage, capability, and program failures propagate.
+                        (handler-case
+                            (eth-sync-validate-body header body)
+                          (ethereum-lisp.validation:block-validation-error
+                              (condition)
+                            (eth-sync-backfill-peer-fail
+                             "peer returned a body with invalid commitments: ~A"
+                             (ethereum-lisp.validation:block-validation-error-message
+                              condition))))
+                        (let ((block (eth-sync-assemble-block header body)))
                           (funcall import-block block)
                           (incf imported)
                           (when progress (funcall progress block))))

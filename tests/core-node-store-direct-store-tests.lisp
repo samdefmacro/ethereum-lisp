@@ -139,6 +139,15 @@
     (signals block-validation-error
       (make-database-engine-payload-store database))))
 
+(deftest database-chain-store-classifies-corrupt-checkpoint-as-storage
+  (multiple-value-bind (source blocks) (direct-store-test-chain 2)
+    (declare (ignore blocks))
+    (let ((database (make-memory-key-value-database)))
+      (node-store-export-to-kv source database)
+      (kv-put-chain-checkpoint database :safe #(1))
+      (signals ethereum-lisp.validation:storage-error
+        (make-database-engine-payload-store database)))))
+
 (deftest database-chain-store-opens-and-reads-state-without-iteration
   (let* ((source (make-engine-payload-memory-store))
          (database (make-instance 'direct-store-test-database))

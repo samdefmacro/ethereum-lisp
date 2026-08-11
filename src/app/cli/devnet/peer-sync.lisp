@@ -97,13 +97,10 @@ take the guard for the whole admission, since that mutates the pool."
           (lambda () (engine-payload-store-put-blob-sidecar store sidecar))))
        :accept-block
        (lambda (block)
-         ;; The Engine new-payload path performs the same consensus validation
-         ;; and missing-parent buffering regardless of whether the block came
-         ;; from consensus RPC or peer propagation. Forkchoice remains the only
-         ;; authority that canonicalizes it.
-         (guarded
-          (lambda ()
-            (engine-new-payload-memory-status store block config))))))))
+         ;; Downloaded and propagated blocks share the exact same conversion,
+         ;; validation, execution, and durable candidate path.  In particular,
+         ;; this does not publish a peer tip as canonical.
+         (devnet-peer-sync-import-block node block))))))
 
 (defconstant +devnet-broadcast-batch-limit+ 64
   "How many transactions we push to one peer in a single tick. Our policy: a
@@ -179,22 +176,102 @@ never as another thread sending on the peer."
                 (push entry fresh)))))
           (nreverse fresh))))))
 
-(defun devnet-peer-sync-import-block (node block)
-  "Execute, commit, and canonicalize BLOCK into NODE's store under the store
-guard, so a downloaded block is immediately visible to the RPC services."
+(defun devnet-peer-new-payload-version (block config)
+  "Select the Engine newPayload version required by BLOCK's active fork."
+  (let* ((header (block-header block))
+         (number (block-header-number header))
+         (timestamp (block-header-timestamp header)))
+    (cond
+      ((chain-config-amsterdam-p config number timestamp) 5)
+      ((or (chain-config-prague-p config number timestamp)
+           (chain-config-osaka-p config number timestamp))
+       4)
+      ((chain-config-cancun-p config number timestamp) 3)
+      ((chain-config-shanghai-p config number timestamp) 2)
+      (t 1))))
+
+(defun devnet-peer-block-versioned-hashes (block)
+  "Return BLOCK's EIP-4844 versioned hashes in transaction order."
+  (loop for transaction in (block-transactions block)
+        append (coerce (transaction-blob-versioned-hashes transaction) 'list)))
+
+(defun devnet-peer-block-executable-inputs (block config)
+  "Return Engine adapter metadata for a peer-supplied BLOCK.
+
+This keeps fork-to-newPayload V1--V5 selection and typed-to-Engine conversion
+testable at the ingress adapter.  Actual eth BlockBodies admission stays typed:
+Prague execution requests and Amsterdam block access lists are execution side
+data absent from the wire body, so reconstructing a block from this envelope
+would replace committed data with NIL."
+  (let* ((version (devnet-peer-new-payload-version block config))
+         (envelope (block-to-executable-data block))
+         (header (block-header block)))
+    (values version
+            (execution-payload-envelope-execution-payload envelope)
+            (block-header-parent-beacon-root header)
+            (devnet-peer-block-versioned-hashes block)
+            (execution-payload-envelope-requests envelope)
+            (>= version 3)
+            (>= version 4))))
+
+(defun devnet-peer-sync-import-block
+    (node block &key peer-id require-valid-p)
+  "Import BLOCK as a validated, durable, noncanonical candidate.
+
+PEER-ID, when supplied by a forward downloader, is recorded in the same
+database batch as the candidate so a restarted session resumes after this
+block.  Gap-fill and propagation imports omit it because they are not a
+contiguous forward cursor."
   (let ((store (devnet-node-store node))
-        (config (devnet-node-config node)))
+        (config (devnet-node-config node))
+        (durability-function
+          (devnet-node-candidate-persistence-function node)))
     (call-with-devnet-node-store-guard
      node
      (lambda ()
-       (execute-and-commit-engine-payload store block config)
-       (chain-store-set-canonical-head store (block-hash block)
-                                       :chain-config config)))))
+       ;; Exercise the same fork/version adapter used by Engine RPC without
+       ;; round-tripping the canonical eth body through a representation that
+       ;; cannot carry derived requests/BAL side data.
+       (devnet-peer-block-executable-inputs block config)
+       (let ((progress
+               (and
+                peer-id
+                durability-function
+                (make-node-store-peer-sync-progress
+                 :peer-id (if (stringp peer-id)
+                              (node-id-from-hex peer-id)
+                              peer-id)
+                 :authority-id
+                 (devnet-persistence-state-authority-id
+                  (devnet-node-persistence-state node))
+                 :chain-id (chain-config-chain-id config)
+                 :genesis-hash
+                 (block-hash (devnet-node-genesis-block node))
+                 :last-number
+                 (block-header-number (block-header block))
+                 :last-hash (block-hash block)))))
+         (multiple-value-bind (status candidate receipts)
+             (apply
+              #'import-p2p-block-candidate
+              store block config
+              (append
+               (list :durability-function durability-function)
+               (when progress (list :progress progress))))
+           (when (and require-valid-p
+                      (not (string= +payload-status-valid+
+                                    (payload-status-status status))))
+             (block-validation-fail
+              "Peer range block ~A was not executable: ~A~@[ (~A)~]"
+              (hash32-to-hex (block-hash block))
+              (payload-status-status status)
+              (payload-status-validation-error status)))
+           (values status candidate receipts)))))))
 
 (defun devnet-peer-sync-status (node)
-  "Return (VALUES STATUS HEAD-NUMBER CHAIN-CONTEXT): our eth Status built from
-NODE's current
-head, and that head number. Store hashes are hash32 objects; the Status wants
+  "Return STATUS, HEAD-NUMBER, CHAIN-CONTEXT, and canonical HEAD-HASH.
+
+The status is built from NODE's current canonical head. Store hashes are
+hash32 objects; the Status wants
 raw bytes, so genesis and best hashes are converted with hash32-bytes. The head
 reads run under the store guard, since the store is shared with the RPC and
 dev-period workers and its hash tables are not internally synchronized."
@@ -225,7 +302,8 @@ dev-period workers and its hash tables are not internally synchronized."
                                 :genesis-timestamp genesis-timestamp)
               head-number
               (make-eth-chain-context config genesis-hash head-number
-                                      head-timestamp genesis-timestamp)))))
+                                      head-timestamp genesis-timestamp)
+              (make-hash32 best-hash)))))
 
 (defun devnet-peer-fetch-gossiped-transactions (node peer enode)
   "Fetch what PEER announced during the sync, and return how many the pool took.
@@ -240,13 +318,137 @@ a failure here is logged and the sync still counts as completed."
                      :sink (devnet-node-telemetry-sink node))
       0)))
 
+(defun devnet-node-reset-peer-sync-progress-without-guard (node peer-id)
+  "Delete PEER-ID's cursor while the caller holds NODE's store guard."
+  (let ((reset (devnet-node-peer-sync-progress-reset-function node)))
+    (unless reset
+      (block-validation-fail
+       "Peer sync cursor branch changed but no durable reset is available"))
+    (funcall reset peer-id)))
+
+(defun devnet-node-reset-peer-sync-progress (node peer-id)
+  "Atomically delete PEER-ID's cursor after either side abandons its branch."
+  (call-with-devnet-node-store-guard
+   node
+   (lambda ()
+     (devnet-node-reset-peer-sync-progress-without-guard node peer-id))))
+
+(defun devnet-node-peer-sync-resume-point
+    (node peer-id canonical-number canonical-hash)
+  "Return START-NUMBER and EXPECTED-PARENT-HASH for PEER-ID.
+
+A cursor behind a newly published canonical view is obsolete; one at the same
+height remains usable only when it names that exact canonical hash. A cursor
+ahead is usable only when its candidate and executed state are both durable and
+it still descends from that canonical view. Corrupt cursor targets fail closed
+instead of silently replaying from genesis."
+  (let ((reader (devnet-node-peer-sync-progress-function node)))
+    (if (null reader)
+        (values (1+ canonical-number) canonical-hash nil)
+        (call-with-devnet-node-store-guard
+         node
+         (lambda ()
+           ;; The cursor read, branch decision, candidate verification, and a
+           ;; possible durable delete share the same node guard. Otherwise an
+           ;; FCU/import could install a newer cursor between read and reset.
+           (multiple-value-bind (progress present-p)
+               (funcall reader peer-id)
+             (if (not present-p)
+                 (values (1+ canonical-number) canonical-hash nil)
+                 (let ((number
+                         (node-store-peer-sync-progress-last-number progress))
+                       (hash
+                         (node-store-peer-sync-progress-last-hash progress)))
+                   (if (or (< number canonical-number)
+                           (and (= number canonical-number)
+                                (not (hash32= hash canonical-hash))))
+                       (progn
+                         (devnet-node-reset-peer-sync-progress-without-guard
+                          node peer-id)
+                         (values (1+ canonical-number) canonical-hash nil))
+                       (let* ((store (devnet-node-store node))
+                              (candidate (chain-store-known-block store hash)))
+                         (unless (and candidate
+                                      (= number
+                                         (block-header-number
+                                          (block-header candidate)))
+                                      (chain-store-state-available-p store hash))
+                           (block-validation-fail
+                            "Peer sync cursor does not name a durable executed candidate"))
+                         (if (and (> number canonical-number)
+                                  (not
+                                   (engine-payload-store-ancestor-p
+                                    store canonical-hash hash)))
+                             (progn
+                               ;; This cursor names completed work only on an
+                               ;; abandoned branch. Remove it durably before
+                               ;; starting at the new canonical anchor; the
+                               ;; replacement is installed with the first new
+                               ;; candidate in one WAL batch.
+                               (devnet-node-reset-peer-sync-progress-without-guard
+                                node peer-id)
+                               (values
+                                (1+ canonical-number) canonical-hash nil))
+                             (values (1+ number) hash
+                                     (> number canonical-number)))))))))))))
+
+(defun devnet-peer-download-from-resume
+    (node peer peer-id canonical-number canonical-hash)
+  "Download from PEER's durable cursor, rebasing once on a peer-side reorg.
+
+An anchor mismatch happens before the downloader imports a block.  When the
+anchor came from an ahead-of-canonical peer cursor, delete that cursor durably
+and retry exactly once from the local canonical anchor.  A second mismatch, or
+a mismatch of the canonical anchor itself, is a peer delivery failure and is
+allowed to escape."
+  (labels ((download (start-number expected-parent-hash)
+             (eth-sync-download-blocks
+              peer
+              (lambda (block)
+                (devnet-peer-sync-import-block
+                 node block :peer-id peer-id :require-valid-p t))
+              :start-number start-number
+              :expected-parent-hash expected-parent-hash))
+           (peer-has-cursor-p (number hash)
+             (let ((headers
+                     (eth-peer-get-block-headers
+                      peer :origin-number number :amount 1)))
+               (and (= 1 (length headers))
+                    (= number
+                       (block-header-number (first headers)))
+                    (hash32= hash
+                             (block-header-hash (first headers)))))))
+    (multiple-value-bind
+          (start-number expected-parent-hash cursor-anchor-p)
+        (devnet-node-peer-sync-resume-point
+         node peer-id canonical-number canonical-hash)
+      ;; A peer can reorg to a tip at or below the old cursor.  In that case a
+      ;; range request at cursor+1 merely returns empty and never produces the
+      ;; first-header mismatch below.  Probe that height on the peer's canonical
+      ;; chain before trusting the cursor. A hash-origin lookup is insufficient:
+      ;; a normal peer may retain the abandoned side-chain header indefinitely.
+      (when (and cursor-anchor-p
+                 (not (peer-has-cursor-p
+                       (1- start-number) expected-parent-hash)))
+        (devnet-node-reset-peer-sync-progress node peer-id)
+        (setf start-number (1+ canonical-number)
+              expected-parent-hash canonical-hash
+              cursor-anchor-p nil))
+      (handler-case
+          (download start-number expected-parent-hash)
+        (eth-sync-anchor-mismatch (condition)
+          (unless cursor-anchor-p
+            (error condition))
+          (devnet-node-reset-peer-sync-progress node peer-id)
+          (download (1+ canonical-number) canonical-hash))))))
+
 (defun devnet-peer-sync-one (node enode private-key)
   "Dial ENODE, complete the handshake, and download its chain into NODE's store
 starting just past our current head. Returns the number of blocks imported."
   (multiple-value-bind (node-id host tcp-port discovery-port)
       (parse-enode-url enode)
     (declare (ignore discovery-port))
-    (multiple-value-bind (status head-number chain-context)
+    (multiple-value-bind (status head-number chain-context head-hash)
         (devnet-peer-sync-status node)
       (telemetry-log :info "peer.sync.dialing"
                      :fields (list (cons "enode" enode) (cons "host" host))
@@ -255,12 +457,11 @@ starting just past our current head. Returns the number of blocks imported."
           (eth-sync-connect-peer host tcp-port node-id private-key status
                                  :chain-context chain-context
                                  :serve-backend (devnet-peer-serve-backend node))
-        (unwind-protect
-             (let ((count (eth-sync-download-blocks
-                           peer
-                           (lambda (block)
-                             (devnet-peer-sync-import-block node block))
-                           :start-number (1+ head-number))))
+          (unwind-protect
+               (let ((count
+                       (devnet-peer-download-from-resume
+                        node peer (node-id-to-hex node-id)
+                        head-number head-hash)))
                ;; Transactions the peer pushed whole were admitted as they
                ;; arrived; ones it only announced are fetched now, since that
                ;; waits for a reply and so cannot run inside the download.
@@ -279,7 +480,7 @@ starting just past our current head. Returns the number of blocks imported."
           (ignore-errors
            (rlpx-send-disconnect (eth-peer-connection peer)
                                  +devp2p-disconnect-requested+))
-          (ignore-errors (sb-bsd-sockets:socket-close socket)))))))
+            (ignore-errors (sb-bsd-sockets:socket-close socket)))))))
 
 (defun devnet-node-claim-sync (node)
   "Claim the right to catch up, or NIL if another session already has it.

@@ -1,5 +1,20 @@
 (in-package #:ethereum-lisp.test)
 
+(deftest engine-prepared-payload-amsterdam-derives-bal-instead-of-supplying-empty
+  (let* ((config
+           (make-chain-config :chain-id 1 :london-block 0
+                              :prague-time 0 :amsterdam-time 0))
+         (attributes
+           (make-payload-attributes-v1
+            :timestamp 1
+            :prev-randao (zero-hash32)
+            :suggested-fee-recipient (zero-address)))
+         (arguments
+           (ethereum-lisp.engine-api::engine-rpc-prepared-payload-body-arguments
+            attributes config 1 1)))
+    (is (member :requests arguments))
+    (is (not (member :block-access-list arguments)))))
+
 (deftest engine-rpc-forkchoice-updated-v1-reports-memory-status
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))
@@ -28,7 +43,12 @@
                    (cons "params" (list state payload-attributes)))))
     (let* ((store (make-engine-payload-memory-store))
            (config (make-chain-config))
-           (known-block (make-block))
+           (known-block
+             (make-block
+              :header
+              (make-block-header
+               :state-root +empty-trie-hash+
+               :gas-limit 30000000)))
            (known-hash (block-hash known-block))
            (finalized-block
              (make-block
@@ -539,6 +559,9 @@
                (prepared-header
                  (block-header
                   (engine-prepared-payload-block prepared-payload)))
+               (prepared-hash
+                 (block-hash
+                  (engine-prepared-payload-block prepared-payload)))
                (payload-transactions (field payload "transactions"))
                (pending-response
                  (request-json
@@ -563,6 +586,11 @@
           (is (= 2 (length payload-transactions)))
           (is (= 42000 (block-header-gas-used prepared-header)))
           (is (= 42000 (hex-to-quantity (field payload "gasUsed"))))
+          ;; getPayload exposes the private build result, but only newPayload
+          ;; may admit it as a known/stateful candidate.
+          (is (null (chain-store-known-block store prepared-hash)))
+          (is (not (chain-store-state-available-p store prepared-hash)))
+          (is (null (chain-store-canonical-hash store 1)))
           (is (member raw-a payload-transactions :test #'string=))
           (is (member raw-b payload-transactions :test #'string=))
           (is (= 2 (length pending-transactions)))
@@ -1076,7 +1104,13 @@
     (let* ((store (make-engine-payload-memory-store))
            (config (make-chain-config :london-block 0
                                       :shanghai-time 0))
-           (known-block (make-block))
+           (known-block
+             (make-block
+              :header
+              (make-block-header
+               :state-root +empty-trie-hash+
+               :gas-limit 30000000
+               :base-fee-per-gas 1000000000)))
            (known-hash (block-hash known-block)))
       (engine-payload-store-put-block
        store known-block :state-available-p t)
@@ -1153,7 +1187,15 @@
            (config (make-chain-config :london-block 0
                                       :shanghai-time 0
                                       :cancun-time 0))
-           (known-block (make-block))
+           (known-block
+             (make-block
+              :header
+              (make-block-header
+               :state-root +empty-trie-hash+
+               :gas-limit 30000000
+               :base-fee-per-gas 1000000000
+               :blob-gas-used 0
+               :excess-blob-gas 0)))
            (known-hash (block-hash known-block))
            (parent-beacon-root
              (hash32-from-hex
@@ -1279,8 +1321,13 @@
                   parent-state (address-from-hex address)
                   #(#x60 #x00 #x60 #x00 #xf3)))
                (make-block
-                :header (make-block-header
-                         :state-root (state-db-root parent-state)))))
+                :header
+                (make-block-header
+                 :state-root (state-db-root parent-state)
+                 :gas-limit 30000000
+                 :base-fee-per-gas 1000000000
+                 :blob-gas-used 0
+                 :excess-blob-gas 0))))
            (known-hash (block-hash known-block))
            (parent-beacon-root
              (hash32-from-hex

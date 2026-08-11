@@ -284,7 +284,8 @@
        (:file "canonical-chain" :pathname "canonical-chain")
        (:file "execution-service" :pathname "execution")
        (:file "txpool-admission-service" :pathname "txpool-admission")
-       (:file "engine-payload-status" :pathname "engine-payload-status")))
+       (:file "engine-payload-status" :pathname "engine-payload-status")
+       (:file "block-import-service" :pathname "block-import")))
      (:module "networking"
       :pathname "networking/"
       :depends-on ("application-services")
@@ -306,6 +307,7 @@
       :serial t
       :components
       ((:file "node-store-persistence-metadata" :pathname "metadata")
+       (:file "node-store-peer-sync-progress" :pathname "sync-progress")
        (:file "node-store-persistence-code-store" :pathname "code-store")
        (:file "chain-store-export-indexes" :pathname "export/indexes")
        (:file "chain-store-export-blocks" :pathname "export/blocks")

@@ -148,7 +148,8 @@
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))
     (let* ((store (make-engine-payload-memory-store))
-           (config (make-chain-config :chain-id 1 :london-block 0))
+           (config (make-chain-config :chain-id 1 :london-block 0
+                                      :terminal-total-difficulty 100))
            (genesis
              (make-block
               :header (make-block-header :number 0 :timestamp 1)))
@@ -173,3 +174,72 @@
                :allowed-method-p #'engine-rpc-public-method-p)))
         (is (null (field response "result")))
         (is (= 0 (chain-store-head-number store)))))))
+
+(deftest debug-set-head-cannot-publish-a-post-merge-view
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1 :london-block 0))
+           (genesis
+             (make-block
+              :header (make-block-header :number 0 :timestamp 1)))
+           (child
+             (make-block
+              :header
+              (make-block-header
+               :parent-hash (block-hash genesis)
+               :number 1 :timestamp 2))))
+      (chain-store-put-block store genesis :state-available-p t)
+      (chain-store-put-block store child :state-available-p t)
+      (chain-store-set-canonical-head
+       store (block-hash child)
+       :expected-chain-id 1 :chain-config config)
+      (let* ((response
+               (engine-rpc-handle-request
+                (list (cons "jsonrpc" "2.0")
+                      (cons "id" 10)
+                      (cons "method" "debug_setHead")
+                      (cons "params" (list "0x0")))
+                store config
+                :allowed-method-p #'engine-rpc-public-method-p))
+             (error-object (field response "error")))
+        (is (= -32602 (field error-object "code")))
+        (is (= 1 (chain-store-head-number store)))))))
+
+(deftest debug-set-head-cannot-rewind-from-post-merge-to-pre-merge
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           ;; Height zero is pre-Merge, while the current height one view is
+           ;; explicitly post-Merge even though the positive TTD is not marked
+           ;; globally passed.
+           (config (make-chain-config :chain-id 1 :london-block 0
+                                      :terminal-total-difficulty 100
+                                      :merge-netsplit-block 1))
+           (genesis
+             (make-block
+              :header (make-block-header :number 0 :timestamp 1)))
+           (child
+             (make-block
+              :header
+              (make-block-header
+               :parent-hash (block-hash genesis)
+               :number 1 :timestamp 2))))
+      (chain-store-put-block store genesis :state-available-p t)
+      (chain-store-put-block store child :state-available-p t)
+      (chain-store-set-canonical-head
+       store (block-hash child)
+       :expected-chain-id 1 :chain-config config)
+      (let* ((response
+               (engine-rpc-handle-request
+                (list (cons "jsonrpc" "2.0")
+                      (cons "id" 11)
+                      (cons "method" "debug_setHead")
+                      (cons "params" (list "0x0")))
+                store config
+                :allowed-method-p #'engine-rpc-public-method-p))
+             (error-object (field response "error")))
+        (is (= -32602 (field error-object "code")))
+        (is (= 1 (chain-store-head-number store)))
+        (is (hash32= (block-hash child)
+                     (chain-store-canonical-hash store 1)))))))

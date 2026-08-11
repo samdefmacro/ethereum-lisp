@@ -223,6 +223,24 @@ the encoder substitutes its zero/empty defaults."
         collect header
         do (setf parent (block-header-hash header))))
 
+(deftest eth-sync-resume-anchor-rejects-a-different-first-parent
+  (:layer :unit :module :p2p)
+  (let* ((durable-parent
+           (make-hash32
+            (hex-to-bytes
+             "0x1111111111111111111111111111111111111111111111111111111111111111")))
+         (other-parent
+           (make-hash32
+            (hex-to-bytes
+             "0x2222222222222222222222222222222222222222222222222222222222222222")))
+         (matching (eth-sync-test-header 9 durable-parent))
+         (divergent (eth-sync-test-header 9 other-parent)))
+    (is (eth-sync-validate-header-batch
+         (list matching) 9 nil :expected-parent-hash durable-parent))
+    (signals error
+      (eth-sync-validate-header-batch
+       (list divergent) 9 nil :expected-parent-hash durable-parent))))
+
 (deftest eth-sync-validates-delivered-header-and-body-commitments
   (:layer :unit :module :p2p)
   (let* ((headers (eth-sync-test-chain-headers 3))
@@ -253,6 +271,82 @@ the encoder substitutes its zero/empty defaults."
                              :nonce 1 :gas-price 2 :gas-limit 21000
                              :value 3 :v 27 :r 4 :s 5))
         :ommers '())))))
+
+(deftest eth-sync-backfill-classifies-only-peer-body-failures
+  (:layer :unit :module :p2p)
+  (let* ((header
+           (make-block-header
+            :number 1 :difficulty 0 :gas-limit 30000000
+            :extra-data (make-byte-vector 0)
+            :transactions-root (transaction-list-root '())
+            :ommers-hash (ommers-hash '())))
+         (empty-body
+           (ethereum-lisp.eth-wire:make-eth-block-body
+            :transactions '() :ommers '()))
+         (wrong-body
+           (ethereum-lisp.eth-wire:make-eth-block-body
+            :transactions
+            (list (make-legacy-transaction
+                   :nonce 1 :gas-price 2 :gas-limit 21000
+                   :value 3 :v 27 :r 4 :s 5))
+            :ommers '()))
+         (fetch-symbol
+           'ethereum-lisp.eth-sync:eth-peer-get-block-bodies)
+         (original-fetch (fdefinition fetch-symbol))
+         (import-calls 0))
+    (unwind-protect
+         (progn
+           (setf (fdefinition fetch-symbol)
+                 (lambda (peer hashes)
+                   (declare (ignore peer hashes))
+                   (list wrong-body)))
+           (signals ethereum-lisp.eth-sync:eth-sync-backfill-peer-error
+             (ethereum-lisp.eth-sync:eth-sync-import-headers-with-bodies
+              nil (list header)
+              (lambda (block)
+                (declare (ignore block))
+                (incf import-calls))))
+           (is (= 0 import-calls))
+           ;; Positive control: the same shipped entry point reaches import
+           ;; once the peer supplies the committed body.
+           (setf (fdefinition fetch-symbol)
+                 (lambda (peer hashes)
+                   (declare (ignore peer hashes))
+                   (list empty-body)))
+           (is (= 1
+                  (ethereum-lisp.eth-sync:eth-sync-import-headers-with-bodies
+                   nil (list header)
+                   (lambda (block)
+                     (declare (ignore block))
+                     (incf import-calls)))))
+           (is (= 1 import-calls))
+           ;; IMPORT-BLOCK is outside peer-error classification.  A local
+           ;; durable failure must remain a storage error for the supervisor.
+           (signals ethereum-lisp.validation:storage-error
+             (ethereum-lisp.eth-sync:eth-sync-import-headers-with-bodies
+              nil (list header)
+              (lambda (block)
+                (declare (ignore block))
+                (error 'ethereum-lisp.validation:storage-error
+                       :message "Injected backfill storage failure"))))
+           ;; Even a validation-shaped failure from IMPORT-BLOCK is local to
+           ;; the callback and must not be relabeled as peer transport failure.
+           (signals ethereum-lisp.validation:block-validation-error
+             (ethereum-lisp.eth-sync:eth-sync-import-headers-with-bodies
+              nil (list header)
+              (lambda (block)
+                (declare (ignore block))
+                (error 'ethereum-lisp.validation:block-validation-error
+                       :message "Injected importer validation failure"))))
+           ;; Unknown implementation failures likewise retain their original
+           ;; condition rather than entering peer failover policy.
+           (signals type-error
+             (ethereum-lisp.eth-sync:eth-sync-import-headers-with-bodies
+              nil (list header)
+              (lambda (block)
+                (declare (ignore block))
+                (error 'type-error :datum :broken :expected-type 'integer)))))
+      (setf (fdefinition fetch-symbol) original-fetch))))
 
 (deftest eth-peer-downloads-headers-and-bodies-over-a-socket
   (:layer :integration :module :p2p :requires-local-sockets t)

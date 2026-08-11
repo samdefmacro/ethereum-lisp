@@ -18,7 +18,26 @@
 (defconstant +eth-sync-default-batch-size+ 192
   "How many block headers to request at once during download.")
 
-(defun eth-sync-validate-header-batch (headers origin-number previous-header)
+(define-condition eth-sync-anchor-mismatch (error)
+  ((number :initarg :number :reader eth-sync-anchor-mismatch-number)
+   (expected-parent-hash
+    :initarg :expected-parent-hash
+    :reader eth-sync-anchor-mismatch-expected-parent-hash)
+   (actual-parent-hash
+    :initarg :actual-parent-hash
+    :reader eth-sync-anchor-mismatch-actual-parent-hash))
+  (:report
+   (lambda (condition stream)
+     (format stream
+             "Peer block ~D does not extend durable sync cursor ~A (got ~A)"
+             (eth-sync-anchor-mismatch-number condition)
+             (hash32-to-hex
+              (eth-sync-anchor-mismatch-expected-parent-hash condition))
+             (hash32-to-hex
+              (eth-sync-anchor-mismatch-actual-parent-hash condition))))))
+
+(defun eth-sync-validate-header-batch
+    (headers origin-number previous-header &key expected-parent-hash)
   "Reject a header reply that does not answer the requested contiguous range."
   (loop with parent = previous-header
         for header in headers
@@ -31,6 +50,18 @@
                               (block-header-hash parent))
                (error "peer returned a non-contiguous header at block ~D"
                       expected)))
+           (when (and (null parent) expected-parent-hash)
+             (let ((expected-parent
+                     (if (hash32-p expected-parent-hash)
+                         expected-parent-hash
+                         (make-hash32 expected-parent-hash))))
+               (unless (hash32= (block-header-parent-hash header)
+                                expected-parent)
+                 (error 'eth-sync-anchor-mismatch
+                        :number expected
+                        :expected-parent-hash expected-parent
+                        :actual-parent-hash
+                        (block-header-parent-hash header)))))
            (setf parent header))
   t)
 
@@ -62,13 +93,16 @@ than recomputing them, since the header was received rather than built here."
      &key (start-number 1)
           (batch-size +eth-sync-default-batch-size+)
           (max-blocks nil)
+          (expected-parent-hash nil)
           (progress nil))
   "Download blocks forward from START-NUMBER, importing each in order.
 
 Requests headers from PEER in batches, fetches their bodies, assembles each
 block, and calls IMPORT-BLOCK on it. IMPORT-BLOCK receives one assembled block
 and is expected to execute and commit it; an error it signals propagates and
-stops the download. PROGRESS, if given, is called with each block after import.
+stops the download. EXPECTED-PARENT-HASH anchors the first returned header to a
+durable local cursor, so restart cannot silently continue on another branch.
+PROGRESS, if given, is called with each block after import.
 Stops when the peer returns no further headers, or after MAX-BLOCKS blocks.
 Returns the number of blocks imported."
   (let ((next start-number)
@@ -84,7 +118,10 @@ Returns the number of blocks imported."
                         peer :origin-number next :amount amount)))
           (when (null headers)
             (return imported))
-          (eth-sync-validate-header-batch headers next previous-header)
+          (eth-sync-validate-header-batch
+           headers next previous-header
+           :expected-parent-hash (and (null previous-header)
+                                      expected-parent-hash))
           (let* ((hashes (mapcar (lambda (h) (hash32-bytes (block-header-hash h)))
                                  headers))
                  (bodies (eth-peer-get-block-bodies peer hashes)))

@@ -179,9 +179,14 @@ failed nested commit stays rolled back without disturbing its parent."
 
 (defstruct (chain-store-volatile-snapshot
             (:constructor %make-chain-store-volatile-snapshot))
+  remote-block-metadata
   forkchoice-sync-targets
+  forkchoice-sync-target-metadata
   invalid-tipsets
+  invalid-tipset-metadata
   invalid-block-hits
+  prepared-payload-metadata
+  blob-sidecar-metadata
   log-filters
   next-log-filter-id
   head-checkpoint
@@ -192,15 +197,30 @@ failed nested commit stays rolled back without disturbing its parent."
   "Return a wholesale copy of the store's volatile side slots for rollback."
   (let ((store (chain-store-require-memory-store store)))
     (%make-chain-store-volatile-snapshot
+     :remote-block-metadata
+     (engine-payload-store-copy-cache-metadata-table
+      (memory-chain-store-remote-block-metadata store))
      :forkchoice-sync-targets
      (engine-payload-store-copy-table
       (memory-chain-store-forkchoice-sync-targets store))
+     :forkchoice-sync-target-metadata
+     (engine-payload-store-copy-cache-metadata-table
+      (memory-chain-store-forkchoice-sync-target-metadata store))
      :invalid-tipsets
      (engine-payload-store-copy-block-table
       (memory-chain-store-invalid-tipsets store))
+     :invalid-tipset-metadata
+     (engine-payload-store-copy-cache-metadata-table
+      (memory-chain-store-invalid-tipset-metadata store))
      :invalid-block-hits
      (engine-payload-store-copy-table
       (memory-chain-store-invalid-block-hits store))
+     :prepared-payload-metadata
+     (engine-payload-store-copy-cache-metadata-table
+      (memory-chain-store-prepared-payload-metadata store))
+     :blob-sidecar-metadata
+     (engine-payload-store-copy-cache-metadata-table
+      (memory-chain-store-blob-sidecar-metadata store))
      :log-filters
      (engine-payload-store-copy-filter-table
       (memory-chain-store-log-filters store))
@@ -220,12 +240,23 @@ failed nested commit stays rolled back without disturbing its parent."
   "Reinstall the volatile side slots captured by
 CHAIN-STORE-CAPTURE-VOLATILE-SLOTS."
   (let ((store (chain-store-require-memory-store store)))
-    (setf (memory-chain-store-forkchoice-sync-targets store)
+    (setf (memory-chain-store-remote-block-metadata store)
+          (chain-store-volatile-snapshot-remote-block-metadata snapshot)
+          (memory-chain-store-forkchoice-sync-targets store)
           (chain-store-volatile-snapshot-forkchoice-sync-targets snapshot)
+          (memory-chain-store-forkchoice-sync-target-metadata store)
+          (chain-store-volatile-snapshot-forkchoice-sync-target-metadata
+           snapshot)
           (memory-chain-store-invalid-tipsets store)
           (chain-store-volatile-snapshot-invalid-tipsets snapshot)
+          (memory-chain-store-invalid-tipset-metadata store)
+          (chain-store-volatile-snapshot-invalid-tipset-metadata snapshot)
           (memory-chain-store-invalid-block-hits store)
           (chain-store-volatile-snapshot-invalid-block-hits snapshot)
+          (memory-chain-store-prepared-payload-metadata store)
+          (chain-store-volatile-snapshot-prepared-payload-metadata snapshot)
+          (memory-chain-store-blob-sidecar-metadata store)
+          (chain-store-volatile-snapshot-blob-sidecar-metadata snapshot)
           (memory-chain-store-log-filters store)
           (chain-store-volatile-snapshot-log-filters snapshot)
           (memory-chain-store-next-log-filter-id store)

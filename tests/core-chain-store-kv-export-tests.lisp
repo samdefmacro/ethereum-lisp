@@ -81,6 +81,59 @@
      (ethereum-lisp.chain-store:engine-payload-store-invalid-block
       restored (block-hash invalid)))))
 
+(deftest chain-store-cache-standalone-exporters-delete-only-unowned-bal-side-data
+  (let* ((database (make-memory-key-value-database))
+         (store (make-engine-payload-memory-store))
+         (invalid-orphan
+           (chain-store-bal-persistence-test-block 30 30 :bal-p t))
+         (invalid-staged
+           (chain-store-bal-persistence-test-block 31 31 :bal-p t))
+         (remote-orphan
+           (chain-store-bal-persistence-test-block 32 32 :bal-p t))
+         (remote-invalid
+           (chain-store-bal-persistence-test-block 33 33 :bal-p t)))
+    (labels ((identifier (block)
+               (hash32-bytes (block-hash block)))
+             (seed-body (kind block)
+               (kv-put-chain-record
+                database kind (identifier block)
+                (ethereum-lisp.node-store.persistence::chain-store-block-record-rlp
+                 block)))
+             (seed-bal (block)
+               (kv-put-chain-record
+                database :block-access-list (identifier block)
+                (block-encoded-block-access-list block)))
+             (present-p (kind block)
+               (nth-value
+                1
+                (kv-get-chain-record database kind (identifier block)))))
+      (dolist (block (list invalid-orphan invalid-staged))
+        (seed-body :invalid-tipset block)
+        (seed-bal block))
+      (seed-body :staged-block invalid-staged)
+
+      ;; This authoritative helper used to return deletion identifiers as the
+      ;; generic exporter's second value, which treated them as trie nodes.
+      (ethereum-lisp.node-store.persistence::chain-store-export-invalid-tipsets-to-kv
+       store database)
+      (is (not (present-p :invalid-tipset invalid-orphan)))
+      (is (not (present-p :invalid-tipset invalid-staged)))
+      (is (not (present-p :block-access-list invalid-orphan)))
+      (is (present-p :block-access-list invalid-staged))
+      (is (present-p :staged-block invalid-staged))
+
+      (dolist (block (list remote-orphan remote-invalid))
+        (seed-body :remote-block block)
+        (seed-bal block))
+      (seed-body :invalid-tipset remote-invalid)
+      (ethereum-lisp.node-store.persistence::chain-store-export-remote-blocks-to-kv
+       store database)
+      (is (not (present-p :remote-block remote-orphan)))
+      (is (not (present-p :remote-block remote-invalid)))
+      (is (not (present-p :block-access-list remote-orphan)))
+      (is (present-p :block-access-list remote-invalid))
+      (is (present-p :invalid-tipset remote-invalid)))))
+
 (deftest chain-store-import-migrates-legacy-request-and-bal-block-records
   (let* ((database (make-memory-key-value-database))
          (restored (make-engine-payload-memory-store))

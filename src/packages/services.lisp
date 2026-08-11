@@ -113,3 +113,26 @@
    #:engine-forkchoice-checkpoint-order-error-message
    #:engine-forkchoice-memory-status
    #:engine-new-payload-memory-status))
+
+(defpackage #:ethereum-lisp.block-import
+  (:use #:cl
+        #:ethereum-lisp.types
+        #:ethereum-lisp.validation
+        #:ethereum-lisp.chain-config
+        #:ethereum-lisp.transactions
+        #:ethereum-lisp.blocks
+        #:ethereum-lisp.consensus
+        #:ethereum-lisp.kzg
+        #:ethereum-lisp.engine-payloads
+        #:ethereum-lisp.chain-store.model
+        #:ethereum-lisp.chain-store
+        #:ethereum-lisp.node-store
+        #:ethereum-lisp.canonical-chain
+        #:ethereum-lisp.engine)
+  (:export
+   #:build-private-block-candidate
+   #:import-executable-payload
+   #:import-block-candidate
+   #:import-p2p-block-candidate
+   #:publish-canonical-block
+   #:build-import-and-publish-block))

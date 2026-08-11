@@ -151,6 +151,7 @@ contract. Returns true when a full block reached the backend."
                       (block-header-number header)))
           (let ((body (first (eth-peer-get-block-bodies peer (list hash)))))
             (when body
+              (eth-sync-validate-body header body)
               (eth-accept-propagated-block
                backend (eth-sync-assemble-block header body)))))))))
 

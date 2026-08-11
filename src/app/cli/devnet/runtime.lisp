@@ -86,6 +86,18 @@ the deterministic address order is kept."
                (devnet-node-store node)
                transition))))
 
+(defun devnet-local-fork-body-arguments (config block-number timestamp)
+  "Return supplied local-builder body data for the active fork.
+
+Requests retain their pre-execution placeholder contract.  Amsterdam block
+access lists do not: they are execution output and must be omitted so the
+kernel derives and commits the actual list."
+  (append
+   (when (chain-config-shanghai-p config block-number timestamp)
+     (list :withdrawals '()))
+   (when (chain-config-prague-p config block-number timestamp)
+     (list :requests '()))))
+
 (defun devnet-node-seal-pending-block-without-guard (node &key timestamp)
   (unless (typep node 'devnet-node)
     (error "Devnet node must be devnet-node"))
@@ -122,17 +134,14 @@ the deterministic address order is kept."
                 pending-transactions gas-limit expected-chain-id))
              (state (chain-store-state-db store parent-hash))
              (cancun-p (chain-config-cancun-p config block-number timestamp))
-             (shanghai-p (chain-config-shanghai-p config block-number
-                                                   timestamp))
-             (prague-p (chain-config-prague-p config block-number timestamp))
-             (amsterdam-p
-               (chain-config-amsterdam-p config block-number timestamp))
              (base-fee-per-gas
                (if (block-header-base-fee-per-gas parent-header)
                    (expected-base-fee-per-gas parent-header)
                    0))
              (cancun-header-arguments nil)
-             (fork-body-arguments nil))
+             (fork-body-arguments
+               (devnet-local-fork-body-arguments
+                config block-number timestamp)))
         (when transactions
           (unless state
             (error "Devnet dev-period parent state is unavailable"))
@@ -142,7 +151,7 @@ the deterministic address order is kept."
                 (chain-config-blob-schedule config block-number timestamp)
               (setf cancun-header-arguments
                     (list
-                     :blob-gas-used 0
+                     :blob-gas-used (blob-gas-used transactions)
                      :excess-blob-gas
                      (expected-excess-blob-gas
                       parent-header
@@ -152,57 +161,46 @@ the deterministic address order is kept."
                                                         timestamp)
                       :update-fraction update-fraction)
                      :parent-beacon-root (zero-hash32)))))
-          (when shanghai-p
-            (setf fork-body-arguments
-                  (append fork-body-arguments (list :withdrawals '()))))
-          (when prague-p
-            (setf fork-body-arguments
-                  (append fork-body-arguments (list :requests '()))))
-          (when amsterdam-p
-            (setf fork-body-arguments
-                  (append fork-body-arguments (list :block-access-list '()))))
-          ;; Keep execution, canonical publication, and the durable database
-          ;; callback inside one rollback boundary.  The shared node-store
-          ;; guard prevents RPC readers from observing the noncanonical
-          ;; candidate or the tentative canonical head while this runs.
-          (chain-store-atomic-commit
+          ;; Amsterdam BAL side data is derived by execution.  Do not pass an
+          ;; empty supplied value, which would reject every non-empty result.
+          ;; --dev is an explicit embedded block-authority mode.  The unified
+          ;; service owns both admission and the sole local publication token;
+          ;; a public/non-dev post-Merge node cannot reach this path.
+          (build-import-and-publish-block
            store
            (lambda ()
-             (multiple-value-bind (block receipts)
-                 (apply
-                  #'execute-and-commit-signed-block
-                  store
-                  state
-                  transactions
-                  (append
-                   (list
-                    :expected-chain-id expected-chain-id
-                    :header (apply
-                             #'make-block-header
-                             (append
-                              (list
-                               :parent-hash parent-hash
-                               :beneficiary (devnet-node-coinbase node)
-                               :number block-number
-                               :gas-limit gas-limit
-                               :timestamp timestamp
-                               :base-fee-per-gas base-fee-per-gas
-                               :mix-hash (zero-hash32))
-                              cancun-header-arguments))
-                    :chain-config config
-                    :state-available-p t
-                    :canonicalize-p nil)
-                   fork-body-arguments))
-               (declare (ignore receipts))
-               (multiple-value-bind (head transition)
-                   (chain-store-set-canonical-head
-                    store
-                    (block-hash block)
-                    :expected-chain-id expected-chain-id
-                    :chain-config config)
-                 (declare (ignore head))
-                 (devnet-node-persist-canonical-transition node transition))
-               block))))))))
+             (apply
+              #'execute-and-commit-signed-block
+              store
+              state
+              transactions
+              (append
+               (list
+                :expected-chain-id expected-chain-id
+                :header (apply
+                         #'make-block-header
+                         (append
+                          (list
+                           :parent-hash parent-hash
+                           :beneficiary (devnet-node-coinbase node)
+                           :number block-number
+                           :gas-limit gas-limit
+                           :timestamp timestamp
+                           :base-fee-per-gas base-fee-per-gas
+                           :mix-hash (zero-hash32))
+                          cancun-header-arguments))
+                :chain-config config
+                :state-available-p t
+                :canonicalize-p nil)
+               fork-body-arguments)))
+           config
+           :source :dev-period
+           :authority :local-dev
+           :local-dev-authorized-p (devnet-node-dev-mode-p node)
+           :durability-function
+           (lambda (callback-store transition)
+             (declare (ignore callback-store))
+             (devnet-node-persist-canonical-transition node transition))))))))
 
 (defun devnet-node-seal-pending-block (node &key timestamp)
   (unless (typep node 'devnet-node)
@@ -232,6 +230,7 @@ the deterministic address order is kept."
   (let ((node (devnet-dev-period-state-node state))
         (interval-seconds (devnet-dev-period-state-interval-seconds state)))
     (and node
+         (devnet-node-dev-mode-p node)
          interval-seconds
          (plusp interval-seconds))))
 

@@ -36,7 +36,8 @@ records so a version bump is all-or-nothing.")
     (:code . #x1a)
     (:state-history . #x1b)
     (:schema-version . #x1c)
-    (:ordered-state-history . #x1d)))
+    (:ordered-state-history . #x1d)
+    (:peer-sync-progress . #x1e)))
 
 (defparameter +kv-chain-checkpoint-labels+
   '((:head . "head")

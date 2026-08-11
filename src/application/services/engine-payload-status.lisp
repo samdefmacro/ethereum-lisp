@@ -204,17 +204,42 @@
                 ;; invalid here would gossip a verdict a node with a working
                 ;; backend would not share, so refuse by propagating instead.
                 (error condition))
-              (error (condition)
+              (ethereum-lisp.kzg:kzg-unavailable-error (condition)
+                ;; Proof verification unavailable locally is likewise a node
+                ;; capability failure, never a consensus verdict.
+                (error condition))
+              (storage-error (condition)
+                ;; Durability is part of accepting an import. A failed database
+                ;; batch says nothing about block validity, and the unified
+                ;; import transaction must be allowed to roll its memory view
+                ;; back before the storage failure reaches the RPC or peer
+                ;; worker.
+                (error condition))
+              (block-validation-error (condition)
+                (engine-payload-store-mark-invalid store block)
+                (values
+                 (make-payload-status
+                  :status +payload-status-invalid+
+                  :latest-valid-hash parent-hash
+                  :validation-error (block-validation-error-message condition))
+                 nil))
+              (ethereum-lisp.execution:transaction-validation-error
+                  (condition)
                 (engine-payload-store-mark-invalid store block)
                 (values
                  (make-payload-status
                   :status +payload-status-invalid+
                   :latest-valid-hash parent-hash
                   :validation-error
-                  (if (typep condition 'block-validation-error)
-                      (block-validation-error-message condition)
-                      (format nil "~A" condition)))
-                 nil)))
+                  (ethereum-lisp.execution:transaction-validation-error-message
+                   condition))
+                 nil))
+              ;; Unknown executor/capability/program failures are local node
+              ;; failures, never portable consensus verdicts.  Propagate them
+              ;; so the unified atomic boundary rolls back without poisoning
+              ;; the invalid cache.
+              (error (condition)
+                (error condition)))
             (progn
               (engine-payload-store-put-block
                store block

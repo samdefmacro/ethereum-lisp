@@ -287,8 +287,8 @@
   ;; A precompile backend that cannot be consulted is a node capability
   ;; failure, not an invalid block. newPayload must refuse (propagate) rather
   ;; than mark the block invalid, which would gossip a verdict a node with a
-  ;; working backend would not share. A generic import error still marks
-  ;; invalid, to keep the two outcomes distinct.
+  ;; working backend would not share. Unknown executor faults are likewise
+  ;; local failures and must escape without poisoning the invalid cache.
   (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
          (config (make-chain-config :chain-id 1 :london-block 0))
          (parent-header (make-block-header
@@ -328,15 +328,17 @@
            (bls12381-unavailable-error "helper process crashed"))))
       (is (not (engine-payload-store-invalid-block
                 store (block-hash child-block)))))
-    ;; A generic import failure is still marked invalid.
+    ;; A generic import failure propagates and is not marked invalid.
     (let ((store (make-engine-payload-memory-store)))
       (engine-payload-store-put-block store parent-block :state-available-p t)
-      (multiple-value-bind (status block)
+      (signals simple-error
           (engine-new-payload-memory-status
            store 1 payload config
            :import-function
            (lambda (store block config)
              (declare (ignore store block config))
-             (error "some internal execution fault")))
-        (declare (ignore block))
-        (is (string= +payload-status-invalid+ (payload-status-status status)))))))
+             (error 'simple-error
+                    :format-control "some internal execution fault"
+                    :format-arguments nil))))
+      (is (not (engine-payload-store-invalid-block
+                store (block-hash child-block)))))))

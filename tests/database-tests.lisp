@@ -241,8 +241,65 @@
         (uiop:delete-directory-tree path :validate t)))))
 
 #+sbcl
+(defun rocksdb-crash-test-read-marker (marker expected-mode)
+  (when (probe-file marker)
+    (ignore-errors
+      (with-open-file (in marker :direction :input)
+        (let ((*read-eval* nil))
+          (let ((value (read in nil nil)))
+            (and (listp value)
+                 (eq expected-mode (getf value :mode))
+                 value)))))))
+
+#+sbcl
+(defun rocksdb-crash-test-run-child
+    (mode directory marker expected-marker-mode &optional (timeout 180))
+  "Run one crash-writer MODE through marker publication, then SIGKILL it."
+  (let* ((script
+           (namestring (truename "scripts/rocksdb-crash-writer.lisp")))
+         (process
+           (test-launch-program
+            (list "sbcl" "--script" script mode directory marker))))
+    (unwind-protect
+         (let ((marker-record
+                 (wait-for-test-condition
+                  (format nil "RocksDB crash writer mode ~A" mode)
+                  timeout
+                  (lambda ()
+                    (or
+                     (rocksdb-crash-test-read-marker
+                      marker expected-marker-mode)
+                     (unless (ignore-errors
+                               (uiop:process-alive-p process))
+                       (error
+                        "RocksDB crash writer mode ~A exited before its marker"
+                        mode)))))))
+           (unless (ignore-errors (uiop:process-alive-p process))
+             (error
+              "RocksDB crash writer mode ~A was not alive after its marker"
+              mode))
+           ;; This is deliberately urgent termination.  The child has no
+           ;; opportunity to close RocksDB or run Lisp unwind cleanup.
+           (uiop:terminate-process process :urgent t)
+           (multiple-value-bind (status exited-p)
+               (wait-test-process-with-timeout process 30)
+             (unless exited-p
+               (error
+                "RocksDB crash writer mode ~A did not exit after SIGKILL"
+                mode))
+             (when (or (null status) (eql status 0))
+               (error
+                "RocksDB crash writer mode ~A did not report a killed exit status: ~S"
+                mode status))
+             (values marker-record status)))
+      (when (ignore-errors (uiop:process-alive-p process))
+        (ignore-errors (uiop:terminate-process process :urgent t))
+        (wait-test-process-with-timeout process 30)))))
+
+#+sbcl
 (deftest rocksdb-database-survives-a-process-kill-with-no-clean-close
-  (:layer :e2e :module :database)
+  (:layer :e2e :module :database :launches-processes t
+   :estimated-seconds 60)
   ;; docs/storage-substrate.md gate: a WAL-synced batch reopens all-or-none
   ;; across a process CRASH, not merely across a clean close. A child writes a
   ;; synced batch, records a marker, and blocks; the parent SIGKILLs it (no
@@ -254,21 +311,12 @@
                (devnet-cli-temp-directory "ethereum-lisp-rocksdb-crash")))
          (marker (namestring
                   (devnet-cli-temp-path
-                   "ethereum-lisp-rocksdb-crash-marker" "flag")))
-         (script (namestring (truename "scripts/rocksdb-crash-writer.lisp"))))
+                   "ethereum-lisp-rocksdb-crash-marker" "flag"))))
     (unwind-protect
-         (let ((process
-                 (test-launch-program
-                  (list "sbcl" "--script" script dir marker))))
-           (wait-for-test-condition
-            "rocksdb crash writer commits its WAL-synced batch"
-            180
-            (lambda () (probe-file marker)))
-           ;; SIGKILL: the writer never gets to close the database. Reap it so
-           ;; the kernel has torn the process down and released the RocksDB
-           ;; directory lock before the crash-recovery reopen below.
-           (uiop:terminate-process process :urgent t)
-           (uiop:wait-process process)
+         (let ((marker-record
+                 (rocksdb-crash-test-run-child
+                  "raw-batch" dir marker :raw-batch)))
+           (is (= 16 (getf marker-record :count)))
            (let ((database (make-rocksdb-key-value-database dir)))
              (unwind-protect
                   (dotimes (i 16)
@@ -277,6 +325,145 @@
                       (is present-p)
                       (is (bytes= (vector (+ 100 i)) value))))
                (close-rocksdb-key-value-database database))))
+      (when (probe-file marker)
+        (ignore-errors (delete-file marker)))
+      (when (probe-file (uiop:ensure-directory-pathname dir))
+        (uiop:delete-directory-tree
+         (uiop:ensure-directory-pathname dir)
+         :validate t :if-does-not-exist :ignore)))))
+
+#+sbcl
+(deftest rocksdb-peer-sync-candidate-progress-survives-sigkill
+  (:layer :e2e :module :database :launches-processes t
+   :estimated-seconds 180)
+  ;; The child uses the production typed P2P import boundary plus the real
+  ;; candidate exporter twice. Its final marker follows the second
+  ;; candidate+cursor WAL batch; SIGKILL therefore tests restart durability
+  ;; without a clean RocksDB close.
+  (let* ((dir
+           (namestring
+            (devnet-cli-temp-directory
+             "ethereum-lisp-rocksdb-peer-sync-crash")))
+         (marker
+           (namestring
+            (devnet-cli-temp-path
+             "ethereum-lisp-rocksdb-peer-sync-crash-marker" "sexp"))))
+    (unwind-protect
+         (let* ((marker-record
+                  (rocksdb-crash-test-run-child
+                   "peer-sync-candidates" dir marker
+                   :peer-sync-candidates 240))
+                (peer-id
+                  (hex-to-bytes (getf marker-record :peer-id)))
+                (genesis-hash
+                  (hash32-from-hex (getf marker-record :genesis-hash)))
+                (parent-hash
+                  (hash32-from-hex (getf marker-record :parent-hash)))
+                (parent-number (getf marker-record :parent-number))
+                (first-candidate-hash
+                  (hash32-from-hex
+                   (getf marker-record :first-candidate-hash)))
+                (last-candidate-hash
+                  (hash32-from-hex
+                   (getf marker-record :last-candidate-hash)))
+                (last-candidate-number
+                  (getf marker-record :last-candidate-number))
+                (account
+                  (address-from-hex (getf marker-record :account)))
+                (expected-balance (getf marker-record :balance))
+                (database (make-rocksdb-key-value-database dir)))
+           (unwind-protect
+                (let ((direct
+                        (make-database-engine-payload-store database)))
+                  (is (= 64 (length peer-id)))
+                  (is (= 1 parent-number))
+                  (is (= 3 last-candidate-number))
+                  (is (not (hash32= first-candidate-hash
+                                    last-candidate-hash)))
+                  ;; P2P candidate execution must not publish forkchoice.
+                  (is (= parent-number (chain-store-head-number direct)))
+                  (let ((head (chain-store-head-block direct)))
+                    (is head)
+                    (when head
+                      (is (hash32= parent-hash (block-hash head)))))
+                  (let ((canonical-genesis
+                          (chain-store-canonical-hash direct 0))
+                        (canonical-parent
+                          (chain-store-canonical-hash direct 1)))
+                    (is canonical-genesis)
+                    (when canonical-genesis
+                      (is (hash32= genesis-hash canonical-genesis)))
+                    (is canonical-parent)
+                    (when canonical-parent
+                      (is (hash32= parent-hash canonical-parent))))
+                  (is (null (chain-store-canonical-hash direct 2)))
+                  (is (null (chain-store-canonical-hash direct 3)))
+                  ;; Both executed candidates survived as hash-addressed data.
+                  (loop for candidate-hash
+                          in (list first-candidate-hash last-candidate-hash)
+                        for expected-number from 2
+                        do (let ((candidate
+                                   (chain-store-known-block
+                                    direct candidate-hash)))
+                             (is candidate)
+                             (when candidate
+                               (is (= expected-number
+                                      (block-header-number
+                                       (block-header candidate))))))
+                           (is (chain-store-state-available-p
+                                direct candidate-hash)))
+                  (multiple-value-bind (progress present-p)
+                      (ethereum-lisp.node-store.persistence:node-store-read-peer-sync-progress
+                       database peer-id)
+                    (is present-p)
+                    (when progress
+                      (is (bytes=
+                           peer-id
+                           (ethereum-lisp.node-store.persistence:node-store-peer-sync-progress-peer-id
+                            progress)))
+                      (is (= last-candidate-number
+                             (ethereum-lisp.node-store.persistence:node-store-peer-sync-progress-last-number
+                              progress)))
+                      (is (hash32=
+                           last-candidate-hash
+                           (ethereum-lisp.node-store.persistence:node-store-peer-sync-progress-last-hash
+                            progress)))))
+                  ;; Exercise the production resume decision on the store that
+                  ;; reopened after SIGKILL, rather than treating a raw cursor
+                  ;; point read as sufficient evidence.  The next request must
+                  ;; begin after the last WAL-committed candidate and carry its
+                  ;; hash as the first-header parent anchor.
+                  (let ((node
+                          (ethereum-lisp.cli::%make-devnet-node
+                           :store direct
+                           :store-guard-function
+                           (lambda (thunk) (funcall thunk))
+                           :peer-sync-progress-function
+                           (lambda (requested-peer-id)
+                             (ethereum-lisp.node-store.persistence:node-store-read-peer-sync-progress
+                              database requested-peer-id))
+                           :peer-sync-progress-reset-function
+                           (lambda (requested-peer-id)
+                             (ethereum-lisp.node-store.persistence:node-store-delete-peer-sync-progress
+                              database requested-peer-id)))))
+                    (multiple-value-bind
+                          (start-number expected-parent-hash cursor-anchor-p)
+                        (ethereum-lisp.cli::devnet-node-peer-sync-resume-point
+                         node peer-id parent-number parent-hash)
+                      (is (= (1+ last-candidate-number) start-number))
+                      (is (hash32= last-candidate-hash
+                                   expected-parent-hash))
+                      (is cursor-anchor-p)))
+                  ;; This point read starts from LAST-CANDIDATE-HASH, proving
+                  ;; its state-history/trie records reopen through the direct
+                  ;; provider rather than only the canonical parent state.
+                  (multiple-value-bind (balance present-p)
+                      (chain-store-account-balance
+                       direct last-candidate-hash account)
+                    (is present-p)
+                    (when present-p
+                      (is (= expected-balance balance)))))
+             (close-rocksdb-key-value-database database)))
       (when (probe-file marker)
         (ignore-errors (delete-file marker)))
       (when (probe-file (uiop:ensure-directory-pathname dir))

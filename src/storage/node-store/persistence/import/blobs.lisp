@@ -48,8 +48,37 @@
       (block-validation-fail
        "Invalid KV blob-sidecar record RLP: ~A" condition))))
 
+(defun chain-store-validate-blob-and-proofs (blob-and-proofs)
+  "Verify one decoded durable blob record before exposing it to a caller."
+  (let* ((cell-proofs
+           (engine-blob-and-proofs-cell-proofs blob-and-proofs))
+         (sidecar
+           (make-blob-sidecar
+            :blobs (list (engine-blob-and-proofs-blob blob-and-proofs))
+            :commitments
+            (list (engine-blob-and-proofs-commitment blob-and-proofs))
+            :proofs (if cell-proofs
+                        cell-proofs
+                        (list (engine-blob-and-proofs-proof
+                               blob-and-proofs))))))
+    ;; VALIDATE-BLOB-SIDECAR-FIELDS classifies a statically absent verifier as
+    ;; input validation. At this durable lazy-read boundary it is instead a
+    ;; local capability failure: the bytes are not corrupt merely because this
+    ;; process cannot currently verify them.
+    (if cell-proofs
+        (unless (kzg-cell-proof-verification-available-p)
+          (kzg-unavailable-error
+           "KZG cell proof verification is not available"))
+        (unless (kzg-blob-proof-verification-available-p)
+          (kzg-unavailable-error
+           "KZG blob proof verification is not available")))
+    (validate-blob-sidecar-fields
+     sidecar
+     :require-proof-verification t))
+  blob-and-proofs)
+
 (defun chain-store-import-blob-sidecar-from-kv
-    (store versioned-hash-identifier record)
+    (store versioned-hash-identifier record &key (now (unix-time)))
   (setf store (chain-store-require-memory-store store))
   (let ((versioned-hash (make-hash32 versioned-hash-identifier))
         (blob-and-proofs
@@ -59,30 +88,45 @@
                       (engine-blob-and-proofs-commitment blob-and-proofs)))
       (block-validation-fail
        "KV blob-sidecar record key does not match encoded commitment"))
-    (let ((cell-proofs
-            (engine-blob-and-proofs-cell-proofs blob-and-proofs)))
-      (validate-blob-sidecar-fields
-       (make-blob-sidecar
-        :blobs (list (engine-blob-and-proofs-blob blob-and-proofs))
-        :commitments
-        (list (engine-blob-and-proofs-commitment blob-and-proofs))
-        :proofs (if cell-proofs
-                    cell-proofs
-                    (list (engine-blob-and-proofs-proof blob-and-proofs))))
-       :require-proof-verification t))
-    (setf (gethash
-           (engine-payload-store-key versioned-hash)
-           (memory-chain-store-blob-sidecars store))
-          blob-and-proofs)))
+    (let* ((cell-proofs
+             (engine-blob-and-proofs-cell-proofs blob-and-proofs))
+           (sidecar
+             (make-blob-sidecar
+              :blobs (list (engine-blob-and-proofs-blob blob-and-proofs))
+              :commitments
+              (list (engine-blob-and-proofs-commitment blob-and-proofs))
+              :proofs (if cell-proofs
+                          cell-proofs
+                          (list (engine-blob-and-proofs-proof
+                                 blob-and-proofs))))))
+      ;; Admission, metadata accounting, and eviction happen for each record;
+      ;; recovery never constructs an oversized transient sidecar cache.
+      (engine-payload-store-put-blob-sidecar store sidecar :now now))))
 
 (defun chain-store-import-blob-sidecars-from-kv (store database)
-  (dolist (entry (kv-chain-record-entries database :blob-sidecar))
-    (chain-store-import-blob-sidecar-from-kv
-     store (car entry) (cdr entry))))
+  (let ((now (unix-time)))
+    (multiple-value-bind (iterator closer)
+        (kv-iterator
+         database
+         :start (kv-chain-record-kind-start-key :blob-sidecar)
+         :end (kv-chain-record-kind-end-key :blob-sidecar))
+      (unwind-protect
+           (loop
+             (multiple-value-bind (key record present-p)
+                 (funcall iterator)
+               (unless present-p
+                 (return))
+               (chain-store-import-blob-sidecar-from-kv
+                store
+                (kv-chain-record-key-identifier :blob-sidecar key)
+                record
+                :now now)))
+        (funcall closer)))))
 
 (defun node-store-import-txpool-blob-sidecars-from-kv (store database)
   "Point-read exactly the sidecars referenced by STORE's bounded txpool."
-  (let ((seen (make-hash-table :test 'equal)))
+  (let ((seen (make-hash-table :test 'equal))
+        (now (unix-time)))
     (dolist (transaction (node-store-current-txpool-transactions store))
       (loop for versioned-hash across
               (transaction-blob-versioned-hashes transaction)
@@ -98,5 +142,6 @@
                       "Persisted blob transaction is missing sidecar ~A"
                       key))
                    (chain-store-import-blob-sidecar-from-kv
-                    store identifier record))))
-  store))
+                    store identifier record :now now))))
+    (engine-payload-store-prune-caches store :now now)
+    store))

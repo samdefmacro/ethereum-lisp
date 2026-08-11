@@ -196,9 +196,11 @@ us the connection."
 (defun eth-accept-propagated-block (backend block)
   (let ((accept (eth-serve-backend-accept-block backend)))
     (when accept
-      ;; Invalid propagation is a peer-quality event, not a session-fatal
-      ;; protocol error. The backend performs all consensus validation.
-      (ignore-errors (funcall accept block) t))))
+      ;; Every signaled failure reaches the session supervisor. A malformed
+      ;; bundle may disconnect one peer; a storage/capability/program failure
+      ;; must never be converted into a false successful admission.
+      (funcall accept block)
+      t)))
 
 (defun eth-peer-queue-announced-hashes (peer backend hashes)
   "Queue the announced HASHES worth asking PEER for, and return how many.

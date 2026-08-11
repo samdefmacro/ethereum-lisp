@@ -23,6 +23,12 @@
    #:engine-blob-and-proofs-commitment
    #:engine-blob-and-proofs-proof
    #:engine-blob-and-proofs-cell-proofs
+   #:chain-store-cache-entry-metadata
+   #:chain-store-cache-entry-metadata-p
+   #:make-chain-store-cache-entry-metadata
+   #:chain-store-cache-entry-metadata-inserted-at
+   #:chain-store-cache-entry-metadata-encoded-bytes
+   #:chain-store-cache-entry-metadata-block-number
    #:engine-log-filter
    #:engine-log-filter-p
    #:make-engine-log-filter
@@ -87,11 +93,19 @@
    #:chain-state-diff-codes
    #:chain-state-diff-storage
    #:memory-chain-store-remote-blocks
+   #:memory-chain-store-remote-block-metadata
+   #:memory-chain-store-remote-block-durable-deletions
    #:memory-chain-store-forkchoice-sync-targets
+   #:memory-chain-store-forkchoice-sync-target-metadata
    #:memory-chain-store-invalid-tipsets
+   #:memory-chain-store-invalid-tipset-metadata
+   #:memory-chain-store-invalid-tipset-durable-deletions
+   #:memory-chain-store-durable-cache-change-tracking-enabled-p
    #:memory-chain-store-invalid-block-hits
    #:memory-chain-store-prepared-payloads
+   #:memory-chain-store-prepared-payload-metadata
    #:memory-chain-store-blob-sidecars
+   #:memory-chain-store-blob-sidecar-metadata
    #:memory-chain-store-log-filters
    #:memory-chain-store-next-log-filter-id
    #:memory-chain-store-head-checkpoint
@@ -133,6 +147,7 @@
    #:engine-payload-store-copy-filter-table
    #:engine-payload-store-copy-blob-and-proofs
    #:engine-payload-store-copy-blob-sidecar-table
+   #:engine-payload-store-copy-cache-metadata-table
    #:maybe-copy-hash32
    #:maybe-copy-address
    #:engine-payload-store-copy-block-header
@@ -177,10 +192,28 @@
    #:engine-payload-store-sweep-expired-filters
    #:engine-payload-store-log-filter
    #:engine-payload-store-uninstall-log-filter
+   #:+engine-remote-block-cache-count-limit+
+   #:+engine-remote-block-cache-byte-limit+
+   #:+engine-remote-block-cache-max-age-seconds+
+   #:+engine-forkchoice-target-cache-count-limit+
+   #:+engine-forkchoice-target-cache-byte-limit+
+   #:+engine-forkchoice-target-cache-max-age-seconds+
+   #:+engine-invalid-block-hit-eviction+
+   #:+engine-invalid-tipsets-cap+
+   #:+engine-invalid-tipsets-byte-limit+
+   #:+engine-invalid-tipsets-max-age-seconds+
+   #:+engine-prepared-payload-cache-count-limit+
+   #:+engine-prepared-payload-cache-byte-limit+
+   #:+engine-prepared-payload-cache-max-age-seconds+
+   #:+engine-blob-sidecar-cache-count-limit+
+   #:+engine-blob-sidecar-cache-byte-limit+
+   #:+engine-blob-sidecar-cache-max-age-seconds+
    #:engine-payload-store-remote-block
+   #:engine-payload-store-remote-block-list
    #:engine-payload-store-put-remote-block
    #:engine-payload-store-remove-remote-block
    #:engine-payload-store-put-forkchoice-sync-target
+   #:engine-payload-store-remove-forkchoice-sync-target
    #:engine-payload-store-forkchoice-sync-targets
    #:engine-payload-store-prune-prepared-payloads-for-block
    #:engine-payload-store-mark-invalid
@@ -195,8 +228,14 @@
    #:chain-store-prepared-payload
    #:chain-store-prepared-payloads
    #:engine-payload-store-put-blob-sidecar
+   #:engine-payload-store-remove-blob-sidecar
    #:engine-payload-store-blob-and-proofs-v1
    #:engine-payload-store-blob-and-proofs-v2
+   #:engine-payload-store-prune-caches
+   #:engine-payload-store-cache-statistics
+   #:*engine-payload-store-track-durable-cache-deletions-p*
+   #:engine-payload-store-enable-durable-cache-change-tracking
+   #:engine-payload-store-durable-cache-change-tracking-enabled-p
    #:memory-chain-store-put-block
    #:engine-payload-store-known-block
    #:engine-payload-store-checkpoint-number
