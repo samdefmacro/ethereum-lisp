@@ -94,6 +94,19 @@
         (is (string= "0x7" (field progress "startingBlock")))
         (is (string= "0x7" (field progress "currentBlock")))
         (is (string= "0xc" (field progress "highestBlock")))))
+    (let ((store (make-engine-payload-memory-store))
+          (remote (make-block :header (make-block-header :number 14
+                                                         :timestamp 14))))
+      (ethereum-lisp.chain-store:engine-payload-store-put-remote-block
+       store remote :now 100)
+      (is (= 14
+             (ethereum-lisp.public-api::engine-rpc-sync-highest-block
+              store :now 100)))
+      (is (null
+           (ethereum-lisp.public-api::engine-rpc-sync-highest-block
+            store
+            :now (+ 100
+                    ethereum-lisp.chain-store:+engine-remote-block-cache-max-age-seconds+)))))
     (let* ((response-json
              (engine-rpc-handle-request-json
               (concatenate
@@ -544,4 +557,3 @@
         (is (string= "0x14" (field (first responses) "result")))
         (is (string= "0x78" (field (second responses) "result")))
         (is (equal '("0x5" "0x14" "0x14") rewards))))))
-

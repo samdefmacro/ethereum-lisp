@@ -95,6 +95,10 @@
    #:eth-peer-fetch-announced-transactions
    #:eth-peer-fetch-announced-block
    #:eth-sync-validate-header-batch
+   #:eth-sync-anchor-mismatch
+   #:eth-sync-anchor-mismatch-number
+   #:eth-sync-anchor-mismatch-expected-parent-hash
+   #:eth-sync-anchor-mismatch-actual-parent-hash
    #:eth-sync-validate-body
    #:eth-sync-assemble-block
    #:eth-sync-download-blocks
@@ -105,6 +109,7 @@
    #:eth-sync-download-blocks-multi
    #:+eth-backfill-batch-size+
    #:+eth-backfill-max-headers+
+   #:eth-sync-backfill-peer-error
    #:eth-sync-collect-backfill-headers
    #:eth-sync-import-headers-with-bodies
    #:eth-sync-fill-gap

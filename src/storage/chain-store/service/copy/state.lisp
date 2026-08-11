@@ -52,21 +52,44 @@
    :remote-blocks
    (engine-payload-store-copy-table
     (memory-chain-store-remote-blocks store))
+   :remote-block-metadata
+   (engine-payload-store-copy-cache-metadata-table
+    (memory-chain-store-remote-block-metadata store))
+   :remote-block-durable-deletions
+   (engine-payload-store-copy-table
+    (memory-chain-store-remote-block-durable-deletions store))
    :forkchoice-sync-targets
    (engine-payload-store-copy-table
     (memory-chain-store-forkchoice-sync-targets store))
+   :forkchoice-sync-target-metadata
+   (engine-payload-store-copy-cache-metadata-table
+    (memory-chain-store-forkchoice-sync-target-metadata store))
    :invalid-tipsets
    (engine-payload-store-copy-block-table
     (memory-chain-store-invalid-tipsets store))
+   :invalid-tipset-metadata
+   (engine-payload-store-copy-cache-metadata-table
+    (memory-chain-store-invalid-tipset-metadata store))
+   :invalid-tipset-durable-deletions
+   (engine-payload-store-copy-table
+    (memory-chain-store-invalid-tipset-durable-deletions store))
+   :durable-cache-change-tracking-enabled-p
+   (memory-chain-store-durable-cache-change-tracking-enabled-p store)
    :invalid-block-hits
    (engine-payload-store-copy-table
     (memory-chain-store-invalid-block-hits store))
    :prepared-payloads
    (engine-payload-store-copy-prepared-payload-table
     (memory-chain-store-prepared-payloads store))
+   :prepared-payload-metadata
+   (engine-payload-store-copy-cache-metadata-table
+    (memory-chain-store-prepared-payload-metadata store))
    :blob-sidecars
    (engine-payload-store-copy-blob-sidecar-table
     (memory-chain-store-blob-sidecars store))
+   :blob-sidecar-metadata
+   (engine-payload-store-copy-cache-metadata-table
+    (memory-chain-store-blob-sidecar-metadata store))
    :log-filters
    (engine-payload-store-copy-filter-table
     (memory-chain-store-log-filters store))

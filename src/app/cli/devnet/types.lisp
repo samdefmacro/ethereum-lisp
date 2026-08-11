@@ -83,6 +83,9 @@
                       dev-mode-p coinbase store-guard-function
                       store-guard-try-function
                       persistence-state
+                      candidate-persistence-function
+                      peer-sync-progress-function
+                      peer-sync-progress-reset-function
                       canonical-transition-persistence-function
                       txpool-journal-path
                       txpool-rejournal-seconds
@@ -129,6 +132,17 @@
   ;; CALL-WITH-DEVNET-NODE-STORE-GUARD-IF-FREE.
   store-guard-try-function
   persistence-state
+  ;; One durable candidate sink is shared by Engine and P2P imports.  The P2P
+  ;; path may additionally supply a peer-sync progress record that the adapter
+  ;; commits in the candidate's database batch.
+  candidate-persistence-function
+  ;; Point reader for a peer's last durable contiguous candidate.  Keeping the
+  ;; database adapter behind a closure avoids leaking persistence concerns into
+  ;; the networking package.
+  peer-sync-progress-function
+  ;; Atomically removes a cursor whose branch Engine forkchoice abandoned.
+  ;; Its replacement is written with the first candidate on the new branch.
+  peer-sync-progress-reset-function
   canonical-transition-persistence-function
   txpool-journal-path
   txpool-rejournal-seconds

@@ -57,6 +57,8 @@
    #:expected-ethash-difficulty
    #:validate-ethash-header
    #:validate-block-dao-extra-data
+   #:validate-block-merge-fields
+   #:validate-block-header-field-shapes
    #:validate-block-header-basics
    #:validate-block-header-against-config
    #:validate-withdrawal-fields

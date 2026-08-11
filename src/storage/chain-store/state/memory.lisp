@@ -45,11 +45,25 @@ reads treat absence as that same default."
                       (state-retention-depth
                        +chain-store-default-state-retention-depth+)
                       (remote-blocks (make-hash-table :test 'equalp))
+                      (remote-block-metadata (make-hash-table :test 'equalp))
+                      (remote-block-durable-deletions
+                       (make-hash-table :test 'equalp))
                       (forkchoice-sync-targets (make-hash-table :test 'equalp))
+                      (forkchoice-sync-target-metadata
+                       (make-hash-table :test 'equalp))
                       (invalid-tipsets (make-hash-table :test 'equalp))
+                      (invalid-tipset-metadata
+                       (make-hash-table :test 'equalp))
+                      (invalid-tipset-durable-deletions
+                       (make-hash-table :test 'equalp))
+                      (durable-cache-change-tracking-enabled-p nil)
                       (invalid-block-hits (make-hash-table :test 'equalp))
                       (prepared-payloads (make-hash-table :test 'equalp))
+                      (prepared-payload-metadata
+                       (make-hash-table :test 'equalp))
                       (blob-sidecars (make-hash-table :test 'equalp))
+                      (blob-sidecar-metadata
+                       (make-hash-table :test 'equalp))
                       (log-filters (make-hash-table :test 'equal))
                       (next-log-filter-id 1)
                       (head-checkpoint
@@ -81,11 +95,19 @@ reads treat absence as that same default."
   (state-retention-depth +chain-store-default-state-retention-depth+
    :type (integer 1 *))
   remote-blocks
+  remote-block-metadata
+  remote-block-durable-deletions
   forkchoice-sync-targets
+  forkchoice-sync-target-metadata
   invalid-tipsets
+  invalid-tipset-metadata
+  invalid-tipset-durable-deletions
+  (durable-cache-change-tracking-enabled-p nil :type boolean)
   invalid-block-hits
   prepared-payloads
+  prepared-payload-metadata
   blob-sidecars
+  blob-sidecar-metadata
   log-filters
   (next-log-filter-id 1 :type (integer 1 *))
   head-checkpoint

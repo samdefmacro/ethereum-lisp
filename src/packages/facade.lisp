@@ -91,6 +91,7 @@
    #:make-hash32
    #:hash32-from-hex
    #:hash32-to-hex
+   #:hash32=
    #:zero-hash32
    #:+unix-epoch-universal-time+
    #:universal-time-to-unix-time
@@ -644,6 +645,10 @@
    #:eth-peer-fetch-announced-transactions
    #:eth-peer-fetch-announced-block
    #:eth-sync-validate-header-batch
+   #:eth-sync-anchor-mismatch
+   #:eth-sync-anchor-mismatch-number
+   #:eth-sync-anchor-mismatch-expected-parent-hash
+   #:eth-sync-anchor-mismatch-actual-parent-hash
    #:eth-sync-validate-body
    #:eth-sync-assemble-block
    #:eth-sync-download-blocks
@@ -654,6 +659,7 @@
    #:eth-sync-download-blocks-multi
    #:+eth-backfill-batch-size+
    #:+eth-backfill-max-headers+
+   #:eth-sync-backfill-peer-error
    #:eth-sync-collect-backfill-headers
    #:eth-sync-import-headers-with-bodies
    #:eth-sync-fill-gap
@@ -1039,6 +1045,7 @@
    #:engine-payload-store-put-account-storage
    #:engine-payload-store-state-available-p
    #:engine-payload-store-remote-block
+   #:engine-payload-store-remote-block-list
    #:engine-payload-store-put-forkchoice-sync-target
    #:engine-payload-store-forkchoice-sync-targets
    #:engine-payload-store-mark-invalid
@@ -1081,6 +1088,10 @@
    #:engine-payload-store-put-blob-sidecar
    #:engine-payload-store-blob-and-proofs-v1
    #:engine-payload-store-blob-and-proofs-v2
+   #:engine-payload-store-prune-caches
+   #:engine-payload-store-cache-statistics
+   #:engine-payload-store-enable-durable-cache-change-tracking
+   #:engine-payload-store-durable-cache-change-tracking-enabled-p
    #:call-with-chain-store-transaction
    #:chain-store-journal-rollback
    #:chain-store-journal-undo-count
@@ -1152,11 +1163,15 @@
    #:chain-store-export-block-records-to-kv
    #:chain-store-export-transaction-locations-to-kv
    #:chain-store-export-state-records-to-kv
+   #:node-store-export-buffered-candidate-to-kv
+   #:node-store-export-invalid-candidate-to-kv
    #:node-store-export-payload-candidate-to-kv
    #:node-store-export-forkchoice-to-kv
    #:node-store-export-to-kv
    #:node-store-import-txpool-records-from-kv
    #:node-store-import-txpool-blob-sidecars-from-kv
+   #:node-store-import-bounded-invalid-tipsets-from-kv
+   #:node-store-import-bounded-remote-blocks-from-kv
    #:node-store-import-from-kv)
   (#:ethereum-lisp.engine-api
    #:+engine-rpc-capabilities+
@@ -1474,6 +1489,13 @@
    #:execute-and-commit-engine-payload
    #:execute-and-commit-block
    #:execute-and-commit-signed-block)
+  (#:ethereum-lisp.block-import
+   #:build-private-block-candidate
+   #:import-executable-payload
+   #:import-block-candidate
+   #:import-p2p-block-candidate
+   #:publish-canonical-block
+   #:build-import-and-publish-block)
  )
 
 (in-package #:cl-user)

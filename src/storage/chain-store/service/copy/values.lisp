@@ -69,6 +69,21 @@
              table)
     copy))
 
+(defun engine-payload-store-copy-cache-metadata-table (table)
+  (let ((copy (make-hash-table :test (hash-table-test table))))
+    (maphash
+     (lambda (key metadata)
+       (setf (gethash key copy)
+             (make-chain-store-cache-entry-metadata
+              :inserted-at
+              (chain-store-cache-entry-metadata-inserted-at metadata)
+              :encoded-bytes
+              (chain-store-cache-entry-metadata-encoded-bytes metadata)
+              :block-number
+              (chain-store-cache-entry-metadata-block-number metadata))))
+     table)
+    copy))
+
 (defun maybe-copy-hash32 (hash)
   (when hash
     (make-hash32 (copy-seq (hash32-bytes hash)))))

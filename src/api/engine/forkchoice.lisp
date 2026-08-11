@@ -15,11 +15,12 @@
                               '())))))
     (when (chain-config-prague-p config block-number timestamp)
       (setf arguments (append arguments (list :requests '()))))
-    (when (chain-config-amsterdam-p config block-number timestamp)
-      (setf arguments (append arguments (list :block-access-list '()))))
+    ;; Amsterdam BAL side data is an execution output.  Omitting the argument
+    ;; lets the local builder derive it; supplying an empty placeholder would
+    ;; incorrectly require every non-empty derived list to equal NIL.
     arguments))
 
-(defun engine-rpc-build-prepared-payload
+(defun engine-rpc-build-prepared-payload-detached
     (store parent-block payload-attributes config transactions
      &key gas-limit-target)
   (let* ((block (engine-build-empty-payload
@@ -66,6 +67,18 @@
              (chain-store-block-hashes-for-header store header))
             (engine-rpc-prepared-payload-body-arguments
              payload-attributes config block-number timestamp)))))))
+
+(defun engine-rpc-build-prepared-payload
+    (store parent-block payload-attributes config transactions
+     &key gas-limit-target)
+  "Build a validated payload candidate that remains private until newPayload."
+  (build-private-block-candidate
+   store
+   (lambda ()
+     (engine-rpc-build-prepared-payload-detached
+      store parent-block payload-attributes config transactions
+      :gas-limit-target gas-limit-target))
+   config))
 
 (defun engine-rpc-transaction-sender-key (transaction expected-chain-id)
   (let ((sender (transaction-sender
@@ -310,19 +323,18 @@ for the rest of this payload; other senders are still considered."
             (engine-rpc-fail
              +engine-rpc-error-invalid-forkchoice-state+
              checkpoint-error)))
-        (chain-store-atomic-commit
+        (publish-canonical-block
          store
-         (lambda ()
-           (chain-store-update-forkchoice-checkpoints store state)
-           (multiple-value-bind (head transition)
-               (chain-store-set-canonical-head
-                store
-                (forkchoice-state-head-block-hash state)
-                :expected-chain-id (chain-config-chain-id config)
-                :chain-config config)
-             (declare (ignore head))
-             (engine-rpc-persist-forkchoice
-              store transition forkchoice-persistence-function)))))
+         (forkchoice-state-head-block-hash state)
+         config
+         :authority :engine-forkchoice
+         :forkchoice-state state
+         :durability-function
+         (and
+          forkchoice-persistence-function
+          (lambda (callback-store transition)
+            (engine-rpc-persist-forkchoice
+             callback-store transition forkchoice-persistence-function)))))
       (when (and payload-attributes
                  (string= +payload-status-valid+
                           (payload-status-status status)))

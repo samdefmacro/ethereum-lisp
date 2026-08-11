@@ -23,6 +23,20 @@
   proof
   cell-proofs)
 
+(defstruct (chain-store-cache-entry-metadata
+            (:constructor make-chain-store-cache-entry-metadata
+                (&key inserted-at encoded-bytes block-number)))
+  "Deterministic accounting attached to one bounded chain-store cache entry.
+
+INSERTED-AT is a store-observed Unix timestamp rather than an untrusted block
+timestamp.  ENCODED-BYTES is the exact number of retained protocol bytes used
+by the cache budget.  BLOCK-NUMBER is optional: caches whose value can be tied
+to an execution block use it for finality pruning, while content-only entries
+leave it NIL until their owner supplies an inclusion height."
+  (inserted-at 0 :type (integer 0 *))
+  (encoded-bytes 0 :type (integer 0 *))
+  (block-number nil :type (or null (integer 0 *))))
+
 (defstruct (engine-log-filter
             (:constructor make-engine-log-filter
                 (&key criteria last-block-number block-hash-p

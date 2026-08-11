@@ -43,7 +43,7 @@
              (chain-store-backing-canonical-hash store number)
            (when persisted-p
              (unless (hash32-p persisted)
-               (block-validation-fail
+               (storage-fail
                 "Durable canonical index does not contain a hash32"))
              (when (chain-store-cache-backing-read-p store)
                (setf (gethash number hashes)

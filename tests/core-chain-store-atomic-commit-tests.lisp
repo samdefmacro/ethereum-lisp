@@ -197,6 +197,95 @@
            (state-account-balance
             (state-db-get-account state address))))))
 
+(deftest execute-atomic-block-commit-rolls-back-on-nonlocal-exit
+  (let* ((store (make-engine-payload-memory-store))
+         (state (make-state-db))
+         (address
+           (address-from-hex
+            "0x0000000000000000000000000000000000000001"))
+         (block
+           (make-block
+            :header
+            (make-block-header
+             :number 0
+             :parent-hash (zero-hash32)
+             :state-root +empty-trie-hash+)))
+         (hash (block-hash block)))
+    (state-db-set-account state address (make-state-account :balance 10))
+    (let ((result
+            (catch 'abort-atomic-commit
+              (execute-atomic-block-commit
+               store state
+               (lambda ()
+                 (chain-store-put-block store block :state-available-p t)
+                 (state-db-set-account
+                  state address (make-state-account :balance 99))
+                 (throw 'abort-atomic-commit :aborted)))
+              :returned)))
+      (is (eq :aborted result)))
+    (is (null (chain-store-known-block store hash)))
+    (is (not (chain-store-state-available-p store hash)))
+    (is (null (chain-store-canonical-hash store 0)))
+    (is (= 10
+           (state-account-balance
+            (state-db-get-account state address))))))
+
+(deftest chain-store-atomic-commit-preserves-values-and-merges-on-success
+  (let* ((store (make-engine-payload-memory-store))
+         (block
+           (make-block
+            :header
+            (make-block-header
+             :number 0
+             :parent-hash (zero-hash32)
+             :state-root +empty-trie-hash+))))
+    (multiple-value-bind (first second third)
+        (chain-store-atomic-commit
+         store
+         (lambda ()
+           (chain-store-put-block store block :state-available-p nil)
+           (values :first :second :third)))
+      (is (eq :first first))
+      (is (eq :second second))
+      (is (eq :third third)))
+    (is (chain-store-known-block store (block-hash block)))))
+
+(deftest nested-chain-store-nonlocal-exit-rolls-back-only-inner-savepoint
+  (let* ((store (make-engine-payload-memory-store))
+         (outer-block
+           (make-block
+            :header
+            (make-block-header
+             :number 1 :parent-hash (zero-hash32)
+             :extra-data #(1) :state-root +empty-trie-hash+)))
+         (inner-block
+           (make-block
+            :header
+            (make-block-header
+             :number 2 :parent-hash (block-hash outer-block)
+             :extra-data #(2) :state-root +empty-trie-hash+))))
+    (is (eq :outer-committed
+            (chain-store-atomic-commit
+             store
+             (lambda ()
+               (chain-store-put-block
+                store outer-block :state-available-p nil)
+               (is (eq :inner-aborted
+                       (catch 'abort-inner-savepoint
+                         (chain-store-atomic-commit
+                          store
+                          (lambda ()
+                            (chain-store-put-block
+                             store inner-block :state-available-p nil)
+                            (throw 'abort-inner-savepoint :inner-aborted)))
+                         :inner-returned)))
+               (is (chain-store-known-block store (block-hash outer-block)))
+               (is (null (chain-store-known-block
+                          store (block-hash inner-block))))
+               :outer-committed))))
+    (is (chain-store-known-block store (block-hash outer-block)))
+    (is (null (chain-store-known-block store (block-hash inner-block))))))
+
 (deftest nested-chain-store-journal-deduplicates-equalp-keys
   ;; A nested transaction can be the first frame to touch a byte-vector key.
   ;; After it merges, a fresh but EQUALP key in the parent must still share the

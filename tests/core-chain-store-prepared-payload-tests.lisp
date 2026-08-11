@@ -595,6 +595,54 @@
       (when (probe-file path)
         (delete-file path)))))
 
+(deftest prepared-payload-import-preserves-captured-invalid-snapshot-clock
+  (let* ((store (make-engine-payload-memory-store))
+         (payload-id #(2 0 0 0 0 0 0 2))
+         (invalid-block
+           (make-block
+            :header
+            (make-block-header :number 9
+                               :timestamp 14
+                               :withdrawals-root
+                               (withdrawal-list-root '()))
+            :withdrawals '()))
+         (prepared-payload
+           (make-engine-prepared-payload
+            :payload-id payload-id
+            :version 2
+            :block invalid-block))
+         (invalid-key
+           (ethereum-lisp.chain-store::engine-payload-store-key
+            (block-hash invalid-block)))
+         (prepared-key
+           (ethereum-lisp.chain-store::engine-payload-id-key payload-id))
+         (chain
+           (ethereum-lisp.chain-store.state:chain-store-require-memory-store
+            store)))
+    ;; Import orchestration owns one deterministic startup clock. Looking up
+    ;; the invalid owner must not invoke a public getter with wall-clock NOW,
+    ;; expire that snapshot, and accidentally admit the prepared payload.
+    (ethereum-lisp.chain-store:engine-payload-store-mark-invalid
+     store invalid-block :now 10)
+    (ethereum-lisp.node-store.persistence::chain-store-import-prepared-payload-from-kv
+     store payload-id
+     (ethereum-lisp.node-store.persistence::chain-store-prepared-payload-record-rlp
+      prepared-payload)
+     :now 10)
+    (is (nth-value
+         1
+         (gethash
+          invalid-key
+          (ethereum-lisp.chain-store.state:memory-chain-store-invalid-tipsets
+           chain))))
+    (is (not
+         (nth-value
+          1
+          (gethash
+           prepared-key
+           (ethereum-lisp.chain-store.state:memory-chain-store-prepared-payloads
+            chain)))))))
+
 (deftest chain-store-put-prepared-payload-rejects-version-id-mismatch
   (let* ((store (make-engine-payload-memory-store))
          (block

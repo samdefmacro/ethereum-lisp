@@ -441,9 +441,13 @@ content-addressed and shared; REBUILD is the offline compaction path."
         changed-p))))
 
 (defun node-store-export-payload-candidate-to-kv
-    (store candidate database)
-  "Persist CANDIDATE and its ancestry without publishing canonical indexes."
+    (store candidate database &key peer-sync-progress)
+  "Persist CANDIDATE and its ancestry without publishing canonical indexes.
+
+When PEER-SYNC-PROGRESS is supplied, its cursor is committed in the same KV
+batch as the candidate and must name CANDIDATE exactly."
   (let ((chain-store (chain-store-require-memory-store store)))
+    (engine-payload-store-enable-durable-cache-change-tracking chain-store)
     (unless (typep candidate 'ethereum-block)
       (block-validation-fail
        "Payload candidate export requires an Ethereum block"))
@@ -462,12 +466,30 @@ content-addressed and shared; REBUILD is the offline compaction path."
       (unless (chain-store-state-available-p chain-store candidate-hash)
         (block-validation-fail
          "Payload candidate export requires available state"))
+      (when peer-sync-progress
+        (unless (node-store-peer-sync-progress-p peer-sync-progress)
+          (block-validation-fail
+           "Payload candidate peer sync progress is invalid"))
+        (node-store-validate-peer-sync-progress
+         database peer-sync-progress)
+        (unless (and
+                 (= (node-store-peer-sync-progress-last-number
+                     peer-sync-progress)
+                    (block-header-number (block-header stored-candidate)))
+                 (hash32=
+                  (node-store-peer-sync-progress-last-hash
+                   peer-sync-progress)
+                  candidate-hash))
+          (block-validation-fail
+           "Payload candidate does not match peer sync progress")))
       (let* ((batch (make-kv-write-batch))
              (code-sink (make-node-store-code-sink batch database))
              (changed-p nil)
              (pending-trie-nodes nil)
              (persisted-state-hashes nil)
              (persisted-blocks nil)
+             (invalid-evicted nil)
+             (remote-evicted nil)
              (current stored-candidate))
         (loop
           (let* ((hash (block-hash current))
@@ -520,18 +542,213 @@ content-addressed and shared; REBUILD is the offline compaction path."
                 (block-validation-fail
                  "Payload candidate ancestry has non-consecutive heights"))
               (setf current parent))))
+        ;; Execution removes this block from the in-memory remote cache.  Its
+        ;; durable counterpart must disappear atomically with publication of
+        ;; the validated candidate, while shared BAL side data remains live
+        ;; under the candidate's public :BLOCK record.
+        (multiple-value-bind (remote-record remote-present-p)
+            (kv-get-chain-record
+             database :remote-block (hash32-bytes candidate-hash))
+          (declare (ignore remote-record))
+          (kv-batch-delete-chain-record
+           batch :remote-block (hash32-bytes candidate-hash))
+          (when remote-present-p
+            (setf changed-p t)))
+        ;; Reads performed during admission can expire either durable cache.
+        ;; Consume every changed-key tombstone in this same candidate batch so
+        ;; a crash cannot resurrect an already-evicted verdict or sync target.
+        (multiple-value-bind (invalid-changed-p evicted)
+            (chain-store-populate-invalid-tipset-export-batch
+             chain-store database batch :write-current-p nil)
+          (setf invalid-evicted evicted)
+          (when invalid-changed-p
+            (setf changed-p t)))
+        (multiple-value-bind (remote-changed-p evicted)
+            (chain-store-populate-remote-block-export-batch
+             chain-store database batch :write-current-p nil)
+          (setf remote-evicted evicted)
+          (when (node-store-populate-evicted-remote-bal-cleanup-batch
+                 chain-store database batch
+                 (append invalid-evicted remote-evicted)
+                 :deleted-remote-identifiers remote-evicted
+                 :deleted-invalid-identifiers invalid-evicted)
+            (setf changed-p t))
+          (when remote-changed-p
+            (setf changed-p t)))
+        (when (and peer-sync-progress
+                   (node-store-populate-peer-sync-progress-batch
+                    database batch peer-sync-progress))
+          (setf changed-p t))
         (when changed-p
           (kv-apply-batch database batch)
           (mpt-mark-nodes-persisted pending-trie-nodes)
           (dolist (hash persisted-state-hashes)
             (chain-store-clear-state-persistence-pending chain-store hash)))
+        (node-store-clear-durable-cache-deletions
+         (memory-chain-store-invalid-tipset-durable-deletions chain-store)
+         invalid-evicted)
+        (node-store-clear-durable-cache-deletions
+         (memory-chain-store-remote-block-durable-deletions chain-store)
+         (append remote-evicted (list (hash32-bytes candidate-hash))))
         (dolist (block persisted-blocks)
           (chain-store-release-durable-block-overlay chain-store block))
         database))))
 
+(defun node-store-export-invalid-candidate-to-kv
+    (store candidate database)
+  "Persist an INVALID verdict and remove stale buffered records atomically."
+  (let ((chain-store (chain-store-require-memory-store store)))
+    (engine-payload-store-enable-durable-cache-change-tracking chain-store)
+    (unless (typep candidate 'ethereum-block)
+      (block-validation-fail
+       "Invalid candidate export requires an Ethereum block"))
+    (unless (typep database 'key-value-database)
+      (block-validation-fail
+       "Invalid candidate export target must be a key-value database"))
+    ;; The import transaction already admitted/pruned this verdict with its
+    ;; chosen cache clock.  A durability sink must not call the public getter,
+    ;; whose default NOW would advance a deterministic/test clock and could
+    ;; evict the very verdict being committed.  Read the transaction-local
+    ;; table directly; values are immutable copied blocks.
+    (let ((invalid-block
+            (gethash
+             (engine-payload-store-key (block-hash candidate))
+             (memory-chain-store-invalid-tipsets chain-store))))
+      (unless invalid-block
+        (block-validation-fail
+         "Invalid candidate export requires an invalid cache verdict"))
+      (when (chain-store-known-block chain-store (block-hash candidate))
+        (block-validation-fail
+         "Invalid candidate export refuses a known executed block"))
+      (when (chain-store-known-block chain-store (block-hash invalid-block))
+        (block-validation-fail
+         "Invalid candidate export refuses a known invalid ancestor"))
+      (let ((batch (make-kv-write-batch))
+            (changed-p nil)
+            (invalid-evicted nil)
+            (remote-evicted nil))
+      ;; A descendant verdict maps to its invalid ancestor in memory. Persist
+      ;; only the retained direct owner, never a descendant key paired with a
+      ;; different block body.
+      (let* ((invalid-key
+               (engine-payload-store-key (block-hash invalid-block)))
+             (direct-owner
+               (gethash invalid-key
+                        (memory-chain-store-invalid-tipsets chain-store))))
+        (when (and direct-owner
+                   (chain-store-invalid-tipset-exportable-p
+                    chain-store invalid-key direct-owner)
+                   (chain-store-export-invalid-tipset-to-kv
+                    database batch invalid-key direct-owner))
+          (setf changed-p t)))
+      (multiple-value-bind (invalid-changed-p evicted)
+          (chain-store-populate-invalid-tipset-export-batch
+           chain-store database batch :write-current-p nil)
+        (setf invalid-evicted evicted)
+        (when invalid-changed-p
+          (setf changed-p t)))
+      (multiple-value-bind (remote-changed-p evicted)
+          (chain-store-populate-remote-block-export-batch
+           chain-store database batch :write-current-p nil)
+        (setf remote-evicted evicted)
+        (when (node-store-populate-evicted-remote-bal-cleanup-batch
+               chain-store database batch (append invalid-evicted evicted)
+               :deleted-remote-identifiers evicted
+               :deleted-invalid-identifiers invalid-evicted)
+          (setf changed-p t))
+        (when remote-changed-p
+          (setf changed-p t)))
+      (when changed-p
+        (kv-apply-batch database batch))
+      (node-store-clear-durable-cache-deletions
+       (memory-chain-store-invalid-tipset-durable-deletions chain-store)
+       invalid-evicted)
+      (node-store-clear-durable-cache-deletions
+       (memory-chain-store-remote-block-durable-deletions chain-store)
+       remote-evicted)
+        database))))
+
+(defun node-store-export-buffered-candidate-to-kv
+    (store candidate database)
+  "Persist one unexecuted remote CANDIDATE and its BAL side data atomically.
+
+The candidate must still be present in STORE's remote cache and must not have
+become a known or invalid block.  This is the durable sink for SYNCING and
+ACCEPTED payloads; it publishes no executable or canonical chain records."
+  (let ((chain-store (chain-store-require-memory-store store)))
+    (engine-payload-store-enable-durable-cache-change-tracking chain-store)
+    (unless (typep candidate 'ethereum-block)
+      (block-validation-fail
+       "Buffered candidate export requires an Ethereum block"))
+    (unless (typep database 'key-value-database)
+      (block-validation-fail
+       "Buffered candidate export target must be a key-value database"))
+    (let* ((candidate-hash (block-hash candidate))
+           (candidate-key (engine-payload-store-key candidate-hash)))
+      (multiple-value-bind (buffered present-p)
+          (gethash candidate-key (memory-chain-store-remote-blocks chain-store))
+        (unless present-p
+          (block-validation-fail
+           "Buffered candidate export requires a remote cached block"))
+        (unless (chain-store-persisted-block=
+                 buffered candidate :allow-missing-committed-p t)
+          (block-validation-fail
+           "Buffered candidate does not match its remote cached block"))
+        (when (chain-store-known-block chain-store candidate-hash)
+          (block-validation-fail
+           "Buffered candidate export refuses a known block"))
+        (when (gethash candidate-key
+                       (memory-chain-store-invalid-tipsets chain-store))
+          (block-validation-fail
+           "Buffered candidate export refuses an invalid block"))
+        (let ((batch (make-kv-write-batch))
+              (changed-p nil)
+              (invalid-evicted nil)
+              (remote-evicted nil))
+          ;; Write only this admission plus bounded eviction tombstones.  The
+          ;; hot path never scans or rewrites the complete durable cache.
+          (when (chain-store-export-remote-block-to-kv
+                 database batch candidate-key buffered)
+            (setf changed-p t))
+          (multiple-value-bind (invalid-changed-p evicted)
+              (chain-store-populate-invalid-tipset-export-batch
+               chain-store database batch :write-current-p nil)
+            (setf invalid-evicted evicted)
+            (when invalid-changed-p
+              (setf changed-p t)))
+          (multiple-value-bind (remote-changed-p evicted)
+              (chain-store-populate-remote-block-export-batch
+               chain-store database batch :write-current-p nil)
+            (setf remote-evicted evicted)
+            (when (node-store-populate-evicted-remote-bal-cleanup-batch
+                   chain-store database batch
+                   (append invalid-evicted remote-evicted)
+                   :deleted-remote-identifiers remote-evicted
+                   :deleted-invalid-identifiers invalid-evicted)
+              (setf changed-p t))
+            (when remote-changed-p
+              (setf changed-p t)))
+          ;; A supplied and verified blob sidecar lives in the same admission
+          ;; unit as this missing-parent block. Persist every available sidecar
+          ;; referenced by its transactions in this WAL batch; blocks learned
+          ;; without blob bodies remain legitimate buffered targets.
+          (when (node-store-populate-blob-sidecars-for-transactions-batch
+                 chain-store database batch (block-transactions candidate))
+            (setf changed-p t))
+          (when changed-p
+            (kv-apply-batch database batch))
+          (node-store-clear-durable-cache-deletions
+           (memory-chain-store-invalid-tipset-durable-deletions chain-store)
+           invalid-evicted)
+          (node-store-clear-durable-cache-deletions
+           (memory-chain-store-remote-block-durable-deletions chain-store)
+           remote-evicted)
+          database)))))
+
 (defun node-store-export-forkchoice-to-kv
     (store transition database &key persistence-metadata)
   (let ((chain-store (chain-store-require-memory-store store)))
+    (engine-payload-store-enable-durable-cache-change-tracking chain-store)
     (unless (canonical-chain-transition-p transition)
       (block-validation-fail
        "Forkchoice export requires a canonical chain transition"))
@@ -648,11 +865,40 @@ content-addressed and shared; REBUILD is the offline compaction path."
           (node-store-populate-persistence-metadata-batch
            batch persistence-metadata)
           (setf changed-p t))
+        ;; Finality/age/count pruning ran before this exporter. Synchronize the
+        ;; bounded invalid and remote sets in the same forkchoice WAL batch so a
+        ;; quiet node cannot retain pruned verdicts/targets forever on disk.
+        (let ((invalid-evicted nil)
+              (remote-evicted nil))
+          (multiple-value-bind (invalid-changed-p evicted)
+            (chain-store-populate-invalid-tipset-export-batch
+             chain-store database batch :write-current-p nil)
+            (setf invalid-evicted evicted)
+          (when invalid-changed-p
+            (setf changed-p t))
+          (multiple-value-bind (remote-changed-p evicted)
+            (chain-store-populate-remote-block-export-batch
+             chain-store database batch :write-current-p nil)
+            (setf remote-evicted evicted)
+            (when (node-store-populate-evicted-remote-bal-cleanup-batch
+                   chain-store database batch
+                   (append invalid-evicted remote-evicted)
+                   :deleted-remote-identifiers remote-evicted
+                   :deleted-invalid-identifiers invalid-evicted)
+              (setf changed-p t))
+            (when remote-changed-p
+              (setf changed-p t))))
         (when changed-p
           (kv-apply-batch database batch)
           (mpt-mark-nodes-persisted pending-trie-nodes)
           (dolist (hash persisted-state-hashes)
             (chain-store-clear-state-persistence-pending chain-store hash)))
+        (node-store-clear-durable-cache-deletions
+         (memory-chain-store-invalid-tipset-durable-deletions chain-store)
+         invalid-evicted)
+        (node-store-clear-durable-cache-deletions
+         (memory-chain-store-remote-block-durable-deletions chain-store)
+         remote-evicted))
         (dolist (block installed-blocks)
           (chain-store-release-durable-block-overlay chain-store block))
         (engine-payload-store-clear-txpool-database-dirty-transaction-hashes
@@ -699,6 +945,7 @@ also remain live."
 (defun node-store-export-to-kv
     (store database &key persistence-metadata)
   (let ((chain-store (chain-store-require-memory-store store)))
+    (engine-payload-store-enable-durable-cache-change-tracking chain-store)
     (when (chain-store-durable-state-provider-p chain-store)
       (block-validation-fail
        "Full node export requires an authoritative memory/file oracle; direct database stores use changed-key persistence"))
@@ -712,7 +959,9 @@ also remain live."
     (node-store-migrate-chain-schema database)
     (let ((batch (make-kv-write-batch))
           (pending-trie-nodes nil)
-          (persisted-state-hashes nil))
+          (persisted-state-hashes nil)
+          (invalid-evicted nil)
+          (remote-evicted nil))
       (chain-store-populate-index-export-batch chain-store database batch)
       (chain-store-populate-block-record-export-batch
        chain-store database batch)
@@ -725,10 +974,16 @@ also remain live."
         (setf pending-trie-nodes nodes
               persisted-state-hashes state-hashes))
       (chain-store-populate-txpool-record-export-batch store database batch)
-      (chain-store-populate-invalid-tipset-export-batch
-       chain-store database batch)
-      (chain-store-populate-remote-block-export-batch
-       chain-store database batch)
+      (multiple-value-bind (ignored deleted)
+          (chain-store-populate-invalid-tipset-export-batch
+           chain-store database batch :authoritative-p t)
+        (declare (ignore ignored))
+        (setf invalid-evicted deleted))
+      (multiple-value-bind (ignored deleted)
+          (chain-store-populate-remote-block-export-batch
+           chain-store database batch :authoritative-p t)
+        (declare (ignore ignored))
+        (setf remote-evicted deleted))
       (chain-store-populate-blob-sidecar-export-batch
        chain-store database batch)
       (chain-store-populate-prepared-payload-export-batch
@@ -738,6 +993,12 @@ also remain live."
       (node-store-populate-persistence-metadata-batch
        batch persistence-metadata)
       (kv-apply-batch database batch)
+      (node-store-clear-durable-cache-deletions
+       (memory-chain-store-invalid-tipset-durable-deletions chain-store)
+       invalid-evicted)
+      (node-store-clear-durable-cache-deletions
+       (memory-chain-store-remote-block-durable-deletions chain-store)
+       remote-evicted)
       (mpt-mark-nodes-persisted pending-trie-nodes)
       (dolist (hash persisted-state-hashes)
         (chain-store-clear-state-persistence-pending chain-store hash))

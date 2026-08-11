@@ -37,19 +37,31 @@ only their constant-size scalar/change-log heads are snapshotted."
          (txpool-snapshot
            (engine-pending-txpool-transaction-snapshot txpool))
          (volatile-snapshot
-           (chain-store-capture-volatile-slots chain-store)))
-    (call-with-chain-store-transaction
-     (lambda (journal)
-       (call-with-engine-pending-txpool-undo-recording
-        (lambda (table key)
-          (chain-store-journal-record-key journal table key))
-        (lambda ()
-          (handler-case
-              (funcall thunk)
-            (error (condition)
-              (chain-store-journal-rollback journal)
-              (chain-store-restore-volatile-slots
-               chain-store volatile-snapshot)
-              (engine-pending-txpool-restore-transaction-snapshot
-               txpool txpool-snapshot)
-              (error condition)))))))))
+           (chain-store-capture-volatile-slots chain-store))
+         (journal nil)
+         (completed-p nil))
+    ;; Keep the completion boundary outside CALL-WITH-CHAIN-STORE-TRANSACTION:
+    ;; its normal-return epilogue merges a nested savepoint into its parent, and
+    ;; a failure there must roll back the child's already-published mutations as
+    ;; surely as a failure in THUNK. The captured journal remains valid after
+    ;; its dynamic binding unwinds, and rollback uses raw table operations.
+    (unwind-protect
+         (multiple-value-prog1
+             (call-with-chain-store-transaction
+              (lambda (transaction-journal)
+                (setf journal transaction-journal)
+                (call-with-engine-pending-txpool-undo-recording
+                 (lambda (table key)
+                   (chain-store-journal-record-key journal table key))
+                 thunk)))
+           ;; ERROR handlers do not run for THROW, RETURN-FROM, or other
+           ;; non-local exits. Set this only after the journal merge returns;
+           ;; MULTIPLE-VALUE-PROG1 preserves THUNK's normal values.
+           (setf completed-p t))
+      (unless completed-p
+        (when journal
+          (chain-store-journal-rollback journal))
+        (chain-store-restore-volatile-slots
+         chain-store volatile-snapshot)
+        (engine-pending-txpool-restore-transaction-snapshot
+         txpool txpool-snapshot)))))

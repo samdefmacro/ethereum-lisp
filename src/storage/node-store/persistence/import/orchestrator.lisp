@@ -18,6 +18,8 @@
   ;; marker read and performs no write.
   (node-store-migrate-chain-schema database)
   (let ((staging (make-engine-payload-memory-store)))
+    (when (engine-payload-store-durable-cache-change-tracking-enabled-p store)
+      (engine-payload-store-enable-durable-cache-change-tracking staging))
     (chain-store-import-block-records-from-kv staging database)
     (chain-store-import-header-records-from-kv staging database)
     (chain-store-import-canonical-indexes-from-kv staging database)
@@ -41,6 +43,16 @@
     (chain-store-import-remote-blocks-from-kv staging database)
     (chain-store-import-blob-sidecars-from-kv staging database)
     (chain-store-import-prepared-payloads-from-kv staging database)
+    ;; Legacy records do not carry cache-admission timestamps.  Reconcile
+    ;; metadata at this startup boundary, then enforce the same deterministic
+    ;; count/byte/age/finality budgets as live admission before any table is
+    ;; exposed to readers.
+    (let ((finalized (chain-store-finalized-block staging)))
+      (engine-payload-store-prune-caches
+       staging
+       :finalized-number
+       (and finalized
+            (block-header-number (block-header finalized)))))
     (node-store-restore-txpool-consistency
      staging
      :expected-chain-id expected-chain-id

@@ -405,6 +405,156 @@
       (is (staged-import-test-batch-has-key-p
            batch (car output) (cdr output))))))
 
+(defun staged-import-test-with-candidate-import-wrapper (wrapper thunk)
+  (let* ((name 'ethereum-lisp.block-import:import-block-candidate)
+         (original (fdefinition name)))
+    (unwind-protect
+         (progn
+           (setf (fdefinition name)
+                 (lambda (store block config &rest arguments)
+                   (apply wrapper original store block config arguments)))
+           (funcall thunk))
+      (setf (fdefinition name) original))))
+
+(deftest node-store-staged-execution-unified-import-batch-failure-rolls-back
+  (:layer :integration :module :persistence)
+  (let ((database
+          (make-instance 'forkchoice-delta-failing-test-database)))
+    (multiple-value-bind
+        (source config anchor branch-a branch-b
+         transaction-a transaction-b)
+        (staged-import-test-prepare database)
+      (declare (ignore branch-b transaction-b))
+      (staged-import-test-forward-stages
+       source config database branch-a '(:headers :bodies))
+      (forkchoice-delta-test-reset-operations database)
+      (setf
+       (forkchoice-delta-failing-test-database-apply-attempts database) 0
+       (forkchoice-delta-failing-test-database-fail-next-apply-p database)
+       t)
+      (let ((before (staged-import-test-database-snapshot database))
+            (calls 0)
+            (sources '())
+            (durability-functions '())
+            (progresses '())
+            (configs '())
+            (candidate-hashes '())
+            result-state
+            result-status)
+        (staged-import-test-with-candidate-import-wrapper
+         (lambda (original candidate-store candidate candidate-config
+                  &rest arguments)
+           (incf calls)
+           (push (getf arguments :source :missing) sources)
+           (push (getf arguments :durability-function :missing)
+                 durability-functions)
+           (push (getf arguments :progress :missing) progresses)
+           (push candidate-config configs)
+           (push (hash32-bytes (block-hash candidate)) candidate-hashes)
+           (apply original candidate-store candidate candidate-config
+                  arguments))
+         (lambda ()
+           (signals error
+             (node-store-forward-staged-import-block
+              nil database nil
+              :stage :execution :chain-config config))
+           (is (= 1 calls))
+           (is (= 1
+                  (forkchoice-delta-failing-test-database-apply-attempts
+                   database)))
+           (is (null
+                (forkchoice-delta-test-database-applied-operation-batches
+                 database)))
+           (is (equalp before
+                       (staged-import-test-database-snapshot database)))
+           (multiple-value-setq (result-state result-status)
+             (node-store-forward-staged-import-block
+              nil database nil
+              :stage :execution :chain-config config))))
+        (is (= 2 calls))
+        (is (every (lambda (value) (eq :staged value)) sources))
+        (is (every (lambda (value) (eq :missing value))
+                   durability-functions))
+        (is (every (lambda (value) (eq :missing value)) progresses))
+        (is (every (lambda (seen-config) (eq config seen-config)) configs))
+        (is (every
+             (lambda (candidate-hash)
+               (bytes= candidate-hash
+                       (hash32-bytes (block-hash branch-a))))
+             candidate-hashes))
+        (is (eq :advanced result-status))
+        (is (staged-import-test-state-stage-at-block-p
+             result-state :execution branch-a))
+        (is (= 2
+               (forkchoice-delta-failing-test-database-apply-attempts
+                database)))
+        (let ((batches
+                (forkchoice-delta-test-database-applied-operation-batches
+                 database)))
+          (is (= 1 (length batches)))
+          (staged-import-test-assert-stage-batch
+           (first batches) :execution branch-a))
+        (let ((identifier (hash32-bytes (block-hash branch-a))))
+          (dolist (kind '(:staged-header :staged-block
+                          :staged-state :staged-receipt))
+            (is (staged-import-test-record-present-p
+                 database kind identifier)))
+          (dolist (kind '(:header :block :state :receipt))
+            (is (not (staged-import-test-record-present-p
+                      database kind identifier)))))
+        (staged-import-test-assert-public-anchor-only
+         database anchor transaction-a)))))
+
+(deftest node-store-staged-execution-unified-validation-rolls-back
+  (:layer :integration :module :persistence)
+  (let ((database (make-memory-key-value-database)))
+    (multiple-value-bind
+        (source config anchor branch-a branch-b
+         transaction-a transaction-b)
+        (staged-import-test-prepare database)
+      (declare (ignore branch-b transaction-b))
+      (staged-import-test-forward-stages
+       source config database branch-a '(:headers :bodies))
+      (let ((before (staged-import-test-database-snapshot database))
+            (calls 0)
+            (seen-source :missing)
+            (seen-durability-function :missing))
+        (staged-import-test-with-candidate-import-wrapper
+         (lambda (original candidate-store candidate candidate-config
+                  &rest arguments)
+           (incf calls)
+           (setf seen-source (getf arguments :source :missing)
+                 seen-durability-function
+                 (getf arguments :durability-function :missing)
+                 ;; The staged header/body phases already accepted the durable
+                 ;; input.  Corrupt only the private execution copy so the
+                 ;; unified candidate validator is the rejecting boundary.
+                 (block-header-timestamp (block-header candidate)) 0)
+           (apply original candidate-store candidate candidate-config
+                  arguments))
+         (lambda ()
+           (signals block-validation-error
+             (node-store-forward-staged-import-block
+              nil database nil
+              :stage :execution :chain-config config))))
+        (is (= 1 calls))
+        (is (eq :staged seen-source))
+        (is (eq :missing seen-durability-function))
+        (is (equalp before
+                    (staged-import-test-database-snapshot database)))
+        (let ((state (node-store-validate-staged-import database)))
+          (is (staged-import-test-state-stage-at-block-p
+               state :bodies branch-a))
+          (is (staged-import-test-state-stage-at-block-p
+               state :execution anchor)))
+        (let ((identifier (hash32-bytes (block-hash branch-a))))
+          (dolist (kind '(:staged-state :staged-receipt
+                          :header :block :state :receipt))
+            (is (not (staged-import-test-record-present-p
+                      database kind identifier)))))
+        (staged-import-test-assert-public-anchor-only
+         database anchor transaction-a)))))
+
 (defun staged-import-test-control-with-version (record version)
   (let ((fields
           (copy-list (rlp-list-items (rlp-decode-one record)))))

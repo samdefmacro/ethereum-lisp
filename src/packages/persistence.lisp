@@ -38,6 +38,19 @@
    #:node-store-persistence-metadata-authority-id
    #:node-store-persistence-metadata-base-chain-generation
    #:node-store-read-persistence-metadata
+   #:node-store-peer-sync-progress
+   #:node-store-peer-sync-progress-p
+   #:make-node-store-peer-sync-progress
+   #:node-store-peer-sync-progress-peer-id
+   #:node-store-peer-sync-progress-authority-id
+   #:node-store-peer-sync-progress-chain-id
+   #:node-store-peer-sync-progress-genesis-hash
+   #:node-store-peer-sync-progress-last-number
+   #:node-store-peer-sync-progress-last-hash
+   #:node-store-validate-peer-sync-progress
+   #:node-store-read-peer-sync-progress
+   #:node-store-delete-peer-sync-progress
+   #:node-store-populate-peer-sync-progress-batch
    #:+node-store-content-addressed-code-schema-version+
    #:node-store-chain-schema-version
    #:node-store-migrate-chain-schema
@@ -95,10 +108,14 @@
    #:chain-store-export-transaction-locations-to-kv
    #:chain-store-export-state-records-to-kv
    #:node-store-export-txpool-records-to-kv
+   #:node-store-export-buffered-candidate-to-kv
+   #:node-store-export-invalid-candidate-to-kv
    #:node-store-export-payload-candidate-to-kv
    #:node-store-export-forkchoice-to-kv
    #:node-store-export-to-kv
    #:node-store-import-txpool-records-from-kv
    #:node-store-import-txpool-blob-sidecars-from-kv
+   #:node-store-import-bounded-invalid-tipsets-from-kv
+   #:node-store-import-bounded-remote-blocks-from-kv
    #:node-store-restore-txpool-consistency
    #:node-store-import-from-kv))

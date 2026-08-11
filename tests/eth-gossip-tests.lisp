@@ -73,6 +73,20 @@ given, is a predicate marking transactions the pool turns down."
   "A peer with no connection, for exercising the parts that only touch state."
   (ethereum-lisp.eth-sync::%make-eth-peer :serve-backend backend))
 
+(defun eth-gossip-test-call-with-function-overrides (bindings thunk)
+  "Call THUNK with global function BINDINGS, restoring every definition."
+  (let ((originals
+          (mapcar (lambda (binding)
+                    (cons (car binding) (fdefinition (car binding))))
+                  bindings)))
+    (unwind-protect
+         (progn
+           (dolist (binding bindings)
+             (setf (fdefinition (car binding)) (cdr binding)))
+           (funcall thunk))
+      (dolist (binding originals)
+        (setf (fdefinition (car binding)) (cdr binding))))))
+
 ;;; Codecs.
 
 (deftest eth-transactions-message-round-trips
@@ -213,6 +227,79 @@ given, is a predicate marking transactions the pool turns down."
     (is (not (null accepted)))
     (is (bytes= (hash32-bytes (block-hash block))
                 (hash32-bytes (block-hash accepted))))))
+
+(deftest eth-new-block-gossip-propagates-backend-storage-error
+  (:layer :unit :module :p2p)
+  (let* ((accept-calls 0)
+         (backend
+           (ethereum-lisp.eth-sync:make-eth-serve-backend
+            :accept-block
+            (lambda (block)
+              (declare (ignore block))
+              (incf accept-calls)
+              (ethereum-lisp.validation:storage-fail
+               "Injected NewBlock storage failure"))))
+         (peer (eth-gossip-test-peer backend))
+         (block
+           (ethereum-lisp.blocks:make-block-from-parts
+            :header (make-block-header :number 9 :difficulty 0
+                                       :gas-limit 30000000
+                                       :extra-data (make-byte-vector 0)))))
+    (signals ethereum-lisp.validation:storage-error
+      (ethereum-lisp.eth-sync:eth-peer-gossip-message
+       peer ethereum-lisp.eth-wire:+eth-message-new-block+
+       (ethereum-lisp.eth-wire:encode-eth-new-block
+        (ethereum-lisp.eth-wire:make-eth-new-block block 0))))
+    (is (= 1 accept-calls))))
+
+(deftest eth-new-block-hashes-fetch-propagates-backend-storage-error
+  (:layer :unit :module :p2p)
+  (let* ((accept-calls 0)
+         (header-fetches 0)
+         (body-fetches 0)
+         (header
+           (make-block-header
+            :number 9 :difficulty 0 :gas-limit 30000000
+            :extra-data (make-byte-vector 0)
+            :transactions-root (transaction-list-root '())
+            :ommers-hash (ommers-hash '())))
+         (body
+           (ethereum-lisp.eth-wire:make-eth-block-body
+            :transactions '() :ommers '()))
+         (hash (hash32-bytes (block-header-hash header)))
+         (backend
+           (ethereum-lisp.eth-sync:make-eth-serve-backend
+            :accept-block
+            (lambda (block)
+              (declare (ignore block))
+              (incf accept-calls)
+              (ethereum-lisp.validation:storage-fail
+               "Injected NewBlockHashes fetch storage failure"))))
+         (peer (eth-gossip-test-peer backend)))
+    (is (ethereum-lisp.eth-sync:eth-peer-gossip-message
+         peer ethereum-lisp.eth-wire:+eth-message-new-block-hashes+
+         (ethereum-lisp.eth-wire:encode-eth-new-block-hashes
+          (list (ethereum-lisp.eth-wire:make-eth-new-block-hash hash 9)))))
+    (eth-gossip-test-call-with-function-overrides
+     (list
+      (cons 'ethereum-lisp.eth-sync:eth-peer-get-block-headers
+            (lambda (&rest arguments)
+              (declare (ignore arguments))
+              (incf header-fetches)
+              (list header)))
+      (cons 'ethereum-lisp.eth-sync:eth-peer-get-block-bodies
+            (lambda (&rest arguments)
+              (declare (ignore arguments))
+              (incf body-fetches)
+              (list body))))
+     (lambda ()
+       (signals ethereum-lisp.validation:storage-error
+         (ethereum-lisp.eth-sync:eth-peer-fetch-announced-block peer))))
+    (is (= 1 header-fetches))
+    (is (= 1 body-fetches))
+    (is (= 1 accept-calls))
+    (is (zerop
+         (ethereum-lisp.eth-sync:eth-peer-announced-block-count peer)))))
 
 (deftest eth-gossip-applies-block-range-updates-without-a-serve-backend
   (:layer :unit :module :p2p)

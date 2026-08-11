@@ -2,38 +2,53 @@
 
 ## Audit conclusion
 
-At `578cb476`, the project has broad in-tree implementations and a green CI run,
-but it is not public-testnet-ready. The historical remediation documents
-frequently mark library code complete even when the running node does not use it.
+At `578cb476`, the project had broad in-tree implementations and a green CI run,
+but was not public-testnet-ready. The current tree has since replaced the
+memory-mirrored production store and implemented the unified import boundary in
+Sections 3 and 4. Those changes remove two critical findings from the baseline;
+they do not make the client public-testnet-ready.
 
-Release-blocking gaps:
+Remaining release-blocking gaps include:
 
-- **Consensus evidence:** CI primarily proves London/Shanghai. It does not
-  exercise the active Osaka/BPO2 surface comprehensively, has no Hive gate, and
-  has no live EL/CL interop.
-- **Incorrect capability claim:** `amsterdam-execution-available-p` in
-  `src/runtime/evm/base.lisp` returns true despite missing EIP-2780/EIP-7976,
-  incomplete EIP-8246, and stale EIP-8037 system-call gas semantics.
-- **Storage scalability:** `devnet-cli-make-output-kv-database` in
-  `src/app/cli/devnet/files.lisp` still selects the RAM-resident log backend;
-  startup hydrates a `memory-chain-store`, atomic commits copy the entire store,
-  and state commits enumerate complete world views.
-- **Unsafe sync authority:** `devnet-peer-sync-import-block` in
-  `src/app/cli/devnet/peer-sync.lisp` bypasses the consensus header validator,
-  is not crash-durable, and lets an execution peer select the canonical PoS
-  chain instead of Engine forkchoice.
+- **Consensus evidence:** fixture and non-blocking Hive coverage is not yet a
+  blocking, zero-unexpected-skip gate over the active Osaka/BPO2 surface, and
+  there is no live EL/CL interop gate.
+- **Current-fork execution:** Amsterdam is now gated unavailable instead of
+  being advertised incorrectly, but EIP-2780/EIP-7778/EIP-7976/EIP-7981,
+  complete EIP-8246 behavior, and current EIP-8037/EIP-8038 system-call
+  accounting still have to land and pass external conformance.
 - **No practical bootstrap:** public presets supply genesis but no bootnodes;
   the live Hello advertises only `eth`; snap and multi-peer implementations have
   no production caller.
-- **Remote resource defects:** blob sidecars are stored before transaction
-  admission and never reclaimed; payload construction repeatedly re-executes
-  prefixes; prepared payloads and several caches are unbounded.
-- **Runtime integration:** default IP-literal Engine URLs fail the vhost check,
-  public RPC and Engine share one exclusive mutex, WebSocket execution is
-  insufficiently bounded, and JWT/node keys are not securely created.
-- **Mainnet history:** cumulative total difficulty is not tracked, the real
-  Merge transition cannot be selected, and the execution path rejects
-  ommers/omits rewards despite documentation claiming end-to-end PoW replay.
+- **Resource work beyond import caches:** pooled blob transaction and sidecar
+  admission is not one atomic ownership/refcount transition, and payload
+  construction still repeatedly re-executes prefixes instead of using bounded
+  incremental checkpoints.
+- **Runtime and release integration:** public RPC and Engine scheduling,
+  WebSocket work budgets, a reproducible hardened runtime artifact, operational
+  metrics, and live/soak evidence remain release work.
+- **Mainnet path:** cumulative total difficulty and the verified real Merge
+  selection path remain incomplete; normal mainnet bootstrap, historical
+  differential checks, and a separate soak are still required.
+
+Resolved findings relevant to this dependency chain:
+
+- **Production storage:** public-network datadirs select the schema-v4 direct
+  RocksDB provider, which point-reads retained chain/state data and commits dirty
+  trie paths rather than hydrating and copying a complete memory store.
+- **Import authority and recovery:** Engine, P2P, staged, prepared-build, and
+  dev-period paths now cross the common block-import service. P2P keeps the
+  eth-wire block typed so execution-derived Prague requests and Amsterdam block
+  access lists are not erased by an incomplete Engine round-trip, and executes
+  only hash-addressed candidates. Outside explicit local `--dev` mode, Engine
+  forkchoice owns post-Merge canonical, safe, and finalized publication.
+  Persistent peer cursors share the candidate KV batch used for restart
+  recovery.
+- **Import-side cache bounds:** remote blocks, forkchoice targets, invalid
+  blocks, prepared payloads, and blob sidecars now have deterministic
+  count/encoded-byte/process-local-age policies plus finality pruning where a
+  block number is known. Atomic pooled-blob admission and incremental proposal
+  construction stay in Section 6.
 
 Keep the substantial completed work: bounded HTTP/RLP framing, typed
 transactions and receipts, txpool limits, KZG/BLS fail-closed behavior,
@@ -132,26 +147,104 @@ flowchart LR
 
 ### 4. Build one validated, durable import service
 
-- Unify Engine, P2P, staged import, local building, and dev-period publication
-  behind one service that validates parent/header/body/sidecars, executes,
-  derives roots/receipts/requests, commits atomically, then publishes visibility.
-- The `:accept-block` handler in `src/app/cli/devnet/peer-sync.lisp` calls
-  `engine-new-payload-memory-status` with three arguments where it takes four
-  required positionals, passing a block where `version` belongs and `config`
-  where `payload` belongs. Peer block propagation therefore always signals, and
-  the worker's `serious-condition` handler swallows it, so the comment claiming
-  peer blocks take the Engine validation path is false at runtime. Correct it
-  when that path is unified: select the version from the block's fork and
-  convert through `block-to-executable-data`, as `src/api/engine/new-payload.lisp`
-  already does.
+- Engine, P2P, staged import, local building, and dev-period publication use one
+  service that validates parent/header/body/sidecars, executes and verifies
+  derived roots/receipts/requests, commits atomically, then publishes only the
+  visibility authorized for that operation.
+- The historical `:accept-block` handler called
+  `engine-new-payload-memory-status` with the wrong arity and argument types, so
+  peer propagation always signalled before validation. The P2P adapter now
+  keeps fork-derived V1--V5 selection and `block-to-executable-data` conversion
+  as a testable mapping boundary, but submits the original typed block through
+  `import-p2p-block-candidate`. This distinction is required: eth BlockBodies
+  does not carry execution-derived Prague requests or the Amsterdam block access
+  list, so reconstructing the candidate from that Engine envelope would replace
+  header-committed data with NIL.
 - P2P imports remain hash-addressed candidates; only Engine forkchoice may
   update post-Merge canonical/safe/finalized views. Peer-supplied tips cannot
-  become canonical merely because they execute.
+  become canonical merely because they execute. `debug_setHead` refuses a
+  post-Merge target and also refuses to rewind from a post-Merge current view;
+  the isolated local publisher requires explicit `--dev` before a positive
+  dev-period can be configured.
 - Persist peer-sync progress and candidate state through SIGKILL; resume without
-  replaying completed ranges. Use the same rollback and durability contract on
-  every ingress path.
+  replaying completed ranges. An abandoned cursor is deleted durably before
+  rebasing to Engine's canonical anchor. If the peer itself reorged after the
+  cursor was written, retry once from that anchor; a second mismatch fails
+  instead of looping. Use the same rollback and durability contract on every
+  ingress path.
 - Bound remote-block, forkchoice-target, invalid, prepared-payload, and sidecar
-  caches by bytes/count/age/finality.
+  caches by bytes/count/process-local age/finality. For namespaces restored into
+  memory, startup re-admission resets age because timestamps are not durable,
+  but enforces count, exact bytes, and known finality before exposing the store.
+  Public direct-provider startup re-admits only durable invalid verdicts and
+  remote candidates; immutable sidecars remain available through bounded,
+  lazy content-addressed point lookups without eager hydration or retaining
+  point-read results in memory, while prepared payloads and forkchoice targets
+  are deliberately process-private.
+
+The implementation boundary is `src/application/services/block-import.lisp`:
+
+- `import-executable-payload` serves Engine newPayload;
+  `import-p2p-block-candidate` serves the typed eth-wire path; and
+  `import-block-candidate` serves other typed candidate and staged execution
+  paths. They keep validation, execution, candidate visibility, and the final
+  durable callback inside one rollback frame. Known valid candidates are
+  revalidated without replaying execution; ACCEPTED/SYNCING payloads persist
+  only as buffered remote candidates. Deterministic P2P failures enter the same
+  invalid cache, so repeats and descendants do not re-execute.
+- `build-private-block-candidate` validates Engine proposal work in a deliberate
+  rollback frame, so a builder cannot leak state or chain visibility.
+  `build-import-and-publish-block` gives the dev-period path one combined
+  transaction, and `publish-canonical-block` enforces Engine forkchoice or the
+  isolated explicit `--dev` authority before changing checkpoints and canonical
+  indexes.
+- `src/storage/node-store/persistence/sync-progress.lisp` defines the strict
+  peer cursor. The candidate exporter places executed block/state/receipts and
+  the cursor in one batch, while the buffered exporter refuses cursor progress.
+  The dialer resumes only after verifying the durable candidate, state, and
+  ancestry and supplies that hash as the next range's expected parent. It
+  durably deletes a cursor abandoned by Engine forkchoice; an anchor mismatch
+  from a peer-side reorg gets exactly one retry from the local canonical anchor.
+- `src/storage/chain-store/service/cache.lisp` enforces the five policies by
+  exact retained protocol bytes, count, age, and known finality, with stable
+  `(inserted-at, key)` eviction and no duplicate-refresh loophole within one
+  process. Cache timestamps are not persisted: restored records acquire their
+  restart admission time. Direct-provider startup streams durable invalid
+  verdicts first and remote blocks second, admits each record under the
+  count/byte/finality bounds, then deletes rejected records in bounded pages
+  together with BAL side data that no other block namespace owns. Durable blob
+  sidecars are immutable point-read content rather than an eagerly hydrated
+  cache; their ownership/refcount and disk-retention work remains explicitly in
+  Section 6. Exact limits are documented in `docs/architecture.md`.
+
+Focused coverage lives in `tests/core-block-import-service-tests.lisp`,
+`tests/core-engine-rpc-new-payload-persistence-tests.lisp`,
+`tests/core-engine-rpc-forkchoice-persistence-tests.lisp`,
+`tests/core-engine-rpc-payload-preparation-tests.lisp`,
+`tests/core-node-store-staged-import-tests.lisp`,
+`tests/core-node-store-peer-sync-progress-tests.lisp`,
+`tests/core-chain-store-cache-bounds-tests.lisp`,
+`tests/core-chain-store-invalid-tipset-tests.lisp`,
+`tests/core-chain-store-remote-block-tests.lisp`,
+`tests/cli-devnet-node-tests.lisp`, `tests/cli-devnet-txpool-period-tests.lisp`,
+`tests/debug-tracing-tests.lisp`, `tests/eth-sync-tests.lisp`, and
+`tests/database-tests.lisp`.
+`rocksdb-peer-sync-candidate-progress-survives-sigkill` kills a child after two
+candidate/cursor batches have returned but before a clean close, then reopens
+the direct provider and checks candidate state, the last cursor, and the
+unchanged canonical parent. The container-only focused and cold commands are in
+`docs/validation.md`. These checks define the Section 4 acceptance evidence;
+they do not satisfy the bootstrap, external-conformance, resource, packaging,
+or soak criteria below, and the cold-layer results remain the authority for a
+particular revision.
+
+**Section 4 completion evidence (2026-08-11).** On the final implementation
+revision, the container-only cold gates passed with 1,063 unit tests (4 optional
+EEST fixture skips), 432 integration tests (8 optional fixture skips), and 64
+E2E tests, including both RocksDB peer candidate/cursor and dev-period
+publication SIGKILL recovery. `scripts/dev.sh cold-docs` also passed. Section 4
+is therefore complete; Sections 5 onward and the external readiness gates below
+remain open and must not be inferred from these results.
 
 ### 5. Complete public bootstrap and continuous sync
 
@@ -181,9 +274,10 @@ flowchart LR
 - Replace prefix re-execution in `src/api/engine/forkchoice.lisp` with
   incremental execution/checkpoints so each selected transaction executes at
   most once per build.
-- Add prepared-payload TTL/cap/finalization pruning, bounded improvement work,
-  cancelable shutdown, and Engine-priority scheduling. Public RPC and background
-  work must not hold the Engine/import lock across full simulations or scans.
+- Retain the Section 4 prepared-payload TTL/count/byte/finality bounds; add
+  bounded improvement work, cancelable shutdown, and Engine-priority scheduling.
+  Public RPC and background work must not hold the Engine/import lock across
+  full simulations or scans.
 
 ### 7. Burn down current-fork and RPC/Engine failures
 

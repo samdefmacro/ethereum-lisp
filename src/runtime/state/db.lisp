@@ -493,9 +493,16 @@ revert the transaction."
                             (state-db-storage-proof-key slot))
                  (when present-p
                    (let ((value
-                           (rlp-uint-field
-                            (rlp-decode-one encoded)
-                            "Persisted account storage value")))
+                           (handler-case
+                               (rlp-uint-field
+                                (rlp-decode-one encoded)
+                                "Persisted account storage value")
+                             (storage-error (condition)
+                               (error condition))
+                             (error (condition)
+                               (storage-fail
+                                "Persisted account storage record is invalid: ~A"
+                                condition)))))
                      (unless (zerop value)
                        (setf (gethash slot-key storage) value))))))
               (t

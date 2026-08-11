@@ -64,16 +64,12 @@ neither."
     (block-validation-fail "eth_protocolVersion params must be empty"))
   (quantity-to-hex +eth-protocol-version+))
 
-(defun engine-rpc-sync-highest-block (store)
+(defun engine-rpc-sync-highest-block (store &key (now (unix-time)))
   "Return the highest buffered remote block number, or NIL when caught up."
   (let ((highest nil))
-    (maphash
-     (lambda (key block)
-       (declare (ignore key))
+    (dolist (block (engine-payload-store-remote-block-list store :now now))
        (let ((number (block-header-number (block-header block))))
          (setf highest (if highest (max highest number) number))))
-     (memory-chain-store-remote-blocks
-      (chain-store-require-memory-store store)))
     highest))
 
 (defun engine-rpc-handle-eth-syncing (params store)

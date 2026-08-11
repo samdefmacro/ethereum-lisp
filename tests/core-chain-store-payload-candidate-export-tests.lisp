@@ -150,6 +150,68 @@
                     (payload-candidate-export-database-snapshot
                      database)))))))
 
+(deftest node-store-direct-candidate-reloads-receipts-for-idempotent-export
+  ;; Build a current-schema baseline with real trie-root history.  The older
+  ;; flat-state fixture used by the exporter unit tests is intentionally not a
+  ;; valid direct-provider database and therefore cannot prove restart reads.
+  (let* ((store (make-engine-payload-memory-store))
+         (database (make-memory-key-value-database))
+         (config (make-chain-config :chain-id 1))
+         (state (make-state-db))
+         (state-root (state-db-root state))
+         (recipient
+           (address-from-hex
+            "0x00000000000000000000000000000000000000aa"))
+         (transaction
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 0 :gas-price 2 :gas-limit 21000
+             :to recipient :value 3)
+            1 1))
+         (receipt (make-receipt :status 1 :cumulative-gas-used 21000))
+         (genesis
+           (make-block
+            :header
+            (make-block-header
+             :number 0 :parent-hash (zero-hash32) :timestamp 1
+             :gas-limit 30000000 :state-root state-root)))
+         (parent
+           (make-block
+            :header
+            (make-block-header
+             :number 1 :parent-hash (block-hash genesis) :timestamp 2
+             :gas-limit 30000000 :state-root state-root)))
+         (candidate
+           (make-block
+            :header
+            (make-block-header
+             :number 2 :parent-hash (block-hash parent) :timestamp 3
+             :gas-limit 30000000 :state-root state-root)
+            :transactions (list transaction)
+            :receipts (list receipt))))
+    (dolist (block (list genesis parent))
+      (chain-store-put-block store block :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash block) state))
+    (engine-payload-store-put-block
+     store candidate :state-available-p t :canonicalize-p nil)
+    (commit-state-db-to-chain-store store (block-hash candidate) state)
+    (chain-store-update-forkchoice-checkpoints
+     store
+     (make-forkchoice-state
+      :head-block-hash (block-hash parent)
+      :safe-block-hash (block-hash genesis)
+      :finalized-block-hash (block-hash genesis)))
+    (node-store-export-to-kv store database)
+    (let* ((direct (make-database-engine-payload-store database))
+           (restored
+             (chain-store-known-block direct (block-hash candidate))))
+      (is restored)
+      (when restored
+        (is (= 1 (length (ethereum-lisp.blocks:block-receipts restored))))
+        (is (eq database
+                (node-store-export-payload-candidate-to-kv
+                 direct restored database)))))))
+
 (deftest node-store-payload-candidate-export-conflict-is-atomic
   (multiple-value-bind (store genesis parent candidate transaction recipient)
       (payload-candidate-export-fixture)

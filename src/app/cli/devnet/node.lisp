@@ -74,6 +74,10 @@
     (error "Devnet node requires a genesis JSON path, source, or preset"))
   (unless (functionp public-allowed-method-p)
     (error "Devnet public RPC method filter must be a function"))
+  (when (and dev-period-seconds
+             (plusp dev-period-seconds)
+             (not dev-mode-p))
+    (error "--dev.period requires explicit --dev authority"))
   (when (and database-path
              txpool-journal-path
              (devnet-cli-same-output-path-p
@@ -171,6 +175,11 @@
          (store-guard-try-function (second store-guard-pair))
          (new-payload-persistence-function
            (devnet-cli-new-payload-persistence-function database-path db-engine))
+         (peer-sync-progress-function
+           (devnet-cli-peer-sync-progress-function database-path db-engine))
+         (peer-sync-progress-reset-function
+           (devnet-cli-peer-sync-progress-reset-function
+            database-path db-engine))
          (forkchoice-persistence-function
            (devnet-cli-forkchoice-persistence-function
             database-path persistence-state db-engine))
@@ -287,6 +296,9 @@
        :store-guard-function store-guard-function
        :store-guard-try-function store-guard-try-function
        :persistence-state persistence-state
+       :candidate-persistence-function new-payload-persistence-function
+       :peer-sync-progress-function peer-sync-progress-function
+       :peer-sync-progress-reset-function peer-sync-progress-reset-function
        :canonical-transition-persistence-function
        forkchoice-persistence-function
        :txpool-journal-path txpool-journal-path

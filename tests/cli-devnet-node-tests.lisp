@@ -955,12 +955,511 @@
       (ethereum-lisp.cli::devnet-cli-options
        (list "devnet" "--peer" "not-an-enode" "--no-serve")))))
 
+(defun devnet-peer-sync-test-drop-cached-rocksdb-handle (database-path)
+  "Close and forget DATABASE-PATH's test-scoped RocksDB handle.
+
+The live CLI intentionally holds one RocksDB handle for the node lifetime.  A
+durability restart test has to end that lifetime explicitly so its second node
+really reopens the directory instead of observing the first handle's memory."
+  (let ((cache ethereum-lisp.cli::*devnet-cli-kv-database-cache*))
+    (when cache
+      (let* ((key
+               (ethereum-lisp.cli::devnet-cli-kv-database-cache-key
+                database-path))
+             (database (gethash key cache)))
+        (remhash key cache)
+        (when database
+          (ethereum-lisp.database:close-rocksdb-key-value-database
+           database)))))
+  nil)
+
+(defun devnet-peer-sync-assert-durable-candidates (store blocks)
+  "Assert BLOCKS are executable candidates, never canonical publications."
+  (is (= 0 (chain-store-head-number store)))
+  (dolist (block blocks)
+    (let* ((hash (block-hash block))
+           (number (block-header-number (block-header block))))
+      (is (null (chain-store-canonical-hash store number)))
+      (is (not (null (chain-store-known-block store hash))))
+      (is (chain-store-state-available-p store hash)))))
+
+(defun devnet-peer-sync-test-alternate-empty-child (parent config marker)
+  (ethereum-lisp.engine-payloads:engine-build-empty-payload
+   parent
+   (make-payload-attributes-v1
+    :timestamp (+ 12 (block-header-timestamp (block-header parent)))
+    :prev-randao
+    (make-hash32 (make-byte-vector 32 :initial-element marker))
+    :suggested-fee-recipient (zero-address))
+   config))
+
+(defun devnet-peer-sync-durable-resume-case
+    (database-path db-engine &key before-restart)
+  "Exercise peer candidate and cursor durability for one database backend."
+  (let* ((first-node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :database-path database-path
+            :db-engine db-engine
+            :port 0 :public-port 0))
+         (config (ethereum-lisp.cli::devnet-node-config first-node))
+         (genesis-block
+           (ethereum-lisp.cli::devnet-node-genesis-block first-node))
+         (genesis-hash (block-hash genesis-block))
+         (blocks (eth-sync-produce-empty-blocks genesis-block config 3))
+         ;; A real, deterministic secp256k1 public key: the durable cursor is
+         ;; keyed by the same 64-byte identity the downloader derives from an
+         ;; enode URL.
+         (peer-id
+           (secp256k1-private-key-public-key
+            #x49a7b37aa6f6645917e7b807e9d1c00d4fa71f18343b0d4122a4d2df64dd6fee)))
+    (dolist (block blocks)
+      (multiple-value-bind (status candidate receipts)
+          (ethereum-lisp.cli::devnet-peer-sync-import-block
+           first-node block :peer-id peer-id :require-valid-p t)
+        (declare (ignore receipts))
+        (is (string= +payload-status-valid+
+                     (payload-status-status status)))
+        (is (hash32= (block-hash block) (block-hash candidate)))))
+    (devnet-peer-sync-assert-durable-candidates
+     (ethereum-lisp.cli::devnet-node-store first-node) blocks)
+    (when before-restart
+      (funcall before-restart))
+    (let* ((second-node
+             (ethereum-lisp.cli:make-devnet-node
+              :genesis-json *eth-sync-paris-genesis-json*
+              :database-path database-path
+              :db-engine db-engine
+              :port 0 :public-port 0))
+           (restored-store
+             (ethereum-lisp.cli::devnet-node-store second-node))
+           (tip (car (last blocks)))
+           (tip-hash (block-hash tip))
+           (funded
+             (address-from-hex
+              "0x0000000000000000000000000000000000001001")))
+      (devnet-peer-sync-assert-durable-candidates restored-store blocks)
+      ;; State availability is not merely a persisted marker: the restarted
+      ;; provider can answer a state lookup using the candidate hash.
+      (is (= #xde0b6b3a7640000
+             (chain-store-account-balance restored-store tip-hash funded)))
+      (multiple-value-bind (start-number expected-parent-hash)
+          (ethereum-lisp.cli::devnet-node-peer-sync-resume-point
+           second-node peer-id 0 genesis-hash)
+        (is (= (1+ (block-header-number (block-header tip))) start-number))
+        (is (hash32= tip-hash expected-parent-hash))))))
+
+(deftest devnet-peer-sync-durable-resume-round-trips-on-file-database
+  (let* ((datadir
+           (devnet-cli-temp-directory
+            "ethereum-lisp-peer-sync-file-resume"))
+         (database-path
+           (ethereum-lisp.cli::devnet-cli-datadir-database-path
+            datadir :file)))
+    (unwind-protect
+         (devnet-peer-sync-durable-resume-case database-path :file)
+      (uiop:delete-directory-tree datadir
+                                  :validate t
+                                  :if-does-not-exist :ignore))))
+
+(deftest devnet-peer-sync-durable-resume-round-trips-on-rocksdb
+  (let* ((datadir
+           (devnet-cli-temp-directory
+            "ethereum-lisp-peer-sync-rocksdb-resume"))
+         (database-path
+           (ethereum-lisp.cli::devnet-cli-datadir-database-path
+            datadir :rocksdb)))
+    (unwind-protect
+         (ethereum-lisp.cli::call-with-devnet-cli-kv-database-cache
+          (lambda ()
+            (unwind-protect
+                 (devnet-peer-sync-durable-resume-case
+                  database-path
+                  :rocksdb
+                  :before-restart
+                  (lambda ()
+                    (devnet-peer-sync-test-drop-cached-rocksdb-handle
+                     database-path)))
+              (devnet-peer-sync-test-drop-cached-rocksdb-handle
+               database-path))))
+      (uiop:delete-directory-tree datadir
+                                  :validate t
+                                  :if-does-not-exist :ignore))))
+
+(deftest devnet-peer-sync-resets-an-abandoned-branch-cursor
+  (:layer :integration :module :p2p)
+  (let* ((datadir
+           (devnet-cli-temp-directory
+            "ethereum-lisp-peer-sync-cursor-rebase"))
+         (database-path
+           (ethereum-lisp.cli::devnet-cli-datadir-database-path
+            datadir :file)))
+    (unwind-protect
+         (let* ((node
+                  (ethereum-lisp.cli:make-devnet-node
+                   :genesis-json *eth-sync-paris-genesis-json*
+                   :database-path database-path
+                   :db-engine :file
+                   :port 0 :public-port 0))
+                (store (ethereum-lisp.cli::devnet-node-store node))
+                (config (ethereum-lisp.cli::devnet-node-config node))
+                (genesis
+                  (ethereum-lisp.cli::devnet-node-genesis-block node))
+                (genesis-hash (block-hash genesis))
+                (old-branch
+                  (eth-sync-produce-empty-blocks genesis config 3))
+                (peer-id
+                  (secp256k1-private-key-public-key
+                   #x49a7b37aa6f6645917e7b807e9d1c00d4fa71f18343b0d4122a4d2df64dd6fee))
+                (new-head
+                  (devnet-peer-sync-test-alternate-empty-child
+                   genesis config 91))
+                (new-child
+                  (devnet-peer-sync-test-alternate-empty-child
+                   new-head config 92)))
+           (dolist (block old-branch)
+             (ethereum-lisp.cli::devnet-peer-sync-import-block
+              node block :peer-id peer-id :require-valid-p t))
+           (ethereum-lisp.cli::devnet-peer-sync-import-block
+            node new-head :require-valid-p t)
+           (ethereum-lisp.cli::call-with-devnet-node-store-guard
+            node
+            (lambda ()
+              (publish-canonical-block
+               store new-head config
+               :authority :engine-forkchoice
+               :forkchoice-state
+               (make-forkchoice-state
+                :head-block-hash (block-hash new-head)
+                :safe-block-hash genesis-hash
+                :finalized-block-hash genesis-hash)
+               :durability-function
+               (ethereum-lisp.cli::devnet-node-canonical-transition-persistence-function
+                node))))
+           (multiple-value-bind (start-number expected-parent-hash)
+               (ethereum-lisp.cli::devnet-node-peer-sync-resume-point
+                node peer-id 1 (block-hash new-head))
+             (is (= 2 start-number))
+             (is (hash32= (block-hash new-head) expected-parent-hash)))
+           ;; The obsolete height-3 cursor is gone before a lower new-branch
+           ;; cursor is attempted.
+           (multiple-value-bind (progress present-p)
+               (funcall
+                (ethereum-lisp.cli::devnet-node-peer-sync-progress-function
+                 node)
+                peer-id)
+             (is (null progress))
+             (is (not present-p)))
+           (ethereum-lisp.cli::devnet-peer-sync-import-block
+            node new-child :peer-id peer-id :require-valid-p t)
+           (multiple-value-bind (progress present-p)
+               (funcall
+                (ethereum-lisp.cli::devnet-node-peer-sync-progress-function
+                 node)
+                peer-id)
+             (is present-p)
+             (when progress
+               (is (= 2
+                      (ethereum-lisp.node-store.persistence:node-store-peer-sync-progress-last-number
+                       progress)))
+               (is (hash32=
+                    (block-hash new-child)
+                    (ethereum-lisp.node-store.persistence:node-store-peer-sync-progress-last-hash
+                     progress))))))
+      (uiop:delete-directory-tree datadir
+                                  :validate t
+                                  :if-does-not-exist :ignore))))
+
+(deftest devnet-peer-sync-rebases-on-a-remote-branch-change-once
+  (:layer :integration :module :p2p)
+  (let* ((datadir
+           (devnet-cli-temp-directory
+            "ethereum-lisp-peer-sync-remote-reorg"))
+         (database-path
+           (ethereum-lisp.cli::devnet-cli-datadir-database-path
+            datadir :file)))
+    (unwind-protect
+         (let* ((node
+                  (ethereum-lisp.cli:make-devnet-node
+                   :genesis-json *eth-sync-paris-genesis-json*
+                   :database-path database-path :db-engine :file
+                   :port 0 :public-port 0))
+                (config (ethereum-lisp.cli::devnet-node-config node))
+                (genesis
+                  (ethereum-lisp.cli::devnet-node-genesis-block node))
+                (genesis-hash (block-hash genesis))
+                (old-branch
+                  (eth-sync-produce-empty-blocks genesis config 2))
+                (old-tip (car (last old-branch)))
+                (peer-id
+                  (secp256k1-private-key-public-key
+                   #x49a7b37aa6f6645917e7b807e9d1c00d4fa71f18343b0d4122a4d2df64dd6fee))
+                (calls 0))
+           (dolist (block old-branch)
+             (ethereum-lisp.cli::devnet-peer-sync-import-block
+              node block :peer-id peer-id :require-valid-p t))
+           (devnet-peer-sync-call-with-function-overrides
+            (list
+             (cons
+              'ethereum-lisp.eth-sync:eth-peer-get-block-headers
+              (lambda (peer &key origin-number amount &allow-other-keys)
+                (is (eq :peer peer))
+                (is (= 1 amount))
+                (is (= 2 origin-number))
+                (list (block-header old-tip))))
+             (cons
+              'ethereum-lisp.eth-sync:eth-sync-download-blocks
+              (lambda (peer import-block
+                       &key start-number expected-parent-hash &allow-other-keys)
+                (declare (ignore import-block))
+                (is (eq :peer peer))
+                (incf calls)
+                (ecase calls
+                  (1
+                   (is (= 3 start-number))
+                   (is (hash32= (block-hash old-tip)
+                                expected-parent-hash))
+                   (error 'ethereum-lisp.eth-sync:eth-sync-anchor-mismatch
+                          :number 3
+                          :expected-parent-hash expected-parent-hash
+                          :actual-parent-hash (zero-hash32)))
+                  (2
+                   (is (= 1 start-number))
+                   (is (hash32= genesis-hash expected-parent-hash))
+                   0)))))
+            (lambda ()
+              (is (= 0
+                     (ethereum-lisp.cli::devnet-peer-download-from-resume
+                      node :peer peer-id 0 genesis-hash)))))
+           (is (= 2 calls))
+           (multiple-value-bind (progress present-p)
+               (funcall
+                (ethereum-lisp.cli::devnet-node-peer-sync-progress-function
+                 node)
+                peer-id)
+             (is (null progress))
+             (is (not present-p)))
+           ;; If the peer reorged to a shorter/equal-height chain, probing the
+           ;; old cursor returns no header.  Recreate the cursor and prove the
+           ;; helper rebases before issuing a cursor+1 range that would look
+           ;; like an ordinary end-of-chain response.
+           (dolist (block old-branch)
+             (ethereum-lisp.cli::devnet-peer-sync-import-block
+              node block :peer-id peer-id :require-valid-p t))
+           (setf calls 0)
+           (devnet-peer-sync-call-with-function-overrides
+            (list
+             (cons
+              'ethereum-lisp.eth-sync:eth-peer-get-block-headers
+              (lambda (peer &key origin-number amount &allow-other-keys)
+                (declare (ignore peer origin-number amount))
+                nil))
+             (cons
+              'ethereum-lisp.eth-sync:eth-sync-download-blocks
+              (lambda (peer import-block
+                       &key start-number expected-parent-hash &allow-other-keys)
+                (declare (ignore peer import-block))
+                (incf calls)
+                (is (= 1 start-number))
+                (is (hash32= genesis-hash expected-parent-hash))
+                0)))
+            (lambda ()
+              (is (= 0
+                     (ethereum-lisp.cli::devnet-peer-download-from-resume
+                      node :peer peer-id 0 genesis-hash)))))
+           (is (= 1 calls))
+           (multiple-value-bind (progress present-p)
+               (funcall
+                (ethereum-lisp.cli::devnet-node-peer-sync-progress-function
+                 node)
+                peer-id)
+             (is (null progress))
+             (is (not present-p)))
+           ;; With no cursor left, a canonical-anchor mismatch is not retried.
+           (setf calls 0)
+           (devnet-peer-sync-call-with-function-overrides
+            (list
+             (cons
+              'ethereum-lisp.eth-sync:eth-sync-download-blocks
+              (lambda (peer import-block
+                       &key start-number expected-parent-hash &allow-other-keys)
+                (declare (ignore peer import-block))
+                (incf calls)
+                (is (= 1 start-number))
+                (is (hash32= genesis-hash expected-parent-hash))
+                (error 'ethereum-lisp.eth-sync:eth-sync-anchor-mismatch
+                       :number 1
+                       :expected-parent-hash expected-parent-hash
+                       :actual-parent-hash (zero-hash32)))))
+            (lambda ()
+              (signals ethereum-lisp.eth-sync:eth-sync-anchor-mismatch
+                (ethereum-lisp.cli::devnet-peer-download-from-resume
+                 node :peer peer-id 0 genesis-hash))))
+           (is (= 1 calls)))
+      (uiop:delete-directory-tree datadir
+                                  :validate t
+                                  :if-does-not-exist :ignore))))
+
+;; The resumed downloader passes its EXPECTED-PARENT-HASH to header batch
+;; validation.  ETH-SYNC-RESUME-ANCHOR-REJECTS-A-DIFFERENT-FIRST-PARENT covers
+;; the complementary failure case: a peer cannot continue from another parent.
+
+(defun devnet-peer-sync-call-with-function-overrides (bindings thunk)
+  "Call THUNK with global function BINDINGS, restoring every definition."
+  (let ((originals
+          (mapcar (lambda (binding)
+                    (cons (car binding) (fdefinition (car binding))))
+                  bindings)))
+    (unwind-protect
+         (progn
+           (dolist (binding bindings)
+             (setf (fdefinition (car binding)) (cdr binding)))
+           (funcall thunk))
+      (dolist (binding originals)
+        (setf (fdefinition (car binding)) (cdr binding))))))
+
+(deftest devnet-peer-gap-fill-retries-a-buffered-target-with-known-parent
+  (:layer :integration :module :p2p)
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (genesis
+           (ethereum-lisp.cli::devnet-node-genesis-block node))
+         (target
+           (make-block
+            :header
+            (make-block-header
+             :parent-hash (block-hash genesis)
+             :number 1
+             :gas-limit 30000000
+             :timestamp 1)))
+         (fill-calls 0)
+         (retried-targets '()))
+    (devnet-peer-sync-call-with-function-overrides
+     (list
+      (cons
+       'ethereum-lisp.cli::devnet-node-sync-targets
+       (lambda (seen-node)
+         (is (eq node seen-node))
+         (list target)))
+      (cons
+       'ethereum-lisp.cli::devnet-node-forkchoice-sync-targets
+       (lambda (seen-node)
+         (is (eq node seen-node))
+         nil))
+      (cons
+       'ethereum-lisp.eth-sync:eth-sync-fill-gap
+       (lambda (peer target-hash known-hash-p import-block &rest arguments)
+         (declare (ignore arguments))
+         (is (eq :peer peer))
+         (is (bytes= target-hash
+                     (hash32-bytes (block-hash genesis))))
+         (is (functionp known-hash-p))
+         (is (functionp import-block))
+         (incf fill-calls)
+         ;; The parent was supplied by another path after TARGET was buffered.
+         0))
+      (cons
+       'ethereum-lisp.cli::devnet-peer-sync-import-block
+       (lambda (seen-node block &key peer-id require-valid-p)
+         (is (eq node seen-node))
+         (is (null peer-id))
+         (is require-valid-p)
+         (push block retried-targets)))
+      (cons
+       'ethereum-lisp.cli::devnet-peer-manager-log
+       (lambda (&rest arguments)
+         (declare (ignore arguments)))))
+     (lambda ()
+       (is (= 1
+              (ethereum-lisp.cli::devnet-peer-fill-sync-gaps
+               node :peer)))))
+    (is (= 1 fill-calls))
+    (is (= 1 (length retried-targets)))
+    (is (hash32= (block-hash target)
+                 (block-hash (first retried-targets))))))
+
+(deftest devnet-peer-gap-fill-only-swallows-typed-peer-failures
+  (:layer :integration :module :p2p)
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (genesis
+           (ethereum-lisp.cli::devnet-node-genesis-block node))
+         (target
+           (make-block
+            :header
+            (make-block-header
+             :parent-hash (block-hash genesis)
+             :number 1
+             :gas-limit 30000000
+             :timestamp 1)))
+         (fill-calls 0)
+         (import-calls 0)
+         (failure-logs 0)
+         (mode :peer-failure))
+    (devnet-peer-sync-call-with-function-overrides
+     (list
+      (cons
+       'ethereum-lisp.cli::devnet-node-sync-targets
+       (lambda (seen-node)
+         (is (eq node seen-node))
+         (list target)))
+      (cons
+       'ethereum-lisp.cli::devnet-node-forkchoice-sync-targets
+       (lambda (seen-node)
+         (is (eq node seen-node))
+         nil))
+      (cons
+       'ethereum-lisp.eth-sync:eth-sync-fill-gap
+       (lambda (peer target-hash known-hash-p import-block &rest arguments)
+         (declare (ignore target-hash known-hash-p arguments))
+         (is (eq :peer peer))
+         (incf fill-calls)
+         (ecase mode
+           (:peer-failure
+            (error 'ethereum-lisp.eth-sync:eth-sync-backfill-peer-error
+                   :format-control "Injected peer branch miss"
+                   :format-arguments nil))
+           (:storage-failure
+            ;; Drive the real callback passed by DEVNET-PEER-FILL-SYNC-GAPS.  A
+            ;; durability failure below must cross its handler unchanged.
+            (funcall import-block target)))))
+      (cons
+       'ethereum-lisp.cli::devnet-peer-sync-import-block
+       (lambda (seen-node block &key peer-id require-valid-p)
+         (is (eq node seen-node))
+         (is (eq target block))
+         (is (null peer-id))
+         (is require-valid-p)
+         (incf import-calls)
+         (ethereum-lisp.validation:storage-fail
+          "Injected candidate durability failure")))
+      (cons
+       'ethereum-lisp.cli::devnet-peer-manager-log
+       (lambda (&rest arguments)
+         (declare (ignore arguments))
+         (incf failure-logs))))
+     (lambda ()
+       ;; A typed peer branch miss is local to this target.
+       (is (= 0
+              (ethereum-lisp.cli::devnet-peer-fill-sync-gaps node :peer)))
+       (setf mode :storage-failure)
+       ;; A local import/durability failure belongs to the session supervisor.
+       (signals ethereum-lisp.validation:storage-error
+         (ethereum-lisp.cli::devnet-peer-fill-sync-gaps node :peer))))
+    (is (= 2 fill-calls))
+    (is (= 1 import-calls))
+    (is (= 1 failure-logs))))
+
 (deftest devnet-peer-sync-worker-syncs-into-a-node-store-over-a-socket
   (:requires-local-sockets t)
   ;; Drive the actual CLI peer-sync worker: it dials a loopback peer serving a
-  ;; produced chain and imports it into a real devnet node's store, advancing
-  ;; the node's canonical head. Helpers and the Paris genesis come from
-  ;; eth-sync-tests.lisp, which loads earlier.
+  ;; produced chain and imports it into a real devnet node's candidate store.
+  ;; A peer never advances the post-Merge canonical head. Helpers and the Paris
+  ;; genesis come from eth-sync-tests.lisp, which loads earlier.
   (let* ((node (ethereum-lisp.cli:make-devnet-node
                 :genesis-json *eth-sync-paris-genesis-json*
                 :port 0 :public-port 0))
@@ -1013,10 +1512,31 @@
                  (sb-thread:join-thread server-thread)
                  (when server-error
                    (error "peer-sync server side failed: ~A" server-error))
-                 ;; The node's canonical head advanced to the synced tip.
-                 (is (= 3 (chain-store-head-number store)))
+                 ;; All candidates executed, but only Engine forkchoice may
+                 ;; publish the post-Merge canonical view.
+                 (is (= 0 (chain-store-head-number store)))
                  (is (not (null (chain-store-known-block
-                                 store (block-hash (aref produced 2))))))))))
+                                 store (block-hash (aref produced 2))))))
+                 (is (chain-store-state-available-p
+                      store (block-hash (aref produced 2))))
+                 (let* ((tip (block-hash (aref produced 2)))
+                        (zero (hash32-to-hex (zero-hash32)))
+                        (response
+                          (engine-rpc-handle-request
+                           (list
+                            (cons "jsonrpc" "2.0")
+                            (cons "id" 81)
+                            (cons "method" "engine_forkchoiceUpdatedV1")
+                            (cons
+                             "params"
+                             (list
+                              (list
+                               (cons "headBlockHash" (hash32-to-hex tip))
+                               (cons "safeBlockHash" zero)
+                               (cons "finalizedBlockHash" zero)))))
+                           store config)))
+                   (is (null (cdr (assoc "error" response :test #'string=))))
+                   (is (= 3 (chain-store-head-number store))))))))
       (ignore-errors (sb-bsd-sockets:socket-close listener)))))
 
 (defun devnet-peer-sync-serve-and-ask (peer blocks request-id)
@@ -1148,8 +1668,11 @@ loop cannot block on a message that never comes."
                    (is (= 0 (block-header-number (first headers))))
                    (is (bytes= genesis-hash
                                (hash32-bytes (block-header-hash (first headers))))))
-                 ;; And its own download still completed.
-                 (is (= 3 (chain-store-head-number store)))))))
+                 ;; And its own candidate download still completed without
+                 ;; giving a peer canonical authority.
+                 (is (= 0 (chain-store-head-number store)))
+                 (is (chain-store-state-available-p
+                      store (block-hash (aref produced 2))))))))
       (ignore-errors (sb-bsd-sockets:socket-close listener)))))
 
 (deftest devnet-peer-sync-worker-pools-a-gossiped-transaction

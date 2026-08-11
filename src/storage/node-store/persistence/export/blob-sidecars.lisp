@@ -31,6 +31,20 @@
          (block-validation-fail
           "Blob sidecar conflicts with its persisted versioned hash"))))))
 
+(defun node-store-current-blob-and-proofs (store versioned-hash)
+  "Read current sidecar content without advancing the cache-policy clock."
+  (let* ((chain-store (chain-store-require-memory-store store))
+         (cached
+           (gethash
+            (engine-payload-store-key versioned-hash)
+            (memory-chain-store-blob-sidecars chain-store))))
+    (if cached
+        (engine-payload-store-copy-blob-and-proofs cached)
+        (multiple-value-bind (persisted present-p)
+            (chain-store-backing-blob-sidecar chain-store versioned-hash)
+          (and present-p
+               (engine-payload-store-copy-blob-and-proofs persisted))))))
+
 (defun node-store-populate-blob-sidecars-for-transactions-batch
     (store database batch transactions &key require-all-p)
   "Add TRANSACTIONS' available blob sidecars to BATCH by versioned hash.
@@ -50,9 +64,9 @@ referencing the sidecar.  Offline rebuild is the compaction path."
             for key = (bytes-to-hex identifier)
             unless (gethash key identifiers)
               do (setf (gethash key identifiers) t)
-                 (let ((blob-and-proofs
-                         (engine-payload-store-blob-and-proofs-v1
-                          store versioned-hash)))
+                   (let ((blob-and-proofs
+                           (node-store-current-blob-and-proofs
+                            store versioned-hash)))
                    (cond
                      (blob-and-proofs
                       (when (node-store-put-immutable-blob-sidecar

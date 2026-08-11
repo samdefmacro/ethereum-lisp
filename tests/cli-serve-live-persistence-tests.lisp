@@ -699,6 +699,7 @@
                         "0"
                         "--public-port"
                         "0"
+                        "--dev=true"
                         "--dev.period"
                         "1"
                         "--ready-file"

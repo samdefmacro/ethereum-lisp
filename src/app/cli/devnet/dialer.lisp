@@ -98,14 +98,7 @@ first, so a long backfill does not starve a short one."
     (sort (call-with-devnet-node-store-guard
            node
            (lambda ()
-             (let ((blocks '()))
-               (maphash (lambda (key block)
-                          (declare (ignore key))
-                          (push block blocks))
-                        (ethereum-lisp.chain-store.state:memory-chain-store-remote-blocks
-                         (ethereum-lisp.chain-store.state:chain-store-require-memory-store
-                          store)))
-               blocks)))
+             (engine-payload-store-remote-block-list store)))
           #'<
           :key (lambda (block) (block-header-number (block-header block))))))
 
@@ -129,8 +122,9 @@ buffered a block it could not execute, and nothing went to fetch the ancestors
 that would let it. Each gap is filled by walking back from the buffered block's
 PARENT until we reach a block we hold, then executing forward.
 
-A peer that cannot serve the branch is not an error here -- it may simply be on
-a different one -- so a failure is logged and the next target tried."
+A peer-specific backfill refusal is logged and the next target is tried. Local
+storage, capability, validation, and unknown program failures propagate to the
+session supervisor instead of being misclassified as a peer branch miss."
   (let ((store (devnet-node-store node))
         (imported 0))
     (dolist (target (devnet-node-sync-targets node) imported)
@@ -147,14 +141,20 @@ a different one -- so a failure is logged and the next target tried."
                                       store (make-hash32 hash))
                                      t))))
                            (lambda (block)
-                             (devnet-peer-sync-import-block node block)))))
-              (when (plusp filled)
-                (devnet-peer-manager-log node "peer.sync.gap_filled"
-                                         "blocks" filled
-                                         "target" (hash32-to-hex
-                                                   (block-hash target)))
-                (incf imported filled)))
-          (error (condition)
+                             (devnet-peer-sync-import-block
+                              node block :require-valid-p t)))))
+              ;; The reverse walk stops at TARGET's parent.  Re-admit the
+              ;; buffered target even when FILLED is zero: another sync path
+              ;; may already have supplied its parent since TARGET was first
+              ;; buffered.
+              (devnet-peer-sync-import-block
+               node target :require-valid-p t)
+              (devnet-peer-manager-log node "peer.sync.gap_filled"
+                                       "blocks" (1+ filled)
+                                       "target" (hash32-to-hex
+                                                 (block-hash target)))
+              (incf imported (1+ filled)))
+          (eth-sync-backfill-peer-error (condition)
             (devnet-peer-manager-log node "peer.sync.gap_failed"
                                      "target" (hash32-to-hex (block-hash target))
                                      "error" condition)))))
@@ -172,13 +172,14 @@ a different one -- so a failure is logged and the next target tried."
                               store (make-hash32 hash))
                              t))))
                    (lambda (block)
-                     (devnet-peer-sync-import-block node block)))))
+                     (devnet-peer-sync-import-block
+                      node block :require-valid-p t)))))
             (when (plusp filled)
               (devnet-peer-manager-log node "peer.sync.head_filled"
                                        "blocks" filled
                                        "target" (hash32-to-hex target))
               (incf imported filled)))
-        (error (condition)
+        (eth-sync-backfill-peer-error (condition)
           (devnet-peer-manager-log node "peer.sync.head_failed"
                                    "target" (hash32-to-hex target)
                                    "error" condition))))))
@@ -201,7 +202,7 @@ for one that failed."
          (multiple-value-bind (node-id host port) (parse-enode-url
                                                    (devnet-dial-candidate-enode
                                                     candidate))
-           (multiple-value-bind (status head-number chain-context)
+           (multiple-value-bind (status head-number chain-context head-hash)
                ;; Takes the store guard itself, per read, and releases it before
                ;; any I/O -- which is why it is safe to call here.
                (devnet-peer-sync-status node)
@@ -231,10 +232,8 @@ for one that failed."
                   (call-with-devnet-sync-claim
                    node
                    (lambda ()
-                     (eth-sync-download-blocks
-                      peer
-                      (lambda (block) (devnet-peer-sync-import-block node block))
-                      :start-number (1+ head-number))
+                     (devnet-peer-download-from-resume
+                      node peer id-hex head-number head-hash)
                      ;; Then fill anything the consensus client asked for that
                      ;; we could not execute. Forward download only helps when
                      ;; the missing blocks extend OUR head; a reorged target

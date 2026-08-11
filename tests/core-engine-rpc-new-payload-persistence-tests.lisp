@@ -169,7 +169,7 @@
                      (block-hash (chain-store-head-block store)))
                     (hash32-bytes (block-hash parent-block))))))))
 
-(deftest engine-rpc-new-payload-persistence-skips-syncing-and-invalid
+(deftest engine-rpc-new-payload-persistence-persists-syncing-and-invalid-cleanup
   (let* ((config (make-chain-config :london-block 0))
          (address
            (address-from-hex "0x0000000000000000000000000000000000000001"))
@@ -217,10 +217,24 @@
              :base-fee-per-gas 100)))
          (store (make-engine-payload-memory-store))
          (calls 0)
+         observed-kind
+         observed-status
          (callback
-           (lambda (current-store candidate)
-             (declare (ignore current-store candidate))
-             (incf calls))))
+           (lambda (current-store candidate
+                    &key source candidate-kind payload-status)
+             (declare (ignore source))
+             (incf calls)
+             (setf observed-kind candidate-kind
+                   observed-status (payload-status-status payload-status))
+             (ecase candidate-kind
+               (:buffered
+                (is (engine-payload-store-remote-block
+                     current-store (block-hash candidate))))
+               (:invalid
+                (is (engine-payload-store-invalid-block
+                     current-store (block-hash candidate)))
+                (is (null (engine-payload-store-remote-block
+                           current-store (block-hash candidate)))))))))
     (engine-payload-store-put-block store parent-block :state-available-p t)
     (let* ((syncing-response
              (engine-rpc-handle-request
@@ -233,7 +247,9 @@
       (is (string= +payload-status-syncing+
                    (new-payload-persistence-test-field syncing-status
                                                        "status")))
-      (is (= 0 calls)))
+      (is (= 1 calls))
+      (is (eq :buffered observed-kind))
+      (is (string= +payload-status-syncing+ observed-status)))
     (let* ((invalid-response
              (engine-rpc-handle-request
               (new-payload-persistence-test-request
@@ -245,7 +261,9 @@
       (is (string= +payload-status-invalid+
                    (new-payload-persistence-test-field invalid-status
                                                        "status")))
-      (is (= 0 calls)))))
+      (is (= 2 calls))
+      (is (eq :invalid observed-kind))
+      (is (string= +payload-status-invalid+ observed-status)))))
 
 (deftest engine-rpc-new-payload-persistence-runs-for-known-valid-replay
   (multiple-value-bind (store config parent-block child-block)

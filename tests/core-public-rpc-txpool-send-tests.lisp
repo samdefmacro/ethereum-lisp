@@ -21,8 +21,9 @@
              (transaction-sender transaction :expected-chain-id 1))
            (state (make-state-db))
            (base-block
-             (make-block
+            (make-block
               :header (make-block-header :number 14
+                                         :parent-hash (zero-hash32)
                                          :timestamp 140
                                          :gas-limit 30000000
                                          :gas-used 30000000
@@ -508,4 +509,3 @@
         (is (= -32602
                (field (field invalid-txpool-inspect-response "error")
                       "code")))))))
-

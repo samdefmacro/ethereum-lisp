@@ -4,6 +4,8 @@
         #:ethereum-lisp.telemetry)
   (:import-from #:ethereum-lisp.types
                 #:hash32=)
+  (:import-from #:ethereum-lisp.chain-store
+                #:engine-payload-store-ancestor-p)
   (:import-from #:ethereum-lisp.engine-payloads
                 #:engine-target-gas-limit)
   (:import-from #:ethereum-lisp.engine-api
@@ -71,12 +73,21 @@
                 #:node-store-migrate-chain-schema
                 #:make-database-engine-payload-store
                 #:database-engine-payload-store-p
+                #:make-node-store-peer-sync-progress
+                #:node-store-peer-sync-progress-last-number
+                #:node-store-peer-sync-progress-last-hash
+                #:node-store-read-peer-sync-progress
+                #:node-store-delete-peer-sync-progress
                 #:node-store-export-payload-candidate-to-kv
+                #:node-store-export-buffered-candidate-to-kv
+                #:node-store-export-invalid-candidate-to-kv
                 #:node-store-export-forkchoice-to-kv
                 #:node-store-export-to-kv
                 #:node-store-export-txpool-records-to-kv
                 #:node-store-import-txpool-records-from-kv
                 #:node-store-import-txpool-blob-sidecars-from-kv
+                #:node-store-import-bounded-invalid-tipsets-from-kv
+                #:node-store-import-bounded-remote-blocks-from-kv
                 #:node-store-restore-txpool-consistency)
   (:import-from #:ethereum-lisp.validation
                 #:block-validation-fail

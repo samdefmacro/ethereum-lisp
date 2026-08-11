@@ -63,14 +63,21 @@ use the internal package.
 These packages sit at a layer that is not obvious from their directory. Placing
 them by their physical location instead reintroduces dependency cycles:
 
-- **`execution-service`, `canonical-chain`, `genesis-state`** are application
-  services, not storage. `execution-service` projects state-db and chain-store
-  and commits blocks atomically; `canonical-chain` coordinates chain-store,
-  txpool, reorg, and filter notification; `genesis-state` bridges genesis input
-  and mutable state. The domains they compose have no dependency on each other.
+- **`execution-service`, `block-import`, `canonical-chain`, `genesis-state`**
+  are application services, not storage. `execution-service` projects state-db
+  and chain-store and derives execution results; `block-import` is the common
+  validated admission and publication boundary; `canonical-chain` coordinates
+  chain-store, txpool, reorg, and filter notification; `genesis-state` bridges
+  genesis input and mutable state. The domains they compose have no dependency
+  on each other. `block-import` exposes separate operations for candidate
+  admission, detached private building, canonical publication, and the combined
+  local build/import/publication transaction. Keeping those operations in one
+  service makes the authority transition explicit without making every valid
+  candidate canonical.
 - **`engine` (payload status)** decides import/cache status using the chain
-  store, so it is an application service, not a protocol model. The pure payload
-  values live in `engine-payloads` under `protocol`.
+  store inside the common block-import boundary, so it is an application
+  service, not a protocol model. The pure payload values live in
+  `engine-payloads` under `protocol`.
 - **`txpool.application`** is transaction preflight and admission policy, not
   txpool storage; `eth_sendRawTransaction` delegates to it.
 - **`eth-sync`** (the networking layer) drives the eth wire protocol over a live
@@ -82,6 +89,16 @@ them by their physical location instead reintroduces dependency cycles:
   and requests, pool lookups, and transaction admission all go through a
   caller-supplied `eth-serve-backend` of closures. Blob transactions are
   deliberately not gossiped; see the header of `eth-sync/gossip.lisp`.
+  The CLI-owned callback submits the typed block to
+  `import-p2p-block-candidate`. An eth BlockBodies response omits
+  execution-derived Prague requests and the Amsterdam block access list, so it
+  must not be round-tripped through an Engine payload and reconstructed with
+  those committed fields missing. Fork-to-newPayload V1--V5 selection and
+  `block-to-executable-data` conversion remain an explicit, testable adapter
+  seam, but typed P2P admission preserves the complete header/body object while
+  execution derives and verifies the omitted commitments. The networking layer
+  therefore remains store-independent while peer data reaches the same import
+  kernel as Engine data.
 
   Two properties of this layer are load-bearing and easy to break:
 
@@ -126,7 +143,7 @@ them by their physical location instead reintroduces dependency cycles:
   file would turn a composed decision into a signalled error rather than a wait.
 - **persistence adapters** live physically under
   `src/storage/node-store/persistence/` but depend on application services:
-  `staged-import` calls `execution-service` to validate payloads before
+  `staged-import` calls the common candidate-import service before
   materialization. They therefore load after application services, not as part
   of `storage-core`.
 
@@ -134,11 +151,88 @@ them by their physical location instead reintroduces dependency cycles:
 
 Non-obvious properties the implementation relies on:
 
-- **Atomic import.** An imported block publishes state, receipts, indexes, and
-  forkchoice effects together; a failed validation or durable write never
-  exposes a partial chain view. Write-batch application is atomic — memory swaps
-  a shadow table on success; the file backend appends the whole batch as one
-  CRC-framed, fsynced log record before the in-memory table changes.
+- **Atomic candidate import.** Engine newPayload, P2P, staged import, and local
+  dev-period production enter `block-import` after their transport or disk shape
+  is decoded. Engine uses `import-executable-payload`; P2P keeps the eth-wire
+  block typed through `import-p2p-block-candidate`; staged and other typed
+  callers use `import-block-candidate`. The service validates the parent,
+  header, body, senders, and optional sidecar, executes from the parent state,
+  verifies derived commitments and receipts, and publishes the hash-addressed
+  block, state, receipts, and side data in one rollback frame. Its durability
+  callback runs last; validation, execution, or durable-write failure restores
+  the complete in-memory view. A known valid replay is validated again but does
+  not re-execute. Database write-batch application is atomic — memory swaps a
+  shadow table on success; the file backend appends the whole batch as one
+  CRC-framed, fsynced log record before the in-memory table changes; RocksDB
+  uses one write batch.
+- **Candidate and canonical authority are separate.** A successfully executed
+  P2P or staged block remains hash-addressed and noncanonical. Post-Merge
+  canonical, safe, and finalized views change only through an Engine
+  forkchoiceUpdated publication, except that an explicitly configured `--dev`
+  node may use the isolated `:local-dev` authority for its dev-period blocks;
+  a positive `--dev.period` is rejected unless that mode was explicitly enabled.
+  `debug_setHead` is limited to a view whose current and target blocks are both
+  pre-Merge, so it cannot escape the rule by targeting an older block from a
+  post-Merge head. Canonical publication updates checkpoints, applies the
+  canonical/txpool transition, prunes finalized cache entries, and calls
+  durability in that order inside one rollback frame.
+- **Private payload construction stays detached.** Engine payload preparation
+  builds and validates through `build-private-block-candidate`, whose successful
+  path deliberately rolls back every store write made while constructing the
+  proposal. The detached result may then enter the bounded prepared-payload
+  cache, but becomes a block candidate only when a later newPayload admission
+  executes it. The private build step itself cannot alter candidate, canonical,
+  state, txpool, or checkpoint views.
+- **Peer progress names durable candidate state.** A persistent node records a
+  peer's identity, persistence authority, chain ID, genesis hash, last completed
+  number, and last hash in a strict versioned RLP record. The executed candidate,
+  derived state and receipts, and monotonic cursor are committed in the same KV
+  batch. A buffered ACCEPTED/SYNCING block is persisted as a remote candidate
+  but cannot advance the cursor. On reconnect, the cursor is used only after its
+  candidate, state, and ancestry from the current canonical view are verified;
+  otherwise an abandoned-branch cursor is deleted durably before resume falls
+  back to the canonical boundary, or a corrupt target fails closed. If the
+  cursor still descends from the local canonical view but the peer's next header
+  proves that the peer reorged, the downloader deletes the cursor and retries
+  once from the local canonical anchor. A second mismatch is a peer failure and
+  escapes; the retry cannot loop or repeatedly erase progress.
+- **Engine/P2P caches are bounded deterministically.** Each retained entry has
+  an insertion time, exact protocol-byte count, and a block number when one is
+  known. Finalized and expired entries leave first; count or byte pressure then
+  removes the oldest `(inserted-at, key)` entry. Replacing an existing key keeps
+  its original insertion time, so repeated announcements cannot extend its
+  lifetime indefinitely. The production policies are:
+
+  | Cache | Count | Bytes | Maximum process-local age |
+  | --- | ---: | ---: | ---: |
+  | Remote block | 96 | 64 MiB | 30 minutes |
+  | Forkchoice target | 96 | 3,072 B | 30 minutes |
+  | Invalid block | 512 | 64 MiB | 1 hour |
+  | Prepared payload | 10 | 128 MiB | 5 minutes |
+  | Blob sidecar | 512 | 64 MiB | 3 hours |
+
+  Finality pruning applies when the entry carries a block number; it does not
+  guess a height for hash-only forkchoice targets or sidecars without
+  provenance. Insertion timestamps are process-local cache metadata, not durable
+  wall-clock admission history. A namespace restored into memory is re-admitted
+  at startup time, so its age begins again in that process; count, exact-byte,
+  and known-finality bounds are enforced before the startup store is exposed.
+  Public direct-provider startup restores only invalid verdicts and remote
+  candidates. Durable blob sidecars remain immutable content served by bounded,
+  lazy content-addressed point reads without eager hydration or retaining
+  point-read results in memory; prepared payloads and hash-only forkchoice
+  targets are process-private and are not restart state.
+- **Durable invalid/remote recovery is bounded.** Direct-provider startup
+  streams the invalid-tipset prefix first and the remote-block prefix second,
+  admitting one record at a time so legacy durable input cannot create an
+  unbounded memory table during restart. Once each retained set is known, a
+  second prefix-only pass deletes rejected or evicted records in bounded pages.
+  Within each page, a body record and its block-access-list side record are
+  deleted in the same atomic batch, and the side record is removed only after
+  point reads prove that no known, retained-invalid, retained-remote, or staged
+  block owns it. Missing-parent candidates that survive the bounds are
+  immediately available to normal gap-fill enumeration, while restored invalid
+  hashes reject replay without re-execution.
 - **State-root memoization.** Each `state-object` memoizes its storage root. A
   state root is taken over every account, but a block touches a handful, and
   rebuilding the untouched accounts' storage tries was ~93% of the cost
@@ -171,7 +265,9 @@ Non-obvious properties the implementation relies on:
   full chain configuration, pins a finalized anchor, advances header, body,
   execution, receipt-verification, and transaction-index stages atomically,
   persists reverse-order unwind intent, and hydrates only a fresh startup store.
-  It does not publish canonical indexes or checkpoints.
+  Its execution stage uses the same validated candidate-import kernel as live
+  ingress, while staged progress and records retain their own batch. It does not
+  publish canonical indexes or checkpoints.
 - **Dev KV-handle cache.** Opening a log-structured database replays the whole
   file, so reopening one per write makes each persist O(file) and a run
   O(blocks²) in bytes replayed. The devnet CLI optionally caches one open handle

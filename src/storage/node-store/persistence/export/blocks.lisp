@@ -1,6 +1,7 @@
 (in-package #:ethereum-lisp.node-store.persistence)
 
-(defun chain-store-block-access-list-side-data (block)
+(defun chain-store-block-access-list-side-data
+    (block &key allow-missing-committed-p)
   "Return BLOCK's validated encoded block access list, or NIL when absent."
   (let ((header-commitment
           (block-header-block-access-list-hash (block-header block))))
@@ -19,16 +20,20 @@
             "Block access list side data does not match its header"))
          encoded))
       (header-commitment
-       (block-validation-fail
-        "Block access list header commitment has no body"))
+       (unless allow-missing-committed-p
+         (block-validation-fail
+          "Block access list header commitment has no body")))
       (t nil))))
 
 (defun chain-store-block-record-rlp (block)
   "Encode the durable block record without private block access-list data."
   (block-rlp block))
 
-(defun chain-store-populate-block-access-list-side-data-batch (batch block)
-  (let ((side-data (chain-store-block-access-list-side-data block)))
+(defun chain-store-populate-block-access-list-side-data-batch
+    (batch block &key allow-missing-committed-p)
+  (let ((side-data
+          (chain-store-block-access-list-side-data
+           block :allow-missing-committed-p allow-missing-committed-p)))
     (when side-data
       (kv-batch-put-chain-record
        batch :block-access-list
@@ -39,7 +44,8 @@
 (defun chain-store-block-with-access-list-side-data
     (database identifier block record-label
      &key legacy-encoded-block-access-list
-          legacy-block-access-list-present-p)
+          legacy-block-access-list-present-p
+          allow-missing-committed-p)
   "Attach hash-addressed BAL side data to BLOCK and validate its commitment.
 
 Legacy records that still contain an inline BAL remain readable.  A block
@@ -98,8 +104,10 @@ without a BAL commitment needs no side-data record."
          (chain-store-block-access-list-side-data block)
          block)
         ((block-header-block-access-list-hash (block-header block))
-         (block-validation-fail
-          "~A is missing block access-list side data" record-label))
+         (if allow-missing-committed-p
+             block
+             (block-validation-fail
+              "~A is missing block access-list side data" record-label)))
         (t block)))))
 
 (defun chain-store-decode-persisted-block-record (record record-label)
@@ -155,7 +163,7 @@ standard three or four Ethereum block fields."
       (block-validation-fail "Invalid ~A RLP: ~A" record-label condition))))
 
 (defun chain-store-block-from-persisted-record
-    (database identifier record record-label)
+    (database identifier record record-label &key allow-missing-committed-p)
   (multiple-value-bind
         (block legacy-requests legacy-requests-present-p
                legacy-encoded-block-access-list
@@ -166,30 +174,36 @@ standard three or four Ethereum block fields."
      database identifier block record-label
      :legacy-encoded-block-access-list legacy-encoded-block-access-list
      :legacy-block-access-list-present-p
-     legacy-block-access-list-present-p)))
+     legacy-block-access-list-present-p
+     :allow-missing-committed-p allow-missing-committed-p)))
 
-(defun chain-store-persisted-block= (left right)
+(defun chain-store-persisted-block=
+    (left right &key allow-missing-committed-p)
   "Compare durable canonical block data, including private BAL side data."
   (and (hash32= (block-hash left) (block-hash right))
        (bytes= (chain-store-block-record-rlp left)
                (chain-store-block-record-rlp right))
        (let ((left-side-data
-               (chain-store-block-access-list-side-data left))
+               (chain-store-block-access-list-side-data
+                left :allow-missing-committed-p allow-missing-committed-p))
              (right-side-data
-               (chain-store-block-access-list-side-data right)))
+               (chain-store-block-access-list-side-data
+                right :allow-missing-committed-p allow-missing-committed-p)))
          (if left-side-data
              (and right-side-data (bytes= left-side-data right-side-data))
              (null right-side-data)))))
 
 (defun node-store-put-immutable-block-body-record
-    (database batch kind block record-label)
+    (database batch kind block record-label &key allow-missing-committed-p)
   "Write a canonical block body and its immutable BAL side record.
 
 An old inline-BAL record for the same block is accepted and migrated to the
 canonical body-only representation."
   (let* ((identifier (hash32-bytes (block-hash block)))
          (desired-record (chain-store-block-record-rlp block))
-         (side-data (chain-store-block-access-list-side-data block))
+         (side-data
+           (chain-store-block-access-list-side-data
+            block :allow-missing-committed-p allow-missing-committed-p))
          (changed-p nil))
     (multiple-value-bind (existing-record present-p)
         (kv-get-chain-record database kind identifier)
@@ -202,7 +216,8 @@ canonical body-only representation."
          (handler-case
              (let ((existing-block
                      (chain-store-block-from-persisted-record
-                      database identifier existing-record record-label)))
+                      database identifier existing-record record-label
+                      :allow-missing-committed-p allow-missing-committed-p)))
                (unless (and (hash32= (block-hash existing-block)
                                      (block-hash block))
                             (bytes= (chain-store-block-record-rlp
@@ -210,7 +225,9 @@ canonical body-only representation."
                                     desired-record)
                             (let ((existing-side-data
                                     (chain-store-block-access-list-side-data
-                                     existing-block)))
+                                     existing-block
+                                     :allow-missing-committed-p
+                                     allow-missing-committed-p)))
                               (if side-data
                                   (and existing-side-data
                                        (bytes= existing-side-data side-data))

@@ -64,6 +64,84 @@ Focused selection is exposed by the broker, for example:
 scripts/dev.sh cold-test unit --match TRANSACTION
 ```
 
+## Unified import, authority, and recovery checks
+
+Section 4 of the public-testnet plan has a focused acceptance surface. Run it
+through the same container broker as every other application check:
+
+```sh
+# Candidate admission, Engine persistence, publication authority, private
+# building, and the post-Merge debug rewind refusal.
+scripts/dev.sh cold-test unit --match BLOCK-IMPORT
+scripts/dev.sh cold-test unit --match NEW-PAYLOAD-PERSISTENCE
+scripts/dev.sh cold-test unit --match FORKCHOICE
+scripts/dev.sh cold-test unit --match DEBUG-SET-HEAD
+scripts/dev.sh cold-test unit --match ETH-SYNC-RESUME-ANCHOR
+
+# Durable exporters, staged execution, cache policies, file/RocksDB restart,
+# and the explicitly authorized local dev-period publisher.
+scripts/dev.sh cold-test integration --match CHAIN-STORE-CACHE
+scripts/dev.sh cold-test integration --match INVALID-TIPSET
+scripts/dev.sh cold-test integration --match REMOTE-BLOCK
+scripts/dev.sh cold-test integration --match BLOB-SIDECAR
+scripts/dev.sh cold-test integration --match PREPARED-PAYLOAD
+scripts/dev.sh cold-test integration --match PEER-SYNC-PROGRESS
+scripts/dev.sh cold-test integration --match STAGED-EXECUTION-UNIFIED
+scripts/dev.sh cold-test integration --match DEVNET-PEER-SYNC
+scripts/dev.sh cold-test integration --match DEV-PERIOD
+
+# Kill a writer after candidate+cursor batches return but before clean close,
+# then reopen RocksDB and verify candidate state, cursor, and canonical view.
+scripts/dev.sh cold-test e2e \
+  --match ROCKSDB-PEER-SYNC-CANDIDATE-PROGRESS-SURVIVES-SIGKILL
+scripts/dev.sh cold-test e2e \
+  --match DEV-PERIOD-SEAL-SURVIVES-SIGKILL
+```
+
+The block-import tests require invalid input and durability failures to leave no
+candidate or canonical residue, require known replays to validate without
+re-execution, and require prepared private builds to remain detached. They also
+exercise typed P2P admission: fork/version and `block-to-executable-data`
+mapping remains observable, but an eth BlockBodies value is not reconstructed
+from an Engine envelope that cannot carry derived Prague requests or an
+Amsterdam block access list.
+
+Engine and dev-period selectors exercise the only two post-Merge publication
+authorities: Engine forkchoice, and explicit local `--dev` mode. They also
+require a positive dev period to be rejected without `--dev`, require local
+Amsterdam building to derive rather than pre-supply the block access list, and
+require `debug_setHead` to refuse both a post-Merge target and a rewind from a
+post-Merge current view.
+
+The cache tests apply count, exact encoded-byte, process-local age, and finality
+pressure to all five caches and assert deterministic eviction. Public direct
+startup re-admits the durable invalid and remote namespaces with a new
+process-local timestamp; it does not claim to retain their pre-restart
+wall-clock age. The invalid/remote tests additionally stream legacy over-limit
+namespaces into the direct provider and assert startup count/byte/finality
+bounds, replay rejection without re-execution, paged durable eviction, and
+unowned BAL cleanup. Sidecars use bounded, lazy immutable content-addressed
+point reads without eager hydration or retaining point-read results in memory;
+prepared payloads and forkchoice targets are process-private and are not
+claimed as restart state.
+
+The peer-progress tests bind a cursor to peer, database authority, chain ID, and
+genesis; they reject regression and same-height hash changes. The file and
+RocksDB restart cases prove that a resumed downloader starts after the last
+durable executed candidate and supplies its hash as the next batch's parent
+anchor. When the peer has reorged away from that cursor, the downloader deletes
+it durably and retries once from the local canonical anchor; a second mismatch
+escapes instead of looping. The candidate e2e case uses a child process and
+SIGKILL, then proves that both executed candidates and the last cursor survived
+while neither peer candidate became canonical. The dev-period SIGKILL case pins
+the explicit local authority's public-visibility-before-return durability
+contract across restart.
+
+These selectors are focused regression evidence, not a public-testnet readiness
+claim. A broad Section 4 change still requires the cold `unit`, `integration`,
+and `e2e` layers above; external fixture, Hive, bootstrap, and soak gates remain
+separate release criteria.
+
 Optional official fixtures use `ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT`. A
 missing optional fixture root produces a skip and is not evidence that external
 fixture validation passed.
