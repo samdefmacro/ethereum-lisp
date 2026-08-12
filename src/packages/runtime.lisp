@@ -401,6 +401,39 @@
         #:ethereum-lisp.accounts
         #:ethereum-lisp.trie
         #:ethereum-lisp.state
+        #:ethereum-lisp.database
         #:ethereum-lisp.snap)
   (:export
-   #:make-persistent-snap-state-backend))
+   #:make-persistent-snap-state-backend
+   #:snap-sync-source
+   #:make-snap-sync-source
+   #:snap-sync-source-account-range
+   #:snap-sync-source-storage-ranges
+   #:snap-sync-source-bytecodes
+   #:snap-sync-source-trie-nodes
+   #:snap-sync-state-unavailable
+   #:snap-sync-state-unavailable-request-kind
+   #:snap-sync-account-task
+   #:snap-sync-account-task-start
+   #:snap-sync-account-task-limit
+   #:snap-sync-account-task-next-origin
+   #:snap-sync-account-task-completed-p
+   #:snap-sync-progress
+   #:snap-sync-progress-pivot-hash
+   #:snap-sync-progress-pivot-number
+   #:snap-sync-progress-state-root
+   #:snap-sync-progress-next-origin
+   #:snap-sync-progress-partial-root
+   #:snap-sync-progress-target-hash
+   #:snap-sync-progress-chain-id
+   #:snap-sync-progress-genesis-hash
+   #:snap-sync-progress-authority-id
+   #:snap-sync-progress-completed-p
+   #:snap-sync-progress-tasks
+   #:snap-sync-read-progress
+   #:snap-sync-delete-progress
+   #:snap-sync-populate-rebased-progress-batch
+   #:snap-sync-rebase-progress
+   #:snap-sync-probe-state-root
+   #:snap-sync-import-state
+   #:snap-sync-import-state-multi))

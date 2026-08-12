@@ -155,5 +155,8 @@ takes precedence."
     (%rlp-decode (ensure-byte-vector bytes)
                  start allow-trailing 0 maximum-depth max-list-items)))
 
-(defun rlp-decode-one (bytes)
-  (rlp-decode bytes))
+(defun rlp-decode-one
+    (bytes &key (max-depth +rlp-max-depth+) maximum-depth max-list-items)
+  "Decode exactly one RLP object, optionally applying the generic resource caps."
+  (rlp-decode bytes :max-depth max-depth :maximum-depth maximum-depth
+                    :max-list-items max-list-items))

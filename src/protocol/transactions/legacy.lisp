@@ -2,6 +2,9 @@
 
 ;;; Transaction envelope types, RLP encodings, signing hashes, and sender recovery.
 
+(defconstant +transaction-max-rlp-list-items+ 65536
+  "Per-list bound for untrusted typed transaction payloads.")
+
 (defstruct (legacy-transaction (:constructor make-legacy-transaction
                                   (&key (nonce 0)
                                         (gas-price 0)
@@ -58,7 +61,8 @@
 
 (defun legacy-transaction-from-rlp (bytes)
   (handler-case
-      (let ((value (rlp-decode-one bytes)))
+      (let ((value (rlp-decode-one
+                    bytes :max-list-items +transaction-max-rlp-list-items+)))
         (unless (rlp-list-p value)
           (block-validation-fail "Legacy transaction must be an RLP list"))
         (let ((fields (rlp-list-items value)))

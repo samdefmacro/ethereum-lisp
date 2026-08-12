@@ -652,6 +652,69 @@
       (is (hash32= (block-hash child)
                    (block-hash (chain-store-head-block store)))))))
 
+(deftest block-import-snap-pivot-is-bounded-authorized-and-nonfinal-target
+  (multiple-value-bind (store config parent pivot)
+      (block-import-test-fixture)
+    (import-block-candidate store pivot config)
+    (let* ((pivot-hash (block-hash pivot))
+           (target
+             (execute-signed-block
+              (chain-store-state-db store pivot-hash)
+              '()
+              :expected-chain-id 1
+              :header
+              (make-block-header
+               :parent-hash pivot-hash
+               :beneficiary (zero-address)
+               :mix-hash (zero-hash32)
+               :number 2
+               :gas-limit 30000000
+               :timestamp 2
+               :base-fee-per-gas
+               (expected-base-fee-per-gas (block-header pivot)))
+              :chain-config config
+              :withdrawals '()))
+           (target-hash (block-hash target))
+           (callback-observation nil))
+      (engine-payload-store-put-block
+       store target :state-available-p nil :canonicalize-p nil)
+      (signals block-validation-error
+        (install-forkchoice-sync-pivot
+         store pivot-hash target-hash config
+         :durability-function
+         (lambda (&rest ignored) (declare (ignore ignored)))))
+      (is (hash32= (block-hash parent)
+                   (chain-store-canonical-hash store 0)))
+      (is (null (chain-store-canonical-hash store 1)))
+      (multiple-value-bind (head transition)
+          (install-forkchoice-sync-pivot
+           store pivot-hash target-hash config
+           :consensus-authorized-p t
+           :durability-function
+           (lambda (callback-store callback-transition
+                    &key sync-pivot-target-hash)
+             (setf callback-observation
+                   (list
+                    (hash32= pivot-hash
+                             (chain-store-canonical-hash callback-store 1))
+                    (hash32= target-hash sync-pivot-target-hash)
+                    (= 1
+                       (length
+                        (ethereum-lisp.canonical-chain:canonical-chain-transition-installed-blocks
+                         callback-transition)))))))
+        (is (hash32= pivot-hash (block-hash head)))
+        (is (= 1
+               (length
+                (ethereum-lisp.canonical-chain:canonical-chain-transition-installed-blocks
+                 transition)))))
+      (is (equal '(t t t) callback-observation))
+      (is (= 1 (chain-store-head-number store)))
+      (is (hash32= pivot-hash (chain-store-canonical-hash store 1)))
+      ;; TARGET is only the Engine authorization anchor. A later ordinary
+      ;; forkchoiceUpdated call publishes it after the tail is executed.
+      (is (null (chain-store-canonical-hash store 2)))
+      (is (not (chain-store-state-available-p store target-hash))))))
+
 (deftest block-import-publication-revalidates-forkchoice-checkpoints
   (multiple-value-bind (store config parent child)
       (block-import-test-fixture)

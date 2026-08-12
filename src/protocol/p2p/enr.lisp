@@ -91,7 +91,7 @@ those raw items so a list-valued entry re-encodes exactly."
     (when (> (length bytes) +enr-max-size+)
       (error "ENR exceeds ~D bytes" +enr-max-size+))
     ;; A record is exactly rlp([signature, seq, ...]) — reject trailing bytes.
-    (let* ((items (rlp-list-items (rlp-decode bytes)))
+    (let* ((items (rlp-list-items (rlp-decode bytes :max-list-items 64)))
            (signature (ensure-byte-vector (first items)))
            (seq (bytes-to-integer (ensure-byte-vector (second items))))
            ;; content = rlp([seq, k1, v1, ...]) rebuilt from the raw items.
@@ -99,6 +99,8 @@ those raw items so a list-valued entry re-encodes exactly."
            (pairs (loop for (key value) on (cddr items) by #'cddr
                         collect (cons (bytes-to-ascii (ensure-byte-vector key))
                                       value))))
+      (unless (and (>= (length items) 4) (evenp (length items)))
+        (error "ENR must contain signature, sequence, and key/value pairs"))
       ;; EIP-778 requires keys byte-sorted and unique.
       (loop for (a b) on pairs
             while b

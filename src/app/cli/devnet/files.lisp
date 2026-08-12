@@ -50,6 +50,16 @@
      :type type
      :defaults pathname)))
 
+(defun devnet-cli-sibling-temp-path (path)
+  "Return a unique sibling of PATH without inventing a filename extension."
+  (let ((pathname (pathname path)))
+    (make-pathname
+     :name (format nil ".~A.~A"
+                   (or (pathname-name pathname) "artifact")
+                   (symbol-name (gensym "TMP")))
+     :type (pathname-type pathname)
+     :defaults pathname)))
+
 (defun devnet-cli-ensure-path-parent-directory (path)
   (ensure-directories-exist (pathname path))
   path)
@@ -426,6 +436,59 @@ RocksDB directory. Both are datadir-relative so a datadir stays self-contained."
     (merge-pathnames
      +devnet-geth-datadir-directory+
      (uiop:ensure-directory-pathname datadir)))))
+
+(defun devnet-cli-datadir-node-key-path (datadir)
+  (namestring
+   (merge-pathnames
+    +devnet-datadir-node-key-file+
+    (merge-pathnames
+     +devnet-geth-datadir-directory+
+     (uiop:ensure-directory-pathname datadir)))))
+
+(defun devnet-cli-datadir-enr-seq-path (datadir)
+  (namestring
+   (merge-pathnames
+    +devnet-datadir-enr-seq-file+
+    (merge-pathnames
+     +devnet-geth-datadir-directory+
+     (uiop:ensure-directory-pathname datadir)))))
+
+(defun devnet-cli-write-enr-seq (path sequence)
+  "Atomically replace PATH with a private decimal EIP-778 sequence file."
+  (unless (and (integerp sequence) (plusp sequence))
+    (error "ENR sequence must be a positive integer"))
+  (let ((temporary (devnet-cli-sibling-temp-path path))
+        (renamed-p nil))
+    (unwind-protect
+         (progn
+           (devnet-cli-write-private-file
+            temporary
+            (lambda (stream)
+              (format stream "~D~%" sequence)))
+           (uiop:rename-file-overwriting-target temporary path)
+           (setf renamed-p t))
+      (unless renamed-p
+        (when (probe-file temporary)
+          (ignore-errors (delete-file temporary))))))
+  sequence)
+
+(defun devnet-cli-load-next-enr-seq (path)
+  "Load PATH's EIP-778 sequence and persist this startup's next value.
+
+Every restart advances the sequence. That is conservative when the endpoint and
+fork-id are unchanged, and necessary when they changed while the process was
+down because only the sequence, not a stale signed record, is durable state."
+  (let ((next
+          (if (probe-file path)
+              (handler-case
+                  (1+ (parse-integer
+                       (string-trim '(#\Space #\Tab #\Newline #\Return)
+                                    (devnet-cli-read-file-string path))
+                       :junk-allowed nil))
+                (error ()
+                  (error "Persisted ENR sequence is malformed: ~A" path)))
+              1)))
+    (devnet-cli-write-enr-seq path next)))
 
 (defun devnet-cli-datadir-jwt-secret-paths (datadir)
   (list (devnet-cli-datadir-jwt-secret-path datadir)

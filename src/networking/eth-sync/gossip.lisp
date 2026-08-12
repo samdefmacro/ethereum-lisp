@@ -113,21 +113,75 @@ bandwidth, and the protocol asks that it carry at least one transaction."
                             (funcall sidecar-reader transaction)))))
             transactions)))
     (when sendable
-      (eth-peer-send peer +eth-message-new-pooled-transaction-hashes+
-                     (encode-eth-new-pooled-transaction-hashes
-                      sendable :version (eth-peer-eth-version peer)))
+      (let ((custody-mask (make-byte-vector 16)))
+        ;; geth encodes custody bits little-endian within each byte.  A full
+        ;; local blob plus callable cell computation means we can answer every
+        ;; one of the 128 cell indices; otherwise the honest announcement is
+        ;; the all-zero mask.
+        (when (and (>= (eth-peer-eth-version peer)
+                       +eth-protocol-version-72+)
+                   sidecar-reader
+                   (kzg-cell-computation-available-p)
+                   (some (lambda (entry)
+                           (typep (eth-pooled-entry-transaction entry)
+                                  'blob-transaction))
+                         sendable))
+          (fill custody-mask #xff))
+        (eth-peer-send peer +eth-message-new-pooled-transaction-hashes+
+                       (encode-eth-new-pooled-transaction-hashes
+                        sendable :version (eth-peer-eth-version peer)
+                                 :custody-mask custody-mask)))
       (eth-peer-note-known-transactions peer sendable))
     (length sendable)))
 
 ;;; Receiving.
 
-(defun eth-accept-transactions (backend transactions)
+(defun eth-validate-omitted-blob-payload (sidecar transaction)
+  "Validate an eth/72 pooled blob wrapper whose blob list is intentionally empty.
+
+ETH/72 keeps the commitments and version-1 cell proofs in PooledTransactions,
+but retrieves the cells through GetCells.  This check authenticates the
+commitments against the signed transaction and bounds the proof material.  It
+does not turn the fragment into a full blob sidecar."
+  (let* ((blobs (blob-sidecar-blobs sidecar))
+         (commitments (blob-sidecar-commitments sidecar))
+         (proofs (blob-sidecar-proofs sidecar))
+         (commitment-count (length commitments)))
+    (unless (and (null blobs) (plusp commitment-count))
+      (ethereum-lisp.validation:block-validation-fail
+       "eth/72 omitted blob wrapper must contain commitments but no blobs"))
+    (unless (= commitment-count
+               (ethereum-lisp.consensus:transaction-blob-count transaction))
+      (ethereum-lisp.validation:block-validation-fail
+       "eth/72 omitted blob wrapper commitment count does not match transaction"))
+    (unless (= (length proofs)
+               (* commitment-count +cell-proofs-per-blob+))
+      (ethereum-lisp.validation:block-validation-fail
+       "eth/72 omitted blob wrapper must carry cell proofs for every commitment"))
+    (dolist (commitment commitments)
+      (ethereum-lisp.consensus:validate-sized-byte-vector
+       commitment ethereum-lisp.crypto:+kzg-commitment-size+ "KZG commitment"))
+    (dolist (proof proofs)
+      (ethereum-lisp.consensus:validate-sized-byte-vector
+       proof +kzg-proof-size+ "KZG cell proof"))
+    (loop for actual in (blob-sidecar-versioned-hashes sidecar)
+          for expected across (transaction-blob-versioned-hashes transaction)
+          unless (bytes= (hash32-bytes actual)
+                         (blob-versioned-hash-bytes expected))
+            do (ethereum-lisp.validation:block-validation-fail
+                "eth/72 omitted blob wrapper commitment does not match transaction"))
+    t))
+
+(defun eth-accept-transactions
+    (backend transactions &key allow-omitted-blob-payload-p)
   "Offer TRANSACTIONS to the backend's pool, and return how many it took.
 
 A transaction the pool turns down — badly signed, underpriced, a nonce too far
 ahead — is skipped rather than raised as a session error. Peers relay freely and
 do not pre-filter for us, so one unusable transaction in a batch must not cost
-us the connection."
+us the connection.  A valid eth/72 pooled wrapper that intentionally omits blob
+payloads is commitment-checked but left out of the pool until a cell fetcher can
+assemble and verify its full data."
   (let ((accept (eth-serve-backend-accept-transaction backend))
         (accept-sidecar
           (eth-serve-backend-accept-blob-sidecar backend))
@@ -146,11 +200,24 @@ us the connection."
              (setf transaction (car entry)
                    sidecar (cdr entry))))
           (when sidecar
-            (validate-blob-sidecar-fields
-             sidecar :transaction transaction :require-proof-verification t)
-            (unless accept-sidecar
-              (error "Received blob transaction but no sidecar store is configured"))
-            (funcall accept-sidecar sidecar))
+            (if (and allow-omitted-blob-payload-p
+                     (typep transaction 'blob-transaction)
+                     (null (blob-sidecar-blobs sidecar))
+                     (plusp (length (blob-sidecar-commitments sidecar))))
+                ;; This is not a complete sidecar and must not enter either the
+                ;; sidecar cache or txpool.  Keeping the fragment out is the
+                ;; honest capability boundary until GetCells client scheduling
+                ;; is present.
+                (progn
+                  (eth-validate-omitted-blob-payload sidecar transaction)
+                  (setf sidecar nil))
+                (progn
+                  (validate-blob-sidecar-fields
+                   sidecar :transaction transaction
+                   :require-proof-verification t)
+                  (unless accept-sidecar
+                    (error "Received blob transaction but no sidecar store is configured"))
+                  (funcall accept-sidecar sidecar))))
           (when (and (or (not (typep transaction 'blob-transaction)) sidecar)
                      (ignore-errors (funcall accept transaction) t))
             (incf accepted)))))
@@ -348,6 +415,9 @@ that has nothing else to do."
          (multiple-value-bind (request-id transactions)
              (decode-eth-pooled-transactions payload)
            (declare (ignore request-id))
-           (eth-accept-transactions backend transactions))
+           (eth-accept-transactions
+            backend transactions
+            :allow-omitted-blob-payload-p
+            (>= (eth-peer-eth-version peer) +eth-protocol-version-72+)))
          t)
            (t nil)))))))

@@ -192,3 +192,70 @@
        :chain-config chain-config)
     (chain-store-prune-state-to-retention-depth store)
     (values head transition)))
+
+(defun canonical-chain-install-sync-checkpoint
+    (store hash &key expected-chain-id chain-config)
+  "Install one verified sparse state checkpoint above the current head.
+
+This is the low-level canonical-index operation used by snap bootstrap after a
+consensus-authorized target has cryptographically anchored HASH and the state
+trie at HASH has been reconstructed.  It deliberately installs only HASH: the
+unknown historical interval remains sparse, while later ordinary forkchoice
+publication can walk the fully downloaded and executed post-pivot tail back to
+this checkpoint.  Callers must provide the consensus authorization; this
+function only enforces the local block/state/index invariants."
+  (let* ((chain-store (chain-store-require-memory-store store))
+         (txpool (or (txpool-component store)
+                     (block-validation-fail
+                      "Canonical chain requires a txpool component")))
+         (block (engine-payload-store-known-block chain-store hash)))
+    (unless block
+      (block-validation-fail "Snap sync checkpoint block must be known"))
+    (unless (chain-store-state-available-p chain-store hash)
+      (block-validation-fail
+       "Snap sync checkpoint state must be available"))
+    (let* ((number (canonical-chain-block-number block))
+           (previous-head-number (memory-chain-store-head-number chain-store))
+           (previous-head-hash
+             (engine-payload-store-canonical-hash
+              chain-store previous-head-number)))
+      (unless (> number previous-head-number)
+        (block-validation-fail
+         "Snap sync checkpoint must advance the canonical head"))
+      (let ((existing (engine-payload-store-canonical-hash chain-store number)))
+        (when (and existing (not (hash32= existing hash)))
+          (block-validation-fail
+           "Snap sync checkpoint conflicts with a canonical block")))
+      (let ((changed-txpool-keys (make-hash-table :test 'equalp)))
+        (call-with-engine-pending-txpool-change-tracking
+         (lambda (transaction-hash)
+           (setf (gethash (hash32-to-hex transaction-hash)
+                          changed-txpool-keys)
+                 t))
+         (lambda ()
+           (canonical-chain-install-path chain-store txpool (list block))
+           (canonical-chain-set-head-metadata chain-store block)
+           (canonical-chain-reconcile-txpool
+            store expected-chain-id chain-config)
+           (unless (and previous-head-hash
+                        (hash32= previous-head-hash hash))
+             (engine-payload-store-notify-block-filters chain-store block))))
+        (dolist (transaction-hash
+                 (engine-payload-store-txpool-database-dirty-transaction-hashes
+                  store))
+          (setf (gethash (hash32-to-hex transaction-hash)
+                         changed-txpool-keys)
+                t))
+        (chain-store-prune-state-to-retention-depth store)
+        (values
+         block
+         (make-canonical-chain-transition
+          :installed-blocks (list block)
+          :displaced-blocks nil
+          :changed-txpool-hashes
+          (mapcar
+           #'hash32-from-hex
+           (sort
+            (loop for key being the hash-keys of changed-txpool-keys
+                  collect key)
+            #'string<))))))))

@@ -475,13 +475,10 @@ HTTPPort = 1945
     (is (search "--rpc.gascap is not configurable"
                 (get-output-stream-string errors)))))
 
-(deftest devnet-cli-rejects-behavior-changing-noop-flags
-  ;; --syncmode and --nodiscover each SELECT node behaviour (a sync strategy,
-  ;; whether discovery runs). Accepting and then discarding them silently ran a
-  ;; configuration the operator never asked for. Neither is implemented, so
-  ;; parsing must reject them with a clear message. --db.engine used to be
-  ;; rejected here too but is now an implemented selector; see
-  ;; devnet-cli-db-engine-selects-a-real-backend.
+(deftest devnet-cli-rejects-unimplemented-syncmode
+  ;; --syncmode selects a strategy the production node has not wired. Accepting
+  ;; and discarding it would run a different strategy than the operator asked
+  ;; for. --nodiscover is implemented and covered in cli-devnet-node-tests.
   (labels ((parse-error (args)
              (handler-case
                  (progn
@@ -489,8 +486,7 @@ HTTPPort = 1945
                     (append (list "devnet") args (list "--no-serve")))
                    nil)
                (error (condition) (princ-to-string condition)))))
-    (dolist (case '(("--syncmode" "full")
-                    ("--nodiscover" "true")))
+    (dolist (case '(("--syncmode" "full")))
       (let ((message (parse-error case)))
         ;; A non-nil string means parsing raised, i.e. the flag was rejected.
         ;; This framework's IS takes exactly one form and carries no message
@@ -500,6 +496,27 @@ HTTPPort = 1945
         (when (stringp message)
           (is (search (first case) message))
           (is (search "not supported" message)))))))
+
+(deftest devnet-cli-rejects-unwired-dns-and-nat-transports
+  (labels ((parse-error (args)
+             (handler-case
+                 (progn
+                   (ethereum-lisp.cli::devnet-cli-options
+                    (append (list "devnet") args (list "--no-serve")))
+                   nil)
+               (error (condition) (princ-to-string condition)))))
+    ;; Empty DNS means explicitly disabled and is safe; a configured tree would
+    ;; otherwise be accepted without ever being queried.
+    (is (null (parse-error '("--discovery.dns" ""))))
+    (is (search "DNS discovery is not wired"
+                (parse-error '("--discovery.dns"
+                               "enrtree://example.invalid"))))
+    (dolist (mode '("any" "upnp" "pmp" "pmp:192.0.2.1"))
+      (is (search "not supported" (parse-error (list "--nat" mode)))))
+    ;; These two modes have complete production behavior without a gateway
+    ;; transport: no mapping, or an explicit advertised address.
+    (is (null (parse-error '("--nat" "none"))))
+    (is (null (parse-error '("--nat" "extip:192.0.2.9"))))))
 
 (deftest devnet-cli-db-engine-selects-a-real-backend
   ;; --db.engine is honoured rather than ignored: it selects the on-disk backend

@@ -39,7 +39,7 @@ the headroom is small because each one costs a thread.")
 (defstruct (devnet-peer-entry
             (:constructor make-devnet-peer-entry
                 (&key id-hex direction remote-host remote-port socket thread
-                      eth-version client-id connected-at)))
+                      eth-version client-id connected-at peer request-queue)))
   "One connected peer. SOCKET and THREAD are what teardown needs; the rest is
 what an operator asks about."
   id-hex
@@ -50,7 +50,11 @@ what an operator asks about."
   thread
   eth-version
   client-id
-  connected-at)
+  connected-at
+  ;; Process-private handles used by the node-wide sync coordinator. The
+  ;; session thread remains the sole reader/writer of PEER's RLPx connection.
+  peer
+  request-queue)
 
 (defstruct (devnet-peer-table
             (:constructor %make-devnet-peer-table

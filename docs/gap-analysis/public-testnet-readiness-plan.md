@@ -17,9 +17,10 @@ Remaining release-blocking gaps include:
   being advertised incorrectly, but EIP-2780/EIP-7778/EIP-7976/EIP-7981,
   complete EIP-8246 behavior, and current EIP-8037/EIP-8038 system-call
   accounting still have to land and pass external conformance.
-- **No practical bootstrap:** public presets supply genesis but no bootnodes;
-  the live Hello advertises only `eth`; snap and multi-peer implementations have
-  no production caller.
+- **Bootstrap evidence:** canonical public seeds, persistent discovery identity,
+  honest `eth`/`snap` multiplexing, and consensus-bounded multi-peer sync are now
+  wired. A fresh remote Hoodi discovery/sync/restart transcript is still needed
+  before treating that implementation as public-network evidence.
 - **Resource work beyond import caches:** pooled blob transaction and sidecar
   admission is not one atomic ownership/refcount transition, and payload
   construction still repeatedly re-executes prefixes instead of using bounded
@@ -49,6 +50,16 @@ Resolved findings relevant to this dependency chain:
   count/encoded-byte/process-local-age policies plus finality pruning where a
   block number is known. Atomic pooled-blob admission and incremental proposal
   construction stay in Section 6.
+- **Public bootstrap and continuous sync:** mainnet, Sepolia, Holesky, and Hoodi
+  presets carry pinned canonical discv4 bootnodes; datadirs retain node identity
+  and a monotonic ENR sequence; `--nodiscover` is effective in both directions;
+  and unsupported DNS/NAT modes fail at startup. `snap/1` is advertised only
+  with a verified client and direct-store server. Consensus-authorized pivot
+  state now downloads only the 65-block pivot tail, installs a target-bound
+  sparse checkpoint atomically, and resumes it across restart; durable
+  skeleton/progress, bounded multi-peer deadline/failover, chain
+  update wakeups, geth-pinned eth/72 custody/cell shapes, decoder caps, and the
+  transaction burst cursor are connected to the production node.
 
 Keep the substantial completed work: bounded HTTP/RLP framing, typed
 transactions and receipts, txpool limits, KZG/BLS fail-closed behavior,
@@ -262,6 +273,48 @@ remain open and must not be inferred from these results.
 - Enforce item caps in every RLP list decoder and negotiated message-id ranges.
   Fix eth/72 versioned blob/cell wrappers and custody masks against pinned geth;
   repair the transaction broadcast cursor so bursts are not dropped.
+
+The implementation boundary is split deliberately:
+
+- `src/protocol/genesis/presets.lisp` owns pinned seed data;
+  `src/app/cli/devnet/files.lisp` owns stable node identity and ENR sequence;
+  CLI option parsing makes discovery/NAT refusal observable rather than silently
+  accepting a no-op. Public presets use the standard 30303 P2P port unless the
+  operator overrides it.
+- `src/networking/snap-sync/backend.lisp` and `client.lisp` provide the verified
+  server/importer. Compact account/storage proofs, path-set trie responses,
+  bytecode/storage healing, target/authority-bound progress, and skeleton
+  block/cursor batches all fail closed. Sixteen durable account ranges match the
+  pinned geth scheduler: one worker per live source verifies 2 MiB-soft-limited
+  pages concurrently, while the coordinator alone merges state and commits each
+  range cursor. A failed source releases its range for another peer. The CLI
+  advertises snap only when both sides are operational and only serves
+  production state through the direct RocksDB provider.
+- `src/networking/eth-sync/sync.lisp` supplies the bounded downloader, while
+  `src/app/cli/devnet/dialer.lisp` owns the continuous coordinator. Work is
+  authorized by an Engine target hash, delivered through each session's sole
+  writer queue, limited to twice the participating peer count, and retried under
+  wall-clock deadlines and peer scoring. Announcements wake the coordinator but
+  never become consensus authority; completed work sends range/hash updates.
+  Non-empty soft-limited body and complete receipt prefixes are imported once
+  and retain their exact suffix in the same bounded delivery window.
+- Snap bootstrap persists only pivot-through-target bodies (at most 65), then
+  atomically installs the verified state pivot as a sparse checkpoint anchored
+  by the Engine target. The target stays noncanonical while its at-most-64-block
+  tail executes and until an ordinary forkchoiceUpdated publishes it.
+- `src/foundation/rlp.lisp`, the protocol decoders, and the eth/snap session
+  boundary reject oversized lists and out-of-range message IDs before creating
+  unbounded values. eth/72 custody is a 16-byte little-endian bitmap, Cells uses
+  bounded flat per-transaction groups and echoes the request mask, and the
+  per-peer transaction cursor retains overflow beyond a single broadcast batch.
+
+Focused coverage lives in `tests/core-genesis-tests.lisp`,
+`tests/cli-devnet-node-tests.lisp`, `tests/rlp-tests.lisp`,
+`tests/p2p-session-tests.lisp`, `tests/eth-wire-tests.lisp`,
+`tests/eth-pump-tests.lisp`, `tests/eth-sync-tests.lisp`, `tests/snap-tests.lisp`,
+`tests/core-node-store-peer-sync-progress-tests.lisp`, and
+`tests/txpool-mining-order-tests.lisp`. The container-only selectors and the
+required live Hoodi evidence format are documented in `docs/validation.md`.
 
 ### 6. Make txpool and payload building bounded and proposer-safe
 

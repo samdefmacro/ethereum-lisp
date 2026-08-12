@@ -142,6 +142,67 @@ claim. A broad Section 4 change still requires the cold `unit`, `integration`,
 and `e2e` layers above; external fixture, Hive, bootstrap, and soak gates remain
 separate release criteria.
 
+## Public bootstrap and continuous sync checks
+
+Section 5 has a focused container-only surface in addition to the complete cold
+layers:
+
+```sh
+# Canonical preset seeds, bounded decoders, negotiated ranges, geth-pinned
+# eth/72 custody, and lossless transaction burst cursors.
+scripts/dev.sh cold-test unit --match BUILT-IN-PUBLIC-NETWORK-PRESETS
+scripts/dev.sh cold-test unit --match RLP-ENFORCES
+scripts/dev.sh cold-test unit --match RLPX-MESSAGE-CODES
+scripts/dev.sh cold-test unit --match ETH-72
+scripts/dev.sh cold-test unit --match DEVNET-BROADCAST
+
+# Real CLI identity/discovery behavior, verified snap client/server, durable
+# pivot progress, bounded multi-peer failover, sole-writer request queues, and
+# eth+snap multiplexing over one RLPx socket.
+scripts/dev.sh cold-test integration --match DEVNET-CLI-PUBLIC-PRESETS
+scripts/dev.sh cold-test integration --match DEVNET-DATADIR-PERSISTS
+scripts/dev.sh cold-test integration --match SNAP-
+scripts/dev.sh cold-test integration --match NODE-STORE-SNAP-SKELETON
+scripts/dev.sh cold-test unit --match SNAP-PIVOT
+scripts/dev.sh cold-test integration --match SNAP-PIVOT
+scripts/dev.sh cold-test integration --match BOUNDED-PIVOT
+scripts/dev.sh cold-test integration --match ETH-SYNC-MULTI-PEER
+scripts/dev.sh cold-test integration --match ETH-SYNC-THREE-SCRIPTED
+scripts/dev.sh cold-test integration --match DEVNET-PEER-REQUEST-QUEUE
+scripts/dev.sh cold-test integration \
+  --match ETH-SYNC-MULTIPLEXES-ETH-72-AND-SNAP-1-OVER-ONE-SOCKET
+```
+
+The snap tests reconstruct and verify account/storage roots, reject altered
+compact proofs, heal bytecode and storage before advancing a cursor, and inject
+a failed database batch to prove progress never outruns state. They also prove
+that sixteen durable account ranges are fetched concurrently through three
+sources with geth's 2 MiB soft byte limit, completed ranges are not replayed
+after restart, and a failed source's claimed range is reassigned. The pivot tests
+also prove that an empty RocksDB node requests only the 65-block pivot tail,
+publishes only the target-bound sparse checkpoint, restarts from it, and leaves
+the CL target noncanonical until ordinary Engine forkchoice publication. The
+multi-peer tests use stalled and failing peers to require deadline failover and
+a delivery window independent of target height; soft-limited non-empty
+body/receipt prefixes resume without replay, and a divergent CL target is
+rejected before the import callback. CLI tests prove persistent identity/ENR
+sequencing, two-directional `--nodiscover`, little-endian custody and flat cell
+groups, and the session-owned writer queue.
+
+These selectors do not prove public reachability. Section 5 also requires an
+ephemeral Hoodi run from an empty datadir, using the reviewed container runtime,
+to record preset discovery, RLPx/eth+snap negotiation, a consensus-authorized
+target, durable progress across restart, and continued head following. Keep its
+command, image/revision, timestamps, peer/target evidence, and restart result in
+the readiness-plan completion record. Never substitute peer-head-only download
+or a manually injected static enode for that gate.
+
+The reviewed runtime image must also pass
+`scripts/hive-runtime-smoke.sh IMAGE`: this checks non-root/read-only Hoodi
+startup, direct RocksDB loading, public RPC, JWT rejection/acceptance, Engine
+capabilities, and `eth_syncing`. It complements rather than replaces the remote
+empty-datadir run.
+
 Optional official fixtures use `ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT`. A
 missing optional fixture root produces a skip and is not evidence that external
 fixture validation passed.

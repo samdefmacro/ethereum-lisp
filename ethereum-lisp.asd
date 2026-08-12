@@ -300,7 +300,9 @@
        (:file "eth-sync-sync" :pathname "eth-sync/sync")
        (:file "eth-sync-backfill" :pathname "eth-sync/backfill")
        (:file "eth-sync-node" :pathname "eth-sync/node")
-       (:file "snap-sync-backend" :pathname "snap-sync/backend")))
+       (:file "snap-sync-backend" :pathname "snap-sync/backend")
+       (:file "snap-sync-client" :pathname "snap-sync/client")
+       (:file "eth-sync-snap" :pathname "eth-sync/snap")))
      (:module "persistence-adapters"
       :pathname "storage/node-store/persistence/"
       :depends-on ("application-services")

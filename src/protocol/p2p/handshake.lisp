@@ -34,7 +34,8 @@ Per EIP-8, extra trailing list elements are ignored and a version other than 4
 is accepted; only the leading four fields are read."
   ;; EIP-8 appends random padding after the RLP list, so trailing bytes past the
   ;; list are expected and ignored.
-  (let ((decoded (rlp-decode (ensure-byte-vector plaintext) :allow-trailing t)))
+  (let ((decoded (rlp-decode (ensure-byte-vector plaintext)
+                             :allow-trailing t :max-list-items 16)))
     (unless (rlp-list-p decoded)
       (error "RLPx auth body must be an RLP list"))
     (let ((items (rlp-list-items decoded)))
@@ -112,15 +113,32 @@ ephemeral public key."
           (aref out 1) (ldb (byte 8 0) value))
     out))
 
-(defun rlpx-seal-message (recipient-public-key body)
+(defconstant +rlpx-eip8-min-padding-size+ 100)
+(defconstant +rlpx-eip8-padding-size-range+ 100)
+
+(defun rlpx-random-eip8-padding ()
+  "Return 100--199 random padding bytes for an outbound EIP-8 message.
+
+The minimum is interoperability-critical: geth uses it to keep EIP-8 packets
+distinguishable from the legacy fixed-size handshake."
+  (secure-random-bytes
+   (+ +rlpx-eip8-min-padding-size+
+      (mod (bytes-to-integer (secure-random-bytes 2))
+           +rlpx-eip8-padding-size-range+))))
+
+(defun rlpx-seal-message (recipient-public-key body &key padding)
   "ECIES-seal BODY to RECIPIENT-PUBLIC-KEY, prefixed by its big-endian size.
 
 The size prefix is the ciphertext length and is also its authenticated data, so
-it is computed from the known ECIES overhead before encrypting."
-  (let* ((size (+ (length body) +ecies-overhead+))
+it is computed from the known ECIES overhead before encrypting.  Outbound
+EIP-8 messages carry 100--199 bytes of padding, matching geth's wire contract;
+PADDING exists only so tests can pin those otherwise-random trailing bytes."
+  (let* ((plaintext (concat-bytes body (or padding (rlpx-random-eip8-padding))))
+         (size (+ (length plaintext) +ecies-overhead+))
          (prefix (rlpx-uint16-be size)))
     (concat-bytes prefix
-                  (ecies-encrypt recipient-public-key body :shared-data prefix))))
+                  (ecies-encrypt recipient-public-key plaintext
+                                 :shared-data prefix))))
 
 (defun rlpx-create-auth (initiator-private-key initiator-ephemeral-private-key
                          recipient-public-key initiator-nonce)
@@ -152,7 +170,8 @@ with the initiator's ephemeral key, so the recipient can recover that key."
      (integer-to-minimal-bytes +rlpx-ack-version+)))))
 
 (defun rlpx-decode-ack-body (plaintext)
-  (let ((decoded (rlp-decode (ensure-byte-vector plaintext) :allow-trailing t)))
+  (let ((decoded (rlp-decode (ensure-byte-vector plaintext)
+                             :allow-trailing t :max-list-items 16)))
     (unless (rlp-list-p decoded)
       (error "RLPx ack body must be an RLP list"))
     (let ((items (rlp-list-items decoded)))

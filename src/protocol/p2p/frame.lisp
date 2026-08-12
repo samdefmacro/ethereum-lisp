@@ -186,7 +186,8 @@ Advances the ingress MAC and cipher, so it must be followed by a body read."
       (let* ((plaintext
                (aes-ctr-stream-apply
                 (rlpx-session-ingress-cipher session) header-ciphertext))
-             (metadata (rlp-decode (subseq plaintext 3) :allow-trailing t))
+             (metadata (rlp-decode (subseq plaintext 3)
+                                   :allow-trailing t :max-list-items 3))
              (fields (rlp-list-items metadata)))
         (unless (or (= (length fields) 2) (= (length fields) 3))
           (error "RLPx frame header metadata has the wrong field count"))
@@ -225,7 +226,7 @@ Advances the ingress MAC and cipher, so it must be followed by a body read."
   "Verify and decrypt a normal frame BODY, returning code and data."
   (let ((frame-data (rlpx-read-frame-body-data session frame-size body)))
     (multiple-value-bind (code next)
-        (rlp-decode frame-data :allow-trailing t)
+        (rlp-decode frame-data :allow-trailing t :max-list-items 16)
       (values (bytes-to-integer (ensure-byte-vector code))
               (subseq frame-data next)))))
 

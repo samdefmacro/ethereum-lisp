@@ -60,3 +60,16 @@
     (rlp-decode-one
      (rlp-test-deep-list-bytes
       (1+ ethereum-lisp.rlp:+rlp-max-depth+)))))
+
+(deftest rlp-enforces-a-per-list-item-cap-before-returning-a-value
+  (:layer :unit :module :rlp)
+  (let ((encoded
+          (rlp-encode
+           (apply #'make-rlp-list
+                  (loop repeat 5 collect (make-byte-vector 0))))))
+    (signals rlp-error
+      (rlp-decode-one encoded :max-list-items 4))
+    (is (= 5
+           (length
+            (rlp-list-items
+             (rlp-decode-one encoded :max-list-items 5)))))))

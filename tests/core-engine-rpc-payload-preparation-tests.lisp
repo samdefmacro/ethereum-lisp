@@ -15,6 +15,32 @@
     (is (member :requests arguments))
     (is (not (member :block-access-list arguments)))))
 
+(deftest forkchoice-sync-target-survives-header-until-state-is-available
+  (let* ((store (make-engine-payload-memory-store))
+         (block
+           (make-block
+            :header
+            (make-block-header
+             :parent-hash (zero-hash32)
+             :number 1
+             :timestamp 1
+             :gas-limit 30000000)))
+         (hash (block-hash block)))
+    (engine-payload-store-put-forkchoice-sync-target
+     store hash :block-number 1)
+    ;; Skeleton/newPayload admission makes the block known, but cannot retire
+    ;; the CL target before its execution state exists.
+    (engine-payload-store-put-block
+     store block :state-available-p nil :canonicalize-p nil)
+    (let ((targets (engine-payload-store-forkchoice-sync-targets store)))
+      (is (= 1 (length targets)))
+      (is (hash32= hash (first targets))))
+    ;; The stateful execution commit is the lifecycle boundary that retires
+    ;; the target from the downloader.
+    (engine-payload-store-put-block
+     store block :state-available-p t :canonicalize-p nil)
+    (is (null (engine-payload-store-forkchoice-sync-targets store)))))
+
 (deftest engine-rpc-forkchoice-updated-v1-reports-memory-status
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))
@@ -314,7 +340,14 @@
         (is (not (chain-store-canonical-hash
                   store
                   (block-header-number
-                   (block-header unprocessed-block))))))
+                   (block-header unprocessed-block)))))
+        ;; A restarted snap bootstrap can already know the target header from
+        ;; its durable skeleton while the pivot state is still absent.  The CL
+        ;; target must replace the older unknown target and remain schedulable.
+        (let ((targets
+                (engine-payload-store-forkchoice-sync-targets store)))
+          (is (= 1 (length targets)))
+          (is (hash32= (block-hash unprocessed-block) (first targets)))))
       (let* ((response
                (engine-rpc-handle-request
                 (forkchoice-request

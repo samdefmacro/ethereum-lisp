@@ -212,6 +212,7 @@
    #:rlpx-shared-capability-offset
    #:rlpx-negotiate-capabilities
    #:rlpx-shared-capability-named
+   #:rlpx-shared-capability-for-message-code
    #:rlpx-send-hello
    #:rlpx-receive-hello
    #:rlpx-exchange-hello
@@ -228,6 +229,8 @@
    #:+snap-message-count+
    #:+snap-max-message-size+
    #:+snap-max-list-items+
+   #:+snap-max-account-items-per-range+
+   #:+snap-max-storage-slots-per-range+
    #:+snap-message-get-account-range+
    #:+snap-message-account-range+
    #:+snap-message-get-storage-ranges+
@@ -296,6 +299,8 @@
    #:snap-state-backend-storage-ranges
    #:snap-state-backend-bytecodes
    #:snap-state-backend-trie-nodes
+   #:snap-request-id
+   #:snap-response-id
    #:snap-serve-request))
 
 (defpackage #:ethereum-lisp.nat

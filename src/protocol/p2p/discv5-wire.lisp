@@ -163,7 +163,8 @@
           (integer-to-minimal-bytes total)
           (apply #'make-rlp-list
                  (mapcar (lambda (record)
-                           (rlp-decode (ensure-byte-vector record)))
+                           (rlp-decode (ensure-byte-vector record)
+                                       :max-list-items 64))
                          records)))))))))
 
 (defun decode-discv5-message (plaintext)
@@ -176,13 +177,14 @@
                                +discv5-message-findnode+
                                +discv5-message-nodes+))
       (error "unsupported discv5 message type ~D" type))
-    (let* ((items (rlp-list-items (rlp-decode (subseq plaintext 1))))
-           (expected-count (case type ((1 3) 2) (2 4) (4 3)))
-           (request-id (discv5-request-id (first items))))
+    (let* ((items (rlp-list-items
+                   (rlp-decode (subseq plaintext 1) :max-list-items 64)))
+           (expected-count (case type ((1 3) 2) (2 4) (4 3))))
       (unless (= expected-count (length items))
         (error "discv5 message type ~D has ~D fields, expected ~D"
                type (length items) expected-count))
-      (case type
+      (let ((request-id (discv5-request-id (first items))))
+       (case type
         (1
          (make-discv5-ping
           :request-id request-id
@@ -217,7 +219,7 @@
           :total (bytes-to-integer (ensure-byte-vector (second items)))
           :records (mapcar #'rlp-encode
                            (rlp-list-items (third items)))))
-        (otherwise (error "unsupported discv5 message type ~D" type))))))
+        (otherwise (error "unsupported discv5 message type ~D" type)))))))
 
 (defun discv5-random-bytes (size supplied)
   (if supplied

@@ -77,6 +77,30 @@ devp2p capability multiplexing rules require."
   (find name shared-caps
         :key #'rlpx-shared-capability-name :test #'string=))
 
+(defun rlpx-shared-capability-for-message-code (shared-caps code)
+  "Resolve wire message CODE to its negotiated capability and local id.
+
+Returns two values, the shared capability and the id relative to its offset.
+Base-protocol codes return NIL and CODE.  Any code outside every negotiated
+message block is a protocol error; in particular it must not be attributed to
+the last capability merely because its numeric value is larger than that
+capability's offset."
+  (unless (and (integerp code) (not (minusp code)))
+    (error "devp2p message id must be a non-negative integer: ~S" code))
+  (when (< code +devp2p-base-protocol-length+)
+    (return-from rlpx-shared-capability-for-message-code (values nil code)))
+  (dolist (capability shared-caps)
+    (let* ((offset (rlpx-shared-capability-offset capability))
+           (count
+             (devp2p-capability-message-count
+              (rlpx-shared-capability-name capability)
+              (rlpx-shared-capability-version capability))))
+      (when (and (<= offset code) (< code (+ offset count)))
+        (return-from rlpx-shared-capability-for-message-code
+          (values capability (- code offset))))))
+  (error "devp2p message id ~D is outside every negotiated capability range"
+         code))
+
 (defun rlpx-send-hello (connection hello)
   "Send our devp2p Hello over CONNECTION.
 

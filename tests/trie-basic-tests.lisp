@@ -294,3 +294,48 @@
         (mpt-verify-range-proof
          (mpt-root-hash trie) (rest entries) proof
          :start #(1) :end #(4))))))
+
+(deftest trie-range-proof-is-compact-and-rejects-range-tampering
+  (let ((trie (make-mpt)))
+    (dotimes (index 100)
+      (mpt-put trie (vector index) (vector (1+ index))))
+    (multiple-value-bind (entries proof)
+        (mpt-get-range-proof trie :start #(25) :end #(75) :limit 20)
+      (is (= 20 (length entries)))
+      (is (< (length
+              (ethereum-lisp.trie::mpt-range-proof-nodes proof))
+             (length (mpt-entry-pairs trie))))
+      (is (mpt-verify-range-proof
+           (mpt-root-hash trie) entries proof
+           :start #(25) :end #(75) :limit 20))
+      (let ((altered
+              (mapcar (lambda (entry)
+                        (cons (copy-seq (car entry)) (copy-seq (cdr entry))))
+                      entries)))
+        (setf (cdr (nth 7 altered)) #(255))
+        (signals error
+          (mpt-verify-range-proof
+           (mpt-root-hash trie) altered proof
+           :start #(25) :end #(75) :limit 20)))
+      (signals error
+        (mpt-verify-range-proof
+         (mpt-root-hash trie) (reverse entries) proof
+         :start #(25) :end #(75) :limit 20)))))
+
+(deftest trie-range-proof-verifies-an-empty-tail-and-rejects-a-false-empty-range
+  (let ((trie (make-mpt)))
+    (dotimes (index 100)
+      (mpt-put trie (vector index) (vector (1+ index))))
+    (multiple-value-bind (entries proof)
+        (mpt-get-range-proof trie :start #(200) :end #(220))
+      (is (null entries))
+      (is (mpt-verify-range-proof
+           (mpt-root-hash trie) entries proof
+           :start #(200) :end #(220))))
+    (multiple-value-bind (entries proof)
+        (mpt-get-range-proof trie :start #(50) :end #(60))
+      (declare (ignore entries))
+      (signals error
+        (mpt-verify-range-proof
+         (mpt-root-hash trie) nil proof
+         :start #(50) :end #(60))))))

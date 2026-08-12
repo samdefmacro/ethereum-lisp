@@ -93,7 +93,8 @@
 
 (defun access-list-transaction-from-rlp (bytes)
   (handler-case
-      (let ((value (rlp-decode-one bytes)))
+      (let ((value (rlp-decode-one
+                    bytes :max-list-items +transaction-max-rlp-list-items+)))
         (unless (rlp-list-p value)
           (block-validation-fail
            "Access-list transaction payload must be an RLP list"))

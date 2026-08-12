@@ -3,7 +3,7 @@
 ;;;; Durable trie nodes and resumable traversal.
 
 (defstruct mpt-range-proof
-  entries)
+  nodes)
 
 (defun trie-node-children (node)
   (etypecase node
@@ -93,6 +93,39 @@ never resolved or rewritten."
   (kv-get-chain-record
    database :trie-node
    (if (hash32-p hash) (hash32-bytes hash) (ensure-byte-vector hash))))
+
+(defun mpt-node-at-nibbles (node path)
+  (when (hash-node-p node)
+    (setf node (trie-resolve-node node)))
+  (cond
+    ((null node) (values nil nil))
+    ((zerop (length path)) (values (encoded-node node) t))
+    ((leaf-node-p node) (values nil nil))
+    ((extension-node-p node)
+     (let ((prefix (extension-node-path node)))
+       (if (nibbles-prefix-p prefix path)
+           (mpt-node-at-nibbles
+            (extension-node-child node) (subseq path (length prefix)))
+           (values nil nil))))
+    ((branch-node-p node)
+     (mpt-node-at-nibbles
+      (aref (branch-node-children node) (aref path 0))
+      (subseq path 1)))
+    (t (error "MPT contains an invalid node type"))))
+
+(defun mpt-get-node-by-compact-path (trie compact-path)
+  "Return the encoded node at snap's compact hexary COMPACT-PATH.
+
+The path uses the same hex-prefix representation as Ethereum trie short nodes,
+but must carry the extension (non-leaf) flag.  Returns encoded bytes plus a
+presence flag and resolves only hashes on the requested path."
+  (let ((compact-path (ensure-byte-vector compact-path)))
+    (when (zerop (length compact-path))
+      (error "Compact trie path must contain its hex-prefix flag byte"))
+    (multiple-value-bind (path leaf-p) (hex-prefix-decode compact-path)
+      (when leaf-p
+        (error "Compact trie node path must not carry the leaf flag"))
+      (mpt-node-at-nibbles (mpt-root-node trie) path))))
 
 (declaim (ftype (function (t t) t) persisted-trie-node-from-rlp-object))
 
@@ -202,39 +235,264 @@ page boundary resumable without repeating an entry."
           (values nil nil nil nil)))))
 
 (defun mpt-get-range-proof (trie &key start end limit)
-  "Return a bounded range and a self-contained proof of completeness.
+  "Return a bounded range and its compact Merkle boundary proof.
 
-The first implementation deliberately carries the full ordered leaf set. It is
-larger than snap's compact boundary proof, but a verifier can reconstruct the
-committed root and therefore detect omitted, inserted, or reordered leaves."
+Only nodes on the requested origin and returned right edge are included.  This
+is the snap/1 proof shape: interior leaves are supplied by the range itself and
+unrelated subtries remain authenticated by their hash references."
   (let* ((range (mpt-entry-range trie :start start :end end))
-         (bounded (if limit (subseq range 0 (min limit (length range))) range)))
+         (bounded (if limit (subseq range 0 (min limit (length range))) range))
+         (origin (or start (and bounded (caar bounded))))
+         (last-key (and bounded (car (car (last bounded)))))
+         (seen (make-hash-table :test #'equal))
+         (nodes '()))
+    (labels ((add-proof (key)
+               (when key
+                 (dolist (node (mpt-get-proof trie key))
+                   (let ((id (bytes-to-hex (keccak-256 node) :prefix nil)))
+                     (unless (gethash id seen)
+                       (setf (gethash id seen) t)
+                       (push node nodes)))))))
+      (add-proof origin)
+      (unless (and origin last-key (bytes= origin last-key))
+        (add-proof last-key)))
     (values bounded
-            (make-mpt-range-proof :entries (mpt-entry-pairs trie)))))
+            (make-mpt-range-proof :nodes (nreverse nodes)))))
 
-(defun mpt-entry-pairs-equal-p (left right)
-  (and (= (length left) (length right))
-       (every (lambda (a b)
-                (and (bytes= (car a) (car b))
-                     (bytes= (cdr a) (cdr b))))
-              left right)))
+(defun mpt-nibbles-compare (left right)
+  (let ((limit (min (length left) (length right))))
+    (dotimes (index limit)
+      (let ((a (aref left index)) (b (aref right index)))
+        (when (/= a b)
+          (return-from mpt-nibbles-compare (if (< a b) -1 1)))))
+    (cond ((< (length left) (length right)) -1)
+          ((> (length left) (length right)) 1)
+          (t 0))))
+
+(defun mpt-range-prefix-relation (prefix first last key-length)
+  "Classify PREFIX's fixed-width keyspace as :INSIDE, :OUTSIDE, or :OVERLAP."
+  (when (> (length prefix) key-length)
+    (error "MPT range proof contains a path longer than its keys"))
+  (let* ((missing (- key-length (length prefix)))
+         (lower (concatenate 'vector prefix (make-byte-vector missing)))
+         (upper (concatenate 'vector prefix
+                             (make-byte-vector missing :initial-element 15))))
+    (cond
+      ((or (minusp (mpt-nibbles-compare upper first))
+           (plusp (mpt-nibbles-compare lower last)))
+       :outside)
+      ((and (not (minusp (mpt-nibbles-compare lower first)))
+            (not (plusp (mpt-nibbles-compare upper last))))
+       :inside)
+      (t :overlap))))
+
+(defun mpt-trim-range-node (node prefix first last key-length)
+  "Remove the inclusive FIRST..LAST interval without resolving interior hashes."
+  (when (null node)
+    (return-from mpt-trim-range-node nil))
+  (case (mpt-range-prefix-relation prefix first last key-length)
+    (:inside (return-from mpt-trim-range-node nil))
+    (:outside (return-from mpt-trim-range-node node)))
+  (when (hash-node-p node)
+    (setf node (trie-resolve-node node)))
+  (etypecase node
+    (leaf-node
+     (let* ((path (leaf-node-path node))
+            (terminator-p (and (plusp (length path))
+                               (= +terminator-nibble+
+                                  (aref path (1- (length path))))))
+            (key (concatenate 'vector prefix
+                              (if terminator-p
+                                  (subseq path 0 (1- (length path)))
+                                  path))))
+       (unless (and terminator-p (= (length key) key-length))
+         (error "MPT range proof contains a malformed leaf path"))
+       (if (and (not (minusp (mpt-nibbles-compare key first)))
+                (not (plusp (mpt-nibbles-compare key last))))
+           nil
+           node)))
+    (extension-node
+     (let* ((path (extension-node-path node))
+            (child-prefix (concatenate 'vector prefix path))
+            (child
+              (mpt-trim-range-node
+               (extension-node-child node) child-prefix
+               first last key-length)))
+       (and child (make-extension-node :path path :child child))))
+    (branch-node
+     (let ((children (copy-seq (branch-node-children node)))
+           (value (branch-node-value node)))
+       (when (and (= (length prefix) key-length)
+                  (not (minusp (mpt-nibbles-compare prefix first)))
+                  (not (plusp (mpt-nibbles-compare prefix last))))
+         (setf value (make-byte-vector 0)))
+       (dotimes (index 16)
+         (setf (aref children index)
+               (mpt-trim-range-node
+                (aref children index)
+                (concatenate 'vector prefix (vector index))
+                first last key-length)))
+       (make-branch-node :children children :value value)))))
+
+(defun mpt-prefix-half-open-relation (prefix first end key-length)
+  (when (> (length prefix) key-length)
+    (error "MPT range proof contains a path longer than its keys"))
+  (let* ((missing (- key-length (length prefix)))
+         (lower (concatenate 'vector prefix (make-byte-vector missing)))
+         (upper (concatenate 'vector prefix
+                             (make-byte-vector missing :initial-element 15))))
+    (cond
+      ((or (minusp (mpt-nibbles-compare upper first))
+           (and end
+                (not (minusp (mpt-nibbles-compare lower end)))))
+       :outside)
+      ((and (not (minusp (mpt-nibbles-compare lower first)))
+            (or (null end)
+                (minusp (mpt-nibbles-compare upper end))))
+       :inside)
+      (t :overlap))))
+
+(defun mpt-node-has-key-in-half-open-range-p
+    (node prefix first end key-length)
+  "Use an edge proof to decide whether NODE contains a key in [FIRST, END)."
+  (when (null node)
+    (return-from mpt-node-has-key-in-half-open-range-p nil))
+  (case (mpt-prefix-half-open-relation prefix first end key-length)
+    (:inside (return-from mpt-node-has-key-in-half-open-range-p t))
+    (:outside (return-from mpt-node-has-key-in-half-open-range-p nil)))
+  (when (hash-node-p node)
+    (setf node (trie-resolve-node node)))
+  (etypecase node
+    (leaf-node
+     (let* ((path (leaf-node-path node))
+            (terminator-p (and (plusp (length path))
+                               (= +terminator-nibble+
+                                  (aref path (1- (length path))))))
+            (key (concatenate 'vector prefix
+                              (if terminator-p
+                                  (subseq path 0 (1- (length path)))
+                                  path))))
+       (unless (and terminator-p (= (length key) key-length))
+         (error "MPT range proof contains a malformed leaf path"))
+       (and (not (minusp (mpt-nibbles-compare key first)))
+            (or (null end) (minusp (mpt-nibbles-compare key end))))))
+    (extension-node
+     (mpt-node-has-key-in-half-open-range-p
+      (extension-node-child node)
+      (concatenate 'vector prefix (extension-node-path node))
+      first end key-length))
+    (branch-node
+     (or (and (plusp (length (branch-node-value node)))
+              (= (length prefix) key-length)
+              (not (minusp (mpt-nibbles-compare prefix first)))
+              (or (null end) (minusp (mpt-nibbles-compare prefix end))))
+         (loop for index below 16
+               thereis
+               (mpt-node-has-key-in-half-open-range-p
+                (aref (branch-node-children node) index)
+                (concatenate 'vector prefix (vector index))
+                first end key-length))))))
+
+(defun mpt-range-proof-nodes-list (proof)
+  (cond ((mpt-range-proof-p proof) (mpt-range-proof-nodes proof))
+        ((listp proof) proof)
+        (t (error "MPT range proof has an invalid representation"))))
+
+(defun mpt-range-entries-valid-p (entries start end limit)
+  (when (and limit (> (length entries) limit))
+    (error "MPT range contains more entries than its requested limit"))
+  (let ((previous nil))
+    (dolist (entry entries)
+      (unless (and (consp entry)
+                   (byte-vector-p (car entry))
+                   (byte-vector-p (cdr entry))
+                   (plusp (length (cdr entry))))
+        (error "MPT range contains a malformed or deleted entry"))
+      (when (and previous
+                 (not (minusp
+                       (mpt-nibbles-compare
+                        (keybytes-to-nibbles previous :terminator nil)
+                        (keybytes-to-nibbles (car entry) :terminator nil)))))
+        (error "MPT range is not monotonically increasing"))
+      (when (and start
+                 (minusp
+                  (mpt-nibbles-compare
+                   (keybytes-to-nibbles (car entry) :terminator nil)
+                   (keybytes-to-nibbles start :terminator nil))))
+        (error "MPT range contains an entry before its requested origin"))
+      (when (and end
+                 (not (minusp
+                       (mpt-nibbles-compare
+                        (keybytes-to-nibbles (car entry) :terminator nil)
+                        (keybytes-to-nibbles end :terminator nil)))))
+        (error "MPT range contains an entry at or beyond its exclusive limit"))
+      (setf previous (car entry))))
+  t)
 
 (defun mpt-verify-range-proof
     (root-hash entries proof &key start end limit)
-  "Verify range membership, ordering, and completeness against ROOT-HASH."
-  (unless (mpt-range-proof-p proof)
-    (error "MPT range proof has an invalid representation"))
-  (let ((trie (make-mpt)))
-    (dolist (entry (mpt-range-proof-entries proof))
-      (mpt-put trie (car entry) (cdr entry)))
-    (unless (bytes= (if (hash32-p root-hash)
+  "Verify an ordered, gap-free chunk against ROOT-HASH and compact edge nodes.
+
+PROOF may be the MPT-RANGE-PROOF returned by MPT-GET-RANGE-PROOF or the raw
+snap/1 list of encoded edge nodes. Missing or altered interior leaves rebuild
+a different root. A proofless response is accepted only when ENTRIES alone
+reconstruct the entire trie."
+  (mpt-range-entries-valid-p entries start end limit)
+  (let* ((root-hash (if (hash32-p root-hash)
                         (hash32-bytes root-hash)
-                        (ensure-byte-vector root-hash))
-                    (mpt-root-hash trie))
-      (error "MPT range proof root hash mismatch"))
-    (let* ((range (mpt-entry-range trie :start start :end end))
-           (expected
-             (if limit (subseq range 0 (min limit (length range))) range)))
-      (unless (mpt-entry-pairs-equal-p entries expected)
-        (error "MPT range proof does not contain the complete requested range"))
-      t)))
+                        (ensure-byte-vector root-hash)))
+         (nodes (mpt-range-proof-nodes-list proof)))
+    (unless (= 32 (length root-hash))
+      (error "MPT range proof root must contain 32 bytes"))
+    (if (null nodes)
+        (let ((trie (make-mpt)))
+          (dolist (entry entries)
+            (mpt-put trie (car entry) (cdr entry)))
+          (let ((reconstructed-root (mpt-root-hash trie)))
+            (unless (bytes= root-hash reconstructed-root)
+              (error
+               "MPT proofless range of ~D entries reconstructs ~A, not ~A"
+               (length entries) (bytes-to-hex reconstructed-root)
+               (bytes-to-hex root-hash)))))
+        (progn
+          (when (and (null entries) (null start))
+            (error "An empty compact MPT range requires an explicit origin"))
+          (let* ((first-key (or start (caar entries)))
+                 (proof-index (mpt-proof-node-index nodes)))
+            (when (null entries)
+              (flet ((resolver (hash)
+                       (let ((encoded (mpt-proof-index-node hash proof-index)))
+                         (values encoded (not (null encoded))))))
+                (let* ((trie (make-persisted-mpt root-hash #'resolver))
+                       (first
+                         (keybytes-to-nibbles first-key :terminator nil))
+                       (end-nibbles
+                         (and end
+                              (keybytes-to-nibbles end :terminator nil))))
+                  (when (mpt-node-has-key-in-half-open-range-p
+                         (mpt-root trie) (make-byte-vector 0)
+                         first end-nibbles (length first))
+                    (error "Empty MPT range omits an available entry"))))
+              (return-from mpt-verify-range-proof t))
+            (let* ((last-key (car (car (last entries)))))
+            (unless (= (length first-key) (length last-key))
+              (error "MPT range boundary keys have different lengths"))
+              (flet ((resolver (hash)
+                       (let ((encoded (mpt-proof-index-node hash proof-index)))
+                         (values encoded (not (null encoded))))))
+                (let* ((trie (make-persisted-mpt root-hash #'resolver))
+                       (first
+                         (keybytes-to-nibbles first-key :terminator nil))
+                       (last
+                         (keybytes-to-nibbles last-key :terminator nil)))
+                  (when (plusp (mpt-nibbles-compare first last))
+                    (error "MPT range edge keys are reversed"))
+                  (setf (mpt-root trie)
+                        (mpt-trim-range-node
+                         (mpt-root trie) (make-byte-vector 0)
+                         first last (length first)))
+                  (dolist (entry entries)
+                    (mpt-put trie (car entry) (cdr entry)))
+                  (unless (bytes= root-hash (mpt-root-hash trie))
+                    (error "MPT compact range proof root hash mismatch"))))))))
+    t))

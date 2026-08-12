@@ -149,12 +149,14 @@ COPY <<'LISP' /opt/build-core.lisp
                           :toplevel #'runtime-toplevel
                           :save-runtime-options t)
 LISP
-RUN sbcl --non-interactive --load /opt/build-core.lisp
+RUN sbcl --dynamic-space-size 8192 --non-interactive --load /opt/build-core.lisp
 
 # :save-runtime-options t means the SBCL runtime parses NO argv of its own, so
-# `ethereum-lisp --version` is the client's flag and not SBCL's, and the heap
-# size is frozen at what this build used. Prove the artifact runs before it is
-# copied into an image with no compiler to diagnose it.
+# `ethereum-lisp --version` is the client's flag and not SBCL's.  It also freezes
+# the builder's dynamic-space limit into the executable.  A default SBCL heap is
+# too small for bounded multi-source snap pages plus concurrent Engine traffic;
+# reserve an explicit 8 GiB dynamic space.  SBCL commits it on demand, while the
+# operator's container memory limit remains the physical RSS authority.
 RUN /opt/ethereum-lisp/ethereum-lisp version
 
 # ---------------------------------------------------------------------------
@@ -212,8 +214,9 @@ WORKDIR /data
 # fails exactly at this line instead of at a container start nobody is watching.
 RUN /usr/local/bin/ethereum-lisp version
 
-# 8545 public JSON-RPC, 8551 authenticated Engine API, 30303 devp2p (TCP only:
-# there is no discovery listener, see docs/hive-gate.md).
-EXPOSE 8545 8551 30303
+# 8545 public JSON-RPC, 8551 authenticated Engine API, and devp2p/discv4 on
+# 30303. Publishing remains an operator decision; the metadata records both
+# transports now that the production node serves discovery as well as RLPx.
+EXPOSE 8545 8551 30303/tcp 30303/udp
 
 ENTRYPOINT ["/usr/local/bin/ethereum-lisp"]

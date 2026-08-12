@@ -11,17 +11,24 @@
 (defun eth-pump-test-action (&key (policy (make-eth-pump-policy))
                                   (last-read 0) (last-ping 0) (last-drain 0)
                                   (now 0) readable-p stop-p drainable-p
-                                  broadcast-p)
+                                  request-p chain-update-p broadcast-p)
   (let ((state (make-eth-pump-state)))
     (setf (eth-pump-state-last-read-at state) last-read
           (eth-pump-state-last-ping-at state) last-ping
           (eth-pump-state-last-drain-at state) last-drain)
     (eth-pump-next-action policy state now
                           :readable-p readable-p :stop-p stop-p
-                          :drainable-p drainable-p :broadcast-p broadcast-p)))
+                          :request-p request-p :drainable-p drainable-p
+                          :chain-update-p chain-update-p
+                          :broadcast-p broadcast-p)))
 
 (deftest eth-pump-next-action-truth-table
   (:layer :unit :module :p2p)
+  ;; Queued snap healing requests are dependent and therefore cannot overlap.
+  ;; Keep the default writer wake bounded tightly enough that the readiness
+  ;; poll itself cannot reduce a healthy peer to about one request per second.
+  (is (plusp +eth-pump-read-tick-seconds+))
+  (is (<= +eth-pump-read-tick-seconds+ 0.05d0))
   ;; Stopping beats everything: a shutdown must never wait on a peer.
   (is (eq :stop (eth-pump-test-action :stop-p t)))
   (is (eq :stop (eth-pump-test-action :stop-p t :readable-p t)))
@@ -33,13 +40,21 @@
   (is (eq :read (eth-pump-test-action :readable-p t)))
   (is (eq :read (eth-pump-test-action :readable-p t :now 20)))
   (is (eq :read (eth-pump-test-action :readable-p t :drainable-p t :now 20)))
+  (is (eq :read (eth-pump-test-action :readable-p t :request-p t :now 20)))
   ;; ...and in particular, a peer whose data is already waiting can never be
   ;; timed out as idle.
   (is (eq :read (eth-pump-test-action :readable-p t :now 100000)))
   ;; Nothing readable: the periodic jobs, in order.
   (is (eq :idle-timeout (eth-pump-test-action :now 61)))
+  ;; Coordinator requests run on the sole socket writer and outrank periodic
+  ;; traffic, including an otherwise-due idle timeout.
+  (is (eq :request (eth-pump-test-action :now 61 :request-p t)))
   (is (eq :ping (eth-pump-test-action :now 20)))
   (is (eq :drain (eth-pump-test-action :now 3 :drainable-p t)))
+  (is (eq :chain-update
+          (eth-pump-test-action :now 1 :chain-update-p t)))
+  (is (eq :chain-update
+          (eth-pump-test-action :now 1 :chain-update-p t :broadcast-p t)))
   (is (eq :broadcast (eth-pump-test-action :now 1 :broadcast-p t)))
   (is (eq :wait (eth-pump-test-action :now 1)))
   ;; A drain is only due when there is something to ask for.

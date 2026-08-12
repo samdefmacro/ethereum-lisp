@@ -9,12 +9,17 @@
         #:ethereum-lisp.kzg
         #:ethereum-lisp.chain-config
         #:ethereum-lisp.p2p
-        #:ethereum-lisp.eth-wire)
+        #:ethereum-lisp.eth-wire
+        #:ethereum-lisp.snap)
   (:export
    #:eth-peer
    #:eth-peer-connection
    #:eth-peer-eth-offset
    #:eth-peer-eth-version
+   #:eth-peer-shared-capabilities
+   #:eth-peer-snap-offset
+   #:eth-peer-snap-version
+   #:eth-peer-snap-backend
    #:eth-peer-remote-status
    #:eth-peer-remote-hello
    #:eth-peer-remote-client-id
@@ -26,6 +31,10 @@
    #:eth-wire-read
    #:eth-wire-read-once
    #:eth-peer-send
+   #:eth-peer-send-snap
+   #:eth-peer-snap-request
+   #:eth-peer-snap-sync-source
+   #:eth-peer-serve-snap-message
    #:eth-peer-send-block-range-update
    #:eth-peer-read
    #:eth-peer-read-once
@@ -106,6 +115,8 @@
    #:make-eth-sync-peer-source
    #:eth-sync-peer-source-id
    #:eth-sync-peer-source-head-number
+   #:eth-sync-multi-peer-error
+   #:eth-sync-multi-peer-fail
    #:eth-sync-download-blocks-multi
    #:+eth-backfill-batch-size+
    #:+eth-backfill-max-headers+
@@ -120,6 +131,7 @@
    #:eth-sync-dial-socket
    #:eth-sync-send-goodbye
    #:+eth-sync-client-id+
+   #:eth-sync-default-capabilities
    #:eth-sync-make-hello
    #:eth-sync-accept-peer
    #:eth-sync-reject-connection

@@ -66,8 +66,9 @@ old dial registry, a table only ever added to, did not have.")
             (:constructor make-devnet-dial-candidate
                 (&key id-hex enode (kind :dynamic) (state :idle) (failures 0)
                       (next-eligible-at 0) dial-started-at last-error)))
-  "One peer we might dial. KIND is :STATIC (an operator's --peer, never
-forgotten) or :DYNAMIC (discovered). STATE is :IDLE, :DIALING or :CONNECTED."
+  "One peer we might dial. KIND is :STATIC (an operator's --peer), :BOOTSTRAP
+(a preset or --bootnodes seed), or :DYNAMIC (discovered). Static and bootstrap
+candidates are never forgotten. STATE is :IDLE, :DIALING or :CONNECTED."
   id-hex
   enode
   kind
@@ -129,6 +130,25 @@ discovered candidate is promoted to static."
              (make-devnet-dial-candidate :id-hex id-hex :enode enode
                                          :kind :static))))))
 
+(defun devnet-dial-registry-put-bootstrap (registry id-hex enode)
+  "Record a discovery bootstrap node as a persistent fallback dial candidate.
+
+Bootnodes are not operator-configured static peers, but public presets must be
+able to dial them when the discovered table is sparse.  Re-reading one keeps
+its cooldown and failure history.  A peer already promoted to :STATIC by
+admin_addPeer remains static."
+  (let ((existing (devnet-dial-registry-candidate registry id-hex)))
+    (cond
+      (existing
+       (unless (eq :static (devnet-dial-candidate-kind existing))
+         (setf (devnet-dial-candidate-kind existing) :bootstrap))
+       (setf (devnet-dial-candidate-enode existing) enode)
+       existing)
+      (t
+       (setf (gethash id-hex (devnet-dial-registry-candidates registry))
+             (make-devnet-dial-candidate :id-hex id-hex :enode enode
+                                         :kind :bootstrap))))))
+
 (defun devnet-dial-registry-offer-dynamic (registry id-hex enode)
   "Record a discovered peer, returning T only if it was new.
 
@@ -188,19 +208,24 @@ and that is what dedups a peer which dialed us while we were dialing it."
       (t :dial))))
 
 (defun devnet-dial-candidate-order (a b)
-  "Configured peers before discovered ones, then by when each became eligible,
-then by identity so the order never depends on hash iteration."
-  (let ((a-static (eq :static (devnet-dial-candidate-kind a)))
-        (b-static (eq :static (devnet-dial-candidate-kind b))))
-    (cond
-      ((and a-static (not b-static)) t)
-      ((and b-static (not a-static)) nil)
-      ((/= (devnet-dial-candidate-next-eligible-at a)
-           (devnet-dial-candidate-next-eligible-at b))
-       (< (devnet-dial-candidate-next-eligible-at a)
-          (devnet-dial-candidate-next-eligible-at b)))
-      (t (string< (devnet-dial-candidate-id-hex a)
-                  (devnet-dial-candidate-id-hex b))))))
+  "Configured peers, then bootnodes, then discovered peers; within one class,
+order by eligibility and identity so hash iteration never affects the plan."
+  (flet ((rank (candidate)
+           (ecase (devnet-dial-candidate-kind candidate)
+             (:static 0)
+             (:bootstrap 1)
+             (:dynamic 2))))
+    (let ((a-rank (rank a))
+          (b-rank (rank b)))
+      (cond
+        ((< a-rank b-rank) t)
+        ((> a-rank b-rank) nil)
+        ((/= (devnet-dial-candidate-next-eligible-at a)
+             (devnet-dial-candidate-next-eligible-at b))
+         (< (devnet-dial-candidate-next-eligible-at a)
+            (devnet-dial-candidate-next-eligible-at b)))
+        (t (string< (devnet-dial-candidate-id-hex a)
+                    (devnet-dial-candidate-id-hex b)))))))
 
 (defun devnet-dial-registry-plan (registry table now)
   "The candidates to dial now, in a deterministic order, within the slot budget.

@@ -51,6 +51,24 @@
    #:node-store-read-peer-sync-progress
    #:node-store-delete-peer-sync-progress
    #:node-store-populate-peer-sync-progress-batch
+   #:node-store-snap-skeleton-progress
+   #:node-store-snap-skeleton-progress-p
+   #:make-node-store-snap-skeleton-progress
+   #:node-store-snap-skeleton-progress-authority-id
+   #:node-store-snap-skeleton-progress-chain-id
+   #:node-store-snap-skeleton-progress-genesis-hash
+   #:node-store-snap-skeleton-progress-target-number
+   #:node-store-snap-skeleton-progress-target-hash
+   #:node-store-snap-skeleton-progress-anchor-number
+   #:node-store-snap-skeleton-progress-anchor-hash
+   #:node-store-snap-skeleton-progress-pivot-number
+   #:node-store-snap-skeleton-progress-pivot-hash
+   #:node-store-snap-skeleton-progress-last-number
+   #:node-store-snap-skeleton-progress-last-hash
+   #:node-store-read-snap-skeleton-progress
+   #:node-store-delete-snap-skeleton-progress
+   #:node-store-populate-snap-skeleton-rebase-batch
+   #:node-store-export-snap-skeleton-batch-to-kv
    #:+node-store-content-addressed-code-schema-version+
    #:node-store-chain-schema-version
    #:node-store-migrate-chain-schema

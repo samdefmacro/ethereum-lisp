@@ -76,7 +76,7 @@ through RLPX-CONNECTION-READ-MESSAGE, which reassembles their continuation."
                  (null total-packet-size))
       (error "RLPx frame belongs to a chunked packet"))
     (multiple-value-bind (code next)
-        (rlp-decode frame-data :allow-trailing t)
+        (rlp-decode frame-data :allow-trailing t :max-list-items 16)
       (values (bytes-to-integer (ensure-byte-vector code))
               (subseq frame-data next)))))
 
@@ -198,7 +198,7 @@ enforced after decompression as well, so compression cannot bypass the bound."
                     (error "RLPx continuation arrived without a first chunk"))
                   first-data))))
       (multiple-value-bind (code next)
-          (rlp-decode frame-data :allow-trailing t)
+          (rlp-decode frame-data :allow-trailing t :max-list-items 16)
         (let* ((data (subseq frame-data next))
                (payload (if compressed (snappy-decompress data) data)))
       (when (and max-message-size (> (length payload) max-message-size))

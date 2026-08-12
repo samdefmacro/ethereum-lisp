@@ -3,7 +3,12 @@
 ;;;; RocksDB 11 C API backend. The dynamic library is optional at load time.
 
 (cffi:define-foreign-library librocksdb
-  (:unix (:or "librocksdb.so.11" "librocksdb.so"))
+  ;; RocksDB 11.1.2 declares SONAME librocksdb.so.11.1.  Docker COPY follows
+  ;; the build-stage symlinks into regular files, and ldconfig consequently
+  ;; indexes only that SONAME in the minimal runtime image. Keep the exact
+  ;; pinned SONAME first; the major and unversioned names retain compatibility
+  ;; with distro/development installations.
+  (:unix (:or "librocksdb.so.11.1" "librocksdb.so.11" "librocksdb.so"))
   (t (:default "librocksdb")))
 
 (cffi:defcfun ("rocksdb_options_create" %rocks-options-create) :pointer)

@@ -160,6 +160,7 @@
    #:mpt-populate-dirty-batch
    #:mpt-mark-nodes-persisted
    #:trie-node-store-get
+   #:mpt-get-node-by-compact-path
    #:make-mpt-iterator
    #:mpt-get-range-proof
    #:mpt-verify-range-proof)
@@ -547,6 +548,7 @@
    #:rlpx-shared-capability-offset
    #:rlpx-negotiate-capabilities
    #:rlpx-shared-capability-named
+   #:rlpx-shared-capability-for-message-code
    #:rlpx-send-hello
    #:rlpx-receive-hello
    #:rlpx-exchange-hello
@@ -782,6 +784,7 @@
    #:built-in-genesis-preset-config
    #:built-in-genesis-preset-expected-hash
    #:built-in-genesis-preset-allocation-path
+   #:built-in-genesis-preset-bootnodes
    #:mainnet-genesis-preset
    #:sepolia-genesis-preset
    #:holesky-genesis-preset
@@ -1494,6 +1497,7 @@
    #:import-executable-payload
    #:import-block-candidate
    #:import-p2p-block-candidate
+   #:install-forkchoice-sync-pivot
    #:publish-canonical-block
    #:build-import-and-publish-block)
  )

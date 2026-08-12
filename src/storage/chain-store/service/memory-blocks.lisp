@@ -12,8 +12,14 @@
         (canonicalized-p nil)
         (notify-head-p nil))
     (engine-payload-store-remove-remote-block store (block-hash block))
-    (engine-payload-store-remove-forkchoice-sync-target
-     store (block-hash block))
+    ;; Learning the header/body does not complete consensus-driven sync.  A
+    ;; restarted Snap skeleton deliberately installs blocks before the pivot
+    ;; state is available, and newPayload can do the same for a missing-state
+    ;; parent.  Keep the CL-authorized target schedulable until this exact
+    ;; block is executable; the stateful put after execution removes it.
+    (when state-available-p
+      (engine-payload-store-remove-forkchoice-sync-target
+       store (block-hash block)))
     (chain-store-journal-puthash (memory-chain-store-blocks store) key
                                  stored-block)
     (engine-payload-store-prune-prepared-payloads-for-block store key)

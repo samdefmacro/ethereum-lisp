@@ -274,6 +274,8 @@ serve backend — so the caller can handle it."
                  (if reader
                      (funcall reader hashes mask)
                      (values nil nil mask))
+               (unless (bytes= response-mask mask)
+                 (error "eth/72 Cells backend changed the requested custody mask"))
                (eth-peer-send
                 peer +eth-message-cells+
                 (encode-eth-cells request-id response-hashes groups

@@ -61,8 +61,11 @@
         (http-write-timeout-seconds nil)
         (peers nil)
         (bootnodes nil)
+        (bootnodes-specified-p nil)
         (node-key nil)
         (p2p-port nil)
+        (p2p-port-specified-p nil)
+        (discovery-enabled-p t)
         (max-peers nil)
         (netrestrict nil)
         (nat-policy nil)
@@ -124,7 +127,8 @@
                ((string= option "--port")
                 ;; The devp2p listening port, NOT the Engine RPC port, which is
                 ;; --engine-port/--authrpc.port and rides the :port key.
-                (setf p2p-port (next-parsed-value option #'devnet-cli-parse-port)))
+                (setf p2p-port (next-parsed-value option #'devnet-cli-parse-port)
+                      p2p-port-specified-p t))
                ((string= option "--metrics")
                 ;; A geth-style optional boolean: bare, or followed by a value,
                 ;; so --metrics=false must turn it OFF rather than being read as
@@ -157,9 +161,15 @@
                       (next-transformed-value
                        option #'devnet-cli-parse-vhost-list)))
                ((string= option "--nat")
-                (setf nat-policy
-                      (ethereum-lisp.nat:parse-nat-policy
-                       (next-value option))))
+                (let ((policy
+                        (ethereum-lisp.nat:parse-nat-policy
+                         (next-value option))))
+                  (when (member (ethereum-lisp.nat:nat-policy-mode policy)
+                                '(:any :upnp :pmp))
+                    (error
+                     "--nat ~A is not supported: UPnP and NAT-PMP transports are not wired"
+                     (ethereum-lisp.nat:nat-policy-mode policy)))
+                  (setf nat-policy policy)))
                ((or (string= option "--engine-port")
                     (string= option "--authrpc.port"))
                 (setf port (next-parsed-value option #'devnet-cli-parse-port)))
@@ -299,8 +309,19 @@
                 (dolist (enode (next-parsed-value option #'devnet-cli-parse-enode-list))
                   (push enode peers)))
                ((string= option "--bootnodes")
+                (setf bootnodes-specified-p t)
                 (dolist (enode (next-parsed-value option #'devnet-cli-parse-enode-list))
                   (push enode bootnodes)))
+               ((string= option "--nodiscover")
+                (setf discovery-enabled-p (not (next-optional-boolean option))))
+               ((string= option "--discovery.dns")
+                (let ((value (next-value option)))
+                  (unless (zerop
+                           (length
+                            (string-trim '(#\Space #\Tab #\Newline #\Return)
+                                         value)))
+                    (error
+                     "--discovery.dns is not supported: DNS discovery is not wired"))))
                ((string= option "--nodekey")
                 (setf node-key (devnet-cli-read-node-key (next-value option))))
                ((string= option "--nodekeyhex")
@@ -341,15 +362,10 @@
                 (setf db-engine
                       (devnet-cli-parse-db-engine (next-value option))
                       db-engine-specified-p t))
-               ;; Reject rather than ignore: these flags each SELECT node
-               ;; behaviour, so accepting-and-discarding them silently runs a
-               ;; configuration the operator did not ask for (a different sync
-               ;; strategy, discovery disabled). Neither behaviour is
-               ;; implemented, so fail loudly. The remaining compatibility flags
-               ;; below only tune values we already honour or genuinely no-op,
-               ;; and keep their ignored-option warning.
-               ((member option '("--syncmode" "--nodiscover")
-                        :test #'string=)
+               ;; Sync mode still selects behavior this client has not wired;
+               ;; reject it instead of silently running a different strategy.
+               ;; --nodiscover is implemented above and is no longer a no-op.
+               ((string= option "--syncmode")
                 (error
                  "~A is not supported: this client does not implement it, and silently ignoring it would change node behaviour"
                  option))
@@ -369,6 +385,14 @@
     ;; the file default for compatibility and deterministic tests.
     (when (and genesis-preset (not db-engine-specified-p))
       (setf db-engine :rocksdb))
+    (when genesis-preset
+      (let ((preset (find-built-in-genesis-preset genesis-preset)))
+        (unless bootnodes-specified-p
+          (setf bootnodes
+                (reverse
+                 (copy-list (built-in-genesis-preset-bootnodes preset)))))
+        (unless p2p-port-specified-p
+          (setf p2p-port 30303))))
     (list :genesis-path genesis-path
           :genesis-preset genesis-preset
           :host host
@@ -431,6 +455,7 @@
           :http-write-timeout-seconds http-write-timeout-seconds
           :peers (nreverse peers)
           :bootnodes (nreverse bootnodes)
+          :discovery-enabled-p discovery-enabled-p
           :p2p-port p2p-port
           :max-peers max-peers
           :netrestrict netrestrict

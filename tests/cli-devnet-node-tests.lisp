@@ -1318,6 +1318,660 @@ really reopens the directory instead of observing the first handle's memory."
       (dolist (binding originals)
         (setf (fdefinition (car binding)) (cdr binding))))))
 
+(deftest devnet-chain-update-does-not-send-legacy-block-gossip-to-eth69-peers
+  (:layer :unit :module :p2p)
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (modern
+           (ethereum-lisp.eth-sync::%make-eth-peer
+            :eth-version ethereum-lisp.eth-wire:+eth-protocol-version-71+))
+         (legacy
+           (ethereum-lisp.eth-sync::%make-eth-peer
+            :eth-version ethereum-lisp.eth-wire:+eth-protocol-version+))
+         (range-calls '())
+         (message-calls '()))
+    (devnet-peer-sync-call-with-function-overrides
+     (list
+      (cons 'ethereum-lisp.eth-sync:eth-peer-send-block-range-update
+            (lambda (peer earliest latest latest-hash)
+              (push (list peer earliest latest latest-hash) range-calls)))
+      (cons 'ethereum-lisp.eth-sync:eth-peer-send
+            (lambda (peer message-id payload)
+              (push (list peer message-id payload) message-calls))))
+     (lambda ()
+       (let ((send-modern
+               (funcall
+                (ethereum-lisp.cli::devnet-peer-pending-chain-update
+                 node modern))))
+         (is (functionp send-modern))
+         (funcall send-modern))
+       ;; Pinned geth eth/69--72 deliberately has no NewBlockHashes handler.
+       (is (= 1 (length range-calls)))
+       (is (null message-calls))
+       (let ((send-legacy
+               (funcall
+                (ethereum-lisp.cli::devnet-peer-pending-chain-update
+                 node legacy))))
+         (is (functionp send-legacy))
+         (funcall send-legacy))
+       (is (= 1 (length range-calls)))
+       (is (= 1 (length message-calls)))
+       (is (= ethereum-lisp.eth-wire:+eth-message-new-block-hashes+
+              (second (first message-calls))))))))
+
+(deftest devnet-snap-pivot-logs-each-durable-state-page
+  (:layer :integration :module :p2p)
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (config (ethereum-lisp.cli::devnet-node-config node))
+         (genesis (ethereum-lisp.cli::devnet-node-genesis-block node))
+         (store (ethereum-lisp.cli::devnet-node-store node))
+         (persistence
+           (ethereum-lisp.cli::devnet-node-persistence-state node))
+         (pivot-header (block-header genesis))
+         (pivot-hash (block-header-hash pivot-header))
+         (target-hash (make-hash32 (make-byte-vector 32 :initial-element 9)))
+         (database (make-memory-key-value-database))
+         (state (chain-store-state-db store pivot-hash))
+         (backend
+           (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+            database state))
+         (source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :account-range
+            (ethereum-lisp.snap:snap-state-backend-account-range backend)
+            :storage-ranges
+            (ethereum-lisp.snap:snap-state-backend-storage-ranges backend)
+            :bytecodes
+            (ethereum-lisp.snap:snap-state-backend-bytecodes backend)
+            :trie-nodes
+            (ethereum-lisp.snap:snap-state-backend-trie-nodes backend)))
+         (entry
+           (ethereum-lisp.cli::make-devnet-peer-entry :id-hex "peer-1"))
+         (logs '()))
+    (declare (ignore config persistence))
+    (devnet-peer-sync-call-with-function-overrides
+     (list
+      (cons
+       'ethereum-lisp.cli::devnet-node-live-sync-entries
+       (lambda (seen-node &key snap-only-p)
+         (is (eq node seen-node))
+         (is snap-only-p)
+         (list entry)))
+      (cons
+       'ethereum-lisp.cli::devnet-peer-queued-snap-source
+       (lambda (seen-entry)
+         (is (eq entry seen-entry))
+         source))
+      (cons
+       'ethereum-lisp.cli::devnet-peer-manager-log
+       (lambda (seen-node name &rest fields)
+         (is (eq node seen-node))
+         (push (cons name fields) logs))))
+     (lambda ()
+       (is
+        (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
+         (ethereum-lisp.cli::devnet-node-snap-import-with-failover
+          node database pivot-header target-hash)))))
+    (setf logs (nreverse logs))
+    (flet ((field (record name)
+             (loop for (key value) on (cdr record) by #'cddr
+                   when (string= key name) return value)))
+      (is (plusp (length logs)))
+      (is (= (length logs)
+             (length
+              (remove-duplicates
+               (mapcar (lambda (record) (field record "task")) logs)))))
+      (dolist (record logs)
+        (is (string= "peer.snap.progress" (first record)))
+        (is (string= "peer-1" (field record "peer")))
+        (is (= (block-header-number pivot-header)
+               (field record "pivot"))))
+      (is (field (car (last logs)) "completed")))))
+
+(deftest devnet-snap-target-downloads-only-the-bounded-pivot-tail
+  (:layer :integration :module :p2p)
+  (let* ((datadir
+           (devnet-cli-temp-directory
+            "ethereum-lisp-snap-bounded-pivot"))
+         (database-path
+           (ethereum-lisp.cli::devnet-cli-datadir-database-path
+            datadir :rocksdb)))
+    (unwind-protect
+         (ethereum-lisp.cli::call-with-devnet-cli-kv-database-cache
+          (lambda ()
+            (unwind-protect
+                 (let* ((node
+                          (ethereum-lisp.cli:make-devnet-node
+                           :genesis-json *eth-sync-paris-genesis-json*
+                           :database-path database-path :db-engine :rocksdb
+                           :port 0 :public-port 0))
+                        (store (ethereum-lisp.cli::devnet-node-store node))
+                        (config (ethereum-lisp.cli::devnet-node-config node))
+                        (genesis
+                          (ethereum-lisp.cli::devnet-node-genesis-block node))
+                        (genesis-header (block-header genesis))
+                        (fake-parent
+                          (make-block
+                           :header
+                           (make-block-header
+                            :parent-hash (block-hash genesis)
+                            :beneficiary (zero-address)
+                            :state-root
+                            (block-header-state-root genesis-header)
+                            :mix-hash (zero-hash32)
+                            :number 99
+                            :gas-limit 30000000
+                            :timestamp
+                            (+ (block-header-timestamp genesis-header) 1188)
+                            :base-fee-per-gas 1000000000)))
+                        (blocks
+                          (eth-sync-produce-empty-blocks fake-parent config 65))
+                        (pivot (first blocks))
+                        (target (car (last blocks)))
+                        (pivot-hash (block-hash pivot))
+                        (target-hash (block-hash target))
+                        (stale-newer-target
+                          (make-block
+                           :header
+                           (make-block-header
+                            :parent-hash target-hash
+                            :beneficiary (zero-address)
+                            :state-root
+                            (block-header-state-root (block-header target))
+                            :mix-hash (zero-hash32)
+                            :number
+                            (+ (block-header-number (block-header target))
+                               121)
+                            :gas-limit 30000000
+                            :timestamp
+                            (+ (block-header-timestamp (block-header target))
+                               (* 12 121))
+                            :base-fee-per-gas 1000000000)))
+                        (stale-newer-target-hash
+                          (block-hash stale-newer-target))
+                        (newer-target-hash
+                          (make-hash32
+                           (make-byte-vector 32 :initial-element 42)))
+                        (database
+                          (ethereum-lisp.node-store.persistence:database-engine-payload-store-database
+                           store))
+                        (persistence
+                          (ethereum-lisp.cli::devnet-node-persistence-state node))
+                        (tail-imports 0)
+                        (durable-state-progress nil)
+                        (download-observation nil))
+                   (devnet-peer-sync-call-with-function-overrides
+                    (list
+                     (cons
+                      'ethereum-lisp.cli::devnet-node-resolve-snap-target
+                      (lambda (callback-node callback-target)
+                        (declare (ignore callback-node))
+                        (is (hash32= target-hash callback-target))
+                        (values :target-source
+                                (block-header target) (block-header pivot)
+                                (mapcar #'block-header blocks))))
+                     (cons
+                      'ethereum-lisp.cli::devnet-node-select-snap-pivot
+                      (lambda (callback-node preferred-entry tail-headers)
+                        (is (eq node callback-node))
+                        (is (eq :target-source preferred-entry))
+                        (is (= 65 (length tail-headers)))
+                        (values preferred-entry (block-header pivot)
+                                tail-headers)))
+                     (cons
+                      'ethereum-lisp.cli::devnet-node-sync-peer-sources
+                      (lambda (callback-node)
+                        (declare (ignore callback-node))
+                        (list :bounded-source)))
+                     (cons
+                      'ethereum-lisp.eth-sync:eth-sync-download-blocks-multi
+                      (lambda (sources import-block
+                               &key start-number target-number
+                                    expected-parent-hash expected-target-hash
+                                    import-batch &allow-other-keys)
+                        (declare (ignore import-block))
+                        (setf download-observation
+                              (list sources start-number target-number
+                                    (hash32= expected-parent-hash
+                                             (block-hash fake-parent))
+                                    (hash32= expected-target-hash target-hash)))
+                        (funcall import-batch blocks)
+                        (length blocks)))
+                     (cons
+                      'ethereum-lisp.cli::devnet-node-snap-import-with-failover
+                      (lambda (callback-node callback-database pivot-header
+                               callback-target &key preferred-entry)
+                        (declare (ignore callback-node))
+                        (is (eq :target-source preferred-entry))
+                        (is (eq database callback-database))
+                        (is (hash32= pivot-hash
+                                     (block-header-hash pivot-header)))
+                        (is (hash32= target-hash callback-target))
+                        ;; The real snap importer writes STATE-HISTORY only in
+                        ;; its completed batch after reconstructing this root.
+                        (kv-put-chain-record
+                         callback-database :state-history
+                         (hash32-bytes pivot-hash)
+                         (hash32-bytes
+                          (block-header-state-root pivot-header)))
+                        (setf durable-state-progress
+                              (ethereum-lisp.snap-sync::snap-sync-make-progress
+                               :pivot-hash pivot-hash :pivot-number 100
+                               :state-root
+                               (block-header-state-root pivot-header)
+                               :partial-root
+                               (block-header-state-root pivot-header)
+                               :target-hash target-hash
+                               :chain-id (chain-config-chain-id config)
+                               :genesis-hash (block-hash genesis)
+                               :authority-id
+                               (ethereum-lisp.cli::devnet-persistence-state-authority-id
+                                persistence)
+                               :completed-p t))
+                        ;; The test double must preserve the real importer's
+                        ;; durable state-progress side effect.  That record,
+                        ;; not the cheaper skeleton alone, is what protects a
+                        ;; long account-range import from advancing FCUs.
+                        (let ((batch (make-kv-write-batch)))
+                          (ethereum-lisp.snap-sync::snap-sync-populate-progress-batch
+                           batch durable-state-progress)
+                          (kv-apply-batch callback-database batch))
+                        durable-state-progress))
+                     (cons
+                      'ethereum-lisp.cli::devnet-peer-sync-import-block
+                      (lambda (callback-node block &rest arguments)
+                        (declare (ignore callback-node arguments))
+                        (incf tail-imports)
+                        (values
+                         (make-payload-status
+                          :status +payload-status-valid+)
+                         block nil))))
+                    (lambda ()
+                      (is (= 64
+                             (ethereum-lisp.cli::devnet-node-snap-sync-target
+                              node target-hash)))))
+                   ;; The old implementation started at canonical genesis+1.
+                   ;; The bounded implementation starts at the 64-block pivot.
+                   (is (equal (list (list :bounded-source) 100 164 t t)
+                              download-observation))
+                   (is (= 64 tail-imports))
+                   (is (= 100 (chain-store-head-number store)))
+                   (is (hash32= pivot-hash
+                                (chain-store-canonical-hash store 100)))
+                   (is (null (chain-store-canonical-hash store 164)))
+                   ;; A new FCU arrives every slot while a public Snap import
+                   ;; can run for hours.  Its durable session remains pinned
+                   ;; until the old target is executable instead of deleting
+                   ;; the account cursor on every target update.
+                   (is (hash32=
+                        target-hash
+                        (ethereum-lisp.cli::devnet-node-active-snap-target
+                         node newer-target-hash)))
+                   ;; Match geth's stale-pivot rule: committed progress is
+                   ;; protected across ordinary slots, but a known CL target
+                   ;; more than 2*64-8 blocks ahead may move the uninstalled
+                   ;; pivot instead of waiting forever for a pruned root.
+                   (ethereum-lisp.cli::call-with-devnet-node-store-guard
+                    node
+                    (lambda ()
+                      (ethereum-lisp.chain-store:engine-payload-store-put-remote-block
+                       store stale-newer-target)))
+                   (is (hash32=
+                        stale-newer-target-hash
+                        (ethereum-lisp.cli::devnet-node-active-snap-target
+                         node stale-newer-target-hash)))
+                   ;; A skeleton with no committed account cursor is cheap to
+                   ;; abandon and may name a pivot that peers have pruned.
+                   (is (ethereum-lisp.snap-sync:snap-sync-delete-progress
+                        database))
+                   (is (hash32=
+                        newer-target-hash
+                        (ethereum-lisp.cli::devnet-node-active-snap-target
+                         node newer-target-hash)))
+                   ;; Recreate the matching durable state session and prove
+                   ;; that target executability, not completion of the pivot
+                   ;; state record alone, releases the pin.
+                   (let ((batch (make-kv-write-batch)))
+                     (ethereum-lisp.snap-sync::snap-sync-populate-progress-batch
+                      batch durable-state-progress)
+                     (kv-apply-batch database batch))
+                   (kv-put-chain-record
+                    database :state-history (hash32-bytes target-hash)
+                    (hash32-bytes
+                     (block-header-state-root (block-header target))))
+                   (is (hash32=
+                        newer-target-hash
+                        (ethereum-lisp.cli::devnet-node-active-snap-target
+                         node newer-target-hash))))
+              (devnet-peer-sync-test-drop-cached-rocksdb-handle
+               database-path))))
+      (uiop:delete-directory-tree datadir
+                                  :validate t
+                                  :if-does-not-exist :ignore))))
+
+(deftest devnet-snap-stale-pivot-rebases-skeleton-and-state-together
+  (:layer :integration :module :p2p)
+  (let* ((datadir
+           (devnet-cli-temp-directory
+            "ethereum-lisp-snap-atomic-pivot-rebase"))
+         (database-path
+           (ethereum-lisp.cli::devnet-cli-datadir-database-path
+            datadir :rocksdb)))
+    (unwind-protect
+         (ethereum-lisp.cli::call-with-devnet-cli-kv-database-cache
+          (lambda ()
+            (unwind-protect
+                 (let* ((node
+                          (ethereum-lisp.cli:make-devnet-node
+                           :genesis-json *eth-sync-paris-genesis-json*
+                           :database-path database-path :db-engine :rocksdb
+                           :port 0 :public-port 0))
+                        (store (ethereum-lisp.cli::devnet-node-store node))
+                        (database
+                          (ethereum-lisp.node-store.persistence:database-engine-payload-store-database
+                           store))
+                        (config (ethereum-lisp.cli::devnet-node-config node))
+                        (genesis
+                          (ethereum-lisp.cli::devnet-node-genesis-block node))
+                        (persistence
+                          (ethereum-lisp.cli::devnet-node-persistence-state
+                           node))
+                        (old-anchor
+                          (make-hash32
+                           (make-byte-vector 32 :initial-element 31)))
+                        (old-root
+                          (make-hash32
+                           (make-byte-vector 32 :initial-element 32)))
+                        (old-pivot
+                          (make-block-header
+                           :parent-hash old-anchor :number 100
+                           :state-root old-root :gas-limit 30000000))
+                        (old-target
+                          (make-block-header
+                           :parent-hash (block-header-hash old-pivot)
+                           :number 164 :state-root old-root
+                           :gas-limit 30000000))
+                        (new-anchor
+                          (make-hash32
+                           (make-byte-vector 32 :initial-element 33)))
+                        (new-root
+                          (make-hash32
+                           (make-byte-vector 32 :initial-element 34)))
+                        (new-pivot
+                          (make-block-header
+                           :parent-hash new-anchor :number 220
+                           :state-root new-root :gas-limit 30000000))
+                        (new-target
+                          (make-block-header
+                           :parent-hash (block-header-hash new-pivot)
+                           :number 284 :state-root new-root
+                           :gas-limit 30000000))
+                        (cursor
+                          (make-byte-vector 32 :initial-element 1))
+                        (state-progress
+                          (ethereum-lisp.snap-sync::snap-sync-make-progress
+                           :pivot-hash (block-header-hash old-pivot)
+                           :pivot-number 100 :state-root old-root
+                           :next-origin cursor :partial-root +empty-trie-hash+
+                           :target-hash (block-header-hash old-target)
+                           :chain-id (chain-config-chain-id config)
+                           :genesis-hash (block-hash genesis)
+                           :authority-id
+                           (ethereum-lisp.cli::devnet-persistence-state-authority-id
+                            persistence)
+                           :completed-p nil))
+                        (skeleton
+                          (ethereum-lisp.node-store.persistence:make-node-store-snap-skeleton-progress
+                           :authority-id
+                           (ethereum-lisp.cli::devnet-persistence-state-authority-id
+                            persistence)
+                           :chain-id (chain-config-chain-id config)
+                           :genesis-hash (block-hash genesis)
+                           :target-number 164
+                           :target-hash (block-header-hash old-target)
+                           :anchor-number 99 :anchor-hash old-anchor
+                           :pivot-number 100
+                           :pivot-hash (block-header-hash old-pivot)
+                           :last-number 164
+                           :last-hash (block-header-hash old-target))))
+                   (let ((batch (make-kv-write-batch)))
+                     (ethereum-lisp.node-store.persistence::node-store-populate-snap-skeleton-progress-batch
+                      database batch skeleton)
+                     (ethereum-lisp.snap-sync::snap-sync-populate-progress-batch
+                      batch state-progress)
+                     (kv-apply-batch database batch))
+                   (ethereum-lisp.cli::call-with-devnet-node-store-guard
+                    node
+                    (lambda ()
+                      (ethereum-lisp.cli::devnet-node-rebase-stale-snap-progress
+                       node database new-target new-pivot)))
+                   (multiple-value-bind (restored present-p)
+                       (ethereum-lisp.node-store.persistence:node-store-read-snap-skeleton-progress
+                        database)
+                     (is present-p)
+                     (is (= 219
+                            (ethereum-lisp.node-store.persistence:node-store-snap-skeleton-progress-last-number
+                             restored)))
+                     (is (hash32= new-anchor
+                                  (ethereum-lisp.node-store.persistence:node-store-snap-skeleton-progress-last-hash
+                                   restored)))
+                     (is (hash32= (block-header-hash new-pivot)
+                                  (ethereum-lisp.node-store.persistence:node-store-snap-skeleton-progress-pivot-hash
+                                   restored))))
+                   (multiple-value-bind (restored present-p)
+                       (ethereum-lisp.snap-sync:snap-sync-read-progress database)
+                     (is present-p)
+                     (is (hash32= (block-header-hash new-target)
+                                  (ethereum-lisp.snap-sync:snap-sync-progress-target-hash
+                                   restored)))
+                     (is (hash32= (block-header-hash new-pivot)
+                                  (ethereum-lisp.snap-sync:snap-sync-progress-pivot-hash
+                                   restored)))
+                     (is (bytes= cursor
+                                 (ethereum-lisp.snap-sync:snap-sync-progress-next-origin
+                                  restored)))
+                     (is (not
+                          (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
+                           restored))))
+                   ;; Rebase is metadata only; the new root remains private
+                   ;; until TrieNodes healing reaches its final atomic batch.
+                   (is (not
+                        (nth-value
+                         1
+                         (kv-get-chain-record
+                          database :state-history
+                          (hash32-bytes (block-header-hash new-pivot)))))))
+              (devnet-peer-sync-test-drop-cached-rocksdb-handle
+               database-path))))
+      (uiop:delete-directory-tree datadir
+                                  :validate t
+                                  :if-does-not-exist :ignore))))
+
+(deftest devnet-snap-target-unavailable-does-not-poison-peer-score
+  (:layer :integration :module :p2p)
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (peer-id "temporarily-behind-snap-peer")
+         (entry
+           (ethereum-lisp.cli::make-devnet-peer-entry
+            :id-hex peer-id :peer :peer :request-queue :queue))
+         (table (ethereum-lisp.cli::devnet-node-peer-table node))
+         (target (make-hash32 (make-byte-vector 32 :initial-element 7))))
+    (flet ((run-failure (condition)
+             (devnet-peer-sync-call-with-function-overrides
+              (list
+               (cons 'ethereum-lisp.cli::devnet-node-live-sync-entries
+                     (lambda (callback-node &key snap-only-p)
+                       (declare (ignore callback-node snap-only-p))
+                       (list entry)))
+               (cons 'ethereum-lisp.cli::devnet-peer-resolve-snap-target
+                     (lambda (callback-entry callback-target)
+                       (declare (ignore callback-entry callback-target))
+                       (error condition))))
+              (lambda ()
+                (signals ethereum-lisp.eth-sync:eth-sync-multi-peer-error
+                  (ethereum-lisp.cli::devnet-node-resolve-snap-target
+                   node target))))))
+      ;; A healthy peer may trail a fresh CL target. Repeated coordinator ticks
+      ;; must not turn that ordinary availability lag into a permanent ban.
+      (run-failure
+       (make-condition 'ethereum-lisp.cli::devnet-snap-target-unavailable
+                       :format-control "target not imported yet"
+                       :format-arguments nil))
+      (is (= 0 (ethereum-lisp.cli::devnet-peer-score table peer-id)))
+      ;; Queue/session closure is also transient at this layer. The owning
+      ;; session applies its own gradual disconnect policy.
+      (run-failure
+       (make-condition 'simple-error
+                       :format-control "peer session closed"
+                       :format-arguments nil))
+      (is (= 0 (ethereum-lisp.cli::devnet-peer-score table peer-id)))
+      ;; Positive control: a contradictory response still carries the existing
+      ;; malformed-peer penalty, proving the scoring branch was exercised.
+      (run-failure
+       (make-condition 'ethereum-lisp.cli::devnet-snap-target-malformed
+                       :format-control "wrong target header"
+                       :format-arguments nil))
+      (is (= -50 (ethereum-lisp.cli::devnet-peer-score table peer-id))))))
+
+(deftest devnet-snap-pivot-falls-forward-without-penalizing-pruned-state
+  (:layer :integration :module :p2p)
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (peer-id "snap-peer-with-only-recent-state")
+         (entry
+           (ethereum-lisp.cli::make-devnet-peer-entry
+            :id-hex peer-id :peer :peer :request-queue :queue))
+         (old-root (make-hash32 (make-byte-vector 32 :initial-element 1)))
+         (source-state (make-state-db))
+         (source-database (make-memory-key-value-database))
+         (address
+           (address-from-hex
+            "0x0000000000000000000000000000000000000063"))
+         (parent-root
+           (progn
+             (state-db-set-account
+              source-state address (make-state-account :balance 9))
+             (state-db-root source-state)))
+         (target-root (make-hash32 (make-byte-vector 32 :initial-element 3)))
+         (old
+           (make-block-header :number 100 :gas-limit 30000000
+                              :state-root old-root))
+         (parent
+           (make-block-header :number 163 :gas-limit 30000000
+                              :state-root parent-root))
+         (target
+           (make-block-header :number 164 :gas-limit 30000000
+                              :state-root target-root))
+         (backend
+           (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+            source-database source-state))
+         (account-range
+           (ethereum-lisp.snap:snap-state-backend-account-range backend))
+         (probes '())
+         (logs '())
+         (source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :account-range
+            (lambda (request)
+              (let ((root
+                      (make-hash32
+                       (ethereum-lisp.snap:snap-get-account-range-root
+                        request))))
+                (push root probes)
+                (if (hash32= root old-root)
+                    (ethereum-lisp.snap:make-snap-account-range
+                     (ethereum-lisp.snap:snap-get-account-range-id request)
+                     '() '())
+                    (funcall account-range request)))))))
+    (devnet-peer-sync-call-with-function-overrides
+     (list
+      (cons 'ethereum-lisp.cli::devnet-node-live-sync-entries
+            (lambda (callback-node &key snap-only-p)
+              (is (eq node callback-node))
+              (is snap-only-p)
+              (list entry)))
+      (cons 'ethereum-lisp.cli::devnet-peer-queued-snap-source
+            (lambda (callback-entry)
+              (is (eq entry callback-entry))
+              source))
+     (cons 'ethereum-lisp.cli::devnet-peer-manager-log
+            (lambda (callback-node name &rest fields)
+              (is (eq node callback-node))
+              (push (cons name fields) logs))))
+     (lambda ()
+       (handler-case
+           (multiple-value-bind (selected-entry pivot selected-tail)
+               (ethereum-lisp.cli::devnet-node-select-snap-pivot
+                node entry (list old parent target))
+             (is (eq entry selected-entry))
+             (is (eq parent pivot))
+             (is (equal (list parent target) selected-tail)))
+         (serious-condition (condition)
+           (error "Snap pivot selection failed after probes ~S and logs ~S: ~A"
+                  probes logs condition)))))
+    (is (= 2 (length probes)))
+    (is (hash32= old-root (second probes)))
+    (is (hash32= parent-root (first probes)))
+    (is (= 1 (length logs)))
+    (is (string= "peer.snap.pivot_unavailable" (caar logs)))
+    (is (= 0 (ethereum-lisp.cli::devnet-peer-score
+              (ethereum-lisp.cli::devnet-node-peer-table node) peer-id)))))
+
+(deftest devnet-snap-full-import-pruning-falls-forward-once-without-exit
+  (:layer :integration :module :p2p)
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (target (make-hash32 (make-byte-vector 32 :initial-element 91)))
+         (attempts '())
+         (logs '())
+         (fallback-succeeds-p t))
+    (devnet-peer-sync-call-with-function-overrides
+     (list
+      (cons
+       'ethereum-lisp.cli::devnet-node-snap-sync-pivot-attempt
+       (lambda (seen-node seen-target fallback-only-p)
+         (is (eq node seen-node))
+         (is (hash32= target seen-target))
+         (push fallback-only-p attempts)
+         (if (and fallback-only-p fallback-succeeds-p)
+             1
+             (ethereum-lisp.snap-sync:snap-sync-state-unavailable
+              "storage-range"))))
+      (cons
+       'ethereum-lisp.cli::devnet-peer-manager-log
+       (lambda (seen-node name &rest fields)
+         (is (eq node seen-node))
+         (push (cons name fields) logs))))
+     (lambda ()
+       (is (= 1
+              (ethereum-lisp.cli::devnet-node-snap-sync-target node target)))
+       (is (equal '(nil t) (nreverse attempts)))
+       (is (= 1 (count "peer.snap.pivot_fallback" logs
+                       :test #'string= :key #'car)))
+       ;; If the target-parent state is unavailable too, the same two bounded
+       ;; attempts become a coordinator-retry condition, never a fatal worker
+       ;; error. This is the live Hoodi failure mode that used to stop the node.
+       (setf fallback-succeeds-p nil
+             attempts nil
+             logs nil)
+       (signals ethereum-lisp.eth-sync:eth-sync-multi-peer-error
+         (ethereum-lisp.cli::devnet-node-snap-sync-target node target))
+       (is (equal '(nil t) (nreverse attempts)))
+       (is (= 1 (count "peer.snap.pivot_fallback" logs
+                       :test #'string= :key #'car)))))))
+
 (deftest devnet-peer-gap-fill-retries-a-buffered-target-with-known-parent
   (:layer :integration :module :p2p)
   (let* ((node
@@ -1379,6 +2033,52 @@ really reopens the directory instead of observing the first handle's memory."
     (is (= 1 (length retried-targets)))
     (is (hash32= (block-hash target)
                  (block-hash (first retried-targets))))))
+
+(deftest devnet-multi-sync-defers-a-large-newpayload-gap-until-forkchoice
+  (:layer :integration :module :p2p)
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (head-hash
+           (chain-store-canonical-hash
+            (ethereum-lisp.cli::devnet-node-store node) 0))
+         (target-hash (make-hash32 (make-byte-vector 32 :initial-element 9)))
+         (source-calls 0)
+         (download-calls 0))
+    (devnet-peer-sync-call-with-function-overrides
+     (list
+      (cons
+       'ethereum-lisp.cli::devnet-node-forkchoice-sync-targets
+       (lambda (seen-node)
+         (is (eq node seen-node))
+         nil))
+      (cons
+       'ethereum-lisp.cli::devnet-node-consensus-forward-target
+       (lambda (seen-node)
+         (is (eq node seen-node))
+         (values 0 head-hash 1000 target-hash)))
+      (cons
+       'ethereum-lisp.cli::devnet-node-live-sync-entries
+       (lambda (seen-node &key snap-only-p)
+         (is (eq node seen-node))
+         (is snap-only-p)
+         (list :snap-peer)))
+      (cons
+       'ethereum-lisp.cli::devnet-node-sync-peer-sources
+       (lambda (seen-node)
+         (declare (ignore seen-node))
+         (incf source-calls)
+         (list :source)))
+      (cons
+       'ethereum-lisp.eth-sync:eth-sync-download-blocks-multi
+       (lambda (&rest arguments)
+         (declare (ignore arguments))
+         (incf download-calls))))
+     (lambda ()
+       (is (null (ethereum-lisp.cli::devnet-node-multi-sync-pass node)))))
+    (is (= 0 source-calls))
+    (is (= 0 download-calls))))
 
 (deftest devnet-peer-gap-fill-only-swallows-typed-peer-failures
   (:layer :integration :module :p2p)
@@ -1805,6 +2505,180 @@ loop cannot block on a message that never comes."
     (signals error
       (ethereum-lisp.cli::devnet-cli-options
        (list "devnet" "--bootnodes" "not-an-enode" "--no-serve")))))
+
+(deftest devnet-cli-public-presets-install-bootnodes-and-nodiscover-is-real
+  (:layer :unit :module :cli)
+  (let* ((defaults
+           (ethereum-lisp.cli::devnet-cli-options
+            (list "devnet" "--hoodi" "--no-serve")))
+         (disabled
+           (ethereum-lisp.cli::devnet-cli-options
+            (list "devnet" "--hoodi" "--nodiscover" "--bootnodes" ""
+                  "--no-serve")))
+         (reenabled
+           (ethereum-lisp.cli::devnet-cli-options
+            (list "devnet" "--hoodi" "--nodiscover=false" "--no-serve"))))
+    (is (= 3 (length (getf defaults :bootnodes))))
+    (is (= 30303 (getf defaults :p2p-port)))
+    (is (getf defaults :discovery-enabled-p))
+    ;; Explicit empty bootnodes override the public preset rather than being
+    ;; mistaken for an absent option and silently refilled.
+    (is (null (getf disabled :bootnodes)))
+    (is (not (getf disabled :discovery-enabled-p)))
+    (is (getf reenabled :discovery-enabled-p))))
+
+(deftest devnet-nodiscover-starts-neither-discovery-direction
+  (:layer :integration :module :p2p)
+  (let* ((bootnode
+           (concatenate 'string "enode://"
+                        (make-string 128 :initial-element #\a)
+                        "@127.0.0.1:30303"))
+         (node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-path +devnet-cli-genesis-fixture+
+            :p2p-port 30303
+            :bootnodes (list bootnode)
+            :node-key 1
+            :discovery-enabled-p nil))
+         (shutdown (ethereum-lisp.cli:make-devnet-shutdown-controller)))
+    ;; Both have positive controls in p2p-node-table-tests: enabled nodes create
+    ;; real worker threads and the responder binds a UDP socket.
+    (is (null (ethereum-lisp.cli::devnet-start-discovery-thread
+               node shutdown (lambda (condition) (error condition)))))
+    (is (null (ethereum-lisp.cli:devnet-start-discovery-server-thread
+               node shutdown (lambda (condition) (error condition)))))))
+
+(deftest devnet-datadir-persists-node-identity-and-monotonic-enr-sequence
+  (:layer :integration :module :cli)
+  (let* ((datadir (devnet-cli-temp-directory "ethereum-lisp-node-identity"))
+         (args (list "devnet" "--genesis" +devnet-cli-genesis-fixture+
+                     "--datadir" (namestring datadir) "--port" "30303"
+                     "--no-serve")))
+    (unwind-protect
+         (labels ((open-node ()
+                    (let ((options
+                            (ethereum-lisp.cli::devnet-cli-options args)))
+                      (ethereum-lisp.cli::call-with-devnet-cli-datadir-lock
+                       (getf options :datadir-path)
+                       (lambda ()
+                         (ethereum-lisp.cli::call-with-devnet-cli-kv-database-cache
+                          (lambda ()
+                            (ethereum-lisp.cli::devnet-cli-make-node
+                             options +devnet-cli-genesis-fixture+ nil
+                             ethereum-lisp.telemetry:*telemetry-sink*))))))))
+           (let* ((first (open-node))
+                  (key (ethereum-lisp.cli::devnet-node-node-key first))
+                  (sequence (ethereum-lisp.cli::devnet-node-record-seq first)))
+             (is (= 1 sequence))
+             (ethereum-lisp.cli::devnet-node-record-pairs first)
+             (setf (ethereum-lisp.cli::devnet-node-p2p-port first) 30304)
+             (ethereum-lisp.cli::devnet-node-record-pairs first)
+             (is (= 2 (ethereum-lisp.cli::devnet-node-record-seq first)))
+             (let ((second (open-node)))
+               (is (= key (ethereum-lisp.cli::devnet-node-node-key second)))
+               (is (= 3 (ethereum-lisp.cli::devnet-node-record-seq second))))
+             (is (probe-file
+                  (ethereum-lisp.cli::devnet-cli-datadir-node-key-path datadir)))
+             (is (string=
+                  "3"
+                  (string-trim
+                   '(#\Space #\Tab #\Newline #\Return)
+                   (devnet-cli-file-string
+                    (ethereum-lisp.cli::devnet-cli-datadir-enr-seq-path
+                     datadir)))))))
+      (uiop:delete-directory-tree datadir
+                                  :validate t
+                                  :if-does-not-exist :ignore))))
+
+(deftest devnet-eth-72-cell-serving-uses-little-endian-custody-and-flat-groups
+  (:layer :unit :module :p2p)
+  (let* ((hash (make-byte-vector 32 :initial-element 7))
+         (mask (make-byte-vector 16))
+         (sidecar
+           (make-blob-sidecar
+            :blobs (list (make-byte-vector 1) (make-byte-vector 1)))))
+    (setf (aref mask 0) #x01
+          (aref mask 15) #x80)
+    (multiple-value-bind (hashes groups response-mask)
+        (ethereum-lisp.cli::devnet-peer-blob-cells-from-reader
+         (lambda (requested)
+           (and (bytes= requested hash) sidecar))
+         (list hash) mask
+         :cell-function
+         (lambda (blob)
+           (declare (ignore blob))
+           (values
+            (loop for index below 128
+                  collect (make-byte-vector 2048 :initial-element index))
+            nil)))
+      (is (= 1 (length hashes)))
+      (is (bytes= hash (first hashes)))
+      (is (bytes= mask response-mask))
+      (is (= 4 (length (first groups))))
+      (is (equal '(0 127 0 127)
+                 (mapcar (lambda (cell) (aref cell 0)) (first groups)))))))
+
+(deftest devnet-peer-request-queue-preserves-the-sole-writer-and-errors
+  (:layer :integration :module :p2p)
+  #+sbcl
+  (labels ((queued-p (queue)
+             (sb-thread:with-mutex
+                 ((ethereum-lisp.cli::devnet-peer-request-queue-lock queue))
+               (not (null
+                     (ethereum-lisp.cli::devnet-peer-request-queue-pending
+                      queue))))))
+    (let* ((queue (ethereum-lisp.cli::make-devnet-peer-request-queue))
+           (writer sb-thread:*current-thread*)
+           (result nil)
+           (submitter
+             (sb-thread:make-thread
+              (lambda ()
+                (setf result
+                      (multiple-value-list
+                       (ethereum-lisp.cli::devnet-peer-request-queue-submit
+                        queue
+                        (lambda ()
+                          (values sb-thread:*current-thread* :first :second))))))
+              :name "section5-request-submit-success")))
+      (unwind-protect
+           (progn
+             (wait-for-test-condition
+              "queued peer request" 2d0 (lambda () (queued-p queue)))
+             (funcall
+              (funcall
+               (ethereum-lisp.cli::devnet-peer-pending-request queue)))
+             (is (not (eq :timeout
+                          (sb-thread:join-thread
+                           submitter :timeout 2 :default :timeout))))
+             (is (eq writer (first result)))
+             (is (equal '(:first :second) (rest result))))
+        (ethereum-lisp.cli::devnet-peer-request-queue-close queue)))
+    (let* ((queue (ethereum-lisp.cli::make-devnet-peer-request-queue))
+           (submitted-condition nil)
+           (submitter
+             (sb-thread:make-thread
+              (lambda ()
+                (handler-case
+                    (ethereum-lisp.cli::devnet-peer-request-queue-submit
+                     queue (lambda () (error "injected writer failure")))
+                  (serious-condition (condition)
+                    (setf submitted-condition condition))))
+              :name "section5-request-submit-failure")))
+      (unwind-protect
+           (progn
+             (wait-for-test-condition
+              "queued failing peer request" 2d0 (lambda () (queued-p queue)))
+             (signals serious-condition
+               (funcall
+                (funcall
+                 (ethereum-lisp.cli::devnet-peer-pending-request queue))))
+             (is (not (eq :timeout
+                          (sb-thread:join-thread
+                           submitter :timeout 2 :default :timeout))))
+             (is (typep submitted-condition 'serious-condition)))
+        (ethereum-lisp.cli::devnet-peer-request-queue-close queue))))
+  #-sbcl
+  (is t))
 
 (deftest devnet-cli-nodekeyhex-yields-a-stable-identity
   (let* ((hex "0000000000000000000000000000000000000000000000000000000000000001")

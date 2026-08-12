@@ -26,6 +26,38 @@
     (signals rlp-error
       (rlpx-open-auth recipient-private-key packet))))
 
+(deftest rlpx-outbound-eip8-messages-carry-required-padding
+  (:layer :unit :module :p2p)
+  (let* ((recipient-private-key
+           #xb71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291)
+         (recipient-public-key
+           (secp256k1-private-key-public-key recipient-private-key))
+         (body (rlp-encode
+                (make-rlp-list
+                 (make-byte-vector 1 :initial-element #x01)
+                 (make-byte-vector 1 :initial-element #x02)
+                 (make-byte-vector 1 :initial-element #x04))))
+         (padding (make-array 100 :element-type '(unsigned-byte 8)
+                                  :initial-element #xa5))
+         (packet (ethereum-lisp.p2p::rlpx-seal-message
+                  recipient-public-key body :padding padding))
+         (declared-size (+ (ash (aref packet 0) 8) (aref packet 1)))
+         (plaintext
+           (ethereum-lisp.p2p::ecies-decrypt
+            recipient-private-key (subseq packet 2)
+            :shared-data (subseq packet 0 2))))
+    ;; Pinned geth's sealEIP8 appends at least 100 bytes before ECIES, and the
+    ;; two-byte prefix covers ciphertext only (not the prefix itself).
+    (is (= declared-size (- (length packet) 2)))
+    (is (= (+ (length body) 100) (length plaintext)))
+    (is (bytes= body (subseq plaintext 0 (length body))))
+    (is (bytes= padding (subseq plaintext (length body))))
+    (dotimes (i 16)
+      (declare (ignore i))
+      (let ((random-padding
+              (ethereum-lisp.p2p::rlpx-random-eip8-padding)))
+        (is (<= 100 (length random-padding) 199))))))
+
 (deftest rlpx-recipient-handshake-matches-eip8-vectors
   (let* ((key-b #xb71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291)
          (eph-b #xe238eb8e04fee6511ab04c6dd3c89ce097b11f25d584863ac2b6d5b35b1847e4)

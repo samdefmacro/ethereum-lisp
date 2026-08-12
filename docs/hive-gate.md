@@ -35,7 +35,11 @@ changes and re-diffing `tools/hive/mapper.jq` against
   time and written out with `SAVE-LISP-AND-DIE :executable t`, so the shipped
   layer has no SBCL, no compiler, no Quicklisp and no test tree: one executable,
   `librocksdb`, `libethckzg`, `libethbls`, `libsecp256k1`, and the KZG trusted
-  setup.
+  setup. The saved executable reserves an explicit 8 GiB SBCL dynamic space:
+  SBCL commits it on demand, while the operator's container limit remains the
+  physical RSS authority. This is part of the runtime contract rather than a
+  builder-default accident; a public three-source snap import exceeded the
+  former default heap while the container itself was still below its limit.
 - **`tools/hive/`** — the Hive client definition: `Dockerfile` (layers `jq` and
   `curl` onto the runtime image), `ethereum-lisp.sh` (the `HIVE_*` contract),
   `mapper.jq` (genesis translation), `enode.sh`, `hive.yaml`.
@@ -62,8 +66,8 @@ by that uid.
 ### Running it
 
 ```sh
-docker build --file Dockerfile.runtime --tag ethereum-lisp-runtime:local .
-scripts/hive-runtime-smoke.sh ethereum-lisp-runtime:local
+scripts/dev.sh runtime-build ethereum-lisp-runtime:local
+scripts/dev.sh runtime-smoke ethereum-lisp-runtime:local
 RUNTIME_PREBUILT=1 RUNTIME_TAG=local scripts/hive-run.sh --sim ethereum/engine
 ```
 

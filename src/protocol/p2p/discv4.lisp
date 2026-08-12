@@ -26,6 +26,8 @@
 (defconstant +discv4-packet-header-size+ 98
   "hash(32) + signature(65) + type(1) before the packet data.")
 
+(defconstant +discv4-max-rlp-list-items+ 64)
+
 (defun discv4-type-octet (type)
   (let ((octet (make-byte-vector 1)))
     (setf (aref octet 0) type)
@@ -92,6 +94,8 @@ key."
 
 (defun discv4-endpoint-from-rlp-object (value)
   (let ((items (rlp-list-items value)))
+    (unless (= 3 (length items))
+      (error "discv4 endpoint must contain three fields"))
     (make-discv4-endpoint
      (ensure-byte-vector (first items))
      (bytes-to-integer (ensure-byte-vector (second items)))
@@ -117,7 +121,11 @@ key."
 
 (defun decode-discv4-ping (data)
   (let ((items (rlp-list-items (rlp-decode (ensure-byte-vector data)
-                                           :allow-trailing t))))
+                                           :allow-trailing t
+                                           :max-list-items
+                                           +discv4-max-rlp-list-items+))))
+    (when (< (length items) 4)
+      (error "discv4 Ping must contain at least four fields"))
     (make-discv4-ping
      :version (bytes-to-integer (ensure-byte-vector (first items)))
      :from (discv4-endpoint-from-rlp-object (second items))
@@ -141,7 +149,11 @@ key."
 
 (defun decode-discv4-pong (data)
   (let ((items (rlp-list-items (rlp-decode (ensure-byte-vector data)
-                                           :allow-trailing t))))
+                                           :allow-trailing t
+                                           :max-list-items
+                                           +discv4-max-rlp-list-items+))))
+    (when (< (length items) 3)
+      (error "discv4 Pong must contain at least three fields"))
     (make-discv4-pong
      :to (discv4-endpoint-from-rlp-object (first items))
      :ping-hash (ensure-byte-vector (second items))
@@ -162,7 +174,11 @@ key."
 
 (defun decode-discv4-find-node (data)
   (let ((items (rlp-list-items (rlp-decode (ensure-byte-vector data)
-                                           :allow-trailing t))))
+                                           :allow-trailing t
+                                           :max-list-items
+                                           +discv4-max-rlp-list-items+))))
+    (when (< (length items) 2)
+      (error "discv4 FindNode must contain at least two fields"))
     (make-discv4-find-node
      :target (ensure-byte-vector (first items))
      :expiration (bytes-to-integer (ensure-byte-vector (second items))))))
@@ -184,6 +200,8 @@ key."
 
 (defun discv4-node-from-rlp-object (value)
   (let ((items (rlp-list-items value)))
+    (unless (= 4 (length items))
+      (error "discv4 neighbor must contain four fields"))
     (make-discv4-node
      (ensure-byte-vector (first items))
      (bytes-to-integer (ensure-byte-vector (second items)))
@@ -203,7 +221,13 @@ key."
 
 (defun decode-discv4-neighbors (data)
   (let ((items (rlp-list-items (rlp-decode (ensure-byte-vector data)
-                                           :allow-trailing t))))
+                                           :allow-trailing t
+                                           :max-list-items
+                                           +discv4-max-rlp-list-items+))))
+    (when (< (length items) 2)
+      (error "discv4 Neighbors must contain at least two fields"))
+    (when (> (length (rlp-list-items (first items))) 16)
+      (error "discv4 Neighbors contains more than 16 nodes"))
     (make-discv4-neighbors
      :nodes (mapcar #'discv4-node-from-rlp-object (rlp-list-items (first items)))
      :expiration (bytes-to-integer (ensure-byte-vector (second items))))))
@@ -220,7 +244,11 @@ key."
 
 (defun decode-discv4-enr-request (data)
   (let ((items (rlp-list-items (rlp-decode (ensure-byte-vector data)
-                                           :allow-trailing t))))
+                                           :allow-trailing t
+                                           :max-list-items
+                                           +discv4-max-rlp-list-items+))))
+    (when (null items)
+      (error "discv4 ENRRequest must contain an expiration"))
     (make-discv4-enr-request
      :expiration (bytes-to-integer (ensure-byte-vector (first items))))))
 
@@ -236,11 +264,16 @@ key."
   (rlp-encode
    (make-rlp-list
     (ensure-byte-vector (discv4-enr-response-request-hash response))
-    (rlp-decode (ensure-byte-vector (discv4-enr-response-record response))))))
+    (rlp-decode (ensure-byte-vector (discv4-enr-response-record response))
+                :max-list-items +discv4-max-rlp-list-items+))))
 
 (defun decode-discv4-enr-response (data)
   (let ((items (rlp-list-items (rlp-decode (ensure-byte-vector data)
-                                           :allow-trailing t))))
+                                           :allow-trailing t
+                                           :max-list-items
+                                           +discv4-max-rlp-list-items+))))
+    (when (< (length items) 2)
+      (error "discv4 ENRResponse must contain at least two fields"))
     (make-discv4-enr-response
      :request-hash (ensure-byte-vector (first items))
      :record (rlp-encode (second items)))))

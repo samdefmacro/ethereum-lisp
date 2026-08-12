@@ -27,6 +27,45 @@
 (defconstant +eth-max-transactions-per-message+ 5000
   "Resource bound on full transactions accepted in one gossip message.")
 
+(defconstant +eth-max-rlp-list-items+ 262144
+  "Per-list allocation bound for every eth wire decoder.
+
+The message-specific decoders below enforce much smaller request and batch
+limits where the protocol has one.  This outer safety ceiling remains large
+enough for a valid gas-bounded block with many logs, while preventing a 10 MiB
+message made from one-byte list elements from allocating millions of conses.")
+
+(defconstant +eth-max-request-hashes+ 4096)
+(defconstant +eth-max-block-announcements+ 256)
+(defconstant +eth-max-header-items+ 1024)
+(defconstant +eth-max-body-items+ 256)
+(defconstant +eth-max-receipt-groups+ 1024)
+(defconstant +eth-max-cells-per-transaction+ (* 6 128)
+  "Pinned geth parity: BlobTxMaxBlobs (6) times CellsPerBlob (128).")
+
+(defun eth-wire-decode (bytes &key allow-trailing max-list-items)
+  "Decode untrusted eth RLP under a mandatory per-list item ceiling."
+  (rlp-decode (ensure-byte-vector bytes)
+              :allow-trailing allow-trailing
+              :max-list-items (or max-list-items +eth-max-rlp-list-items+)))
+
+(defun eth-wire-list-items (value context &key exact maximum)
+  (unless (rlp-list-p value)
+    (error "~A must be an RLP list" context))
+  (let ((items (rlp-list-items value)))
+    (when (and exact (/= exact (length items)))
+      (error "~A must contain exactly ~D items" context exact))
+    (when (and maximum (> (length items) maximum))
+      (error "~A contains ~D items, exceeding the ~D-item limit"
+             context (length items) maximum))
+    items))
+
+(defun eth-wire-hash32-field (value context)
+  (let ((bytes (ensure-byte-vector value)))
+    (unless (= 32 (length bytes))
+      (error "~A must contain 32 bytes" context))
+    bytes))
+
 ;; Message ids within the eth capability, before the base-protocol offset.
 (defconstant +eth-message-status+ #x00)
 (defconstant +eth-message-new-block-hashes+ #x01)
@@ -69,9 +108,14 @@
                  (integer-to-minimal-bytes (eth-fork-id-next fork-id))))
 
 (defun eth-fork-id-from-rlp-object (value)
-  (let ((items (rlp-list-items value)))
-    (make-eth-fork-id (ensure-byte-vector (first items))
-                      (bytes-to-integer (ensure-byte-vector (second items))))))
+  (let* ((items (eth-wire-list-items value "eth fork id" :exact 2))
+         (hash (ensure-byte-vector (first items)))
+         (next (ensure-byte-vector (second items))))
+    (unless (= 4 (length hash))
+      (error "eth fork hash must contain four bytes"))
+    (unless (<= (length next) 8)
+      (error "eth fork next value exceeds uint64"))
+    (make-eth-fork-id hash (bytes-to-integer next))))
 
 ;;; Status: the eth handshake, exchanged once after the devp2p Hello.
 
@@ -103,16 +147,16 @@
     (eth-fork-id-rlp-object (eth-status-fork-id status)))))
 
 (defun decode-eth-status (bytes)
-  (let ((items (rlp-list-items
-                (rlp-decode (ensure-byte-vector bytes) :allow-trailing t))))
-    (when (< (length items) 6)
-      (error "eth Status must have at least six fields"))
+  (let ((items (eth-wire-list-items
+                (eth-wire-decode bytes :allow-trailing t)
+                "eth Status" :exact 6)))
     (make-eth-status
      :version (bytes-to-integer (ensure-byte-vector (first items)))
      :network-id (bytes-to-integer (ensure-byte-vector (second items)))
      :total-difficulty (bytes-to-integer (ensure-byte-vector (third items)))
-     :best-hash (ensure-byte-vector (fourth items))
-     :genesis-hash (ensure-byte-vector (fifth items))
+     :best-hash (eth-wire-hash32-field (fourth items) "eth Status best hash")
+     :genesis-hash
+     (eth-wire-hash32-field (fifth items) "eth Status genesis hash")
      :fork-id (eth-fork-id-from-rlp-object (sixth items)))))
 
 (defun encode-eth-status-69 (status)
@@ -131,18 +175,20 @@ the message carries the served block range and our head instead —
                             (eth-status-genesis-hash status))))))
 
 (defun decode-eth-status-69 (bytes)
-  (let ((items (rlp-list-items
-                (rlp-decode (ensure-byte-vector bytes) :allow-trailing t))))
-    (when (< (length items) 7)
-      (error "eth/69 Status must have at least seven fields"))
+  (let ((items (eth-wire-list-items
+                (eth-wire-decode bytes :allow-trailing t)
+                "eth/69 Status" :exact 7)))
     (make-eth-status
      :version (bytes-to-integer (ensure-byte-vector (first items)))
      :network-id (bytes-to-integer (ensure-byte-vector (second items)))
-     :genesis-hash (ensure-byte-vector (third items))
+     :genesis-hash
+     (eth-wire-hash32-field (third items) "eth/69 Status genesis hash")
      :fork-id (eth-fork-id-from-rlp-object (fourth items))
      :earliest-block (bytes-to-integer (ensure-byte-vector (fifth items)))
      :latest-block (bytes-to-integer (ensure-byte-vector (sixth items)))
-     :latest-block-hash (ensure-byte-vector (seventh items)))))
+     :latest-block-hash
+     (eth-wire-hash32-field
+      (seventh items) "eth/69 Status latest block hash"))))
 
 (defun encode-eth-status-for-version (status version)
   "Encode STATUS in the wire format for the negotiated eth VERSION."
@@ -172,12 +218,14 @@ the message carries the served block range and our head instead —
 
 (defun decode-eth-block-range-update (bytes)
   (let ((items
-          (rlp-list-items
-           (rlp-decode (ensure-byte-vector bytes) :allow-trailing t))))
+          (eth-wire-list-items
+           (eth-wire-decode bytes :allow-trailing t)
+           "eth BlockRangeUpdate" :exact 3)))
     (make-eth-block-range
      (bytes-to-integer (ensure-byte-vector (first items)))
      (bytes-to-integer (ensure-byte-vector (second items)))
-     (ensure-byte-vector (third items)))))
+     (eth-wire-hash32-field
+      (third items) "eth BlockRangeUpdate latest block hash"))))
 
 ;;; NewBlockHashes / NewBlock propagation.
 
@@ -200,12 +248,14 @@ the message carries the served block range and our head instead —
 (defun decode-eth-new-block-hashes (bytes)
   (mapcar
    (lambda (value)
-     (let ((items (rlp-list-items value)))
+     (let ((items (eth-wire-list-items
+                   value "eth NewBlockHashes entry" :exact 2)))
        (make-eth-new-block-hash
-        (ensure-byte-vector (first items))
+        (eth-wire-hash32-field (first items) "eth NewBlockHashes hash")
         (bytes-to-integer (ensure-byte-vector (second items))))))
-   (rlp-list-items
-    (rlp-decode (ensure-byte-vector bytes) :allow-trailing t))))
+   (eth-wire-list-items
+    (eth-wire-decode bytes :allow-trailing t)
+    "eth NewBlockHashes" :maximum +eth-max-block-announcements+)))
 
 (defstruct (eth-new-block
             (:constructor make-eth-new-block (block total-difficulty)))
@@ -221,8 +271,9 @@ the message carries the served block range and our head instead —
 
 (defun decode-eth-new-block (bytes)
   (let ((items
-          (rlp-list-items
-           (rlp-decode (ensure-byte-vector bytes) :allow-trailing t))))
+          (eth-wire-list-items
+           (eth-wire-decode bytes :allow-trailing t)
+           "eth NewBlock" :exact 2)))
     (make-eth-new-block
      (block-from-rlp (rlp-encode (first items)))
      (bytes-to-integer (ensure-byte-vector (second items))))))
@@ -258,11 +309,15 @@ otherwise a block number."
       (if (eth-get-block-headers-reverse request) 1 0))))))
 
 (defun decode-eth-get-block-headers (bytes)
-  (let ((items (rlp-list-items
-                (rlp-decode (ensure-byte-vector bytes) :allow-trailing t))))
+  (let ((items (eth-wire-list-items
+                (eth-wire-decode bytes :allow-trailing t)
+                "eth GetBlockHeaders" :exact 2)))
     (let* ((request-id (bytes-to-integer (ensure-byte-vector (first items))))
-           (query (rlp-list-items (second items)))
+           (query (eth-wire-list-items
+                   (second items) "eth GetBlockHeaders query" :exact 4))
            (origin (ensure-byte-vector (first query))))
+      (unless (or (= (length origin) 32) (<= (length origin) 8))
+        (error "eth GetBlockHeaders origin must be a hash32 or uint64"))
       ;; A 32-byte origin is a block hash; anything else is a block number.
       (make-eth-get-block-headers
        :request-id request-id
@@ -281,11 +336,14 @@ otherwise a block number."
 
 (defun decode-eth-block-headers (bytes)
   "Decode a BlockHeaders reply into (VALUES REQUEST-ID HEADERS)."
-  (let ((items (rlp-list-items
-                (rlp-decode (ensure-byte-vector bytes) :allow-trailing t))))
+  (let ((items (eth-wire-list-items
+                (eth-wire-decode bytes :allow-trailing t)
+                "eth BlockHeaders" :exact 2)))
     (values (bytes-to-integer (ensure-byte-vector (first items)))
             (mapcar #'block-header-from-rlp-object
-                    (rlp-list-items (second items))))))
+                    (eth-wire-list-items
+                     (second items) "eth BlockHeaders list"
+                     :maximum +eth-max-header-items+)))))
 
 ;;; GetBlockBodies / BlockBodies. A body is [transactions, uncles, withdrawals],
 ;;; withdrawals present for post-Shanghai blocks.
@@ -310,8 +368,11 @@ otherwise a block number."
     (apply #'make-rlp-list fields)))
 
 (defun eth-block-body-from-rlp-object (value)
-  (let* ((items (rlp-list-items value))
+  (let* ((items (eth-wire-list-items
+                 value "eth block body" :maximum 3))
          (has-withdrawals (>= (length items) 3)))
+    (unless (member (length items) '(2 3))
+      (error "eth block body must contain two or three fields"))
     (make-eth-block-body
      :transactions (block-transactions-from-rlp-object (first items))
      :ommers (block-ommers-from-rlp-object (second items))
@@ -327,10 +388,15 @@ otherwise a block number."
 
 (defun decode-eth-get-block-bodies (bytes)
   "Decode a GetBlockBodies request into (VALUES REQUEST-ID HASHES)."
-  (let ((items (rlp-list-items
-                (rlp-decode (ensure-byte-vector bytes) :allow-trailing t))))
+  (let ((items (eth-wire-list-items
+                (eth-wire-decode bytes :allow-trailing t)
+                "eth GetBlockBodies" :exact 2)))
     (values (bytes-to-integer (ensure-byte-vector (first items)))
-            (mapcar #'ensure-byte-vector (rlp-list-items (second items))))))
+            (mapcar (lambda (hash)
+                      (eth-wire-hash32-field hash "eth GetBlockBodies hash"))
+                    (eth-wire-list-items
+                     (second items) "eth GetBlockBodies hashes"
+                     :maximum +eth-max-request-hashes+)))))
 
 (defun encode-eth-block-bodies (request-id bodies)
   (rlp-encode
@@ -348,11 +414,14 @@ otherwise a block number."
 
 (defun decode-eth-block-bodies (bytes)
   "Decode a BlockBodies reply into (VALUES REQUEST-ID BODIES)."
-  (let ((items (rlp-list-items
-                (rlp-decode (ensure-byte-vector bytes) :allow-trailing t))))
+  (let ((items (eth-wire-list-items
+                (eth-wire-decode bytes :allow-trailing t)
+                "eth BlockBodies" :exact 2)))
     (values (bytes-to-integer (ensure-byte-vector (first items)))
             (mapcar #'eth-block-body-from-rlp-object
-                    (rlp-list-items (second items))))))
+                    (eth-wire-list-items
+                     (second items) "eth BlockBodies list"
+                     :maximum +eth-max-body-items+)))))
 
 ;;; Transaction gossip.
 ;;;
@@ -399,8 +468,6 @@ otherwise a block number."
          (mapcar #'eth-pooled-transaction-rlp-object entries)))
 
 (defun eth-pooled-transactions-from-rlp-object (value)
-  (unless (rlp-list-p value)
-    (error "Pooled transactions must be an RLP list"))
   (mapcar
    (lambda (item)
      (if (rlp-list-p item)
@@ -409,7 +476,9 @@ otherwise a block number."
              (pooled-transaction-from-encoding
               (ensure-byte-vector item))
            (if sidecar (cons transaction sidecar) transaction))))
-   (rlp-list-items value)))
+   (eth-wire-list-items
+    value "eth pooled transactions"
+    :maximum +eth-max-transactions-per-message+)))
 
 (defun eth-network-transaction-rlp-object (transaction)
   (if (typep transaction 'blob-network-transaction)
@@ -438,7 +507,9 @@ otherwise a block number."
 
 (defun eth-network-transactions-from-rlp-object (value)
   (mapcar #'eth-network-transaction-from-rlp-object
-          (rlp-list-items value)))
+          (eth-wire-list-items
+           value "eth transactions"
+           :maximum +eth-max-transactions-per-message+)))
 
 (defun encode-eth-transactions (transactions)
   "Encode a Transactions message: the full transactions, with no request id."
@@ -446,9 +517,9 @@ otherwise a block number."
 
 (defun decode-eth-transactions (bytes)
   (eth-network-transactions-from-rlp-object
-   (rlp-decode (ensure-byte-vector bytes)
-               :allow-trailing t
-               :max-list-items +eth-max-transactions-per-message+)))
+   (eth-wire-decode
+    bytes :allow-trailing t
+    :max-list-items +eth-max-transactions-per-message+)))
 
 (defun encode-eth-new-pooled-transaction-hashes
     (transactions &key (version +eth-protocol-version-71+)
@@ -478,11 +549,12 @@ otherwise a block number."
 (defun decode-eth-new-pooled-transaction-hashes
     (bytes &optional (version +eth-protocol-version-71+))
   "Decode an announcement into (VALUES TYPES SIZES HASHES CUSTODY-MASK)."
-  (let* ((items (rlp-list-items
-                 (rlp-decode
-                  (ensure-byte-vector bytes)
-                  :allow-trailing t
-                  :max-list-items +eth-max-transaction-announcements+)))
+  (let* ((items (eth-wire-list-items
+                 (eth-wire-decode
+                  bytes :allow-trailing t
+                  :max-list-items +eth-max-transaction-announcements+)
+                 "eth NewPooledTransactionHashes"
+                 :exact (if (>= version +eth-protocol-version-72+) 4 3)))
          (type-bytes (ensure-byte-vector (first items))))
     (when (> (length type-bytes) +eth-max-transaction-announcements+)
       (error "eth NewPooledTransactionHashes announces ~D transactions, ~
@@ -491,9 +563,15 @@ otherwise a block number."
     (let* ((types (coerce type-bytes 'list))
          (sizes (mapcar (lambda (size)
                           (bytes-to-integer (ensure-byte-vector size)))
-                        (rlp-list-items (second items))))
+                        (eth-wire-list-items
+                         (second items) "eth transaction announcement sizes"
+                         :maximum +eth-max-transaction-announcements+)))
            (hashes
-             (mapcar #'ensure-byte-vector (rlp-list-items (third items))))
+             (mapcar
+              #'ensure-byte-vector
+              (eth-wire-list-items
+               (third items) "eth transaction announcement hashes"
+               :maximum +eth-max-transaction-announcements+)))
            (mask
              (when (>= version +eth-protocol-version-72+)
                (unless (= (length items) 4)
@@ -521,10 +599,16 @@ otherwise a block number."
 
 (defun decode-eth-get-pooled-transactions (bytes)
   "Decode a GetPooledTransactions request into (VALUES REQUEST-ID HASHES)."
-  (let ((items (rlp-list-items
-                (rlp-decode (ensure-byte-vector bytes) :allow-trailing t))))
+  (let ((items (eth-wire-list-items
+                (eth-wire-decode bytes :allow-trailing t)
+                "eth GetPooledTransactions" :exact 2)))
     (values (bytes-to-integer (ensure-byte-vector (first items)))
-            (mapcar #'ensure-byte-vector (rlp-list-items (second items))))))
+            (mapcar (lambda (hash)
+                      (eth-wire-hash32-field
+                       hash "eth GetPooledTransactions hash"))
+                    (eth-wire-list-items
+                     (second items) "eth GetPooledTransactions hashes"
+                     :maximum +eth-max-request-hashes+)))))
 
 (defun encode-eth-pooled-transactions (request-id transactions)
   (rlp-encode
@@ -536,9 +620,10 @@ otherwise a block number."
   "Decode a PooledTransactions reply into (VALUES REQUEST-ID TRANSACTIONS).
 
 The reply may be shorter than the request and in any order: a gap means the peer
-no longer had that transaction, so the caller matches by hash, not by position."
-  (let ((items (rlp-list-items
-                (rlp-decode (ensure-byte-vector bytes) :allow-trailing t))))
+  no longer had that transaction, so the caller matches by hash, not by position."
+  (let ((items (eth-wire-list-items
+                (eth-wire-decode bytes :allow-trailing t)
+                "eth PooledTransactions" :exact 2)))
     (values (bytes-to-integer (ensure-byte-vector (first items)))
             (eth-network-transactions-from-rlp-object (second items)))))
 
@@ -547,9 +632,10 @@ no longer had that transaction, so the caller matches by hash, not by position."
 ;;; is a valid access list.
 
 (defun eth-wire-hashes (value context)
-  (let ((hashes (mapcar #'ensure-byte-vector (rlp-list-items value))))
-    (when (> (length hashes) +eth-max-transaction-announcements+)
-      (error "~A contains too many hashes" context))
+  (let ((hashes
+          (mapcar #'ensure-byte-vector
+                  (eth-wire-list-items
+                   value context :maximum +eth-max-request-hashes+))))
     (dolist (hash hashes)
       (unless (= (length hash) 32)
         (error "~A hash must contain 32 bytes" context)))
@@ -562,9 +648,10 @@ no longer had that transaction, so the caller matches by hash, not by position."
     (apply #'make-rlp-list (mapcar #'ensure-byte-vector hashes)))))
 
 (defun decode-eth-get-block-access-lists (bytes)
-  (let ((items (rlp-list-items (rlp-decode (ensure-byte-vector bytes)))))
-    (unless (= (length items) 2)
-      (error "eth/71 GetBlockAccessLists must contain two fields"))
+  (let ((items
+          (eth-wire-list-items
+           (eth-wire-decode bytes)
+           "eth/71 GetBlockAccessLists" :exact 2)))
     (values (bytes-to-integer (ensure-byte-vector (first items)))
             (eth-wire-hashes (second items) "GetBlockAccessLists"))))
 
@@ -575,11 +662,14 @@ no longer had that transaction, so the caller matches by hash, not by position."
     (apply #'make-rlp-list access-lists))))
 
 (defun decode-eth-block-access-lists (bytes)
-  (let ((items (rlp-list-items (rlp-decode (ensure-byte-vector bytes)))))
-    (unless (= (length items) 2)
-      (error "eth/71 BlockAccessLists must contain two fields"))
+  (let ((items
+          (eth-wire-list-items
+           (eth-wire-decode bytes)
+           "eth/71 BlockAccessLists" :exact 2)))
     (values (bytes-to-integer (ensure-byte-vector (first items)))
-            (rlp-list-items (second items)))))
+            (eth-wire-list-items
+             (second items) "eth/71 BlockAccessLists list"
+             :maximum +eth-max-request-hashes+))))
 
 (defun eth-custody-mask (value context)
   (let ((mask (ensure-byte-vector value)))
@@ -595,9 +685,9 @@ no longer had that transaction, so the caller matches by hash, not by position."
     (eth-custody-mask custody-mask "GetCells"))))
 
 (defun decode-eth-get-cells (bytes)
-  (let ((items (rlp-list-items (rlp-decode (ensure-byte-vector bytes)))))
-    (unless (= (length items) 3)
-      (error "eth/72 GetCells must contain three fields"))
+  (let ((items
+          (eth-wire-list-items
+           (eth-wire-decode bytes) "eth/72 GetCells" :exact 3)))
     (values (bytes-to-integer (ensure-byte-vector (first items)))
             (eth-wire-hashes (second items) "GetCells")
             (eth-custody-mask (third items) "GetCells"))))
@@ -617,9 +707,9 @@ no longer had that transaction, so the caller matches by hash, not by position."
     (eth-custody-mask custody-mask "Cells"))))
 
 (defun decode-eth-cells (bytes)
-  (let ((items (rlp-list-items (rlp-decode (ensure-byte-vector bytes)))))
-    (unless (= (length items) 4)
-      (error "eth/72 Cells must contain four fields"))
+  (let ((items
+          (eth-wire-list-items
+           (eth-wire-decode bytes) "eth/72 Cells" :exact 4)))
     (let ((hashes (eth-wire-hashes (second items) "Cells"))
           (groups
             (mapcar
@@ -630,8 +720,12 @@ no longer had that transaction, so the caller matches by hash, not by position."
                     (unless (= (length bytes) 2048)
                       (error "eth/72 blob cell must contain 2048 bytes"))
                     bytes))
-                (rlp-list-items group)))
-             (rlp-list-items (third items)))))
+                (eth-wire-list-items
+                 group "eth/72 Cells transaction group"
+                 :maximum +eth-max-cells-per-transaction+)))
+             (eth-wire-list-items
+              (third items) "eth/72 Cells groups"
+              :maximum +eth-max-request-hashes+))))
       (unless (= (length hashes) (length groups))
         (error "eth/72 Cells hashes and cell groups must have equal lengths"))
       (values (bytes-to-integer (ensure-byte-vector (first items)))
@@ -665,22 +759,34 @@ no longer had that transaction, so the caller matches by hash, not by position."
 (defun decode-eth-get-receipts
     (bytes &optional (version +eth-protocol-version-69+))
   "Decode GetReceipts into REQUEST-ID, HASHES, and FIRST-RECEIPT-INDEX."
-  (let ((items (rlp-list-items
-                (rlp-decode (ensure-byte-vector bytes) :allow-trailing t))))
+  (let ((items
+          (eth-wire-list-items
+           (eth-wire-decode bytes :allow-trailing t)
+           "eth GetReceipts"
+           :exact (if (>= version +eth-protocol-version-70+) 3 2))))
     (if (>= version +eth-protocol-version-70+)
         (progn
           (unless (= (length items) 3)
             (error "eth/70 GetReceipts must contain three fields"))
           (values
            (bytes-to-integer (ensure-byte-vector (first items)))
-           (mapcar #'ensure-byte-vector (rlp-list-items (third items)))
+           (mapcar
+            (lambda (hash)
+              (eth-wire-hash32-field hash "eth/70 GetReceipts hash"))
+            (eth-wire-list-items
+             (third items) "eth/70 GetReceipts hashes"
+             :maximum +eth-max-request-hashes+))
            (bytes-to-integer (ensure-byte-vector (second items)))))
         (progn
           (unless (= (length items) 2)
             (error "eth/69 GetReceipts must contain two fields"))
           (values (bytes-to-integer (ensure-byte-vector (first items)))
-                  (mapcar #'ensure-byte-vector
-                          (rlp-list-items (second items)))
+                  (mapcar
+                   (lambda (hash)
+                     (eth-wire-hash32-field hash "eth/69 GetReceipts hash"))
+                   (eth-wire-list-items
+                    (second items) "eth/69 GetReceipts hashes"
+                    :maximum +eth-max-request-hashes+))
                   0)))))
 
 (defun eth-receipt-rlp-object (transaction receipt version)
@@ -745,12 +851,14 @@ prefix byte and eth/69 carries as the first field."
   receipt)
 
 (defun eth-log-entry-from-wire-object (value)
-  (let ((items (rlp-list-items value)))
+  (let ((items
+          (eth-wire-list-items value "eth receipt log" :exact 3)))
     (make-log-entry
      :address (make-address (ensure-byte-vector (first items)))
      :topics (mapcar (lambda (topic)
                        (make-hash32 (ensure-byte-vector topic)))
-                     (rlp-list-items (second items)))
+                     (eth-wire-list-items
+                      (second items) "eth receipt log topics" :maximum 4))
      :data (ensure-byte-vector (third items)))))
 
 (defun eth-receipt-status-values (value)
@@ -767,7 +875,9 @@ prefix byte and eth/69 carries as the first field."
       (eth-receipt-status-values (first fields))
     (let ((logs
             (mapcar #'eth-log-entry-from-wire-object
-                    (rlp-list-items (car (last fields))))))
+                    (eth-wire-list-items
+                     (car (last fields)) "eth receipt logs"
+                     :maximum +eth-max-rlp-list-items+))))
       (when (= (length fields) 4)
         (let ((expected-bloom (ensure-byte-vector (third fields)))
               (actual-bloom (bloom-bytes (receipt-bloom logs))))
@@ -785,9 +895,8 @@ prefix byte and eth/69 carries as the first field."
 
 (defun eth-wire-receipt-from-object (value version)
   (if (>= version +eth-protocol-version-69+)
-      (let ((fields (rlp-list-items value)))
-        (unless (= (length fields) 4)
-          (error "eth/69 receipt must contain four fields"))
+      (let ((fields
+              (eth-wire-list-items value "eth/69 receipt" :exact 4)))
         (eth-wire-receipt-from-fields
          (bytes-to-integer (ensure-byte-vector (first fields)))
          (rest fields)))
@@ -795,12 +904,11 @@ prefix byte and eth/69 carries as the first field."
              (bytes (when typed (ensure-byte-vector value)))
              (type (if typed (aref bytes 0) 0))
              (fields
-               (rlp-list-items
+               (eth-wire-list-items
                 (if typed
-                    (rlp-decode-one (subseq bytes 1))
-                    value))))
-        (unless (= (length fields) 4)
-          (error "eth/68 receipt must contain four fields"))
+                    (eth-wire-decode (subseq bytes 1))
+                    value)
+                "eth/68 receipt" :exact 4)))
         (eth-wire-receipt-from-fields type fields))))
 
 (defun decode-eth-receipts (bytes version)
@@ -809,8 +917,10 @@ prefix byte and eth/69 carries as the first field."
 Each item is an ETH-WIRE-RECEIPT pairing the transaction type carried by the
 wire format with its decoded receipt."
   (let ((items
-          (rlp-list-items
-           (rlp-decode (ensure-byte-vector bytes) :allow-trailing t))))
+          (eth-wire-list-items
+           (eth-wire-decode bytes :allow-trailing t)
+           "eth Receipts"
+           :exact (if (>= version +eth-protocol-version-70+) 3 2))))
     (let* ((version-70-p (>= version +eth-protocol-version-70+))
            (groups (if version-70-p (third items) (second items)))
            (incomplete
@@ -826,6 +936,10 @@ wire format with its decoded receipt."
         (lambda (group)
           (mapcar (lambda (value)
                     (eth-wire-receipt-from-object value version))
-                  (rlp-list-items group)))
-        (rlp-list-items groups))
+                  (eth-wire-list-items
+                   group "eth block receipt group"
+                   :maximum +eth-max-rlp-list-items+)))
+        (eth-wire-list-items
+         groups "eth receipt groups"
+         :maximum +eth-max-receipt-groups+))
        incomplete))))

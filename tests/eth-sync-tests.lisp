@@ -451,9 +451,10 @@ the encoder substitutes its zero/empty defaults."
                      (error "eth fetch server side failed: ~A" server-error))))))
         (ignore-errors (sb-bsd-sockets:socket-close listener))))))
 
-(defun eth-sync-serve-chain (peer chain-length)
+(defun eth-sync-serve-chain (peer chain-length &key body-limit)
   "Answer eth header and body requests for a canned chain of CHAIN-LENGTH blocks
-(numbered 1..CHAIN-LENGTH, empty bodies) until the peer disconnects."
+(numbered 1..CHAIN-LENGTH, empty bodies) until the peer disconnects.
+BODY-LIMIT simulates geth's soft response-byte limit by returning only a prefix."
   (let ((chain (eth-sync-test-chain-headers chain-length)))
     (handler-case
       (loop
@@ -483,7 +484,11 @@ the encoder substitutes its zero/empty defaults."
                                       (declare (ignore h))
                                       (ethereum-lisp.eth-wire:make-eth-block-body
                                        :transactions '() :ommers '()))
-                                    hashes))))))))
+                                    (if body-limit
+                                        (subseq hashes 0
+                                                (min body-limit
+                                                     (length hashes)))
+                                        hashes)))))))))
       (rlpx-disconnect () nil))))
 
 (deftest eth-sync-downloads-a-chain-in-order-over-a-socket
@@ -526,7 +531,8 @@ the encoder substitutes its zero/empty defaults."
                                        (connection (rlpx-accept-stream stream server-static))
                                        (peer (eth-peer-connect connection (hello "srv")
                                                                (status))))
-                                  (eth-sync-serve-chain peer chain-length))
+                                  (eth-sync-serve-chain peer chain-length
+                                                        :body-limit 2))
                               (error (condition) (setf server-error condition))))
                           :name "eth-sync-test-server")))
                    (let ((client-socket (make-instance 'sb-bsd-sockets:inet-socket
@@ -537,13 +543,15 @@ the encoder substitutes its zero/empty defaults."
                             (connection (rlpx-connect-stream stream client-static
                                                              server-static-pub))
                             (peer (eth-peer-connect connection (hello "cli") (status)))
-                            ;; Download the whole chain two headers at a time.
+                            ;; Ask for the whole chain at once. The scripted
+                            ;; peer serves at most two bodies per response, as
+                            ;; geth does when its 2 MiB soft limit is reached.
                             (count (eth-sync-download-blocks
                                     peer
                                     (lambda (block)
                                       (push (block-header-number (block-header block))
                                             imported))
-                                    :start-number 1 :batch-size 2)))
+                                    :start-number 1 :batch-size 5)))
                        ;; Tell the server we are done so it stops serving.
                        (rlpx-send-disconnect connection +devp2p-message-disconnect+)
                        (is (= chain-length count))
@@ -553,6 +561,87 @@ the encoder substitutes its zero/empty defaults."
                    (when server-error
                      (error "eth sync server side failed: ~A" server-error))))))
         (ignore-errors (sb-bsd-sockets:socket-close listener))))))
+
+(deftest eth-sync-multi-peer-resumes-soft-limited-body-and-receipt-prefixes
+  (:layer :integration :module :p2p)
+  ;; One requested range may produce several honest responses: GetBlockBodies
+  ;; and GetReceipts both stop at a soft byte budget. Each short prefix replaces
+  ;; its resident delivery with the exact suffix, so no height is skipped and
+  ;; the bounded window does not grow.
+  (let* ((chain (coerce (eth-sync-test-chain-headers 8) 'vector))
+         (empty-body
+           (ethereum-lisp.eth-wire:make-eth-block-body
+            :transactions '() :ommers '()))
+         (header-requests '())
+         (imported '())
+         (source
+           (make-eth-sync-peer-source
+            nil :id :soft-limited :head-number 8
+            :fetch-headers
+            (lambda (origin amount)
+              (push (list origin amount) header-requests)
+              (loop for number from origin below (+ origin amount)
+                    collect (aref chain (1- number))))
+            :fetch-bodies
+            (lambda (headers)
+              (loop repeat (min 3 (length headers)) collect empty-body))
+            :fetch-receipts
+            (lambda (headers)
+              (values (loop repeat (min 2 (length headers)) collect '()) nil)))))
+    (is (= 8
+           (eth-sync-download-blocks-multi
+            (list source)
+            (lambda (block)
+              (push (block-header-number (block-header block)) imported))
+            :start-number 1 :target-number 8 :batch-size 8
+            :request-timeout-seconds 1d0)))
+    (is (equal '((1 8) (3 6) (5 4) (7 2))
+               (nreverse header-requests)))
+    (is (equal '(1 2 3 4 5 6 7 8) (nreverse imported)))))
+
+(deftest eth-sync-multi-normalizes-typed-wire-receipts-before-root-validation
+  (:layer :unit :module :p2p)
+  (let* ((transaction
+           (make-dynamic-fee-transaction
+            :chain-id 1 :nonce 2 :max-fee-per-gas 10
+            :max-priority-fee-per-gas 1 :gas-limit 21000
+            :value 3 :data #(1) :y-parity 0 :r 4 :s 5))
+         (receipt (make-receipt :status 1 :cumulative-gas-used 21000))
+         (header
+           (make-block-header
+            :number 1 :difficulty 0 :gas-limit 30000000
+            :receipts-root
+            (ethereum-lisp.receipts:transaction-receipt-list-root
+             (list transaction) (list receipt))))
+         (body
+           (ethereum-lisp.eth-wire:make-eth-block-body
+            :transactions (list transaction) :ommers '()))
+         (block
+           (ethereum-lisp.blocks:make-block-from-parts
+            :header header :transactions (list transaction)
+            :receipts (list receipt))))
+    (multiple-value-bind (request-id wire-groups incomplete-p)
+        (ethereum-lisp.eth-wire:decode-eth-receipts
+         (ethereum-lisp.eth-wire:encode-eth-receipts
+          41 (list block) ethereum-lisp.eth-wire:+eth-protocol-version-69+)
+         ethereum-lisp.eth-wire:+eth-protocol-version-69+)
+      (is (= 41 request-id))
+      (is (null incomplete-p))
+      (let ((normalized
+              (ethereum-lisp.eth-sync::eth-sync-validate-receipt-delivery
+               (list header) (list body) wire-groups nil)))
+        (is (= 1 (length normalized)))
+        (is (typep (first (first normalized))
+                   'ethereum-lisp.receipts:receipt))
+        (is (= 1 (receipt-status (first (first normalized))))))
+      ;; The redundant eth/69 type is part of validation, not metadata to drop.
+      (setf
+       (ethereum-lisp.eth-wire:eth-wire-receipt-transaction-type
+        (first (first wire-groups)))
+       3)
+      (signals ethereum-lisp.eth-sync::eth-sync-malformed-delivery
+        (ethereum-lisp.eth-sync::eth-sync-validate-receipt-delivery
+         (list header) (list body) wire-groups nil)))))
 
 (deftest eth-sync-three-scripted-peers-fail-over-without-blocking
   (:layer :integration :module :p2p)
@@ -646,6 +735,80 @@ the encoder substitutes its zero/empty defaults."
           (is (find :receipts events :key (lambda (event)
                                             (getf event :stage)))))))))
 
+(deftest eth-sync-multi-peer-download-window-is-independent-of-target-height
+  (:layer :integration :module :p2p)
+  ;; Origin 1 deliberately stalls while the other worker races ahead.  With
+  ;; two peers the resident window is four batches, so no request above block 4
+  ;; may be constructed until the first batch is imported, even though the CL
+  ;; target is much farther away.
+  (let* ((chain (coerce (eth-sync-test-chain-headers 40) 'vector))
+         (empty-body
+           (ethereum-lisp.eth-wire:make-eth-block-body
+            :transactions '() :ommers '()))
+         (first-batch-released-p nil)
+         (maximum-origin-before-release 0)
+         (imported '()))
+    (labels ((headers (origin amount)
+               (if (= origin 1)
+                   (progn
+                     (sleep 0.1d0)
+                     (setf first-batch-released-p t))
+                   (unless first-batch-released-p
+                     (setf maximum-origin-before-release
+                           (max maximum-origin-before-release origin))))
+               (loop for number from origin below (+ origin amount)
+                     collect (aref chain (1- number))))
+             (bodies (headers)
+               (loop repeat (length headers) collect empty-body))
+             (receipts (headers)
+               (values (loop repeat (length headers) collect '()) nil))
+             (source (id)
+               (make-eth-sync-peer-source
+                nil :id id :head-number 40
+                :fetch-headers #'headers
+                :fetch-bodies #'bodies
+                :fetch-receipts #'receipts)))
+      (is (= 40
+             (eth-sync-download-blocks-multi
+              (list (source :first) (source :second))
+              (lambda (block)
+                (push (block-header-number (block-header block)) imported))
+              :start-number 1 :target-number 40 :batch-size 1
+              :request-timeout-seconds 2d0)))
+      (is (<= maximum-origin-before-release 4))
+      (is (equal (loop for number from 1 to 40 collect number)
+                 (nreverse imported))))))
+
+(deftest eth-sync-rejects-a-divergent-consensus-target-before-import
+  (:layer :integration :module :p2p)
+  (let* ((chain (eth-sync-test-chain-headers 2))
+         (empty-body
+           (ethereum-lisp.eth-wire:make-eth-block-body
+            :transactions '() :ommers '()))
+         (imports 0)
+         (source
+           (make-eth-sync-peer-source
+            nil :id :divergent :head-number 2
+            :fetch-headers
+            (lambda (origin amount)
+              (subseq chain (1- origin) (+ (1- origin) amount)))
+            :fetch-bodies
+            (lambda (headers)
+              (loop repeat (length headers) collect empty-body))
+            :fetch-receipts
+            (lambda (headers)
+              (values (loop repeat (length headers) collect '()) nil)))))
+    (signals ethereum-lisp.eth-sync:eth-sync-multi-peer-error
+      (eth-sync-download-blocks-multi
+       (list source)
+       (lambda (block)
+         (declare (ignore block))
+         (incf imports))
+       :start-number 1 :target-number 2 :batch-size 2
+       :expected-target-hash (make-hash32 (make-array 32 :initial-element #xff))
+       :request-timeout-seconds 1d0))
+    (is (zerop imports))))
+
 (deftest eth-sync-connect-peer-dials-and-handshakes-over-a-socket
   (:layer :integration :module :p2p :requires-local-sockets t)
   (let* ((config (eth-sync-test-config))
@@ -709,6 +872,100 @@ the encoder substitutes its zero/empty defaults."
                  (when server-error
                    (error "eth sync dial server side failed: ~A" server-error))))))
       (ignore-errors (sb-bsd-sockets:socket-close listener)))))
+
+(deftest eth-sync-multiplexes-eth-72-and-snap-1-over-one-socket
+  (:layer :integration :module :p2p :requires-local-sockets t)
+  (let* ((config (eth-sync-test-config))
+         (server-static
+           #xb71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291)
+         (client-static
+           #x49a7b37aa6f6645917e7b807e9d1c00d4fa71f18343b0d4122a4d2df64dd6fee)
+         (server-static-pub (secp256k1-private-key-public-key server-static))
+         (backend
+           (ethereum-lisp.snap:make-snap-state-backend
+            :account-range
+            (lambda (request)
+              (ethereum-lisp.snap:make-snap-account-range
+               (ethereum-lisp.snap:snap-get-account-range-id request)
+               '() '()))))
+         (listener (make-eth-sync-socket-listener :host "127.0.0.1" :port 0))
+         (server-result nil)
+         (server-error nil))
+    (flet ((status ()
+             (eth-build-status config *eth-sync-test-genesis* 0 0
+                               *eth-sync-test-best* 0)))
+      (unwind-protect
+           (let ((server-thread
+                   (sb-thread:make-thread
+                    (lambda ()
+                      (handler-case
+                          (multiple-value-bind (socket host port)
+                              (eth-sync-listener-accept listener
+                                                        :timeout-seconds 10)
+                            (declare (ignore host port))
+                            (unless socket
+                              (error "snap multiplex test did not accept a socket"))
+                            (unwind-protect
+                                 (let ((peer
+                                         (eth-sync-accept-peer
+                                          socket server-static (status)
+                                          :client-id "ethereum-lisp/snap-server"
+                                          :snap-backend backend)))
+                                   (multiple-value-bind (kind id payload)
+                                       (eth-peer-read-once peer)
+                                     (unless (and (eq kind :snap)
+                                                  (= id
+                                                     ethereum-lisp.snap:+snap-message-get-account-range+))
+                                       (error "expected a snap account-range request"))
+                                     (ethereum-lisp.eth-sync:eth-peer-serve-snap-message
+                                      peer id payload))
+                                   (setf server-result
+                                         (list :eth-version
+                                               (eth-peer-eth-version peer)
+                                               :snap-offset
+                                               (ethereum-lisp.eth-sync:eth-peer-snap-offset
+                                                peer))))
+                              (ignore-errors
+                               (sb-bsd-sockets:socket-close socket))))
+                        (error (condition) (setf server-error condition))))
+                    :name "eth-snap-multiplex-test-server")))
+             (multiple-value-bind (peer socket)
+                 (eth-sync-connect-peer
+                  "127.0.0.1" (eth-sync-listener-port listener)
+                  server-static-pub client-static (status)
+                  :client-id "ethereum-lisp/snap-client"
+                  :snap-backend backend)
+               (unwind-protect
+                    (let* ((request
+                             (ethereum-lisp.snap:make-snap-get-account-range
+                              42 *eth-sync-test-best*
+                              (make-byte-vector 32)
+                              (make-byte-vector 32 :initial-element #xff)
+                              1024))
+                           (response
+                             (ethereum-lisp.eth-sync:eth-peer-snap-request
+                              peer
+                              ethereum-lisp.snap:+snap-message-get-account-range+
+                              request)))
+                      (is (= 72 (eth-peer-eth-version peer)))
+                      (is (integerp
+                           (ethereum-lisp.eth-sync:eth-peer-snap-offset peer)))
+                      (is (= 42
+                             (ethereum-lisp.snap:snap-account-range-id
+                              response)))
+                      (is (null
+                           (ethereum-lisp.snap:snap-account-range-accounts
+                            response))))
+                 (ignore-errors (sb-bsd-sockets:socket-close socket))))
+             (is (not (eq :timeout
+                          (sb-thread:join-thread server-thread
+                                                 :timeout 15
+                                                 :default :timeout))))
+             (when server-error
+               (error "snap multiplex server failed: ~A" server-error))
+             (is (= 72 (getf server-result :eth-version)))
+             (is (integerp (getf server-result :snap-offset))))
+        (eth-sync-listener-close listener)))))
 
 ;;;; End-to-end initial block download: produce real valid blocks on one store
 ;;;; and sync them into another store's state over a socket.

@@ -34,9 +34,12 @@
 ;;;;    in place and must be followed by its body; unwinding between the two
 ;;;;    desynchronizes the connection permanently.
 
-(defconstant +eth-pump-read-tick-seconds+ 1
+(defconstant +eth-pump-read-tick-seconds+ 0.05d0
   "How long one readiness wait blocks. Our policy: the upper bound on how long
-the loop can take to notice a stop request.")
+the loop can take to notice a stop request or a queued coordinator job.  Snap
+page import can issue hundreds of dependent storage/code requests; a one-second
+tick serialized those requests at roughly one per second even when the peer
+answered immediately.")
 
 (defconstant +eth-pump-ping-interval-seconds+ 15
   "How often we send a keepalive Ping when the connection is otherwise idle.
@@ -71,12 +74,14 @@ requirement and not a parity claim. An interval of NIL turns that behavior off."
 (defun eth-pump-due-p (interval last-at now)
   (and interval (>= (- now last-at) interval)))
 
-(defun eth-pump-next-action (policy state now &key readable-p stop-p
-                                                   drainable-p broadcast-p)
+(defun eth-pump-next-action (policy state now &key readable-p stop-p request-p
+                                                   drainable-p chain-update-p
+                                                   broadcast-p)
   "The one thing a session should do next. Pure: no clock, no socket, no state
 mutation.
 
-Returns :STOP, :READ, :IDLE-TIMEOUT, :PING, :DRAIN, :BROADCAST or :WAIT.
+Returns :STOP, :READ, :REQUEST, :IDLE-TIMEOUT, :PING, :DRAIN,
+:CHAIN-UPDATE, :BROADCAST or :WAIT.
 
 The order is the policy. Stopping beats everything, because a shutdown must not
 wait on a peer. Reading comes next, so that a talkative peer is always drained
@@ -86,6 +91,7 @@ and :WAIT means there is nothing to do but block on the readiness gate."
   (cond
     (stop-p :stop)
     (readable-p :read)
+    (request-p :request)
     ((eth-pump-due-p (eth-pump-policy-idle-timeout-seconds policy)
                      (eth-pump-state-last-read-at state) now)
      :idle-timeout)
@@ -96,6 +102,7 @@ and :WAIT means there is nothing to do but block on the readiness gate."
           (eth-pump-due-p (eth-pump-policy-drain-interval-seconds policy)
                           (eth-pump-state-last-drain-at state) now))
      :drain)
+    (chain-update-p :chain-update)
     (broadcast-p :broadcast)
     (t :wait)))
 
@@ -105,6 +112,8 @@ and :WAIT means there is nothing to do but block on the readiness gate."
                (now-function (lambda () (get-universal-time)))
                readable-function
                stop-p
+               pending-request
+               pending-chain-update
                pending-broadcast
                on-event
                max-actions)
@@ -124,6 +133,11 @@ PENDING-BROADCAST, when given, returns a list of transactions to push to this
 peer, or NIL. It is a closure returning DATA precisely so that other threads
 never write to this connection themselves -- see contract 2 in the file header.
 
+PENDING-REQUEST returns a zero-argument thunk representing one coordinator job.
+The thunk runs here, on the sole session thread, and may synchronously request
+eth or snap data. PENDING-CHAIN-UPDATE similarly returns a zero-argument thunk
+that sends a local canonical-head announcement from this writer.
+
 ON-EVENT, when given, is called with a keyword for each action taken, which is
 how a caller observes the session without this file knowing what telemetry is."
   (let* ((now (funcall now-function))
@@ -137,35 +151,48 @@ how a caller observes the session without this file knowing what telemetry is."
              ;; stopping there is no reason to touch the peer's socket at all,
              ;; and every reason not to — it may already be closing.
              (stopping (and stop-p (funcall stop-p) t))
+             (readable
+               (and (not stopping)
+                    readable-function
+                    (funcall readable-function
+                             (eth-pump-policy-read-tick-seconds policy))
+                    t))
+             ;; Pop outbound jobs only after the read gate. A readable peer has
+             ;; priority, and popping before that decision would lose work.
+             (request (and (not stopping) (not readable)
+                           pending-request (funcall pending-request)))
+             (chain-update (and (not stopping) (not readable) (null request)
+                                pending-chain-update
+                                (funcall pending-chain-update)))
              (broadcast (unless stopping
                           (when pending-broadcast (funcall pending-broadcast))))
              (action (eth-pump-next-action
                       policy state now
-                      :readable-p (and (not stopping)
-                                       readable-function
-                                       (funcall readable-function
-                                                (eth-pump-policy-read-tick-seconds
-                                                 policy))
-                                       t)
+                      :readable-p readable
                       :stop-p stopping
+                      :request-p (and request t)
                       :drainable-p
                       (or (plusp (eth-peer-announced-block-count peer))
                           (plusp (eth-peer-announced-hash-count peer)))
+                      :chain-update-p (and chain-update t)
                       :broadcast-p (and broadcast t))))
         (when on-event (funcall on-event action))
         (case action
           (:stop (return (values actions :stop)))
           (:idle-timeout (return (values actions :idle-timeout)))
+          (:request (funcall request))
           (:read
            ;; READ-ONCE, not READ: the base-protocol traffic has to reach this
            ;; loop, or a connection carrying only keepalives never comes back
            ;; here and none of the periodic work below ever runs again.
            (multiple-value-bind (kind id payload) (eth-peer-read-once peer)
              (setf (eth-pump-state-last-read-at state) now)
-             (if (eq kind :eth)
-                 (eth-peer-handle-message peer id payload)
-                 (when (= id +devp2p-message-ping+)
-                   (rlpx-send-pong (eth-peer-connection peer))))))
+             (case kind
+               (:eth (eth-peer-handle-message peer id payload))
+               (:snap
+                (unless (eth-peer-serve-snap-message peer id payload)
+                  (error "unsolicited snap/1 response id ~D" id)))
+               (:base (eth-peer-handle-base-message peer id)))))
           (:ping
            (rlpx-send-ping (eth-peer-connection peer))
            (setf (eth-pump-state-last-ping-at state) now))
@@ -173,6 +200,7 @@ how a caller observes the session without this file knowing what telemetry is."
            (eth-peer-fetch-announced-block peer)
            (eth-peer-request-announced-transactions peer)
            (setf (eth-pump-state-last-drain-at state) now))
+          (:chain-update (funcall chain-update))
           (:broadcast
            ;; Full-push only small transactions; the broadcast marks those
            ;; known, so the second pass announces only the remaining large

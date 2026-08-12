@@ -70,7 +70,62 @@
                (rlpx-shared-capability-named shared "eth"))))
     (is (= (+ ethereum-lisp.p2p:+devp2p-base-protocol-length+ 22)
            (rlpx-shared-capability-offset
-            (rlpx-shared-capability-named shared "snap"))))))
+           (rlpx-shared-capability-named shared "snap"))))))
+
+(deftest rlpx-message-codes-stay-inside-the-negotiated-capability-range
+  (:layer :unit :module :p2p)
+  (let* ((capabilities
+           (list (make-devp2p-capability "eth" 72)
+                 (make-devp2p-capability "snap" 1)))
+         (shared (rlpx-negotiate-capabilities capabilities capabilities))
+         (snap (rlpx-shared-capability-named shared "snap")))
+    (multiple-value-bind (capability local-id)
+        (rlpx-shared-capability-for-message-code
+         shared (rlpx-shared-capability-offset snap))
+      (is (string= "snap" (rlpx-shared-capability-name capability)))
+      (is (zerop local-id)))
+    (multiple-value-bind (capability local-id)
+        (rlpx-shared-capability-for-message-code shared #x0f)
+      (is (null capability))
+      (is (= #x0f local-id)))
+    (signals error
+      (rlpx-shared-capability-for-message-code
+       shared
+       (+ (rlpx-shared-capability-offset snap)
+          ethereum-lisp.snap:+snap-message-count+)))))
+
+(deftest eth-sync-advertises-snap-only-with-an-operational-client-and-server
+  (:layer :unit :module :p2p)
+  (flet ((capability-named-p (name capabilities)
+           (not (null (find name capabilities
+                            :key #'devp2p-capability-name
+                            :test #'string=)))))
+    ;; The generic default is deliberately conservative.  Session setup adds
+    ;; snap only after both halves of the implementation are present.
+    (is (not (capability-named-p
+              "snap"
+              (ethereum-lisp.eth-sync:eth-sync-default-capabilities))))
+    (let* ((backend
+             (ethereum-lisp.snap:make-snap-state-backend
+              :account-range
+              (lambda (request)
+                (ethereum-lisp.snap:make-snap-account-range
+                 (ethereum-lisp.snap:snap-get-account-range-id request)
+                 '() '()))))
+           (effective
+             (ethereum-lisp.eth-sync::eth-sync-session-capabilities
+              nil nil backend t)))
+      (is (capability-named-p "eth" effective))
+      (is (capability-named-p "snap" effective))
+      (dolist (missing-server-or-client
+                (list (list nil t) (list backend nil)))
+        (signals error
+          (ethereum-lisp.eth-sync::eth-sync-session-capabilities
+           (list (make-devp2p-capability "eth" 72)
+                 (make-devp2p-capability "snap" 1))
+           t
+           (first missing-server-or-client)
+           (second missing-server-or-client)))))))
 
 (deftest rlpx-hello-exchange-negotiates-eth-over-a-socket
   (:layer :integration :module :p2p :requires-local-sockets t)

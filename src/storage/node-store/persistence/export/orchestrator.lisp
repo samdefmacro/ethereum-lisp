@@ -60,11 +60,12 @@ record. Returns T when the batch changed."
         record-label kind)))))
 
 (defun node-store-put-immutable-block-records
-    (database batch block record-label)
+    (database batch block record-label &key allow-missing-committed-p)
   (let ((identifier (hash32-bytes (block-hash block)))
         (changed-p nil))
     (when (node-store-put-immutable-block-body-record
-           database batch :block block record-label)
+           database batch :block block record-label
+           :allow-missing-committed-p allow-missing-committed-p)
       (setf changed-p t))
     (when (node-store-put-immutable-record
            database batch :header identifier
@@ -75,6 +76,92 @@ record. Returns T when the batch changed."
            (block-receipts-record-rlp block) record-label)
       (setf changed-p t))
     changed-p))
+
+(defconstant +node-store-snap-skeleton-batch-limit+ 192)
+
+(defun node-store-validate-snap-skeleton-block (block)
+  (unless (typep block 'ethereum-block)
+    (block-validation-fail "Snap skeleton contains a non-block"))
+  (ethereum-lisp.execution:validate-block-body-commitments-before-execution
+   (block-transactions block) (block-header block)
+   :ommers (block-ommers block)
+   :withdrawals (block-withdrawals block)
+   :withdrawals-supplied-p (block-withdrawals-present-p block)
+   :requests (block-requests block)
+   :requests-supplied-p (block-requests-present-p block)
+   :block-access-list (block-block-access-list block)
+   :block-access-list-supplied-p (block-block-access-list-present-p block))
+  (unless (= (length (block-transactions block))
+             (length (block-receipts block)))
+    (block-validation-fail
+     "Snap skeleton block requires one receipt per transaction"))
+  (unless (hash32=
+           (block-header-receipts-root (block-header block))
+           (ethereum-lisp.receipts:transaction-receipt-list-root
+            (block-transactions block) (block-receipts block)))
+    (block-validation-fail
+     "Snap skeleton receipts do not match the header"))
+  block)
+
+(defun node-store-export-snap-skeleton-batch-to-kv
+    (database blocks progress)
+  "Persist one verified CL-target skeleton batch and its cursor atomically."
+  (unless (and (listp blocks) blocks
+               (<= (length blocks) +node-store-snap-skeleton-batch-limit+))
+    (block-validation-fail
+     "Snap skeleton batch must contain 1 to ~D blocks"
+     +node-store-snap-skeleton-batch-limit+))
+  (node-store-validate-snap-skeleton-progress database progress)
+  (loop for previous = nil then block
+        for block in blocks
+        do (node-store-validate-snap-skeleton-block block)
+           (when previous
+             (unless (and
+                      (= (block-header-number (block-header block))
+                         (1+ (block-header-number (block-header previous))))
+                      (hash32= (block-header-parent-hash (block-header block))
+                               (block-hash previous)))
+               (block-validation-fail
+                "Snap skeleton batch is not hash-contiguous"))))
+  (let ((first (first blocks))
+        (last (car (last blocks))))
+    (unless (and
+             (= (block-header-number (block-header last))
+                (node-store-snap-skeleton-progress-last-number progress))
+             (hash32= (block-hash last)
+                      (node-store-snap-skeleton-progress-last-hash progress)))
+      (block-validation-fail
+       "Snap skeleton batch does not match its progress cursor"))
+    (multiple-value-bind (existing present-p)
+        (node-store-read-snap-skeleton-progress database)
+      (let ((expected-number
+              (1+ (if present-p
+                      (node-store-snap-skeleton-progress-last-number existing)
+                      (node-store-snap-skeleton-progress-anchor-number progress))))
+            (expected-parent
+              (if present-p
+                  (node-store-snap-skeleton-progress-last-hash existing)
+                  (node-store-snap-skeleton-progress-anchor-hash progress))))
+        (unless (and
+                 (= expected-number
+                    (block-header-number (block-header first)))
+                 (hash32= expected-parent
+                          (block-header-parent-hash (block-header first))))
+          (block-validation-fail
+           "Snap skeleton batch does not extend its durable cursor"))))
+    (let ((batch (make-kv-write-batch))
+          (changed-p nil))
+      (dolist (block blocks)
+        (when (node-store-put-immutable-block-records
+               database batch block "Snap skeleton"
+               :allow-missing-committed-p t)
+          (setf changed-p t)))
+      (when (node-store-populate-snap-skeleton-progress-batch
+             database batch progress)
+        (setf changed-p t))
+      (kv-batch-put-chain-schema-version batch)
+      (when changed-p (kv-apply-batch database batch))
+      progress)))
 
 (defun node-store-sync-chain-record
     (database batch kind identifier desired-value)
@@ -236,6 +323,73 @@ same-head forkchoice call without reintroducing a full-store scan."
            #'<)
      (nreverse blocks)
      (nreverse persisted-displaced-blocks))))
+
+(defun node-store-snap-pivot-difference
+    (store transition database target-hash)
+  "Validate and return the one-key canonical delta for a sparse snap pivot."
+  (unless (hash32-p target-hash)
+    (block-validation-fail
+     "Snap pivot export target must be a hash32"))
+  (let ((installed
+          (canonical-chain-transition-installed-blocks transition)))
+    (unless (= 1 (length installed))
+      (block-validation-fail
+       "Snap pivot transition must install exactly one checkpoint block"))
+    (let* ((pivot (first installed))
+           (pivot-hash (block-hash pivot))
+           (pivot-number (block-header-number (block-header pivot)))
+           (target (chain-store-known-block store target-hash))
+           (database-head-number
+             (node-store-database-head-number database)))
+      (unless (and target
+                   (engine-payload-store-ancestor-p
+                    store pivot-hash target-hash))
+        (block-validation-fail
+         "Snap pivot export target does not descend from the checkpoint"))
+      (unless (and (= pivot-number (chain-store-head-number store))
+                   (hash32= pivot-hash
+                            (chain-store-canonical-hash store pivot-number)))
+        (block-validation-fail
+         "Snap pivot transition is not the current sparse canonical head"))
+      (unless (and database-head-number
+                   (< database-head-number pivot-number))
+        (block-validation-fail
+         "Snap pivot export must advance the durable canonical head"))
+      (multiple-value-bind (progress present-p)
+          (node-store-read-snap-skeleton-progress database)
+        (unless (and present-p
+                     (= pivot-number
+                        (node-store-snap-skeleton-progress-pivot-number
+                         progress))
+                     (hash32= pivot-hash
+                              (node-store-snap-skeleton-progress-pivot-hash
+                               progress))
+                     (= (block-header-number (block-header target))
+                        (node-store-snap-skeleton-progress-target-number
+                         progress))
+                     (hash32= target-hash
+                              (node-store-snap-skeleton-progress-target-hash
+                               progress))
+                     (= (node-store-snap-skeleton-progress-last-number progress)
+                        (node-store-snap-skeleton-progress-target-number
+                         progress))
+                     (hash32=
+                      (node-store-snap-skeleton-progress-last-hash progress)
+                      target-hash))
+          (block-validation-fail
+           "Snap pivot export lacks matching completed skeleton evidence")))
+      (multiple-value-bind (state-root present-p)
+          (kv-get-chain-record
+           database :state-history (hash32-bytes pivot-hash))
+        (unless (and present-p
+                     (= 32 (length state-root))
+                     (bytes= state-root
+                             (hash32-bytes
+                              (block-header-state-root
+                               (block-header pivot)))))
+          (block-validation-fail
+           "Snap pivot export lacks its verified durable state root")))
+      (values (list pivot-number) (list pivot) nil))))
 
 (defun node-store-transition-affected-numbers (transition)
   (let ((numbers (make-hash-table :test 'eql)))
@@ -746,7 +900,9 @@ ACCEPTED payloads; it publishes no executable or canonical chain records."
           database)))))
 
 (defun node-store-export-forkchoice-to-kv
-    (store transition database &key persistence-metadata)
+    (store transition database
+     &key persistence-metadata
+          (sync-pivot-target-hash nil sync-pivot-target-supplied-p))
   (let ((chain-store (chain-store-require-memory-store store)))
     (engine-payload-store-enable-durable-cache-change-tracking chain-store)
     (unless (canonical-chain-transition-p transition)
@@ -769,7 +925,10 @@ ACCEPTED payloads; it publishes no executable or canonical chain records."
     ;; runs before it ever exports.
     (multiple-value-bind
         (reconciled-numbers reconciled-blocks persisted-displaced-blocks)
-        (node-store-canonical-difference chain-store database)
+        (if sync-pivot-target-supplied-p
+            (node-store-snap-pivot-difference
+             chain-store transition database sync-pivot-target-hash)
+            (node-store-canonical-difference chain-store database))
       (let* ((batch (make-kv-write-batch))
              (code-sink (make-node-store-code-sink batch database))
              (changed-p nil)
@@ -857,7 +1016,8 @@ ACCEPTED payloads; it publishes no executable or canonical chain records."
                           (list txpool-transaction)
                           :require-all-p t))
                 (setf changed-p t)))))
-        (when (and (chain-store-durable-state-provider-p chain-store)
+        (when (and (not sync-pivot-target-supplied-p)
+                   (chain-store-durable-state-provider-p chain-store)
                    (node-store-populate-state-retention-batch
                     chain-store transition database batch installed-blocks))
           (setf changed-p t))

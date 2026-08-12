@@ -45,6 +45,61 @@ addresses — the same rule go-ethereum's --txpool.locals uses."
                      append
                      (engine-blob-and-proofs-cell-proofs entry))))))
 
+(defun devnet-peer-custody-indices (mask)
+  "Decode geth's little-endian 128-bit eth/72 custody bitmap."
+  (loop for byte across (ensure-byte-vector mask)
+        for byte-index from 0
+        append
+        (loop for bit below 8
+              when (logbitp bit byte)
+                collect (+ (* byte-index 8) bit))))
+
+(defun devnet-peer-blob-cells-from-reader
+    (reader hashes mask &key (cell-function #'kzg-compute-cells-and-proofs))
+  "Serve geth-compatible flat cell groups from a SIDECAR READER.
+
+READER receives a transaction hash and returns a validated full blob sidecar or
+NIL. CELL-FUNCTION is injectable so selection, grouping, and custody semantics
+can be tested without making cryptographic capability a test precondition."
+  (let ((indices (devnet-peer-custody-indices mask))
+        (response-hashes '())
+        (groups '())
+        (cell-count 0)
+        (maximum-cells (floor +eth-soft-response-limit+ +bytes-per-cell+)))
+    (dolist (hash hashes)
+      (when (>= cell-count maximum-cells)
+        (return))
+      (let ((sidecar (funcall reader hash)))
+        (when sidecar
+          (let ((flat
+                  (loop for blob in (blob-sidecar-blobs sidecar)
+                        append
+                        (multiple-value-bind (cells proofs)
+                            (funcall cell-function blob)
+                          (declare (ignore proofs))
+                          (mapcar (lambda (index) (nth index cells)) indices)))))
+            ;; geth omits a transaction when the requested mask selects no
+            ;; cells, and permits the final group to cross the soft limit.
+            (when flat
+              (push (copy-seq hash) response-hashes)
+              (push flat groups)
+              (incf cell-count (length flat)))))))
+    (values (nreverse response-hashes) (nreverse groups) (copy-seq mask))))
+
+(defun devnet-peer-blob-cells (guarded store hashes mask)
+  "Resolve pooled sidecars under GUARDED, then compute eth/72 cell groups."
+  (devnet-peer-blob-cells-from-reader
+   (lambda (hash)
+     (funcall
+      guarded
+      (lambda ()
+        (let ((transaction
+                (engine-payload-store-pooled-transaction
+                 store (make-hash32 hash))))
+          (and (typep transaction 'blob-transaction)
+               (devnet-pooled-blob-sidecar store transaction))))))
+   hashes mask))
+
 (defun devnet-peer-serve-backend (node)
   "A serve backend answering a peer's requests and gossip from NODE's store.
 
@@ -77,6 +132,10 @@ take the guard for the whole admission, since that mutates the pool."
        (lambda (transaction)
          (guarded
           (lambda () (devnet-pooled-blob-sidecar store transaction))))
+       :blob-cells
+       (when (kzg-cell-computation-available-p)
+         (lambda (hashes mask)
+           (devnet-peer-blob-cells #'guarded store hashes mask)))
        :known-transaction-p
        (lambda (hash)
          (guarded (lambda ()
@@ -102,6 +161,60 @@ take the guard for the whole admission, since that mutates the pool."
          ;; this does not publish a peer tip as canonical.
          (devnet-peer-sync-import-block node block))))))
 
+(defun devnet-peer-snap-backend (node)
+  "Build a guarded snap server for NODE's current durable canonical state.
+
+Only the direct database provider has the content-addressed trie/code backing
+needed to answer every request without materialising the world state. Returning
+NIL keeps snap out of Hello on other backends."
+  (let ((store (devnet-node-store node)))
+    (unless (database-engine-payload-store-p store)
+      (return-from devnet-peer-snap-backend nil))
+    (call-with-devnet-node-store-guard
+     node
+     (lambda ()
+       (let* ((head (chain-store-head-block store))
+              (head-hash (and head (block-hash head)))
+              (state (and head-hash (chain-store-state-db store head-hash))))
+         (unless state
+           (return-from devnet-peer-snap-backend nil))
+         (let ((backend
+                 (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+                  (database-engine-payload-store-database store) state)))
+           (ethereum-lisp.snap:make-snap-state-backend
+            :account-range
+            (lambda (request)
+              (call-with-devnet-node-store-guard
+               node
+               (lambda ()
+                 (funcall
+                  (ethereum-lisp.snap:snap-state-backend-account-range backend)
+                  request))))
+            :storage-ranges
+            (lambda (request)
+              (call-with-devnet-node-store-guard
+               node
+               (lambda ()
+                 (funcall
+                  (ethereum-lisp.snap:snap-state-backend-storage-ranges backend)
+                  request))))
+            :bytecodes
+            (lambda (request)
+              (call-with-devnet-node-store-guard
+               node
+               (lambda ()
+                 (funcall
+                  (ethereum-lisp.snap:snap-state-backend-bytecodes backend)
+                  request))))
+            :trie-nodes
+            (lambda (request)
+              (call-with-devnet-node-store-guard
+               node
+               (lambda ()
+                 (funcall
+                  (ethereum-lisp.snap:snap-state-backend-trie-nodes backend)
+                  request)))))))))))
+
 (defconstant +devnet-broadcast-batch-limit+ 64
   "How many transactions we push to one peer in a single tick. Our policy: a
 bound on how much one pass can put on the wire, not a target.")
@@ -111,6 +224,43 @@ bound on how much one pass can put on the wire, not a target.")
 this the set is cleared rather than grown -- the cost of re-sending a
 transaction a peer already has is one wasted message, while an unbounded set is
 a leak that lasts as long as the session.")
+
+(defun devnet-peer-pending-chain-update (node peer)
+  "Return a sole-writer closure announcing each new canonical head once."
+  (let ((last-number nil)
+        (last-hash nil))
+    (lambda ()
+      (multiple-value-bind (snapshot ran-p)
+          (call-with-devnet-node-store-guard-if-free
+           node
+           (lambda ()
+             (let* ((store (devnet-node-store node))
+                    (number (chain-store-head-number store))
+                    (hash (chain-store-canonical-hash store number)))
+               (and hash (list number hash)))))
+        (when (and ran-p snapshot
+                   (or (null last-number)
+                       (/= last-number (first snapshot))
+                       (not (hash32= last-hash (second snapshot)))))
+          (let ((number (first snapshot))
+                (hash (second snapshot)))
+            (lambda ()
+              ;; eth/69 replaced the legacy NewBlockHashes/NewBlock
+              ;; propagation path with BlockRangeUpdate.  Current geth keeps
+              ;; the old numeric constants but deliberately has no handlers
+              ;; for them, so sending both makes a conforming eth/69+ peer
+              ;; disconnect with a subprotocol error.  Retain the legacy
+              ;; announcement only for the eth/68 capability we still expose.
+              (if (>= (eth-peer-eth-version peer) +eth-protocol-version-69+)
+                  (eth-peer-send-block-range-update
+                   peer 0 number (hash32-bytes hash))
+                  (eth-peer-send
+                   peer +eth-message-new-block-hashes+
+                   (encode-eth-new-block-hashes
+                    (list (make-eth-new-block-hash
+                           (hash32-bytes hash) number)))))
+              (setf last-number number
+                    last-hash hash))))))))
 
 (defun devnet-peer-pending-broadcast (node)
   "A closure returning the transactions this peer has not been sent yet.
@@ -131,50 +281,61 @@ to its connection: outbound work has to arrive as data for that loop to send,
 never as another thread sending on the peer."
   (let ((store (devnet-node-store node))
         (known (make-hash-table :test #'equalp))
-        (cursor 0))
+        (cursor 0)
+        ;; CURSOR may advance past more changes than one wire tick can carry,
+        ;; so retain the decoded entries locally until every one has been
+        ;; offered.  The txpool and its change log are bounded; consequently
+        ;; this per-peer queue is bounded by the same admission policy.
+        (pending '()))
     (lambda ()
-      (multiple-value-bind (transactions next-cursor)
-          (call-with-devnet-node-store-guard
-           node
-           (lambda ()
-             (multiple-value-bind (hashes current overflow-p)
-                 (engine-payload-store-txpool-changes-since store cursor)
-               (let ((transactions
-                       (if overflow-p
-                           (engine-payload-store-pooled-transactions store)
-                           (remove
-                            nil
-                            (mapcar
-                             (lambda (hash)
-                               (engine-payload-store-pooled-transaction
-                                store hash))
-                             hashes)))))
-                 (values
-                  (remove
-                   nil
-                   (mapcar
-                    (lambda (transaction)
-                      (if (typep transaction 'blob-transaction)
-                          (let ((sidecar
-                                  (devnet-pooled-blob-sidecar
-                                   store transaction)))
-                            (and sidecar (cons transaction sidecar)))
-                          transaction))
-                    transactions))
-                  current)))))
-        (setf cursor next-cursor)
-        (let ((fresh '()))
-          (dolist (entry transactions)
-          (when (< (length fresh) +devnet-broadcast-batch-limit+)
-            (let* ((transaction (eth-pooled-entry-transaction entry))
-                   (hash (hash32-bytes (transaction-hash transaction))))
-              (unless (gethash hash known)
-                (when (>= (hash-table-count known)
-                          +devnet-peer-known-transaction-limit+)
-                  (clrhash known))
-                (setf (gethash hash known) t)
-                (push entry fresh)))))
-          (nreverse fresh))))))
+      (when (null pending)
+        (multiple-value-bind (transactions next-cursor)
+            (call-with-devnet-node-store-guard
+             node
+             (lambda ()
+               (multiple-value-bind (hashes current overflow-p)
+                   (engine-payload-store-txpool-changes-since store cursor)
+                 (let ((transactions
+                         (if overflow-p
+                             (engine-payload-store-pooled-transactions store)
+                             (remove
+                              nil
+                              (mapcar
+                               (lambda (hash)
+                                 (engine-payload-store-pooled-transaction
+                                  store hash))
+                               hashes)))))
+                   (values
+                    (remove
+                     nil
+                     (mapcar
+                      (lambda (transaction)
+                        (if (typep transaction 'blob-transaction)
+                            (let ((sidecar
+                                    (devnet-pooled-blob-sidecar
+                                     store transaction)))
+                              (and sidecar (cons transaction sidecar)))
+                            transaction))
+                      transactions))
+                    current)))))
+          ;; Advance only after every changed hash has been resolved while the
+          ;; store is guarded.  Entries beyond this tick remain in PENDING;
+          ;; advancing without that queue was the burst-loss bug.
+          (setf pending transactions
+                cursor next-cursor)))
+      (let ((fresh '()))
+        (loop while (and pending
+                         (< (length fresh) +devnet-broadcast-batch-limit+))
+              for entry = (pop pending)
+              for transaction = (eth-pooled-entry-transaction entry)
+              for hash = (hash32-bytes (transaction-hash transaction))
+              unless (gethash hash known)
+                do (when (>= (hash-table-count known)
+                             +devnet-peer-known-transaction-limit+)
+                     (clrhash known))
+                   (setf (gethash hash known) t)
+                   (push entry fresh))
+        (nreverse fresh)))))
 
 (defun devnet-peer-new-payload-version (block config)
   "Select the Engine newPayload version required by BLOCK's active fork."
@@ -456,7 +617,8 @@ starting just past our current head. Returns the number of blocks imported."
       (multiple-value-bind (peer socket)
           (eth-sync-connect-peer host tcp-port node-id private-key status
                                  :chain-context chain-context
-                                 :serve-backend (devnet-peer-serve-backend node))
+                                 :serve-backend (devnet-peer-serve-backend node)
+                                 :snap-backend (devnet-peer-snap-backend node))
           (unwind-protect
                (let ((count
                        (devnet-peer-download-from-resume

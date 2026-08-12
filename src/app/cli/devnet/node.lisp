@@ -52,8 +52,11 @@
        dev-period-seconds
        miner-gas-limit
        peers
-       bootnodes
+       (bootnodes nil bootnodes-supplied-p)
        node-key
+       (discovery-enabled-p t)
+       (enr-seq 1)
+       enr-seq-persistence-function
        (public-allowed-method-p #'engine-rpc-public-method-p)
        (telemetry-sink ethereum-lisp.telemetry:*telemetry-sink*)
        ;; --metrics counts every telemetry event by name. Counting what the node
@@ -78,6 +81,11 @@
              (plusp dev-period-seconds)
              (not dev-mode-p))
     (error "--dev.period requires explicit --dev authority"))
+  (when (and nat-policy
+             (member (ethereum-lisp.nat:nat-policy-mode nat-policy)
+                     '(:any :upnp :pmp)))
+    (error "NAT mode ~A is not wired to a production transport"
+           (ethereum-lisp.nat:nat-policy-mode nat-policy)))
   (when (and database-path
              txpool-journal-path
              (devnet-cli-same-output-path-p
@@ -125,6 +133,11 @@
          (genesis-preset
            (and genesis-preset
                 (find-built-in-genesis-preset genesis-preset)))
+         (effective-bootnodes
+           (if bootnodes-supplied-p
+               bootnodes
+               (and genesis-preset
+                    (built-in-genesis-preset-bootnodes genesis-preset))))
          (config
            (devnet-cli-apply-merge-overrides
             (cond
@@ -306,10 +319,13 @@
        :dev-period-seconds dev-period-seconds
        :miner-gas-limit miner-gas-limit
        :peers (and peers (copy-list peers))
-       :bootnodes (and bootnodes (copy-list bootnodes))
+       :bootnodes (and effective-bootnodes (copy-list effective-bootnodes))
        ;; One stable node identity per node, shared by the discovery and peer-sync
        ;; workers; a fresh key when none is configured.
        :node-key node-key
+       :discovery-enabled-p discovery-enabled-p
+       :enr-seq enr-seq
+       :enr-seq-persistence-function enr-seq-persistence-function
        ;; Every peer we might dial, with its cooldown and failure history.
        :dial-registry (make-devnet-dial-registry)
        :dial-guard-function (make-devnet-store-guard-function)

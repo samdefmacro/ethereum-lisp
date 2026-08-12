@@ -804,3 +804,147 @@
          (nth-value
           1 (kv-get-chain-record database :invalid-tipset invalid-id))))
     (is (= 96 (length (kv-chain-record-entries database :remote-block))))))
+
+(defun snap-skeleton-test-progress
+    (authority-id chain-id genesis-hash anchor target)
+  (ethereum-lisp.node-store.persistence:make-node-store-snap-skeleton-progress
+   :authority-id authority-id :chain-id chain-id
+   :genesis-hash genesis-hash
+   :target-number (block-header-number (block-header target))
+   :target-hash (block-hash target)
+   :anchor-number (block-header-number (block-header anchor))
+   :anchor-hash (block-hash anchor)
+   :pivot-number (block-header-number (block-header target))
+   :pivot-hash (block-hash target)
+   :last-number (block-header-number (block-header target))
+   :last-hash (block-hash target)))
+
+(deftest node-store-snap-skeleton-blocks-and-cursor-are-one-batch
+  (:layer :integration :module :persistence)
+  (multiple-value-bind
+      (store genesis anchor target transaction recipient)
+      (payload-candidate-export-fixture)
+    (declare (ignore store transaction recipient))
+    (let* ((database
+             (make-instance 'forkchoice-delta-failing-test-database))
+           (chain-id 1)
+           (authority-id (peer-sync-progress-test-authority-id))
+           (progress
+             (snap-skeleton-test-progress
+              authority-id chain-id (block-hash genesis) anchor target))
+           (identifier (hash32-bytes (block-hash target))))
+      (peer-sync-progress-test-install-metadata
+       database chain-id (block-hash genesis) authority-id)
+      (setf (forkchoice-delta-failing-test-database-apply-attempts database) 0
+            (forkchoice-delta-failing-test-database-fail-next-apply-p database)
+            t)
+      (signals error
+        (ethereum-lisp.node-store.persistence:node-store-export-snap-skeleton-batch-to-kv
+         database (list target) progress))
+      (is (= 1
+             (forkchoice-delta-failing-test-database-apply-attempts database)))
+      (dolist (kind '(:block :header :receipt))
+        (is (not (nth-value
+                  1 (kv-get-chain-record database kind identifier)))))
+      (is (not
+           (nth-value
+            1
+            (ethereum-lisp.node-store.persistence:node-store-read-snap-skeleton-progress
+             database))))
+      (ethereum-lisp.node-store.persistence:node-store-export-snap-skeleton-batch-to-kv
+       database (list target) progress)
+      (is (= 2
+             (forkchoice-delta-failing-test-database-apply-attempts database)))
+      (dolist (kind '(:block :header :receipt))
+        (is (nth-value 1 (kv-get-chain-record database kind identifier))))
+      ;; Skeleton download never publishes a canonical index.
+      (is (null (kv-chain-record-entries database :canonical-hash)))
+      (multiple-value-bind (restored present-p)
+          (ethereum-lisp.node-store.persistence:node-store-read-snap-skeleton-progress
+           database)
+        (is present-p)
+        (is (= (block-header-number (block-header target))
+               (ethereum-lisp.node-store.persistence:node-store-snap-skeleton-progress-last-number
+                restored)))
+        (is (hash32=
+             (block-hash target)
+             (ethereum-lisp.node-store.persistence:node-store-snap-skeleton-progress-last-hash
+              restored)))))))
+
+(deftest node-store-snap-skeleton-progress-survives-a-file-reopen
+  (:layer :integration :module :persistence)
+  (multiple-value-bind
+      (store genesis anchor target transaction recipient)
+      (payload-candidate-export-fixture)
+    (declare (ignore store transaction recipient))
+    (let* ((path
+             (merge-pathnames
+              (make-pathname
+               :name (format nil "ethereum-lisp-snap-skeleton-~A" (gensym))
+               :type "sexp")
+              #P"/private/tmp/"))
+           (chain-id 1)
+           (authority-id (peer-sync-progress-test-authority-id))
+           (target-id (hash32-bytes (block-hash target)))
+           (progress
+             (snap-skeleton-test-progress
+              authority-id chain-id (block-hash genesis) anchor target)))
+      (unwind-protect
+           (progn
+             (let ((database (make-file-key-value-database path)))
+               (peer-sync-progress-test-install-metadata
+                database chain-id (block-hash genesis) authority-id)
+               (ethereum-lisp.node-store.persistence:node-store-export-snap-skeleton-batch-to-kv
+                database (list target) progress))
+             (let ((reopened (make-file-key-value-database path)))
+               (is (nth-value
+                    1 (kv-get-chain-record reopened :block target-id)))
+               (multiple-value-bind (restored present-p)
+                   (ethereum-lisp.node-store.persistence:node-store-read-snap-skeleton-progress
+                    reopened)
+                 (is present-p)
+                 (is (hash32=
+                      (block-hash target)
+                      (ethereum-lisp.node-store.persistence:node-store-snap-skeleton-progress-last-hash
+                       restored))))))
+        (ignore-errors (delete-file path))))))
+
+(deftest node-store-snap-skeleton-progress-rejects-codec-and-target-drift
+  (:layer :integration :module :persistence)
+  (multiple-value-bind
+      (store genesis anchor target transaction recipient)
+      (payload-candidate-export-fixture)
+    (declare (ignore store transaction recipient))
+    (let* ((database (make-memory-key-value-database))
+           (chain-id 1)
+           (authority-id (peer-sync-progress-test-authority-id))
+           (progress
+             (snap-skeleton-test-progress
+              authority-id chain-id (block-hash genesis) anchor target)))
+      (peer-sync-progress-test-install-metadata
+       database chain-id (block-hash genesis) authority-id)
+      (let ((batch (make-kv-write-batch)))
+        (ethereum-lisp.node-store.persistence::node-store-populate-snap-skeleton-progress-batch
+         database batch progress)
+        (kv-apply-batch database batch))
+      (let ((drifted
+              (ethereum-lisp.node-store.persistence:make-node-store-snap-skeleton-progress
+               :authority-id authority-id :chain-id chain-id
+               :genesis-hash (block-hash genesis)
+               :target-number (block-header-number (block-header target))
+               :target-hash (make-hash32 (make-byte-vector 32 :initial-element 9))
+               :anchor-number (block-header-number (block-header anchor))
+               :anchor-hash (block-hash anchor)
+               :pivot-number (block-header-number (block-header target))
+               :pivot-hash (block-hash target)
+               :last-number (block-header-number (block-header target))
+               :last-hash (block-hash target))))
+        (signals block-validation-error
+          (ethereum-lisp.node-store.persistence::node-store-populate-snap-skeleton-progress-batch
+           database (make-kv-write-batch) drifted)))
+      (kv-put-chain-record
+       database :metadata "snap-skeleton"
+       (rlp-encode (make-rlp-list 99)))
+      (signals block-validation-error
+        (ethereum-lisp.node-store.persistence:node-store-read-snap-skeleton-progress
+         database)))))

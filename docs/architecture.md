@@ -118,6 +118,53 @@ them by their physical location instead reintroduces dependency cycles:
   A dialed connection becomes a long-lived session on the SAME pump an accepted
   one gets, so both properties above hold identically in both directions.
 
+  Public synchronization is consensus bounded rather than peer-head driven.
+  Engine forkchoice or a buffered Engine payload names the target hash; the
+  coordinator may use peer announcements and range updates to wake itself, but
+  those messages cannot expand the authorized target. A fixed delivery window
+  (twice the active peer count), per-request wall-clock deadlines, peer scoring,
+  and failover keep memory and stalled-peer work independent of target height.
+  Every live connection still owns its cipher and all writes: downloader workers
+  submit requests through the session's bounded request queue, where the owning
+  pump prioritizes request/response work without starving chain updates. The
+  target hash is checked before the final block enters the import callback.
+  Header batches may be followed by a shorter, non-empty body or complete
+  receipt prefix, as permitted by real eth peers' soft response limits. The
+  accepted prefix is imported once and its exact suffix remains in the bounded
+  delivery window for retry; empty and overlong responses still fail closed.
+  Successful catch-up emits BlockRangeUpdate and NewBlockHashes through the
+  same session-owned outbound path.
+
+  `snap/1` is advertised only when both the verified client and the serving
+  backend are installed. The public direct RocksDB provider supplies that
+  backend; memory/file stores remain test oracles and do not claim production
+  snap service. A CL-authorized pivot binds the state download to target hash,
+  chain, genesis, and database authority. The account keyspace is split into
+  sixteen durable ranges matching pinned geth; one worker per available snap
+  peer fetches and verifies a 2 MiB-soft-limited page, while one coordinator
+  serializes trie merge and progress publication. A failed peer releases only
+  its claimed range for another worker. Account and storage ranges carry compact
+  boundary proofs, trie nodes are served by path set, and every page is verified
+  before its trie nodes, healed bytecode/storage, and per-range cursor are
+  committed in one batch. A crash can repeat content-addressed writes but cannot
+  advance any authoritative cursor past absent state. The pivot skeleton and
+  its cursor use the same rule. Bootstrap downloads only the pivot through the
+  CL target (at most 65 blocks), never the whole genesis-to-head body history.
+  After the pivot state root is reconstructed, a target-bound sparse canonical
+  checkpoint is installed in the same rollback boundary as its durable index;
+  the Engine target itself remains noncanonical until ordinary typed candidate
+  import executes the at-most-64-block tail and forkchoiceUpdated publishes it.
+
+  The wire boundary is bounded before object construction. Every RLP list
+  decoder has a context-specific item limit, negotiated message codes must fall
+  inside their capability's assigned range, and snap response counts and byte
+  budgets are capped. The eth/72 GetCells/Cells shapes and 128-bit custody mask
+  follow pinned geth: custody bits are little-endian within each byte, groups are
+  flat per transaction, responses must echo the requested mask, and both cell
+  count and encoded response bytes are bounded. Transaction gossip advances a
+  per-peer pending cursor only for hashes actually offered, so a burst larger
+  than one wire batch is retained rather than silently skipped.
+
   `eth-sync/backfill.lisp` fills a gap the other direction. Forward download
   works from a number we hold; a consensus client instead names a HASH somewhere
   ahead, and the chain may have reorged, so the block at our head plus one is not
@@ -133,6 +180,14 @@ them by their physical location instead reintroduces dependency cycles:
   its own endpoint by answering us, and FindNode or ENRRequest from an unbonded
   sender is refused outright, because both replies are far larger than the
   request and a forged one carries any source address the sender likes.
+
+  Public presets carry the canonical pinned discv4 bootnodes. A datadir owns a
+  stable node key and monotonically increasing ENR sequence, both created with
+  the same no-follow/exclusive/0600 file discipline as other node secrets.
+  `--nodiscover` disables both outbound crawling and discovery serving, while an
+  explicitly empty `--bootnodes` replaces (rather than supplements) preset
+  seeds. DNS discovery and automatic NAT modes are rejected at option parsing
+  until implementations exist; they are never accepted as no-op claims.
 
   Peer admission policy (`devnet/peer-table.lisp`) and dial scheduling
   (`devnet/dial-schedule.lisp`) live in the CLI rather than here, because a peer

@@ -10,7 +10,22 @@
 (defconstant +snap-protocol-version+ 1)
 (defconstant +snap-message-count+ 8)
 (defconstant +snap-max-message-size+ (* 10 1024 1024))
-(defconstant +snap-max-list-items+ 4096)
+(defconstant +snap-max-list-items+ 16384
+  "Per-list decode ceiling for snap/1 messages.
+
+This default applies to item-count-bounded messages. Account and storage ranges
+have larger message-specific ceilings because their primary bound is the 10 MiB
+snap frame and the request's geth-compatible two-MiB soft byte limit.")
+
+(defconstant +snap-max-account-items-per-range+ 65536
+  "AccountRange ceiling for a two-MiB request plus its one-item overshoot.")
+
+(defconstant +snap-max-storage-slots-per-range+ 131072
+  "Per-list ceiling used only while decoding StorageRanges.
+
+Geth may serve up to 10 percent beyond a requested two-MiB storage budget to
+avoid splitting a contract. The larger bound remains message-specific and is
+still constrained by the 10 MiB snap frame limit.")
 
 (defconstant +snap-message-get-account-range+ #x00)
 (defconstant +snap-message-account-range+ #x01)
@@ -94,11 +109,13 @@ response object. This is the only dependency snap serving has on state storage."
 (defun snap-list-object (items mapper)
   (apply #'make-rlp-list (mapcar mapper items)))
 
-(defun snap-fields (bytes expected name)
+(defun snap-fields (bytes expected name &key
+                                         (max-list-items
+                                           +snap-max-list-items+))
   (let ((fields
           (rlp-list-items
            (rlp-decode (ensure-byte-vector bytes)
-                       :max-list-items +snap-max-list-items+))))
+                       :max-list-items max-list-items))))
     (unless (= (length fields) expected)
       (error "~A must contain ~D fields" name expected))
     fields))
@@ -224,7 +241,9 @@ response object. This is the only dependency snap serving has on state storage."
         (snap-uint-field byte-limit))))
     (#x01
      (destructuring-bind (id accounts proof)
-         (snap-fields bytes 3 "AccountRange")
+         (snap-fields
+          bytes 3 "AccountRange"
+          :max-list-items +snap-max-account-items-per-range+)
        (make-snap-account-range
         (snap-uint-field id)
         (snap-list-field accounts #'snap-account-data-field)
@@ -241,7 +260,9 @@ response object. This is the only dependency snap serving has on state storage."
         (snap-uint-field byte-limit))))
     (#x03
      (destructuring-bind (id slots proof)
-         (snap-fields bytes 3 "StorageRanges")
+         (snap-fields
+          bytes 3 "StorageRanges"
+          :max-list-items +snap-max-storage-slots-per-range+)
        (make-snap-storage-ranges
         (snap-uint-field id)
         (snap-list-field

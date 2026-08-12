@@ -28,6 +28,89 @@ nothing would hold a thread and a descriptor indefinitely.")
 (defconstant +devnet-peer-accept-tick-seconds+ 1
   "How long one accept waits before returning to check for shutdown. Our policy.")
 
+#+sbcl
+(defstruct (devnet-peer-request-job
+            (:constructor make-devnet-peer-request-job (function)))
+  function
+  (lock (sb-thread:make-mutex :name "ethereum-lisp-peer-request-job"))
+  (changed (sb-thread:make-waitqueue :name "ethereum-lisp-peer-request-job"))
+  values
+  condition
+  done-p)
+
+#+sbcl
+(defstruct (devnet-peer-request-queue
+            (:constructor make-devnet-peer-request-queue ()))
+  (lock (sb-thread:make-mutex :name "ethereum-lisp-peer-request-queue"))
+  (pending '())
+  closed-p)
+
+#+sbcl
+(defun devnet-peer-request-job-finish (job values condition)
+  (sb-thread:with-mutex ((devnet-peer-request-job-lock job))
+    (setf (devnet-peer-request-job-values job) values
+          (devnet-peer-request-job-condition job) condition
+          (devnet-peer-request-job-done-p job) t)
+    (sb-thread:condition-broadcast
+     (devnet-peer-request-job-changed job))))
+
+#+sbcl
+(defun devnet-peer-request-queue-close (queue)
+  "Close QUEUE and fail every job not yet taken by the session writer."
+  (let ((pending nil))
+    (sb-thread:with-mutex ((devnet-peer-request-queue-lock queue))
+      (setf (devnet-peer-request-queue-closed-p queue) t
+            pending (prog1 (devnet-peer-request-queue-pending queue)
+                      (setf (devnet-peer-request-queue-pending queue) nil))))
+    (dolist (job pending)
+      (devnet-peer-request-job-finish
+       job nil
+       (make-condition 'simple-error
+                       :format-control "peer session closed"
+                       :format-arguments nil))))
+  t)
+
+#+sbcl
+(defun devnet-peer-request-queue-submit (queue function)
+  "Run FUNCTION on the queue's session writer and preserve all return values."
+  (unless (functionp function)
+    (error "Peer request job must be a function"))
+  (let ((job (make-devnet-peer-request-job function)))
+    (sb-thread:with-mutex ((devnet-peer-request-queue-lock queue))
+      (when (devnet-peer-request-queue-closed-p queue)
+        (error "peer session request queue is closed"))
+      (setf (devnet-peer-request-queue-pending queue)
+            (nconc (devnet-peer-request-queue-pending queue) (list job))))
+    (sb-thread:with-mutex ((devnet-peer-request-job-lock job))
+      (loop until (devnet-peer-request-job-done-p job)
+            do (sb-thread:condition-wait
+                (devnet-peer-request-job-changed job)
+                (devnet-peer-request-job-lock job))))
+    (when (devnet-peer-request-job-condition job)
+      (error (devnet-peer-request-job-condition job)))
+    (values-list (devnet-peer-request-job-values job))))
+
+#+sbcl
+(defun devnet-peer-pending-request (queue)
+  "Return a closure that hands the pump its next writer-owned request thunk."
+  (lambda ()
+    (let ((job
+            (sb-thread:with-mutex ((devnet-peer-request-queue-lock queue))
+              (pop (devnet-peer-request-queue-pending queue)))))
+      (when job
+        (lambda ()
+          (handler-case
+              (devnet-peer-request-job-finish
+               job
+               (multiple-value-list
+                (funcall (devnet-peer-request-job-function job)))
+               nil)
+            (serious-condition (condition)
+              (devnet-peer-request-job-finish job nil condition)
+              ;; A mid-frame fault makes the stream unusable. Wake the
+              ;; coordinator, then propagate so session teardown closes it.
+              (error condition))))))))
+
 (defun devnet-peer-manager-log (node event &rest fields)
   (telemetry-log :info event
                  :fields (loop for (key value) on fields by #'cddr
@@ -123,6 +206,11 @@ a dial knows who it is calling before it connects and so never reserves."
                            (lambda ()
                              (devnet-shutdown-requested-p shutdown-controller)))
                        :max-actions max-actions
+                       :pending-request
+                       (let ((queue (devnet-peer-entry-request-queue entry)))
+                         (and queue (devnet-peer-pending-request queue)))
+                       :pending-chain-update
+                       (devnet-peer-pending-chain-update node peer)
                        ;; Our own pool reaches this peer through here, as DATA
                        ;; the session loop sends -- never another thread.
                        :pending-broadcast pending-broadcast)
@@ -141,6 +229,8 @@ a dial knows who it is calling before it connects and so never reserves."
       ;; has stopped reading would block us here, and this runs on the path a
       ;; shutdown is waiting for. The dialer sends its own, gated, from outside.
       (when admitted
+        (let ((queue (devnet-peer-entry-request-queue admitted)))
+          (when queue (devnet-peer-request-queue-close queue)))
         (call-with-devnet-peer-table
          node
          (lambda ()
@@ -181,8 +271,10 @@ on the session thread rather than on the accept loop."
                           socket (devnet-node-node-key node) status
                           :chain-context chain-context
                           :serve-backend (devnet-peer-serve-backend node)
+                          :snap-backend (devnet-peer-snap-backend node)
                           :listen-port (or (devnet-node-p2p-port node) 0)))
                    (id-hex (node-id-to-hex (eth-peer-remote-public-key peer)))
+                   (request-queue (make-devnet-peer-request-queue))
                    (entry nil)
                    (verdict
                      (call-with-devnet-peer-table
@@ -202,7 +294,9 @@ on the session thread rather than on the accept loop."
                                     :socket socket
                                     :thread sb-thread:*current-thread*
                                     :eth-version (eth-peer-eth-version peer)
-                                    :client-id (eth-peer-remote-client-id peer))
+                                    :client-id (eth-peer-remote-client-id peer)
+                                    :peer peer
+                                    :request-queue request-queue)
                                    (unix-time)))
                             (unless entry (setf verdict :already-connected)))
                           verdict)))))
@@ -211,9 +305,13 @@ on the session thread rather than on the accept loop."
                     (devnet-peer-manager-log
                      node "p2p.peer.connected"
                      "id" id-hex "host" remote-host
-                     "eth" (eth-peer-eth-version peer))
+                     "eth" (eth-peer-eth-version peer)
+                     "snap"
+                     (or (ethereum-lisp.eth-sync:eth-peer-snap-version peer)
+                         0))
                     (values peer entry nil))
                   (progn
+                    (devnet-peer-request-queue-close request-queue)
                     (devnet-peer-manager-log node "p2p.peer.refused"
                                              "id" id-hex "reason" verdict)
                     (values peer nil verdict)))))))))

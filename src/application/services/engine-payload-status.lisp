@@ -89,8 +89,19 @@
       ((engine-payload-store-invalid-ancestor-status
         store head-hash head-hash))
       (t
-       (unless (chain-store-known-block store head-hash)
-         (engine-payload-store-put-forkchoice-sync-target store head-hash))
+       ;; A skeleton/header can already be durable after a restart while its
+       ;; pivot state is still unavailable.  That is still active sync work:
+       ;; registering only completely unknown heads makes the coordinator lose
+       ;; the CL target precisely after skeleton recovery. Forkchoice has one
+       ;; current head, so replace every abandoned target in either case.
+       (dolist (old (engine-payload-store-forkchoice-sync-targets store))
+         (unless (hash32= old head-hash)
+           (engine-payload-store-remove-forkchoice-sync-target store old)))
+       (let ((known (chain-store-known-block store head-hash)))
+         (engine-payload-store-put-forkchoice-sync-target
+          store head-hash
+          :block-number
+          (and known (block-header-number (block-header known)))))
        (make-payload-status :status +payload-status-syncing+)))))
 
 (defun engine-new-payload-memory-status

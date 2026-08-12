@@ -94,6 +94,9 @@
                       peers
                       bootnodes
                       node-key
+                      discovery-enabled-p
+                      enr-seq
+                      enr-seq-persistence-function
                       dial-registry
                       dial-guard-function
                       p2p-host
@@ -151,6 +154,8 @@
   peers
   bootnodes
   node-key
+  (discovery-enabled-p t)
+  enr-seq-persistence-function
   dial-registry
   dial-guard-function
   ;; Inbound peering. P2P-PORT NIL means no listener at all, which is the
@@ -412,6 +417,8 @@ WAL files rather than the single CRC-framed log file the default backend uses.")
 (defparameter +devnet-datadir-genesis-file+ "genesis.json")
 (defparameter +devnet-datadir-jwt-secret-file+ "jwtsecret")
 (defparameter +devnet-geth-datadir-directory+ "geth/")
+(defparameter +devnet-datadir-node-key-file+ "nodekey")
+(defparameter +devnet-datadir-enr-seq-file+ "enrseq")
 (defconstant +devnet-default-dev-gas-limit+ #x1c9c380)
 
 (defun devnet-cli-dev-genesis-json (&key

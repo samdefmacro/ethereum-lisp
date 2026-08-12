@@ -131,7 +131,9 @@
 
 (defun blob-transaction-from-rlp (bytes)
   (handler-case
-      (blob-transaction-from-rlp-object (rlp-decode-one bytes))
+      (blob-transaction-from-rlp-object
+       (rlp-decode-one
+        bytes :max-list-items +transaction-max-rlp-list-items+))
     (block-validation-error (condition)
       (error condition))
     (rlp-error (condition)
@@ -189,7 +191,8 @@
 
 (defun blob-network-transaction-from-rlp (bytes)
   "Decode a canonical blob transaction or its network sidecar wrapper."
-  (let ((value (rlp-decode-one bytes)))
+  (let ((value (rlp-decode-one
+                bytes :max-list-items +transaction-max-rlp-list-items+)))
     (unless (rlp-list-p value)
       (block-validation-fail "Blob transaction must be an RLP list"))
     (let ((fields (rlp-list-items value)))
@@ -240,7 +243,10 @@ Returns the canonical signed transaction and its sidecar as separate values."
       (block-validation-fail
        "Blob pooled transaction encoding must start with type 3"))
     (handler-case
-        (let ((value (rlp-decode-one (subseq bytes 1))))
+        (let ((value
+                (rlp-decode-one
+                 (subseq bytes 1)
+                 :max-list-items +transaction-max-rlp-list-items+)))
           (unless (rlp-list-p value)
             (block-validation-fail
              "Blob pooled transaction wrapper must be an RLP list"))

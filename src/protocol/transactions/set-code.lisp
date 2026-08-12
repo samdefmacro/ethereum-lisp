@@ -81,7 +81,8 @@
 
 (defun set-code-transaction-from-rlp (bytes)
   (handler-case
-      (let ((value (rlp-decode-one bytes)))
+      (let ((value (rlp-decode-one
+                    bytes :max-list-items +transaction-max-rlp-list-items+)))
         (unless (rlp-list-p value)
           (block-validation-fail
            "Set-code transaction payload must be an RLP list"))

@@ -109,13 +109,32 @@ Returns (VALUES CONNECTION SOCKET); the caller closes SOCKET when finished."
   "How we name ourselves to peers in the devp2p Hello, and to operators in
 admin_nodeInfo. One name for the node, in both places.")
 
+(defun eth-sync-default-capabilities (&key snap-enabled-p)
+  "Return the capabilities this session can honestly operate end to end."
+  (append
+   (mapcar (lambda (version)
+             (make-devp2p-capability "eth" version))
+           +eth-supported-protocol-versions+)
+   (when snap-enabled-p
+     (list (make-devp2p-capability "snap" +snap-protocol-version+)))))
+
+(defun eth-sync-session-capabilities
+    (capabilities capabilities-supplied-p snap-backend snap-client-enabled-p)
+  (let ((effective
+          (if capabilities-supplied-p
+              capabilities
+              (eth-sync-default-capabilities
+               :snap-enabled-p (and snap-backend snap-client-enabled-p)))))
+    (when (and (find "snap" effective
+                     :key #'devp2p-capability-name :test #'string=)
+               (not (and snap-backend snap-client-enabled-p)))
+      (error "snap/1 may be advertised only with an operational client and server"))
+    effective))
+
 (defun eth-sync-make-hello (private-key &key (client-id +eth-sync-client-id+)
                                              (listen-port 0)
                                              (capabilities
-                                              (mapcar (lambda (version)
-                                                        (make-devp2p-capability
-                                                         "eth" version))
-                                                      +eth-supported-protocol-versions+)))
+                                              (eth-sync-default-capabilities)))
   "Our devp2p Hello, for either side of a connection.
 
 LISTEN-PORT is the TCP port we accept inbound connections on; 0 tells the peer
@@ -131,7 +150,9 @@ not to dial us back, which is the right answer when we are not listening."
           (listen-port 0)
           chain-context
           serve-backend
-          capabilities)
+          snap-backend
+          (snap-client-enabled-p t)
+          (capabilities nil capabilities-supplied-p))
   "Run the recipient side of the RLPx, Hello, and eth Status handshake on an
 already-accepted SOCKET, returning the ETH-PEER.
 
@@ -140,15 +161,20 @@ accepted it and owns its lifetime, and it usually has cleanup of its own to run
 in the same place. The peer's static key is learned from the handshake, so
 nothing about the remote identity is known before this returns."
   (let ((connection (rlpx-accept-stream (eth-sync-socket-stream socket)
-                                        private-key)))
+                                        private-key))
+        (capabilities
+          (eth-sync-session-capabilities
+           capabilities capabilities-supplied-p
+           snap-backend snap-client-enabled-p)))
     (eth-peer-connect connection
-                      (apply #'eth-sync-make-hello private-key
-                             :client-id client-id
-                             :listen-port listen-port
-                             (when capabilities (list :capabilities capabilities)))
+                      (eth-sync-make-hello private-key
+                                           :client-id client-id
+                                           :listen-port listen-port
+                                           :capabilities capabilities)
                       our-status
                       :chain-context chain-context
-                      :serve-backend serve-backend)))
+                      :serve-backend serve-backend
+                      :snap-backend snap-backend)))
 
 (defun eth-sync-send-goodbye (connection reason)
   "Send a devp2p Disconnect for REASON, giving up rather than blocking.
@@ -187,11 +213,11 @@ socket either way, and the peer learns the same thing from the close."
           (listen-port 0)
           chain-context
           serve-backend
+          snap-backend
+          (snap-client-enabled-p t)
           socket
           stream-timeout-seconds
-          (capabilities (mapcar (lambda (version)
-                                  (make-devp2p-capability "eth" version))
-                                +eth-supported-protocol-versions+)))
+          (capabilities nil capabilities-supplied-p))
   "Dial HOST:PORT and run the full RLPx, devp2p Hello, and eth Status handshake
 as the initiator.
 
@@ -199,7 +225,11 @@ OUR-STATUS is the eth Status to advertise (see eth-build-status). CHAIN-CONTEXT,
 when supplied, enables the EIP-2124 fork-id check against the peer, and
 SERVE-BACKEND lets us answer the peer's own requests over the same connection.
 Returns (VALUES ETH-PEER SOCKET); the caller closes SOCKET when finished."
-  (multiple-value-bind (connection socket)
+  (let ((capabilities
+          (eth-sync-session-capabilities
+           capabilities capabilities-supplied-p
+           snap-backend snap-client-enabled-p)))
+   (multiple-value-bind (connection socket)
       (eth-sync-open-connection host port private-key remote-public-key
                                 :socket socket
                                 :stream-timeout-seconds stream-timeout-seconds)
@@ -212,8 +242,9 @@ Returns (VALUES ETH-PEER SOCKET); the caller closes SOCKET when finished."
                                       :capabilities capabilities)
                  our-status
                  :chain-context chain-context
-                 :serve-backend serve-backend)
+                 :serve-backend serve-backend
+                 :snap-backend snap-backend)
                 socket)
       (error (condition)
         (ignore-errors (sb-bsd-sockets:socket-close socket))
-        (error condition)))))
+        (error condition))))))

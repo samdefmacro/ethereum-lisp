@@ -39,6 +39,17 @@ state, as the handshake initialises them."
       (is (string= "eth" (ethereum-lisp.p2p:devp2p-capability-name eth)))
       (is (= 68 (ethereum-lisp.p2p:devp2p-capability-version eth))))))
 
+(deftest devp2p-hello-rejects-an-unbounded-capability-list
+  (:layer :unit :module :p2p)
+  (let ((hello
+          (make-devp2p-hello
+           :client-id "bounded"
+           :capabilities
+           (loop repeat 65 collect (make-devp2p-capability "eth" 72))
+           :node-id (make-byte-vector 64))))
+    (signals rlp-error
+      (decode-devp2p-hello (encode-devp2p-hello hello)))))
+
 (deftest devp2p-disconnect-round-trips
   (is (= 4 (decode-devp2p-disconnect (encode-devp2p-disconnect 4))))
   ;; An empty body decodes to "disconnect requested".

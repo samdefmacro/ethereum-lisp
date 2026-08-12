@@ -49,6 +49,8 @@
          (dialer-error nil)
          (dialer-thread nil)
          (dialer-sessions nil)
+         (sync-coordinator-error nil)
+         (sync-coordinator-thread nil)
          (discovery-error nil)
          (discovery-thread nil)
          (discovery-server-error nil)
@@ -118,6 +120,11 @@
        shutdown-controller
        (lambda (condition)
          (setf dialer-error condition))))
+    (setf sync-coordinator-thread
+          (devnet-start-sync-coordinator-thread
+           node shutdown-controller
+           (lambda (condition)
+             (setf sync-coordinator-error condition))))
     (setf discovery-thread
           (devnet-start-discovery-thread
            node
@@ -224,6 +231,16 @@
         (when dev-period-thread
           (devnet-shutdown-request shutdown-controller)
           (sb-thread:join-thread dev-period-thread))
+        (when sync-coordinator-thread
+          (devnet-shutdown-request shutdown-controller)
+          (when (eq :timeout
+                    (sb-thread:join-thread sync-coordinator-thread
+                                           :timeout 15 :default :timeout))
+            (ignore-errors
+             (sb-thread:terminate-thread sync-coordinator-thread))
+            (ignore-errors
+             (sb-thread:join-thread sync-coordinator-thread
+                                    :timeout 5 :default :timeout))))
         (when dialer-thread
           ;; Peer sockets are registered closeables, so the shutdown request
           ;; closes them and the sessions unblock on their own; the bounds are
@@ -309,6 +326,8 @@
         (error p2p-error))
       (when dialer-error
         (error dialer-error))
+      (when sync-coordinator-error
+        (error sync-coordinator-error))
       (when discovery-server-error
         (error discovery-server-error))
       (when rejournal-error

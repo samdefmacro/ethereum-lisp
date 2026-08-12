@@ -908,3 +908,81 @@
       (is (chain-store-known-block restored (block-hash persisted-head)))
       (is (not (chain-store-transaction-location
                 restored transaction-hash))))))
+
+(deftest node-store-snap-pivot-export-is-a-bounded-restartable-delta
+  (:layer :integration :module :persistence)
+  (multiple-value-bind (source config parent pivot)
+      (block-import-test-fixture)
+    (import-block-candidate source pivot config)
+    (let* ((pivot-hash (block-hash pivot))
+           (target
+             (execute-signed-block
+              (chain-store-state-db source pivot-hash)
+              '()
+              :expected-chain-id 1
+              :header
+              (make-block-header
+               :parent-hash pivot-hash
+               :beneficiary (zero-address)
+               :mix-hash (zero-hash32)
+               :number 2
+               :gas-limit 30000000
+               :timestamp 2
+               :base-fee-per-gas
+               (expected-base-fee-per-gas (block-header pivot)))
+              :chain-config config
+              :withdrawals '()))
+           (target-hash (block-hash target))
+           (database (make-forkchoice-delta-test-database))
+           (authority-id (peer-sync-progress-test-authority-id))
+           (metadata
+             (ethereum-lisp.node-store.persistence:make-node-store-persistence-metadata
+              :role :database :generation 1 :chain-id 1
+              :genesis-hash (block-hash parent)
+              :authority-id authority-id :base-chain-generation 1)))
+      (engine-payload-store-put-block
+       source target :state-available-p nil :canonicalize-p nil)
+      (node-store-export-to-kv
+       source database :persistence-metadata metadata)
+      (ethereum-lisp.node-store.persistence:node-store-export-snap-skeleton-batch-to-kv
+       database (list pivot target)
+       (ethereum-lisp.node-store.persistence:make-node-store-snap-skeleton-progress
+        :authority-id authority-id :chain-id 1
+        :genesis-hash (block-hash parent)
+        :target-number 2 :target-hash target-hash
+        :anchor-number 0 :anchor-hash (block-hash parent)
+        :pivot-number 1 :pivot-hash pivot-hash
+        :last-number 2 :last-hash target-hash))
+      (let ((direct (make-database-engine-payload-store database)))
+        (ethereum-lisp.txpool:engine-payload-store-enable-txpool-database-change-tracking
+         direct)
+        (unwind-protect
+             (progn
+               ;; The sparse pivot path must not scan every skipped height or
+               ;; any database prefix on its hot publication boundary.
+               (setf (forkchoice-delta-test-database-forbid-iteration-p
+                      database)
+                     t)
+               (install-forkchoice-sync-pivot
+                direct pivot-hash target-hash config
+                :consensus-authorized-p t
+                :durability-function
+                (lambda (callback-store transition
+                         &key sync-pivot-target-hash)
+                  (node-store-export-forkchoice-to-kv
+                   callback-store transition database
+                   :persistence-metadata
+                   (ethereum-lisp.node-store.persistence:make-node-store-persistence-metadata
+                    :role :database :generation 2 :chain-id 1
+                    :genesis-hash (block-hash parent)
+                    :authority-id authority-id :base-chain-generation 2)
+                   :sync-pivot-target-hash sync-pivot-target-hash))))
+          (setf (forkchoice-delta-test-database-forbid-iteration-p database)
+                nil)))
+      (let ((restored (make-database-engine-payload-store database)))
+        (is (= 1 (chain-store-head-number restored)))
+        (is (hash32= pivot-hash (chain-store-canonical-hash restored 1)))
+        (is (null (chain-store-canonical-hash restored 2)))
+        (is (chain-store-state-available-p restored pivot-hash))
+        (is (chain-store-known-block restored target-hash))
+        (is (not (chain-store-state-available-p restored target-hash)))))))

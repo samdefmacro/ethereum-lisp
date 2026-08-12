@@ -672,6 +672,69 @@ never converted into INVALID payload verdicts."
                  :progress progress)
         (funcall function store transition))))
 
+(defconstant +block-import-maximum-snap-tail-length+ 64)
+
+(defun install-forkchoice-sync-pivot
+    (store pivot-or-hash target-or-hash config
+     &key consensus-authorized-p durability-function)
+  "Atomically install a sparse snap pivot anchored by an Engine target.
+
+TARGET-OR-HASH is the head hash previously supplied by a consensus client.
+Every header from the pivot through that target must already be known, so the
+target hash cryptographically commits to the pivot.  The pivot's verified state
+must also be available, and the executable tail is capped at 64 blocks.
+
+This operation is not a general canonicalization escape hatch.  Its sole
+production caller sets CONSENSUS-AUTHORIZED-P only after matching durable snap
+skeleton/state progress to the current Engine target.  DURABILITY-FUNCTION is
+called last and receives :SYNC-PIVOT-TARGET-HASH; any failure rolls the sparse
+canonical view back.  The target itself remains noncanonical until a later
+forkchoiceUpdated publication succeeds normally."
+  (block-import-ensure-function durability-function
+                                "Snap pivot durability callback")
+  (unless consensus-authorized-p
+    (block-validation-fail
+     "Snap pivot installation requires explicit Engine target authority"))
+  (unless durability-function
+    (block-validation-fail
+     "Snap pivot installation requires durable target-bound evidence"))
+  (let ((pivot-hash (block-import-normalize-block-hash pivot-or-hash))
+        (target-hash (block-import-normalize-block-hash target-or-hash)))
+    (chain-store-atomic-commit
+     store
+     (lambda ()
+       (let ((pivot (chain-store-known-block store pivot-hash))
+             (target (chain-store-known-block store target-hash)))
+         (unless pivot
+           (block-validation-fail "Snap pivot block must be known"))
+         (unless target
+           (block-validation-fail "Snap target block must be known"))
+         (let ((pivot-number
+                 (block-header-number (block-header pivot)))
+               (target-number
+                 (block-header-number (block-header target))))
+           (unless (and (<= pivot-number target-number)
+                        (<= (- target-number pivot-number)
+                            +block-import-maximum-snap-tail-length+))
+             (block-validation-fail
+              "Snap target executable tail exceeds 64 blocks"))
+           (unless (engine-payload-store-ancestor-p
+                    store pivot-hash target-hash)
+             (block-validation-fail
+              "Snap pivot is not an ancestor of the Engine target"))
+           (unless (chain-store-state-available-p store pivot-hash)
+             (block-validation-fail
+              "Snap pivot state must be available"))
+           (multiple-value-bind (head transition)
+               (canonical-chain-install-sync-checkpoint
+                store pivot-hash
+                :expected-chain-id (chain-config-chain-id config)
+                :chain-config config)
+             (funcall durability-function
+                      store transition
+                      :sync-pivot-target-hash target-hash)
+             (values head transition))))))))
+
 (defun block-import-publish-canonical
     (store block-or-hash config authority forkchoice-state
      local-dev-authorized-p durability-function finality-prune-function

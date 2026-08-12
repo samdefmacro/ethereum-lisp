@@ -1,5 +1,7 @@
 (in-package #:ethereum-lisp.blocks)
 
+(defconstant +block-max-rlp-list-items+ 65536)
+
 (defun block-header-from-rlp-object (value)
   (let ((fields (rlp-list-field value "Block header")))
     (unless (member (length fields) '(15 16 17 20 21 22 23))
@@ -58,7 +60,8 @@
        (rlp-uint-field (nth 22 fields) "Header slot number")))))
 
 (defun block-header-from-rlp (bytes)
-  (block-header-from-rlp-object (rlp-decode-one bytes)))
+  (block-header-from-rlp-object
+   (rlp-decode-one bytes :max-list-items 23)))
 
 (defun withdrawal-from-rlp-object (value)
   (let ((fields (rlp-list-field value "Withdrawal")))
@@ -72,24 +75,33 @@
      :amount (rlp-uint-field (fourth fields) "Withdrawal amount"))))
 
 (defun block-transactions-from-rlp-object (value)
-  (mapcar
-   (lambda (transaction)
-     (transaction-from-encoding
-      (if (rlp-list-p transaction)
-          (rlp-encode transaction)
-          (rlp-bytes-field transaction "Block transaction"))))
-   (rlp-list-field value "Block transactions")))
+  (let ((transactions (rlp-list-field value "Block transactions")))
+    (when (> (length transactions) +block-max-rlp-list-items+)
+      (block-validation-fail "Block contains too many transactions"))
+    (mapcar
+     (lambda (transaction)
+       (transaction-from-encoding
+        (if (rlp-list-p transaction)
+            (rlp-encode transaction)
+            (rlp-bytes-field transaction "Block transaction"))))
+     transactions)))
 
 (defun block-ommers-from-rlp-object (value)
-  (mapcar #'block-header-from-rlp-object
-          (rlp-list-field value "Block ommers")))
+  (let ((ommers (rlp-list-field value "Block ommers")))
+    (when (> (length ommers) 2)
+      (block-validation-fail "Block contains more than two ommers"))
+    (mapcar #'block-header-from-rlp-object ommers)))
 
 (defun block-withdrawals-from-rlp-object (value)
-  (mapcar #'withdrawal-from-rlp-object
-          (rlp-list-field value "Block withdrawals")))
+  (let ((withdrawals (rlp-list-field value "Block withdrawals")))
+    (when (> (length withdrawals) 16)
+      (block-validation-fail "Block contains more than 16 withdrawals"))
+    (mapcar #'withdrawal-from-rlp-object withdrawals)))
 
 (defun block-from-rlp (bytes)
-  (let* ((decoded (rlp-decode-one bytes))
+  (let* ((decoded
+           (rlp-decode-one
+            bytes :max-list-items +block-max-rlp-list-items+))
          (items (rlp-list-field decoded "Block")))
     (unless (member (length items) '(3 4))
       (block-validation-fail "Block RLP must contain 3 or 4 fields"))

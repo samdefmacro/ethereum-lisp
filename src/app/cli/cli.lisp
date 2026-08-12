@@ -80,7 +80,23 @@
    :txpool-rejournal-seconds (getf options :txpool-rejournal-seconds)
    :peers (getf options :peers)
    :bootnodes (getf options :bootnodes)
-   :node-key (getf options :node-key)
+   :node-key
+   (or (getf options :node-key)
+       (and (getf options :datadir-path)
+            (devnet-cli-read-node-key
+             (devnet-cli-datadir-node-key-path
+              (getf options :datadir-path)))))
+   :discovery-enabled-p (getf options :discovery-enabled-p)
+   :enr-seq
+   (if (getf options :datadir-path)
+       (devnet-cli-load-next-enr-seq
+        (devnet-cli-datadir-enr-seq-path (getf options :datadir-path)))
+       1)
+   :enr-seq-persistence-function
+   (when (getf options :datadir-path)
+     (let ((path (devnet-cli-datadir-enr-seq-path
+                  (getf options :datadir-path))))
+       (lambda (sequence) (devnet-cli-write-enr-seq path sequence))))
    :p2p-port (getf options :p2p-port)
    :max-peers (getf options :max-peers)
    :metrics (getf options :metrics)

@@ -139,8 +139,10 @@
 (deftest devnet-dial-plan-is-deterministic-and-bounded
   (:layer :unit :module :devnet)
   (multiple-value-bind (registry table) (dial-test-registry :max-peers 9)
-    ;; Configured peers come before discovered ones whatever the insert order.
+    ;; Configured peers come before bootnodes, then discovered peers, whatever
+    ;; the insert order.
     (ethereum-lisp.cli:devnet-dial-registry-offer-dynamic registry "d1" "enode://d1@127.0.0.1:1")
+    (ethereum-lisp.cli:devnet-dial-registry-put-bootstrap registry "b1" "enode://b1@127.0.0.1:1")
     (ethereum-lisp.cli:devnet-dial-registry-put-static registry "s2" "enode://s2@127.0.0.1:1")
     (ethereum-lisp.cli:devnet-dial-registry-offer-dynamic registry "d0" "enode://d0@127.0.0.1:1")
     (ethereum-lisp.cli:devnet-dial-registry-put-static registry "s1" "enode://s1@127.0.0.1:1")
@@ -148,7 +150,7 @@
                         (ethereum-lisp.cli:devnet-dial-registry-plan registry table 0))))
       ;; Three slots, statics first, ties broken by identity so the order never
       ;; depends on hash iteration.
-      (is (equal '("s1" "s2" "d0") plan)))
+      (is (equal '("s1" "s2" "b1") plan)))
     ;; Claiming the plan marks every candidate, so a second call plans nothing.
     (let ((claimed (ethereum-lisp.cli:devnet-dial-registry-claim-plan registry table 0)))
       (is (= 3 (length claimed)))
@@ -162,15 +164,19 @@
   (multiple-value-bind (registry table) (dial-test-registry :base 10)
     (declare (ignore table))
     (ethereum-lisp.cli:devnet-dial-registry-offer-dynamic registry "d1" "enode://d1@127.0.0.1:1")
+    (ethereum-lisp.cli:devnet-dial-registry-put-bootstrap registry "b1" "enode://b1@127.0.0.1:1")
     (ethereum-lisp.cli:devnet-dial-registry-put-static registry "s1" "enode://s1@127.0.0.1:1")
     ;; Fail both past the forget threshold.
     (dotimes (i (1+ ethereum-lisp.cli:+devnet-dial-dynamic-forget-failures+))
-      (dolist (id '("d1" "s1"))
+      (dolist (id '("d1" "b1" "s1"))
         (ethereum-lisp.cli:devnet-dial-registry-mark-dialing registry id (* i 1000))
         (ethereum-lisp.cli:devnet-dial-registry-mark-done registry id (* i 1000) :outcome :failed)))
     (is (= 1 (ethereum-lisp.cli:devnet-dial-registry-expire registry 100000)))
     ;; The discovered one is gone; the operator's stays, however often it fails.
     (is (null (ethereum-lisp.cli:devnet-dial-registry-candidate registry "d1")))
+    (is (eq :bootstrap
+            (ethereum-lisp.cli:devnet-dial-candidate-kind
+             (ethereum-lisp.cli:devnet-dial-registry-candidate registry "b1"))))
     (is (ethereum-lisp.cli:devnet-dial-registry-candidate registry "s1"))
     ;; A candidate still cooling down is not expired even if it has failed a lot.
     (ethereum-lisp.cli:devnet-dial-registry-offer-dynamic registry "d2" "enode://d2@127.0.0.1:1")
@@ -194,6 +200,23 @@
         (is (eq :static (ethereum-lisp.cli:devnet-dial-candidate-kind candidate)))
         (is (= 1 (ethereum-lisp.cli:devnet-dial-candidate-failures candidate)))
         (is (= before (ethereum-lisp.cli:devnet-dial-candidate-next-eligible-at candidate)))))))
+
+(deftest devnet-dial-scheduler-offers-bootnodes-as-fallback-peers
+  (:layer :unit :module :devnet)
+  (let* ((key #xb71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291)
+         (id (secp256k1-private-key-public-key key))
+         (enode (ethereum-lisp.p2p:enode-url id "127.0.0.1" 30303))
+         (node (ethereum-lisp.cli:make-devnet-node
+                :genesis-json *eth-sync-paris-genesis-json*
+                :port 0 :public-port 0 :max-peers 3
+                :bootnodes (list enode))))
+    (let ((plan (ethereum-lisp.cli:devnet-dial-scheduler-pass node)))
+      (is (= 1 (length plan)))
+      (is (eq :bootstrap
+              (ethereum-lisp.cli:devnet-dial-candidate-kind (first plan))))
+      (is (string= (node-id-to-hex id)
+                   (ethereum-lisp.cli:devnet-dial-candidate-id-hex
+                    (first plan)))))))
 
 ;;;; The dialer end to end. Every join below is bounded and asserted on: the
 ;;;; unit and integration layers have no per-test timeout, so a test that can

@@ -63,6 +63,8 @@ Commands:
   cold-test LAYER    Run unit, integration, e2e, or all in a fresh container
   cold-docs          Verify PAX transcripts in a fresh container
   cold-scale         Run the production-store scale gate in containers
+  runtime-build TAG  Build the reviewed non-root Dockerfile.runtime image
+  runtime-smoke TAG  Run the reviewed runtime image smoke gate
   logs               Show the dev container's output
   build              Build the dev image
   shell              Open an interactive shell in the dev container
@@ -82,6 +84,8 @@ Environment:
                                test-all: 3600); on timeout the form is
                                interrupted and the image survives
   DEV_EVAL_MAX_OUTPUT          Output cap in chars, default 10000
+  RUNTIME_PLATFORM             Optional runtime-build target: linux/amd64 or
+                               linux/arm64 (defaults to Docker's native target)
 Eval exit codes: 0 ok, 1 lisp error, 2 connection error, 3 timed out
 (interrupted), 4 hard hang (restart the image). Common Lisp Workbench records
 payload-free operation outcomes in .cl-workbench/state; it does not append raw
@@ -627,6 +631,57 @@ cold_scale() {
   run_cold_scale_gate
 }
 
+validate_runtime_image() {
+  [ "$#" -eq 1 ] || return 2
+  local image="$1"
+  [ -n "$image" ] || {
+    echo "ERROR: runtime image name must not be empty" >&2
+    return 2
+  }
+  case "$image" in
+    *[!A-Za-z0-9_.:/+-]*)
+      echo "ERROR: unsafe runtime image name: $image" >&2
+      return 2
+      ;;
+  esac
+}
+
+runtime_build() {
+  [ "$#" -le 1 ] || {
+    echo "ERROR: runtime-build accepts at most one image tag" >&2
+    return 2
+  }
+  local image="${1:-ethereum-lisp-runtime:local}"
+  local platform="${RUNTIME_PLATFORM:-}"
+  validate_runtime_image "$image" || return $?
+  case "$platform" in
+    ""|linux/amd64|linux/arm64) ;;
+    *)
+      echo "ERROR: unsupported runtime platform: $platform" >&2
+      return 2
+      ;;
+  esac
+  echo "Building reviewed runtime image $image ..."
+  local args=(build)
+  [ -z "$platform" ] || args+=(--platform "$platform")
+  "$DOCKER" "${args[@]}" \
+    --label "$PROJECT_LABEL=ethereum-lisp" \
+    --file "$ROOT/Dockerfile.runtime" \
+    --tag "$image" \
+    --build-arg "REVISION=$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo unknown)" \
+    "$ROOT"
+}
+
+runtime_smoke() {
+  [ "$#" -le 1 ] || {
+    echo "ERROR: runtime-smoke accepts at most one image tag" >&2
+    return 2
+  }
+  local image="${1:-ethereum-lisp-runtime:local}"
+  validate_runtime_image "$image" || return $?
+  "$ROOT/scripts/hive-runtime-smoke.sh" "$image"
+}
+
 show_logs() {
   require_owned_container
   "$DOCKER" logs "$CONTAINER" "$@"
@@ -654,6 +709,8 @@ case "$cmd" in
   cold-test) cold_test "$@" ;;
   cold-docs) cold_docs "$@" ;;
   cold-scale) cold_scale "$@" ;;
+  runtime-build) runtime_build "$@" ;;
+  runtime-smoke) runtime_smoke "$@" ;;
   logs) show_logs "$@" ;;
   shell) open_shell ;;
   help|-h|--help) usage ;;

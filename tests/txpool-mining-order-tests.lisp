@@ -216,3 +216,38 @@ transaction the effective tip is simply the gas price less the base fee."
           (is (= 1 (length offered)))
           (is (bytes= (transaction-encoding queued-transaction)
                       (transaction-encoding (first offered)))))))))
+
+(deftest devnet-broadcast-retains-a-burst-past-the-wire-batch-limit
+  (:layer :unit :module :devnet)
+  (let* ((node (ethereum-lisp.cli:make-devnet-node
+                :genesis-json *eth-sync-paris-genesis-json*
+                :port 0 :public-port 0))
+         (store (ethereum-lisp.cli:devnet-node-store node))
+         (pending (ethereum-lisp.cli::devnet-peer-pending-broadcast node))
+         (count (+ ethereum-lisp.cli::+devnet-broadcast-batch-limit+ 17))
+         (transactions
+           (loop for private-key from 1 to count
+                 collect (mining-order-test-transaction
+                          private-key 0 (+ 1000 private-key)))))
+    (dolist (transaction transactions)
+      (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
+       store transaction))
+    (let* ((first (funcall pending))
+           (second (funcall pending))
+           (offered (append first second)))
+      (is (= ethereum-lisp.cli::+devnet-broadcast-batch-limit+
+             (length first)))
+      (is (= 17 (length second)))
+      (is (= count (length offered)))
+      (is (= count
+             (length
+              (remove-duplicates
+               (mapcar (lambda (entry)
+                         (bytes-to-hex
+                          (hash32-bytes
+                           (transaction-hash
+                            (ethereum-lisp.eth-wire:eth-pooled-entry-transaction
+                             entry)))))
+                       offered)
+               :test #'string=))))
+      (is (null (funcall pending))))))

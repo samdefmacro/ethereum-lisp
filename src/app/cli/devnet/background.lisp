@@ -211,7 +211,10 @@ stale advertisement that gets a node filtered out."
                       (eth-chain-context-record-pairs chain-context)))))
       (unless (equalp pairs (devnet-node-enr-pairs node))
         (when (devnet-node-enr-pairs node)
-          (incf (devnet-node-enr-seq node)))
+          (let ((next (1+ (devnet-node-enr-seq node))))
+            (when (devnet-node-enr-seq-persistence-function node)
+              (funcall (devnet-node-enr-seq-persistence-function node) next))
+            (setf (devnet-node-enr-seq node) next)))
         (setf (devnet-node-enr-pairs node) pairs))
       pairs)))
 
@@ -248,7 +251,7 @@ crawl is logged and retried; only an escaping error is fail-stop."
   nil
   #+sbcl
   (let ((bootnodes (devnet-node-bootnodes node)))
-    (when bootnodes
+    (when (and (devnet-node-discovery-enabled-p node) bootnodes)
       (sb-thread:make-thread
        (lambda ()
          (handler-case
@@ -333,7 +336,6 @@ policy.")
 Every branch is guarded by the sender having proved its endpoint, except Ping
 itself -- which is how a sender proves it. A packet we cannot decode is dropped:
 an unsigned or malformed datagram is not something to answer."
-  (declare (ignore port))
   (multiple-value-bind (type data sender) (decode-discv4-packet packet)
     (let ((now (unix-time)))
       (cond
@@ -429,7 +431,7 @@ be a liveness bug."
   nil
   #+sbcl
   (let ((port (devnet-node-p2p-port node)))
-    (when port
+    (when (and (devnet-node-discovery-enabled-p node) port)
       (let* ((private-key (devnet-node-node-key node))
              (table (devnet-node-discovery-table node))
              (socket (discv4-make-socket

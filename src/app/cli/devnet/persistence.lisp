@@ -122,7 +122,9 @@
 (defun devnet-cli-forkchoice-persistence-function
     (database-path persistence-state &optional (engine :file))
   (when database-path
-    (lambda (store transition)
+    (lambda (store transition
+             &key (sync-pivot-target-hash nil
+                    sync-pivot-target-supplied-p))
       ;; Export validation and database-corruption conditions pass through and
       ;; fail-stop.  Only an actual write/open/rename stream failure becomes a
       ;; STORAGE-ERROR eligible for dev-period retry.
@@ -135,11 +137,12 @@
            (devnet-cli-call-with-retryable-file-write
             "Forkchoice persistence"
             (lambda ()
-              (node-store-export-forkchoice-to-kv
-               store
-               transition
-               database
-               :persistence-metadata metadata)))))))))
+              (apply #'node-store-export-forkchoice-to-kv
+                     store transition database
+                     :persistence-metadata metadata
+                     (when sync-pivot-target-supplied-p
+                       (list :sync-pivot-target-hash
+                             sync-pivot-target-hash)))))))))))
 
 (defun devnet-cli-existing-persistence-database (path &optional (engine :file))
   (when path

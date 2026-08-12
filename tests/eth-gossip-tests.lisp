@@ -450,6 +450,51 @@ given, is a predicate marking transactions the pool turns down."
     (is stored-sidecar)
     (is (eq transaction accepted))))
 
+(deftest eth-72-pooled-blob-with-omitted-payload-does-not-drop-the-peer
+  (:layer :unit :module :p2p)
+  (let* ((commitment (make-byte-vector +kzg-commitment-size+))
+         (transaction
+           (make-blob-transaction
+            :chain-id 1
+            :to (address-from-hex
+                 "0x0000000000000000000000000000000000003001")
+            :blob-versioned-hashes
+            (list (kzg-commitment-to-versioned-hash commitment))))
+         (fragment
+           (make-blob-sidecar
+            :blobs '()
+            :commitments (list commitment)
+            :proofs
+            (loop repeat +cell-proofs-per-blob+
+                  collect (make-byte-vector +kzg-proof-size+))))
+         (accepted 0)
+         (stored 0)
+         (backend
+           (make-eth-serve-backend
+            :accept-transaction
+            (lambda (value) (declare (ignore value)) (incf accepted))
+            :accept-blob-sidecar
+            (lambda (value) (declare (ignore value)) (incf stored))))
+         (peer (ethereum-lisp.eth-sync::%make-eth-peer
+                :eth-version ethereum-lisp.eth-wire:+eth-protocol-version-72+
+                :serve-backend backend))
+         (payload
+           (ethereum-lisp.eth-wire:encode-eth-pooled-transactions
+            77 (list (make-blob-network-transaction transaction fragment)))))
+    ;; Geth's eth/72 network encoder sends exactly this shape: commitments and
+    ;; 128 cell proofs remain, while the blob list is empty and GetCells carries
+    ;; the payload later. It is valid framing, but not yet a poolable sidecar.
+    (is (ethereum-lisp.eth-sync:eth-peer-gossip-message
+         peer ethereum-lisp.eth-wire:+eth-message-pooled-transactions+ payload))
+    (is (zerop accepted))
+    (is (zerop stored))
+    ;; The same payload is not valid before eth/72's GetCells semantics.
+    (setf (ethereum-lisp.eth-sync:eth-peer-eth-version peer)
+          ethereum-lisp.eth-wire:+eth-protocol-version-71+)
+    (signals block-validation-error
+      (ethereum-lisp.eth-sync:eth-peer-gossip-message
+       peer ethereum-lisp.eth-wire:+eth-message-pooled-transactions+ payload))))
+
 (deftest eth-gossip-serves-only-the-pooled-transactions-it-has
   (:layer :unit :module :p2p)
   (let* ((held (eth-gossip-test-transaction 1))

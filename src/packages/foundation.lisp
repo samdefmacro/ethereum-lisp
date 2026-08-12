@@ -270,6 +270,7 @@
    #:mpt-populate-dirty-batch
    #:mpt-mark-nodes-persisted
    #:trie-node-store-get
+   #:mpt-get-node-by-compact-path
    #:make-mpt-iterator
    #:mpt-get-range-proof
    #:mpt-verify-range-proof))

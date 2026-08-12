@@ -1,12 +1,700 @@
 (in-package #:ethereum-lisp.test)
 
+(defclass snap-failing-test-database (memory-key-value-database)
+  ((fail-next-apply-p
+    :initform nil
+    :accessor snap-failing-test-database-fail-next-apply-p)))
+
+(defmethod kv-apply-batch :around
+    ((database snap-failing-test-database) (batch kv-write-batch))
+  (if (snap-failing-test-database-fail-next-apply-p database)
+      (progn
+        (setf (snap-failing-test-database-fail-next-apply-p database) nil)
+        (error "Simulated snap progress batch failure"))
+      (call-next-method)))
+
+(defclass snap-counting-test-database (memory-key-value-database)
+  ((apply-count :initform 0 :accessor snap-counting-test-database-apply-count)
+   (batch-sizes :initform '()
+                :accessor snap-counting-test-database-batch-sizes)
+   (batch-prefixes :initform '()
+                   :accessor snap-counting-test-database-batch-prefixes)))
+
+(defmethod kv-apply-batch :around
+    ((database snap-counting-test-database) (batch kv-write-batch))
+  (incf (snap-counting-test-database-apply-count database))
+  (push (length (ethereum-lisp.database::kv-write-batch-operations batch))
+        (snap-counting-test-database-batch-sizes database))
+  (push
+   (mapcar
+    (lambda (operation) (aref (second operation) 0))
+    (reverse
+     (ethereum-lisp.database::kv-write-batch-operations batch)))
+   (snap-counting-test-database-batch-prefixes database))
+  (call-next-method))
+
 (defun snap-test-hash (byte)
   (make-array 32 :element-type '(unsigned-byte 8) :initial-element byte))
+
+(defun snap-test-install-persistence-metadata
+    (database chain-id genesis-hash authority-id)
+  (let ((batch (make-kv-write-batch)))
+    (ethereum-lisp.node-store.persistence::node-store-populate-persistence-metadata-batch
+     batch
+     (ethereum-lisp.node-store.persistence:make-node-store-persistence-metadata
+      :role :database :generation 1 :chain-id chain-id
+      :genesis-hash genesis-hash :authority-id authority-id
+      :base-chain-generation 1))
+    (kv-apply-batch database batch))
+  database)
+
+(defun snap-test-address-from-integer (value)
+  (let* ((minimal (integer-to-minimal-bytes value))
+         (bytes (make-byte-vector 20)))
+    (replace bytes minimal :start1 (- 20 (length minimal)))
+    (make-address bytes)))
+
+(defun snap-test-partitioned-state ()
+  "Return a state with at least one account in every high-nibble hash range."
+  (let ((state (make-state-db))
+        (seen (make-array 16 :initial-element nil))
+        (addresses '())
+        (found 0))
+    (loop for candidate from 1
+          until (= found 16)
+          do (let* ((address (snap-test-address-from-integer candidate))
+                    (hash (keccak-256 (address-bytes address)))
+                    (partition (ash (aref hash 0) -4)))
+               (unless (aref seen partition)
+                 (setf (aref seen partition) t)
+                 (incf found)
+                 (push address addresses)
+                 (state-db-set-account
+                  state address
+                  (make-state-account
+                   :nonce candidate :balance (+ 1000 candidate))))))
+    (values state (nreverse addresses))))
+
+(defun snap-test-source-with-account-callback (base-source callback)
+  (ethereum-lisp.snap-sync:make-snap-sync-source
+   :account-range callback
+   :storage-ranges
+   (ethereum-lisp.snap-sync:snap-sync-source-storage-ranges base-source)
+   :bytecodes (ethereum-lisp.snap-sync:snap-sync-source-bytecodes base-source)
+   :trie-nodes
+   (ethereum-lisp.snap-sync:snap-sync-source-trie-nodes base-source)))
 
 (defun snap-test-round-trip (message-id packet)
   (ethereum-lisp.snap:decode-snap-message
    message-id
    (ethereum-lisp.snap:encode-snap-message message-id packet)))
+
+(defun snap-test-call-backend (backend message-id request)
+  (multiple-value-bind (response-id encoded)
+      (ethereum-lisp.snap:snap-serve-request
+       backend message-id
+       (ethereum-lisp.snap:encode-snap-message message-id request))
+    (ethereum-lisp.snap:decode-snap-message response-id encoded)))
+
+(defun snap-test-source (backend)
+  (ethereum-lisp.snap-sync:make-snap-sync-source
+   :account-range
+   (lambda (request)
+     (snap-test-call-backend
+      backend ethereum-lisp.snap:+snap-message-get-account-range+ request))
+   :storage-ranges
+   (lambda (request)
+     (snap-test-call-backend
+      backend ethereum-lisp.snap:+snap-message-get-storage-ranges+ request))
+   :bytecodes
+   (lambda (request)
+     (snap-test-call-backend
+      backend ethereum-lisp.snap:+snap-message-get-bytecodes+ request))
+   :trie-nodes
+   (lambda (request)
+     (snap-test-call-backend
+      backend ethereum-lisp.snap:+snap-message-get-trie-nodes+ request))))
+
+(deftest snap-state-root-probe-verifies-a-small-range-and-classifies-pruning
+  (:layer :unit :module :p2p)
+  (let* ((database (make-memory-key-value-database))
+         (state (make-state-db))
+         (address
+           (address-from-hex
+            "0x0000000000000000000000000000000000000042")))
+    (state-db-set-account state address (make-state-account :balance 7))
+    (let* ((root (state-db-root state))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              database state))
+           (source (snap-test-source backend))
+           (pruned
+             (ethereum-lisp.snap-sync:make-snap-sync-source
+              :account-range
+              (lambda (request)
+                (ethereum-lisp.snap:make-snap-account-range
+                 (ethereum-lisp.snap:snap-get-account-range-id request)
+                 '() '())))))
+      (is (ethereum-lisp.snap-sync:snap-sync-probe-state-root source root))
+      (signals ethereum-lisp.snap-sync:snap-sync-state-unavailable
+        (ethereum-lisp.snap-sync:snap-sync-probe-state-root pruned root)))))
+
+(deftest snap-state-import-classifies-an-empty-account-response-as-unavailable
+  (:layer :unit :module :p2p)
+  (let* ((database (make-memory-key-value-database))
+         (source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :account-range
+            (lambda (request)
+              (ethereum-lisp.snap:make-snap-account-range
+               (ethereum-lisp.snap:snap-get-account-range-id request)
+               '() '()))
+            :storage-ranges (lambda (request) (declare (ignore request)))
+            :bytecodes (lambda (request) (declare (ignore request)))
+            :trie-nodes (lambda (request) (declare (ignore request))))))
+    (signals ethereum-lisp.snap-sync:snap-sync-state-unavailable
+      (ethereum-lisp.snap-sync:snap-sync-import-state
+       database source
+       :pivot-hash (make-hash32 (snap-test-hash 111)) :pivot-number 42
+       :state-root (make-hash32 (snap-test-hash 112))
+       :target-hash (make-hash32 (snap-test-hash 113))
+       :chain-id 560048
+       :genesis-hash (make-hash32 (snap-test-hash 114))
+       :authority-id (make-hash32 (snap-test-hash 115))))
+    (is (not (nth-value 1
+                        (ethereum-lisp.snap-sync:snap-sync-read-progress
+                         database))))))
+
+(deftest snap-state-import-starts-storage-with-geth-full-range-bounds
+  (:layer :integration :module :p2p)
+  ;; Pinned geth 1.17.4 sends nil Origin/Limit for an initial complete storage
+  ;; request.  A hash-scheme server may have the pivot snapshot but no longer
+  ;; retain the historical trie nodes needed to prove an explicit zero/max
+  ;; subrange.  Model that exact availability boundary: only the canonical
+  ;; empty-bound request is served.  The storage callback count is the positive
+  ;; witness that this test actually crossed the affected wire boundary.
+  (let* ((source-state (make-state-db))
+         (source-database (make-memory-key-value-database))
+         (target-database (make-memory-key-value-database))
+         (address
+           (address-from-hex
+            "0x0000000000000000000000000000000000000042"))
+         (slot (make-hash32 (make-byte-vector 32 :initial-element 7)))
+         (storage-calls 0)
+         (observed-origin-length nil)
+         (observed-limit-length nil))
+    (state-db-set-storage source-state address slot 256)
+    (let* ((root (state-db-root source-state))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              source-database source-state))
+           (base-source (snap-test-source backend))
+           (source
+             (ethereum-lisp.snap-sync:make-snap-sync-source
+              :account-range
+              (ethereum-lisp.snap-sync:snap-sync-source-account-range
+               base-source)
+              :storage-ranges
+              (lambda (request)
+                (incf storage-calls)
+                (setf observed-origin-length
+                      (length
+                       (ethereum-lisp.snap:snap-get-storage-ranges-origin
+                        request))
+                      observed-limit-length
+                      (length
+                       (ethereum-lisp.snap:snap-get-storage-ranges-limit
+                        request)))
+                (if (and (zerop observed-origin-length)
+                         (zerop observed-limit-length))
+                    (snap-test-call-backend
+                     backend ethereum-lisp.snap:+snap-message-get-storage-ranges+
+                     request)
+                    (ethereum-lisp.snap:make-snap-storage-ranges
+                     (ethereum-lisp.snap:snap-get-storage-ranges-id request)
+                     '() '())))
+              :bytecodes
+              (ethereum-lisp.snap-sync:snap-sync-source-bytecodes base-source)
+              :trie-nodes
+              (ethereum-lisp.snap-sync:snap-sync-source-trie-nodes
+               base-source)))
+           (progress
+             (ethereum-lisp.snap-sync:snap-sync-import-state
+              target-database source
+              :pivot-hash (make-hash32 (snap-test-hash 116))
+              :pivot-number 42 :state-root root
+              :target-hash (make-hash32 (snap-test-hash 117))
+              :chain-id 560048
+              :genesis-hash (make-hash32 (snap-test-hash 118))
+              :authority-id (make-hash32 (snap-test-hash 119)))))
+      (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p progress))
+      (is (= 1 storage-calls))
+      (is (zerop observed-origin-length))
+      (is (zerop observed-limit-length)))))
+
+(deftest snap-state-import-batches-complete-storage-tries
+  (:layer :integration :module :p2p)
+  ;; snap/1 GetStorageRanges accepts a list of account hashes. Geth returns a
+  ;; prefix of complete storage tries, reserving a proof for only the final
+  ;; byte-capped trie. Small contracts on one account page must therefore be
+  ;; fetched together instead of serializing one network round trip each.
+  (let* ((source-state (make-state-db))
+         (source-database (make-memory-key-value-database))
+         (target-database (make-instance 'snap-counting-test-database))
+         (addresses
+           (loop for suffix from 1 to 4
+                 collect
+                 (address-from-hex
+                  (format nil "0x00000000000000000000000000000000000000~2,'0x"
+                          suffix))))
+         (storage-calls 0)
+         (largest-request 0))
+    (loop for address in addresses
+          for byte from 1
+          do (state-db-set-storage
+              source-state address
+              (make-hash32 (make-byte-vector 32 :initial-element byte))
+              (+ 100 byte)))
+    (let* ((root (state-db-root source-state))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              source-database source-state))
+           (base-source (snap-test-source backend))
+           (source
+             (ethereum-lisp.snap-sync:make-snap-sync-source
+              :account-range
+              (ethereum-lisp.snap-sync:snap-sync-source-account-range
+               base-source)
+              :storage-ranges
+              (lambda (request)
+                (incf storage-calls)
+                (setf largest-request
+                      (max largest-request
+                           (length
+                            (ethereum-lisp.snap:snap-get-storage-ranges-accounts
+                             request))))
+                (snap-test-call-backend
+                 backend ethereum-lisp.snap:+snap-message-get-storage-ranges+
+                 request))
+              :bytecodes
+              (ethereum-lisp.snap-sync:snap-sync-source-bytecodes base-source)
+              :trie-nodes
+              (ethereum-lisp.snap-sync:snap-sync-source-trie-nodes
+               base-source)))
+           (progress
+             (ethereum-lisp.snap-sync:snap-sync-import-state
+              target-database source
+              :pivot-hash (make-hash32 (snap-test-hash 120))
+              :pivot-number 42 :state-root root
+              :target-hash (make-hash32 (snap-test-hash 121))
+              :chain-id 560048
+              :genesis-hash (make-hash32 (snap-test-hash 122))
+              :authority-id (make-hash32 (snap-test-hash 123)))))
+      (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p progress))
+      (is (= 1 storage-calls))
+      (is (= (length addresses) largest-request))
+      ;; One WAL batch installs every verified storage trie in the response;
+      ;; the second atomically installs the account page and durable cursor.
+      (let ((apply-count
+              (snap-counting-test-database-apply-count target-database)))
+        (unless (= 2 apply-count)
+          (error "Expected storage and account cursor batches, got ~D (~S)"
+                 apply-count
+                 (list
+                  (nreverse
+                   (snap-counting-test-database-batch-sizes target-database))
+                  (nreverse
+                   (snap-counting-test-database-batch-prefixes
+                    target-database)))))
+        (is (= 2 apply-count)))
+      (dolist (address addresses)
+        (multiple-value-bind (node present-p)
+            (ethereum-lisp.trie:trie-node-store-get
+             target-database
+             (state-db-get-storage-root source-state address))
+          (is present-p)
+          (is (plusp (length node))))
+        (multiple-value-bind (account present-p)
+            (ethereum-lisp.trie:mpt-get
+             (ethereum-lisp.trie:make-persisted-mpt
+              root
+              (lambda (hash)
+                (ethereum-lisp.trie:trie-node-store-get
+                 target-database hash)))
+             (ethereum-lisp.crypto:keccak-256 (address-bytes address)))
+          (declare (ignore account))
+          (is present-p))))))
+
+(deftest snap-sync-progress-v3-round-trips-and-migrates-v2
+  (:layer :unit :module :p2p)
+  (let* ((pivot (make-hash32 (snap-test-hash 131)))
+         (state-root (make-hash32 (snap-test-hash 132)))
+         (target (make-hash32 (snap-test-hash 133)))
+         (genesis (make-hash32 (snap-test-hash 134)))
+         (authority (make-hash32 (snap-test-hash 135)))
+         (tasks
+           (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+            :count 16))
+         (progress
+           (ethereum-lisp.snap-sync::snap-sync-make-progress
+            :pivot-hash pivot :pivot-number 42 :state-root state-root
+            :partial-root +empty-trie-hash+ :target-hash target
+            :chain-id 560048 :genesis-hash genesis :authority-id authority
+            :completed-p nil :tasks tasks))
+         (record
+           (ethereum-lisp.snap-sync::snap-sync-progress-record progress))
+         (round-tripped
+           (ethereum-lisp.snap-sync::snap-sync-progress-from-record record))
+         (legacy-cursor
+           (let ((bytes (make-byte-vector 32)))
+             (setf (aref bytes 0) #x20)
+             bytes))
+         (legacy-record
+           (rlp-encode
+            (make-rlp-list
+             2 (hash32-bytes pivot) 42 (hash32-bytes state-root)
+             legacy-cursor (hash32-bytes +empty-trie-hash+)
+             (hash32-bytes target) 560048 (hash32-bytes genesis)
+             (hash32-bytes authority) 0)))
+         (legacy
+           (ethereum-lisp.snap-sync::snap-sync-progress-from-record
+            legacy-record))
+         (migrated
+           (ethereum-lisp.snap-sync::snap-sync-progress-with-task-count
+            legacy 16)))
+    (is (= 16
+           (length
+            (ethereum-lisp.snap-sync:snap-sync-progress-tasks
+             round-tripped))))
+    (is (bytes= (make-byte-vector 32)
+                (ethereum-lisp.snap-sync:snap-sync-progress-next-origin
+                 round-tripped)))
+    (is (= 1
+           (length
+            (ethereum-lisp.snap-sync:snap-sync-progress-tasks legacy))))
+    (is (= 16
+           (length
+            (ethereum-lisp.snap-sync:snap-sync-progress-tasks migrated))))
+    (is
+     (every #'ethereum-lisp.snap-sync:snap-sync-account-task-completed-p
+            (subseq
+             (ethereum-lisp.snap-sync:snap-sync-progress-tasks migrated)
+             0 2)))
+    (is (bytes= legacy-cursor
+                (ethereum-lisp.snap-sync:snap-sync-progress-next-origin
+                 migrated)))
+    ;; Mutate one encoded task start so the record no longer covers a
+    ;; contiguous keyspace. A round trip alone would not exercise this check.
+    (let* ((fields
+             (copy-list
+              (rlp-list-items (rlp-decode-one record))))
+           (task-objects
+             (copy-list (rlp-list-items (nth 11 fields))))
+           (second-fields
+             (copy-list (rlp-list-items (second task-objects)))))
+      (setf (first second-fields) (make-byte-vector 32)
+            (second task-objects) (apply #'make-rlp-list second-fields)
+            (nth 11 fields) (apply #'make-rlp-list task-objects))
+      (signals error
+        (ethereum-lisp.snap-sync::snap-sync-progress-from-record
+         (rlp-encode (apply #'make-rlp-list fields)))))))
+
+#+sbcl
+(deftest snap-state-import-multi-uses-three-sources-and-sixteen-ranges
+  (:layer :integration :module :p2p)
+  (multiple-value-bind (source-state addresses)
+      (snap-test-partitioned-state)
+    (let* ((source-database (make-memory-key-value-database))
+           (target-database (make-memory-key-value-database))
+           (root (state-db-root source-state))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              source-database source-state))
+           (base-source (snap-test-source backend))
+           (lock (sb-thread:make-mutex :name "snap-test-three-source"))
+           (changed (sb-thread:make-waitqueue
+                     :name "snap-test-three-source"))
+           (arrived 0)
+           (released-p nil)
+           (active 0)
+           (max-active 0)
+           (byte-limits '())
+           (sources
+             (loop repeat 3
+                   collect
+                   (let ((first-p t))
+                     (snap-test-source-with-account-callback
+                      base-source
+                      (lambda (request)
+                        (let ((barrier-p first-p))
+                          (when barrier-p
+                            (setf first-p nil)
+                            (sb-thread:with-mutex (lock)
+                              (incf arrived)
+                              (incf active)
+                              (setf max-active (max max-active active))
+                              (push
+                               (ethereum-lisp.snap:snap-get-account-range-bytes
+                                request)
+                               byte-limits)
+                              (when (= arrived 3)
+                                (setf released-p t)
+                                (sb-thread:condition-broadcast changed))
+                              (loop until released-p
+                                    do (sb-thread:condition-wait changed lock))))
+                          (unwind-protect
+                               (funcall
+                                (ethereum-lisp.snap-sync:snap-sync-source-account-range
+                                 base-source)
+                                request)
+                            (when barrier-p
+                              (sb-thread:with-mutex (lock)
+                                (decf active))))))))))
+           (progress
+             (ethereum-lisp.snap-sync:snap-sync-import-state-multi
+              target-database sources
+              :pivot-hash (make-hash32 (snap-test-hash 136))
+              :pivot-number 900 :state-root root
+              :target-hash (make-hash32 (snap-test-hash 137))
+              :chain-id 560048
+              :genesis-hash (make-hash32 (snap-test-hash 138))
+              :authority-id (make-hash32 (snap-test-hash 139)))))
+      (is (= 3 max-active))
+      (is (= 3 (length byte-limits)))
+      (is (every (lambda (limit) (= limit (* 2 1024 1024))) byte-limits))
+      (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p progress))
+      (is (= 16
+             (length
+              (ethereum-lisp.snap-sync:snap-sync-progress-tasks progress))))
+      (is
+       (every #'ethereum-lisp.snap-sync:snap-sync-account-task-completed-p
+              (ethereum-lisp.snap-sync:snap-sync-progress-tasks progress)))
+      (let ((trie
+              (make-persisted-mpt
+               root
+               (lambda (hash)
+                 (trie-node-store-get target-database hash)))))
+        (dolist (address addresses)
+          (is (nth-value
+               1 (mpt-get trie (keccak-256 (address-bytes address))))))))))
+
+#+sbcl
+(deftest snap-state-import-multi-resumes-tasks-without-replaying-completed-ranges
+  (:layer :integration :module :p2p)
+  (multiple-value-bind (source-state addresses)
+      (snap-test-partitioned-state)
+    (declare (ignore addresses))
+    (let* ((source-database (make-memory-key-value-database))
+           (target-database (make-memory-key-value-database))
+           (root (state-db-root source-state))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              source-database source-state))
+           (base-source (snap-test-source backend))
+           (sources
+             (loop repeat 3
+                   collect
+                   (snap-test-source-with-account-callback
+                    base-source
+                    (ethereum-lisp.snap-sync:snap-sync-source-account-range
+                     base-source))))
+           (arguments
+             (list
+              :pivot-hash (make-hash32 (snap-test-hash 140))
+              :pivot-number 901 :state-root root
+              :target-hash (make-hash32 (snap-test-hash 141))
+              :chain-id 560048
+              :genesis-hash (make-hash32 (snap-test-hash 142))
+              :authority-id (make-hash32 (snap-test-hash 143))))
+           (first
+             (apply #'ethereum-lisp.snap-sync:snap-sync-import-state-multi
+                    target-database sources :max-pages 3 arguments))
+           (completed-starts
+             (loop for task in
+                     (ethereum-lisp.snap-sync:snap-sync-progress-tasks first)
+                   when
+                     (ethereum-lisp.snap-sync:snap-sync-account-task-completed-p
+                      task)
+                     collect
+                     (ethereum-lisp.snap-sync:snap-sync-account-task-start
+                      task)))
+           (request-lock
+             (sb-thread:make-mutex :name "snap-test-resume-origins"))
+           (resume-origins '())
+           (resume-sources
+             (loop repeat 3
+                   collect
+                   (snap-test-source-with-account-callback
+                    base-source
+                    (lambda (request)
+                      (sb-thread:with-mutex (request-lock)
+                        (push
+                         (copy-seq
+                          (ethereum-lisp.snap:snap-get-account-range-origin
+                           request))
+                         resume-origins))
+                      (funcall
+                       (ethereum-lisp.snap-sync:snap-sync-source-account-range
+                        base-source)
+                       request)))))
+           (completed
+             (apply #'ethereum-lisp.snap-sync:snap-sync-import-state-multi
+                    target-database resume-sources arguments)))
+      (is (not (ethereum-lisp.snap-sync:snap-sync-progress-completed-p first)))
+      (is (= 3 (length completed-starts)))
+      (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p completed))
+      (dolist (origin resume-origins)
+        (is (not (find origin completed-starts :test #'bytes=)))))))
+
+#+sbcl
+(deftest snap-state-import-multi-batch-failure-keeps-all-task-cursors-behind
+  (:layer :integration :module :p2p)
+  (multiple-value-bind (source-state addresses)
+      (snap-test-partitioned-state)
+    (declare (ignore addresses))
+    (let* ((source-database (make-memory-key-value-database))
+           (target-database (make-instance 'snap-failing-test-database))
+           (root (state-db-root source-state))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              source-database source-state))
+           (base-source (snap-test-source backend))
+           (sources
+             (loop repeat 3
+                   collect
+                   (snap-test-source-with-account-callback
+                    base-source
+                    (ethereum-lisp.snap-sync:snap-sync-source-account-range
+                     base-source))))
+           (arguments
+             (list
+              :pivot-hash (make-hash32 (snap-test-hash 144))
+              :pivot-number 902 :state-root root
+              :target-hash (make-hash32 (snap-test-hash 145))
+              :chain-id 560048
+              :genesis-hash (make-hash32 (snap-test-hash 146))
+              :authority-id (make-hash32 (snap-test-hash 147)))))
+      (setf (snap-failing-test-database-fail-next-apply-p target-database) t)
+      (signals error
+        (apply #'ethereum-lisp.snap-sync:snap-sync-import-state-multi
+               target-database sources arguments))
+      (is (not (nth-value
+                1
+                (ethereum-lisp.snap-sync:snap-sync-read-progress
+                 target-database))))
+      (let ((completed
+              (apply #'ethereum-lisp.snap-sync:snap-sync-import-state-multi
+                     target-database sources arguments)))
+        (is
+         (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
+          completed))))))
+
+#+sbcl
+(deftest snap-state-import-multi-requeues-a-failed-sources-task
+  (:layer :integration :module :p2p)
+  (multiple-value-bind (source-state addresses)
+      (snap-test-partitioned-state)
+    (declare (ignore addresses))
+    (let* ((source-database (make-memory-key-value-database))
+           (target-database (make-memory-key-value-database))
+           (root (state-db-root source-state))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              source-database source-state))
+           (base-source (snap-test-source backend))
+           (lock (sb-thread:make-mutex :name "snap-test-source-failover"))
+           (failed-origin nil)
+           (healthy-origins '())
+           (source-errors 0)
+           (failing-source
+             (snap-test-source-with-account-callback
+              base-source
+              (lambda (request)
+                (sb-thread:with-mutex (lock)
+                  (setf failed-origin
+                        (copy-seq
+                         (ethereum-lisp.snap:snap-get-account-range-origin
+                          request))))
+                (error "Simulated snap peer failure"))))
+           (healthy-sources
+             (loop repeat 2
+                   collect
+                   (snap-test-source-with-account-callback
+                    base-source
+                    (lambda (request)
+                      (sb-thread:with-mutex (lock)
+                        (push
+                         (copy-seq
+                          (ethereum-lisp.snap:snap-get-account-range-origin
+                           request))
+                         healthy-origins))
+                      (funcall
+                       (ethereum-lisp.snap-sync:snap-sync-source-account-range
+                        base-source)
+                       request)))))
+           (progress
+             (ethereum-lisp.snap-sync:snap-sync-import-state-multi
+              target-database
+              (cons failing-source healthy-sources)
+              :pivot-hash (make-hash32 (snap-test-hash 148))
+              :pivot-number 903 :state-root root
+              :target-hash (make-hash32 (snap-test-hash 149))
+              :chain-id 560048
+              :genesis-hash (make-hash32 (snap-test-hash 150))
+              :authority-id (make-hash32 (snap-test-hash 151))
+              :on-source-error
+              (lambda (source condition)
+                (declare (ignore source condition))
+                (sb-thread:with-mutex (lock)
+                  (incf source-errors))))))
+      (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p progress))
+      (is (= 1 source-errors))
+      (is failed-origin)
+      ;; The failed source's durable claim was released before the callback;
+      ;; a healthy worker then fetched the exact same task origin.
+      (is (find failed-origin healthy-origins :test #'bytes=)))))
+
+#+sbcl
+(deftest snap-state-import-multi-preserves-all-source-state-unavailability
+  (:layer :integration :module :p2p)
+  (let* ((database (make-memory-key-value-database))
+         (requests 0)
+         (callbacks 0)
+         (lock (sb-thread:make-mutex :name "snap-test-pruned-pivot"))
+         (sources
+           (loop repeat 3
+                 collect
+                 (ethereum-lisp.snap-sync:make-snap-sync-source
+                  :account-range
+                  (lambda (request)
+                    (declare (ignore request))
+                    (sb-thread:with-mutex (lock)
+                      (incf requests))
+                    (ethereum-lisp.snap-sync:snap-sync-state-unavailable
+                     "account-range"))
+                  :storage-ranges (lambda (request) (declare (ignore request)))
+                  :bytecodes (lambda (request) (declare (ignore request)))
+                  :trie-nodes (lambda (request) (declare (ignore request)))))))
+    (signals ethereum-lisp.snap-sync:snap-sync-state-unavailable
+      (ethereum-lisp.snap-sync:snap-sync-import-state-multi
+       database sources
+       :pivot-hash (make-hash32 (snap-test-hash 152))
+       :pivot-number 904
+       :state-root (make-hash32 (snap-test-hash 153))
+       :target-hash (make-hash32 (snap-test-hash 154))
+       :chain-id 560048
+       :genesis-hash (make-hash32 (snap-test-hash 155))
+       :authority-id (make-hash32 (snap-test-hash 156))
+       :on-source-error
+       (lambda (source condition)
+         (declare (ignore source))
+         (is (typep condition
+                    'ethereum-lisp.snap-sync:snap-sync-state-unavailable))
+         (incf callbacks))))
+    ;; Positive witnesses: every worker reached its source and every error was
+    ;; observed by the coordinator before the aggregate type was re-signalled.
+    (is (= 3 requests))
+    (is (= 3 callbacks))))
 
 (deftest snap-one-wire-messages-round-trip
   (:layer :unit :module :p2p)
@@ -140,6 +828,59 @@
        (snap-test-hash 255)
        (integer-to-minimal-bytes 1024))))))
 
+(deftest snap-wire-accepts-two-mib-account-pages-over-the-old-item-cap
+  (:layer :unit :module :p2p)
+  ;; AccountRange is governed by the request's byte budget.  Real Hoodi peers
+  ;; can exceed the old 16384-item ceiling in a geth-compatible two-MiB page,
+  ;; so the account response needs its own frame-bounded count policy.
+  (let* ((body
+           (make-rlp-list
+            (make-byte-vector 0) (make-byte-vector 0)
+            (make-byte-vector 0) (make-byte-vector 0)))
+         (accounts
+           (loop for index below 16385
+                 collect
+                 (ethereum-lisp.snap:make-snap-account-data
+                  (let ((hash (make-byte-vector 32)))
+                    (setf (aref hash 30) (ldb (byte 8 8) index)
+                          (aref hash 31) (ldb (byte 8 0) index))
+                    hash)
+                  body)))
+         (encoded
+           (ethereum-lisp.snap:encode-snap-message
+            ethereum-lisp.snap:+snap-message-account-range+
+            (ethereum-lisp.snap:make-snap-account-range 17 accounts '())))
+         (decoded
+           (ethereum-lisp.snap:decode-snap-message
+            ethereum-lisp.snap:+snap-message-account-range+ encoded)))
+    (is (= 16385
+           (length
+            (ethereum-lisp.snap:snap-account-range-accounts decoded))))))
+
+(deftest snap-wire-accepts-geth-storage-range-slack-over-the-old-cap
+  (:layer :unit :module :p2p)
+  ;; Pinned geth 1.17.4 allows a storage response to exceed the requested byte
+  ;; budget by 10 percent to avoid splitting a contract. Minimally sized slots
+  ;; can consequently exceed the old 32768 ceiling even though the response is
+  ;; a valid, frame-bounded answer to our two-MiB request.
+  (let* ((count 32769)
+         (slot
+           (ethereum-lisp.snap:make-snap-storage-data
+            (make-byte-vector 32) (rlp-encode 1)))
+         (encoded
+           (ethereum-lisp.snap:encode-snap-message
+            ethereum-lisp.snap:+snap-message-storage-ranges+
+            (ethereum-lisp.snap:make-snap-storage-ranges
+             18 (list (loop repeat count collect slot)) '())))
+         (decoded
+           (ethereum-lisp.snap:decode-snap-message
+            ethereum-lisp.snap:+snap-message-storage-ranges+ encoded)))
+    (is (= count
+           (length
+            (first
+             (ethereum-lisp.snap:snap-storage-ranges-slots decoded)))))
+    (is (< count ethereum-lisp.snap:+snap-max-storage-slots-per-range+))))
+
 (deftest snap-backend-serves-and-persists-runtime-state
   (:layer :integration :module :p2p)
   (let* ((state (make-state-db))
@@ -178,7 +919,9 @@
         (is (plusp (length root-node))))
       (let ((trie-request
               (ethereum-lisp.snap:make-snap-get-trie-nodes
-               78 root (list (list root)) 100000)))
+               ;; snap trie-node paths use compact hex-prefix encoding. #(0)
+               ;; is the account trie root path; a content hash is not a path.
+               78 root (list (list #(0))) 100000)))
         (multiple-value-bind (message-id encoded)
             (ethereum-lisp.snap:snap-serve-request
              backend ethereum-lisp.snap:+snap-message-get-trie-nodes+
@@ -189,3 +932,646 @@
             (is (= 1
                    (length
                     (ethereum-lisp.snap:snap-trie-nodes-nodes response))))))))))
+
+(deftest snap-backend-keeps-the-session-for-an-unavailable-state-root
+  (:layer :integration :module :p2p)
+  ;; Pinned geth treats a state root that this snap server does not retain as
+  ;; an availability miss: it sends the matching empty response rather than
+  ;; disconnecting the shared eth+snap session. A syncing peer legitimately
+  ;; asks every advertised snap source before it knows which one has its pivot.
+  (let* ((state (make-state-db))
+         (database (make-memory-key-value-database))
+         (backend
+           (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+            database state))
+         (unavailable-root (snap-test-hash 254)))
+    (let ((response
+            (snap-test-call-backend
+             backend ethereum-lisp.snap:+snap-message-get-account-range+
+             (ethereum-lisp.snap:make-snap-get-account-range
+              31 unavailable-root (make-byte-vector 32)
+              (make-byte-vector 32 :initial-element #xff) 100000))))
+      (is (= 31 (ethereum-lisp.snap:snap-account-range-id response)))
+      (is (null (ethereum-lisp.snap:snap-account-range-accounts response)))
+      (is (null (ethereum-lisp.snap:snap-account-range-proof response))))
+    (let ((response
+            (snap-test-call-backend
+             backend ethereum-lisp.snap:+snap-message-get-storage-ranges+
+             (ethereum-lisp.snap:make-snap-get-storage-ranges
+              32 unavailable-root (list (snap-test-hash 1))
+              (make-byte-vector 0) (make-byte-vector 0) 100000))))
+      (is (= 32 (ethereum-lisp.snap:snap-storage-ranges-id response)))
+      (is (null (ethereum-lisp.snap:snap-storage-ranges-slots response)))
+      (is (null (ethereum-lisp.snap:snap-storage-ranges-proof response))))
+    (let ((response
+            (snap-test-call-backend
+             backend ethereum-lisp.snap:+snap-message-get-trie-nodes+
+             (ethereum-lisp.snap:make-snap-get-trie-nodes
+              33 unavailable-root (list (list #(0))) 100000))))
+      (is (= 33 (ethereum-lisp.snap:snap-trie-nodes-id response)))
+      (is (null (ethereum-lisp.snap:snap-trie-nodes-nodes response))))))
+
+(deftest snap-storage-range-preserves-geth-canonical-trie-values
+  (:layer :integration :module :p2p)
+  ;; Pinned geth 3827178 sends StorageIterator.Slot() directly as
+  ;; StorageData.Body and passes the received body directly to
+  ;; trie.VerifyRangeProof. The bytes are already RLP(minimal uint256); they
+  ;; must be neither decoded by the server nor re-encoded by the client.
+  (let* ((state (make-state-db))
+         (database (make-memory-key-value-database))
+         (address
+           (address-from-hex "0x0000000000000000000000000000000000000042"))
+         (slot (make-hash32 (make-byte-vector 32 :initial-element 7)))
+         (expected-value (rlp-encode 256)))
+    (state-db-set-storage state address slot 256)
+    (let* ((state-root (state-db-root state))
+           (storage-root (state-db-get-storage-root state address))
+           (account-hash (keccak-256 (address-bytes address)))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              database state))
+           (response
+             (snap-test-call-backend
+              backend ethereum-lisp.snap:+snap-message-get-storage-ranges+
+              (ethereum-lisp.snap:make-snap-get-storage-ranges
+               17 (hash32-bytes state-root) (list account-hash)
+               (make-byte-vector 0) (make-byte-vector 0) 100000)))
+           (groups (ethereum-lisp.snap:snap-storage-ranges-slots response))
+           (wire-slot (and (first groups) (first (first groups)))))
+      (is (= 1 (length groups)))
+      (is (= 1 (length (first groups))))
+      (when wire-slot
+        (is (bytes= expected-value
+                    (ethereum-lisp.snap:snap-storage-data-body wire-slot)))
+        (let ((entries
+                (ethereum-lisp.snap-sync::snap-sync-storage-entries
+                 (list wire-slot))))
+          (is (bytes= expected-value (cdar entries)))
+          (is (mpt-verify-range-proof storage-root entries nil
+                                      :start (make-byte-vector 32)))
+          ;; This is the pre-fix client mutation: an extra RLP string wrapper
+          ;; changes the committed root and must be detected.
+          (signals error
+            (mpt-verify-range-proof
+             storage-root
+             (list (cons (caar entries) (rlp-encode (cdar entries))))
+             nil :start (make-byte-vector 32))))))))
+
+(deftest snap-storage-range-rejects-noncanonical-trie-values
+  (:layer :unit :module :p2p)
+  (let ((hash (make-byte-vector 32)))
+    (dolist (body
+              (list
+               ;; An unset slot cannot appear in a storage range.
+               (rlp-encode 0)
+               ;; Long form for a one-byte value is non-canonical RLP.
+               (ensure-byte-vector #(#x81 #x01))
+               ;; Storage leaves are byte strings, never lists.
+               (ensure-byte-vector #(#xc0))
+               ;; uint256 is at most 32 decoded bytes.
+               (rlp-encode (make-byte-vector 33 :initial-element 1))))
+      (signals error
+        (ethereum-lisp.snap-sync::snap-sync-storage-entries
+         (list (ethereum-lisp.snap:make-snap-storage-data hash body)))))))
+
+(deftest snap-account-range-carries-a-verifiable-compact-boundary-proof
+  (:layer :integration :module :p2p)
+  (let ((state (make-state-db))
+        (database (make-memory-key-value-database)))
+    (dotimes (index 40)
+      (let ((address (make-address
+                      (concatenate
+                       'vector (make-byte-vector 19) (vector (1+ index))))))
+        (state-db-set-account
+         state address (make-state-account :nonce index :balance (1+ index)))))
+    (let* ((root (state-db-root state))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              database state))
+           (origin (make-byte-vector 32))
+           (response
+             (snap-test-call-backend
+              backend ethereum-lisp.snap:+snap-message-get-account-range+
+              (ethereum-lisp.snap:make-snap-get-account-range
+               1 (hash32-bytes root) origin
+               (make-byte-vector 32 :initial-element #xff) 300)))
+           (entries
+             (mapcar
+              (lambda (account)
+                (cons
+                 (ethereum-lisp.snap:snap-account-data-hash account)
+                 (ethereum-lisp.snap-sync::snap-sync-account-full-rlp account)))
+              (ethereum-lisp.snap:snap-account-range-accounts response))))
+      (is (plusp (length entries)))
+      (is (< (length entries) 40))
+      (is (plusp
+           (length (ethereum-lisp.snap:snap-account-range-proof response))))
+      (is (mpt-verify-range-proof
+           root entries
+           (ethereum-lisp.snap:snap-account-range-proof response)
+           :start origin))
+      (signals error
+        (mpt-verify-range-proof
+         root (rest entries)
+         (ethereum-lisp.snap:snap-account-range-proof response)
+         :start origin)))))
+
+(deftest snap-account-range-full-page-reconstructs-without-a-proof
+  (:layer :integration :module :p2p)
+  (let ((state (make-state-db))
+        (database (make-memory-key-value-database)))
+    (dotimes (index 40)
+      (let ((address (make-address
+                      (concatenate
+                       'vector (make-byte-vector 19) (vector (1+ index))))))
+        (state-db-set-account
+         state address (make-state-account :nonce index :balance (1+ index)))))
+    (let* ((root (state-db-root state))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              database state))
+           (origin (make-byte-vector 32))
+           (response
+             (snap-test-call-backend
+              backend ethereum-lisp.snap:+snap-message-get-account-range+
+              (ethereum-lisp.snap:make-snap-get-account-range
+               1 (hash32-bytes root) origin
+               (make-byte-vector 32 :initial-element #xff) (* 1024 1024))))
+           (entries
+             (mapcar
+              (lambda (account)
+                (cons
+                 (ethereum-lisp.snap:snap-account-data-hash account)
+                 (ethereum-lisp.snap-sync::snap-sync-account-full-rlp account)))
+              (ethereum-lisp.snap:snap-account-range-accounts response))))
+      (is (= 40 (length entries)))
+      ;; A proof is redundant when the page contains the complete trie. Public
+      ;; snap peers may therefore return an empty proof for a small state.
+      (is (mpt-verify-range-proof root entries nil :start origin)))))
+
+(deftest snap-account-range-includes-the-requested-limit-boundary
+  (:layer :unit :module :p2p)
+  (let ((state (make-state-db))
+        (database (make-memory-key-value-database)))
+    (dolist (hex '("0x0000000000000000000000000000000000000001"
+                   "0x0000000000000000000000000000000000000002"))
+      (state-db-set-account
+       state (address-from-hex hex) (make-state-account :balance 1)))
+    (let* ((entries
+             (sort (copy-list (state-db-account-range state))
+                   #'ethereum-lisp.validation:byte-vector-lexicographic<
+                   :key #'state-account-range-entry-proof-key))
+           (limit (state-account-range-entry-proof-key (first entries)))
+           (root (state-db-root state))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              database state))
+           (response
+             (snap-test-call-backend
+              backend ethereum-lisp.snap:+snap-message-get-account-range+
+              (ethereum-lisp.snap:make-snap-get-account-range
+               5 (hash32-bytes root) (make-byte-vector 32) limit 100000)))
+           (accounts
+             (ethereum-lisp.snap:snap-account-range-accounts response)))
+      (is (= 1 (length accounts)))
+      (is (bytes= limit
+                  (ethereum-lisp.snap:snap-account-data-hash
+                   (first accounts)))))))
+
+(deftest snap-state-import-resumes-and-installs-a-verified-pivot
+  (:layer :integration :module :p2p)
+  (let* ((source-state (make-state-db))
+         (source-database (make-memory-key-value-database))
+         (target-database (make-memory-key-value-database))
+         (addresses
+           (loop for index from 1 to 6
+                 collect
+                 (make-address
+                  (concatenate 'vector (make-byte-vector 19) (vector index)))))
+         (slot (make-hash32 (make-byte-vector 32 :initial-element 7)))
+         (code #(96 0 96 0)))
+    (loop for address in addresses
+          for index from 1
+          do (state-db-set-account
+              source-state address
+              (make-state-account :nonce index :balance (* index 100)))
+             (when (= index 2)
+               (state-db-set-code source-state address code))
+             (when (= index 3)
+               (state-db-set-storage source-state address slot 256)))
+    (let* ((root (state-db-root source-state))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              source-database source-state))
+           (source (snap-test-source backend))
+           (pivot-hash (make-hash32 (snap-test-hash 91)))
+           (genesis-hash (make-hash32 (snap-test-hash 92)))
+           (authority-id (make-hash32 (snap-test-hash 93)))
+           (first
+             (ethereum-lisp.snap-sync:snap-sync-import-state
+              target-database source
+              :pivot-hash pivot-hash :pivot-number 1234 :state-root root
+              :chain-id 560048 :genesis-hash genesis-hash
+              :authority-id authority-id :byte-limit 180 :max-pages 1)))
+      (is (not (ethereum-lisp.snap-sync:snap-sync-progress-completed-p first)))
+      (is (not (hash32= +empty-trie-hash+
+                        (ethereum-lisp.snap-sync:snap-sync-progress-partial-root
+                         first))))
+      (is (not (nth-value
+                1 (kv-get-chain-record target-database :state-history
+                                       (hash32-bytes pivot-hash)))))
+      (let ((completed
+              (ethereum-lisp.snap-sync:snap-sync-import-state
+               target-database source
+               :pivot-hash pivot-hash :pivot-number 1234 :state-root root
+               :chain-id 560048 :genesis-hash genesis-hash
+               :authority-id authority-id :byte-limit 180)))
+        (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p completed))
+        (multiple-value-bind (persisted-root present-p)
+            (kv-get-chain-record target-database :state-history
+                                 (hash32-bytes pivot-hash))
+          (is present-p)
+          (is (bytes= persisted-root (hash32-bytes root))))
+        (let ((trie
+                (make-persisted-mpt
+                 root
+                 (lambda (hash)
+                   (trie-node-store-get target-database hash)))))
+          (dolist (address addresses)
+            (multiple-value-bind (record present-p)
+                (mpt-get trie (keccak-256 (address-bytes address)))
+              (is present-p)
+              (is (= (* 100 (1+ (position address addresses)))
+                     (state-account-balance
+                      (ethereum-lisp.state:decode-state-account-rlp record)))))))
+        (multiple-value-bind (persisted-code present-p)
+            (kv-get-chain-record target-database :code (keccak-256 code))
+          (is present-p)
+          (is (bytes= code persisted-code)))
+        (signals error
+          (ethereum-lisp.snap-sync:snap-sync-import-state
+           target-database source
+           :pivot-hash pivot-hash :pivot-number 1234 :state-root root
+           :chain-id 1 :genesis-hash genesis-hash
+           :authority-id authority-id :byte-limit 180))
+        (signals error
+          (ethereum-lisp.snap-sync:snap-sync-import-state
+           target-database source
+           :pivot-hash pivot-hash :pivot-number 1234 :state-root root
+           :target-hash (make-hash32 (snap-test-hash 94))
+           :chain-id 560048 :genesis-hash genesis-hash
+           :authority-id authority-id :byte-limit 180))))))
+
+(deftest snap-state-import-rebases-ranges-and-heals-the-new-pivot-root
+  (:layer :integration :module :p2p)
+  (let* ((source-state (make-state-db))
+         (source-database (make-memory-key-value-database))
+         (target-database (make-memory-key-value-database))
+         (addresses
+           (loop for index from 1 to 160
+                 collect (snap-test-address-from-integer index)))
+         (pivot-a (make-hash32 (snap-test-hash 201)))
+         (pivot-b (make-hash32 (snap-test-hash 202)))
+         (target-a (make-hash32 (snap-test-hash 203)))
+         (target-b (make-hash32 (snap-test-hash 204)))
+         (genesis (make-hash32 (snap-test-hash 205)))
+         (authority (make-hash32 (snap-test-hash 206)))
+         (code #(96 1 96 0))
+         (slot (make-hash32 (snap-test-hash 207))))
+    (loop for address in addresses
+          for index from 1
+          do (state-db-set-account
+              source-state address
+              (make-state-account :nonce index :balance (+ 1000 index))))
+    (let* ((root-a (state-db-root source-state))
+           (backend-a
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              source-database source-state))
+           (first
+             (ethereum-lisp.snap-sync:snap-sync-import-state
+              target-database (snap-test-source backend-a)
+              :pivot-hash pivot-a :pivot-number 1000 :state-root root-a
+              :target-hash target-a :chain-id 560048
+              :genesis-hash genesis :authority-id authority
+              :byte-limit 350 :max-pages 1))
+           (cursor
+             (ethereum-lisp.snap-sync:snap-sync-progress-next-origin first))
+           (downloaded-entry
+             (find-if
+              (lambda (entry)
+                (ethereum-lisp.validation:byte-vector-lexicographic<
+                 (state-account-range-entry-proof-key entry) cursor))
+              (state-db-account-range source-state)))
+           (changed-address
+             (and downloaded-entry
+                  (state-account-range-entry-address downloaded-entry))))
+      (is (not (null cursor)))
+      (is (not (null changed-address)))
+      (when changed-address
+        ;; Change an account that is strictly before the durable cursor.  The
+        ;; rebased downloader must not request that flat range again; only the
+        ;; TrieNodes healing phase can make the new root executable.
+        (state-db-set-account
+         source-state changed-address
+         (make-state-account :nonce 999 :balance 424242))
+        (state-db-set-code source-state changed-address code)
+        (state-db-set-storage source-state changed-address slot 777))
+      (let* ((root-b (state-db-root source-state))
+             (backend-b
+               (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+                source-database source-state))
+             (base-source (snap-test-source backend-b))
+             (origins '())
+             (trie-node-requests 0)
+             (source
+               (ethereum-lisp.snap-sync:make-snap-sync-source
+                :account-range
+                (lambda (request)
+                  (push
+                   (copy-seq
+                    (ethereum-lisp.snap:snap-get-account-range-origin request))
+                   origins)
+                  (funcall
+                   (ethereum-lisp.snap-sync:snap-sync-source-account-range
+                    base-source)
+                   request))
+                :storage-ranges
+                (ethereum-lisp.snap-sync:snap-sync-source-storage-ranges
+                 base-source)
+                :bytecodes
+                (ethereum-lisp.snap-sync:snap-sync-source-bytecodes base-source)
+                :trie-nodes
+                (lambda (request)
+                  (incf trie-node-requests)
+                  (funcall
+                   (ethereum-lisp.snap-sync:snap-sync-source-trie-nodes
+                    base-source)
+                   request)))))
+        (is (not (hash32= root-a root-b)))
+        (ethereum-lisp.snap-sync:snap-sync-rebase-progress
+         target-database
+         :pivot-hash pivot-b :pivot-number 1010 :state-root root-b
+         :target-hash target-b :chain-id 560048
+         :genesis-hash genesis :authority-id authority)
+        (let ((completed
+                (ethereum-lisp.snap-sync:snap-sync-import-state
+                 target-database source
+                 :pivot-hash pivot-b :pivot-number 1010 :state-root root-b
+                 :target-hash target-b :chain-id 560048
+                 :genesis-hash genesis :authority-id authority
+                 :byte-limit 350)))
+          (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
+               completed))
+          ;; The exact page mix may already generate all changed ancestors;
+          ;; the dedicated healer regression below forces a missing-root fetch.
+          (is (not (minusp trie-node-requests)))
+          (is (every
+               (lambda (origin) (not (bytes= origin (make-byte-vector 32))))
+               origins))
+          (multiple-value-bind (persisted-root present-p)
+              (kv-get-chain-record
+               target-database :state-history (hash32-bytes pivot-b))
+            (is present-p)
+            (is (bytes= persisted-root (hash32-bytes root-b))))
+          (when changed-address
+            (let ((trie
+                    (make-persisted-mpt
+                     root-b
+                     (lambda (hash)
+                       (trie-node-store-get target-database hash)))))
+              (multiple-value-bind (record present-p)
+                  (mpt-get trie (keccak-256 (address-bytes changed-address)))
+                (is present-p)
+                (when present-p
+                  (let ((account
+                          (ethereum-lisp.state:decode-state-account-rlp
+                           record)))
+                    (is (= 424242 (state-account-balance account)))
+                    (multiple-value-bind (storage-node storage-present-p)
+                        (trie-node-store-get
+                         target-database
+                         (state-account-storage-root account))
+                      (is storage-present-p)
+                      (is (plusp (length storage-node))))))))
+            (multiple-value-bind (persisted-code code-present-p)
+                (kv-get-chain-record target-database :code (keccak-256 code))
+              (is code-present-p)
+              (is (bytes= code persisted-code)))))))))
+
+(deftest snap-skeleton-and-state-rebase-commit-as-one-durable-batch
+  (:layer :integration :module :p2p)
+  (let* ((database (make-instance 'snap-failing-test-database))
+         (chain-id 560048)
+         (genesis (make-hash32 (snap-test-hash 216)))
+         (authority (make-hash32 (snap-test-hash 217)))
+         (old-target (make-hash32 (snap-test-hash 218)))
+         (old-pivot (make-hash32 (snap-test-hash 219)))
+         (old-anchor (make-hash32 (snap-test-hash 220)))
+         (old-last (make-hash32 (snap-test-hash 221)))
+         (new-target (make-hash32 (snap-test-hash 222)))
+         (new-pivot (make-hash32 (snap-test-hash 223)))
+         (new-anchor (make-hash32 (snap-test-hash 224)))
+         (old-root (make-hash32 (snap-test-hash 225)))
+         (new-root (make-hash32 (snap-test-hash 226)))
+         (partial-root (make-hash32 (snap-test-hash 227)))
+         (cursor (make-byte-vector 32 :initial-element 1))
+         (old-skeleton
+           (ethereum-lisp.node-store.persistence:make-node-store-snap-skeleton-progress
+            :authority-id authority :chain-id chain-id :genesis-hash genesis
+            :target-number 164 :target-hash old-target
+            :anchor-number 99 :anchor-hash old-anchor
+            :pivot-number 100 :pivot-hash old-pivot
+            :last-number 164 :last-hash old-last))
+         (old-state
+           (ethereum-lisp.snap-sync::snap-sync-make-progress
+            :pivot-hash old-pivot :pivot-number 100 :state-root old-root
+            :next-origin cursor :partial-root partial-root
+            :target-hash old-target :chain-id chain-id
+            :genesis-hash genesis :authority-id authority :completed-p nil))
+         (replacement
+           (ethereum-lisp.node-store.persistence:make-node-store-snap-skeleton-progress
+            :authority-id authority :chain-id chain-id :genesis-hash genesis
+            :target-number 284 :target-hash new-target
+            :anchor-number 219 :anchor-hash new-anchor
+            :pivot-number 220 :pivot-hash new-pivot
+            :last-number 219 :last-hash new-anchor)))
+    (snap-test-install-persistence-metadata
+     database chain-id genesis authority)
+    (let ((batch (make-kv-write-batch)))
+      (ethereum-lisp.node-store.persistence::node-store-populate-snap-skeleton-progress-batch
+       database batch old-skeleton)
+      (ethereum-lisp.snap-sync::snap-sync-populate-progress-batch
+       batch old-state)
+      (kv-apply-batch database batch))
+    (labels ((rebase-batch ()
+               (let ((batch (make-kv-write-batch)))
+                 (ethereum-lisp.node-store.persistence:node-store-populate-snap-skeleton-rebase-batch
+                  database batch replacement)
+                 (ethereum-lisp.snap-sync:snap-sync-populate-rebased-progress-batch
+                  batch old-state
+                  :pivot-hash new-pivot :pivot-number 220
+                  :state-root new-root :target-hash new-target
+                  :chain-id chain-id :genesis-hash genesis
+                  :authority-id authority)
+                 batch))
+             (assert-session (target pivot skeleton-last state-cursor)
+               (multiple-value-bind (skeleton present-p)
+                   (ethereum-lisp.node-store.persistence:node-store-read-snap-skeleton-progress
+                    database)
+                 (is present-p)
+                 (is (hash32= target
+                              (ethereum-lisp.node-store.persistence:node-store-snap-skeleton-progress-target-hash
+                               skeleton)))
+                 (is (hash32= pivot
+                              (ethereum-lisp.node-store.persistence:node-store-snap-skeleton-progress-pivot-hash
+                               skeleton)))
+                 (is (hash32= skeleton-last
+                              (ethereum-lisp.node-store.persistence:node-store-snap-skeleton-progress-last-hash
+                               skeleton))))
+               (multiple-value-bind (progress present-p)
+                   (ethereum-lisp.snap-sync:snap-sync-read-progress database)
+                 (is present-p)
+                 (is (hash32= target
+                              (ethereum-lisp.snap-sync:snap-sync-progress-target-hash
+                               progress)))
+                 (is (hash32= pivot
+                              (ethereum-lisp.snap-sync:snap-sync-progress-pivot-hash
+                               progress)))
+                 (is (bytes= state-cursor
+                             (ethereum-lisp.snap-sync:snap-sync-progress-next-origin
+                              progress)))
+                 (is (not
+                      (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
+                       progress))))))
+      (setf (snap-failing-test-database-fail-next-apply-p database) t)
+      (signals error (kv-apply-batch database (rebase-batch)))
+      (assert-session old-target old-pivot old-last cursor)
+      (kv-apply-batch database (rebase-batch))
+      (assert-session new-target new-pivot new-anchor cursor))))
+
+(deftest snap-state-healer-fetches-missing-account-storage-and-code-nodes
+  (:layer :integration :module :p2p)
+  (let* ((source-state (make-state-db))
+         (source-database (make-memory-key-value-database))
+         (target-database (make-memory-key-value-database))
+         (address
+           (address-from-hex
+            "0x0000000000000000000000000000000000000099"))
+         (slot (make-hash32 (snap-test-hash 211)))
+         (code #(96 2 96 0))
+         (pivot (make-hash32 (snap-test-hash 212)))
+         (target (make-hash32 (snap-test-hash 213)))
+         (genesis (make-hash32 (snap-test-hash 214)))
+         (authority (make-hash32 (snap-test-hash 215)))
+         (trie-node-requests 0))
+    (state-db-set-account
+     source-state address (make-state-account :nonce 7 :balance 99))
+    (state-db-set-code source-state address code)
+    (state-db-set-storage source-state address slot 12345)
+    (let* ((root (state-db-root source-state))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              source-database source-state))
+           (base-source (snap-test-source backend))
+           (source
+             (ethereum-lisp.snap-sync:make-snap-sync-source
+              :account-range
+              (ethereum-lisp.snap-sync:snap-sync-source-account-range
+               base-source)
+              :storage-ranges
+              (ethereum-lisp.snap-sync:snap-sync-source-storage-ranges
+               base-source)
+              :bytecodes
+              (ethereum-lisp.snap-sync:snap-sync-source-bytecodes base-source)
+              :trie-nodes
+              (lambda (request)
+                (incf trie-node-requests)
+                (funcall
+                 (ethereum-lisp.snap-sync:snap-sync-source-trie-nodes
+                  base-source)
+                 request))))
+           (progress
+             (ethereum-lisp.snap-sync::snap-sync-make-progress
+              :pivot-hash pivot :pivot-number 2000 :state-root root
+              :partial-root +empty-trie-hash+ :target-hash target
+              :chain-id 560048 :genesis-hash genesis
+              :authority-id authority :completed-p nil
+              :tasks
+              (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+               :count 1 :completed-p t)))
+           (completed
+             (ethereum-lisp.snap-sync::snap-sync-heal-state
+              target-database (list source) progress 350)))
+      (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p completed))
+      (is (plusp trie-node-requests))
+      (multiple-value-bind (persisted-root present-p)
+          (kv-get-chain-record
+           target-database :state-history (hash32-bytes pivot))
+        (is present-p)
+        (is (bytes= persisted-root (hash32-bytes root))))
+      (multiple-value-bind (persisted-code code-present-p)
+          (kv-get-chain-record target-database :code (keccak-256 code))
+        (is code-present-p)
+        (is (bytes= code persisted-code)))
+      (let ((trie
+              (make-persisted-mpt
+               root
+               (lambda (hash)
+                 (trie-node-store-get target-database hash)))))
+        (multiple-value-bind (record present-p)
+            (mpt-get trie (keccak-256 (address-bytes address)))
+          (is present-p)
+          (when present-p
+            (let ((account
+                    (ethereum-lisp.state:decode-state-account-rlp record)))
+              (is (= 99 (state-account-balance account)))
+              (multiple-value-bind (storage-node storage-present-p)
+                  (trie-node-store-get
+                   target-database (state-account-storage-root account))
+                (is storage-present-p)
+                (is (plusp (length storage-node)))))))))))
+
+(deftest snap-state-import-does-not-advance-a-cursor-past-a-failed-batch
+  (:layer :integration :module :p2p)
+  (let* ((source-state (make-state-db))
+         (source-database (make-memory-key-value-database))
+         (target-database (make-instance 'snap-failing-test-database))
+         (address
+           (address-from-hex "0x0000000000000000000000000000000000000042")))
+    ;; No code or storage keeps the injected failure on the account
+    ;; trie+cursor batch whose atomicity this test is proving.
+    (state-db-set-account
+     source-state address (make-state-account :nonce 1 :balance 42))
+    (let* ((root (state-db-root source-state))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              source-database source-state))
+           (source (snap-test-source backend))
+           (pivot-hash (make-hash32 (snap-test-hash 101)))
+           (genesis-hash (make-hash32 (snap-test-hash 102)))
+           (authority-id (make-hash32 (snap-test-hash 103))))
+      (setf (snap-failing-test-database-fail-next-apply-p target-database) t)
+      (signals error
+        (ethereum-lisp.snap-sync:snap-sync-import-state
+         target-database source
+         :pivot-hash pivot-hash :pivot-number 999 :state-root root
+         :chain-id 560048 :genesis-hash genesis-hash
+         :authority-id authority-id))
+      (is (not (nth-value 1
+                          (ethereum-lisp.snap-sync:snap-sync-read-progress
+                           target-database))))
+      (is (not (nth-value
+                1 (kv-get-chain-record target-database :state-history
+                                       (hash32-bytes pivot-hash)))))
+      (let ((completed
+              (ethereum-lisp.snap-sync:snap-sync-import-state
+               target-database source
+               :pivot-hash pivot-hash :pivot-number 999 :state-root root
+               :chain-id 560048 :genesis-hash genesis-hash
+               :authority-id authority-id)))
+        (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p completed))
+        (multiple-value-bind (persisted-root present-p)
+            (kv-get-chain-record target-database :state-history
+                                 (hash32-bytes pivot-hash))
+          (is present-p)
+          (is (bytes= persisted-root (hash32-bytes root))))))))

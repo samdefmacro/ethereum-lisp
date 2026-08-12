@@ -42,6 +42,7 @@
    #:built-in-genesis-preset-config
    #:built-in-genesis-preset-expected-hash
    #:built-in-genesis-preset-allocation-path
+   #:built-in-genesis-preset-bootnodes
    #:mainnet-genesis-preset
    #:sepolia-genesis-preset
    #:holesky-genesis-preset

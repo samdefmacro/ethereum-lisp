@@ -12,6 +12,10 @@
   connection
   eth-offset
   eth-version
+  shared-capabilities
+  snap-offset
+  snap-version
+  snap-backend
   remote-status
   ;; The peer's devp2p Hello: its client id, advertised capabilities, and the
   ;; TCP port it listens on. Kept because a peer manager reports it and because
@@ -67,7 +71,7 @@ rather than as port zero."
   "Send an eth message over CONNECTION at the negotiated OFFSET (compressed)."
   (rlpx-connection-write-message connection (+ offset eth-message-id) payload))
 
-(defun eth-wire-read-once (connection offset)
+(defun eth-wire-read-once (connection offset &optional message-count)
   "Read exactly ONE devp2p message, returning (VALUES KIND ID PAYLOAD).
 
 KIND is :ETH for a subprotocol message, whose ID has the offset already removed,
@@ -100,9 +104,14 @@ inside a loop that swallows it."
          (error "unexpected base-protocol message id ~D below eth offset ~D"
                 code offset))
        (values :base code payload))
-      (t (values :eth (- code offset) payload)))))
+      (t
+       (let ((local-id (- code offset)))
+         (when (and message-count (>= local-id message-count))
+           (error "eth message id ~D is outside the negotiated ~D-id range"
+                  local-id message-count))
+         (values :eth local-id payload))))))
 
-(defun eth-wire-read (connection offset)
+(defun eth-wire-read (connection offset &optional message-count)
   "Read the next eth message from CONNECTION, returning (VALUES ETH-ID PAYLOAD).
 
 Base-protocol traffic is handled inline: a Ping is answered with a Pong and the
@@ -114,20 +123,103 @@ keepalives. That is right for a caller waiting on a reply it has already asked
 for, and wrong for a long-lived session loop, which should use
 ETH-WIRE-READ-ONCE and handle the base traffic itself."
   (loop
-    (multiple-value-bind (kind id payload) (eth-wire-read-once connection offset)
+    (multiple-value-bind (kind id payload)
+        (eth-wire-read-once connection offset message-count)
       (if (eq kind :eth)
           (return (values id payload))
           (when (= id +devp2p-message-ping+)
             (rlpx-send-pong connection))))))
 
+(defun eth-wire-read-negotiated-once (connection shared-capabilities)
+  "Read one base, eth, or snap message using the negotiated capability map.
+
+The returned KIND is :BASE, :ETH, or :SNAP and ID is relative to the selected
+capability.  Resolution is range checked by the p2p layer, so an id immediately
+past snap/1 (or past the selected eth version) is rejected instead of being
+misclassified as that capability."
+  (multiple-value-bind (code payload)
+      (rlpx-connection-read-message
+       connection
+       :max-frame-size (1+ (max +eth-max-message-size+
+                                +snap-max-message-size+))
+       :max-message-size (max +eth-max-message-size+ +snap-max-message-size+))
+    (when (= code +devp2p-message-disconnect+)
+      (error 'rlpx-disconnect :reason (decode-devp2p-disconnect payload)))
+    (multiple-value-bind (capability local-id)
+        (rlpx-shared-capability-for-message-code shared-capabilities code)
+      (cond
+        ((null capability)
+         (when (> (length payload) +devp2p-max-message-size+)
+           (error "devp2p base message contains ~D bytes, exceeding the ~D-byte limit"
+                  (length payload) +devp2p-max-message-size+))
+         (unless (or (= code +devp2p-message-ping+)
+                     (= code +devp2p-message-pong+))
+           (error "unexpected devp2p base message id ~D" code))
+         (values :base local-id payload))
+        ((string= "eth" (rlpx-shared-capability-name capability))
+         (values :eth local-id payload))
+        ((string= "snap" (rlpx-shared-capability-name capability))
+         (values :snap local-id payload))
+        (t
+         (error "negotiated capability ~S has no session dispatcher"
+                (rlpx-shared-capability-name capability)))))))
+
+(defun eth-peer-handle-base-message (peer id)
+  (when (= id +devp2p-message-ping+)
+    (rlpx-send-pong (eth-peer-connection peer)))
+  t)
+
+(defun eth-peer-send-snap (peer snap-message-id payload)
+  "Send one snap/1 message, rejecting use when snap was not negotiated."
+  (unless (eth-peer-snap-offset peer)
+    (error "snap/1 was not negotiated with this peer"))
+  (unless (and (integerp snap-message-id)
+               (<= 0 snap-message-id)
+               (< snap-message-id +snap-message-count+))
+    (error "snap/1 message id ~S is outside the negotiated range"
+           snap-message-id))
+  (rlpx-connection-write-message
+   (eth-peer-connection peer)
+   (+ (eth-peer-snap-offset peer) snap-message-id)
+   payload))
+
+(defun eth-peer-serve-snap-message (peer snap-message-id payload)
+  "Serve one snap/1 request and return true; responses return NIL."
+  (when (member snap-message-id
+                (list +snap-message-get-account-range+
+                      +snap-message-get-storage-ranges+
+                      +snap-message-get-bytecodes+
+                      +snap-message-get-trie-nodes+))
+    (let ((backend (eth-peer-snap-backend peer)))
+      (unless backend
+        (error "peer sent a snap/1 request although no snap server is installed"))
+      (multiple-value-bind (response-id response)
+          (snap-serve-request backend snap-message-id payload)
+        (eth-peer-send-snap peer response-id response)))
+    t))
+
 (defun eth-peer-send (peer eth-message-id payload)
   "Send an eth message to PEER."
+  (unless (and (integerp eth-message-id)
+               (<= 0 eth-message-id)
+               (< eth-message-id
+                  (devp2p-capability-message-count
+                   "eth" (eth-peer-eth-version peer))))
+    (error "eth/~D message id ~S is outside the negotiated range"
+           (eth-peer-eth-version peer) eth-message-id))
   (eth-wire-send (eth-peer-connection peer) (eth-peer-eth-offset peer)
                  eth-message-id payload))
 
 (defun eth-peer-read (peer)
   "Read the next eth message from PEER, returning (VALUES ETH-ID PAYLOAD)."
-  (eth-wire-read (eth-peer-connection peer) (eth-peer-eth-offset peer)))
+  (loop
+    (multiple-value-bind (kind id payload) (eth-peer-read-once peer)
+      (case kind
+        (:eth (return (values id payload)))
+        (:snap
+         (unless (eth-peer-serve-snap-message peer id payload)
+           (error "unsolicited snap/1 response id ~D" id)))
+        (:base (eth-peer-handle-base-message peer id))))))
 
 (defun eth-peer-send-block-range-update (peer earliest latest latest-hash)
   "Send an eth/69 BlockRangeUpdate after validating the advertised range."
@@ -145,7 +237,43 @@ ETH-WIRE-READ-ONCE and handle the base traffic itself."
 
 See ETH-WIRE-READ-ONCE: this is the read a session loop uses, so that keepalive
 traffic reaches the loop instead of being absorbed below it."
-  (eth-wire-read-once (eth-peer-connection peer) (eth-peer-eth-offset peer)))
+  (let ((shared (eth-peer-shared-capabilities peer)))
+    (if shared
+        (eth-wire-read-negotiated-once (eth-peer-connection peer) shared)
+        (eth-wire-read-once (eth-peer-connection peer)
+                            (eth-peer-eth-offset peer)
+                            (devp2p-capability-message-count
+                             "eth" (eth-peer-eth-version peer))))))
+
+(defconstant +snap-max-skipped-messages+ 256
+  "Maximum unrelated messages handled while awaiting one snap response.")
+
+(defun eth-peer-snap-request (peer message-id request)
+  "Send one typed snap/1 REQUEST and return its decoded matching response."
+  (unless (member message-id
+                  (list +snap-message-get-account-range+
+                        +snap-message-get-storage-ranges+
+                        +snap-message-get-bytecodes+
+                        +snap-message-get-trie-nodes+))
+    (error "snap/1 message id ~D is not a request" message-id))
+  (let ((request-id (snap-request-id message-id request))
+        (expected-id (1+ message-id)))
+    (eth-peer-send-snap peer message-id (encode-snap-message message-id request))
+    (dotimes (i +snap-max-skipped-messages+
+                (error "no snap/1 response id ~D for request ~D after ~D messages"
+                       expected-id request-id +snap-max-skipped-messages+))
+      (multiple-value-bind (kind id payload) (eth-peer-read-once peer)
+        (case kind
+          (:base (eth-peer-handle-base-message peer id))
+          (:eth (eth-peer-handle-message peer id payload))
+          (:snap
+           (if (= id expected-id)
+               (let ((response (decode-snap-message id payload)))
+                 (when (= request-id (snap-response-id id response))
+                   (return response)))
+               (unless (eth-peer-serve-snap-message peer id payload)
+                 (error "unexpected snap/1 response id ~D while awaiting ~D"
+                        id expected-id)))))))))
 
 ;;; The eth Status handshake.
 
@@ -264,7 +392,8 @@ success."
   t)
 
 (defun eth-peer-handshake (connection eth-offset eth-version our-status
-                           &key chain-context serve-backend remote-hello)
+                           &key chain-context serve-backend remote-hello
+                                shared-capabilities snap-backend)
   "Exchange eth Status over CONNECTION and return a validated ETH-PEER.
 
 Encodes OUR-STATUS in the negotiated ETH-VERSION's wire format (eth/68 carries
@@ -276,20 +405,43 @@ returned, so the peer can never send a request we drop for want of a backend."
   (setf (eth-status-version our-status) eth-version)
   (eth-wire-send connection eth-offset +eth-message-status+
                  (encode-eth-status-for-version our-status eth-version))
-  (multiple-value-bind (eth-id payload) (eth-wire-read connection eth-offset)
+  (multiple-value-bind (eth-id payload)
+      (if shared-capabilities
+          (loop
+            (multiple-value-bind (kind id payload)
+                (eth-wire-read-negotiated-once connection shared-capabilities)
+              (case kind
+                (:eth (return (values id payload)))
+                (:base
+                 (when (= id +devp2p-message-ping+)
+                   (rlpx-send-pong connection)))
+                (:snap
+                 (error "snap/1 traffic arrived before the eth Status handshake")))))
+          (eth-wire-read
+           connection eth-offset
+           (devp2p-capability-message-count "eth" eth-version)))
     (unless (= eth-id +eth-message-status+)
       (error "expected eth Status (0x00) but got eth message id ~D" eth-id))
     (let ((peer-status (decode-eth-status-for-version payload eth-version)))
       (eth-validate-peer-status our-status peer-status chain-context)
-      (%make-eth-peer :connection connection
-                      :eth-offset eth-offset
-                      :eth-version eth-version
-                      :remote-status peer-status
-                      :remote-hello remote-hello
-                      :serve-backend serve-backend))))
+      (let ((snap (and shared-capabilities
+                       (rlpx-shared-capability-named
+                        shared-capabilities "snap"))))
+        (%make-eth-peer :connection connection
+                        :eth-offset eth-offset
+                        :eth-version eth-version
+                        :shared-capabilities shared-capabilities
+                        :snap-offset (and snap
+                                          (rlpx-shared-capability-offset snap))
+                        :snap-version (and snap
+                                           (rlpx-shared-capability-version snap))
+                        :snap-backend snap-backend
+                        :remote-status peer-status
+                        :remote-hello remote-hello
+                        :serve-backend serve-backend)))))
 
 (defun eth-peer-connect (connection hello our-status
-                         &key chain-context serve-backend)
+                         &key chain-context serve-backend snap-backend)
   "Run the devp2p Hello exchange then the eth Status handshake over CONNECTION.
 
 HELLO is our devp2p Hello, which must advertise the eth capability. The eth
@@ -307,4 +459,6 @@ share eth."
                           our-status
                           :chain-context chain-context
                           :serve-backend serve-backend
-                          :remote-hello peer-hello))))
+                          :remote-hello peer-hello
+                          :shared-capabilities shared
+                          :snap-backend snap-backend))))

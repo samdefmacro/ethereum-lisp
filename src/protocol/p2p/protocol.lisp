@@ -17,6 +17,9 @@
 (defconstant +devp2p-max-message-size+ (* 2 1024)
   "Maximum decoded base-protocol message size, matching go-ethereum 1.17.6.")
 
+(defconstant +devp2p-max-capabilities+ 64
+  "Maximum capability entries accepted in one bounded Hello message.")
+
 ;; The EIP-706 disconnect reasons. A peer that refuses a connection says why,
 ;; and the reason is the only diagnostic the other end gets, so the ones an
 ;; inbound listener needs to send — already-connected, self, too-many-peers —
@@ -69,19 +72,25 @@
 (defun decode-devp2p-hello (bytes)
   "Decode a devp2p HELLO message body, ignoring any trailing fields."
   (let ((items (rlp-list-items
-                (rlp-decode (ensure-byte-vector bytes) :allow-trailing t))))
+                (rlp-decode (ensure-byte-vector bytes) :allow-trailing t
+                            :max-list-items +devp2p-max-capabilities+))))
     (when (< (length items) 5)
       (error "devp2p Hello must have at least five fields"))
     (make-devp2p-hello
      :version (bytes-to-integer (ensure-byte-vector (first items)))
      :client-id (bytes-to-ascii (ensure-byte-vector (second items)))
      :capabilities
-     (mapcar (lambda (capability)
+     (let ((capabilities (rlp-list-items (third items))))
+       (when (> (length capabilities) +devp2p-max-capabilities+)
+         (error "devp2p Hello advertises too many capabilities"))
+       (mapcar (lambda (capability)
                (let ((fields (rlp-list-items capability)))
+                 (unless (= 2 (length fields))
+                   (error "devp2p capability must contain two fields"))
                  (make-devp2p-capability
                   (bytes-to-ascii (ensure-byte-vector (first fields)))
                   (bytes-to-integer (ensure-byte-vector (second fields))))))
-             (rlp-list-items (third items)))
+               capabilities))
      :listen-port (bytes-to-integer (ensure-byte-vector (fourth items)))
      :node-id (ensure-byte-vector (fifth items)))))
 
@@ -102,7 +111,8 @@ lenient here for exactly this reason.
 Found on Hoodi: four peers in the first three minutes sent a bare 0x10 (`some
 other reason`), and each one surfaced as `The value #(16) is not of type
 RLP-LIST`."
-  (let ((decoded (rlp-decode (ensure-byte-vector bytes) :allow-trailing t)))
+  (let ((decoded (rlp-decode (ensure-byte-vector bytes) :allow-trailing t
+                             :max-list-items 1)))
     (if (rlp-list-p decoded)
         (let ((items (rlp-list-items decoded)))
           (if items

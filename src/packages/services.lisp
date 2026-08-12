@@ -92,6 +92,7 @@
    #:canonical-chain-transition-installed-blocks
    #:canonical-chain-transition-displaced-blocks
    #:canonical-chain-transition-changed-txpool-hashes
+   #:canonical-chain-install-sync-checkpoint
    #:chain-store-set-canonical-head))
 
 (defpackage #:ethereum-lisp.engine
@@ -134,5 +135,6 @@
    #:import-executable-payload
    #:import-block-candidate
    #:import-p2p-block-candidate
+   #:install-forkchoice-sync-pivot
    #:publish-canonical-block
    #:build-import-and-publish-block))

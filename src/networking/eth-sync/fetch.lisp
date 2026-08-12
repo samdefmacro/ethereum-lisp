@@ -129,6 +129,8 @@ semantics."
            (lambda (payload)
              (multiple-value-bind (id response-hashes groups response-mask)
                  (decode-eth-cells payload)
+               (unless (bytes= response-mask custody-mask)
+                 (error "eth/72 Cells response custody mask differs from the request"))
                (values id (list response-hashes groups response-mask)))))))
     (values (first result) (second result) (third result))))
 

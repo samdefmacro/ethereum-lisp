@@ -278,3 +278,233 @@ Returns true when BATCH gained an operation."
     (kv-batch-put-chain-record
      batch :peer-sync-progress peer-id desired-record)
     t))
+
+;;; Consensus-authorized snap header/body skeleton progress. Unlike the
+;;; peer-specific execution cursor above, this cursor is bound to one CL target
+;;; and may advance through blocks whose state has not been downloaded yet.
+
+(defconstant +node-store-snap-skeleton-progress-version+ 1)
+(defparameter +node-store-snap-skeleton-progress-identifier+ "snap-skeleton")
+
+(defstruct (node-store-snap-skeleton-progress
+            (:constructor %make-node-store-snap-skeleton-progress
+                (&key authority-id chain-id genesis-hash target-number
+                      target-hash anchor-number anchor-hash pivot-number
+                      pivot-hash last-number last-hash)))
+  authority-id chain-id genesis-hash target-number target-hash
+  anchor-number anchor-hash pivot-number pivot-hash last-number last-hash)
+
+(defun make-node-store-snap-skeleton-progress
+    (&key authority-id chain-id genesis-hash target-number target-hash
+          anchor-number anchor-hash pivot-number pivot-hash last-number last-hash)
+  (dolist (entry `((,authority-id . "authority id")
+                   (,genesis-hash . "genesis hash")
+                   (,target-hash . "target hash")
+                   (,anchor-hash . "anchor hash")
+                   (,pivot-hash . "pivot hash")
+                   (,last-hash . "last hash")))
+    (unless (hash32-p (car entry))
+      (block-validation-fail "Snap skeleton ~A must be a hash32" (cdr entry))))
+  (unless (uint256-p chain-id)
+    (block-validation-fail "Snap skeleton chain id must be a uint256"))
+  (dolist (entry `((,target-number . "target")
+                   (,anchor-number . "anchor")
+                   (,pivot-number . "pivot")
+                   (,last-number . "last")))
+    (unless (uint64-value-p (car entry))
+      (block-validation-fail
+       "Snap skeleton ~A number must be a uint64" (cdr entry))))
+  (unless (<= anchor-number last-number target-number)
+    (block-validation-fail "Snap skeleton cursor is outside its target range"))
+  (unless (<= anchor-number pivot-number target-number)
+    (block-validation-fail "Snap skeleton pivot is outside its target range"))
+  (%make-node-store-snap-skeleton-progress
+   :authority-id authority-id :chain-id chain-id :genesis-hash genesis-hash
+   :target-number target-number :target-hash target-hash
+   :anchor-number anchor-number :anchor-hash anchor-hash
+   :pivot-number pivot-number :pivot-hash pivot-hash
+   :last-number last-number :last-hash last-hash))
+
+(defun node-store-snap-skeleton-progress-record-rlp (progress)
+  (rlp-encode
+   (make-rlp-list
+    +node-store-snap-skeleton-progress-version+
+    (hash32-bytes (node-store-snap-skeleton-progress-authority-id progress))
+    (node-store-snap-skeleton-progress-chain-id progress)
+    (hash32-bytes (node-store-snap-skeleton-progress-genesis-hash progress))
+    (node-store-snap-skeleton-progress-target-number progress)
+    (hash32-bytes (node-store-snap-skeleton-progress-target-hash progress))
+    (node-store-snap-skeleton-progress-anchor-number progress)
+    (hash32-bytes (node-store-snap-skeleton-progress-anchor-hash progress))
+    (node-store-snap-skeleton-progress-pivot-number progress)
+    (hash32-bytes (node-store-snap-skeleton-progress-pivot-hash progress))
+    (node-store-snap-skeleton-progress-last-number progress)
+    (hash32-bytes (node-store-snap-skeleton-progress-last-hash progress)))))
+
+(defun node-store-snap-skeleton-progress-from-record (record)
+  (handler-case
+      (let ((fields
+              (rlp-list-field
+               (rlp-decode-one record) "Snap skeleton progress")))
+        (unless (= 12 (length fields))
+          (block-validation-fail
+           "Snap skeleton progress must contain 12 fields"))
+        (unless (= +node-store-snap-skeleton-progress-version+
+                   (rlp-uint-field (first fields)
+                                   "Snap skeleton progress version"))
+          (block-validation-fail "Unsupported snap skeleton progress version"))
+        (flet ((hash-at (index label)
+                 (make-hash32
+                  (rlp-sized-bytes-field (nth index fields) 32 label)))
+               (uint-at (index label)
+                 (rlp-uint-field (nth index fields) label)))
+          (make-node-store-snap-skeleton-progress
+           :authority-id (hash-at 1 "Snap skeleton authority id")
+           :chain-id (uint-at 2 "Snap skeleton chain id")
+           :genesis-hash (hash-at 3 "Snap skeleton genesis hash")
+           :target-number (uint-at 4 "Snap skeleton target number")
+           :target-hash (hash-at 5 "Snap skeleton target hash")
+           :anchor-number (uint-at 6 "Snap skeleton anchor number")
+           :anchor-hash (hash-at 7 "Snap skeleton anchor hash")
+           :pivot-number (uint-at 8 "Snap skeleton pivot number")
+           :pivot-hash (hash-at 9 "Snap skeleton pivot hash")
+           :last-number (uint-at 10 "Snap skeleton last number")
+           :last-hash (hash-at 11 "Snap skeleton last hash"))))
+    (block-validation-error (condition) (error condition))
+    (error (condition)
+      (block-validation-fail
+       "Invalid snap skeleton progress record: ~A" condition))))
+
+(defun node-store-snap-skeleton-progress-same-session-p (left right)
+  (and (hash32= (node-store-snap-skeleton-progress-authority-id left)
+                (node-store-snap-skeleton-progress-authority-id right))
+       (= (node-store-snap-skeleton-progress-chain-id left)
+          (node-store-snap-skeleton-progress-chain-id right))
+       (hash32= (node-store-snap-skeleton-progress-genesis-hash left)
+                (node-store-snap-skeleton-progress-genesis-hash right))
+       (= (node-store-snap-skeleton-progress-target-number left)
+          (node-store-snap-skeleton-progress-target-number right))
+       (hash32= (node-store-snap-skeleton-progress-target-hash left)
+                (node-store-snap-skeleton-progress-target-hash right))
+       (= (node-store-snap-skeleton-progress-anchor-number left)
+          (node-store-snap-skeleton-progress-anchor-number right))
+       (hash32= (node-store-snap-skeleton-progress-anchor-hash left)
+                (node-store-snap-skeleton-progress-anchor-hash right))
+       (= (node-store-snap-skeleton-progress-pivot-number left)
+          (node-store-snap-skeleton-progress-pivot-number right))
+       (hash32= (node-store-snap-skeleton-progress-pivot-hash left)
+                (node-store-snap-skeleton-progress-pivot-hash right))))
+
+(defun node-store-snap-skeleton-progress-same-identity-p (left right)
+  (and (hash32= (node-store-snap-skeleton-progress-authority-id left)
+                (node-store-snap-skeleton-progress-authority-id right))
+       (= (node-store-snap-skeleton-progress-chain-id left)
+          (node-store-snap-skeleton-progress-chain-id right))
+       (hash32= (node-store-snap-skeleton-progress-genesis-hash left)
+                (node-store-snap-skeleton-progress-genesis-hash right))))
+
+(defun node-store-validate-snap-skeleton-progress (database progress)
+  (unless (typep database 'key-value-database)
+    (block-validation-fail
+     "Snap skeleton progress requires a key-value database"))
+  (unless (node-store-snap-skeleton-progress-p progress)
+    (block-validation-fail "Snap skeleton progress record is invalid"))
+  (multiple-value-bind (metadata present-p)
+      (node-store-read-persistence-metadata database)
+    (unless (and present-p
+                 (eq :database
+                     (node-store-persistence-metadata-role metadata))
+                 (hash32=
+                  (node-store-persistence-metadata-authority-id metadata)
+                  (node-store-snap-skeleton-progress-authority-id progress))
+                 (= (node-store-persistence-metadata-chain-id metadata)
+                    (node-store-snap-skeleton-progress-chain-id progress))
+                 (hash32=
+                  (node-store-persistence-metadata-genesis-hash metadata)
+                  (node-store-snap-skeleton-progress-genesis-hash progress)))
+      (block-validation-fail
+       "Snap skeleton progress persistence identity changed")))
+  progress)
+
+(defun node-store-read-snap-skeleton-progress (database)
+  (multiple-value-bind (record present-p)
+      (kv-get-chain-record
+       database :metadata +node-store-snap-skeleton-progress-identifier+)
+    (if present-p
+        (values
+         (node-store-validate-snap-skeleton-progress
+          database (node-store-snap-skeleton-progress-from-record record))
+         t)
+        (values nil nil))))
+
+(defun node-store-delete-snap-skeleton-progress (database)
+  (multiple-value-bind (progress present-p)
+      (node-store-read-snap-skeleton-progress database)
+    (declare (ignore progress))
+    (when present-p
+      (let ((batch (make-kv-write-batch)))
+        (kv-batch-delete-chain-record
+         batch :metadata +node-store-snap-skeleton-progress-identifier+)
+        (kv-apply-batch database batch)))
+    present-p))
+
+(defun node-store-populate-snap-skeleton-progress-batch
+    (database batch progress)
+  (node-store-validate-snap-skeleton-progress database progress)
+  (multiple-value-bind (existing present-p)
+      (node-store-read-snap-skeleton-progress database)
+    (when present-p
+      (unless (node-store-snap-skeleton-progress-same-session-p
+               existing progress)
+        (block-validation-fail "Snap skeleton progress target changed"))
+      (when (< (node-store-snap-skeleton-progress-last-number progress)
+               (node-store-snap-skeleton-progress-last-number existing))
+        (block-validation-fail "Snap skeleton progress cannot move backwards")))
+    (let ((record (node-store-snap-skeleton-progress-record-rlp progress)))
+      (multiple-value-bind (old old-present-p)
+          (kv-get-chain-record
+           database :metadata +node-store-snap-skeleton-progress-identifier+)
+        (unless (and old-present-p (bytes= old record))
+          (kv-batch-put-chain-record
+           batch :metadata +node-store-snap-skeleton-progress-identifier+
+           record)
+          t)))))
+
+(defun node-store-populate-snap-skeleton-rebase-batch
+    (database batch progress)
+  "Replace a stale CL-authorized skeleton session inside the caller's batch.
+
+The replacement starts from its new anchor, never carries a cursor from the
+old branch, and may only move the pivot/target forward (or replace either hash
+at the same height after a CL reorg).  The caller composes the matching snap/1
+state progress into this same batch before applying it."
+  (node-store-validate-snap-skeleton-progress database progress)
+  (unless (and
+           (= (node-store-snap-skeleton-progress-last-number progress)
+              (node-store-snap-skeleton-progress-anchor-number progress))
+           (hash32= (node-store-snap-skeleton-progress-last-hash progress)
+                    (node-store-snap-skeleton-progress-anchor-hash progress)))
+    (block-validation-fail
+     "Rebased snap skeleton must restart at its new anchor"))
+  (multiple-value-bind (existing present-p)
+      (node-store-read-snap-skeleton-progress database)
+    (when present-p
+      (unless (node-store-snap-skeleton-progress-same-identity-p
+               existing progress)
+        (block-validation-fail
+         "Snap skeleton rebase persistence identity changed"))
+      (when (< (node-store-snap-skeleton-progress-pivot-number progress)
+               (node-store-snap-skeleton-progress-pivot-number existing))
+        (block-validation-fail "Snap skeleton pivot cannot move backwards"))
+      (when (< (node-store-snap-skeleton-progress-target-number progress)
+               (node-store-snap-skeleton-progress-target-number existing))
+        (block-validation-fail "Snap skeleton target cannot move backwards")))
+    (let ((record (node-store-snap-skeleton-progress-record-rlp progress)))
+      (multiple-value-bind (old old-present-p)
+          (kv-get-chain-record
+           database :metadata +node-store-snap-skeleton-progress-identifier+)
+        (unless (and old-present-p (bytes= old record))
+          (kv-batch-put-chain-record
+           batch :metadata +node-store-snap-skeleton-progress-identifier+
+           record)
+          t)))))

@@ -11,7 +11,14 @@
   (:import-from #:ethereum-lisp.engine-api
                 #:engine-rpc-improve-open-payloads)
   (:import-from #:ethereum-lisp.eth-wire
-                #:eth-pooled-entry-transaction)
+                #:eth-pooled-entry-transaction
+                #:+eth-protocol-version-69+
+                #:+eth-message-new-block-hashes+
+                #:make-eth-new-block-hash
+                #:encode-eth-new-block-hashes)
+  (:import-from #:ethereum-lisp.eth-sync
+                #:eth-sync-multi-peer-error
+                #:eth-sync-multi-peer-fail)
   (:import-from #:ethereum-lisp.txpool
                 #:engine-payload-store-enable-txpool-database-change-tracking
                 #:engine-payload-store-txpool-database-change-tracking-enabled-p
@@ -73,10 +80,24 @@
                 #:node-store-migrate-chain-schema
                 #:make-database-engine-payload-store
                 #:database-engine-payload-store-p
+                #:database-engine-payload-store-database
                 #:make-node-store-peer-sync-progress
                 #:node-store-peer-sync-progress-last-number
                 #:node-store-peer-sync-progress-last-hash
                 #:node-store-read-peer-sync-progress
+                #:make-node-store-snap-skeleton-progress
+                #:node-store-snap-skeleton-progress-target-hash
+                #:node-store-snap-skeleton-progress-target-number
+                #:node-store-snap-skeleton-progress-anchor-number
+                #:node-store-snap-skeleton-progress-anchor-hash
+                #:node-store-snap-skeleton-progress-pivot-number
+                #:node-store-snap-skeleton-progress-pivot-hash
+                #:node-store-snap-skeleton-progress-last-number
+                #:node-store-snap-skeleton-progress-last-hash
+                #:node-store-read-snap-skeleton-progress
+                #:node-store-delete-snap-skeleton-progress
+                #:node-store-populate-snap-skeleton-rebase-batch
+                #:node-store-export-snap-skeleton-batch-to-kv
                 #:node-store-delete-peer-sync-progress
                 #:node-store-export-payload-candidate-to-kv
                 #:node-store-export-buffered-candidate-to-kv
@@ -141,6 +162,7 @@
    #:devnet-dial-registry-count
    #:devnet-dial-backoff-seconds
    #:devnet-dial-registry-put-static
+   #:devnet-dial-registry-put-bootstrap
    #:devnet-dial-registry-offer-dynamic
    #:devnet-dial-registry-dialing-count
    #:devnet-dial-free-slots

@@ -282,6 +282,38 @@
      (ethereum-lisp.eth-wire:encode-eth-new-pooled-transaction-hashes nil)
      72)))
 
+(deftest eth-72-custody-bitmap-is-the-pinned-geth-little-endian-wire-value
+  (:layer :unit :module :p2p)
+  ;; [1, [zeroHash], 0x010000...0080]. Bit 0 is the low bit of byte zero and
+  ;; bit 127 is the high bit of byte fifteen, matching geth's CustodyBitmap.
+  (let* ((hash (make-byte-vector 32))
+         (mask (make-byte-vector 16)))
+    (setf (aref mask 0) #x01
+          (aref mask 15) #x80)
+    (let ((encoded
+            (ethereum-lisp.eth-wire:encode-eth-get-cells
+             1 (list hash) mask)))
+      (is (string=
+           (concatenate
+            'string "0xf401e1a0"
+            (make-string 64 :initial-element #\0)
+            "9001000000000000000000000000000080")
+           (bytes-to-hex encoded)))
+      (multiple-value-bind (request-id hashes decoded-mask)
+          (ethereum-lisp.eth-wire:decode-eth-get-cells encoded)
+        (is (= 1 request-id))
+        (is (bytes= hash (first hashes)))
+        (is (bytes= mask decoded-mask))))))
+
+(deftest eth-wire-rejects-a-request-list-above-its-item-cap
+  (:layer :unit :module :p2p)
+  (let ((hashes
+          (loop repeat 4097 collect (make-byte-vector 32))))
+    (signals error
+      (ethereum-lisp.eth-wire:decode-eth-get-cells
+       (ethereum-lisp.eth-wire:encode-eth-get-cells
+        1 hashes (make-byte-vector 16))))))
+
 (deftest eth-block-headers-round-trips-real-headers
   (let* ((h1 (make-block-header :number 100 :timestamp 1000 :gas-limit 30000000
                                 :base-fee-per-gas 7 :state-root +empty-trie-hash+

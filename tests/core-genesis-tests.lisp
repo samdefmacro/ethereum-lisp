@@ -804,3 +804,25 @@
            (expected (built-in-genesis-preset-expected-hash preset)))
       (is (plusp (length alloc)))
       (is (bytes= (hash32-bytes expected) (hash32-bytes actual))))))
+
+(deftest built-in-public-network-presets-carry-canonical-v4-bootnodes
+  (:layer :unit :module :genesis)
+  ;; Exact list counts and Hoodi's first identity pin this to go-ethereum
+  ;; 38271784c2b31926563806da9a2e023b88f5e7a8 params/bootnodes.go. Parsing each
+  ;; URL is the positive control that the copied constants are usable inputs to
+  ;; our own discovery client rather than merely non-empty strings.
+  (dolist (entry (list (cons (mainnet-genesis-preset) 4)
+                       (cons (sepolia-genesis-preset) 5)
+                       (cons (holesky-genesis-preset) 2)
+                       (cons (hoodi-genesis-preset) 3)))
+    (let ((bootnodes (built-in-genesis-preset-bootnodes (car entry))))
+      (is (= (cdr entry) (length bootnodes)))
+      (dolist (bootnode bootnodes)
+        (multiple-value-bind (node-id host port) (parse-enode-url bootnode)
+          (is (= 64 (length node-id)))
+          (is (stringp host))
+          (is (= 30303 port))))))
+  (is (search
+       "2112dd3839dd752813d4df7f40936f06829fc54c0e051a93967c26e5f5d27d99"
+       (first (built-in-genesis-preset-bootnodes
+               (hoodi-genesis-preset))))))

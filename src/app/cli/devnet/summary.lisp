@@ -47,6 +47,7 @@
           :p2p-port (devnet-node-p2p-port node)
           :max-peers (devnet-peer-table-max-peers (devnet-node-peer-table node))
           :enode (devnet-node-enode node)
+          :discovery-enabled-p (devnet-node-discovery-enabled-p node)
           :public-api-modules (devnet-node-public-api-modules node)
           :engine-cors-origins (devnet-node-engine-cors-origins node)
           :public-cors-origins (devnet-node-public-cors-origins node)
@@ -119,6 +120,8 @@
       ("p2pPort" . ,(or (getf summary :p2p-port) :false))
       ("maxPeers" . ,(or (getf summary :max-peers) :false))
       ("enode" . ,(or (getf summary :enode) :false))
+      ("discoveryEnabled" .
+       ,(if (getf summary :discovery-enabled-p) t :false))
       ("devMode" . ,(if (getf summary :dev-mode-p) t :false))
       ("coinbase" . ,(getf summary :coinbase))
       ("allowUnprotectedTransactions" .
