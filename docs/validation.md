@@ -6,10 +6,10 @@ The full suite is for an explicit user request, release/CI work, or a genuinely
 broad high-risk change; it is not a routine prerequisite for implementing a
 feature.
 
-All application toolchains run inside Docker on macOS so compiler caches,
-temporary artifacts, child processes, and loopback listeners remain isolated.
-Direct `make test-*` and inner runner invocation fail outside the project image;
-there is no host fallback.
+All application toolchains run inside Docker on macOS and native Linux control
+planes so compiler caches, temporary artifacts, child processes, and loopback
+listeners remain isolated. Direct `make test-*` and inner runner invocation
+fail outside the project image; there is no host fallback.
 
 ## Session preflight
 
@@ -46,10 +46,10 @@ cl-workbench repl stop
 ## Test Layers
 
 ```sh
-scripts/dev.sh cold-test unit
-scripts/dev.sh cold-test integration
-scripts/dev.sh cold-test e2e
-scripts/dev.sh cold-test all
+cl-workbench validation run cold-unit
+cl-workbench validation run cold-integration
+cl-workbench validation run cold-e2e
+cl-workbench validation run cold-all
 ```
 
 - `unit` covers process-free domain behavior.
@@ -61,8 +61,17 @@ scripts/dev.sh cold-test all
 Focused selection is exposed by the broker, for example:
 
 ```sh
-scripts/dev.sh cold-test unit --match TRANSACTION
+cl-workbench validation run cold-unit --match TRANSACTION
 ```
+
+These Workbench profiles delegate direct argv to the existing
+`scripts/dev.sh cold-test` broker. `cold-docs` and `cold-scale` similarly map to
+the existing cold documentation and production-store gates. Workbench records
+one payload-free `validation.<profile>` outcome per invocation; direct
+`scripts/dev.sh` calls remain low-level compatibility routes and do not create
+that Workbench event. Each profile reports one aggregate gate and zero adapter
+retries; exact test and fixture counts remain in the runner output and archived
+conformance reports.
 
 ## Unified import, authority, and recovery checks
 
@@ -72,29 +81,29 @@ through the same container broker as every other application check:
 ```sh
 # Candidate admission, Engine persistence, publication authority, private
 # building, and the post-Merge debug rewind refusal.
-scripts/dev.sh cold-test unit --match BLOCK-IMPORT
-scripts/dev.sh cold-test unit --match NEW-PAYLOAD-PERSISTENCE
-scripts/dev.sh cold-test unit --match FORKCHOICE
-scripts/dev.sh cold-test unit --match DEBUG-SET-HEAD
-scripts/dev.sh cold-test unit --match ETH-SYNC-RESUME-ANCHOR
+cl-workbench validation run cold-unit --match BLOCK-IMPORT
+cl-workbench validation run cold-unit --match NEW-PAYLOAD-PERSISTENCE
+cl-workbench validation run cold-unit --match FORKCHOICE
+cl-workbench validation run cold-unit --match DEBUG-SET-HEAD
+cl-workbench validation run cold-unit --match ETH-SYNC-RESUME-ANCHOR
 
 # Durable exporters, staged execution, cache policies, file/RocksDB restart,
 # and the explicitly authorized local dev-period publisher.
-scripts/dev.sh cold-test integration --match CHAIN-STORE-CACHE
-scripts/dev.sh cold-test integration --match INVALID-TIPSET
-scripts/dev.sh cold-test integration --match REMOTE-BLOCK
-scripts/dev.sh cold-test integration --match BLOB-SIDECAR
-scripts/dev.sh cold-test integration --match PREPARED-PAYLOAD
-scripts/dev.sh cold-test integration --match PEER-SYNC-PROGRESS
-scripts/dev.sh cold-test integration --match STAGED-EXECUTION-UNIFIED
-scripts/dev.sh cold-test integration --match DEVNET-PEER-SYNC
-scripts/dev.sh cold-test integration --match DEV-PERIOD
+cl-workbench validation run cold-integration --match CHAIN-STORE-CACHE
+cl-workbench validation run cold-integration --match INVALID-TIPSET
+cl-workbench validation run cold-integration --match REMOTE-BLOCK
+cl-workbench validation run cold-integration --match BLOB-SIDECAR
+cl-workbench validation run cold-integration --match PREPARED-PAYLOAD
+cl-workbench validation run cold-integration --match PEER-SYNC-PROGRESS
+cl-workbench validation run cold-integration --match STAGED-EXECUTION-UNIFIED
+cl-workbench validation run cold-integration --match DEVNET-PEER-SYNC
+cl-workbench validation run cold-integration --match DEV-PERIOD
 
 # Kill a writer after candidate+cursor batches return but before clean close,
 # then reopen RocksDB and verify candidate state, cursor, and canonical view.
-scripts/dev.sh cold-test e2e \
+cl-workbench validation run cold-e2e \
   --match ROCKSDB-PEER-SYNC-CANDIDATE-PROGRESS-SURVIVES-SIGKILL
-scripts/dev.sh cold-test e2e \
+cl-workbench validation run cold-e2e \
   --match DEV-PERIOD-SEAL-SURVIVES-SIGKILL
 ```
 
@@ -150,26 +159,26 @@ layers:
 ```sh
 # Canonical preset seeds, bounded decoders, negotiated ranges, geth-pinned
 # eth/72 custody, and lossless transaction burst cursors.
-scripts/dev.sh cold-test unit --match BUILT-IN-PUBLIC-NETWORK-PRESETS
-scripts/dev.sh cold-test unit --match RLP-ENFORCES
-scripts/dev.sh cold-test unit --match RLPX-MESSAGE-CODES
-scripts/dev.sh cold-test unit --match ETH-72
-scripts/dev.sh cold-test unit --match DEVNET-BROADCAST
+cl-workbench validation run cold-unit --match BUILT-IN-PUBLIC-NETWORK-PRESETS
+cl-workbench validation run cold-unit --match RLP-ENFORCES
+cl-workbench validation run cold-unit --match RLPX-MESSAGE-CODES
+cl-workbench validation run cold-unit --match ETH-72
+cl-workbench validation run cold-unit --match DEVNET-BROADCAST
 
 # Real CLI identity/discovery behavior, verified snap client/server, durable
 # pivot progress, bounded multi-peer failover, sole-writer request queues, and
 # eth+snap multiplexing over one RLPx socket.
-scripts/dev.sh cold-test integration --match DEVNET-CLI-PUBLIC-PRESETS
-scripts/dev.sh cold-test integration --match DEVNET-DATADIR-PERSISTS
-scripts/dev.sh cold-test integration --match SNAP-
-scripts/dev.sh cold-test integration --match NODE-STORE-SNAP-SKELETON
-scripts/dev.sh cold-test unit --match SNAP-PIVOT
-scripts/dev.sh cold-test integration --match SNAP-PIVOT
-scripts/dev.sh cold-test integration --match BOUNDED-PIVOT
-scripts/dev.sh cold-test integration --match ETH-SYNC-MULTI-PEER
-scripts/dev.sh cold-test integration --match ETH-SYNC-THREE-SCRIPTED
-scripts/dev.sh cold-test integration --match DEVNET-PEER-REQUEST-QUEUE
-scripts/dev.sh cold-test integration \
+cl-workbench validation run cold-integration --match DEVNET-CLI-PUBLIC-PRESETS
+cl-workbench validation run cold-integration --match DEVNET-DATADIR-PERSISTS
+cl-workbench validation run cold-integration --match SNAP-
+cl-workbench validation run cold-integration --match NODE-STORE-SNAP-SKELETON
+cl-workbench validation run cold-unit --match SNAP-PIVOT
+cl-workbench validation run cold-integration --match SNAP-PIVOT
+cl-workbench validation run cold-integration --match BOUNDED-PIVOT
+cl-workbench validation run cold-integration --match ETH-SYNC-MULTI-PEER
+cl-workbench validation run cold-integration --match ETH-SYNC-THREE-SCRIPTED
+cl-workbench validation run cold-integration --match DEVNET-PEER-REQUEST-QUEUE
+cl-workbench validation run cold-integration \
   --match ETH-SYNC-MULTIPLEXES-ETH-72-AND-SNAP-1-OVER-ONE-SOCKET
 ```
 
@@ -237,7 +246,7 @@ to do so.
 ## Production-store scale gate
 
 ```sh
-scripts/dev.sh cold-scale
+cl-workbench validation run cold-scale
 ```
 
 This Docker-only acceptance gate writes a checkpointed canonical block and
@@ -256,7 +265,7 @@ the dataset cannot make a memory-mirrored restart look bounded.
 ## Documentation Transcripts
 
 ```sh
-scripts/dev.sh cold-docs    # cold, same container shape as the test layers
+cl-workbench validation run cold-docs # cold, same container shape as test layers
 cl-workbench docs verify    # warm image, for the edit loop
 ```
 
@@ -295,7 +304,7 @@ the run through the host-safe broker, then execute the report step inside the
 marked project image or the reviewed release job:
 
 ```sh
-scripts/dev.sh cold-test integration > run.log 2>&1
+cl-workbench validation run cold-integration > run.log 2>&1
 # Inside the marked project image or reviewed release job:
 scripts/conformance-report.sh \
   --log run.log \

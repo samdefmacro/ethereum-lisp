@@ -85,6 +85,77 @@ run_test() {
   esac
 }
 
+write_validation_result() {
+  local check_count="$1" result
+  case "$check_count" in
+    0|1) ;;
+    *) return 1 ;;
+  esac
+  result="${CL_WORKBENCH_VALIDATION_RESULT:-}"
+  [ -n "$result" ] && [ -f "$result" ] && [ ! -L "$result" ] || return 1
+  { printf \
+    '{"schema_version":1,"check_count":%s,"retry_count":0}\n' \
+      "$check_count" >"$result"; } 2>/dev/null
+}
+
+run_validation_gate() {
+  local result rc
+  result="${CL_WORKBENCH_VALIDATION_RESULT:-}"
+  [ -n "$result" ] && [ -f "$result" ] && [ ! -L "$result" ] || {
+    echo "ERROR: Workbench validation result channel is unavailable" >&2
+    return 2
+  }
+
+  if "$@"; then
+    rc=0
+  else
+    rc=$?
+  fi
+
+  # One profile invocation is one project gate. Detailed test counts remain in
+  # the project runner output; the adapter itself performs no retries.
+  if ! write_validation_result 1; then
+    echo "WARNING: validation result counters could not be reported" >&2
+  fi
+  return "$rc"
+}
+
+run_validation() {
+  [ "$#" -ge 2 ] && [ "$1" = run ] || {
+    echo "ERROR: validation requires: validation run PROFILE [ARG...]" >&2
+    return 2
+  }
+  local profile="$2"
+  shift 2
+  case "$profile" in
+    cold-unit)
+      run_validation_gate "$DEV" cold-test unit "$@"
+      ;;
+    cold-integration)
+      run_validation_gate "$DEV" cold-test integration "$@"
+      ;;
+    cold-e2e)
+      run_validation_gate "$DEV" cold-test e2e "$@"
+      ;;
+    cold-all)
+      run_validation_gate "$DEV" cold-test all "$@"
+      ;;
+    cold-docs)
+      run_validation_gate "$DEV" cold-docs "$@"
+      ;;
+    cold-scale)
+      run_validation_gate "$DEV" cold-scale "$@"
+      ;;
+    *)
+      if ! write_validation_result 0; then
+        echo "WARNING: validation result counters could not be reported" >&2
+      fi
+      echo "ERROR: unknown ethereum-lisp validation profile: $profile" >&2
+      return 2
+      ;;
+  esac
+}
+
 case "${1:-}" in
   doctor)
     [ "$#" -eq 1 ] || exit 2
@@ -125,6 +196,10 @@ case "${1:-}" in
   docs)
     [ "$#" -eq 2 ] && [ "$2" = verify ] || exit 2
     exec "$DEV" docs-check
+    ;;
+  validation)
+    shift
+    run_validation "$@"
     ;;
   *)
     echo "ERROR: unsupported Workbench adapter operation: ${1:-<missing>}" >&2

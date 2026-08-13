@@ -50,10 +50,11 @@ sanction a host path; when one conflicts, fix the doc.
 
 ## The development loop (warm image, not cold sbcl runs)
 
-**Application code never runs on the macOS host** (PROJECT.md; the machine is
-shared with other agents). Common Lisp Workbench is the public development
-entry point. Its project adapter delegates to `scripts/dev.sh`, whose warm
-image keeps Swank on container loopback; no port is published to the host.
+**Application code never runs on the developer host control plane** (PROJECT.md;
+the machine may be shared with other agents). Common Lisp Workbench is the
+public development entry point on macOS and native Linux. Its project adapter
+delegates to `scripts/dev.sh`, whose warm image keeps Swank on container
+loopback; no port is published to the host.
 
 At the start of each substantive session that will execute application tooling,
 run `cl-workbench doctor --strict` from the repository root before the first
@@ -70,8 +71,12 @@ cl-workbench test                        # full suite in the warm image
 cl-workbench docs verify                 # verify PAX doc transcripts
 cl-workbench repl status / stop          # owned checkout lifecycle
 scripts/dev.sh logs / shell              # low-level container inspection only
-scripts/dev.sh cold-test unit|integration|e2e|all
-scripts/dev.sh cold-docs                  # cold final verification
+cl-workbench validation run cold-unit
+cl-workbench validation run cold-integration
+cl-workbench validation run cold-e2e
+cl-workbench validation run cold-all
+cl-workbench validation run cold-docs     # cold final verification
+cl-workbench validation run cold-scale    # production-store scale gate
 ```
 
 The dev image tag derives from pinned Docker build inputs and is deliberately
@@ -93,8 +98,10 @@ Workflow discipline (in order):
    Reload is YOUR job — the image does not watch files.
 4. `defstruct`/`defconstant` layout changes cannot be hot-patched: restart
    (`cl-workbench repl stop && cl-workbench repl start`).
-5. Finish with `scripts/dev.sh cold-test LAYER` — the warm image is a
-   development convenience, not the verification of record.
+5. Finish with `cl-workbench validation run cold-LAYER` — the warm image is a
+   development convenience, not the verification of record. The adapter
+   delegates to the existing `scripts/dev.sh` cold broker and Workbench records
+   one payload-free profile outcome.
 
 Eval contract (`repl.eval.container.v1`): exit 0 ok / 1 Lisp error (with
 backtrace frames) / 2 local preflight or connection error / 3 timed out and
@@ -119,8 +126,8 @@ back. Fix them in the same turn.
 - **Never pipe a verification run through `tail` or `grep`.** It destroys the
   record of which tests failed, and it masks the exit code — the pipeline
   reports `tail`'s status, so a run that exited 2 looks like a 0. Redirect,
-  then grep the file: `scripts/dev.sh cold-test all > log 2>&1; echo "EXIT=$?";
-  grep -E "^not ok|tests passed" log`
+  then grep the file: `cl-workbench validation run cold-all > log 2>&1;
+  echo "EXIT=$?"; grep -E "^not ok|tests passed" log`
 - **Every `sb-thread:make-thread` body must wrap its work in a `handler-case`.**
   The node and the whole suite run as `sbcl --script`, which implies
   `--disable-debugger`, so an unhandled condition in ANY thread exits the whole

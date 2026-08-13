@@ -91,10 +91,13 @@ Eval exit codes: 0 ok, 1 lisp error, 2 connection error, 3 timed out
 payload-free operation outcomes in .cl-workbench/state; it does not append raw
 forms to the historical .dev-runtime eval metrics file.
 
-Cold-image verification is brokered by `scripts/dev.sh cold-test LAYER` and
-`scripts/dev.sh cold-docs`. The broker accepts only reviewed arguments and
-constructs Docker invocations without executing a host build system; use the
-warm image for the development loop.
+Canonical cold-image verification uses `cl-workbench validation run` with the
+`cold-unit`, `cold-integration`, `cold-e2e`, `cold-all`, `cold-docs`, or
+`cold-scale` profile. The Workbench adapter delegates direct argv to this
+script's existing cold brokers. Calling those low-level commands directly does
+not create a Workbench validation event. The brokers accept only reviewed
+arguments and construct Docker invocations without executing a host build
+system; use the warm image for the development loop.
 USAGE
 }
 

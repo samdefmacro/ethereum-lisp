@@ -17,6 +17,7 @@ required_capabilities = [
   "repl.lifecycle.v1",
   "runtime.container.v1",
   "test.v1",
+  "validation.run.v1",
 ]
 
 [adapter]
@@ -27,6 +28,7 @@ capabilities = [
   "repl.eval.container.v1",
   "repl.lifecycle.v1",
   "test.v1",
+  "validation.run.v1",
 ]
 
 [execution]
