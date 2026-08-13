@@ -2548,6 +2548,34 @@ loop cannot block on a message that never comes."
     (is (null (ethereum-lisp.cli:devnet-start-discovery-server-thread
                node shutdown (lambda (condition) (error condition)))))))
 
+(deftest devnet-cli-nat-and-netrestrict-reach-the-live-node
+  (:layer :integration :module :p2p)
+  ;; Parsing these flags is not enough: both policies affect the running peer
+  ;; boundary and must survive the CLI-to-node construction handoff.  In
+  ;; particular, silently dropping extip would advertise loopback in our enode
+  ;; and ENR even though the operator explicitly supplied a public address.
+  (let* ((options
+           (ethereum-lisp.cli::devnet-cli-options
+            (list "devnet" "--genesis" +devnet-cli-genesis-fixture+
+                  "--port" "30303"
+                  "--nat" "extip:203.0.113.9"
+                  "--netrestrict" "10.0.0.0/8,192.0.2.0/24"
+                  "--no-serve")))
+         (node
+           (ethereum-lisp.cli::devnet-cli-make-node
+            options +devnet-cli-genesis-fixture+ nil
+            ethereum-lisp.telemetry:*telemetry-sink*)))
+    (is (eq :extip
+            (ethereum-lisp.nat:nat-policy-mode
+             (ethereum-lisp.cli::devnet-node-nat-policy node))))
+    (is (string= "203.0.113.9"
+                 (ethereum-lisp.cli::devnet-node-advertised-host node)))
+    (is (search "@203.0.113.9:30303"
+                (ethereum-lisp.cli::devnet-node-enode node)))
+    (is (equal '("10.0.0.0/8" "192.0.2.0/24")
+               (ethereum-lisp.cli::devnet-peer-table-netrestrict
+                (ethereum-lisp.cli:devnet-node-peer-table node))))))
+
 (deftest devnet-datadir-persists-node-identity-and-monotonic-enr-sequence
   (:layer :integration :module :cli)
   (let* ((datadir (devnet-cli-temp-directory "ethereum-lisp-node-identity"))

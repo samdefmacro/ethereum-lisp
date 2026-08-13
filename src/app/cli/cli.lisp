@@ -99,6 +99,8 @@
        (lambda (sequence) (devnet-cli-write-enr-seq path sequence))))
    :p2p-port (getf options :p2p-port)
    :max-peers (getf options :max-peers)
+   :netrestrict (getf options :netrestrict)
+   :nat-policy (getf options :nat-policy)
    :metrics (getf options :metrics)
    :metrics-host (getf options :metrics-host)
    :metrics-port (getf options :metrics-port)
