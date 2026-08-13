@@ -217,7 +217,7 @@
      :chain-id chain-id
      :genesis-hash genesis-hash
      :authority-id authority-id
-     :completed-p derived-completed-p
+     :completed-p completed-p
      :tasks tasks)))
 
 (defun snap-sync-account-task-object (task)

@@ -164,11 +164,11 @@ cl-workbench validation run cold-unit --match RLP-ENFORCES
 cl-workbench validation run cold-unit --match RLPX-MESSAGE-CODES
 cl-workbench validation run cold-unit --match ETH-72
 cl-workbench validation run cold-unit --match DEVNET-BROADCAST
+cl-workbench validation run cold-unit --match DEVNET-CLI-PUBLIC-PRESETS
 
-# Real CLI identity/discovery behavior, verified snap client/server, durable
+# Persistent CLI identity/discovery behavior, verified snap client/server, durable
 # pivot progress, bounded multi-peer failover, sole-writer request queues, and
 # eth+snap multiplexing over one RLPx socket.
-cl-workbench validation run cold-integration --match DEVNET-CLI-PUBLIC-PRESETS
 cl-workbench validation run cold-integration --match DEVNET-DATADIR-PERSISTS
 cl-workbench validation run cold-integration --match SNAP-
 cl-workbench validation run cold-integration --match NODE-STORE-SNAP-SKELETON

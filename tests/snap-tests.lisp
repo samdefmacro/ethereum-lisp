@@ -345,6 +345,19 @@
            (ethereum-lisp.snap-sync::snap-sync-progress-record progress))
          (round-tripped
            (ethereum-lisp.snap-sync::snap-sync-progress-from-record record))
+         (healing-progress
+           (ethereum-lisp.snap-sync::snap-sync-make-progress
+            :pivot-hash pivot :pivot-number 43 :state-root state-root
+            :partial-root +empty-trie-hash+ :target-hash target
+            :chain-id 560048 :genesis-hash genesis :authority-id authority
+            :completed-p nil
+            :tasks
+            (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+             :count 16 :completed-p t)))
+         (healing-round-tripped
+           (ethereum-lisp.snap-sync::snap-sync-progress-from-record
+            (ethereum-lisp.snap-sync::snap-sync-progress-record
+             healing-progress)))
          (legacy-cursor
            (let ((bytes (make-byte-vector 32)))
              (setf (aref bytes 0) #x20)
@@ -366,6 +379,17 @@
            (length
             (ethereum-lisp.snap-sync:snap-sync-progress-tasks
              round-tripped))))
+    ;; Completed flat ranges are not a publishable pivot until trie healing
+    ;; reaches the exact consensus-authorized state root.  Preserve that
+    ;; explicit incomplete flag both in memory and across durable round-trip.
+    (is (not (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
+              healing-progress)))
+    (is (not (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
+              healing-round-tripped)))
+    (is (every
+         #'ethereum-lisp.snap-sync:snap-sync-account-task-completed-p
+         (ethereum-lisp.snap-sync:snap-sync-progress-tasks
+          healing-round-tripped)))
     (is (bytes= (make-byte-vector 32)
                 (ethereum-lisp.snap-sync:snap-sync-progress-next-origin
                  round-tripped)))
@@ -1328,10 +1352,10 @@
           (is (every
                (lambda (origin) (not (bytes= origin (make-byte-vector 32))))
                origins))
-          (multiple-value-bind (persisted-root present-p)
+          (multiple-value-bind (persisted-root state-history-present-p)
               (kv-get-chain-record
                target-database :state-history (hash32-bytes pivot-b))
-            (is present-p)
+            (is state-history-present-p)
             (is (bytes= persisted-root (hash32-bytes root-b))))
           (when changed-address
             (let ((trie
@@ -1339,10 +1363,10 @@
                      root-b
                      (lambda (hash)
                        (trie-node-store-get target-database hash)))))
-              (multiple-value-bind (record present-p)
+              (multiple-value-bind (record changed-account-present-p)
                   (mpt-get trie (keccak-256 (address-bytes changed-address)))
-                (is present-p)
-                (when present-p
+                (is changed-account-present-p)
+                (when changed-account-present-p
                   (let ((account
                           (ethereum-lisp.state:decode-state-account-rlp
                            record)))
