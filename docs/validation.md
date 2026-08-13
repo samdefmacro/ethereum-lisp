@@ -207,6 +207,39 @@ command, image/revision, timestamps, peer/target evidence, and restart result in
 the readiness-plan completion record. Never substitute peer-head-only download
 or a manually injected static enode for that gate.
 
+`scripts/hoodi-live-gate.sh` is the reviewed control-plane broker for that
+remote run. It derives the image, container, and fresh datadir names from the
+full checked-out revision; refuses a dirty checkout, a non-amd64 or
+revision-mismatched image, paths outside `/data/hoodi-sec5-*`, a non-running
+Lighthouse, and an unexpectedly owned rehearsal container. Read-only inspection
+is separate from every mutation, and the broker never removes an image,
+container, datadir, or evidence artifact:
+
+```sh
+cl-workbench doctor --strict
+scripts/hoodi-live-gate.sh inspect
+
+# Only after the runtime-only amd64 archive has been explicitly authorized for
+# transfer to the named test host:
+HOODI_GATE_ALLOW_MUTATION=1 scripts/hoodi-live-gate.sh upload
+HOODI_GATE_ALLOW_MUTATION=1 scripts/hoodi-live-gate.sh load
+HOODI_GATE_ALLOW_MUTATION=1 scripts/hoodi-live-gate.sh start
+
+scripts/hoodi-live-gate.sh status
+scripts/hoodi-live-gate.sh logs
+HOODI_GATE_ALLOW_MUTATION=1 scripts/hoodi-live-gate.sh restart
+```
+
+`start` stops only the specifically labelled Section 5 rehearsal EL, preserves
+that stopped container and its datadir, and connects the exact-revision EL to
+the already-running Lighthouse alias. It uses the SSH user's non-root uid/gid,
+a read-only container root, an empty revision-named bind-mounted datadir, preset
+bootnodes, and no manual enode. If launch or network attachment fails, it stops
+the failed gate container and restores the rehearsal EL. `restart` stops and
+starts the same container, verifies its revision/datadir ownership first, and
+prints the before/after RPC and datadir evidence needed to assess durable
+progress; it is not by itself proof that progress advanced.
+
 The reviewed runtime image must also pass
 `cl-workbench validation run runtime-smoke IMAGE`: this delegates to the
 reviewed runtime smoke broker and checks non-root/read-only Hoodi startup,
