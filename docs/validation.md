@@ -66,8 +66,9 @@ cl-workbench validation run cold-unit --match TRANSACTION
 
 These Workbench profiles delegate direct argv to the existing
 `scripts/dev.sh cold-test` broker. `cold-docs` and `cold-scale` similarly map to
-the existing cold documentation and production-store gates. Workbench records
-one payload-free `validation.<profile>` outcome per invocation; direct
+the existing cold documentation and production-store gates; `runtime-smoke
+IMAGE` maps to the reviewed runtime-image smoke broker. Workbench records one
+payload-free `validation.<profile>` outcome per invocation; direct
 `scripts/dev.sh` calls remain low-level compatibility routes and do not create
 that Workbench event. Each profile reports one aggregate gate and zero adapter
 retries; exact test and fixture counts remain in the runner output and archived
@@ -207,8 +208,9 @@ the readiness-plan completion record. Never substitute peer-head-only download
 or a manually injected static enode for that gate.
 
 The reviewed runtime image must also pass
-`scripts/hive-runtime-smoke.sh IMAGE`: this checks non-root/read-only Hoodi
-startup, direct RocksDB loading, public RPC, JWT rejection/acceptance, Engine
+`cl-workbench validation run runtime-smoke IMAGE`: this delegates to the
+reviewed runtime smoke broker and checks non-root/read-only Hoodi startup,
+direct RocksDB loading, public RPC, JWT rejection/acceptance, Engine
 capabilities, and `eth_syncing`. It complements rather than replaces the remote
 empty-datadir run.
 

@@ -67,7 +67,7 @@ by that uid.
 
 ```sh
 scripts/dev.sh runtime-build ethereum-lisp-runtime:local
-scripts/dev.sh runtime-smoke ethereum-lisp-runtime:local
+cl-workbench validation run runtime-smoke ethereum-lisp-runtime:local
 RUNTIME_PREBUILT=1 RUNTIME_TAG=local scripts/hive-run.sh --sim ethereum/engine
 ```
 

@@ -93,8 +93,9 @@ forms to the historical .dev-runtime eval metrics file.
 
 Canonical cold-image verification uses `cl-workbench validation run` with the
 `cold-unit`, `cold-integration`, `cold-e2e`, `cold-all`, `cold-docs`, or
-`cold-scale` profile. The Workbench adapter delegates direct argv to this
-script's existing cold brokers. Calling those low-level commands directly does
+`cold-scale` profile. Reviewed runtime-image verification uses the
+`runtime-smoke IMAGE` profile. The Workbench adapter delegates direct argv to
+this script's existing brokers. Calling those low-level commands directly does
 not create a Workbench validation event. The brokers accept only reviewed
 arguments and construct Docker invocations without executing a host build
 system; use the warm image for the development loop.

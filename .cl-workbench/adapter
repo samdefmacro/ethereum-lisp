@@ -146,6 +146,9 @@ run_validation() {
     cold-scale)
       run_validation_gate "$DEV" cold-scale "$@"
       ;;
+    runtime-smoke)
+      run_validation_gate "$DEV" runtime-smoke "$@"
+      ;;
     *)
       if ! write_validation_result 0; then
         echo "WARNING: validation result counters could not be reported" >&2

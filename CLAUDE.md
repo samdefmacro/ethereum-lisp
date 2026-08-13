@@ -77,6 +77,7 @@ cl-workbench validation run cold-e2e
 cl-workbench validation run cold-all
 cl-workbench validation run cold-docs     # cold final verification
 cl-workbench validation run cold-scale    # production-store scale gate
+cl-workbench validation run runtime-smoke IMAGE # reviewed runtime image gate
 ```
 
 The dev image tag derives from pinned Docker build inputs and is deliberately
