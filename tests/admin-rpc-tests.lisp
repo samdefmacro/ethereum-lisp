@@ -190,6 +190,27 @@ rather than a node's peering state."
       (is (string= genesis-hash
                    (cdr (assoc "head" eth :test #'string=)))))))
 
+(deftest admin-node-info-does-not-recursively-acquire-the-request-store-guard
+  ;; Both shipped HTTP services run the complete RPC request under NODE's
+  ;; store guard.  The admin backend must read the store directly inside that
+  ;; protected request; acquiring the same SBCL mutex again turns a healthy
+  ;; admin_nodeInfo call into -32603 in the real server.
+  (let* ((node (ethereum-lisp.cli:make-devnet-node
+                :genesis-json *eth-sync-paris-genesis-json*
+                :port 0))
+         (backend (ethereum-lisp.cli::devnet-node-admin-backend (list node)))
+         (response
+           (parse-json
+            (engine-rpc-handle-request-json
+             "{\"jsonrpc\":\"2.0\",\"id\":42,\"method\":\"admin_nodeInfo\",\"params\":[]}"
+             (ethereum-lisp.cli:devnet-node-store node)
+             (make-chain-config)
+             :admin-backend backend
+             :request-guard-function
+             (ethereum-lisp.cli::devnet-node-store-guard-function node)))))
+    (is (assoc "result" response :test #'string=))
+    (is (null (assoc "error" response :test #'string=)))))
+
 (deftest net-listening-and-peer-count-follow-the-peering-backend
   ;; Both were hardcoded to false and 0x0. A node answering admin_peers with
   ;; three peers and net_peerCount with zero is worse than one answering neither.

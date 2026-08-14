@@ -292,19 +292,19 @@ Peer reads take the peer-table mutex, never the store guard."
               (port (devnet-node-p2p-port node))
               (host (devnet-node-advertised-host node))
               (genesis-hash (block-hash (devnet-node-genesis-block node))))
-         (let ((head-hash
-                 (call-with-devnet-node-store-guard
-                  node
-                  (lambda ()
-                    (let* ((store (devnet-node-store node))
-                           (number (chain-store-head-number store)))
-                      (or (chain-store-canonical-hash store number)
-                          ;; An empty restored/snap store can expose its initial
-                          ;; head number before the canonical-number index exists.
-                          ;; At zero, the configured genesis is the only honest
-                          ;; head.  At any other height, report JSON null rather
-                          ;; than inventing a hash.
-                          (and (zerop number) genesis-hash)))))))
+         ;; HTTP and WebSocket dispatch already run the complete request under
+         ;; NODE's store guard.  Acquiring that non-recursive mutex again here
+         ;; makes the production admin_nodeInfo path fail with -32603 on SBCL.
+         (let* ((store (devnet-node-store node))
+                (number (chain-store-head-number store))
+                (head-hash
+                  (or (chain-store-canonical-hash store number)
+                      ;; An empty restored/snap store can expose its initial
+                      ;; head number before the canonical-number index exists.
+                      ;; At zero, the configured genesis is the only honest
+                      ;; head.  At any other height, report JSON null rather
+                      ;; than inventing a hash.
+                      (and (zerop number) genesis-hash))))
          (list :enode-id (node-id-to-enode-id-hex
                           (node-id-from-private-key (devnet-node-node-key node)))
                ;; The same name we give peers in our devp2p Hello.
