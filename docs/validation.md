@@ -184,8 +184,10 @@ cl-workbench validation run cold-integration \
 ```
 
 The snap tests reconstruct and verify account/storage roots, reject altered
-compact proofs, heal bytecode and storage before advancing a cursor, and inject
-a failed database batch to prove progress never outruns state. They also prove
+compact proofs, batch complete small storage tries with each account cursor,
+defer byte-capped large storage to resumable content-addressed healing, and
+inject a failed database batch to prove progress never outruns verified account
+state. Only the final traversal can install the completion marker. They also prove
 that sixteen durable account ranges are fetched concurrently through three
 sources with geth's 2 MiB soft byte limit, completed ranges are not replayed
 after restart, and a failed source's claimed range is reassigned. A finite
@@ -244,6 +246,10 @@ the failed gate container and restores the rehearsal EL. `restart` stops and
 starts the same container, verifies its revision/datadir ownership first, and
 prints the before/after RPC and datadir evidence needed to assess durable
 progress; it is not by itself proof that progress advanced.
+Restoring a live SNAP database can take longer than a minute. The broker waits
+up to 300 seconds for public RPC by default, fails early if the container exits,
+and accepts a bounded 30--1800 second override through
+`HOODI_GATE_RESTART_READY_TIMEOUT`.
 
 The reviewed runtime image must also pass
 `cl-workbench validation run runtime-smoke IMAGE`: this delegates to the

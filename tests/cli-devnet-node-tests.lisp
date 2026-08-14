@@ -1422,16 +1422,19 @@ really reopens the directory instead of observing the first handle's memory."
              (loop for (key value) on (cdr record) by #'cddr
                    when (string= key name) return value)))
       (is (plusp (length logs)))
-      (is (= (length logs)
-             (length
-              (remove-duplicates
-               (mapcar (lambda (record) (field record "task")) logs)))))
+      (is (=
+           ethereum-lisp.snap-sync::+snap-sync-account-task-count+
+           (length
+            (remove-duplicates
+             (mapcar (lambda (record) (field record "task")) logs)))))
       (dolist (record logs)
         (is (string= "peer.snap.progress" (first record)))
         (is (string= "peer-1" (field record "peer")))
         (is (= (block-header-number pivot-header)
-               (field record "pivot"))))
-      (is (field (car (last logs)) "completed")))))
+               (field record "pivot")))
+        ;; Page durability is not state completeness. Byte-capped storage may
+        ;; still be mandatory work for the final content-addressed traversal.
+        (is (null (field record "completed")))))))
 
 (deftest devnet-snap-target-downloads-only-the-bounded-pivot-tail
   (:layer :integration :module :p2p)

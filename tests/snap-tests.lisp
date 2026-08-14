@@ -294,11 +294,12 @@
       (is (= 1 storage-calls))
       (is (= (length addresses) largest-request))
       ;; One WAL batch installs every verified storage trie in the response;
-      ;; the second atomically installs the account page and durable cursor.
+      ;; the account data and terminal range each advance the durable cursor;
+      ;; the final traversal alone writes the completion marker.
       (let ((apply-count
               (snap-counting-test-database-apply-count target-database)))
-        (unless (= 2 apply-count)
-          (error "Expected storage and account cursor batches, got ~D (~S)"
+        (unless (= 4 apply-count)
+          (error "Expected four storage/account/completion batches, got ~D (~S)"
                  apply-count
                  (list
                   (nreverse
@@ -306,7 +307,7 @@
                   (nreverse
                    (snap-counting-test-database-batch-prefixes
                     target-database)))))
-        (is (= 2 apply-count)))
+        (is (= 4 apply-count)))
       (dolist (address addresses)
         (multiple-value-bind (node present-p)
             (ethereum-lisp.trie:trie-node-store-get
@@ -324,6 +325,84 @@
              (ethereum-lisp.crypto:keccak-256 (address-bytes address)))
           (declare (ignore account))
           (is present-p))))))
+
+(deftest snap-state-import-defers-byte-capped-storage-to-resumable-healing
+  (:layer :integration :module :p2p)
+  ;; A large storage trie can outlive a public peer's retained pivot while the
+  ;; account page is otherwise valid.  Do not restart that entire account page
+  ;; from its durable cursor: keep the initial bounded storage response as an
+  ;; availability hint and let content-addressed TrieNodes healing fill the
+  ;; byte-capped trie after the account ranges are durable.
+  (let* ((source-state (make-state-db))
+         (source-database (make-memory-key-value-database))
+         (target-database (make-memory-key-value-database))
+         (address
+           (address-from-hex
+            "0x0000000000000000000000000000000000000043"))
+         (storage-calls 0)
+         (trie-node-requests 0)
+         (saw-byte-capped-storage-p nil))
+    (loop for byte from 1 to 96
+          do (state-db-set-storage
+              source-state address
+              (make-hash32 (make-byte-vector 32 :initial-element byte))
+              (+ 1000 byte)))
+    (let* ((root (state-db-root source-state))
+           (storage-root (state-db-get-storage-root source-state address))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              source-database source-state))
+           (base-source (snap-test-source backend))
+           (source
+             (ethereum-lisp.snap-sync:make-snap-sync-source
+              :account-range
+              (ethereum-lisp.snap-sync:snap-sync-source-account-range
+               base-source)
+              :storage-ranges
+              (lambda (request)
+                (incf storage-calls)
+                (when (> storage-calls 1)
+                  (ethereum-lisp.snap-sync:snap-sync-state-unavailable
+                   "storage-range"))
+                (let ((response
+                        (snap-test-call-backend
+                         backend
+                         ethereum-lisp.snap:+snap-message-get-storage-ranges+
+                         request)))
+                  (setf saw-byte-capped-storage-p
+                        (not
+                         (null
+                          (ethereum-lisp.snap:snap-storage-ranges-proof
+                           response))))
+                  response))
+              :bytecodes
+              (ethereum-lisp.snap-sync:snap-sync-source-bytecodes base-source)
+              :trie-nodes
+              (lambda (request)
+                (incf trie-node-requests)
+                (funcall
+                 (ethereum-lisp.snap-sync:snap-sync-source-trie-nodes
+                  base-source)
+                 request))))
+           (progress
+             (ethereum-lisp.snap-sync:snap-sync-import-state
+              target-database source
+              :pivot-hash (make-hash32 (snap-test-hash 124))
+              :pivot-number 42 :state-root root
+              :target-hash (make-hash32 (snap-test-hash 125))
+              :chain-id 560048
+              :genesis-hash (make-hash32 (snap-test-hash 126))
+              :authority-id (make-hash32 (snap-test-hash 127))
+              :byte-limit 350)))
+      (is saw-byte-capped-storage-p)
+      (is (= 1 storage-calls))
+      (is (plusp trie-node-requests))
+      (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p progress))
+      (multiple-value-bind (node present-p)
+          (ethereum-lisp.trie:trie-node-store-get
+           target-database storage-root)
+        (is present-p)
+        (is (plusp (length node)))))))
 
 (deftest snap-sync-progress-v3-round-trips-and-migrates-v2
   (:layer :unit :module :p2p)

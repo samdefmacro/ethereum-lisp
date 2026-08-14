@@ -58,6 +58,7 @@ egress_network="${HOODI_GATE_EGRESS_NETWORK:-hoodi-net}"
 cl_alias="${HOODI_GATE_CL_ALIAS:-hoodi-el-public-frozen}"
 jwt_dir="${HOODI_GATE_JWT_DIR:-/data/hoodi/jwt}"
 public_ip="${HOODI_GATE_PUBLIC_IP:-165.154.224.110}"
+restart_ready_timeout="${HOODI_GATE_RESTART_READY_TIMEOUT:-300}"
 
 case "$host" in *[!A-Za-z0-9_.@-]*|'') fail "unsafe SSH host: $host" ;; esac
 case "$remote_root" in
@@ -74,6 +75,11 @@ for name in "$container" "$lighthouse_container" "$old_container" "$cl_network" 
     case "$name" in *[!A-Za-z0-9_.-]*|'') fail "unsafe Docker name: $name" ;; esac
 done
 case "$public_ip" in *[!0-9.]*|'') fail "public IP must be an IPv4 literal" ;; esac
+case "$restart_ready_timeout" in
+    *[!0-9]*|'') fail "restart ready timeout must be an integer number of seconds" ;;
+esac
+[ "$restart_ready_timeout" -ge 30 ] && [ "$restart_ready_timeout" -le 1800 ] ||
+    fail "restart ready timeout must be between 30 and 1800 seconds"
 
 actual_head="$(git -C "$repo_root" rev-parse HEAD)"
 [ "$actual_head" = "$revision" ] || fail "requested revision $revision is not checkout HEAD $actual_head"
@@ -372,9 +378,10 @@ REMOTE
 restart_gate() {
     require_mutation
     note "recording progress, restarting the same container, and recording it again"
-    ssh "$host" bash -s -- "$revision" "$container" "$datadir" <<'REMOTE'
+    ssh "$host" bash -s -- \
+        "$revision" "$container" "$datadir" "$restart_ready_timeout" <<'REMOTE'
 set -eu
-revision="$1"; container="$2"; datadir="$3"
+revision="$1"; container="$2"; datadir="$3"; ready_timeout="$4"
 label="$(docker container inspect --format '{{ index .Config.Labels "io.ethereum-lisp.gate-revision" }}' "$container")"
 [ "$label" = "$revision" ] || { echo "gate ownership mismatch: $label" >&2; exit 1; }
 mount_source="$(docker container inspect --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Source}}{{end}}{{end}}' "$container")"
@@ -398,16 +405,18 @@ docker stop --time 30 "$container" >/dev/null
 docker start "$container" >/dev/null
 
 ready=false
-for _ in $(seq 1 60); do
+for _ in $(seq 1 "$ready_timeout"); do
     if rpc eth_chainId >/dev/null 2>&1; then
         ready=true
         break
     fi
+    [ "$(docker container inspect --format '{{.State.Running}}' "$container")" = true ] ||
+        break
     sleep 1
 done
 [ "$ready" = true ] || {
     docker logs "$container" 2>&1 | tail -80 >&2 || true
-    echo "public RPC did not return after restart" >&2
+    echo "public RPC did not return within ${ready_timeout}s after restart" >&2
     exit 1
 }
 date -u +after-timestamp=%Y-%m-%dT%H:%M:%SZ
@@ -448,6 +457,8 @@ Mutating actions:  upload, load, start, restart
 
 Mutating actions require HOODI_GATE_ALLOW_MUTATION=1. The default artifact,
 image, container, and datadir are derived from the current full Git revision.
+HOODI_GATE_RESTART_READY_TIMEOUT may override the bounded 300-second restart
+readiness window (accepted range: 30-1800 seconds).
 USAGE
         exit 2
         ;;

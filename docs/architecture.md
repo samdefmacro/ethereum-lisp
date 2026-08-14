@@ -149,12 +149,14 @@ them by their physical location instead reintroduces dependency cycles:
   on its next bounded pass, and resumes from the durable per-range cursors.
   Local persistence and trie-merge failures remain fatal and are not converted
   into retries. Account and storage ranges carry compact boundary proofs, trie
-  nodes are served by path set, and every page is verified before its trie
-  nodes, healed bytecode/storage, and per-range cursor are committed in one
-  batch. A crash can repeat content-addressed writes but cannot advance any
-  authoritative cursor past absent state. The pivot skeleton and its cursor use
-  the same rule. Bootstrap downloads only the pivot through the CL target (at
-  most 65 blocks), never the whole genesis-to-head body history.
+  nodes are served by path set, and every page is verified before its account
+  nodes, bytecode, complete small storage tries, and per-range cursor become
+  durable. Byte-capped large storage is deferred to the content-addressed final
+  traversal, which reuses nodes across restart and alone installs the completion
+  marker. A crash can repeat content-addressed writes but cannot advance any
+  authoritative cursor past unverified account state. The pivot skeleton and
+  its cursor use the same rule. Bootstrap downloads only the pivot through the
+  CL target (at most 65 blocks), never the whole genesis-to-head body history.
   After the pivot state root is reconstructed, a target-bound sparse canonical
   checkpoint is installed in the same rollback boundary as its durable index;
   the Engine target itself remains noncanonical until ordinary typed candidate

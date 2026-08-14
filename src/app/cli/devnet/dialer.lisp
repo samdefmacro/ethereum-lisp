@@ -613,9 +613,11 @@ must prove the new state root before either record can authorize publication."
        :genesis-hash (block-hash (devnet-node-genesis-block node))
        :authority-id (devnet-persistence-state-authority-id persistence)
        ;; The multi-source importer invokes this on the coordinator thread only
-       ;; after the task's trie nodes, healed code/storage, and cursor share one
-       ;; committed batch.  The task index is an exact concurrency/restart
-       ;; witness; NEXT-ORIGIN remains the lowest unfinished global cursor.
+       ;; after the task's account nodes, code, complete small storage tries,
+       ;; and cursor are durable. Byte-capped storage is mandatory work for the
+       ;; final content-addressed healing traversal. The task index is an exact
+       ;; concurrency/restart witness; NEXT-ORIGIN remains the lowest unfinished
+       ;; global cursor.
        :on-progress
        (lambda (progress source task-index)
          (let* ((entry (entry-for-source source))

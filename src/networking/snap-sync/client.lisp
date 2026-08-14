@@ -508,63 +508,6 @@ live peer snapshot, and retry without hiding local integrity faults.")
     (error "Snap source does not implement ~A" label))
   (funcall function request))
 
-(defun snap-sync-fetch-storage
-    (database source state-root account-hash storage-root byte-limit)
-  (when (hash32= storage-root +empty-trie-hash+)
-    (return-from snap-sync-fetch-storage t))
-  ;; geth snap/1 sends empty Origin and Limit for the first, complete storage
-  ;; trie request.  Supplying 32-byte zero/max bounds instead is semantically
-  ;; close but operationally different: the server treats it as a large-
-  ;; contract subrange and must build a boundary proof from historical trie
-  ;; nodes.  A hash-scheme peer can retain the pivot snapshot while those proof
-  ;; nodes have already been pruned, in which case it correctly answers empty.
-  ;; Keep the wire bounds empty until a partial response gives us a real cursor.
-  (let ((origin (make-byte-vector 0))
-        (zero-origin (make-byte-vector 32))
-        (full-limit (make-byte-vector 32 :initial-element #xff))
-        (partial-root +empty-trie-hash+))
-    (loop
-      (let* ((request
-               (make-snap-get-storage-ranges
-                1 (hash32-bytes state-root) (list account-hash)
-                origin
-                (if (zerop (length origin))
-                    (make-byte-vector 0)
-                    full-limit)
-                byte-limit))
-             (response
-               (snap-sync-source-call
-                (snap-sync-source-storage-ranges source)
-                request "storage ranges"))
-             (groups (snap-storage-ranges-slots response))
-             (slots (or (first groups) '()))
-             (entries (snap-sync-storage-entries slots)))
-        (unless (= 1 (snap-storage-ranges-id response))
-          (error "Snap storage response id mismatch"))
-        ;; go-ethereum's snap/1 server returns the three-field response with
-        ;; both the slot groups and proof empty when the requested state root
-        ;; was pruned or is not synced locally.  This is a source-availability
-        ;; result, not a proofless full-trie range.
-        (when (and (null groups)
-                   (null (snap-storage-ranges-proof response)))
-          (snap-sync-state-unavailable "storage-range"))
-        (mpt-verify-range-proof
-         storage-root entries (snap-storage-ranges-proof response)
-         ;; geth verifies a capped initial response from the zero hash even
-         ;; though the request encoded that origin as an empty byte string.
-         :start (if (zerop (length origin)) zero-origin origin))
-        (let ((trie (snap-sync-open-partial-trie database partial-root)))
-          (dolist (entry entries)
-            (mpt-put trie (car entry) (cdr entry)))
-          (setf partial-root (mpt-persist database trie)))
-        (when (hash32= partial-root storage-root)
-          (return t))
-        (when (null entries)
-          (error "Verified snap storage tail did not reconstruct its root"))
-        (setf origin (snap-sync-increment-hash (car (car (last entries)))))
-        (unless origin
-          (error "Snap storage range exhausted without reconstructing its root"))))))
-
 (defun snap-sync-populate-complete-storage-group
     (database batch storage-root slots)
   "Verify one complete storage group and add its trie nodes to BATCH."
@@ -585,10 +528,12 @@ live peer snapshot, and retry without hiding local integrity faults.")
   "Fetch non-empty storage tries in bounded snap/1 multi-account requests.
 
 Geth returns a prefix of the requested accounts.  All groups preceding a
-proof are complete tries; the final proved group was byte-capped and is
-refetched through the existing single-account pagination path.  This avoids a
-network round trip per small contract while retaining the same proof and root
-checks for large contracts."
+proof are complete tries and are persisted eagerly.  The final proved group
+was byte-capped and is deliberately deferred to the content-addressed TrieNodes
+healing phase.  Completing a large storage trie here can outlive a public
+peer's retained pivot and would force the otherwise verified account page to be
+retried from its durable cursor.  Healing reuses every node already on disk and
+must still reconstruct the exact authorized state root before completion."
   (let ((remaining commitments))
     (loop while remaining
           do (let* ((count
@@ -626,12 +571,12 @@ checks for large contracts."
                                   database batch (cdr commitment) slots))))
                  (when nodes
                    (kv-apply-batch database batch)
-                   (mpt-mark-nodes-persisted nodes))
-                 (when proof
-                   (let ((partial (nth (1- received) requested)))
-                     (snap-sync-fetch-storage
-                      database source state-root
-                      (car partial) (cdr partial) byte-limit))))
+                   (mpt-mark-nodes-persisted nodes)))
+                 ;; A proof marks the last returned group as byte-capped.  Do
+                 ;; not restart and fully paginate that potentially enormous
+                 ;; storage trie inside the account-page transaction.  Its
+                 ;; root remains in the verified account value and therefore
+                 ;; becomes mandatory work for SNAP-SYNC-HEAL-STATE.
                (setf remaining (nthcdr received remaining))))
     t))
 
@@ -855,24 +800,6 @@ checks for large contracts."
              (tasks
                (snap-sync-replace-task
                 (snap-sync-progress-tasks progress) task-index replacement))
-             ;; Equality with the authorized root is a stronger completion
-             ;; proof than one more empty range from every partition.  It also
-             ;; keeps the final state-history marker in the same batch as the
-             ;; last account nodes instead of emitting a metadata-only tail.
-             (root-complete-p
-               (hash32= partial-root (snap-sync-progress-state-root progress)))
-             (tasks
-               (if root-complete-p
-                   (mapcar
-                    (lambda (pending)
-                      (snap-sync-account-task
-                       :start (snap-sync-account-task-start pending)
-                       :limit (snap-sync-account-task-limit pending)
-                       :completed-p t))
-                    tasks)
-                   tasks))
-             (completed-p (and root-complete-p
-                               (snap-sync-tasks-completed-p tasks)))
              (next
                (snap-sync-make-progress
                 :pivot-hash (snap-sync-progress-pivot-hash progress)
@@ -883,12 +810,14 @@ checks for large contracts."
                 :chain-id (snap-sync-progress-chain-id progress)
                 :genesis-hash (snap-sync-progress-genesis-hash progress)
                 :authority-id (snap-sync-progress-authority-id progress)
-                :completed-p completed-p :tasks tasks)))
+                ;; Even an equal account-trie root cannot prove that deferred
+                ;; byte-capped storage and code dependencies exist locally.
+                ;; Only the final content-addressed traversal may install the
+                ;; completion/state-history marker.
+                :completed-p nil :tasks tasks)))
         (snap-sync-populate-code-batch
          database batch (snap-sync-page-result-codes result))
-        (if completed-p
-            (snap-sync-complete-batch batch next)
-            (snap-sync-populate-progress-batch batch next))
+        (snap-sync-populate-progress-batch batch next)
         (kv-apply-batch database batch)
         (mpt-mark-nodes-persisted nodes)
         next))))
@@ -1295,9 +1224,11 @@ the state-history marker and completed cursor share their final batch."
   "Download, verify, and atomically install a CL-authorized pivot state.
 
 Every account-range cursor is committed in the same batch as the partial trie
-nodes and bytecodes it names.  A crash may leave extra content-addressed storage
-nodes, but never advances the authoritative cursor past missing data.  Storage
-and code dependencies for a page are healed before that page becomes durable.
+nodes and bytecodes it names.  Complete small storage tries are batched eagerly;
+byte-capped large tries are deferred so a peer's pivot-retention window cannot
+starve the account cursor.  A final content-addressed traversal reuses durable
+nodes and proves every storage/code dependency before installing the completion
+marker.
 Returns the completed SNAP-SYNC-PROGRESS, or an incomplete progress when
 MAX-PAGES intentionally bounds a test or one scheduling slice."
   (unless (typep database 'key-value-database)
