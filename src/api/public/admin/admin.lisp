@@ -56,16 +56,16 @@ peer's version is a property of its connection anyway."
   `(("eth" . ,(let ((version (getf peer :eth-version)))
                 (if version
                     `(("version" . ,version))
-                    :null)))))
+                    nil)))))
 
 (defun admin-peer-object (peer)
-  `(("id" . ,(or (getf peer :enode-id) :null))
+  `(("id" . ,(getf peer :enode-id))
     ("name" . ,(or (getf peer :client-id) ""))
-    ("enode" . ,(or (getf peer :enode) :null))
+    ("enode" . ,(getf peer :enode))
     ("network" .
-     ((("localAddress" . ,(or (getf peer :local-address) :null))
-       ("remoteAddress" . ,(or (getf peer :remote-address) :null))
-       ("inbound" . ,(if (eq :inbound (getf peer :direction)) t :false)))))
+     (("localAddress" . ,(getf peer :local-address))
+      ("remoteAddress" . ,(getf peer :remote-address))
+      ("inbound" . ,(if (eq :inbound (getf peer :direction)) t :false))))
     ("protocols" . ,(admin-peer-protocols-object peer))))
 
 (defun engine-rpc-handle-admin-node-info (params backend)
@@ -74,30 +74,34 @@ peer's version is a property of its connection anyway."
   (unless (and backend (admin-backend-node-info backend))
     (admin-unavailable-fail "admin_nodeInfo"))
   (let ((info (funcall (admin-backend-node-info backend))))
-    `(("id" . ,(or (getf info :enode-id) :null))
+    `(("id" . ,(getf info :enode-id))
       ("name" . ,(or (getf info :client-id) ""))
-      ("enode" . ,(or (getf info :enode) :null))
-      ("ip" . ,(or (getf info :ip) :null))
+      ("enode" . ,(getf info :enode))
+      ("ip" . ,(getf info :ip))
       ;; Only the ports we actually bind are reported. Discovery has no
       ;; listening socket of its own yet, so its port is reported as 0 rather
       ;; than as a port nothing is behind.
-      ("ports" . ((("discovery" . 0)
-                   ("listener" . ,(or (getf info :listener-port) 0)))))
-      ("listenAddr" . ,(or (getf info :listen-address) :null))
+      ("ports" . (("discovery" . 0)
+                  ("listener" . ,(or (getf info :listener-port) 0))))
+      ("listenAddr" . ,(getf info :listen-address))
       ("protocols" .
        (("eth" . ,(let ((eth (getf info :eth)))
                     (if eth
                         `(("network" . ,(getf eth :network-id))
                           ("genesis" . ,(getf eth :genesis))
                           ("head" . ,(getf eth :head)))
-                        :null))))))))
+                        nil))))))))
 
 (defun engine-rpc-handle-admin-peers (params backend)
   (when params
     (block-validation-fail "admin_peers params must be empty"))
   (unless (and backend (admin-backend-peers backend))
     (admin-unavailable-fail "admin_peers"))
-  (mapcar #'admin-peer-object (funcall (admin-backend-peers backend))))
+  ;; A vector is an unambiguous JSON array, including when there are no peers;
+  ;; NIL is JSON null at the writer boundary.
+  (coerce (mapcar #'admin-peer-object
+                  (funcall (admin-backend-peers backend)))
+          'vector))
 
 (defun engine-rpc-handle-admin-add-peer (params backend)
   (unless (= 1 (length params))

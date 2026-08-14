@@ -23,6 +23,16 @@ rather than a node's peering state."
    :add-peer (lambda (enode) (declare (ignore enode)) t)
    :remove-peer (lambda (enode) (declare (ignore enode)) t)))
 
+(defun admin-test-json-rpc (method backend)
+  "Exercise METHOD through the shipped request dispatch and JSON writer."
+  (engine-rpc-handle-request-json
+   (format nil
+           "{\"jsonrpc\":\"2.0\",\"id\":41,\"method\":\"~A\",\"params\":[]}"
+           method)
+   (make-engine-payload-memory-store)
+   (make-chain-config)
+   :admin-backend backend))
+
 (deftest admin-namespace-is-reachable-only-when-named
   ;; THE security property. With no --http.api the filter falls back to the
   ;; default public predicate, so admin_ must not be part of it — otherwise
@@ -93,7 +103,7 @@ rather than a node's peering state."
     (let ((peers (ethereum-lisp.public-api::engine-rpc-handle-admin-peers
                   nil backend)))
       (is (= 1 (length peers)))
-      (let ((peer (first peers)))
+      (let ((peer (elt peers 0)))
         (is (string= "geth/v1.17.4" (cdr (assoc "name" peer :test #'string=))))
         ;; The eth version is this session's, never a global constant.
         (is (equal '(("version" . 69))
@@ -119,6 +129,66 @@ rather than a node's peering state."
     (ethereum-lisp.public-api::engine-rpc-handle-admin-node-info nil nil))
   (signals error
     (ethereum-lisp.public-api::engine-rpc-handle-admin-peers nil nil)))
+
+(deftest admin-responses-survive-production-json-encoding
+  ;; Handler-level alists are not enough: NIL, JSON null, objects, and arrays
+  ;; overlap in Lisp.  This is the same dispatch and writer used by HTTP.
+  (let* ((peer (list :enode-id (make-string 64 :initial-element #\b)
+                     :client-id "geth/v1.17.4"
+                     :enode nil
+                     :remote-address "10.0.0.2:30303"
+                     :direction :inbound
+                     :eth-version 69))
+         (backend (admin-test-backend :peers (list peer)))
+         (node-response
+           (parse-json (admin-test-json-rpc "admin_nodeInfo" backend)
+                       :preserve-types t))
+         (peer-response
+           (parse-json (admin-test-json-rpc "admin_peers" backend)
+                       :preserve-types t))
+         (node-result (cdr (assoc "result" node-response :test #'string=)))
+         (peer-results (cdr (assoc "result" peer-response :test #'string=)))
+         (first-peer (first peer-results))
+         (network (cdr (assoc "network" first-peer :test #'string=))))
+    (is (ethereum-lisp.json:json-object-p
+         (cdr (assoc "ports" node-result :test #'string=))))
+    (is (= 30303
+           (cdr (assoc "listener"
+                       (cdr (assoc "ports" node-result :test #'string=))
+                       :test #'string=))))
+    (is (= 1 (length peer-results)))
+    (is (ethereum-lisp.json:json-object-p network))
+    (is (ethereum-lisp.json:json-null-p
+         (cdr (assoc "localAddress" network :test #'string=))))
+    (is (ethereum-lisp.json:json-null-p
+         (cdr (assoc "enode" first-peer :test #'string=)))))
+  ;; Empty peer sets are arrays, never JSON null.
+  (is (search "\"result\":[]"
+              (admin-test-json-rpc "admin_peers" (admin-test-backend)))))
+
+(deftest admin-node-info-falls-back-to-genesis-before-a-canonical-head
+  ;; A restored/snap-sync store can temporarily report head number zero before
+  ;; its canonical-number index is populated.  Operator RPC must still identify
+  ;; the node instead of turning that transient state into -32603.
+  (let* ((node (ethereum-lisp.cli:make-devnet-node
+                :genesis-json *eth-sync-paris-genesis-json*
+                :port 0))
+         (empty-store (make-engine-payload-memory-store))
+         (backend (ethereum-lisp.cli::devnet-node-admin-backend (list node)))
+         (genesis-hash
+           (hash32-to-hex
+            (block-hash (ethereum-lisp.cli:devnet-node-genesis-block node)))))
+    (setf (ethereum-lisp.cli:devnet-node-store node) empty-store)
+    (let* ((response
+             (parse-json (admin-test-json-rpc "admin_nodeInfo" backend)))
+           (result (cdr (assoc "result" response :test #'string=)))
+           (eth (and result
+                     (cdr (assoc "eth"
+                                 (cdr (assoc "protocols" result :test #'string=))
+                                 :test #'string=)))))
+      (is result)
+      (is (string= genesis-hash
+                   (cdr (assoc "head" eth :test #'string=)))))))
 
 (deftest net-listening-and-peer-count-follow-the-peering-backend
   ;; Both were hardcoded to false and 0x0. A node answering admin_peers with
