@@ -413,6 +413,9 @@
    #:snap-sync-source-trie-nodes
    #:snap-sync-state-unavailable
    #:snap-sync-state-unavailable-request-kind
+   #:snap-sync-sources-exhausted
+   #:snap-sync-sources-exhausted-phase
+   #:snap-sync-sources-exhausted-failures
    #:snap-sync-account-task
    #:snap-sync-account-task-start
    #:snap-sync-account-task-limit

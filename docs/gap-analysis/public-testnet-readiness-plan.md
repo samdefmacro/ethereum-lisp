@@ -287,7 +287,10 @@ The implementation boundary is split deliberately:
   block/cursor batches all fail closed. Sixteen durable account ranges match the
   pinned geth scheduler: one worker per live source verifies 2 MiB-soft-limited
   pages concurrently, while the coordinator alone merges state and commits each
-  range cursor. A failed source releases its range for another peer. The CLI
+  range cursor. A failed source releases its range for another peer. Exhausting
+  every source in one live-peer snapshot is a typed availability result: the
+  long-running CLI coordinator retains verified cursors, refreshes the source
+  set, and retries while local persistence/merge faults remain fatal. The CLI
   advertises snap only when both sides are operational and only serves
   production state through the direct RocksDB provider.
 - `src/networking/eth-sync/sync.lisp` supplies the bounded downloader, while

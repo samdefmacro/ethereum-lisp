@@ -1972,6 +1972,65 @@ really reopens the directory instead of observing the first handle's memory."
        (is (= 1 (count "peer.snap.pivot_fallback" logs
                        :test #'string= :key #'car)))))))
 
+(deftest devnet-sync-coordinator-refreshes-after-snap-source-exhaustion
+  (:layer :integration :module :p2p)
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (passes 0)
+         (logs '())
+         (local-failure-p nil))
+    (devnet-peer-sync-call-with-function-overrides
+     (list
+      (cons
+       'ethereum-lisp.cli::devnet-node-multi-sync-pass
+       (lambda (seen-node)
+         (is (eq node seen-node))
+         (incf passes)
+         (cond
+           (local-failure-p
+            (ethereum-lisp.validation:storage-fail
+             "Simulated local snap database failure"))
+           ((= passes 1)
+            (error
+             'ethereum-lisp.snap-sync:snap-sync-sources-exhausted
+             :phase :account-ranges
+             :failures
+             (list
+              (make-condition
+               'simple-error
+               :format-control "Retired source generation"
+               :format-arguments nil))))
+           (t 7))))
+      (cons
+       'ethereum-lisp.cli::devnet-peer-manager-log
+       (lambda (seen-node name &rest fields)
+         (is (eq node seen-node))
+         (push (cons name fields) logs))))
+     (lambda ()
+       ;; The first finite source snapshot is contained.  A later pass reaches
+       ;; the shipped sync entry point again and can use the replacement peers.
+       (is (null
+            (ethereum-lisp.cli::devnet-node-sync-coordinator-pass node)))
+       (is (= 7
+              (ethereum-lisp.cli::devnet-node-sync-coordinator-pass node)))
+       (is (= 2 passes))
+       (is (= 1 (length logs)))
+       (is (string= "peer.snap.sources_retry" (caar logs)))
+       (flet ((field (name)
+                (loop for (key value) on (cdar logs) by #'cddr
+                      when (string= key name) return value)))
+         (is (eq :account-ranges (field "phase")))
+         (is (= 1 (field "failures"))))
+       ;; Positive fail-closed control: only the explicit remote-source type is
+       ;; retryable.  A local durable-store fault still crosses the production
+       ;; coordinator pass and reaches the node supervisor.
+       (setf local-failure-p t)
+       (signals ethereum-lisp.validation:storage-error
+         (ethereum-lisp.cli::devnet-node-sync-coordinator-pass node))))
+    (is (= 3 passes))))
+
 (deftest devnet-peer-gap-fill-retries-a-buffered-target-with-known-parent
   (:layer :integration :module :p2p)
   (let* ((node

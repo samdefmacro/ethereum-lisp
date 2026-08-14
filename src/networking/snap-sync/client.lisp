@@ -22,6 +22,33 @@
      (format stream "Snap peer does not have the requested ~A state"
              (snap-sync-state-unavailable-request-kind condition)))))
 
+(define-condition snap-sync-sources-exhausted (error)
+  ((phase
+    :initarg :phase
+    :reader snap-sync-sources-exhausted-phase)
+   (failures
+    :initarg :failures
+    :reader snap-sync-sources-exhausted-failures))
+  (:documentation
+   "Every source in one finite live-peer snapshot failed before sync finished.
+
+This is a transient source-set result.  It is distinct from local persistence
+and merge failures, which remain fatal and are never wrapped in this type.  A
+long-running coordinator may therefore retain durable progress, refresh its
+live peer snapshot, and retry without hiding local integrity faults.")
+  (:report
+   (lambda (condition stream)
+     (format stream "All snap ~A sources failed: ~{~A~^; ~}"
+             (snap-sync-sources-exhausted-phase condition)
+             (mapcar #'princ-to-string
+                     (snap-sync-sources-exhausted-failures condition))))))
+
+(defun snap-sync-signal-sources-exhausted (phase failures)
+  (unless failures
+    (error "Snap workers stopped without source-failure evidence"))
+  (error 'snap-sync-sources-exhausted
+         :phase phase :failures (copy-list failures)))
+
 (defun snap-sync-state-unavailable (request-kind)
   (error 'snap-sync-state-unavailable :request-kind request-kind))
 
@@ -1034,8 +1061,7 @@ the returned record in the same batch as its new skeleton metadata."
                    errors))
        (error (first errors)))
       (errors
-       (error "All snap healing sources failed: ~{~A~^; ~}"
-              (mapcar #'princ-to-string (nreverse errors))))
+       (snap-sync-signal-sources-exhausted :healing (nreverse errors)))
       (t
        (error "Snap healing requires a live source")))))
 
@@ -1527,20 +1553,19 @@ the condition after its task has been made retryable by another source."
                      byte-limit :on-source-error on-source-error)))
                  (:exhausted
                   (cond
-                    ((= 1 (length errors))
-                     (error (first errors)))
-                    ((every
-                      (lambda (condition)
-                        (typep condition 'snap-sync-state-unavailable))
-                      errors)
+                    ((and errors
+                          (every
+                           (lambda (condition)
+                             (typep condition 'snap-sync-state-unavailable))
+                           errors))
                      ;; Preserve the availability taxonomy across fan-out.
                      ;; The CLI can then move or retry the CL-authorized pivot
                      ;; without turning ordinary remote pruning into a fatal
                      ;; local node error.
                      (error (first errors)))
                     (t
-                     (error "All snap sources failed before the pivot state completed: ~{~A~^; ~}"
-                            (mapcar #'princ-to-string (nreverse errors))))))
+                     (snap-sync-signal-sources-exhausted
+                      :account-ranges (nreverse errors)))))
                  (otherwise
                   (let ((source (snap-sync-multi-event-source event))
                         (task-index (snap-sync-multi-event-task-index event)))
@@ -1587,12 +1612,22 @@ the condition after its task has been made retryable by another source."
 #-sbcl
 (defun snap-sync-import-state-multi (database sources &rest arguments)
   "Portable fallback: resume the durable cursor serially across SOURCES."
-  (let ((last-error nil))
-    (dolist (source sources
-             (if last-error
-                 (error last-error)
-                 (error "Multi-source snap import requires a source")))
+  (let ((errors '()))
+    (dolist (source sources)
       (handler-case
           (return (apply #'snap-sync-import-state database source arguments))
+        (ethereum-lisp.validation:storage-error (condition)
+          (error condition))
         (serious-condition (condition)
-          (setf last-error condition))))))
+          (push condition errors))))
+    (cond
+      ((and errors
+            (every (lambda (condition)
+                     (typep condition 'snap-sync-state-unavailable))
+                   errors))
+       (error (first errors)))
+      (errors
+       (snap-sync-signal-sources-exhausted
+        :account-ranges (nreverse errors)))
+      (t
+       (error "Multi-source snap import requires a source")))))

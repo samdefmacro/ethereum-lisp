@@ -1143,6 +1143,33 @@ property of how the node is configured, not an assumption about the test corpus.
        (lambda ()
          (call-with-devnet-mutex sessions-lock (lambda () (copy-list sessions))))))))
 
+(defun devnet-node-sync-coordinator-pass (node)
+  "Run one sync pass, containing only finite remote-source exhaustion.
+
+Each pass takes a new live-peer snapshot inside DEVNET-NODE-MULTI-SYNC-PASS.
+An exhausted snap snapshot therefore leaves the durable task cursors intact and
+returns control to the long-running loop, whose next pass may use replacement
+sessions.  Local storage, merge, and unexpected program failures deliberately
+escape to the coordinator's outer serious-condition boundary."
+  (handler-case
+      (call-with-devnet-sync-claim
+       node (lambda () (devnet-node-multi-sync-pass node)))
+    (eth-sync-multi-peer-error (condition)
+      (devnet-peer-manager-log
+       node "peer.sync.multi_retry" "error" condition)
+      nil)
+    (ethereum-lisp.snap-sync:snap-sync-sources-exhausted (condition)
+      (devnet-peer-manager-log
+       node "peer.snap.sources_retry"
+       "phase"
+       (ethereum-lisp.snap-sync:snap-sync-sources-exhausted-phase condition)
+       "failures"
+       (length
+        (ethereum-lisp.snap-sync:snap-sync-sources-exhausted-failures
+         condition))
+       "error" condition)
+      nil)))
+
 (defun devnet-start-sync-coordinator-thread
     (node shutdown-controller error-callback)
   "Start the consensus-bounded continuous multi-peer sync coordinator."
@@ -1158,13 +1185,7 @@ property of how the node is configured, not an assumption about the test corpus.
      (lambda ()
        (handler-case
            (loop until (devnet-shutdown-requested-p shutdown-controller)
-                 do (handler-case
-                        (call-with-devnet-sync-claim
-                         node (lambda () (devnet-node-multi-sync-pass node)))
-                      (eth-sync-multi-peer-error (condition)
-                        (devnet-peer-manager-log
-                         node "peer.sync.multi_retry"
-                         "error" condition)))
+                 do (devnet-node-sync-coordinator-pass node)
                     (unless (devnet-shutdown-requested-p shutdown-controller)
                       (sleep 1)))
          (serious-condition (condition)

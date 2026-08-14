@@ -188,8 +188,13 @@ compact proofs, heal bytecode and storage before advancing a cursor, and inject
 a failed database batch to prove progress never outruns state. They also prove
 that sixteen durable account ranges are fetched concurrently through three
 sources with geth's 2 MiB soft byte limit, completed ranges are not replayed
-after restart, and a failed source's claimed range is reassigned. The pivot tests
-also prove that an empty RocksDB node requests only the 65-block pivot tail,
+after restart, and a failed source's claimed range is reassigned. A finite
+source generation may exhaust without stopping the node: the coordinator logs
+that typed availability result, refreshes live sessions on its next pass, and
+resumes without replaying the page committed by the retired generation. A
+local database failure is the fail-closed control and still escapes the
+coordinator. The pivot tests also prove that an empty RocksDB node requests only
+the 65-block pivot tail,
 publishes only the target-bound sparse checkpoint, restarts from it, and leaves
 the CL target noncanonical until ordinary Engine forkchoice publication. The
 multi-peer tests use stalled and failing peers to require deadline failover and

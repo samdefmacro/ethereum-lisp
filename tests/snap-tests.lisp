@@ -571,6 +571,117 @@
         (is (not (find origin completed-starts :test #'bytes=)))))))
 
 #+sbcl
+(deftest snap-state-import-multi-refreshes-sources-after-exhaustion
+  (:layer :integration :module :p2p)
+  (multiple-value-bind (source-state addresses)
+      (snap-test-partitioned-state)
+    (declare (ignore addresses))
+    (let* ((source-database (make-memory-key-value-database))
+           (target-database (make-memory-key-value-database))
+           (root (state-db-root source-state))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              source-database source-state))
+           (base-source (snap-test-source backend))
+           (lock (sb-thread:make-mutex :name "snap-test-source-refresh"))
+           (first-generation-requests 0)
+           (first-generation-progress 0)
+           (first-generation-errors 0)
+           (retired-source
+             (snap-test-source-with-account-callback
+              base-source
+              (lambda (request)
+                (let ((request-number
+                        (sb-thread:with-mutex (lock)
+                          (incf first-generation-requests))))
+                  (if (= request-number 1)
+                      (funcall
+                       (ethereum-lisp.snap-sync:snap-sync-source-account-range
+                        base-source)
+                       request)
+                      (error "First snap source generation retired"))))))
+           (arguments
+             (list
+              :pivot-hash (make-hash32 (snap-test-hash 157))
+              :pivot-number 905 :state-root root
+              :target-hash (make-hash32 (snap-test-hash 158))
+              :chain-id 560048
+              :genesis-hash (make-hash32 (snap-test-hash 159))
+              :authority-id (make-hash32 (snap-test-hash 160))))
+           (exhaustion
+             (handler-case
+                 (progn
+                   (apply
+                    #'ethereum-lisp.snap-sync:snap-sync-import-state-multi
+                    target-database (list retired-source)
+                    :on-progress
+                    (lambda (progress source task-index)
+                      (declare (ignore progress source task-index))
+                      (incf first-generation-progress))
+                    :on-source-error
+                    (lambda (source condition)
+                      (declare (ignore source condition))
+                      (incf first-generation-errors))
+                    arguments)
+                   nil)
+               (ethereum-lisp.snap-sync:snap-sync-sources-exhausted
+                   (condition)
+                 condition))))
+      (is (not (null exhaustion)))
+      (when exhaustion
+        (is (eq :account-ranges
+                (ethereum-lisp.snap-sync:snap-sync-sources-exhausted-phase
+                 exhaustion)))
+        (is (= 1
+               (length
+                (ethereum-lisp.snap-sync:snap-sync-sources-exhausted-failures
+                 exhaustion)))))
+      ;; Positive witnesses: one verified page committed, then the same source
+      ;; really failed on its next claim and reached the aggregate boundary.
+      (is (= 2 first-generation-requests))
+      (is (= 1 first-generation-progress))
+      (is (= 1 first-generation-errors))
+      (multiple-value-bind (persisted present-p)
+          (ethereum-lisp.snap-sync:snap-sync-read-progress target-database)
+        (is present-p)
+        (when present-p
+          (let* ((completed-starts
+                   (loop for task in
+                           (ethereum-lisp.snap-sync:snap-sync-progress-tasks
+                            persisted)
+                         when
+                           (ethereum-lisp.snap-sync:snap-sync-account-task-completed-p
+                            task)
+                           collect
+                           (ethereum-lisp.snap-sync:snap-sync-account-task-start
+                            task)))
+                 (resume-origins '())
+                 (replacement-source
+                   (snap-test-source-with-account-callback
+                    base-source
+                    (lambda (request)
+                      (sb-thread:with-mutex (lock)
+                        (push
+                         (copy-seq
+                          (ethereum-lisp.snap:snap-get-account-range-origin
+                           request))
+                         resume-origins))
+                      (funcall
+                       (ethereum-lisp.snap-sync:snap-sync-source-account-range
+                        base-source)
+                       request))))
+                 (completed
+                   (apply
+                    #'ethereum-lisp.snap-sync:snap-sync-import-state-multi
+                    target-database (list replacement-source) arguments)))
+            (is (= 1 (length completed-starts)))
+            (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
+                 completed))
+            (is (plusp (length resume-origins)))
+            (dolist (start completed-starts)
+              (is (not (find start resume-origins :test #'bytes=))))))))))
+
+#+sbcl
 (deftest snap-state-import-multi-batch-failure-keeps-all-task-cursors-behind
   (:layer :integration :module :p2p)
   (multiple-value-bind (source-state addresses)
@@ -599,9 +710,22 @@
               :genesis-hash (make-hash32 (snap-test-hash 146))
               :authority-id (make-hash32 (snap-test-hash 147)))))
       (setf (snap-failing-test-database-fail-next-apply-p target-database) t)
-      (signals error
-        (apply #'ethereum-lisp.snap-sync:snap-sync-import-state-multi
-               target-database sources arguments))
+      (let ((failure
+              (handler-case
+                  (progn
+                    (apply #'ethereum-lisp.snap-sync:snap-sync-import-state-multi
+                           target-database sources arguments)
+                    nil)
+                (serious-condition (condition) condition))))
+        (is (not (null failure)))
+        ;; A local commit/merge fault must reach the caller unchanged.  If this
+        ;; becomes source exhaustion, the production coordinator would loop on
+        ;; a corrupt or unwritable database instead of failing closed.
+        (when failure
+          (is (not
+               (typep
+                failure
+                'ethereum-lisp.snap-sync:snap-sync-sources-exhausted)))))
       (is (not (nth-value
                 1
                 (ethereum-lisp.snap-sync:snap-sync-read-progress
@@ -719,6 +843,59 @@
     ;; observed by the coordinator before the aggregate type was re-signalled.
     (is (= 3 requests))
     (is (= 3 callbacks))))
+
+(deftest snap-state-healing-reports-a-typed-source-generation-exhaustion
+  (:layer :integration :module :p2p)
+  (let* ((database (make-memory-key-value-database))
+         (pivot (make-hash32 (snap-test-hash 161)))
+         (root (make-hash32 (snap-test-hash 162)))
+         (target (make-hash32 (snap-test-hash 163)))
+         (genesis (make-hash32 (snap-test-hash 164)))
+         (authority (make-hash32 (snap-test-hash 165)))
+         (requests 0)
+         (callbacks 0)
+         (source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :account-range (lambda (request) (declare (ignore request)))
+            :storage-ranges (lambda (request) (declare (ignore request)))
+            :bytecodes (lambda (request) (declare (ignore request)))
+            :trie-nodes
+            (lambda (request)
+              (declare (ignore request))
+              (incf requests)
+              (error "Healing source disconnected"))))
+         (progress
+           (ethereum-lisp.snap-sync::snap-sync-make-progress
+            :pivot-hash pivot :pivot-number 906 :state-root root
+            :partial-root +empty-trie-hash+ :target-hash target
+            :chain-id 560048 :genesis-hash genesis :authority-id authority
+            :completed-p nil
+            :tasks
+            (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+             :count 1 :completed-p t)))
+         (exhaustion
+           (handler-case
+               (progn
+                 (ethereum-lisp.snap-sync::snap-sync-heal-state
+                  database (list source) progress (* 2 1024 1024)
+                  :on-source-error
+                  (lambda (failed-source condition)
+                    (declare (ignore failed-source condition))
+                    (incf callbacks)))
+                 nil)
+             (ethereum-lisp.snap-sync:snap-sync-sources-exhausted (condition)
+               condition))))
+    (is (not (null exhaustion)))
+    (when exhaustion
+      (is (eq :healing
+              (ethereum-lisp.snap-sync:snap-sync-sources-exhausted-phase
+               exhaustion)))
+      (is (= 1
+             (length
+              (ethereum-lisp.snap-sync:snap-sync-sources-exhausted-failures
+               exhaustion)))))
+    (is (= 1 requests))
+    (is (= 1 callbacks))))
 
 (deftest snap-one-wire-messages-round-trip
   (:layer :unit :module :p2p)
