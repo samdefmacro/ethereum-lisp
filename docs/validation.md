@@ -253,6 +253,29 @@ scripts/hoodi-live-gate.sh logs
 HOODI_GATE_ALLOW_MUTATION=1 scripts/hoodi-live-gate.sh restart
 ```
 
+`HOODI_GATE_P2P_PORT` selects the same explicit TCP/UDP port inside and outside
+the container when the default 30303 is already reserved. If a live run exposes
+a runtime-only fix after its fresh datadir has accumulated durable progress,
+the broker can replace that exact owned container without copying or deleting
+the datadir:
+
+```sh
+HOODI_GATE_ALLOW_MUTATION=1 \
+HOODI_GATE_PREVIOUS_CONTAINER=hoodi-el-sec5-previous \
+HOODI_GATE_PREVIOUS_REVISION=0123456789abcdef0123456789abcdef01234567 \
+HOODI_GATE_DATADIR=/data/hoodi-sec5-example/datadir-previous \
+HOODI_GATE_CL_ALIAS=hoodi-el-public-example \
+HOODI_GATE_P2P_PORT=30304 \
+scripts/hoodi-live-gate.sh upgrade
+```
+
+`upgrade` requires the previous container to be running, owned by this gate,
+read-only-root, explicitly non-root, labelled with the supplied exact revision,
+and mounted on that same non-empty datadir. It preserves the previous container
+stopped on success. A new-container, network-attachment, exit, or readiness
+failure stops the attempted replacement and restarts the previous container;
+neither path removes a container, image, artifact, or datadir.
+
 After a live run has started, completion evidence or broker-only repairs may
 move the checkout past the runtime image revision. Set
 `HOODI_GATE_RUNTIME_REVISION` to that full ancestor revision when inspecting or

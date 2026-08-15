@@ -54,11 +54,14 @@ remote_artifact="$remote_root/${artifact##*/}"
 
 lighthouse_container="${HOODI_GATE_LIGHTHOUSE_CONTAINER:-hoodi-lighthouse-public}"
 old_container="${HOODI_GATE_OLD_CONTAINER:-hoodi-el-sec5-rehearsal-old3}"
+previous_container="${HOODI_GATE_PREVIOUS_CONTAINER:-}"
+previous_revision="${HOODI_GATE_PREVIOUS_REVISION:-}"
 cl_network="${HOODI_GATE_CL_NETWORK:-hoodi-frozen}"
 egress_network="${HOODI_GATE_EGRESS_NETWORK:-hoodi-net}"
 cl_alias="${HOODI_GATE_CL_ALIAS:-hoodi-el-public-frozen}"
 jwt_dir="${HOODI_GATE_JWT_DIR:-/data/hoodi/jwt}"
 public_ip="${HOODI_GATE_PUBLIC_IP:-165.154.224.110}"
+p2p_port="${HOODI_GATE_P2P_PORT:-30303}"
 restart_ready_timeout="${HOODI_GATE_RESTART_READY_TIMEOUT:-600}"
 
 case "$host" in *[!A-Za-z0-9_.@-]*|'') fail "unsafe SSH host: $host" ;; esac
@@ -75,7 +78,16 @@ case "$image" in *[!A-Za-z0-9_.:/+-]*|'') fail "unsafe image name: $image" ;; es
 for name in "$container" "$lighthouse_container" "$old_container" "$cl_network" "$egress_network" "$cl_alias"; do
     case "$name" in *[!A-Za-z0-9_.-]*|'') fail "unsafe Docker name: $name" ;; esac
 done
+[ -z "$previous_container" ] ||
+    case "$previous_container" in *[!A-Za-z0-9_.-]*) fail "unsafe previous container name: $previous_container" ;; esac
+[ -z "$previous_revision" ] || {
+    case "$previous_revision" in *[!0-9a-f]*) fail "previous revision must be lowercase hexadecimal" ;; esac
+    [ "${#previous_revision}" -eq 40 ] || fail "previous revision must contain exactly 40 hexadecimal characters"
+}
 case "$public_ip" in *[!0-9.]*|'') fail "public IP must be an IPv4 literal" ;; esac
+case "$p2p_port" in *[!0-9]*|'') fail "P2P port must be an integer" ;; esac
+[ "$p2p_port" -ge 1024 ] && [ "$p2p_port" -le 65535 ] ||
+    fail "P2P port must be between 1024 and 65535"
 case "$restart_ready_timeout" in
     *[!0-9]*|'') fail "restart ready timeout must be an integer number of seconds" ;;
 esac
@@ -247,10 +259,12 @@ start_gate() {
     note "cutting the existing Lighthouse alias over to the exact-revision EL"
     ssh "$host" bash -s -- \
         "$revision" "$image" "$container" "$datadir" "$jwt_dir" "$public_ip" \
-        "$lighthouse_container" "$old_container" "$cl_network" "$egress_network" "$cl_alias" <<'REMOTE'
+        "$lighthouse_container" "$old_container" "$cl_network" "$egress_network" "$cl_alias" \
+        "$p2p_port" <<'REMOTE'
 set -eu
 revision="$1"; image="$2"; container="$3"; datadir="$4"; jwt_dir="$5"; public_ip="$6"
 lighthouse="$7"; old="$8"; cl_network="$9"; egress_network="${10}"; cl_alias="${11}"
+p2p_port="${12}"
 
 image_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image")"
 image_platform="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image")"
@@ -311,12 +325,13 @@ if ! docker run --detach --pull never \
     --mount "type=bind,source=$jwt_dir,target=/jwt,readonly" \
     --network "$cl_network" \
     --network-alias "$cl_alias" \
-    --publish 30303:30303/tcp \
-    --publish 30303:30303/udp \
+    --publish "$p2p_port:$p2p_port/tcp" \
+    --publish "$p2p_port:$p2p_port/udp" \
     --publish 127.0.0.1::8545 \
     "$image" \
     --hoodi \
     --datadir /data \
+    --port "$p2p_port" \
     --nat "extip:$public_ip" \
     --http \
     --http.addr 0.0.0.0 \
@@ -348,6 +363,164 @@ docker container inspect --format \
     'container={{.Name}} running={{.State.Running}} started={{.State.StartedAt}} image={{.Image}} user={{.Config.User}} read-only={{.HostConfig.ReadonlyRootfs}} networks={{json .NetworkSettings.Networks}}' \
     "$container"
 printf 'fresh-datadir=%s uid=%s gid=%s\n' "$datadir" "$gate_uid" "$gate_gid"
+REMOTE
+}
+
+upgrade_gate() {
+    require_mutation
+    [ -n "$previous_container" ] || fail "upgrade requires HOODI_GATE_PREVIOUS_CONTAINER"
+    [ -n "$previous_revision" ] || fail "upgrade requires HOODI_GATE_PREVIOUS_REVISION"
+    [ "$previous_container" != "$container" ] || fail "upgrade requires a new container name"
+    [ "$previous_revision" != "$revision" ] || fail "upgrade requires a new runtime revision"
+    note "replacing the exact previous EL while preserving its durable datadir"
+    ssh "$host" bash -s -- \
+        "$revision" "$image" "$container" "$datadir" "$jwt_dir" "$public_ip" \
+        "$lighthouse_container" "$previous_container" "$previous_revision" \
+        "$cl_network" "$egress_network" "$cl_alias" "$p2p_port" \
+        "$restart_ready_timeout" <<'REMOTE'
+set -eu
+revision="$1"; image="$2"; container="$3"; datadir="$4"; jwt_dir="$5"; public_ip="$6"
+lighthouse="$7"; previous="$8"; previous_revision="$9"; cl_network="${10}"
+egress_network="${11}"; cl_alias="${12}"; p2p_port="${13}"; ready_timeout="${14}"
+
+image_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image")"
+image_platform="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image")"
+[ "$image_revision" = "$revision" ] || { echo "image revision mismatch: $image_revision" >&2; exit 1; }
+[ "$image_platform" = "linux/amd64" ] || { echo "image platform mismatch: $image_platform" >&2; exit 1; }
+[ "$(docker container inspect --format '{{.State.Running}}' "$lighthouse")" = true ] || {
+    echo "required Lighthouse container is not running: $lighthouse" >&2
+    exit 1
+}
+[ "$(docker container inspect --format '{{.State.Running}}' "$previous")" = true ] || {
+    echo "previous gate container is not running: $previous" >&2
+    exit 1
+}
+previous_agent="$(docker container inspect --format '{{ index .Config.Labels "agent" }}' "$previous")"
+previous_gate_revision="$(docker container inspect --format '{{ index .Config.Labels "io.ethereum-lisp.gate-revision" }}' "$previous")"
+previous_image_revision="$(docker container inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$previous")"
+previous_datadir="$(docker container inspect --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Source}}{{end}}{{end}}' "$previous")"
+previous_user="$(docker container inspect --format '{{.Config.User}}' "$previous")"
+previous_read_only="$(docker container inspect --format '{{.HostConfig.ReadonlyRootfs}}' "$previous")"
+[ "$previous_agent" = codex-sec5-live-gate ] || { echo "previous gate ownership mismatch: $previous_agent" >&2; exit 1; }
+[ "$previous_gate_revision" = "$previous_revision" ] || { echo "previous gate revision mismatch: $previous_gate_revision" >&2; exit 1; }
+[ "$previous_image_revision" = "$previous_revision" ] || { echo "previous image revision mismatch: $previous_image_revision" >&2; exit 1; }
+[ "$previous_datadir" = "$datadir" ] || { echo "previous datadir mismatch: $previous_datadir" >&2; exit 1; }
+[ "$previous_read_only" = true ] || { echo "previous gate root filesystem is not read-only" >&2; exit 1; }
+case "$previous_user" in 0|0:*|*:0|'') echo "previous gate does not have an explicit non-root user" >&2; exit 1 ;; esac
+[ -d "$datadir" ] && [ -n "$(find "$datadir" -mindepth 1 -maxdepth 1 -print -quit)" ] || {
+    echo "upgrade datadir is absent or empty: $datadir" >&2
+    exit 1
+}
+[ -r "$jwt_dir/jwt.hex" ] || { echo "JWT file is not readable: $jwt_dir/jwt.hex" >&2; exit 1; }
+docker network inspect "$cl_network" >/dev/null
+docker network inspect "$egress_network" >/dev/null
+if docker container inspect "$container" >/dev/null 2>&1; then
+    echo "refusing to replace existing upgrade container: $container" >&2
+    exit 1
+fi
+
+resolve_rpc_port() {
+    docker port "$1" 8545/tcp |
+        awk -F: '/127[.]0[.]0[.]1/ {print $NF; exit}'
+}
+rpc() {
+    rpc_container="$1"; method="$2"; max_time="${3:-10}"
+    rpc_port="$(resolve_rpc_port "$rpc_container")"
+    [ -n "$rpc_port" ] || return 1
+    curl --silent --show-error --max-time "$max_time" \
+        --header 'Content-Type: application/json' \
+        --data "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$method\",\"params\":[]}" \
+        "http://127.0.0.1:$rpc_port"
+}
+
+date -u +before-timestamp=%Y-%m-%dT%H:%M:%SZ
+printf 'before-container=%s\n' "$previous"
+printf 'before-started='; docker container inspect --format '{{.State.StartedAt}}' "$previous"
+printf 'before-datadir-bytes='; du -sb "$datadir" | awk '{print $1}'
+printf 'before-block='; rpc "$previous" eth_blockNumber; printf '\n'
+printf 'before-syncing='; rpc "$previous" eth_syncing; printf '\n'
+
+docker stop --time 30 "$previous" >/dev/null
+rollback() {
+    if docker container inspect "$container" >/dev/null 2>&1; then
+        docker stop --time 10 "$container" >/dev/null 2>&1 || true
+    fi
+    docker start "$previous" >/dev/null 2>&1 || true
+}
+trap rollback EXIT HUP INT TERM
+
+if ! docker run --detach --pull never \
+    --name "$container" \
+    --label agent=codex-sec5-live-gate \
+    --label "io.ethereum-lisp.gate-revision=$revision" \
+    --label "io.ethereum-lisp.gate-upgraded-from=$previous_revision" \
+    --user "$previous_user" \
+    --read-only \
+    --mount "type=bind,source=$datadir,target=/data" \
+    --mount "type=bind,source=$jwt_dir,target=/jwt,readonly" \
+    --network "$cl_network" \
+    --network-alias "$cl_alias" \
+    --publish "$p2p_port:$p2p_port/tcp" \
+    --publish "$p2p_port:$p2p_port/udp" \
+    --publish 127.0.0.1::8545 \
+    "$image" \
+    --hoodi \
+    --datadir /data \
+    --port "$p2p_port" \
+    --nat "extip:$public_ip" \
+    --http \
+    --http.addr 0.0.0.0 \
+    --http.port 8545 \
+    --http.api eth,net,web3,txpool,admin \
+    --http.vhosts '*' \
+    --authrpc.addr 0.0.0.0 \
+    --authrpc.port 8551 \
+    --authrpc.jwtsecret /jwt/jwt.hex \
+    --authrpc.vhosts '*' \
+    --maxpeers 25 >/dev/null; then
+    rollback
+    trap - EXIT HUP INT TERM
+    exit 1
+fi
+if ! docker network connect "$egress_network" "$container"; then
+    rollback
+    trap - EXIT HUP INT TERM
+    echo "failed to attach upgraded gate to $egress_network; previous container restored" >&2
+    exit 1
+fi
+
+ready=false
+ready_deadline="$(( $(date +%s) + ready_timeout ))"
+while :; do
+    ready_now="$(date +%s)"
+    ready_remaining="$(( ready_deadline - ready_now ))"
+    [ "$ready_remaining" -gt 0 ] || break
+    if [ "$ready_remaining" -gt 10 ]; then attempt_timeout=10; else attempt_timeout="$ready_remaining"; fi
+    if rpc "$container" eth_chainId "$attempt_timeout" >/dev/null 2>&1; then
+        ready=true
+        break
+    fi
+    [ "$(docker container inspect --format '{{.State.Running}}' "$container")" = true ] || break
+    sleep 1
+done
+if [ "$ready" != true ]; then
+    docker logs "$container" 2>&1 | tail -80 >&2 || true
+    rollback
+    trap - EXIT HUP INT TERM
+    echo "upgraded public RPC did not return within ${ready_timeout}s; previous container restored" >&2
+    exit 1
+fi
+trap - EXIT HUP INT TERM
+date -u +after-timestamp=%Y-%m-%dT%H:%M:%SZ
+printf 'after-container=%s\n' "$container"
+printf 'after-started='; docker container inspect --format '{{.State.StartedAt}}' "$container"
+printf 'after-datadir-bytes='; du -sb "$datadir" | awk '{print $1}'
+printf 'after-block='; rpc "$container" eth_blockNumber; printf '\n'
+printf 'after-syncing='; rpc "$container" eth_syncing; printf '\n'
+printf 'previous-running='; docker container inspect --format '{{.State.Running}}' "$previous"
+docker container inspect --format \
+    'container={{.Name}} running={{.State.Running}} image={{.Image}} user={{.Config.User}} read-only={{.HostConfig.ReadonlyRootfs}} labels={{json .Config.Labels}} networks={{json .NetworkSettings.Networks}}' \
+    "$container"
 REMOTE
 }
 
@@ -469,6 +642,7 @@ case "$action" in
     upload) upload_artifact ;;
     load) load_image ;;
     start) start_gate ;;
+    upgrade) upgrade_gate ;;
     status) remote_status ;;
     restart) restart_gate ;;
     logs) gate_logs ;;
@@ -477,10 +651,13 @@ case "$action" in
 Usage: scripts/hoodi-live-gate.sh ACTION
 
 Read-only actions: inspect, status, logs
-Mutating actions:  upload, load, start, restart
+Mutating actions:  upload, load, start, upgrade, restart
 
 Mutating actions require HOODI_GATE_ALLOW_MUTATION=1. The default artifact,
 image, container, and datadir are derived from the current full Git revision.
+Upgrade additionally requires HOODI_GATE_PREVIOUS_CONTAINER and
+HOODI_GATE_PREVIOUS_REVISION, and reuses only that container's exact non-empty
+HOODI_GATE_DATADIR. HOODI_GATE_P2P_PORT selects the bounded public P2P port.
 HOODI_GATE_RESTART_READY_TIMEOUT may override the bounded 600-second restart
 readiness window (accepted range: 30-1800 seconds).
 USAGE
