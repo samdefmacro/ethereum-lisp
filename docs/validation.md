@@ -253,6 +253,13 @@ scripts/hoodi-live-gate.sh logs
 HOODI_GATE_ALLOW_MUTATION=1 scripts/hoodi-live-gate.sh restart
 ```
 
+After a live run has started, completion evidence or broker-only repairs may
+move the checkout past the runtime image revision. Set
+`HOODI_GATE_RUNTIME_REVISION` to that full ancestor revision when inspecting or
+restarting the existing gate. The broker permits this override only when every
+intervening change is below `docs/` or is `scripts/hoodi-live-gate.sh`; any
+runtime-sensitive change keeps the exact-revision check fail-closed.
+
 `start` stops only the specifically labelled Section 5 rehearsal EL, preserves
 that stopped container and its datadir, and connects the exact-revision EL to
 the already-running Lighthouse alias. It uses the SSH user's non-root uid/gid,

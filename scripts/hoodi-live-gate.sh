@@ -36,7 +36,8 @@ sha256_file() {
     fi
 }
 
-revision="${HOODI_GATE_REVISION:-$(git -C "$repo_root" rev-parse HEAD)}"
+actual_head="$(git -C "$repo_root" rev-parse HEAD)"
+revision="${HOODI_GATE_RUNTIME_REVISION:-$actual_head}"
 case "$revision" in
     *[!0-9a-f]*|'') fail "revision must be a full lowercase hexadecimal Git id" ;;
 esac
@@ -81,8 +82,16 @@ esac
 [ "$restart_ready_timeout" -ge 30 ] && [ "$restart_ready_timeout" -le 1800 ] ||
     fail "restart ready timeout must be between 30 and 1800 seconds"
 
-actual_head="$(git -C "$repo_root" rev-parse HEAD)"
-[ "$actual_head" = "$revision" ] || fail "requested revision $revision is not checkout HEAD $actual_head"
+if [ "$actual_head" != "$revision" ]; then
+    git -C "$repo_root" merge-base --is-ancestor "$revision" "$actual_head" ||
+        fail "runtime revision $revision is not an ancestor of checkout HEAD $actual_head"
+    runtime_sensitive_changes="$(git -C "$repo_root" diff --name-only \
+        "$revision" "$actual_head" -- . \
+        ':(exclude)docs/**' \
+        ':(exclude)scripts/hoodi-live-gate.sh')"
+    [ -z "$runtime_sensitive_changes" ] ||
+        fail "checkout changed runtime-sensitive paths after $revision: $runtime_sensitive_changes"
+fi
 
 require_clean_checkout() {
     git -C "$repo_root" diff --quiet || fail "checkout has unstaged changes"
