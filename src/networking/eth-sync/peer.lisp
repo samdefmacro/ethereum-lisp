@@ -17,6 +17,10 @@
   snap-version
   snap-backend
   remote-status
+  ;; Installed by the CLI before the session pump starts.  This callback only
+  ;; wakes the node-wide coordinator after a validated block/range announcement;
+  ;; it carries no target and therefore cannot grant sync authority.
+  sync-notification-function
   ;; The peer's devp2p Hello: its client id, advertised capabilities, and the
   ;; TCP port it listens on. Kept because a peer manager reports it and because
   ;; the listen port is what makes a peer dialable back.
@@ -34,6 +38,24 @@
   ;; a FIFO list because ordering by the peer's announcement is useful.
   announced-block-hashes
   (request-counter 0))
+
+(defun eth-peer-set-sync-notification-function (peer function)
+  "Install FUNCTION as PEER's validated sync-announcement notification.
+
+FUNCTION must take no arguments.  Install it before the session message loop
+starts; an ETH-PEER remains single-thread-owned after that point.  NIL removes
+the callback."
+  (unless (typep peer 'eth-peer)
+    (error "Sync notification requires an eth peer"))
+  (unless (or (null function) (functionp function))
+    (error "Sync notification callback must be a function or NIL"))
+  (setf (eth-peer-sync-notification-function peer) function)
+  peer)
+
+(defun eth-peer-notify-sync-announcement (peer)
+  (let ((function (eth-peer-sync-notification-function peer)))
+    (when function
+      (funcall function))))
 
 (defun eth-peer-next-request-id (peer)
   "Return a fresh eth request id for PEER (a per-session ascending counter)."

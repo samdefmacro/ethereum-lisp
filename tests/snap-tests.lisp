@@ -341,6 +341,9 @@
             "0x0000000000000000000000000000000000000043"))
          (storage-calls 0)
          (trie-node-requests 0)
+         (trie-node-responses 0)
+         (trie-node-response-bytes 0)
+         (heal-progress-events '())
          (saw-byte-capped-storage-p nil))
     (loop for byte from 1 to 96
           do (state-db-set-storage
@@ -380,10 +383,17 @@
               :trie-nodes
               (lambda (request)
                 (incf trie-node-requests)
-                (funcall
-                 (ethereum-lisp.snap-sync:snap-sync-source-trie-nodes
-                  base-source)
-                 request))))
+                (let* ((response
+                         (funcall
+                          (ethereum-lisp.snap-sync:snap-sync-source-trie-nodes
+                           base-source)
+                          request))
+                       (nodes
+                         (ethereum-lisp.snap:snap-trie-nodes-nodes response)))
+                  (incf trie-node-responses (length nodes))
+                  (incf trie-node-response-bytes
+                        (reduce #'+ nodes :key #'length :initial-value 0))
+                  response))))
            (progress
              (ethereum-lisp.snap-sync:snap-sync-import-state
               target-database source
@@ -393,11 +403,55 @@
               :chain-id 560048
               :genesis-hash (make-hash32 (snap-test-hash 126))
               :authority-id (make-hash32 (snap-test-hash 127))
-              :byte-limit 350)))
+              :byte-limit 350
+              :on-heal-progress
+              (lambda (heal-progress)
+                (push heal-progress heal-progress-events)))))
       (is saw-byte-capped-storage-p)
       (is (= 1 storage-calls))
       (is (plusp trie-node-requests))
       (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p progress))
+      (is (plusp (length heal-progress-events)))
+      (is (some
+           (lambda (event)
+             (not
+              (ethereum-lisp.snap-sync:snap-sync-heal-progress-completed-p
+               event)))
+           heal-progress-events))
+      (let ((final (first heal-progress-events)))
+        (is (ethereum-lisp.snap-sync:snap-sync-heal-progress-completed-p final))
+        (is (= trie-node-requests
+               (ethereum-lisp.snap-sync:snap-sync-heal-progress-request-count
+                final)))
+        (is (= trie-node-responses
+               (ethereum-lisp.snap-sync:snap-sync-heal-progress-fetched-nodes
+                final)))
+        (is (= trie-node-response-bytes
+               (ethereum-lisp.snap-sync:snap-sync-heal-progress-response-bytes
+                final)))
+        (is (plusp
+             (ethereum-lisp.snap-sync:snap-sync-heal-progress-reused-nodes
+              final)))
+        (is (>=
+             (ethereum-lisp.snap-sync:snap-sync-heal-progress-processed-nodes
+              final)
+             (+
+              (ethereum-lisp.snap-sync:snap-sync-heal-progress-reused-nodes
+               final)
+              (ethereum-lisp.snap-sync:snap-sync-heal-progress-fetched-nodes
+               final)))))
+      (loop for (older newer) on (nreverse heal-progress-events)
+            while newer
+            do (is (<=
+                    (ethereum-lisp.snap-sync:snap-sync-heal-progress-processed-nodes
+                     older)
+                    (ethereum-lisp.snap-sync:snap-sync-heal-progress-processed-nodes
+                     newer)))
+               (is (<=
+                    (ethereum-lisp.snap-sync:snap-sync-heal-progress-request-count
+                     older)
+                    (ethereum-lisp.snap-sync:snap-sync-heal-progress-request-count
+                     newer))))
       (multiple-value-bind (node present-p)
           (ethereum-lisp.trie:trie-node-store-get
            target-database storage-root)

@@ -433,6 +433,13 @@
    #:snap-sync-progress-authority-id
    #:snap-sync-progress-completed-p
    #:snap-sync-progress-tasks
+   #:snap-sync-heal-progress
+   #:snap-sync-heal-progress-processed-nodes
+   #:snap-sync-heal-progress-reused-nodes
+   #:snap-sync-heal-progress-fetched-nodes
+   #:snap-sync-heal-progress-request-count
+   #:snap-sync-heal-progress-response-bytes
+   #:snap-sync-heal-progress-completed-p
    #:snap-sync-read-progress
    #:snap-sync-delete-progress
    #:snap-sync-populate-rebased-progress-batch

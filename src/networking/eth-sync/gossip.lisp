@@ -365,21 +365,34 @@ that has nothing else to do."
         (eth-block-range-earliest-block range)
         (eth-block-range-latest-block range)
         (eth-block-range-latest-block-hash range))
-       (let ((status (eth-peer-remote-status peer)))
+       (let* ((status (eth-peer-remote-status peer))
+              (changed-p
+                (or (/= (eth-status-earliest-block status)
+                        (eth-block-range-earliest-block range))
+                    (/= (eth-status-latest-block status)
+                        (eth-block-range-latest-block range))
+                    (not
+                     (bytes=
+                      (eth-status-latest-block-hash status)
+                      (eth-block-range-latest-block-hash range))))))
          (setf (eth-status-earliest-block status)
                (eth-block-range-earliest-block range)
                (eth-status-latest-block status)
                (eth-block-range-latest-block range)
                (eth-status-latest-block-hash status)
-               (eth-block-range-latest-block-hash range))))
+               (eth-block-range-latest-block-hash range))
+         (when changed-p
+           (eth-peer-notify-sync-announcement peer))))
      t)
     (t
      (let ((backend (eth-peer-serve-backend peer)))
        (when backend
          (cond
         ((= eth-id +eth-message-new-block-hashes+)
-         (eth-peer-queue-announced-blocks
-          peer (decode-eth-new-block-hashes payload))
+         (when (plusp
+                (eth-peer-queue-announced-blocks
+                 peer (decode-eth-new-block-hashes payload)))
+           (eth-peer-notify-sync-announcement peer))
          t)
         ((= eth-id +eth-message-new-block+)
          (eth-accept-propagated-block

@@ -326,6 +326,60 @@ given, is a predicate marking transactions the pool turns down."
          new-hash
          (ethereum-lisp.eth-wire:eth-status-latest-block-hash status)))))
 
+(deftest eth-gossip-notifies-only-fresh-block-and-range-announcements
+  (:layer :unit :module :p2p)
+  (multiple-value-bind (backend pool) (eth-gossip-test-backend)
+    (declare (ignore pool))
+    (let* ((old-hash
+             (make-byte-vector 32 :initial-element 1))
+           (new-hash
+             (make-byte-vector 32 :initial-element 2))
+           (announced-hash
+             (make-byte-vector 32 :initial-element 3))
+           (status
+             (ethereum-lisp.eth-wire:make-eth-status
+              :version 69 :earliest-block 0 :latest-block 10
+              :latest-block-hash old-hash))
+           (peer
+             (ethereum-lisp.eth-sync::%make-eth-peer
+              :eth-version 69 :remote-status status :serve-backend backend))
+           (notifications 0)
+           (range-payload
+             (ethereum-lisp.eth-wire:encode-eth-block-range-update
+              (ethereum-lisp.eth-wire:make-eth-block-range
+               5 20 new-hash)))
+           (hash-payload
+             (ethereum-lisp.eth-wire:encode-eth-new-block-hashes
+              (list
+               (ethereum-lisp.eth-wire:make-eth-new-block-hash
+                announced-hash 21)))))
+      (ethereum-lisp.eth-sync:eth-peer-set-sync-notification-function
+       peer (lambda () (incf notifications)))
+      ;; A validated range changes the peer availability snapshot before the
+      ;; notification callback runs.
+      (is (ethereum-lisp.eth-sync:eth-peer-gossip-message
+           peer ethereum-lisp.eth-wire:+eth-message-block-range-update+
+           range-payload))
+      (is (= 1 notifications))
+      (is (= 20 (ethereum-lisp.eth-wire:eth-status-latest-block status)))
+      ;; Replaying identical untrusted input is coalesced at this boundary.
+      (is (ethereum-lisp.eth-sync:eth-peer-gossip-message
+           peer ethereum-lisp.eth-wire:+eth-message-block-range-update+
+           range-payload))
+      (is (= 1 notifications))
+      ;; A fresh hash announcement wakes once; its duplicate neither grows the
+      ;; bounded block queue nor manufactures another coordinator pass.
+      (is (ethereum-lisp.eth-sync:eth-peer-gossip-message
+           peer ethereum-lisp.eth-wire:+eth-message-new-block-hashes+
+           hash-payload))
+      (is (= 2 notifications))
+      (is (ethereum-lisp.eth-sync:eth-peer-gossip-message
+           peer ethereum-lisp.eth-wire:+eth-message-new-block-hashes+
+           hash-payload))
+      (is (= 2 notifications))
+      (is (= 1
+             (ethereum-lisp.eth-sync:eth-peer-announced-block-count peer))))))
+
 (deftest eth-pooled-transaction-messages-round-trip
   (:layer :unit :module :p2p)
   (let ((hashes (list (eth-gossip-transaction-hash-bytes

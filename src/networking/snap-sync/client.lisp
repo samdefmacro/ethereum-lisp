@@ -85,6 +85,38 @@ live peer snapshot, and retry without hiding local integrity faults.")
   completed-p
   tasks)
 
+(defstruct (snap-sync-heal-progress
+            (:constructor %make-snap-sync-heal-progress
+                (&key processed-nodes reused-nodes fetched-nodes request-count
+                      response-bytes completed-p)))
+  "One cumulative, observational snapshot of final TrieNodes healing.
+
+PROCESSED-NODES includes decoded inline and hash-addressed trie nodes.
+REUSED-NODES counts hash-addressed nodes read from the local database, while
+FETCHED-NODES and RESPONSE-BYTES count accepted TrieNodes response blobs.
+REQUEST-COUNT includes failover attempts.  None of these counters is durable or
+consensus-visible."
+  (processed-nodes 0)
+  (reused-nodes 0)
+  (fetched-nodes 0)
+  (request-count 0)
+  (response-bytes 0)
+  (completed-p nil))
+
+(defun snap-sync-report-heal-progress
+    (callback processed-nodes reused-nodes fetched-nodes request-count
+     response-bytes completed-p)
+  (when callback
+    (funcall
+     callback
+     (%make-snap-sync-heal-progress
+      :processed-nodes processed-nodes
+      :reused-nodes reused-nodes
+      :fetched-nodes fetched-nodes
+      :request-count request-count
+      :response-bytes response-bytes
+      :completed-p completed-p))))
+
 (defun snap-sync-require-hash32 (value label)
   (unless (hash32-p value)
     (error "~A must be a hash32" label))
@@ -1014,7 +1046,8 @@ the returned record in the same batch as its new skeleton metadata."
           (kv-apply-batch database batch))))))
 
 (defun snap-sync-heal-state
-    (database sources progress byte-limit &key on-source-error)
+    (database sources progress byte-limit
+     &key on-source-error on-heal-progress)
   "Heal a mixed snap/1 flat download to PROGRESS's exact authorized root.
 
 Traversal follows the new root and reuses every content-addressed node already
@@ -1032,7 +1065,12 @@ the state-history marker and completed cursor share their final batch."
              (list
               (snap-sync-make-heal-work
                :account nil (make-byte-vector 0) root-bytes))))
-         (pending-codes '()))
+         (pending-codes '())
+         (processed-nodes 0)
+         (reused-nodes 0)
+         (fetched-nodes 0)
+         (request-count 0)
+         (response-bytes 0))
     (labels
         ((push-reference (kind account-hash path reference)
            (unless (and (byte-vector-p reference)
@@ -1060,6 +1098,7 @@ the state-history marker and completed cursor share their final batch."
            (when (eq :account (snap-sync-heal-work-kind work))
              (queue-account-value path value)))
          (process-object (work object)
+           (incf processed-nodes)
            (unless (rlp-list-p object)
              (error "Snap healing response contains a non-list trie node"))
            (let ((items (rlp-list-items object))
@@ -1126,12 +1165,14 @@ the state-history marker and completed cursor share their final batch."
            (let ((request
                    (make-snap-get-trie-nodes
                     1 root-bytes
-                    (mapcar #'snap-sync-heal-work-path-set missing)
+                    (loop for work across missing
+                          collect (snap-sync-heal-work-path-set work))
                     byte-limit)))
              (multiple-value-bind (response source)
                  (snap-sync-call-with-source-failover
                   sources
                   (lambda (candidate)
+                    (incf request-count)
                     (let ((packet
                             (snap-sync-source-call
                              (snap-sync-source-trie-nodes candidate)
@@ -1144,16 +1185,18 @@ the state-history marker and completed cursor share their final batch."
                   on-source-error)
                (declare (ignore source))
                (let* ((nodes (snap-trie-nodes-nodes response))
-                      (matched (make-array (length missing)
+                      (missing-count (length missing))
+                      (matched (make-array missing-count
                                            :initial-element nil))
                       (cursor 0)
                       (batch (make-kv-write-batch))
-                      (fills 0))
+                      (fills 0)
+                      (fetched-bytes 0))
                  (dolist (encoded nodes)
                    (let ((hash (keccak-256 encoded))
                          (found nil))
-                     (loop while (< cursor (length missing))
-                           for work = (nth cursor missing)
+                     (loop while (< cursor missing-count)
+                           for work = (aref missing cursor)
                            for expected = (snap-sync-heal-work-reference work)
                            do (incf cursor)
                               (when (bytes= hash expected)
@@ -1163,6 +1206,7 @@ the state-history marker and completed cursor share their final batch."
                        (error "Snap peer returned an unrequested healing node"))
                      (setf (aref matched found) encoded)
                      (incf fills)
+                     (incf fetched-bytes (length encoded))
                      (multiple-value-bind (old present-p)
                          (kv-get-chain-record database :trie-node hash)
                        (when (and present-p (not (bytes= old encoded)))
@@ -1174,15 +1218,21 @@ the state-history marker and completed cursor share their final batch."
                  (when (zerop fills)
                    (snap-sync-state-unavailable "trie-nodes"))
                  (kv-apply-batch database batch)
-                 (loop for work in missing
+                 (incf fetched-nodes fills)
+                 (incf response-bytes fetched-bytes)
+                 (loop for work across missing
                        for encoded across matched
                        do (if encoded
                               (process-encoded work encoded nil)
-                              (push work stack))))))))
+                              (push work stack)))
+                 (snap-sync-report-heal-progress
+                  on-heal-progress processed-nodes reused-nodes fetched-nodes
+                  request-count response-bytes nil))))))
       (loop
-        (let ((missing '()))
+        (let ((missing '())
+              (missing-count 0))
           (loop while (and stack
-                           (< (length missing)
+                           (< missing-count
                               +snap-sync-heal-paths-per-request+))
                 for work = (pop stack)
                 for reference = (snap-sync-heal-work-reference work)
@@ -1194,11 +1244,15 @@ the state-history marker and completed cursor share their final batch."
                       (multiple-value-bind (encoded present-p)
                           (trie-node-store-get database reference)
                         (if present-p
-                            (process-encoded work encoded t)
-                            (push work missing))))))
+                            (progn
+                              (incf reused-nodes)
+                              (process-encoded work encoded t))
+                            (progn
+                              (push work missing)
+                              (incf missing-count)))))))
           (flush-codes)
           (when missing
-            (fetch-missing (nreverse missing)))
+            (fetch-missing (coerce (nreverse missing) 'vector)))
           (when (and (null stack) (null missing))
             (return)))))
     (let* ((completed
@@ -1214,13 +1268,17 @@ the state-history marker and completed cursor share their final batch."
            (batch (make-kv-write-batch)))
       (snap-sync-complete-batch batch completed)
       (kv-apply-batch database batch)
+      (snap-sync-report-heal-progress
+       on-heal-progress processed-nodes reused-nodes fetched-nodes
+       request-count response-bytes t)
       completed)))
 
 (defun snap-sync-import-state
     (database source
      &key pivot-hash pivot-number state-root chain-id genesis-hash authority-id
           target-hash
-          (byte-limit +snap-sync-request-bytes+) on-progress max-pages)
+          (byte-limit +snap-sync-request-bytes+) on-progress on-heal-progress
+          max-pages)
   "Download, verify, and atomically install a CL-authorized pivot state.
 
 Every account-range cursor is committed in the same batch as the partial trie
@@ -1248,7 +1306,8 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
            (snap-sync-progress-tasks progress))
       (return-from snap-sync-import-state
         (snap-sync-heal-state
-         database (list source) progress byte-limit)))
+         database (list source) progress byte-limit
+         :on-heal-progress on-heal-progress)))
     (loop
       (when (and max-pages (>= pages max-pages))
         (return progress))
@@ -1269,7 +1328,8 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
                (snap-sync-progress-tasks progress))
           (return
             (snap-sync-heal-state
-             database (list source) progress byte-limit)))))))
+             database (list source) progress byte-limit
+             :on-heal-progress on-heal-progress)))))))
 
 #+sbcl
 (defstruct (snap-sync-multi-runtime
@@ -1422,7 +1482,7 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
     (database sources
      &key pivot-hash pivot-number state-root chain-id genesis-hash authority-id
           target-hash (byte-limit +snap-sync-request-bytes+)
-          on-progress on-source-error max-pages)
+          on-progress on-source-error on-heal-progress max-pages)
   "Import one pivot through disjoint durable ranges shared across SOURCES.
 
 Sixteen logical account tasks follow pinned geth 38271784.  At most one worker
@@ -1457,7 +1517,8 @@ the condition after its task has been made retryable by another source."
       (return-from snap-sync-import-state-multi
         (snap-sync-heal-state
          database sources progress byte-limit
-         :on-source-error on-source-error)))
+         :on-source-error on-source-error
+         :on-heal-progress on-heal-progress)))
     (unwind-protect
          (progn
            (dolist (source sources)
@@ -1481,7 +1542,8 @@ the condition after its task has been made retryable by another source."
                     (snap-sync-heal-state
                      database sources
                      (snap-sync-multi-runtime-progress runtime)
-                     byte-limit :on-source-error on-source-error)))
+                     byte-limit :on-source-error on-source-error
+                     :on-heal-progress on-heal-progress)))
                  (:exhausted
                   (cond
                     ((and errors

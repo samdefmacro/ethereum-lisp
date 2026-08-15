@@ -73,6 +73,22 @@
   genesis-hash
   authority-id)
 
+(defstruct (devnet-sync-notification
+            (:constructor make-devnet-sync-notification ()))
+  "One coalesced wakeup for the node-wide sync coordinator.
+
+The peer session that receives an announcement and the coordinator that consumes
+it are different threads.  PENDING-P is deliberately a single bit rather than a
+queue: any number of announcements received during one sync pass require at
+most one follow-up pass, so peer traffic cannot allocate unbounded wakeup work."
+  (lock #+sbcl
+        (sb-thread:make-mutex :name "ethereum-lisp-sync-notification")
+        #-sbcl nil)
+  (changed #+sbcl
+           (sb-thread:make-waitqueue :name "ethereum-lisp-sync-notification")
+           #-sbcl nil)
+  pending-p)
+
 (defstruct (devnet-node
             (:constructor %make-devnet-node
                 (&key genesis-path store config genesis-block service
@@ -183,6 +199,10 @@
   ;; Whether a peer session is currently catching up. Guarded by the peer-table
   ;; mutex, and the reason it exists is in DEVNET-NODE-CLAIM-SYNC.
   (syncing-p nil)
+  ;; A bounded condition-variable notification from peer session threads to the
+  ;; node-wide coordinator.  It is independent of both the peer-table mutex and
+  ;; the store guard, so an announcement can never enter either lock order.
+  (sync-notification (make-devnet-sync-notification))
   ;; The last eth chain context discovery managed to read, kept so discovery
   ;; never has to WAIT for the store guard to learn our fork id. See
   ;; DEVNET-NODE-CHAIN-CONTEXT for why waiting there is not an option.
@@ -455,6 +475,61 @@ WAL files rather than the single CRC-framed log file the default backend uses.")
 (defun devnet-shutdown-requested-p (controller)
   (and controller
        (devnet-shutdown-controller-requested-p controller)))
+
+(defun devnet-node-notify-sync-coordinator (node)
+  "Record one bounded coordinator wakeup and notify its condition variable.
+
+Repeated peer announcements coalesce into the same PENDING-P bit.  The caller
+does not hold the peer-table or store guard while taking this independent lock."
+  #-sbcl
+  (declare (ignore node))
+  #-sbcl
+  nil
+  #+sbcl
+  (let ((notification (devnet-node-sync-notification node)))
+    (sb-thread:with-mutex ((devnet-sync-notification-lock notification))
+      (setf (devnet-sync-notification-pending-p notification) t)
+      (sb-thread:condition-broadcast
+       (devnet-sync-notification-changed notification)))
+    t))
+
+(defun devnet-node-consume-sync-notification (node)
+  "Consume NODE's coalesced coordinator wakeup, returning whether one existed."
+  #-sbcl
+  (declare (ignore node))
+  #-sbcl
+  nil
+  #+sbcl
+  (let ((notification (devnet-node-sync-notification node)))
+    (sb-thread:with-mutex ((devnet-sync-notification-lock notification))
+      (prog1 (devnet-sync-notification-pending-p notification)
+        (setf (devnet-sync-notification-pending-p notification) nil)))))
+
+(defun devnet-node-wait-for-sync-notification
+    (node shutdown-controller timeout-seconds)
+  "Wait for an announcement, shutdown, or the periodic fallback timeout.
+
+The predicate and wait share one mutex, so a notification between the sync pass
+and this call remains pending instead of being lost before CONDITION-WAIT."
+  #-sbcl
+  (declare (ignore node shutdown-controller timeout-seconds))
+  #-sbcl
+  :timeout
+  #+sbcl
+  (let ((notification (devnet-node-sync-notification node)))
+    (sb-thread:with-mutex ((devnet-sync-notification-lock notification))
+      (unless (or (devnet-sync-notification-pending-p notification)
+                  (devnet-shutdown-requested-p shutdown-controller))
+        (sb-thread:condition-wait
+         (devnet-sync-notification-changed notification)
+         (devnet-sync-notification-lock notification)
+         :timeout timeout-seconds))
+      (cond
+        ((devnet-shutdown-requested-p shutdown-controller) :shutdown)
+        ((devnet-sync-notification-pending-p notification)
+         (setf (devnet-sync-notification-pending-p notification) nil)
+         :notified)
+        (t :timeout)))))
 
 (defun devnet-shutdown-controller-register-listeners
     (controller engine-listener public-listener)

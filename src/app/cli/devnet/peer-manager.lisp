@@ -146,6 +146,15 @@ actively-talking peer idle and drop it."
                (sb-sys:wait-until-fd-usable (sb-sys:fd-stream-fd stream)
                                             :input timeout nil))))))
 
+(defun devnet-peer-install-sync-notification (node peer)
+  "Connect validated peer announcements to NODE's coordinator wakeup.
+
+The callback carries no block hash or height.  It only makes the coordinator
+re-read its CL-authorized target and the peer status already validated by the
+eth session."
+  (eth-peer-set-sync-notification-function
+   peer (lambda () (devnet-node-notify-sync-coordinator node))))
+
 (defun devnet-peer-run-session (node socket shutdown-controller admit-function
                                 &key on-session-start reserved-slot-p stop-p
                                      reserved-host max-actions pending-broadcast)
@@ -195,6 +204,10 @@ a dial knows who it is calling before it connects and so never reserves."
                (setf admitted entry)
                (cond
                  ((and peer entry)
+                  ;; Install before ON-SESSION-START and before the pump.  The
+                  ;; former may run synchronous requests whose await loop also
+                  ;; handles range/hash announcements.
+                  (devnet-peer-install-sync-notification node peer)
                   (when on-session-start (funcall on-session-start peer))
                   (handler-case
                       (eth-peer-run-session

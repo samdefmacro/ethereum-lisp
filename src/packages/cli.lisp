@@ -18,7 +18,8 @@
                 #:encode-eth-new-block-hashes)
   (:import-from #:ethereum-lisp.eth-sync
                 #:eth-sync-multi-peer-error
-                #:eth-sync-multi-peer-fail)
+                #:eth-sync-multi-peer-fail
+                #:eth-peer-set-sync-notification-function)
   (:import-from #:ethereum-lisp.txpool
                 #:engine-payload-store-enable-txpool-database-change-tracking
                 #:engine-payload-store-txpool-database-change-tracking-enabled-p

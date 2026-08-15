@@ -21,6 +21,7 @@
    #:eth-peer-snap-version
    #:eth-peer-snap-backend
    #:eth-peer-remote-status
+   #:eth-peer-set-sync-notification-function
    #:eth-peer-remote-hello
    #:eth-peer-remote-client-id
    #:eth-peer-remote-capabilities

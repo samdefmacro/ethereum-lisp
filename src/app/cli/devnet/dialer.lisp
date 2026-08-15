@@ -20,6 +20,9 @@
   "How long the scheduler waits between passes. Our policy: also the upper bound
 on how long it takes to notice a shutdown request.")
 
+(defconstant +devnet-sync-coordinator-poll-seconds+ 1d0
+  "Periodic sync fallback when no peer announcement arrives. Our policy.")
+
 (defconstant +devnet-session-stream-timeout-seconds+ 30
   "How long a single read or write on a peer session may stall before the
 session ends. Our policy. It can only fire PART WAY THROUGH a frame, since the
@@ -124,6 +127,17 @@ first, so a long backfill does not starve a short one."
 
 (defconstant +devnet-snap-pivot-distance+ 64
   "How many blocks after a snap pivot are executed normally before the target.")
+
+(defconstant +devnet-snap-heal-progress-log-interval-seconds+ 30
+  "Minimum interval between non-terminal TrieNodes healing progress events.")
+
+(defun devnet-snap-heal-progress-log-due-p (last-log-at now completed-p)
+  "Whether one cumulative healing snapshot should reach operator telemetry."
+  (or completed-p
+      (null last-log-at)
+      (< now last-log-at)
+      (>= (- now last-log-at)
+          +devnet-snap-heal-progress-log-interval-seconds+)))
 
 (defconstant +devnet-snap-stale-target-distance+
   (- (* 2 +devnet-snap-pivot-distance+) 8)
@@ -599,7 +613,8 @@ must prove the new state root before either record can authorize publication."
            (mapcar
             (lambda (entry)
               (cons (devnet-peer-queued-snap-source entry) entry))
-            entries)))
+            entries))
+         (last-heal-log-at nil))
     (unless source-entries
       (eth-sync-multi-peer-fail
        "no live snap peer can import pivot ~A" (hash32-to-hex pivot-hash)))
@@ -643,6 +658,34 @@ must prove the new state root before either record can authorize publication."
             "nextOrigin" (and next (bytes-to-hex next))
             "completed"
             (ethereum-lisp.snap-sync:snap-sync-progress-completed-p progress))))
+       :on-heal-progress
+       (lambda (heal-progress)
+         (let* ((now (unix-time))
+                (completed-p
+                  (ethereum-lisp.snap-sync:snap-sync-heal-progress-completed-p
+                   heal-progress)))
+           (when (devnet-snap-heal-progress-log-due-p
+                  last-heal-log-at now completed-p)
+             (setf last-heal-log-at now)
+             (devnet-peer-manager-log
+              node "peer.snap.heal_progress"
+              "pivot" pivot-number
+              "processedNodes"
+              (ethereum-lisp.snap-sync:snap-sync-heal-progress-processed-nodes
+               heal-progress)
+              "reusedNodes"
+              (ethereum-lisp.snap-sync:snap-sync-heal-progress-reused-nodes
+               heal-progress)
+              "fetchedNodes"
+              (ethereum-lisp.snap-sync:snap-sync-heal-progress-fetched-nodes
+               heal-progress)
+              "requests"
+              (ethereum-lisp.snap-sync:snap-sync-heal-progress-request-count
+               heal-progress)
+              "nodeBytes"
+              (ethereum-lisp.snap-sync:snap-sync-heal-progress-response-bytes
+               heal-progress)
+              "completed" completed-p))))
        :on-source-error
        (lambda (source condition)
          (let ((entry (entry-for-source source)))
@@ -1173,24 +1216,60 @@ escape to the coordinator's outer serious-condition boundary."
       nil)))
 
 (defun devnet-start-sync-coordinator-thread
-    (node shutdown-controller error-callback)
-  "Start the consensus-bounded continuous multi-peer sync coordinator."
+    (node shutdown-controller error-callback
+     &key (pass-function #'devnet-node-sync-coordinator-pass)
+          (poll-interval-seconds +devnet-sync-coordinator-poll-seconds+))
+  "Start the consensus-bounded continuous multi-peer sync coordinator.
+
+Validated peer block/range announcements wake the condition variable; the
+periodic timeout remains a fallback for missed network announcements.  Wakeups
+carry no target, so PASS-FUNCTION still derives all authority from Engine/CL
+state."
   #-sbcl
-  (declare (ignore node shutdown-controller error-callback))
+  (declare (ignore node shutdown-controller error-callback pass-function
+                   poll-interval-seconds))
   #-sbcl
   nil
   #+sbcl
   (when (or (devnet-node-peers node)
             (devnet-node-bootnodes node)
             (devnet-node-p2p-port node))
-    (sb-thread:make-thread
-     (lambda ()
-       (handler-case
-           (loop until (devnet-shutdown-requested-p shutdown-controller)
-                 do (devnet-node-sync-coordinator-pass node)
-                    (unless (devnet-shutdown-requested-p shutdown-controller)
-                      (sleep 1)))
-         (serious-condition (condition)
-           (funcall error-callback condition)
-           (devnet-shutdown-request shutdown-controller))))
-     :name "ethereum-lisp-devnet-sync-coordinator")))
+    (unless (functionp pass-function)
+      (error "Sync coordinator pass must be a function"))
+    (unless (and (realp poll-interval-seconds)
+                 (plusp poll-interval-seconds))
+      (error "Sync coordinator poll interval must be positive"))
+    (let ((wake-token
+            (devnet-shutdown-controller-add-closeable
+             shutdown-controller
+             (lambda () (devnet-node-notify-sync-coordinator node)))))
+      (handler-case
+          (sb-thread:make-thread
+           (lambda ()
+             (unwind-protect
+                  (handler-case
+                      (loop until
+                            (devnet-shutdown-requested-p shutdown-controller)
+                            do
+                               ;; Take the notifier lock before every pass.  A
+                               ;; peer update racing this consume either becomes
+                               ;; visible to this pass or remains pending for an
+                               ;; immediate follow-up pass.
+                               (devnet-node-consume-sync-notification node)
+                               (funcall pass-function node)
+                               (unless
+                                   (devnet-shutdown-requested-p
+                                    shutdown-controller)
+                                 (devnet-node-wait-for-sync-notification
+                                  node shutdown-controller
+                                  poll-interval-seconds)))
+                    (serious-condition (condition)
+                      (funcall error-callback condition)
+                      (devnet-shutdown-request shutdown-controller)))
+               (devnet-shutdown-controller-remove-closeable
+                shutdown-controller wake-token)))
+           :name "ethereum-lisp-devnet-sync-coordinator")
+        (serious-condition (condition)
+          (devnet-shutdown-controller-remove-closeable
+           shutdown-controller wake-token)
+          (error condition))))))

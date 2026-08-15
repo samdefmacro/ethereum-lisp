@@ -1421,20 +1421,50 @@ really reopens the directory instead of observing the first handle's memory."
     (flet ((field (record name)
              (loop for (key value) on (cdr record) by #'cddr
                    when (string= key name) return value)))
-      (is (plusp (length logs)))
-      (is (=
-           ethereum-lisp.snap-sync::+snap-sync-account-task-count+
-           (length
-            (remove-duplicates
-             (mapcar (lambda (record) (field record "task")) logs)))))
-      (dolist (record logs)
-        (is (string= "peer.snap.progress" (first record)))
-        (is (string= "peer-1" (field record "peer")))
-        (is (= (block-header-number pivot-header)
-               (field record "pivot")))
-        ;; Page durability is not state completeness. Byte-capped storage may
-        ;; still be mandatory work for the final content-addressed traversal.
-        (is (null (field record "completed")))))))
+      (let ((page-logs
+              (remove-if-not
+               (lambda (record)
+                 (string= "peer.snap.progress" (first record)))
+               logs))
+            (heal-logs
+              (remove-if-not
+               (lambda (record)
+                 (string= "peer.snap.heal_progress" (first record)))
+               logs)))
+        (is (plusp (length page-logs)))
+        (is (=
+             ethereum-lisp.snap-sync::+snap-sync-account-task-count+
+             (length
+              (remove-duplicates
+               (mapcar (lambda (record) (field record "task")) page-logs)))))
+        (dolist (record page-logs)
+          (is (string= "peer-1" (field record "peer")))
+          (is (= (block-header-number pivot-header)
+                 (field record "pivot")))
+          ;; Page durability is not state completeness. Byte-capped storage may
+          ;; still be mandatory work for the final content-addressed traversal.
+          (is (null (field record "completed"))))
+        ;; The shared source/target database makes this a reuse-only healing
+        ;; pass. Its terminal snapshot still reaches the operator log.
+        (is (= 1 (length heal-logs)))
+        (let ((record (first heal-logs)))
+          (is (= (block-header-number pivot-header) (field record "pivot")))
+          (is (field record "completed"))
+          (is (integerp (field record "processedNodes")))
+          (is (integerp (field record "reusedNodes")))
+          (is (= 0 (field record "requests")))
+          (is (= 0 (field record "fetchedNodes")))
+          (is (= 0 (field record "nodeBytes"))))))))
+
+(deftest devnet-snap-heal-progress-throttles-intermediate-events
+  (:layer :unit :module :p2p)
+  (is (ethereum-lisp.cli::devnet-snap-heal-progress-log-due-p nil 100 nil))
+  (is (not (ethereum-lisp.cli::devnet-snap-heal-progress-log-due-p
+            100 129 nil)))
+  (is (ethereum-lisp.cli::devnet-snap-heal-progress-log-due-p 100 130 nil))
+  (is (ethereum-lisp.cli::devnet-snap-heal-progress-log-due-p 100 101 t))
+  ;; A backwards-adjusted wall clock must not suppress logs indefinitely.
+  (is (ethereum-lisp.cli::devnet-snap-heal-progress-log-due-p 100 99 nil)))
 
 (deftest devnet-snap-target-downloads-only-the-bounded-pivot-tail
   (:layer :integration :module :p2p)
@@ -2033,6 +2063,122 @@ really reopens the directory instead of observing the first handle's memory."
        (signals ethereum-lisp.validation:storage-error
          (ethereum-lisp.cli::devnet-node-sync-coordinator-pass node))))
     (is (= 3 passes))))
+
+(deftest devnet-range-announcement-wakes-coordinator-without-lost-race
+  (:layer :integration :module :p2p)
+  #+sbcl
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0 :p2p-port 0))
+         (shutdown
+           (ethereum-lisp.cli:make-devnet-shutdown-controller))
+         (lock
+           (sb-thread:make-mutex :name "test-sync-announcement-wakeup"))
+         (changed
+           (sb-thread:make-waitqueue :name "test-sync-announcement-wakeup"))
+         (release-first-pass-p nil)
+         (passes 0)
+         (coordinator-error nil)
+         (thread nil)
+         (peer-status
+           (ethereum-lisp.eth-wire:make-eth-status
+            :version 69 :earliest-block 0 :latest-block 10
+            :latest-block-hash
+            (make-byte-vector 32 :initial-element 1)))
+         (peer
+           (ethereum-lisp.eth-sync::%make-eth-peer
+            :eth-version 69 :remote-status peer-status))
+         (entry
+           (ethereum-lisp.cli::make-devnet-peer-entry
+            :id-hex "sync-announcement-peer" :peer peer)))
+    (labels ((wait-until (predicate timeout-seconds)
+               (sb-thread:with-mutex (lock)
+                 (unless (funcall predicate)
+                   (sb-thread:condition-wait
+                    changed lock :timeout timeout-seconds))
+                 (funcall predicate)))
+             (run-pass (seen-node)
+               (is (eq node seen-node))
+               (sb-thread:with-mutex (lock)
+                 (incf passes)
+                 (sb-thread:condition-broadcast changed)
+                 (when (= passes 1)
+                   (loop until release-first-pass-p
+                         do (sb-thread:condition-wait changed lock)))))
+             (release-first-pass ()
+               (sb-thread:with-mutex (lock)
+                 (setf release-first-pass-p t)
+                 (sb-thread:condition-broadcast changed))))
+      (unwind-protect
+           (progn
+             (setf thread
+                   (ethereum-lisp.cli::devnet-start-sync-coordinator-thread
+                    node shutdown
+                    (lambda (condition)
+                      (sb-thread:with-mutex (lock)
+                        (setf coordinator-error condition)
+                        (sb-thread:condition-broadcast changed)))
+                    :pass-function #'run-pass
+                    ;; If the notification wiring is absent, the second pass
+                    ;; cannot happen during this test's bounded wait.
+                    :poll-interval-seconds 30d0))
+             (is (not (null thread)))
+             (is (wait-until (lambda () (= passes 1)) 2d0))
+             ;; Drive the shipped session-admission boundary.  The stub replaces
+             ;; only socket pumping; production installs the peer callback, then
+             ;; the real gossip handler validates and applies the range update.
+             ;; It runs while the first pass is still active, proving the event
+             ;; remains pending until the coordinator reaches its wait.
+             (devnet-peer-sync-call-with-function-overrides
+              (list
+               (cons
+                'ethereum-lisp.cli::devnet-peer-session-readable-function
+                (lambda (seen-peer)
+                  (is (eq peer seen-peer))
+                  (lambda (timeout) (declare (ignore timeout)) nil)))
+               (cons
+                'ethereum-lisp.eth-sync:eth-peer-run-session
+                (lambda (seen-peer &rest arguments)
+                  (declare (ignore arguments))
+                  (is (eq peer seen-peer))
+                  (is
+                   (ethereum-lisp.eth-sync:eth-peer-gossip-message
+                    seen-peer
+                    ethereum-lisp.eth-wire:+eth-message-block-range-update+
+                    (ethereum-lisp.eth-wire:encode-eth-block-range-update
+                     (ethereum-lisp.eth-wire:make-eth-block-range
+                      5 20
+                      (make-byte-vector 32 :initial-element 2))))))))
+              (lambda ()
+                (ethereum-lisp.cli::devnet-peer-run-session
+                 node nil shutdown
+                 (lambda (socket)
+                   (declare (ignore socket))
+                   (values peer entry nil)))))
+             (is (= 20
+                    (ethereum-lisp.eth-wire:eth-status-latest-block
+                     peer-status)))
+             (release-first-pass)
+             (is (wait-until (lambda () (>= passes 2)) 1d0))
+             (is (null coordinator-error))
+             ;; The coordinator is now idle on its 30-second fallback.  The
+             ;; shutdown controller's registered wake closes it promptly.
+             (ethereum-lisp.cli:devnet-shutdown-request shutdown)
+             (let ((joined
+                     (sb-thread:join-thread
+                      thread :timeout 2 :default :timeout)))
+               (is (not (eq :timeout joined)))
+               (when (eq :timeout joined)
+                 (sb-thread:terminate-thread thread)
+                 (sb-thread:join-thread thread))))
+        (release-first-pass)
+        (ethereum-lisp.cli:devnet-shutdown-request shutdown)
+        (when (and thread (sb-thread:thread-alive-p thread))
+          (sb-thread:terminate-thread thread)
+          (sb-thread:join-thread thread)))))
+  #-sbcl
+  (is t))
 
 (deftest devnet-peer-gap-fill-retries-a-buffered-target-with-known-parent
   (:layer :integration :module :p2p)
