@@ -395,18 +395,20 @@
                         (reduce #'+ nodes :key #'length :initial-value 0))
                   response))))
            (progress
-             (ethereum-lisp.snap-sync:snap-sync-import-state
-              target-database source
-              :pivot-hash (make-hash32 (snap-test-hash 124))
-              :pivot-number 42 :state-root root
-              :target-hash (make-hash32 (snap-test-hash 125))
-              :chain-id 560048
-              :genesis-hash (make-hash32 (snap-test-hash 126))
-              :authority-id (make-hash32 (snap-test-hash 127))
-              :byte-limit 350
-              :on-heal-progress
-              (lambda (heal-progress)
-                (push heal-progress heal-progress-events)))))
+             (let ((ethereum-lisp.snap-sync::*snap-sync-heal-progress-node-interval*
+                     1))
+               (ethereum-lisp.snap-sync:snap-sync-import-state
+                target-database source
+                :pivot-hash (make-hash32 (snap-test-hash 124))
+                :pivot-number 42 :state-root root
+                :target-hash (make-hash32 (snap-test-hash 125))
+                :chain-id 560048
+                :genesis-hash (make-hash32 (snap-test-hash 126))
+                :authority-id (make-hash32 (snap-test-hash 127))
+                :byte-limit 350
+                :on-heal-progress
+                (lambda (heal-progress)
+                  (push heal-progress heal-progress-events))))))
       (is saw-byte-capped-storage-p)
       (is (= 1 storage-calls))
       (is (plusp trie-node-requests))
@@ -417,6 +419,16 @@
              (not
               (ethereum-lisp.snap-sync:snap-sync-heal-progress-completed-p
                event)))
+           heal-progress-events))
+      (is (some
+           (lambda (event)
+             (and
+              (not
+               (ethereum-lisp.snap-sync:snap-sync-heal-progress-completed-p
+                event))
+              (plusp
+               (ethereum-lisp.snap-sync:snap-sync-heal-progress-reused-nodes
+                event))))
            heal-progress-events))
       (let ((final (first heal-progress-events)))
         (is (ethereum-lisp.snap-sync:snap-sync-heal-progress-completed-p final))

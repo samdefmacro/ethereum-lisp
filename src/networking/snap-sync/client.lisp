@@ -12,6 +12,13 @@
 (defconstant +snap-sync-account-task-count+ 16)
 (defconstant +snap-sync-heal-paths-per-request+ 2048)
 (defconstant +snap-sync-heal-codes-per-request+ 2048)
+(defparameter *snap-sync-heal-progress-node-interval* 2048
+  "Processed-node interval for progress callbacks during local trie reuse.
+
+Remote fetches and completion report immediately.  This checkpoint prevents a
+large content-addressed traversal from appearing stalled while it is reusing
+durable nodes and issuing no network request; the CLI still owns wall-clock log
+throttling.")
 
 (define-condition snap-sync-state-unavailable (error)
   ((request-kind
@@ -1072,7 +1079,16 @@ the state-history marker and completed cursor share their final batch."
          (request-count 0)
          (response-bytes 0))
     (labels
-        ((push-reference (kind account-hash path reference)
+        ((report-local-checkpoint ()
+           (when (and on-heal-progress
+                      (plusp *snap-sync-heal-progress-node-interval*)
+                      (zerop
+                       (mod processed-nodes
+                            *snap-sync-heal-progress-node-interval*)))
+             (snap-sync-report-heal-progress
+              on-heal-progress processed-nodes reused-nodes fetched-nodes
+              request-count response-bytes nil)))
+         (push-reference (kind account-hash path reference)
            (unless (and (byte-vector-p reference)
                         (zerop (length reference)))
              (push (snap-sync-make-heal-work
@@ -1099,6 +1115,7 @@ the state-history marker and completed cursor share their final batch."
              (queue-account-value path value)))
          (process-object (work object)
            (incf processed-nodes)
+           (report-local-checkpoint)
            (unless (rlp-list-p object)
              (error "Snap healing response contains a non-list trie node"))
            (let ((items (rlp-list-items object))
