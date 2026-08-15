@@ -58,7 +58,7 @@ egress_network="${HOODI_GATE_EGRESS_NETWORK:-hoodi-net}"
 cl_alias="${HOODI_GATE_CL_ALIAS:-hoodi-el-public-frozen}"
 jwt_dir="${HOODI_GATE_JWT_DIR:-/data/hoodi/jwt}"
 public_ip="${HOODI_GATE_PUBLIC_IP:-165.154.224.110}"
-restart_ready_timeout="${HOODI_GATE_RESTART_READY_TIMEOUT:-300}"
+restart_ready_timeout="${HOODI_GATE_RESTART_READY_TIMEOUT:-600}"
 
 case "$host" in *[!A-Za-z0-9_.@-]*|'') fail "unsafe SSH host: $host" ;; esac
 case "$remote_root" in
@@ -457,7 +457,7 @@ Mutating actions:  upload, load, start, restart
 
 Mutating actions require HOODI_GATE_ALLOW_MUTATION=1. The default artifact,
 image, container, and datadir are derived from the current full Git revision.
-HOODI_GATE_RESTART_READY_TIMEOUT may override the bounded 300-second restart
+HOODI_GATE_RESTART_READY_TIMEOUT may override the bounded 600-second restart
 readiness window (accepted range: 30-1800 seconds).
 USAGE
         exit 2
