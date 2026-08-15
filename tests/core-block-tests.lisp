@@ -1152,6 +1152,34 @@
              '()
              '()))))))
 
+(deftest block-access-list-rlp-rejects-oversized-root-before-object-decoding
+  (:layer :unit :module :blocks)
+  (let* ((decoder-symbol
+           'ethereum-lisp.block-access-lists::decode-block-access-list-rlp-object)
+         (original-decoder (symbol-function decoder-symbol))
+         (decoder-calls 0)
+         (decoder-list-limit
+           ethereum-lisp.block-access-lists::+block-access-list-max-rlp-list-items+)
+         (empty-encoded (block-access-list-rlp '()))
+         (oversized-encoded
+           (rlp-encode
+            (apply #'make-rlp-list
+                   (loop repeat (1+ decoder-list-limit)
+                         collect (make-byte-vector 0))))))
+    (unwind-protect
+         (progn
+           (setf (symbol-function decoder-symbol)
+                 (lambda (value)
+                   (incf decoder-calls)
+                   (funcall original-decoder value)))
+           (signals block-validation-error
+             (block-access-list-from-rlp oversized-encoded))
+           (is (= 0 decoder-calls))
+           ;; Positive control: a valid value must cross the same decoder seam.
+           (is (null (block-access-list-from-rlp empty-encoded)))
+           (is (= 1 decoder-calls)))
+      (setf (symbol-function decoder-symbol) original-decoder))))
+
 (deftest block-access-list-validates-account-order
   (let ((first (make-block-access-account
                 :address (address-from-hex

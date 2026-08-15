@@ -60,23 +60,40 @@ network input from consuming the Lisp control stack.")
     (values (bytes-to-integer length-bytes)
             (+ position length-of-length))))
 
-(defun decode-string-payload (bytes payload-start length)
+(defun decode-string-payload
+    (bytes payload-start length max-string-bytes)
+  (when (and max-string-bytes (> length max-string-bytes))
+    (fail "RLP string contains more than ~D bytes at byte ~D"
+          max-string-bytes payload-start))
   (require-available bytes payload-start length)
   (subseq bytes payload-start (+ payload-start length)))
 
+(defun consume-rlp-item-budget (item-budget position)
+  "Charge one object before decoding it from untrusted input."
+  (when item-budget
+    (when (zerop (car item-budget))
+      (fail "RLP item count exceeds maximum ~D at byte ~D"
+            (cdr item-budget) position))
+    (decf (car item-budget))))
+
 (defun decode-list-payload
-    (bytes payload-start payload-end depth maximum-depth max-list-items)
+    (bytes payload-start payload-end depth maximum-depth max-list-items
+     max-string-bytes item-budget)
   (loop with items = '()
         with position = payload-start
         with item-count = 0
         while (< position payload-end)
-        do (multiple-value-bind (item next-position)
+        do (when (and max-list-items (>= item-count max-list-items))
+             (fail "RLP list contains more than ~D items at byte ~D"
+                   max-list-items payload-start))
+           ;; Check both budgets before descending into the next child.  A
+           ;; rejected cap+1 child may itself be a large nested tree, so
+           ;; charging after %RLP-DECODE would make the cap too late.
+           (consume-rlp-item-budget item-budget position)
+           (multiple-value-bind (item next-position)
                (%rlp-decode bytes position t (1+ depth) maximum-depth
-                            max-list-items)
+                            max-list-items max-string-bytes item-budget)
              (incf item-count)
-             (when (and max-list-items (> item-count max-list-items))
-               (fail "RLP list contains more than ~D items at byte ~D"
-                     max-list-items payload-start))
              (push item items)
              (setf position next-position))
         finally
@@ -86,7 +103,8 @@ network input from consuming the Lisp control stack.")
            (return (apply #'make-rlp-list (nreverse items)))))
 
 (defun %rlp-decode
-    (bytes start allow-trailing depth maximum-depth max-list-items)
+    (bytes start allow-trailing depth maximum-depth max-list-items
+     max-string-bytes item-budget)
   (when (> depth maximum-depth)
     (fail "RLP nesting depth exceeds maximum ~D" maximum-depth))
   (let ((input-length (length bytes)))
@@ -96,11 +114,14 @@ network input from consuming the Lisp control stack.")
       (multiple-value-bind (value next-position)
           (cond
             ((< prefix #x80)
+             (when (and max-string-bytes (zerop max-string-bytes))
+               (fail "RLP string contains more than 0 bytes at byte ~D" start))
              (values (ensure-byte-vector (list prefix)) (1+ start)))
             ((<= prefix #xb7)
              (let* ((length (- prefix #x80))
                     (payload-start (1+ start))
-                    (payload (decode-string-payload bytes payload-start length)))
+                    (payload (decode-string-payload
+                              bytes payload-start length max-string-bytes)))
                (when (and (= length 1) (< (aref payload 0) #x80))
                  (fail "RLP single byte string is not minimally encoded at byte ~D"
                        start))
@@ -112,7 +133,8 @@ network input from consuming the Lisp control stack.")
                  (when (<= length 55)
                    (fail "RLP long string used for short payload at byte ~D"
                          start))
-                 (values (decode-string-payload bytes payload-start length)
+                 (values (decode-string-payload
+                          bytes payload-start length max-string-bytes)
                          (+ payload-start length)))))
             ((<= prefix #xf7)
              (let* ((length (- prefix #xc0))
@@ -120,7 +142,8 @@ network input from consuming the Lisp control stack.")
                     (payload-end (+ payload-start length)))
                (require-available bytes payload-start length)
                (values (decode-list-payload bytes payload-start payload-end
-                                            depth maximum-depth max-list-items)
+                                            depth maximum-depth max-list-items
+                                            max-string-bytes item-budget)
                        payload-end)))
             (t
              (let ((length-of-length (- prefix #xf7)))
@@ -133,7 +156,8 @@ network input from consuming the Lisp control stack.")
                    (require-available bytes payload-start length)
                    (values (decode-list-payload bytes payload-start payload-end
                                                 depth maximum-depth
-                                                max-list-items)
+                                                max-list-items max-string-bytes
+                                                item-budget)
                            payload-end))))))
         (unless (or allow-trailing (= next-position input-length))
           (fail "Trailing bytes after RLP item at byte ~D" next-position))
@@ -141,22 +165,40 @@ network input from consuming the Lisp control stack.")
 
 (defun rlp-decode
     (bytes &key (start 0) (allow-trailing nil)
-                (max-depth +rlp-max-depth+) maximum-depth max-list-items)
-  "Decode one RLP item with nesting and per-list item resource bounds.
+                (max-depth +rlp-max-depth+) maximum-depth max-list-items
+                max-total-items max-string-bytes)
+  "Decode one RLP item with nesting, collection, and byte resource bounds.
 
 MAXIMUM-DEPTH is the compatibility spelling of MAX-DEPTH. When supplied it
-takes precedence."
+takes precedence. MAX-LIST-ITEMS applies to each list. MAX-TOTAL-ITEMS counts
+the root and every nested RLP object under one shared budget. MAX-STRING-BYTES
+is checked before copying a string payload."
   (let ((maximum-depth (or maximum-depth max-depth)))
     (unless (and (integerp maximum-depth) (not (minusp maximum-depth)))
-    (fail "RLP maximum depth must be a non-negative integer"))
+      (fail "RLP maximum depth must be a non-negative integer"))
     (unless (or (null max-list-items)
                 (and (integerp max-list-items) (not (minusp max-list-items))))
       (fail "RLP maximum list item count must be a non-negative integer or NIL"))
-    (%rlp-decode (ensure-byte-vector bytes)
-                 start allow-trailing 0 maximum-depth max-list-items)))
+    (unless (or (null max-total-items)
+                (and (integerp max-total-items)
+                     (not (minusp max-total-items))))
+      (fail "RLP maximum total item count must be a non-negative integer or NIL"))
+    (unless (or (null max-string-bytes)
+                (and (integerp max-string-bytes)
+                     (not (minusp max-string-bytes))))
+      (fail "RLP maximum string byte count must be a non-negative integer or NIL"))
+    (let ((item-budget (and max-total-items
+                            (cons max-total-items max-total-items))))
+      (consume-rlp-item-budget item-budget start)
+      (%rlp-decode (ensure-byte-vector bytes)
+                   start allow-trailing 0 maximum-depth max-list-items
+                   max-string-bytes item-budget))))
 
 (defun rlp-decode-one
-    (bytes &key (max-depth +rlp-max-depth+) maximum-depth max-list-items)
+    (bytes &key (max-depth +rlp-max-depth+) maximum-depth max-list-items
+                max-total-items max-string-bytes)
   "Decode exactly one RLP object, optionally applying the generic resource caps."
   (rlp-decode bytes :max-depth max-depth :maximum-depth maximum-depth
-                    :max-list-items max-list-items))
+                    :max-list-items max-list-items
+                    :max-total-items max-total-items
+                    :max-string-bytes max-string-bytes))

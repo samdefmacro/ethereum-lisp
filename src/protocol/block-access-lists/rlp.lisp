@@ -1,5 +1,26 @@
 (in-package #:ethereum-lisp.block-access-lists)
 
+(defconstant +block-access-list-max-rlp-depth+ 6
+  "Deepest EIP-7928 shape: BAL/account/storage/slot/changes/change fields.")
+
+(defconstant +block-access-list-max-rlp-list-items+ 65536
+  "Per-list resource ceiling for an encoded block access list.
+
+The EIP-7928 consensus bound charges every account and storage key against the
+block gas limit.  This ceiling is above the 30,000 primary items possible at a
+60 million gas limit and also leaves ample room for per-transaction change
+lists, while preventing a compact hostile list from allocating millions of
+cons cells before semantic validation runs.")
+
+(defconstant +block-access-list-max-rlp-total-items+ 1048576
+  "Shared allocation budget for the complete nested RLP object tree.")
+
+(defun block-access-list-max-rlp-string-bytes (max-code-size)
+  ;; Every non-code leaf is at most uint256-sized.  Amsterdam raises the code
+  ;; ceiling to 65,536 bytes; use that as the safe default when the fork-aware
+  ;; caller has not supplied its stricter semantic limit yet.
+  (max 32 (or max-code-size +block-access-list-amsterdam-max-code-size+)))
+
 (defun hash32-uint256 (hash)
   (bytes-to-integer (hash32-bytes hash)))
 
@@ -174,7 +195,16 @@
   (let ((bytes (block-access-list-rlp-input-bytes bytes)))
     (handler-case
         (let ((access-list (decode-block-access-list-rlp-object
-                            (rlp-decode-one bytes))))
+                            (rlp-decode-one
+                             bytes
+                             :max-depth +block-access-list-max-rlp-depth+
+                             :max-list-items
+                             +block-access-list-max-rlp-list-items+
+                             :max-total-items
+                             +block-access-list-max-rlp-total-items+
+                             :max-string-bytes
+                             (block-access-list-max-rlp-string-bytes
+                              max-code-size)))))
           (validate-block-access-list-fields access-list
                                              :max-code-size max-code-size
                                              :max-items max-items)

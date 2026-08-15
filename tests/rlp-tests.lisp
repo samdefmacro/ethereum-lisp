@@ -73,3 +73,41 @@
            (length
             (rlp-list-items
              (rlp-decode-one encoded :max-list-items 5)))))))
+
+(deftest rlp-checks-a-list-cap-before-decoding-the-rejected-child
+  (:layer :unit :module :rlp)
+  (let* ((too-deep
+           (rlp-test-deep-list-bytes
+            (1+ ethereum-lisp.rlp:+rlp-max-depth+)))
+         (encoded
+           (rlp-encode
+            (make-rlp-list
+             (make-byte-vector 0)
+             (rlp-decode-one too-deep
+                             :maximum-depth
+                             (1+ ethereum-lisp.rlp:+rlp-max-depth+))))))
+    (handler-case
+        (progn
+          (rlp-decode-one encoded :max-list-items 1)
+          (is nil))
+      (rlp-error (condition)
+        (is (search "more than 1 items"
+                    (ethereum-lisp.rlp::rlp-error-message condition)))))))
+
+(deftest rlp-enforces-one-total-item-budget-across-nested-lists
+  (:layer :unit :module :rlp)
+  (let ((encoded
+          (rlp-encode
+           (make-rlp-list
+            (make-rlp-list (make-byte-vector 0) (make-byte-vector 0))))))
+    (signals rlp-error
+      (rlp-decode-one encoded :max-list-items 3 :max-total-items 3))
+    (is (rlp-list-p
+         (rlp-decode-one encoded :max-list-items 3 :max-total-items 4)))))
+
+(deftest rlp-rejects-an-oversized-string-before-copying-its-payload
+  (:layer :unit :module :rlp)
+  (let ((encoded (rlp-encode (make-byte-vector 5))))
+    (signals rlp-error
+      (rlp-decode-one encoded :max-string-bytes 4))
+    (is (= 5 (length (rlp-decode-one encoded :max-string-bytes 5))))))
