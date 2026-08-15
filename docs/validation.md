@@ -162,9 +162,12 @@ layers:
 # eth/72 custody, and lossless transaction burst cursors.
 cl-workbench validation run cold-unit --match BUILT-IN-PUBLIC-NETWORK-PRESETS
 cl-workbench validation run cold-unit --match RLP-ENFORCES
+cl-workbench validation run cold-unit --match BLOCK-ACCESS-LIST-RLP-REJECTS
 cl-workbench validation run cold-unit --match RLPX-MESSAGE-CODES
 cl-workbench validation run cold-unit --match ETH-72
+cl-workbench validation run cold-unit --match ETH-GOSSIP-NOTIFIES
 cl-workbench validation run cold-unit --match DEVNET-BROADCAST
+cl-workbench validation run cold-unit --match DEVNET-SNAP-HEAL-PROGRESS
 cl-workbench validation run cold-unit --match DEVNET-CLI-PUBLIC-PRESETS
 
 # Persistent CLI identity/discovery behavior, verified snap client/server, durable
@@ -179,6 +182,8 @@ cl-workbench validation run cold-integration --match BOUNDED-PIVOT
 cl-workbench validation run cold-integration --match ETH-SYNC-MULTI-PEER
 cl-workbench validation run cold-integration --match ETH-SYNC-THREE-SCRIPTED
 cl-workbench validation run cold-integration --match DEVNET-PEER-REQUEST-QUEUE
+cl-workbench validation run cold-integration \
+  --match DEVNET-RANGE-ANNOUNCEMENT-WAKES
 cl-workbench validation run cold-integration \
   --match ETH-SYNC-MULTIPLEXES-ETH-72-AND-SNAP-1-OVER-ONE-SOCKET
 ```
@@ -205,6 +210,17 @@ body/receipt prefixes resume without replay, and a divergent CL target is
 rejected before the import callback. CLI tests prove persistent identity/ENR
 sequencing, two-directional `--nodiscover`, little-endian custody and flat cell
 groups, and the session-owned writer queue.
+
+The RLP regressions charge every nested object before descending into it, cap
+string payloads before copying them, and prove that an oversized encoded block
+access list is rejected before its object decoder runs. The announcement
+regressions prove that only a fresh validated block hash or changed served range
+sets the node's single coalesced wake bit, that an update racing an active sync
+pass is not lost, and that shutdown wakes a coordinator waiting on its condition
+variable. A one-second periodic pass remains as a bounded fallback. Final
+TrieNodes healing reports monotonic processed/reused/fetched/request/byte
+counters through `peer.snap.heal_progress`, throttled to the first event, every
+30 seconds, and completion.
 
 These selectors do not prove public reachability. Section 5 also requires an
 ephemeral Hoodi run from an empty datadir, using the reviewed container runtime,
