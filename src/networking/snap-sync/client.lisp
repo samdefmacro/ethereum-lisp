@@ -1033,13 +1033,25 @@ the returned record in the same batch as its new skeleton metadata."
       (t
        (error "Snap healing requires a live source")))))
 
+(defun snap-sync-heal-missing-code-hashes (database hashes)
+  (let ((seen (make-hash-table :test #'equalp))
+        (missing '()))
+    ;; Account values are peer-derived.  Reject malformed code commitments
+    ;; before they reach either the database key codec or the wire request.
+    ;; EQUALP hashes fixed-width octet vectors by content, keeping this scan
+    ;; linear while preserving the first-seen order of distinct hashes.
+    (dolist (hash hashes)
+      (unless (and (byte-vector-p hash) (= 32 (length hash)))
+        (error "Snap healing code hash must contain exactly 32 bytes"))
+      (unless (nth-value 1 (gethash hash seen))
+        (setf (gethash hash seen) t)
+        (unless (nth-value 1 (kv-get-chain-record database :code hash))
+          (push hash missing))))
+    (nreverse missing)))
+
 (defun snap-sync-heal-fetch-codes
     (database sources hashes byte-limit on-source-error)
-  (let ((missing
-          (remove-if
-           (lambda (hash)
-             (nth-value 1 (kv-get-chain-record database :code hash)))
-           (remove-duplicates hashes :test #'bytes=))))
+  (let ((missing (snap-sync-heal-missing-code-hashes database hashes)))
     (when missing
       (multiple-value-bind (codes source)
           (snap-sync-call-with-source-failover
@@ -1054,7 +1066,8 @@ the returned record in the same batch as its new skeleton metadata."
 
 (defun snap-sync-heal-state
     (database sources progress byte-limit
-     &key on-source-error on-heal-progress)
+     &key on-source-error on-heal-progress
+          (code-batch-limit +snap-sync-heal-codes-per-request+))
   "Heal a mixed snap/1 flat download to PROGRESS's exact authorized root.
 
 Traversal follows the new root and reuses every content-addressed node already
@@ -1062,6 +1075,10 @@ written by older pivots.  Missing account/storage nodes are requested by their
 snap compact paths in bounded batches; response blobs are matched to requested
 hashes before persistence.  Code and storage dependencies are completed before
 the state-history marker and completed cursor share their final batch."
+  (unless (and (integerp code-batch-limit)
+               (<= 1 code-batch-limit +snap-sync-heal-codes-per-request+))
+    (error "Snap healing code batch limit must be between one and ~D"
+           +snap-sync-heal-codes-per-request+))
   (unless (snap-sync-tasks-completed-p
            (snap-sync-progress-tasks progress))
     (error "Snap trie healing cannot precede flat-range completion"))
@@ -1073,6 +1090,8 @@ the state-history marker and completed cursor share their final batch."
               (snap-sync-make-heal-work
                :account nil (make-byte-vector 0) root-bytes))))
          (pending-codes '())
+         (pending-code-count 0)
+         (seen-code-hashes (make-hash-table :test #'equalp))
          (processed-nodes 0)
          (reused-nodes 0)
          (fetched-nodes 0)
@@ -1094,6 +1113,23 @@ the state-history marker and completed cursor share their final batch."
              (push (snap-sync-make-heal-work
                     kind account-hash path reference)
                    stack)))
+         (flush-codes ()
+           (when pending-codes
+             (snap-sync-heal-fetch-codes
+              database sources (nreverse pending-codes) byte-limit
+              on-source-error)
+             (setf pending-codes nil
+                   pending-code-count 0)))
+         (queue-code-hash (hash)
+           ;; Keep one content hash for the whole traversal.  Flushing bounds
+           ;; wire work and the pending list without repeating database reads
+           ;; for bytecode shared by many accounts.
+           (unless (nth-value 1 (gethash hash seen-code-hashes))
+             (setf (gethash hash seen-code-hashes) t)
+             (push hash pending-codes)
+             (incf pending-code-count)
+             (when (= pending-code-count code-batch-limit)
+               (flush-codes))))
          (queue-account-value (path value)
            (unless (= 64 (length path))
              (error "Snap healed account leaf does not end at 32 bytes"))
@@ -1103,7 +1139,7 @@ the state-history marker and completed cursor share their final batch."
                   (code-hash (state-account-code-hash account))
                   (storage-root (state-account-storage-root account)))
              (unless (hash32= code-hash +empty-code-hash+)
-               (push (hash32-bytes code-hash) pending-codes))
+               (queue-code-hash (hash32-bytes code-hash)))
              (unless (hash32= storage-root +empty-trie-hash+)
                (push-reference
                 :storage account-hash (make-byte-vector 0)
@@ -1173,11 +1209,6 @@ the state-history marker and completed cursor share their final batch."
                    (ethereum-lisp.validation:storage-fail
                     "Persisted snap trie node is malformed: ~A" condition)
                    (error condition)))))
-         (flush-codes ()
-           (when pending-codes
-             (snap-sync-heal-fetch-codes
-              database sources pending-codes byte-limit on-source-error)
-             (setf pending-codes nil)))
          (fetch-missing (missing)
            (let ((request
                    (make-snap-get-trie-nodes

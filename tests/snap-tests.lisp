@@ -36,6 +36,12 @@
 (defun snap-test-hash (byte)
   (make-array 32 :element-type '(unsigned-byte 8) :initial-element byte))
 
+(defun snap-test-index-hash (index)
+  (let ((hash (make-byte-vector 32)))
+    (dotimes (offset 4 hash)
+      (setf (aref hash (- 31 offset))
+            (ldb (byte 8 (* 8 offset)) index)))))
+
 (defun snap-test-install-persistence-metadata
     (database chain-id genesis-hash authority-id)
   (let ((batch (make-kv-write-batch)))
@@ -1876,6 +1882,157 @@
                    target-database (state-account-storage-root account))
                 (is storage-present-p)
                 (is (plusp (length storage-node)))))))))))
+
+(deftest snap-heal-code-hashes-deduplicate-in-linear-work
+  (:layer :unit :module :p2p)
+  (let* ((database (make-memory-key-value-database))
+         (unique-count 2048)
+         (unique
+           (loop for index below unique-count
+                 collect (snap-test-index-hash index)))
+         (hashes (append unique (mapcar #'copy-seq unique)))
+         (lookup-count 0)
+         (comparison-count 0)
+         (real-get
+           (fdefinition 'ethereum-lisp.database:kv-get-chain-record))
+         (real-bytes=
+           (fdefinition 'ethereum-lisp.bytes:bytes=)))
+    (unwind-protect
+         (progn
+           (setf
+            (fdefinition 'ethereum-lisp.database:kv-get-chain-record)
+            (lambda (candidate kind identifier &optional default)
+              (if (and (eq candidate database) (eq kind :code))
+                  (progn
+                    (incf lookup-count)
+                    (values (make-byte-vector 0) t))
+                  (funcall real-get candidate kind identifier default))))
+           (setf
+            (fdefinition 'ethereum-lisp.bytes:bytes=)
+            (lambda (left right)
+              (incf comparison-count)
+              (funcall real-bytes= left right)))
+           ;; Positive control: prove the comparison counter intercepts the
+           ;; exact function used by the pre-fix REMOVE-DUPLICATES path.
+           (is (bytes= (first unique) (copy-seq (first unique))))
+           (is (= 1 comparison-count))
+           (setf comparison-count 0)
+           (is (null
+                (ethereum-lisp.snap-sync::snap-sync-heal-missing-code-hashes
+                 database hashes)))
+           (is (= unique-count lookup-count))
+           (is (= 0 comparison-count)))
+      (setf (fdefinition 'ethereum-lisp.database:kv-get-chain-record) real-get
+            (fdefinition 'ethereum-lisp.bytes:bytes=) real-bytes=))))
+
+(deftest snap-heal-code-hashes-preserve-order-and-reject-malformed-input
+  (:layer :unit :module :p2p)
+  (let* ((database (make-memory-key-value-database))
+         (first (snap-test-index-hash 1))
+         (present (snap-test-index-hash 2))
+         (last (snap-test-index-hash 3))
+         (batch (make-kv-write-batch)))
+    (kv-batch-put-chain-record batch :code present #(96 0))
+    (kv-apply-batch database batch)
+    (let ((missing
+            (ethereum-lisp.snap-sync::snap-sync-heal-missing-code-hashes
+             database
+             (list first present (copy-seq first) last
+                   (copy-seq present)))))
+      (is (= 2 (length missing)))
+      (is (bytes= first (first missing)))
+      (is (bytes= last (second missing))))
+    (signals error
+      (ethereum-lisp.snap-sync::snap-sync-heal-missing-code-hashes
+       database (list (make-byte-vector 31))))
+    (signals error
+      (ethereum-lisp.snap-sync::snap-sync-heal-missing-code-hashes
+       database (list (make-array 32 :initial-element 0))))))
+
+(deftest snap-state-healer-flushes-unique-code-hashes-in-bounded-batches
+  (:layer :integration :module :p2p)
+  (let* ((source-state (make-state-db))
+         (source-database (make-memory-key-value-database))
+         (target-database (make-memory-key-value-database))
+         (addresses
+           (loop for index from 1 to 4
+                 collect (snap-test-address-from-integer (+ 500 index))))
+         (code-a #(96 1))
+         (code-b #(96 2))
+         (code-c #(96 3))
+         (codes (list code-a code-b code-a code-c))
+         (pivot (make-hash32 (snap-test-hash 231)))
+         (target (make-hash32 (snap-test-hash 232)))
+         (genesis (make-hash32 (snap-test-hash 233)))
+         (authority (make-hash32 (snap-test-hash 234)))
+         (request-sizes '())
+         (target-code-lookups 0))
+    (loop for address in addresses
+          for code in codes
+          do (state-db-set-account
+              source-state address (make-state-account :balance 1))
+             (state-db-set-code source-state address code))
+    (let* ((root (state-db-root source-state))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              source-database source-state))
+           (base-source (snap-test-source backend))
+           (source
+             (ethereum-lisp.snap-sync:make-snap-sync-source
+              :account-range
+              (ethereum-lisp.snap-sync:snap-sync-source-account-range
+               base-source)
+              :storage-ranges
+              (ethereum-lisp.snap-sync:snap-sync-source-storage-ranges
+               base-source)
+              :bytecodes
+              (lambda (request)
+                (push
+                 (length
+                  (ethereum-lisp.snap:snap-get-bytecodes-hashes request))
+                 request-sizes)
+                (funcall
+                 (ethereum-lisp.snap-sync:snap-sync-source-bytecodes base-source)
+                 request))
+              :trie-nodes
+              (ethereum-lisp.snap-sync:snap-sync-source-trie-nodes
+               base-source)))
+           (progress
+             (ethereum-lisp.snap-sync::snap-sync-make-progress
+              :pivot-hash pivot :pivot-number 2001 :state-root root
+              :partial-root +empty-trie-hash+ :target-hash target
+              :chain-id 560048 :genesis-hash genesis
+              :authority-id authority :completed-p nil
+              :tasks
+              (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+               :count 1 :completed-p t)))
+           (real-get
+             (fdefinition 'ethereum-lisp.database:kv-get-chain-record))
+           (completed nil))
+      (unwind-protect
+           (progn
+             (setf
+              (fdefinition 'ethereum-lisp.database:kv-get-chain-record)
+              (lambda (database kind identifier &optional default)
+                (when (and (eq database target-database) (eq kind :code))
+                  (incf target-code-lookups))
+                (funcall real-get database kind identifier default)))
+             (setf completed
+                   (ethereum-lisp.snap-sync::snap-sync-heal-state
+                    target-database (list source) progress 350
+                    :code-batch-limit 2)))
+        (setf (fdefinition 'ethereum-lisp.database:kv-get-chain-record)
+              real-get))
+      (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p completed))
+      (is (equal '(2 1) (nreverse request-sizes)))
+      ;; One missing check and one collision-safe batch check per distinct
+      ;; code hash.  The repeated account code does not add a database lookup.
+      (is (= 6 target-code-lookups))
+      (dolist (code (list code-a code-b code-c))
+        (multiple-value-bind (persisted present-p)
+            (kv-get-chain-record target-database :code (keccak-256 code))
+          (is present-p)
+          (is (bytes= code persisted)))))))
 
 (deftest snap-state-import-does-not-advance-a-cursor-past-a-failed-batch
   (:layer :integration :module :p2p)
