@@ -387,10 +387,16 @@ label="$(docker container inspect --format '{{ index .Config.Labels "io.ethereum
 mount_source="$(docker container inspect --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Source}}{{end}}{{end}}' "$container")"
 [ "$mount_source" = "$datadir" ] || { echo "gate datadir mismatch: $mount_source" >&2; exit 1; }
 
-rpc_port="$(docker port "$container" 8545/tcp | awk -F: '/127[.]0[.]0[.]1/ {print $NF; exit}')"
+resolve_rpc_port() {
+    docker port "$container" 8545/tcp |
+        awk -F: '/127[.]0[.]0[.]1/ {print $NF; exit}'
+}
 rpc() {
     method="$1"
-    curl --silent --show-error --max-time 10 \
+    max_time="${2:-10}"
+    rpc_port="$(resolve_rpc_port)"
+    [ -n "$rpc_port" ] || return 1
+    curl --silent --show-error --max-time "$max_time" \
         --header 'Content-Type: application/json' \
         --data "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$method\",\"params\":[]}" \
         "http://127.0.0.1:$rpc_port"
@@ -405,8 +411,17 @@ docker stop --time 30 "$container" >/dev/null
 docker start "$container" >/dev/null
 
 ready=false
-for _ in $(seq 1 "$ready_timeout"); do
-    if rpc eth_chainId >/dev/null 2>&1; then
+ready_deadline="$(( $(date +%s) + ready_timeout ))"
+while :; do
+    ready_now="$(date +%s)"
+    ready_remaining="$(( ready_deadline - ready_now ))"
+    [ "$ready_remaining" -gt 0 ] || break
+    if [ "$ready_remaining" -gt 10 ]; then
+        attempt_timeout=10
+    else
+        attempt_timeout="$ready_remaining"
+    fi
+    if rpc eth_chainId "$attempt_timeout" >/dev/null 2>&1; then
         ready=true
         break
     fi

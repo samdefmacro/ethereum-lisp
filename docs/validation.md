@@ -263,8 +263,9 @@ starts the same container, verifies its revision/datadir ownership first, and
 prints the before/after RPC and datadir evidence needed to assess durable
 progress; it is not by itself proof that progress advanced.
 Restoring a multi-gigabyte live SNAP database can take several minutes. The
-broker waits up to 600 seconds for public RPC by default, fails early if the
-container exits, and accepts a bounded 30--1800 second override through
+broker re-resolves Docker's loopback-only ephemeral RPC port after the restart,
+waits up to 600 wall-clock seconds for public RPC by default, fails early if
+the container exits, and accepts a bounded 30--1800 second override through
 `HOODI_GATE_RESTART_READY_TIMEOUT`.
 
 The reviewed runtime image must also pass
