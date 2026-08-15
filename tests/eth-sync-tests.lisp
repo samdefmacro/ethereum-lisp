@@ -11,6 +11,39 @@
   (hex-to-bytes
    "0x1111111111111111111111111111111111111111111111111111111111111111"))
 
+(deftest snap-request-deadline-bounds-the-whole-exchange
+  (:layer :unit :module :p2p)
+  #+sbcl
+  (let* ((send-symbol 'ethereum-lisp.eth-sync::eth-peer-send-snap)
+         (read-symbol 'ethereum-lisp.eth-sync:eth-peer-read-once)
+         (original-send (fdefinition send-symbol))
+         (original-read (fdefinition read-symbol))
+         (request
+           (ethereum-lisp.snap:make-snap-get-account-range
+            42 *eth-sync-test-best* (make-byte-vector 32)
+            (make-byte-vector 32 :initial-element #xff) 1024))
+         (started (monotonic-seconds)))
+    (unwind-protect
+         (progn
+           (setf (fdefinition send-symbol)
+                 (lambda (peer message-id payload)
+                   (declare (ignore peer message-id payload)))
+                 (fdefinition read-symbol)
+                 (lambda (peer)
+                   (declare (ignore peer))
+                   (sleep 1)))
+           (let ((ethereum-lisp.eth-sync::*eth-peer-snap-request-timeout-seconds*
+                   0.05d0))
+             (signals error
+               (ethereum-lisp.eth-sync:eth-peer-snap-request
+                nil ethereum-lisp.snap:+snap-message-get-account-range+
+                request)))
+           (is (< (- (monotonic-seconds) started) 0.5d0)))
+      (setf (fdefinition send-symbol) original-send
+            (fdefinition read-symbol) original-read)))
+  #-sbcl
+  (is t))
+
 (defun eth-sync-test-config ()
   (make-chain-config :chain-id 1
                      :homestead-block 1150000

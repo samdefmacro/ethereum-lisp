@@ -270,6 +270,36 @@ traffic reaches the loop instead of being absorbed below it."
 (defconstant +snap-max-skipped-messages+ 256
   "Maximum unrelated messages handled while awaiting one snap response.")
 
+(defparameter *eth-peer-snap-request-timeout-seconds* 30
+  "Wall-clock deadline for one snap/1 request and its matching response.
+
+This bounds the whole exchange rather than each individual socket read.  A peer
+that keeps sending unrelated messages can therefore never extend a request to
+`+SNAP-MAX-SKIPPED-MESSAGES+` separate stream timeouts.  Expiry tears down the
+session through the request-pump error path so the snap importer can fail over
+without continuing on a cipher stream whose response may still arrive later.")
+
+(defun call-with-eth-peer-snap-request-deadline (function)
+  "Call FUNCTION inside the configured wall-clock snap/1 request deadline."
+  (unless (functionp function)
+    (error "Snap request deadline target must be a function"))
+  #+sbcl
+  (let ((timeout *eth-peer-snap-request-timeout-seconds*))
+    (if timeout
+        (handler-case
+            (sb-sys:with-deadline (:seconds timeout)
+              (funcall function))
+          (sb-sys:deadline-timeout ()
+            ;; Translate DEADLINE-TIMEOUT (a SERIOUS-CONDITION but not an
+            ;; ERROR) so the request queue records an ordinary peer failure,
+            ;; then re-signals it to make the session close and preserve RLPx
+            ;; stream alignment.
+            (error "snap/1 request exceeded the ~A second wall-clock deadline"
+                   timeout)))
+        (funcall function)))
+  #-sbcl
+  (funcall function))
+
 (defun eth-peer-snap-request (peer message-id request)
   "Send one typed snap/1 REQUEST and return its decoded matching response."
   (unless (member message-id
@@ -278,24 +308,28 @@ traffic reaches the loop instead of being absorbed below it."
                         +snap-message-get-bytecodes+
                         +snap-message-get-trie-nodes+))
     (error "snap/1 message id ~D is not a request" message-id))
-  (let ((request-id (snap-request-id message-id request))
-        (expected-id (1+ message-id)))
-    (eth-peer-send-snap peer message-id (encode-snap-message message-id request))
-    (dotimes (i +snap-max-skipped-messages+
-                (error "no snap/1 response id ~D for request ~D after ~D messages"
-                       expected-id request-id +snap-max-skipped-messages+))
-      (multiple-value-bind (kind id payload) (eth-peer-read-once peer)
-        (case kind
-          (:base (eth-peer-handle-base-message peer id))
-          (:eth (eth-peer-handle-message peer id payload))
-          (:snap
-           (if (= id expected-id)
-               (let ((response (decode-snap-message id payload)))
-                 (when (= request-id (snap-response-id id response))
-                   (return response)))
-               (unless (eth-peer-serve-snap-message peer id payload)
-                 (error "unexpected snap/1 response id ~D while awaiting ~D"
-                        id expected-id)))))))))
+  (call-with-eth-peer-snap-request-deadline
+   (lambda ()
+     (let ((request-id (snap-request-id message-id request))
+           (expected-id (1+ message-id)))
+       (eth-peer-send-snap peer message-id
+                           (encode-snap-message message-id request))
+       (dotimes (i +snap-max-skipped-messages+
+                   (error
+                    "no snap/1 response id ~D for request ~D after ~D messages"
+                    expected-id request-id +snap-max-skipped-messages+))
+         (multiple-value-bind (kind id payload) (eth-peer-read-once peer)
+           (case kind
+             (:base (eth-peer-handle-base-message peer id))
+             (:eth (eth-peer-handle-message peer id payload))
+             (:snap
+              (if (= id expected-id)
+                  (let ((response (decode-snap-message id payload)))
+                    (when (= request-id (snap-response-id id response))
+                      (return response)))
+                  (unless (eth-peer-serve-snap-message peer id payload)
+                    (error "unexpected snap/1 response id ~D while awaiting ~D"
+                           id expected-id)))))))))))
 
 ;;; The eth Status handshake.
 
