@@ -35,12 +35,16 @@
   (is (eq :stop (eth-pump-test-action :stop-p t :now 10000)))
   (is (eq :stop (eth-pump-test-action :stop-p t :readable-p t :drainable-p t
                                       :broadcast-p t :now 10000)))
-  ;; Reading beats every periodic job, so a talkative peer is drained before we
-  ;; add traffic of our own...
+  ;; A queued coordinator request outranks readability.  Its response loop
+  ;; handles interleaved peer traffic, and allowing reads to win here would
+  ;; starve snap healing on a continuously talkative public peer.
+  (is (eq :request
+          (eth-pump-test-action :readable-p t :request-p t :now 20)))
+  ;; Without a request, reading beats every periodic job so a talkative peer is
+  ;; drained before we add periodic traffic of our own...
   (is (eq :read (eth-pump-test-action :readable-p t)))
   (is (eq :read (eth-pump-test-action :readable-p t :now 20)))
   (is (eq :read (eth-pump-test-action :readable-p t :drainable-p t :now 20)))
-  (is (eq :read (eth-pump-test-action :readable-p t :request-p t :now 20)))
   ;; ...and in particular, a peer whose data is already waiting can never be
   ;; timed out as idle.
   (is (eq :read (eth-pump-test-action :readable-p t :now 100000)))
@@ -74,6 +78,32 @@
                                         :drainable-p t)))
     (is (eq :read (eth-pump-test-action :policy policy :now 100000
                                         :readable-p t)))))
+
+(deftest eth-peer-run-session-does-not-starve-a-queued-request
+  (:layer :unit :module :p2p)
+  ;; Exercise the shipped loop, not only its pure policy.  READABLE-FUNCTION is
+  ;; deliberately always true, matching an active Hoodi peer.  The request must
+  ;; run without touching the connection; the pre-fix loop instead tries to
+  ;; read and signals because this test peer intentionally has no connection.
+  (let ((peer (ethereum-lisp.eth-sync::%make-eth-peer))
+        (request-calls 0)
+        (readiness-calls 0))
+    (multiple-value-bind (actions reason)
+        (eth-peer-run-session
+         peer
+         :readable-function
+         (lambda (timeout)
+           (declare (ignore timeout))
+           (incf readiness-calls)
+           t)
+         :pending-request
+         (lambda ()
+           (lambda () (incf request-calls)))
+         :max-actions 1)
+      (is (= 1 actions))
+      (is (eq :max-actions reason))
+      (is (= 1 request-calls))
+      (is (zerop readiness-calls)))))
 
 (deftest eth-peer-run-session-answers-a-keepalive-and-still-returns
   (:layer :integration :module :p2p :requires-local-sockets t)

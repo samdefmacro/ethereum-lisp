@@ -84,14 +84,16 @@ Returns :STOP, :READ, :REQUEST, :IDLE-TIMEOUT, :PING, :DRAIN,
 :CHAIN-UPDATE, :BROADCAST or :WAIT.
 
 The order is the policy. Stopping beats everything, because a shutdown must not
-wait on a peer. Reading comes next, so that a talkative peer is always drained
-before we generate traffic of our own and so that an idle timeout can never fire
-against a peer whose data is already waiting. Only then do the periodic jobs run,
-and :WAIT means there is nothing to do but block on the readiness gate."
+wait on a peer. A queued coordinator request comes next: its synchronous await
+loop consumes and serves interleaved peer traffic, while letting socket
+readability win here can starve snap healing forever on a talkative peer.
+Ordinary reads then outrank periodic jobs and keep readable peers from being
+timed out as idle. :WAIT means there is nothing to do but block on the readiness
+gate."
   (cond
     (stop-p :stop)
-    (readable-p :read)
     (request-p :request)
+    (readable-p :read)
     ((eth-pump-due-p (eth-pump-policy-idle-timeout-seconds policy)
                      (eth-pump-state-last-read-at state) now)
      :idle-timeout)
@@ -151,16 +153,19 @@ how a caller observes the session without this file knowing what telemetry is."
              ;; stopping there is no reason to touch the peer's socket at all,
              ;; and every reason not to — it may already be closing.
              (stopping (and stop-p (funcall stop-p) t))
+             ;; Take coordinator jobs before polling the socket.  A snap/eth
+             ;; request reads its own response on this sole writer and handles
+             ;; unrelated messages while waiting, so this preserves wire
+             ;; ordering without allowing a continuously readable peer to
+             ;; starve the request queue.
+             (request (and (not stopping)
+                           pending-request (funcall pending-request)))
              (readable
-               (and (not stopping)
+               (and (not stopping) (null request)
                     readable-function
                     (funcall readable-function
                              (eth-pump-policy-read-tick-seconds policy))
                     t))
-             ;; Pop outbound jobs only after the read gate. A readable peer has
-             ;; priority, and popping before that decision would lose work.
-             (request (and (not stopping) (not readable)
-                           pending-request (funcall pending-request)))
              (chain-update (and (not stopping) (not readable) (null request)
                                 pending-chain-update
                                 (funcall pending-chain-update)))
