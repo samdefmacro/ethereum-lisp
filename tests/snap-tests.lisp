@@ -1801,6 +1801,325 @@
       (kv-apply-batch database (rebase-batch))
       (assert-session new-target new-pivot new-anchor cursor))))
 
+(deftest snap-heal-checkpoint-round-trips-and-fails-closed
+  (:layer :unit :module :p2p)
+  (let* ((pivot (make-hash32 (snap-test-hash 181)))
+         (root (make-hash32 (snap-test-hash 182)))
+         (target (make-hash32 (snap-test-hash 183)))
+         (genesis (make-hash32 (snap-test-hash 184)))
+         (authority (make-hash32 (snap-test-hash 185)))
+         (progress
+           (ethereum-lisp.snap-sync::snap-sync-make-progress
+            :pivot-hash pivot :pivot-number 3000 :state-root root
+            :partial-root +empty-trie-hash+ :target-hash target
+            :chain-id 560048 :genesis-hash genesis :authority-id authority
+            :completed-p nil
+            :tasks
+            (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+             :count 1 :completed-p t)))
+         (work
+           (ethereum-lisp.snap-sync::snap-sync-make-heal-work
+            :storage (snap-test-hash 186) #(1 2 3) (snap-test-hash 187)
+            :fetched-p t))
+         (checkpoint
+           (ethereum-lisp.snap-sync::make-snap-sync-heal-checkpoint
+            :pivot-hash pivot :pivot-number 3000 :state-root root
+            :target-hash target :chain-id 560048 :genesis-hash genesis
+            :authority-id authority :stack (list work)
+            :processed-nodes 11 :reused-nodes 7 :fetched-nodes 4
+            :request-count 2 :response-bytes 999))
+         (record
+           (ethereum-lisp.snap-sync::snap-sync-heal-checkpoint-record
+            checkpoint))
+         (decoded
+           (ethereum-lisp.snap-sync::snap-sync-heal-checkpoint-from-record
+            record))
+         (database (make-memory-key-value-database)))
+    (is (= 11
+           (ethereum-lisp.snap-sync::snap-sync-heal-checkpoint-processed-nodes
+            decoded)))
+    (is (= 999
+           (ethereum-lisp.snap-sync::snap-sync-heal-checkpoint-response-bytes
+            decoded)))
+    (let ((decoded-work
+            (first
+             (ethereum-lisp.snap-sync::snap-sync-heal-checkpoint-stack
+              decoded))))
+      (is (eq :storage
+              (ethereum-lisp.snap-sync::snap-sync-heal-work-kind
+               decoded-work)))
+      (is (ethereum-lisp.snap-sync::snap-sync-heal-work-fetched-p
+           decoded-work))
+      (is (bytes= #(1 2 3)
+                  (ethereum-lisp.snap-sync::snap-sync-heal-work-path
+                   decoded-work))))
+    (let ((batch (make-kv-write-batch)))
+      (ethereum-lisp.database:kv-batch-put-chain-record
+       batch :metadata
+       ethereum-lisp.snap-sync::+snap-sync-heal-checkpoint-identifier+
+       record)
+      (kv-apply-batch database batch))
+    (multiple-value-bind (loaded present-p)
+        (ethereum-lisp.snap-sync::snap-sync-read-heal-checkpoint
+         database progress)
+      (is present-p)
+      (is (= 11
+             (ethereum-lisp.snap-sync::snap-sync-heal-checkpoint-processed-nodes
+              loaded))))
+    ;; The envelope checksum makes a torn or altered cache record an ordinary
+    ;; cache miss; it can never authorize completion or a different session.
+    (let ((corrupt (copy-seq record)))
+      (setf (aref corrupt (1- (length corrupt)))
+            (logxor 1 (aref corrupt (1- (length corrupt)))))
+      (let ((batch (make-kv-write-batch)))
+        (ethereum-lisp.database:kv-batch-put-chain-record
+         batch :metadata
+         ethereum-lisp.snap-sync::+snap-sync-heal-checkpoint-identifier+
+         corrupt)
+        (kv-apply-batch database batch))
+      (multiple-value-bind (loaded present-p)
+          (ethereum-lisp.snap-sync::snap-sync-read-heal-checkpoint
+           database progress)
+        (is (null loaded))
+        (is (not present-p))))
+    (signals error
+      (ethereum-lisp.snap-sync::snap-sync-populate-heal-checkpoint-batch
+       (make-kv-write-batch) progress nil 0 0 0 0 0))
+    (signals error
+      (ethereum-lisp.snap-sync::snap-sync-make-heal-work
+       :account nil #(16) (snap-test-hash 188)))))
+
+(deftest snap-state-healer-uses-multiple-trie-node-sources
+  (:layer :integration :module :p2p)
+  (multiple-value-bind (source-state addresses)
+      (snap-test-partitioned-state)
+    (declare (ignore addresses))
+    (let* ((root (state-db-root source-state))
+           (target-database (make-memory-key-value-database))
+           (calls (make-array 2 :initial-element 0))
+           (sources
+             (loop for index below 2
+                   for source-database = (make-memory-key-value-database)
+                   for backend =
+                     (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+                      source-database source-state)
+                   for base = (snap-test-source backend)
+                   collect
+                   (ethereum-lisp.snap-sync:make-snap-sync-source
+                    :account-range
+                    (ethereum-lisp.snap-sync:snap-sync-source-account-range
+                     base)
+                    :storage-ranges
+                    (ethereum-lisp.snap-sync:snap-sync-source-storage-ranges
+                     base)
+                    :bytecodes
+                    (ethereum-lisp.snap-sync:snap-sync-source-bytecodes base)
+                    :trie-nodes
+                    (let ((worker-index index)
+                          (callback
+                            (ethereum-lisp.snap-sync:snap-sync-source-trie-nodes
+                             base)))
+                      (lambda (request)
+                        (incf (aref calls worker-index))
+                        (funcall callback request))))))
+           (progress
+             (ethereum-lisp.snap-sync::snap-sync-make-progress
+              :pivot-hash (make-hash32 (snap-test-hash 189))
+              :pivot-number 3001 :state-root root
+              :partial-root +empty-trie-hash+
+              :target-hash (make-hash32 (snap-test-hash 190))
+              :chain-id 560048
+              :genesis-hash (make-hash32 (snap-test-hash 191))
+              :authority-id (make-hash32 (snap-test-hash 192))
+              :completed-p nil
+              :tasks
+              (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+               :count 1 :completed-p t)))
+           (completed
+             (ethereum-lisp.snap-sync::snap-sync-heal-state
+              target-database sources progress 350)))
+      (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p completed))
+      (is (plusp (aref calls 0)))
+      ;; Positive wiring witness: the old serial failover loop never called the
+      ;; second healthy source while the first continued to answer.
+      (is (plusp (aref calls 1))))))
+
+(deftest snap-heal-checkpoint-rebase-and-completion-are-atomic
+  (:layer :unit :module :p2p)
+  (let* ((database (make-instance 'snap-failing-test-database))
+         (pivot-a (make-hash32 (snap-test-hash 197)))
+         (pivot-b (make-hash32 (snap-test-hash 198)))
+         (root-a (make-hash32 (snap-test-hash 199)))
+         (root-b (make-hash32 (snap-test-hash 200)))
+         (target-a (make-hash32 (snap-test-hash 201)))
+         (target-b (make-hash32 (snap-test-hash 202)))
+         (genesis (make-hash32 (snap-test-hash 203)))
+         (authority (make-hash32 (snap-test-hash 204)))
+         (progress-a
+           (ethereum-lisp.snap-sync::snap-sync-make-progress
+            :pivot-hash pivot-a :pivot-number 4000 :state-root root-a
+            :partial-root +empty-trie-hash+ :target-hash target-a
+            :chain-id 560048 :genesis-hash genesis :authority-id authority
+            :completed-p nil
+            :tasks
+            (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+             :count 1 :completed-p t)))
+         (work-a
+           (ethereum-lisp.snap-sync::snap-sync-make-heal-work
+            :account nil (make-byte-vector 0) (hash32-bytes root-a))))
+    (let ((batch (make-kv-write-batch)))
+      (ethereum-lisp.snap-sync::snap-sync-populate-progress-batch
+       batch progress-a)
+      (ethereum-lisp.snap-sync::snap-sync-populate-heal-checkpoint-batch
+       batch progress-a (list work-a) 1 0 1 1 100)
+      (kv-apply-batch database batch))
+    (setf (snap-failing-test-database-fail-next-apply-p database) t)
+    (signals error
+      (ethereum-lisp.snap-sync:snap-sync-rebase-progress
+       database :pivot-hash pivot-b :pivot-number 4010 :state-root root-b
+       :target-hash target-b :chain-id 560048 :genesis-hash genesis
+       :authority-id authority))
+    (multiple-value-bind (checkpoint present-p)
+        (ethereum-lisp.snap-sync::snap-sync-read-heal-checkpoint
+         database progress-a)
+      (is present-p)
+      (is (not (null checkpoint))))
+    (let ((progress-b
+            (ethereum-lisp.snap-sync:snap-sync-rebase-progress
+             database :pivot-hash pivot-b :pivot-number 4010
+             :state-root root-b :target-hash target-b :chain-id 560048
+             :genesis-hash genesis :authority-id authority)))
+      (multiple-value-bind (checkpoint present-p)
+          (ethereum-lisp.snap-sync::snap-sync-read-heal-checkpoint
+           database progress-b)
+        (is (null checkpoint))
+        (is (not present-p)))
+      (let* ((work-b
+               (ethereum-lisp.snap-sync::snap-sync-make-heal-work
+                :account nil (make-byte-vector 0) (hash32-bytes root-b)))
+             (completed
+               (ethereum-lisp.snap-sync::snap-sync-make-progress
+                :pivot-hash pivot-b :pivot-number 4010 :state-root root-b
+                :partial-root root-b :target-hash target-b
+                :chain-id 560048 :genesis-hash genesis
+                :authority-id authority :completed-p t
+                :tasks
+                (ethereum-lisp.snap-sync:snap-sync-progress-tasks
+                 progress-b))))
+        (let ((batch (make-kv-write-batch)))
+          (ethereum-lisp.snap-sync::snap-sync-populate-heal-checkpoint-batch
+           batch progress-b (list work-b) 2 1 1 1 200)
+          (kv-apply-batch database batch))
+        (let ((batch (make-kv-write-batch)))
+          (ethereum-lisp.snap-sync::snap-sync-complete-batch batch completed)
+          (setf (snap-failing-test-database-fail-next-apply-p database) t)
+          (signals error (kv-apply-batch database batch)))
+        (multiple-value-bind (checkpoint present-p)
+            (ethereum-lisp.snap-sync::snap-sync-read-heal-checkpoint
+             database progress-b)
+          (is present-p)
+          (is (not (null checkpoint))))
+        (multiple-value-bind (state-root present-p)
+            (kv-get-chain-record database :state-history (hash32-bytes pivot-b))
+          (declare (ignore state-root))
+          (is (not present-p)))
+        (let ((batch (make-kv-write-batch)))
+          (ethereum-lisp.snap-sync::snap-sync-complete-batch batch completed)
+          (kv-apply-batch database batch))
+        (multiple-value-bind (record present-p)
+            (kv-get-chain-record
+             database :metadata
+             ethereum-lisp.snap-sync::+snap-sync-heal-checkpoint-identifier+)
+          (declare (ignore record))
+          (is (not present-p)))
+        (multiple-value-bind (state-root present-p)
+            (kv-get-chain-record database :state-history (hash32-bytes pivot-b))
+          (is present-p)
+          (is (bytes= state-root (hash32-bytes root-b))))))))
+
+(deftest snap-state-healer-resumes-the-durable-frontier-after-source-loss
+  (:layer :integration :module :p2p)
+  (multiple-value-bind (source-state addresses)
+      (snap-test-partitioned-state)
+    (declare (ignore addresses))
+    (let* ((source-database (make-memory-key-value-database))
+           (target-database (make-memory-key-value-database))
+           (root (state-db-root source-state))
+           (root-bytes (hash32-bytes root))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              source-database source-state))
+           (base (snap-test-source backend))
+           (trie-calls 0)
+           (failing-source
+             (ethereum-lisp.snap-sync:make-snap-sync-source
+              :account-range
+              (ethereum-lisp.snap-sync:snap-sync-source-account-range base)
+              :storage-ranges
+              (ethereum-lisp.snap-sync:snap-sync-source-storage-ranges base)
+              :bytecodes
+              (ethereum-lisp.snap-sync:snap-sync-source-bytecodes base)
+              :trie-nodes
+              (lambda (request)
+                (incf trie-calls)
+                (if (= trie-calls 2)
+                    (error
+                     'ethereum-lisp.snap-sync:snap-sync-state-unavailable
+                     :request-kind "trie-nodes")
+                    (funcall
+                     (ethereum-lisp.snap-sync:snap-sync-source-trie-nodes base)
+                     request)))))
+           (progress
+             (ethereum-lisp.snap-sync::snap-sync-make-progress
+              :pivot-hash (make-hash32 (snap-test-hash 193))
+              :pivot-number 3002 :state-root root
+              :partial-root +empty-trie-hash+
+              :target-hash (make-hash32 (snap-test-hash 194))
+              :chain-id 560048
+              :genesis-hash (make-hash32 (snap-test-hash 195))
+              :authority-id (make-hash32 (snap-test-hash 196))
+              :completed-p nil
+              :tasks
+              (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+               :count 1 :completed-p t))))
+      (signals ethereum-lisp.snap-sync:snap-sync-state-unavailable
+        (ethereum-lisp.snap-sync::snap-sync-heal-state
+         target-database (list failing-source) progress 350))
+      (multiple-value-bind (checkpoint present-p)
+          (ethereum-lisp.snap-sync::snap-sync-read-heal-checkpoint
+           target-database progress)
+        (is present-p)
+        (is (plusp
+             (ethereum-lisp.snap-sync::snap-sync-heal-checkpoint-processed-nodes
+              checkpoint))))
+      (let ((root-reads 0)
+            (real-get
+              (fdefinition 'ethereum-lisp.trie:trie-node-store-get)))
+        (unwind-protect
+             (progn
+               (setf
+                (fdefinition 'ethereum-lisp.trie:trie-node-store-get)
+                (lambda (database identifier)
+                  (when (and (eq database target-database)
+                             (bytes= identifier root-bytes))
+                    (incf root-reads))
+                  (funcall real-get database identifier)))
+               (let ((completed
+                       (ethereum-lisp.snap-sync::snap-sync-heal-state
+                        target-database (list base) progress 350)))
+                 (is
+                  (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
+                   completed)))
+               (is (= 0 root-reads)))
+          (setf (fdefinition 'ethereum-lisp.trie:trie-node-store-get)
+                real-get)))
+      (multiple-value-bind (record present-p)
+          (kv-get-chain-record
+           target-database :metadata
+           ethereum-lisp.snap-sync::+snap-sync-heal-checkpoint-identifier+)
+        (declare (ignore record))
+        (is (not present-p))))))
+
 (deftest snap-state-healer-fetches-missing-account-storage-and-code-nodes
   (:layer :integration :module :p2p)
   (let* ((source-state (make-state-db))

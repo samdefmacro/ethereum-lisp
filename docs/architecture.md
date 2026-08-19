@@ -152,11 +152,19 @@ them by their physical location instead reintroduces dependency cycles:
   nodes are served by path set, and every page is verified before its account
   nodes, bytecode, complete small storage tries, and per-range cursor become
   durable. Byte-capped large storage is deferred to the content-addressed final
-  traversal, which reuses nodes across restart and alone installs the completion
-  marker. A crash can repeat content-addressed writes but cannot advance any
-  authoritative cursor past unverified account state. The pivot skeleton and
-  its cursor use the same rule. Bootstrap downloads only the pivot through the
-  CL target (at most 65 blocks), never the whole genesis-to-head body history.
+  traversal. Each round partitions its missing paths across the current snap
+  sources, with at most one outstanding TrieNodes request per source; a failed
+  source retires only its own slice while successful slices remain durable. The
+  fetched nodes and the exact remaining depth-first frontier are committed in
+  one batch. That bounded, checksummed checkpoint is tied to the pivot, target,
+  chain, genesis, and database authority, and is ignored if corrupt or stale.
+  Referenced code is made durable before the frontier advances. This traversal
+  reuses nodes across restart and alone installs the completion marker, deleting
+  its checkpoint in the same final batch. A crash can repeat content-addressed
+  writes but cannot advance any authoritative cursor past unverified account
+  state. The pivot skeleton and its cursor use the same rule. Bootstrap
+  downloads only the pivot through the CL target (at most 65 blocks), never the
+  whole genesis-to-head body history.
   After the pivot state root is reconstructed, a target-bound sparse canonical
   checkpoint is installed in the same rollback boundary as its durable index;
   the Engine target itself remains noncanonical until ordinary typed candidate

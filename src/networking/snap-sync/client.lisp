@@ -12,6 +12,14 @@
 (defconstant +snap-sync-account-task-count+ 16)
 (defconstant +snap-sync-heal-paths-per-request+ 2048)
 (defconstant +snap-sync-heal-codes-per-request+ 2048)
+(defconstant +snap-sync-heal-checkpoint-version+ 1)
+(defparameter +snap-sync-heal-checkpoint-identifier+
+  "snap-state-heal-checkpoint")
+(defconstant +snap-sync-heal-checkpoint-max-works+ 4096)
+(defconstant +snap-sync-heal-checkpoint-max-bytes+ (* 1024 1024))
+(defconstant +snap-sync-heal-checkpoint-max-items+ (* 128 1024))
+(defconstant +snap-sync-heal-checkpoint-node-interval+ (* 128 2048)
+  "Local-node interval between durable final-healing frontier checkpoints.")
 (defparameter *snap-sync-heal-progress-node-interval* 2048
   "Processed-node interval for progress callbacks during local trie reuse.
 
@@ -460,11 +468,17 @@ consensus-visible."
   "Atomically discard a cursor abandoned by a newer CL-authorized target."
   (multiple-value-bind (progress present-p) (snap-sync-read-progress database)
     (declare (ignore progress))
-    (when present-p
-      (let ((batch (make-kv-write-batch)))
-        (kv-batch-delete-chain-record
-         batch :metadata +snap-sync-progress-identifier+)
-        (kv-apply-batch database batch)))
+    (multiple-value-bind (checkpoint checkpoint-present-p)
+        (kv-get-chain-record
+         database :metadata +snap-sync-heal-checkpoint-identifier+)
+      (declare (ignore checkpoint))
+      (when (or present-p checkpoint-present-p)
+        (let ((batch (make-kv-write-batch)))
+          (kv-batch-delete-chain-record
+           batch :metadata +snap-sync-progress-identifier+)
+          (kv-batch-delete-chain-record
+           batch :metadata +snap-sync-heal-checkpoint-identifier+)
+          (kv-apply-batch database batch))))
     present-p))
 
 (defun snap-sync-populate-progress-batch (batch progress)
@@ -673,7 +687,9 @@ must still reconstruct the exact authorized state root before completion."
    batch :state-history
    (hash32-bytes (snap-sync-progress-pivot-hash progress))
    (hash32-bytes (snap-sync-progress-state-root progress)))
-  (snap-sync-populate-progress-batch batch progress))
+  (snap-sync-populate-progress-batch batch progress)
+  (kv-batch-delete-chain-record
+   batch :metadata +snap-sync-heal-checkpoint-identifier+))
 
 (defun snap-sync-progress-with-task-count (progress count)
   "Split legacy linear progress into COUNT disjoint durable account tasks."
@@ -901,11 +917,40 @@ its bounded pivot tail will anchor the resumable import."
 
 (defstruct (snap-sync-heal-work
             (:constructor make-snap-sync-heal-work
-                (&key kind account-hash path reference)))
+                (&key kind account-hash path reference fetched-p)))
   kind
   account-hash
   path
-  reference)
+  reference
+  fetched-p)
+
+(defstruct (snap-sync-heal-checkpoint
+            (:constructor make-snap-sync-heal-checkpoint
+                (&key pivot-hash pivot-number state-root target-hash chain-id
+                      genesis-hash authority-id stack processed-nodes
+                      reused-nodes fetched-nodes request-count response-bytes)))
+  pivot-hash
+  pivot-number
+  state-root
+  target-hash
+  chain-id
+  genesis-hash
+  authority-id
+  stack
+  processed-nodes
+  reused-nodes
+  fetched-nodes
+  request-count
+  response-bytes)
+
+(defstruct (snap-sync-heal-fetch-result
+            (:constructor make-snap-sync-heal-fetch-result
+                (&key source start end response condition)))
+  source
+  start
+  end
+  response
+  condition)
 
 (defun snap-sync-heal-reference-p (reference)
   (or (rlp-list-p reference)
@@ -913,7 +958,7 @@ its bounded pivot tail will anchor the resumable import."
            (member (length reference) '(0 32)))))
 
 (defun snap-sync-make-heal-work
-    (kind account-hash path reference)
+    (kind account-hash path reference &key fetched-p)
   (unless (member kind '(:account :storage))
     (error "Snap heal work has an unknown trie kind"))
   (unless (snap-sync-heal-reference-p reference)
@@ -925,11 +970,22 @@ its bounded pivot tail will anchor the resumable import."
   (let ((path (ensure-byte-vector path)))
     (when (> (length path) 64)
       (error "Snap trie heal path exceeds a secure-key trie"))
+    (unless (every (lambda (nibble) (<= 0 nibble 15)) path)
+      (error "Snap trie heal path contains a non-nibble value"))
     (make-snap-sync-heal-work
      :kind kind
      :account-hash (and account-hash (copy-seq account-hash))
      :path (copy-seq path)
-     :reference reference)))
+     :reference reference
+     :fetched-p (not (null fetched-p)))))
+
+(defun snap-sync-copy-heal-work (work &key fetched-p)
+  (snap-sync-make-heal-work
+   (snap-sync-heal-work-kind work)
+   (snap-sync-heal-work-account-hash work)
+   (snap-sync-heal-work-path work)
+   (snap-sync-heal-work-reference work)
+   :fetched-p fetched-p))
 
 (defun snap-sync-heal-work-path-set (work)
   (let ((compact
@@ -938,6 +994,225 @@ its bounded pivot tail will anchor the resumable import."
     (if (eq :account (snap-sync-heal-work-kind work))
         (list compact)
         (list (snap-sync-heal-work-account-hash work) compact))))
+
+(defun snap-sync-heal-checkpoint-uint (value label)
+  (let ((integer (snap-sync-rlp-uint value label)))
+    (unless (<= integer #xffffffffffffffff)
+      (error "~A exceeds uint64" label))
+    integer))
+
+(defun snap-sync-heal-work-object (work)
+  (make-rlp-list
+   (ecase (snap-sync-heal-work-kind work)
+     (:account 0)
+     (:storage 1))
+   (or (snap-sync-heal-work-account-hash work) (make-byte-vector 0))
+   (snap-sync-heal-work-path work)
+   (snap-sync-heal-work-reference work)
+   (if (snap-sync-heal-work-fetched-p work) 1 0)))
+
+(defun snap-sync-heal-work-from-object (value)
+  (destructuring-bind (kind account-hash path reference fetched)
+      (snap-sync-rlp-list value 5 "Snap heal checkpoint work")
+    (let* ((kind-code
+             (snap-sync-heal-checkpoint-uint
+              kind "Snap heal work kind"))
+           (kind
+             (case kind-code
+               (0 :account)
+               (1 :storage)
+               (otherwise (error "Snap heal work kind must be zero or one"))))
+           (account
+             (snap-sync-rlp-bytes
+              account-hash 32 "Snap heal work account hash" :empty-p t))
+           (path
+             (progn
+               (unless (byte-vector-p path)
+                 (error "Snap heal work path must be RLP bytes"))
+               path)))
+      (when (and (eq kind :account) (plusp (length account)))
+        (error "Snap account heal work cannot carry an account hash"))
+      (snap-sync-make-heal-work
+       kind (and (plusp (length account)) account) path reference
+       :fetched-p
+       (snap-sync-completion-flag fetched "Snap heal work fetched flag")))))
+
+(defun snap-sync-heal-checkpoint-payload (checkpoint)
+  (rlp-encode
+   (make-rlp-list
+    +snap-sync-heal-checkpoint-version+
+    (hash32-bytes (snap-sync-heal-checkpoint-pivot-hash checkpoint))
+    (snap-sync-heal-checkpoint-pivot-number checkpoint)
+    (hash32-bytes (snap-sync-heal-checkpoint-state-root checkpoint))
+    (hash32-bytes (snap-sync-heal-checkpoint-target-hash checkpoint))
+    (snap-sync-heal-checkpoint-chain-id checkpoint)
+    (hash32-bytes (snap-sync-heal-checkpoint-genesis-hash checkpoint))
+    (hash32-bytes (snap-sync-heal-checkpoint-authority-id checkpoint))
+    (snap-sync-heal-checkpoint-processed-nodes checkpoint)
+    (snap-sync-heal-checkpoint-reused-nodes checkpoint)
+    (snap-sync-heal-checkpoint-fetched-nodes checkpoint)
+    (snap-sync-heal-checkpoint-request-count checkpoint)
+    (snap-sync-heal-checkpoint-response-bytes checkpoint)
+    (apply #'make-rlp-list
+           (mapcar #'snap-sync-heal-work-object
+                   (snap-sync-heal-checkpoint-stack checkpoint))))))
+
+(defun snap-sync-heal-checkpoint-record (checkpoint)
+  (let* ((payload (snap-sync-heal-checkpoint-payload checkpoint))
+         (record
+           (rlp-encode
+            (make-rlp-list payload (keccak-256 payload)))))
+    (when (> (length record) +snap-sync-heal-checkpoint-max-bytes+)
+      (error "Snap heal checkpoint exceeds ~D bytes"
+             +snap-sync-heal-checkpoint-max-bytes+))
+    record))
+
+(defun snap-sync-heal-checkpoint-from-payload (payload)
+  (let* ((value
+           (rlp-decode-one
+            payload :max-depth 70
+            :max-list-items +snap-sync-heal-checkpoint-max-works+
+            :max-total-items +snap-sync-heal-checkpoint-max-items+
+            :max-string-bytes +snap-sync-heal-checkpoint-max-bytes+))
+         (items
+           (snap-sync-rlp-list value 14 "Snap heal checkpoint")))
+    (destructuring-bind
+        (version pivot-hash pivot-number state-root target-hash chain-id
+         genesis-hash authority-id processed-nodes reused-nodes fetched-nodes
+         request-count response-bytes stack-object)
+        items
+      (unless (= +snap-sync-heal-checkpoint-version+
+                 (snap-sync-heal-checkpoint-uint
+                  version "Snap heal checkpoint version"))
+        (error "Unsupported snap heal checkpoint version"))
+      (unless (rlp-list-p stack-object)
+        (error "Snap heal checkpoint stack must be an RLP list"))
+      (let ((stack-items (rlp-list-items stack-object)))
+        (unless (<= 1 (length stack-items)
+                    +snap-sync-heal-checkpoint-max-works+)
+          (error "Snap heal checkpoint stack is empty or oversized"))
+        (make-snap-sync-heal-checkpoint
+         :pivot-hash
+         (make-hash32
+          (snap-sync-rlp-bytes pivot-hash 32 "Snap heal checkpoint pivot"))
+         :pivot-number
+         (snap-sync-heal-checkpoint-uint
+          pivot-number "Snap heal checkpoint pivot number")
+         :state-root
+         (make-hash32
+          (snap-sync-rlp-bytes state-root 32 "Snap heal checkpoint state root"))
+         :target-hash
+         (make-hash32
+          (snap-sync-rlp-bytes target-hash 32 "Snap heal checkpoint target"))
+         :chain-id
+         (snap-sync-heal-checkpoint-uint
+          chain-id "Snap heal checkpoint chain id")
+         :genesis-hash
+         (make-hash32
+          (snap-sync-rlp-bytes
+           genesis-hash 32 "Snap heal checkpoint genesis"))
+         :authority-id
+         (make-hash32
+          (snap-sync-rlp-bytes
+           authority-id 32 "Snap heal checkpoint authority"))
+         :processed-nodes
+         (snap-sync-heal-checkpoint-uint
+          processed-nodes "Snap heal checkpoint processed nodes")
+         :reused-nodes
+         (snap-sync-heal-checkpoint-uint
+          reused-nodes "Snap heal checkpoint reused nodes")
+         :fetched-nodes
+         (snap-sync-heal-checkpoint-uint
+          fetched-nodes "Snap heal checkpoint fetched nodes")
+         :request-count
+         (snap-sync-heal-checkpoint-uint
+          request-count "Snap heal checkpoint request count")
+         :response-bytes
+         (snap-sync-heal-checkpoint-uint
+          response-bytes "Snap heal checkpoint response bytes")
+         :stack (mapcar #'snap-sync-heal-work-from-object stack-items))))))
+
+(defun snap-sync-heal-checkpoint-from-record (record)
+  (unless (and (byte-vector-p record)
+               (<= (length record) +snap-sync-heal-checkpoint-max-bytes+))
+    (error "Snap heal checkpoint record is malformed or oversized"))
+  (destructuring-bind (payload checksum)
+      (snap-sync-rlp-list
+       (rlp-decode-one
+        record :max-depth 2 :max-list-items 2 :max-total-items 3
+        :max-string-bytes +snap-sync-heal-checkpoint-max-bytes+)
+       2 "Snap heal checkpoint envelope")
+    (let ((payload
+            (progn
+              (unless (byte-vector-p payload)
+                (error "Snap heal checkpoint payload must be RLP bytes"))
+              payload)))
+      (unless (bytes=
+               (snap-sync-rlp-bytes
+                checksum 32 "Snap heal checkpoint checksum")
+               (keccak-256 payload))
+        (error "Snap heal checkpoint checksum does not match"))
+      (snap-sync-heal-checkpoint-from-payload payload))))
+
+(defun snap-sync-heal-checkpoint-matches-progress-p (checkpoint progress)
+  (and (hash32= (snap-sync-heal-checkpoint-pivot-hash checkpoint)
+                (snap-sync-progress-pivot-hash progress))
+       (= (snap-sync-heal-checkpoint-pivot-number checkpoint)
+          (snap-sync-progress-pivot-number progress))
+       (hash32= (snap-sync-heal-checkpoint-state-root checkpoint)
+                (snap-sync-progress-state-root progress))
+       (hash32= (snap-sync-heal-checkpoint-target-hash checkpoint)
+                (snap-sync-progress-target-hash progress))
+       (= (snap-sync-heal-checkpoint-chain-id checkpoint)
+          (snap-sync-progress-chain-id progress))
+       (hash32= (snap-sync-heal-checkpoint-genesis-hash checkpoint)
+                (snap-sync-progress-genesis-hash progress))
+       (hash32= (snap-sync-heal-checkpoint-authority-id checkpoint)
+                (snap-sync-progress-authority-id progress))))
+
+(defun snap-sync-read-heal-checkpoint (database progress)
+  "Read a matching bounded cache record, treating corruption as cache absence."
+  (multiple-value-bind (record present-p)
+      (kv-get-chain-record
+       database :metadata +snap-sync-heal-checkpoint-identifier+)
+    (if (not present-p)
+        (values nil nil)
+        (let ((checkpoint
+                (handler-case
+                    (snap-sync-heal-checkpoint-from-record record)
+                  (error () nil))))
+          (if (and checkpoint
+                   (snap-sync-heal-checkpoint-matches-progress-p
+                    checkpoint progress))
+              (values checkpoint t)
+              (values nil nil))))))
+
+(defun snap-sync-populate-heal-checkpoint-batch
+    (batch progress stack processed-nodes reused-nodes fetched-nodes
+     request-count response-bytes)
+  (unless (and stack
+               (<= (length stack) +snap-sync-heal-checkpoint-max-works+))
+    (error "Snap heal checkpoint frontier is empty or oversized"))
+  (kv-batch-put-chain-record
+   batch :metadata +snap-sync-heal-checkpoint-identifier+
+   (snap-sync-heal-checkpoint-record
+    (make-snap-sync-heal-checkpoint
+     :pivot-hash (snap-sync-progress-pivot-hash progress)
+     :pivot-number (snap-sync-progress-pivot-number progress)
+     :state-root (snap-sync-progress-state-root progress)
+     :target-hash (snap-sync-progress-target-hash progress)
+     :chain-id (snap-sync-progress-chain-id progress)
+     :genesis-hash (snap-sync-progress-genesis-hash progress)
+     :authority-id (snap-sync-progress-authority-id progress)
+     :stack stack :processed-nodes processed-nodes
+     :reused-nodes reused-nodes :fetched-nodes fetched-nodes
+     :request-count request-count :response-bytes response-bytes)))
+  batch)
+
+(defun snap-sync-delete-heal-checkpoint-batch (batch)
+  (kv-batch-delete-chain-record
+   batch :metadata +snap-sync-heal-checkpoint-identifier+)
+  batch)
 
 (defun snap-sync-heal-rebased-progress
     (progress pivot-hash pivot-number state-root target-hash)
@@ -985,6 +1260,7 @@ applies BATCH."
           (snap-sync-heal-rebased-progress
            progress pivot-hash pivot-number state-root target-hash)))
     (snap-sync-populate-progress-batch batch rebased)
+    (snap-sync-delete-heal-checkpoint-batch batch)
     rebased))
 
 (defun snap-sync-rebase-progress
@@ -1064,6 +1340,103 @@ the returned record in the same batch as its new skeleton metadata."
           (snap-sync-populate-code-batch database batch codes)
           (kv-apply-batch database batch))))))
 
+(defun snap-sync-heal-request-chunk
+    (source missing start end root-bytes byte-limit)
+  (handler-case
+      (let* ((request
+               (make-snap-get-trie-nodes
+                1 root-bytes
+                (loop for index from start below end
+                      collect
+                      (snap-sync-heal-work-path-set
+                       (aref missing index)))
+                byte-limit))
+             (packet
+               (snap-sync-source-call
+                (snap-sync-source-trie-nodes source)
+                request "trie nodes")))
+        (unless (= 1 (snap-trie-nodes-id packet))
+          (error "Snap trie-node response id mismatch"))
+        (when (null (snap-trie-nodes-nodes packet))
+          (snap-sync-state-unavailable "trie-nodes"))
+        (make-snap-sync-heal-fetch-result
+         :source source :start start :end end :response packet))
+    (serious-condition (condition)
+      (make-snap-sync-heal-fetch-result
+       :source source :start start :end end :condition condition))))
+
+#+sbcl
+(defun snap-sync-heal-request-round
+    (sources missing root-bytes byte-limit)
+  "Issue at most one disjoint TrieNodes request on each source concurrently."
+  (let* ((worker-count (min (length sources) (length missing)))
+         (results (make-array worker-count :initial-element nil))
+         (threads (make-array worker-count :initial-element nil)))
+    (when (zerop worker-count)
+      (error "Snap healing requires a live source"))
+    (labels ((run-worker (index source start end)
+               (setf (aref results index)
+                     (snap-sync-heal-request-chunk
+                      source missing start end root-bytes byte-limit))))
+      (unwind-protect
+           (progn
+             (dotimes (index worker-count)
+               (let* ((worker-index index)
+                      (source (nth index sources))
+                      (start (floor (* index (length missing)) worker-count))
+                      (end
+                        (floor
+                         (* (1+ index) (length missing)) worker-count)))
+                 (if (= worker-count 1)
+                     (run-worker worker-index source start end)
+                     (setf
+                      (aref threads index)
+                      (sb-thread:make-thread
+                       (lambda ()
+                         (run-worker worker-index source start end))
+                       :name "snap-sync-heal-worker")))))
+             (when (> worker-count 1)
+               (loop for index below worker-count
+                     for thread = (aref threads index)
+                     do (sb-thread:join-thread thread)
+                        (setf (aref threads index) nil))))
+        ;; A partial thread-creation failure must not leave request workers
+        ;; detached from the coordinator.  Peer exchanges have their own
+        ;; bounded deadline, so cleanup remains bounded too.
+        (loop for thread across threads
+              when thread
+                do (ignore-errors (sb-thread:join-thread thread)))))
+    results))
+
+#-sbcl
+(defun snap-sync-heal-request-round
+    (sources missing root-bytes byte-limit)
+  (let ((source (first sources)))
+    (unless source
+      (error "Snap healing requires a live source"))
+    (vector
+     (snap-sync-heal-request-chunk
+      source missing 0 (length missing) root-bytes byte-limit))))
+
+(defun snap-sync-heal-signal-source-errors (errors)
+  (let ((storage-error
+          (find-if
+           (lambda (condition)
+             (typep condition 'ethereum-lisp.validation:storage-error))
+           errors)))
+    (cond
+      (storage-error (error storage-error))
+      ((and errors
+            (every
+             (lambda (condition)
+               (typep condition 'snap-sync-state-unavailable))
+             errors))
+       (error (first errors)))
+      (errors
+       (snap-sync-signal-sources-exhausted :healing errors))
+      (t
+       (error "Snap healing requires a live source")))))
+
 (defun snap-sync-heal-state
     (database sources progress byte-limit
      &key on-source-error on-heal-progress
@@ -1082,21 +1455,43 @@ the state-history marker and completed cursor share their final batch."
   (unless (snap-sync-tasks-completed-p
            (snap-sync-progress-tasks progress))
     (error "Snap trie healing cannot precede flat-range completion"))
-  (let* ((state-root (snap-sync-progress-state-root progress))
-         (root-bytes (hash32-bytes state-root))
-         (stack
-           (unless (hash32= state-root +empty-trie-hash+)
-             (list
-              (snap-sync-make-heal-work
-               :account nil (make-byte-vector 0) root-bytes))))
-         (pending-codes '())
-         (pending-code-count 0)
-         (seen-code-hashes (make-hash-table :test #'equalp))
-         (processed-nodes 0)
-         (reused-nodes 0)
-         (fetched-nodes 0)
-         (request-count 0)
-         (response-bytes 0))
+  (multiple-value-bind (checkpoint checkpoint-present-p)
+      (snap-sync-read-heal-checkpoint database progress)
+    (let* ((state-root (snap-sync-progress-state-root progress))
+           (root-bytes (hash32-bytes state-root))
+           (stack
+             (if checkpoint-present-p
+                 (copy-list (snap-sync-heal-checkpoint-stack checkpoint))
+                 (unless (hash32= state-root +empty-trie-hash+)
+                   (list
+                    (snap-sync-make-heal-work
+                     :account nil (make-byte-vector 0) root-bytes)))))
+           (active-sources (copy-list sources))
+           (retired-source-errors '())
+           (pending-codes '())
+           (pending-code-count 0)
+           (seen-code-hashes (make-hash-table :test #'equalp))
+           (processed-nodes
+             (if checkpoint-present-p
+                 (snap-sync-heal-checkpoint-processed-nodes checkpoint)
+                 0))
+           (reused-nodes
+             (if checkpoint-present-p
+                 (snap-sync-heal-checkpoint-reused-nodes checkpoint)
+                 0))
+           (fetched-nodes
+             (if checkpoint-present-p
+                 (snap-sync-heal-checkpoint-fetched-nodes checkpoint)
+                 0))
+           (request-count
+             (if checkpoint-present-p
+                 (snap-sync-heal-checkpoint-request-count checkpoint)
+                 0))
+           (response-bytes
+             (if checkpoint-present-p
+                 (snap-sync-heal-checkpoint-response-bytes checkpoint)
+                 0))
+           (last-checkpoint-processed-nodes processed-nodes))
     (labels
         ((report-local-checkpoint ()
            (when (and on-heal-progress
@@ -1115,11 +1510,26 @@ the state-history marker and completed cursor share their final batch."
                    stack)))
          (flush-codes ()
            (when pending-codes
+             (unless active-sources
+               (snap-sync-heal-signal-source-errors
+                (nreverse retired-source-errors)))
              (snap-sync-heal-fetch-codes
-              database sources (nreverse pending-codes) byte-limit
+              database active-sources (nreverse pending-codes) byte-limit
               on-source-error)
              (setf pending-codes nil
                    pending-code-count 0)))
+         (populate-checkpoint (batch frontier)
+           (snap-sync-populate-heal-checkpoint-batch
+            batch progress frontier processed-nodes reused-nodes fetched-nodes
+            request-count response-bytes))
+         (persist-checkpoint (frontier)
+           (let ((batch (make-kv-write-batch)))
+             (populate-checkpoint batch frontier)
+             (kv-apply-batch database batch)
+             (setf last-checkpoint-processed-nodes processed-nodes)))
+         (checkpoint-due-p ()
+           (>= (- processed-nodes last-checkpoint-processed-nodes)
+               +snap-sync-heal-checkpoint-node-interval+))
          (queue-code-hash (hash)
            ;; Keep one content hash for the whole traversal.  Flushing bounds
            ;; wire work and the pending list without repeating database reads
@@ -1210,78 +1620,110 @@ the state-history marker and completed cursor share their final batch."
                     "Persisted snap trie node is malformed: ~A" condition)
                    (error condition)))))
          (fetch-missing (missing)
-           (let ((request
-                   (make-snap-get-trie-nodes
-                    1 root-bytes
-                    (loop for work across missing
-                          collect (snap-sync-heal-work-path-set work))
-                    byte-limit)))
-             (multiple-value-bind (response source)
-                 (snap-sync-call-with-source-failover
-                  sources
-                  (lambda (candidate)
-                    (incf request-count)
-                    (let ((packet
-                            (snap-sync-source-call
-                             (snap-sync-source-trie-nodes candidate)
-                             request "trie nodes")))
-                      (unless (= 1 (snap-trie-nodes-id packet))
-                        (error "Snap trie-node response id mismatch"))
-                      (when (null (snap-trie-nodes-nodes packet))
-                        (snap-sync-state-unavailable "trie-nodes"))
-                      packet))
-                  on-source-error)
-               (declare (ignore source))
-               (let* ((nodes (snap-trie-nodes-nodes response))
-                      (missing-count (length missing))
-                      (matched (make-array missing-count
-                                           :initial-element nil))
-                      (cursor 0)
-                      (batch (make-kv-write-batch))
-                      (fills 0)
-                      (fetched-bytes 0))
-                 (dolist (encoded nodes)
-                   (let ((hash (keccak-256 encoded))
-                         (found nil))
-                     (loop while (< cursor missing-count)
-                           for work = (aref missing cursor)
-                           for expected = (snap-sync-heal-work-reference work)
-                           do (incf cursor)
-                              (when (bytes= hash expected)
-                                (setf found (1- cursor))
-                                (return)))
-                     (unless found
-                       (error "Snap peer returned an unrequested healing node"))
-                     (setf (aref matched found) encoded)
-                     (incf fills)
-                     (incf fetched-bytes (length encoded))
-                     (multiple-value-bind (old present-p)
-                         (kv-get-chain-record database :trie-node hash)
-                       (when (and present-p (not (bytes= old encoded)))
-                         (ethereum-lisp.validation:storage-fail
-                          "Persisted snap trie node collides with its hash"))
-                       (unless present-p
-                         (kv-batch-put-chain-record
-                          batch :trie-node hash encoded)))))
-                 (when (zerop fills)
-                   (snap-sync-state-unavailable "trie-nodes"))
-                 (kv-apply-batch database batch)
-                 (incf fetched-nodes fills)
-                 (incf response-bytes fetched-bytes)
-                 (loop for work across missing
-                       for encoded across matched
-                       do (if encoded
-                              (process-encoded work encoded nil)
-                              (push work stack)))
-                 (snap-sync-report-heal-progress
-                  on-heal-progress processed-nodes reused-nodes fetched-nodes
-                  request-count response-bytes nil))))))
+           (unless active-sources
+             (snap-sync-heal-signal-source-errors
+              (reverse retired-source-errors)))
+           (let* ((results
+                    (snap-sync-heal-request-round
+                     active-sources missing root-bytes byte-limit))
+                  (matched
+                    (make-array (length missing) :initial-element nil))
+                  (batch (make-kv-write-batch))
+                  (fills 0)
+                  (fetched-bytes 0)
+                  (successful-results 0)
+                  (round-errors '()))
+             (incf request-count (length results))
+             (loop for result across results
+                   for condition =
+                     (snap-sync-heal-fetch-result-condition result)
+                   do
+                   (if condition
+                       (progn
+                         (when (typep
+                                condition
+                                'ethereum-lisp.validation:storage-error)
+                           (error condition))
+                         (push condition round-errors)
+                         (push condition retired-source-errors)
+                         (setf active-sources
+                               (remove
+                                (snap-sync-heal-fetch-result-source result)
+                                active-sources :test #'eq))
+                         (when on-source-error
+                           (funcall
+                            on-source-error
+                            (snap-sync-heal-fetch-result-source result)
+                            condition)))
+                       (let ((cursor
+                               (snap-sync-heal-fetch-result-start result))
+                             (end (snap-sync-heal-fetch-result-end result)))
+                         (incf successful-results)
+                         (dolist
+                             (encoded
+                              (snap-trie-nodes-nodes
+                               (snap-sync-heal-fetch-result-response result)))
+                           (let ((hash (keccak-256 encoded))
+                                 (found nil))
+                             (loop while (< cursor end)
+                                   for work = (aref missing cursor)
+                                   for expected =
+                                     (snap-sync-heal-work-reference work)
+                                   do (incf cursor)
+                                      (when (bytes= hash expected)
+                                        (setf found (1- cursor))
+                                        (return)))
+                             (unless found
+                               (error
+                                "Snap peer returned an unrequested healing node"))
+                             (setf (aref matched found) encoded)
+                             (incf fills)
+                             (incf fetched-bytes (length encoded))
+                             (multiple-value-bind (old present-p)
+                                 (kv-get-chain-record
+                                  database :trie-node hash)
+                               (when (and present-p
+                                          (not (bytes= old encoded)))
+                                 (ethereum-lisp.validation:storage-fail
+                                  "Persisted snap trie node collides with its hash"))
+                               (unless present-p
+                                 (kv-batch-put-chain-record
+                                  batch :trie-node hash encoded))))))))
+             (labels ((continuation-stack ()
+                        (let ((continuation stack))
+                          (loop for index downfrom (1- (length missing)) to 0
+                                for work = (aref missing index)
+                                do (push
+                                    (snap-sync-copy-heal-work
+                                     work :fetched-p
+                                     (not (null (aref matched index))))
+                                    continuation))
+                          continuation)))
+               (when (zerop successful-results)
+                 ;; Preserve the exact unprocessed frontier before handing the
+                 ;; finite source-generation failure back to the coordinator.
+                 (setf stack (continuation-stack))
+                 (persist-checkpoint stack)
+                 (snap-sync-heal-signal-source-errors
+                  (nreverse round-errors)))
+               (incf fetched-nodes fills)
+               (incf response-bytes fetched-bytes)
+               ;; The same batch that makes response nodes durable publishes a
+               ;; frontier whose FETCHED-P bits keep restart telemetry exact.
+               (setf stack (continuation-stack))
+               (populate-checkpoint batch stack)
+               (kv-apply-batch database batch)
+               (setf last-checkpoint-processed-nodes processed-nodes)
+               (snap-sync-report-heal-progress
+                on-heal-progress processed-nodes reused-nodes fetched-nodes
+                request-count response-bytes nil)))))
       (loop
         (let ((missing '())
               (missing-count 0))
           (loop while (and stack
                            (< missing-count
-                              +snap-sync-heal-paths-per-request+))
+                              +snap-sync-heal-paths-per-request+)
+                           (not (checkpoint-due-p)))
                 for work = (pop stack)
                 for reference = (snap-sync-heal-work-reference work)
                 do (cond
@@ -1293,14 +1735,20 @@ the state-history marker and completed cursor share their final batch."
                           (trie-node-store-get database reference)
                         (if present-p
                             (progn
-                              (incf reused-nodes)
-                              (process-encoded work encoded t))
+                              (unless (snap-sync-heal-work-fetched-p work)
+                                (incf reused-nodes))
+                              (process-encoded
+                               work encoded
+                               (not (snap-sync-heal-work-fetched-p work))))
                             (progn
                               (push work missing)
                               (incf missing-count)))))))
           (flush-codes)
-          (when missing
-            (fetch-missing (coerce (nreverse missing) 'vector)))
+          (cond
+            (missing
+             (fetch-missing (coerce (nreverse missing) 'vector)))
+            ((and stack (checkpoint-due-p))
+             (persist-checkpoint stack)))
           (when (and (null stack) (null missing))
             (return)))))
     (let* ((completed
@@ -1319,7 +1767,7 @@ the state-history marker and completed cursor share their final batch."
       (snap-sync-report-heal-progress
        on-heal-progress processed-nodes reused-nodes fetched-nodes
        request-count response-bytes t)
-      completed)))
+      completed))))
 
 (defun snap-sync-import-state
     (database source
