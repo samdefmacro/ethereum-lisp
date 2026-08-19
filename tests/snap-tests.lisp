@@ -1889,6 +1889,51 @@
       (ethereum-lisp.snap-sync::snap-sync-make-heal-work
        :account nil #(16) (snap-test-hash 188)))))
 
+(deftest snap-heal-checkpoint-bounds-large-live-frontiers
+  (:layer :unit :module :p2p)
+  ;; A real Hoodi soft-limit left an older fetched batch below the subtree being
+  ;; expanded, taking the exact restart frontier just above the former 4096
+  ;; cap.  Keep that live, bounded shape encodable while forcing later missing
+  ;; batches to shrink before they can accumulate another full 2048 entries.
+  (is (= 2048
+         (ethereum-lisp.snap-sync::snap-sync-heal-missing-limit 0)))
+  (is (= 1096
+         (ethereum-lisp.snap-sync::snap-sync-heal-missing-limit 3000)))
+  (is (= 1
+         (ethereum-lisp.snap-sync::snap-sync-heal-missing-limit 4096)))
+  (is (= 1
+         (ethereum-lisp.snap-sync::snap-sync-heal-missing-limit 8192)))
+  (signals error
+    (ethereum-lisp.snap-sync::snap-sync-heal-missing-limit -1))
+  (let* ((pivot (make-hash32 (snap-test-hash 205)))
+         (root (make-hash32 (snap-test-hash 206)))
+         (target (make-hash32 (snap-test-hash 207)))
+         (genesis (make-hash32 (snap-test-hash 208)))
+         (authority (make-hash32 (snap-test-hash 209)))
+         (work
+           (ethereum-lisp.snap-sync::snap-sync-make-heal-work
+            :account nil #(1 2 3) (snap-test-hash 210)))
+         (checkpoint
+           (ethereum-lisp.snap-sync::make-snap-sync-heal-checkpoint
+            :pivot-hash pivot :pivot-number 5000 :state-root root
+            :target-hash target :chain-id 560048 :genesis-hash genesis
+            :authority-id authority
+            :stack (loop repeat 5000 collect work)
+            :processed-nodes 1 :reused-nodes 1 :fetched-nodes 0
+            :request-count 0 :response-bytes 0))
+         (record
+           (ethereum-lisp.snap-sync::snap-sync-heal-checkpoint-record
+            checkpoint))
+         (decoded
+           (ethereum-lisp.snap-sync::snap-sync-heal-checkpoint-from-record
+            record)))
+    (is (= 5000
+           (length
+            (ethereum-lisp.snap-sync::snap-sync-heal-checkpoint-stack
+             decoded))))
+    (is (< (length record)
+           ethereum-lisp.snap-sync::+snap-sync-heal-checkpoint-max-bytes+))))
+
 (deftest snap-state-healer-uses-multiple-trie-node-sources
   (:layer :integration :module :p2p)
   (multiple-value-bind (source-state addresses)

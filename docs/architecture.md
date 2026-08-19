@@ -158,6 +158,9 @@ them by their physical location instead reintroduces dependency cycles:
   fetched nodes and the exact remaining depth-first frontier are committed in
   one batch. That bounded, checksummed checkpoint is tied to the pivot, target,
   chain, genesis, and database authority, and is ignored if corrupt or stale.
+  Soft-limited responses can retain older work below the returned subtree, so
+  later missing-path batches shrink as that frontier approaches its target;
+  the larger hard record cap remains a fail-closed allocation boundary.
   Referenced code is made durable before the frontier advances. This traversal
   reuses nodes across restart and alone installs the completion marker, deleting
   its checkpoint in the same final batch. A crash can repeat content-addressed

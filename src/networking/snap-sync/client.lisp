@@ -15,8 +15,9 @@
 (defconstant +snap-sync-heal-checkpoint-version+ 1)
 (defparameter +snap-sync-heal-checkpoint-identifier+
   "snap-state-heal-checkpoint")
-(defconstant +snap-sync-heal-checkpoint-max-works+ 4096)
-(defconstant +snap-sync-heal-checkpoint-max-bytes+ (* 1024 1024))
+(defconstant +snap-sync-heal-checkpoint-frontier-target+ 4096)
+(defconstant +snap-sync-heal-checkpoint-max-works+ 8192)
+(defconstant +snap-sync-heal-checkpoint-max-bytes+ (* 4 1024 1024))
 (defconstant +snap-sync-heal-checkpoint-max-items+ (* 128 1024))
 (defconstant +snap-sync-heal-checkpoint-node-interval+ (* 128 2048)
   "Local-node interval between durable final-healing frontier checkpoints.")
@@ -995,6 +996,22 @@ its bounded pivot tail will anchor the resumable import."
         (list compact)
         (list (snap-sync-heal-work-account-hash work) compact))))
 
+(defun snap-sync-heal-missing-limit (stack-count)
+  "Bound the next missing batch while reserving room for trie expansion.
+
+Fetched work remains ahead of the older DFS frontier.  A soft-limited response
+can therefore leave one batch pending while its first returned subtree exposes
+another batch.  Shrink later batches as the retained frontier approaches the
+target; the separate hard checkpoint cap leaves another target-sized margin
+for at most one secure-trie expansion."
+  (unless (and (integerp stack-count) (not (minusp stack-count)))
+    (error "Snap heal frontier count must be a non-negative integer"))
+  (max 1
+       (min +snap-sync-heal-paths-per-request+
+            (max 0
+                 (- +snap-sync-heal-checkpoint-frontier-target+
+                    stack-count)))))
+
 (defun snap-sync-heal-checkpoint-uint (value label)
   (let ((integer (snap-sync-rlp-uint value label)))
     (unless (<= integer #xffffffffffffffff)
@@ -1718,11 +1735,12 @@ the state-history marker and completed cursor share their final batch."
                 on-heal-progress processed-nodes reused-nodes fetched-nodes
                 request-count response-bytes nil)))))
       (loop
-        (let ((missing '())
-              (missing-count 0))
+        (let* ((missing '())
+               (missing-count 0)
+               (missing-limit
+                 (snap-sync-heal-missing-limit (length stack))))
           (loop while (and stack
-                           (< missing-count
-                              +snap-sync-heal-paths-per-request+)
+                           (< missing-count missing-limit)
                            (not (checkpoint-due-p)))
                 for work = (pop stack)
                 for reference = (snap-sync-heal-work-reference work)
