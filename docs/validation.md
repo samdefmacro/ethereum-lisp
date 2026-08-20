@@ -197,14 +197,15 @@ defer byte-capped large storage to resumable content-addressed healing, and
 inject a failed database batch to prove progress never outruns verified account
 state. Only the final traversal can install the completion marker. The final
 healer tests also require one missing-path slice per available source, prove a
-second source actually serves TrieNodes, and persist a bounded checksummed DFS
-frontier in the same batch as newly accepted nodes. Abrupt source loss then
-resumes without rereading the root; corrupt, stale, empty, or oversized
-checkpoints fail closed, and rebase/completion failure injection proves that
-checkpoint invalidation remains atomic. A large-frontier control round-trips a
-5,000-item live checkpoint and proves that missing batches shrink near the
-frontier target instead of stacking another full soft-limited response below
-it. They also prove
+second source actually serves TrieNodes, and prove that consecutive rounds
+rotate the first source so retained work is not pinned to one partially pruned
+peer. They persist a bounded checksummed DFS frontier in the same batch as newly
+accepted nodes. Abrupt source loss then resumes without rereading the root;
+corrupt, stale, empty, or oversized checkpoints fail closed, and
+rebase/completion failure injection proves that checkpoint invalidation remains
+atomic. A large-frontier control round-trips a 5,000-item live checkpoint and
+proves that missing batches shrink near the frontier target instead of stacking
+another full soft-limited response below it. They also prove
 that sixteen durable account ranges are fetched concurrently through three
 sources with geth's 2 MiB soft byte limit, completed ranges are not replayed
 after restart, and a failed source's claimed range is reassigned. A finite

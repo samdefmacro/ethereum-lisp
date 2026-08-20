@@ -154,10 +154,13 @@ them by their physical location instead reintroduces dependency cycles:
   durable. Byte-capped large storage is deferred to the content-addressed final
   traversal. Each round partitions its missing paths across the current snap
   sources, with at most one outstanding TrieNodes request per source; a failed
-  source retires only its own slice while successful slices remain durable. The
-  fetched nodes and the exact remaining depth-first frontier are committed in
-  one batch. That bounded, checksummed checkpoint is tied to the pivot, target,
-  chain, genesis, and database authority, and is ignored if corrupt or stale.
+  source retires only its own slice while successful slices remain durable.
+  Source order rotates between rounds, so a retained path from a partially
+  pruned peer reaches another source without duplicating any request inside one
+  round. The fetched nodes and the exact remaining depth-first frontier are
+  committed in one batch. That bounded, checksummed checkpoint is tied to the
+  pivot, target, chain, genesis, and database authority, and is ignored if
+  corrupt or stale.
   Soft-limited responses can retain older work below the returned subtree, so
   later missing-path batches shrink as that frontier approaches its target;
   the larger hard record cap remains a fail-closed allocation boundary.

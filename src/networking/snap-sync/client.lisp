@@ -1435,6 +1435,17 @@ the returned record in the same batch as its new skeleton metadata."
      (snap-sync-heal-request-chunk
       source missing 0 (length missing) root-bytes byte-limit))))
 
+(defun snap-sync-heal-round-sources (sources round)
+  "Rotate SOURCES so a retained missing slice reaches another peer next ROUND."
+  (let ((count (length sources)))
+    (cond
+      ((<= count 1) (copy-list sources))
+      (t
+       (unless (and (integerp round) (not (minusp round)))
+         (error "Snap healing source round must be a non-negative integer"))
+       (let ((offset (mod round count)))
+         (append (subseq sources offset) (subseq sources 0 offset)))))))
+
 (defun snap-sync-heal-signal-source-errors (errors)
   (let ((storage-error
           (find-if
@@ -1508,6 +1519,7 @@ the state-history marker and completed cursor share their final batch."
              (if checkpoint-present-p
                  (snap-sync-heal-checkpoint-response-bytes checkpoint)
                  0))
+           (source-round 0)
            (last-checkpoint-processed-nodes processed-nodes))
     (labels
         ((report-local-checkpoint ()
@@ -1640,9 +1652,12 @@ the state-history marker and completed cursor share their final batch."
            (unless active-sources
              (snap-sync-heal-signal-source-errors
               (reverse retired-source-errors)))
-           (let* ((results
+           (let* ((round-sources
+                    (snap-sync-heal-round-sources
+                     active-sources source-round))
+                  (results
                     (snap-sync-heal-request-round
-                     active-sources missing root-bytes byte-limit))
+                     round-sources missing root-bytes byte-limit))
                   (matched
                     (make-array (length missing) :initial-element nil))
                   (batch (make-kv-write-batch))
@@ -1650,6 +1665,7 @@ the state-history marker and completed cursor share their final batch."
                   (fetched-bytes 0)
                   (successful-results 0)
                   (round-errors '()))
+             (incf source-round)
              (incf request-count (length results))
              (loop for result across results
                    for condition =

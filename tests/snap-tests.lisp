@@ -1942,6 +1942,7 @@
     (let* ((root (state-db-root source-state))
            (target-database (make-memory-key-value-database))
            (calls (make-array 2 :initial-element 0))
+           (round-first-sources '())
            (sources
              (loop for index below 2
                    for source-database = (make-memory-key-value-database)
@@ -1980,14 +1981,39 @@
               :tasks
               (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
                :count 1 :completed-p t)))
-           (completed
-             (ethereum-lisp.snap-sync::snap-sync-heal-state
-              target-database sources progress 350)))
+           (real-round
+             (fdefinition
+              'ethereum-lisp.snap-sync::snap-sync-heal-request-round))
+           (completed nil))
+      (unwind-protect
+           (progn
+             (setf
+              (fdefinition
+               'ethereum-lisp.snap-sync::snap-sync-heal-request-round)
+              (lambda (round-sources missing root-bytes byte-limit)
+                (push (first round-sources) round-first-sources)
+                (funcall
+                 real-round round-sources missing root-bytes byte-limit)))
+             (setf
+              completed
+              (ethereum-lisp.snap-sync::snap-sync-heal-state
+               target-database sources progress 350)))
+        (setf
+         (fdefinition
+          'ethereum-lisp.snap-sync::snap-sync-heal-request-round)
+         real-round))
       (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p completed))
       (is (plusp (aref calls 0)))
       ;; Positive wiring witness: the old serial failover loop never called the
       ;; second healthy source while the first continued to answer.
-      (is (plusp (aref calls 1))))))
+      (is (plusp (aref calls 1)))
+      (let ((round-first-sources (nreverse round-first-sources)))
+        (is (> (length round-first-sources) 1))
+        ;; A partially pruned peer may answer only part of its disjoint slice.
+        ;; Rotate the next round so retained work is not pinned to that peer.
+        (loop for (left right) on round-first-sources
+              while right
+              do (is (not (eq left right))))))))
 
 (deftest snap-heal-checkpoint-rebase-and-completion-are-atomic
   (:layer :unit :module :p2p)
