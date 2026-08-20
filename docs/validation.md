@@ -189,6 +189,9 @@ cl-workbench validation run cold-integration \
   --match DEVNET-RANGE-ANNOUNCEMENT-WAKES
 cl-workbench validation run cold-integration \
   --match ETH-SYNC-MULTIPLEXES-ETH-72-AND-SNAP-1-OVER-ONE-SOCKET
+cl-workbench validation run cold-unit --match GET-MANY
+cl-workbench validation run cold-unit --match BATCHES-LOCAL
+cl-workbench validation run cold-integration --match NATIVE-MULTI-GET
 ```
 
 The snap tests reconstruct and verify account/storage roots, reject altered
@@ -199,8 +202,12 @@ state. Only the final traversal can install the completion marker. The final
 healer tests also require one missing-path slice per available source, prove a
 second source actually serves TrieNodes, and prove that consecutive rounds
 rotate the first source so retained work is not pinned to one partially pruned
-peer. They persist a bounded checksummed DFS frontier in the same batch as newly
-accepted nodes. Abrupt source loss then resumes without rereading the root;
+peer. Local traversal proves that more than one trie hash crosses the ordered
+multi-get seam in a batch, while the RocksDB integration control proves the
+batch reaches exactly one native call and preserves duplicate-key order and
+per-key absence. Generic controls enforce the 4,096-key and 4 MiB key-byte
+bounds. They persist a bounded checksummed DFS frontier in the same batch as
+newly accepted nodes. Abrupt source loss then resumes without rereading the root;
 corrupt, stale, empty, or oversized checkpoints fail closed, and
 rebase/completion failure injection proves that checkpoint invalidation remains
 atomic. A large-frontier control round-trips a 5,000-item live checkpoint and

@@ -2015,6 +2015,98 @@
               while right
               do (is (not (eq left right))))))))
 
+(deftest snap-state-healer-batches-local-trie-lookups
+  (:layer :unit :module :p2p)
+  (multiple-value-bind (source-state addresses)
+      (snap-test-partitioned-state)
+    (declare (ignore addresses))
+    (let* ((database (make-memory-key-value-database))
+           (root
+             (mpt-persist
+              database
+              (ethereum-lisp.state::state-db-state-trie source-state)))
+           (pivot (make-hash32 (snap-test-hash 193)))
+           (progress
+             (ethereum-lisp.snap-sync::snap-sync-make-progress
+              :pivot-hash pivot :pivot-number 3002 :state-root root
+              :partial-root +empty-trie-hash+
+              :target-hash (make-hash32 (snap-test-hash 194))
+              :chain-id 560048
+              :genesis-hash (make-hash32 (snap-test-hash 195))
+              :authority-id (make-hash32 (snap-test-hash 196))
+              :completed-p nil
+              :tasks
+              (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+               :count 1 :completed-p t)))
+           (source
+             (ethereum-lisp.snap-sync:make-snap-sync-source
+              :account-range (lambda (request) (declare (ignore request)))
+              :storage-ranges (lambda (request) (declare (ignore request)))
+              :bytecodes
+              (lambda (request)
+                (declare (ignore request))
+                (error "Complete local trie requested remote bytecode"))
+              :trie-nodes
+              (lambda (request)
+                (declare (ignore request))
+                (error "Complete local trie requested remote nodes"))))
+           (real-get-many
+             (fdefinition 'ethereum-lisp.database:kv-get-chain-records))
+           (batch-count 0)
+           (largest-batch 0)
+           (completed nil))
+      (unwind-protect
+           (progn
+             (setf
+              (fdefinition 'ethereum-lisp.database:kv-get-chain-records)
+              (lambda (candidate kind identifiers &optional default)
+                (when (and (eq candidate database) (eq kind :trie-node))
+                  (incf batch-count)
+                  (setf largest-batch
+                        (max largest-batch (length identifiers))))
+                (funcall
+                 real-get-many candidate kind identifiers default)))
+             (setf
+              completed
+              (ethereum-lisp.snap-sync::snap-sync-heal-state
+               database (list source) progress (* 2 1024 1024))))
+        (setf (fdefinition 'ethereum-lisp.database:kv-get-chain-records)
+              real-get-many))
+      (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p completed))
+      (is (plusp batch-count))
+      ;; A serial KV-GET loop cannot satisfy this wiring witness.
+      (is (> largest-batch 1))
+      (is (<= largest-batch
+              ethereum-lisp.snap-sync::+snap-sync-heal-local-reads-per-batch+))
+      ;; Even if every prefetched work is a 16-way branch, replacing the
+      ;; popped batch with all children stays below the hard checkpoint cap
+      ;; throughout the soft-target region.
+      (loop for stack-count from 1 to
+              ethereum-lisp.snap-sync::+snap-sync-heal-checkpoint-frontier-target+
+            for batch =
+              (min
+               stack-count
+               (ethereum-lisp.snap-sync::snap-sync-heal-local-read-limit
+                stack-count 0
+                (ethereum-lisp.snap-sync::snap-sync-heal-missing-limit
+                 stack-count)
+                ethereum-lisp.snap-sync::+snap-sync-heal-checkpoint-node-interval+))
+            do (is
+                (<= (+ (- stack-count batch) (* 16 batch))
+                    ethereum-lisp.snap-sync::+snap-sync-heal-checkpoint-max-works+)))
+      (is
+       (= 512
+          (ethereum-lisp.snap-sync::snap-sync-heal-local-read-limit
+           1 0 2048 2048)))
+      (is
+       (= 292
+          (ethereum-lisp.snap-sync::snap-sync-heal-local-read-limit
+           3800 0 296 2048)))
+      (multiple-value-bind (persisted-root present-p)
+          (kv-get-chain-record database :state-history (hash32-bytes pivot))
+        (is present-p)
+        (is (bytes= persisted-root (hash32-bytes root)))))))
+
 (deftest snap-heal-checkpoint-rebase-and-completion-are-atomic
   (:layer :unit :module :p2p)
   (let* ((database (make-instance 'snap-failing-test-database))

@@ -157,9 +157,16 @@ them by their physical location instead reintroduces dependency cycles:
   source retires only its own slice while successful slices remain durable.
   Source order rotates between rounds, so a retained path from a partially
   pruned peer reaches another source without duplicating any request inside one
-  round. The fetched nodes and the exact remaining depth-first frontier are
-  committed in one batch. That bounded, checksummed checkpoint is tied to the
-  pivot, target, chain, genesis, and database authority, and is ignored if
+  round. Local content-addressed references are read in batches of at most 512
+  keys. The width shrinks with the live frontier so worst-case 16-way expansion
+  remains below the 8,192-work checkpoint cap throughout its soft-target
+  region. RocksDB executes each batch with one native multi-get instead of
+  crossing the Lisp/C boundary once per node; memory and file stores retain the
+  same ordered value/presence contract through the generic fallback. The
+  database API rejects more than 4,096 keys or 4 MiB of key bytes before native
+  allocation. The fetched nodes and the exact remaining depth-first frontier
+  are committed in one batch. That bounded, checksummed checkpoint is tied to
+  the pivot, target, chain, genesis, and database authority, and is ignored if
   corrupt or stale.
   Soft-limited responses can retain older work below the returned subtree, so
   later missing-path batches shrink as that frontier approaches its target;

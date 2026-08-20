@@ -6,6 +6,16 @@
 (defun kv-get-chain-record (database kind identifier &optional default)
   (kv-get database (kv-chain-record-key kind identifier) default))
 
+(defun kv-get-chain-records (database kind identifiers &optional default)
+  "Return ordered value and presence vectors for IDENTIFIERS of KIND."
+  (kv-get-many
+   database
+   (map 'vector
+        (lambda (identifier)
+          (kv-chain-record-key kind identifier))
+        identifiers)
+   default))
+
 (defun kv-delete-chain-record (database kind identifier)
   (kv-delete database (kv-chain-record-key kind identifier)))
 

@@ -50,6 +50,7 @@
    #:kv-log-corruption-error-path
    #:kv-log-corruption-error-detail
    #:kv-get
+   #:kv-get-many
    #:kv-put
    #:kv-delete
    #:kv-write-batch
@@ -70,6 +71,7 @@
    #:kv-chain-height-hash-identifier-values
    #:kv-put-chain-record
    #:kv-get-chain-record
+   #:kv-get-chain-records
    #:kv-delete-chain-record
    #:kv-batch-put-chain-record
    #:kv-batch-delete-chain-record

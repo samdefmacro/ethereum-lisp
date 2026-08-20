@@ -37,6 +37,10 @@
   (database :pointer) (options :pointer)
   (key :pointer) (key-length :size)
   (value-length :pointer) (error :pointer))
+(cffi:defcfun ("rocksdb_multi_get" %rocks-multi-get) :void
+  (database :pointer) (options :pointer) (key-count :size)
+  (keys :pointer) (key-lengths :pointer)
+  (values :pointer) (value-lengths :pointer) (errors :pointer))
 (cffi:defcfun ("rocksdb_delete" %rocks-delete) :void
   (database :pointer) (options :pointer)
   (key :pointer) (key-length :size) (error :pointer))
@@ -165,6 +169,86 @@
                    value (cffi:mem-ref value-length :size))
                   t)
               (%rocks-free value)))))))
+
+(defmethod kv-get-many
+    ((database rocksdb-key-value-database) keys &optional default)
+  (let* ((normalized-keys (kv-get-many-keys keys))
+         (count (length normalized-keys))
+         (results (make-array count :initial-element default))
+         (present (make-array count :element-type 'bit :initial-element 0))
+         (key-bytes
+           (loop for key across normalized-keys sum (length key)))
+         (first-error nil))
+    (when (zerop count)
+      (return-from kv-get-many (values results present)))
+    (cffi:with-foreign-pointer (key-buffer (max 1 key-bytes))
+      (cffi:with-foreign-objects
+          ((key-pointers :pointer count)
+           (key-lengths :size count)
+           (value-pointers :pointer count)
+           (value-lengths :size count)
+           (error-pointers :pointer count))
+        (unwind-protect
+             (progn
+               ;; Cleanup examines every output slot even when input copying
+               ;; unwinds, so initialize the complete native result surface
+               ;; before any later operation can signal.
+               (dotimes (index count)
+                 (setf
+                  (cffi:mem-aref value-pointers :pointer index)
+                  (cffi:null-pointer)
+                  (cffi:mem-aref value-lengths :size index) 0
+                  (cffi:mem-aref error-pointers :pointer index)
+                  (cffi:null-pointer)))
+               (loop with key-offset = 0
+                     for index below count
+                     for key = (aref normalized-keys index)
+                     for key-length = (length key)
+                     for key-pointer =
+                       (cffi:inc-pointer key-buffer key-offset)
+                     do (dotimes (offset key-length)
+                          (setf (cffi:mem-aref key-pointer :uint8 offset)
+                                (aref key offset)))
+                        (setf
+                         (cffi:mem-aref key-pointers :pointer index)
+                         key-pointer
+                         (cffi:mem-aref key-lengths :size index) key-length)
+                        (incf key-offset key-length))
+               (%rocks-multi-get
+                (rocksdb-handle database) (rocksdb-read-options database)
+                count key-pointers key-lengths value-pointers value-lengths
+                error-pointers)
+               (dotimes (index count)
+                 (let ((error (cffi:mem-aref error-pointers :pointer index))
+                       (value (cffi:mem-aref value-pointers :pointer index)))
+                   (unless (cffi:null-pointer-p error)
+                     (unless first-error
+                       (setf first-error
+                             (cffi:foreign-string-to-lisp error)))
+                     (%rocks-free error)
+                     (setf (cffi:mem-aref error-pointers :pointer index)
+                           (cffi:null-pointer)))
+                   (unless (cffi:null-pointer-p value)
+                     (setf (aref results index)
+                           (rocksdb-copy-foreign-bytes
+                            value
+                            (cffi:mem-aref value-lengths :size index))
+                           (aref present index) 1)
+                     (%rocks-free value)
+                     (setf (cffi:mem-aref value-pointers :pointer index)
+                           (cffi:null-pointer)))))
+               (when first-error
+                 (error "RocksDB multi-get: ~A" first-error)))
+          ;; Protect error unwinds during result copying as well as native
+          ;; calls. WITH-FOREIGN-POINTER owns the contiguous input buffer.
+          (dotimes (index count)
+            (let ((error (cffi:mem-aref error-pointers :pointer index))
+                  (value (cffi:mem-aref value-pointers :pointer index)))
+              (unless (cffi:null-pointer-p error)
+                (%rocks-free error))
+              (unless (cffi:null-pointer-p value)
+                (%rocks-free value)))))))
+    (values results present)))
 
 (defmethod kv-put ((database rocksdb-key-value-database) key value)
   (with-rocks-bytes (key-pointer key-length key)

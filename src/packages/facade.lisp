@@ -26,6 +26,7 @@
    #:close-rocksdb-key-value-database
    #:rocksdb-available-p
    #:kv-get
+   #:kv-get-many
    #:kv-put
    #:kv-delete
    #:kv-write-batch
@@ -42,6 +43,7 @@
    #:kv-chain-record-uint64-identifier
    #:kv-put-chain-record
    #:kv-get-chain-record
+   #:kv-get-chain-records
    #:kv-delete-chain-record
    #:kv-batch-put-chain-record
    #:kv-batch-delete-chain-record

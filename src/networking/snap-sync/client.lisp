@@ -11,6 +11,8 @@
 (defconstant +snap-sync-storage-accounts-per-request+ 256)
 (defconstant +snap-sync-account-task-count+ 16)
 (defconstant +snap-sync-heal-paths-per-request+ 2048)
+(defconstant +snap-sync-heal-local-reads-per-batch+ 512
+  "Maximum local read width before frontier-aware shrinking.")
 (defconstant +snap-sync-heal-codes-per-request+ 2048)
 (defconstant +snap-sync-heal-checkpoint-version+ 1)
 (defparameter +snap-sync-heal-checkpoint-identifier+
@@ -1012,6 +1014,29 @@ for at most one secure-trie expansion."
                  (- +snap-sync-heal-checkpoint-frontier-target+
                     stack-count)))))
 
+(defun snap-sync-heal-local-read-limit
+    (stack-count missing-count missing-limit checkpoint-room)
+  "Bound one local read batch by progress and worst-case trie expansion.
+
+Each popped external reference can expose at most sixteen children, increasing
+the frontier by fifteen works.  Stay within the hard checkpoint bound
+throughout the normal soft-target region while retaining a one-item escape for
+an already hard-sized frontier whose next node may reduce it."
+  (unless (and (integerp stack-count) (not (minusp stack-count))
+               (integerp missing-count) (not (minusp missing-count))
+               (integerp missing-limit) (> missing-limit missing-count)
+               (integerp checkpoint-room) (plusp checkpoint-room))
+    (error "Invalid snap heal local read limits"))
+  (let ((expansion-room
+          (floor
+           (max 0
+                (- +snap-sync-heal-checkpoint-max-works+ stack-count))
+           15)))
+    (min +snap-sync-heal-local-reads-per-batch+
+         (- missing-limit missing-count)
+         checkpoint-room
+         (max 1 expansion-room))))
+
 (defun snap-sync-heal-checkpoint-uint (value label)
   (let ((integer (snap-sync-rlp-uint value label)))
     (unless (<= integer #xffffffffffffffff)
@@ -1446,6 +1471,10 @@ the returned record in the same batch as its new skeleton metadata."
        (let ((offset (mod round count)))
          (append (subseq sources offset) (subseq sources 0 offset)))))))
 
+(defun snap-sync-heal-local-node-batch (database references)
+  "Read one ordered, bounded batch of local trie-node references."
+  (kv-get-chain-records database :trie-node references))
+
 (defun snap-sync-heal-signal-source-errors (errors)
   (let ((storage-error
           (find-if
@@ -1758,25 +1787,63 @@ the state-history marker and completed cursor share their final batch."
           (loop while (and stack
                            (< missing-count missing-limit)
                            (not (checkpoint-due-p)))
-                for work = (pop stack)
-                for reference = (snap-sync-heal-work-reference work)
-                do (cond
-                     ((rlp-list-p reference)
-                      (process-object work reference))
-                     ((zerop (length reference)) nil)
-                     (t
-                      (multiple-value-bind (encoded present-p)
-                          (trie-node-store-get database reference)
-                        (if present-p
-                            (progn
-                              (unless (snap-sync-heal-work-fetched-p work)
-                                (incf reused-nodes))
-                              (process-encoded
-                               work encoded
-                               (not (snap-sync-heal-work-fetched-p work))))
-                            (progn
-                              (push work missing)
-                              (incf missing-count)))))))
+                do
+                (let* ((checkpoint-room
+                         (- +snap-sync-heal-checkpoint-node-interval+
+                            (- processed-nodes
+                               last-checkpoint-processed-nodes)))
+                       (read-limit
+                         (snap-sync-heal-local-read-limit
+                          (length stack) missing-count missing-limit
+                          checkpoint-room))
+                       (lookups '())
+                       (lookup-count 0))
+                  ;; Inline references are already local values. Process them
+                  ;; immediately until an external hash batch begins; once it
+                  ;; does, stop before the next inline item so a durable
+                  ;; checkpoint never skips an unprocessed popped work.
+                  (loop while (and stack
+                                   (< lookup-count read-limit)
+                                   (not (checkpoint-due-p)))
+                        for work = (pop stack)
+                        for reference =
+                          (snap-sync-heal-work-reference work)
+                        do (cond
+                             ((or (rlp-list-p reference)
+                                  (zerop (length reference)))
+                              (if lookups
+                                  (push work stack)
+                                  (when (rlp-list-p reference)
+                                    (process-object work reference)))
+                              ;; PROCESS-OBJECT may grow STACK. Recompute the
+                              ;; frontier-aware width before collecting hashes.
+                              (return))
+                             (t
+                              (push work lookups)
+                              (incf lookup-count))))
+                  (when lookups
+                    (let* ((ordered (coerce (nreverse lookups) 'vector))
+                           (references
+                             (map 'vector
+                                  #'snap-sync-heal-work-reference
+                                  ordered)))
+                      (multiple-value-bind (encoded present)
+                          (snap-sync-heal-local-node-batch
+                           database references)
+                        (dotimes (index (length ordered))
+                          (let ((work (aref ordered index)))
+                            (if (= 1 (aref present index))
+                                (progn
+                                  (unless
+                                      (snap-sync-heal-work-fetched-p work)
+                                    (incf reused-nodes))
+                                  (process-encoded
+                                   work (aref encoded index)
+                                   (not
+                                    (snap-sync-heal-work-fetched-p work))))
+                                (progn
+                                  (push work missing)
+                                  (incf missing-count))))))))))
           (flush-codes)
           (cond
             (missing

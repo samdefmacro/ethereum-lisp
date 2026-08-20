@@ -53,7 +53,30 @@ further writes because the on-disk tail is no longer trusted. Reopen.")))
 (defstruct (kv-write-batch (:constructor %make-kv-write-batch))
   operations)
 
+(defconstant +kv-get-many-max-keys+ 4096)
+(defconstant +kv-get-many-max-key-bytes+ (* 4 1024 1024))
+
+(defun kv-get-many-keys (keys)
+  "Normalize and bound a native multi-get input sequence."
+  (let ((count (length keys)))
+    (unless (<= count +kv-get-many-max-keys+)
+      (error "KV multi-get exceeds ~D keys" +kv-get-many-max-keys+))
+    (let ((normalized (map 'vector #'ensure-byte-vector keys)))
+      (unless
+          (<= (loop for key across normalized sum (length key))
+              +kv-get-many-max-key-bytes+)
+        (error "KV multi-get key bytes exceed ~D"
+               +kv-get-many-max-key-bytes+))
+      normalized)))
+
 (defgeneric kv-get (database key &optional default))
+(defgeneric kv-get-many (database keys &optional default)
+  (:documentation
+   "Return VALUES and PRESENT-P vectors for KEYS in the same order.
+
+The generic fallback preserves KV-GET semantics. Native backends may override
+it with one bounded multi-key operation; callers retain exact per-key absence
+information and never observe partial results when the backend signals."))
 (defgeneric kv-put (database key value))
 (defgeneric kv-delete (database key))
 (defgeneric kv-apply-batch (database batch)
@@ -71,6 +94,18 @@ writes either way and must be reopened."))
 The iterator returns KEY, VALUE, PRESENT-P and closes itself at end of range.
 Callers that intentionally stop before exhaustion must call the closer so a
 native backend can release its iterator and surface any deferred IO error."))
+
+(defmethod kv-get-many ((database key-value-database) keys &optional default)
+  (let* ((keys (kv-get-many-keys keys))
+         (count (length keys))
+         (results (make-array count))
+         (present (make-array count :element-type 'bit :initial-element 0)))
+    (dotimes (index count)
+      (multiple-value-bind (value present-p)
+          (kv-get database (elt keys index) default)
+        (setf (aref results index) value
+              (aref present index) (if present-p 1 0))))
+    (values results present)))
 
 (defun make-memory-key-value-database ()
   (make-instance 'memory-key-value-database))

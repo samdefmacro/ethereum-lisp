@@ -26,6 +26,39 @@
       (is (not present-p)))
     (is (not (kv-delete database key)))))
 
+(deftest memory-key-value-database-get-many-preserves-order-and-absence
+  (let ((database (make-memory-key-value-database)))
+    (kv-put database #(1) #(10))
+    (kv-put database #(3) #(30))
+    (multiple-value-bind (results present)
+        (kv-get-many database (vector #(3) #(2) #(1) #(3)) :missing)
+      (is (= 4 (length results)))
+      (is (= 4 (length present)))
+      (is (bytes= #(30) (aref results 0)))
+      (is (eq :missing (aref results 1)))
+      (is (bytes= #(10) (aref results 2)))
+      (is (bytes= #(30) (aref results 3)))
+      (is (equal '(1 0 1 1) (coerce present 'list)))
+      ;; Results retain KV-GET's copy boundary, including duplicate keys.
+      (setf (aref (aref results 0) 0) 99)
+      (is (bytes= #(30) (aref results 3))))
+    (multiple-value-bind (results present)
+        (kv-get-many database #())
+      (is (zerop (length results)))
+      (is (zerop (length present))))
+    (signals error
+      (kv-get-many
+       database
+       (make-array
+        (1+ ethereum-lisp.database::+kv-get-many-max-keys+)
+        :initial-element #(1))))
+    (signals error
+      (kv-get-many
+       database
+       (vector
+        (make-byte-vector
+         (1+ ethereum-lisp.database::+kv-get-many-max-key-bytes+)))))))
+
 (deftest memory-key-value-database-applies-write-batches-in-order
   (let ((database (make-memory-key-value-database))
         (batch (make-kv-write-batch)))
@@ -237,6 +270,51 @@
                         (is (bytes= #(2) key))
                         (is (bytes= #(20) value)))))
                (close-rocksdb-key-value-database database))))
+      (when (probe-file path)
+        (uiop:delete-directory-tree path :validate t)))))
+
+(deftest rocksdb-key-value-database-uses-one-native-multi-get
+  (:layer :integration :module :database)
+  (let ((path
+          (merge-pathnames
+           (make-pathname
+            :directory
+            `(:relative ,(format nil "ethereum-lisp-rocks-multi-~A"
+                                (gensym))))
+           #P"/private/tmp/"))
+        (native-calls 0)
+        (real-multi-get
+          (fdefinition 'ethereum-lisp.database::%rocks-multi-get)))
+    (unwind-protect
+         (let ((database (make-rocksdb-key-value-database path)))
+           (unwind-protect
+                (progn
+                  (kv-put database #(1) #(10))
+                  (kv-put database #(3) #(30))
+                  (setf
+                   (fdefinition 'ethereum-lisp.database::%rocks-multi-get)
+                   (lambda (&rest arguments)
+                     (incf native-calls)
+                     (apply real-multi-get arguments)))
+                  (multiple-value-bind (results present)
+                      (kv-get-many
+                       database (vector #(3) #(2) #(1) #(3)) :missing)
+                    (is (= 1 native-calls))
+                    (is (bytes= #(30) (aref results 0)))
+                    (is (eq :missing (aref results 1)))
+                    (is (bytes= #(10) (aref results 2)))
+                    (is (bytes= #(30) (aref results 3)))
+                    (is (equal '(1 0 1 1) (coerce present 'list))))
+                  (multiple-value-bind (results present)
+                      (kv-get-many database #())
+                    (is (zerop (length results)))
+                    (is (zerop (length present)))
+                    (is (= 1 native-calls))))
+             (setf (fdefinition 'ethereum-lisp.database::%rocks-multi-get)
+                   real-multi-get)
+             (close-rocksdb-key-value-database database)))
+      (setf (fdefinition 'ethereum-lisp.database::%rocks-multi-get)
+            real-multi-get)
       (when (probe-file path)
         (uiop:delete-directory-tree path :validate t)))))
 
