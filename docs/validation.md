@@ -226,11 +226,13 @@ rereading the root;
 corrupt, stale, empty, or oversized checkpoints fail closed, and
 rebase/completion failure injection proves that checkpoint invalidation remains
 atomic. A large-frontier control round-trips a 5,000-item live checkpoint and
-proves that missing batches shrink near the frontier target instead of stacking
-another full soft-limited response below it. A live-shape control resumes an
-8,192-work frontier, expands its first branch to 8,207 at an overdue checkpoint,
-and proves that single-work traversal drains it back to the hard cap before the
-next record is published. Restoring the old immediate checkpoint stop makes
+proves that its bounded record stays below the byte cap. A live-shape control
+resumes an 8,192-work frontier, expands its first branch to 8,207 at an overdue
+checkpoint, and proves that single-work traversal drains it back to the hard
+cap before the next record is published. The same control keeps pending missing
+work in the exact frontier accounting while coalescing 2,048 paths into one
+request; restoring the old frontier-dependent one-path limit makes the
+request-width witness fail. Restoring the old immediate checkpoint stop makes
 that control fail with the observed public-node error. Separate controls prove
 that account traversal defers storage roots into multi-path requests, that the
 version-two completion sentinel is backward compatible with version-one

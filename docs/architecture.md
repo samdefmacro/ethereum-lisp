@@ -207,9 +207,13 @@ them by their physical location instead reintroduces dependency cycles:
   neither the proof nor state completion. This cache relies on the current
   append-only trie-node/code stores; a future pruning implementation must remove
   or otherwise invalidate affected proofs before deleting their dependencies.
-  Soft-limited responses can retain older work below the returned subtree, so
-  later missing-path batches shrink as that frontier approaches its target;
-  the larger hard record cap remains a fail-closed allocation boundary.
+  Missing references are temporarily moved from the exact DFS frontier into a
+  bounded 2,048-path request vector and counted by both expansion and
+  checkpoint decisions. Replacing them in the same order after the response
+  does not enlarge the frontier, so even a hard-sized frontier can coalesce one
+  full network request instead of paying one public-network round trip per
+  node. Local node decoding remains frontier-aware and the larger hard record
+  cap remains a fail-closed allocation boundary.
   Referenced code is made durable before the frontier advances. This traversal
   reuses nodes across restart and alone installs the completion marker, deleting
   its checkpoint in the same final batch. A crash can repeat content-addressed

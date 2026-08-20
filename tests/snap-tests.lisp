@@ -1933,15 +1933,16 @@
   (:layer :unit :module :p2p)
   ;; A real Hoodi soft-limit left an older fetched batch below the subtree being
   ;; expanded, taking the exact restart frontier just above the former 4096
-  ;; cap.  Keep that live, bounded shape encodable while forcing later missing
-  ;; batches to shrink before they can accumulate another full 2048 entries.
+  ;; cap.  Keep that live, bounded shape encodable. Missing work is already part
+  ;; of the exact frontier, so collecting it into a wire batch does not enlarge
+  ;; the checkpoint; local expansion remains independently frontier-bounded.
   (is (= 2048
          (ethereum-lisp.snap-sync::snap-sync-heal-missing-limit 0)))
-  (is (= 1096
+  (is (= 2048
          (ethereum-lisp.snap-sync::snap-sync-heal-missing-limit 3000)))
-  (is (= 1
+  (is (= 2048
          (ethereum-lisp.snap-sync::snap-sync-heal-missing-limit 4096)))
-  (is (= 1
+  (is (= 2048
          (ethereum-lisp.snap-sync::snap-sync-heal-missing-limit 8192)))
   (signals error
     (ethereum-lisp.snap-sync::snap-sync-heal-missing-limit -1))
@@ -1996,6 +1997,21 @@
                    (list (make-byte-vector 0)))))
          (branch-encoded (rlp-encode branch-object))
          (branch-reference (keccak-256 branch-encoded))
+         (request-widths '())
+         (source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :account-range (lambda (request) (declare (ignore request)))
+            :storage-ranges (lambda (request) (declare (ignore request)))
+            :bytecodes (lambda (request) (declare (ignore request)))
+            :trie-nodes
+            (lambda (request)
+              (let ((width
+                      (length
+                       (ethereum-lisp.snap:snap-get-trie-nodes-paths
+                        request))))
+                (push width request-widths)
+                (ethereum-lisp.snap:make-snap-trie-nodes
+                 1 (loop repeat width collect leaf-encoded))))))
          (pivot (make-hash32 (snap-test-hash 221)))
          (progress
            (ethereum-lisp.snap-sync::snap-sync-make-progress
@@ -2033,8 +2049,6 @@
     (let ((batch (make-kv-write-batch)))
       (kv-batch-put-chain-record
        batch :trie-node branch-reference branch-encoded)
-      (kv-batch-put-chain-record
-       batch :trie-node leaf-reference leaf-encoded)
       (ethereum-lisp.snap-sync::snap-sync-populate-heal-checkpoint-batch
        batch progress stack 0 0 0 0 0)
       (kv-apply-batch database batch))
@@ -2059,7 +2073,7 @@
                reused-nodes fetched-nodes request-count response-bytes)))
            (setf completed
                  (ethereum-lisp.snap-sync::snap-sync-heal-state
-                  database nil progress (* 2 1024 1024))))
+                  database (list source) progress (* 2 1024 1024))))
       (setf
        (fdefinition
         'ethereum-lisp.snap-sync::snap-sync-heal-checkpoint-due-p)
@@ -2072,6 +2086,11 @@
          (list
           ethereum-lisp.snap-sync::+snap-sync-heal-checkpoint-max-works+)
          checkpoint-frontiers))
+    ;; The live failure shape used to emit one TrieNodes request per node once
+    ;; the frontier reached its hard cap. These works were already counted in
+    ;; the frontier, so one full bounded request is both safe and required.
+    (is (= ethereum-lisp.snap-sync::+snap-sync-heal-paths-per-request+
+           (reduce #'max request-widths)))
     (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p completed))))
 
 (deftest snap-state-healer-uses-multiple-trie-node-sources

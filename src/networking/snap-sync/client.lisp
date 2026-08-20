@@ -1033,20 +1033,16 @@ its bounded pivot tail will anchor the resumable import."
         (list (snap-sync-heal-work-account-hash work) compact))))
 
 (defun snap-sync-heal-missing-limit (stack-count)
-  "Bound the next missing batch while reserving room for trie expansion.
+  "Bound one remote missing-path batch without shrinking it at a wide frontier.
 
-Fetched work remains ahead of the older DFS frontier.  A soft-limited response
-can therefore leave one batch pending while its first returned subtree exposes
-another batch.  Shrink later batches as the retained frontier approaches the
-target; the separate hard checkpoint cap leaves another target-sized margin
-for at most one secure-trie expansion."
+Missing work is popped out of the exact DFS frontier only until the response is
+made durable, then reinserted in the same order before any checkpoint can be
+published.  Coalescing those already-counted works therefore cannot enlarge the
+frontier.  The local-read limiter separately counts pending missing work while
+reserving room for trie expansion."
   (unless (and (integerp stack-count) (not (minusp stack-count)))
     (error "Snap heal frontier count must be a non-negative integer"))
-  (max 1
-       (min +snap-sync-heal-paths-per-request+
-            (max 0
-                 (- +snap-sync-heal-checkpoint-frontier-target+
-                    stack-count)))))
+  +snap-sync-heal-paths-per-request+)
 
 (defun snap-sync-heal-local-read-limit
     (stack-count missing-count missing-limit checkpoint-room)
@@ -1785,14 +1781,14 @@ the state-history marker and completed cursor share their final batch."
          (checkpoint-due-p ()
            (snap-sync-heal-checkpoint-due-p
             processed-nodes last-checkpoint-processed-nodes))
-         (checkpoint-blocks-traversal-p ()
+         (checkpoint-blocks-traversal-p (&optional (pending-count 0))
            ;; A wide local batch may transiently expand the exact DFS frontier
            ;; above the single-record checkpoint cap.  The older checkpoint
            ;; remains authoritative while one-work reads drain that bounded
            ;; excess; stopping here would make the node fail at the first
            ;; checkpoint boundary without producing a resumable record.
            (and (checkpoint-due-p)
-                (<= (+ (length stack) deferred-storage-count)
+                (<= (+ (length stack) deferred-storage-count pending-count)
                     +snap-sync-heal-checkpoint-max-works+)))
          (queue-code-hash (hash)
            ;; Keep one content hash for the whole traversal.  Flushing bounds
@@ -2008,7 +2004,7 @@ the state-history marker and completed cursor share their final batch."
                            (< missing-count missing-limit)
                            (< deferred-storage-count
                               +snap-sync-heal-deferred-storage-target+)
-                           (not (checkpoint-blocks-traversal-p)))
+                           (not (checkpoint-blocks-traversal-p missing-count)))
                 do
                 (let* ((checkpoint-room
                          (max
@@ -2018,7 +2014,8 @@ the state-history marker and completed cursor share their final batch."
                                 last-checkpoint-processed-nodes))))
                        (read-limit
                          (snap-sync-heal-local-read-limit
-                          (+ (length stack) deferred-storage-count)
+                          (+ (length stack) deferred-storage-count
+                             missing-count)
                           missing-count missing-limit
                           checkpoint-room))
                        (lookups '())
@@ -2029,7 +2026,9 @@ the state-history marker and completed cursor share their final batch."
                   ;; checkpoint never skips an unprocessed popped work.
                   (loop while (and stack
                                    (< lookup-count read-limit)
-                                   (not (checkpoint-blocks-traversal-p)))
+                                   (not
+                                    (checkpoint-blocks-traversal-p
+                                     missing-count)))
                         for work = (pop stack)
                         for reference =
                           (snap-sync-heal-work-reference work)
