@@ -175,13 +175,14 @@ them by their physical location instead reintroduces dependency cycles:
   checkpoint is written only after the complete frontier is back within 8,192,
   so the allocation bound remains unchanged without turning a temporary shape
   into a fatal node exit. On SBCL, production RocksDB batches of at least 128
-  keys are divided into at most four contiguous native multi-get slices. The
-  coordinator joins every reader, restores the original value/presence order,
-  and propagates any
-  worker failure before processing a node; small batches and memory/file stores
-  retain the same ordered generic fallback. This bounded read concurrency uses
-  the otherwise idle I/O capacity of a public datadir without making trie
-  decoding, frontier mutation, or checkpoint publication concurrent. The
+  keys are divided into at most four contiguous native multi-get slices. Each
+  worker also checks the content hash and performs the bounded RLP decode for
+  its present slice. The coordinator joins every reader, restores the original
+  value/presence/decoded order, and propagates the earliest worker-slice failure
+  before mutating the DFS frontier; small batches and memory/file stores retain
+  the same ordered generic fallback. This bounded read/decode concurrency uses
+  otherwise idle CPU and I/O capacity without making frontier mutation or
+  checkpoint publication concurrent. The
   database API rejects more than 4,096 keys or 4 MiB of key bytes before native
   allocation. The fetched nodes and the exact remaining work frontier
   are committed in one batch. That bounded, checksummed checkpoint is tied to
@@ -200,7 +201,11 @@ them by their physical location instead reintroduces dependency cycles:
   work while continuing to decode version-one restart records. At a six-nibble
   account prefix, a sentinel publishes a domain-separated metadata proof keyed
   by the subtree's content hash only after all descendant trie nodes, storage
-  roots, and bytecode are durable. These optional proofs survive pivot rebase:
+  roots, and bytecode are durable. Completed proofs are accumulated in input
+  order and published in bounded batches of at most 2,048 rather than forcing a
+  synchronous RocksDB transaction for every small subtree; checkpoint, missing
+  fetch, and final boundaries flush the remaining batch. These optional proofs
+  survive pivot rebase:
   an unchanged subtree at a later authorized root can be skipped rather than
   reread, while a changed content hash is traversed normally. An unknown proof
   version is local storage corruption, and a failed proof batch publishes

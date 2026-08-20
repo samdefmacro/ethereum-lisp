@@ -216,12 +216,13 @@ peer. Local traversal proves that more than one trie hash crosses the ordered
 multi-get seam in a batch, while the database integration control proves one
 generic RocksDB batch reaches exactly one native call and preserves
 duplicate-key order and per-key absence. A healer-specific RocksDB control
-proves that one 512-key local batch reaches four bounded read workers, rejoins
-their values and presence bits in exact input order, and propagates an injected
-worker failure. Switching the production dispatch back to serial makes its
-four-call witness fail. Generic controls enforce the 4,096-key and 4 MiB
-key-byte bounds. They persist a bounded checksummed work frontier in the same
-batch as newly accepted nodes. Abrupt source loss then resumes without
+proves that one 512-key local batch reaches four bounded read workers, performs
+present-value decoding on all four workers, rejoins values, presence bits, and
+decoded objects in exact input order, and propagates an injected worker
+failure. Switching the production dispatch back to serial makes its four-call
+and four-decoder-thread witnesses fail. Generic controls enforce the 4,096-key
+and 4 MiB key-byte bounds. They persist a bounded checksummed work frontier in
+the same batch as newly accepted nodes. Abrupt source loss then resumes without
 rereading the root;
 corrupt, stale, empty, or oversized checkpoints fail closed, and
 rebase/completion failure injection proves that checkpoint invalidation remains
@@ -237,8 +238,10 @@ that control fail with the observed public-node error. Separate controls prove
 that account traversal defers storage roots into multi-path requests, that the
 version-two completion sentinel is backward compatible with version-one
 checkpoints, and that a content-addressed subtree proved under one pivot reduces
-the decoded work under the next pivot. Proof publication failure leaves neither
-the cache record nor state completion. Restoring immediate storage descent or
+the decoded work under the next pivot. The same regression counts proof batch
+identity: more than one independent proof must share a durable batch and no
+batch may exceed 2,048 proofs. Proof publication failure leaves neither the
+cache record nor state completion. Restoring immediate storage descent or
 removing the subtree cache-hit branch makes the corresponding focused test fail.
 A coordinator control proves that
 a valid identity-matched healer checkpoint pins its CL target for the first

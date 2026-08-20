@@ -30,6 +30,8 @@
   "Versioned value for a completely verified content-addressed subtree.")
 (defparameter *snap-sync-healed-subtree-prefix-nibbles* 6
   "Account-trie prefix depth whose completed subtrees survive pivot rebases.")
+(defconstant +snap-sync-healed-subtrees-per-batch+ 2048
+  "Maximum completed subtree proofs published by one durable write batch.")
 (defconstant +snap-sync-heal-checkpoint-frontier-target+ 4096)
 (defconstant +snap-sync-heal-checkpoint-max-works+ 8192)
 (defconstant +snap-sync-heal-checkpoint-max-bytes+ (* 4 1024 1024))
@@ -1541,13 +1543,19 @@ the returned record in the same batch as its new skeleton metadata."
          (append (subseq sources offset) (subseq sources 0 offset)))))))
 
 #+sbcl
-(defun snap-sync-heal-parallel-local-node-batch (database references workers)
-  "Read REFERENCES concurrently and return results in their original order."
+(defun snap-sync-heal-parallel-local-node-batch
+    (database references workers decoder)
+  "Read REFERENCES concurrently and optionally decode present values.
+
+DECODER receives the original reference index and encoded value.  Reads,
+validation, and decoding remain partitioned into bounded contiguous slices;
+the returned encoded, presence, and decoded vectors retain input order."
   (let* ((references (coerce references 'vector))
          (count (length references))
          (worker-count (min workers count))
          (values-by-worker (make-array worker-count :initial-element nil))
          (present-by-worker (make-array worker-count :initial-element nil))
+         (decoded-by-worker (make-array worker-count :initial-element nil))
          (conditions (make-array worker-count :initial-element nil))
          (threads (make-array worker-count :initial-element nil)))
     (labels ((start (index)
@@ -1558,8 +1566,20 @@ the returned record in the same batch as its new skeleton metadata."
                        (kv-get-chain-records
                         database :trie-node
                         (subseq references (start index) (start (1+ index))))
-                     (setf (aref values-by-worker index) values
-                           (aref present-by-worker index) present))
+                     (let ((decoded
+                             (and decoder
+                                  (make-array (length values)
+                                              :initial-element nil))))
+                       (when decoder
+                         (dotimes (offset (length values))
+                           (when (= 1 (aref present offset))
+                             (setf (aref decoded offset)
+                                   (funcall decoder
+                                            (+ (start index) offset)
+                                            (aref values offset))))))
+                       (setf (aref values-by-worker index) values
+                             (aref present-by-worker index) present
+                             (aref decoded-by-worker index) decoded)))
                  (serious-condition (condition)
                    (setf (aref conditions index) condition)))))
       (unwind-protect
@@ -1583,14 +1603,19 @@ the returned record in the same batch as its new skeleton metadata."
         (when condition
           (error condition)))
       (let ((values (make-array count :initial-element nil))
-            (present (make-array count :element-type 'bit :initial-element 0)))
+            (present (make-array count :element-type 'bit :initial-element 0))
+            (decoded
+              (and decoder (make-array count :initial-element nil))))
         (dotimes (index worker-count)
           (replace values (aref values-by-worker index) :start1 (start index))
-          (replace present (aref present-by-worker index) :start1 (start index)))
-        (values values present)))))
+          (replace present (aref present-by-worker index) :start1 (start index))
+          (when decoder
+            (replace decoded (aref decoded-by-worker index)
+                     :start1 (start index))))
+        (values values present decoded)))))
 
-(defun snap-sync-heal-local-node-batch (database references)
-  "Read one ordered, bounded batch of local trie-node references."
+(defun snap-sync-heal-local-node-batch (database references &key decoder)
+  "Read one ordered, bounded local trie-node batch and optionally decode it."
   (unless (and (integerp *snap-sync-heal-local-read-workers*)
                (<= 1 *snap-sync-heal-local-read-workers* 16))
     (error "Snap heal local read workers must be between one and 16"))
@@ -1601,8 +1626,18 @@ the returned record in the same batch as its new skeleton metadata."
          (>= (length references) +snap-sync-heal-parallel-read-minimum+))
     (return-from snap-sync-heal-local-node-batch
       (snap-sync-heal-parallel-local-node-batch
-       database references *snap-sync-heal-local-read-workers*)))
-  (kv-get-chain-records database :trie-node references))
+       database references *snap-sync-heal-local-read-workers* decoder)))
+  (multiple-value-bind (values present)
+      (kv-get-chain-records database :trie-node references)
+    (let ((decoded
+            (and decoder
+                 (make-array (length values) :initial-element nil))))
+      (when decoder
+        (dotimes (index (length values))
+          (when (= 1 (aref present index))
+            (setf (aref decoded index)
+                  (funcall decoder index (aref values index))))))
+      (values values present decoded))))
 
 (defun snap-sync-healed-subtree-identifier (reference)
   (unless (and (byte-vector-p reference) (= 32 (length reference)))
@@ -1691,6 +1726,9 @@ the state-history marker and completed cursor share their final batch."
            (retired-source-errors '())
            (pending-codes '())
            (pending-code-count 0)
+           (pending-healed-subtrees '())
+           (pending-healed-subtree-count 0)
+           (pending-healed-subtree-index (make-hash-table :test #'equalp))
            (deferred-storage '())
            (deferred-storage-count 0)
            (seen-code-hashes (make-hash-table :test #'equalp))
@@ -1758,22 +1796,44 @@ the state-history marker and completed cursor share their final batch."
               on-source-error)
              (setf pending-codes nil
                    pending-code-count 0)))
+         (flush-healed-subtrees ()
+           ;; Every dependency encountered before a completion sentinel must
+           ;; be durable before its reusable proof becomes visible.  Publish
+           ;; many independent content-addressed proofs with one WAL sync;
+           ;; losing an unflushed cache hint can only repeat safe traversal.
+           (flush-codes)
+           (when pending-healed-subtrees
+             (setf pending-healed-subtrees
+                   (nreverse pending-healed-subtrees))
+             (let ((batch (make-kv-write-batch)))
+               (dolist (reference pending-healed-subtrees)
+                 (snap-sync-populate-healed-subtree-batch batch reference))
+               (kv-apply-batch database batch))
+             (setf pending-healed-subtrees nil
+                   pending-healed-subtree-count 0)
+             (clrhash pending-healed-subtree-index)))
          (persist-healed-subtree (work)
            ;; Account leaves below this sentinel may have queued code and
            ;; storage dependencies.  Publish the pivot-independent proof only
            ;; after every such dependency is durable; a failure leaves the
            ;; older checkpoint authoritative and merely repeats safe work.
-           (flush-codes)
            (let ((reference (snap-sync-heal-work-reference work)))
              (unless (snap-sync-healed-subtree-present-p database reference)
-               (let ((batch (make-kv-write-batch)))
-                 (snap-sync-populate-healed-subtree-batch batch reference)
-                 (kv-apply-batch database batch)))))
+               (unless
+                   (nth-value
+                    1 (gethash reference pending-healed-subtree-index))
+                 (setf (gethash reference pending-healed-subtree-index) t)
+                 (push reference pending-healed-subtrees)
+                 (incf pending-healed-subtree-count)
+                 (when (= pending-healed-subtree-count
+                          +snap-sync-healed-subtrees-per-batch+)
+                   (flush-healed-subtrees))))))
          (populate-checkpoint (batch frontier)
            (snap-sync-populate-heal-checkpoint-batch
             batch progress frontier processed-nodes reused-nodes fetched-nodes
             request-count response-bytes))
          (persist-checkpoint (frontier)
+           (flush-healed-subtrees)
            (let ((batch (make-kv-write-batch)))
              (populate-checkpoint batch frontier)
              (kv-apply-batch database batch)
@@ -1837,15 +1897,16 @@ the state-history marker and completed cursor share their final batch."
                     :inside)))
              (case (length items)
                (17
-                (dotimes (index 16)
-                  (let ((reference (nth index items)))
-                    (push-reference
-                     kind account-hash
-                     (concatenate 'vector path (vector index)) reference
-                     child-marker-state)))
-                (let ((value (nth 16 items)))
-                  (when (and (byte-vector-p value) (plusp (length value)))
-                    (process-value work path value))))
+                (let ((remaining items))
+                  (dotimes (index 16)
+                    (let ((reference (pop remaining)))
+                      (push-reference
+                       kind account-hash
+                       (concatenate 'vector path (vector index)) reference
+                       child-marker-state)))
+                  (let ((value (first remaining)))
+                    (when (and (byte-vector-p value) (plusp (length value)))
+                      (process-value work path value)))))
                (2
                 (let ((path-field (first items))
                       (reference (second items)))
@@ -1871,7 +1932,7 @@ the state-history marker and completed cursor share their final batch."
                            child-marker-state))))))
                (otherwise
                 (error "Snap healing response has invalid trie node arity")))))
-         (process-encoded (work encoded local-p)
+         (decode-encoded (work encoded local-p)
            (let ((reference (snap-sync-heal-work-reference work)))
              (when (and (byte-vector-p reference)
                         (= 32 (length reference))
@@ -1881,7 +1942,7 @@ the state-history marker and completed cursor share their final batch."
                     "Persisted snap trie node does not match its hash")
                    (error "Snap peer returned an unrequested trie node"))))
            (handler-case
-               (process-object work (rlp-decode-one encoded :max-list-items 17))
+               (rlp-decode-one encoded :max-list-items 17)
              (rlp-error (condition)
                (if local-p
                    (ethereum-lisp.validation:storage-fail
@@ -2073,9 +2134,17 @@ the state-history marker and completed cursor share their final batch."
                              (map 'vector
                                   #'snap-sync-heal-work-reference
                                   ordered)))
-                      (multiple-value-bind (encoded present)
+                      (multiple-value-bind (encoded present decoded)
                           (snap-sync-heal-local-node-batch
-                           database references)
+                           database references
+                           :decoder
+                           (lambda (index bytes)
+                             (let ((work (aref ordered index)))
+                               (decode-encoded
+                                work bytes
+                                (not
+                                 (snap-sync-heal-work-fetched-p work))))))
+                        (declare (ignore encoded))
                         (dotimes (index (length ordered))
                           (let ((work (aref ordered index)))
                             (if (= 1 (aref present index))
@@ -2094,15 +2163,12 @@ the state-history marker and completed cursor share their final batch."
                                       (snap-sync-heal-work-reference work)
                                       :marker-state :complete)
                                      stack))
-                                  (process-encoded
-                                   work (aref encoded index)
-                                   (not
-                                    (snap-sync-heal-work-fetched-p work))))
+                                  (process-object work (aref decoded index)))
                                 (progn
                                   (push work missing)
                                   (incf missing-count))))))))))
           (drain-deferred-storage)
-          (flush-codes)
+          (flush-healed-subtrees)
           (cond
             (missing
              (fetch-missing (coerce (nreverse missing) 'vector)))

@@ -2282,6 +2282,8 @@
            (fdefinition 'ethereum-lisp.database:kv-get-chain-records))
          (mutex (sb-thread:make-mutex :name "snap-heal-read-test"))
          (worker-threads '())
+         (decoder-threads '())
+         (decoder-call-count 0)
          (call-count 0))
     (unwind-protect
          (let ((database (make-rocksdb-key-value-database path)))
@@ -2305,22 +2307,35 @@
                       real-get-many candidate kind identifiers default)))
                   (let ((ethereum-lisp.snap-sync::*snap-sync-heal-local-read-workers*
                           4))
-                    (multiple-value-bind (values present)
+                    (multiple-value-bind (values present decoded)
                         (ethereum-lisp.snap-sync::snap-sync-heal-local-node-batch
-                         database references)
+                         database references
+                         :decoder
+                         (lambda (index value)
+                           (sb-thread:with-mutex (mutex)
+                             (incf decoder-call-count)
+                             (pushnew sb-thread:*current-thread*
+                                      decoder-threads :test #'eq))
+                           (list index (aref value 0))))
                       (is (= 4 call-count))
                       (is (= 4 (length worker-threads)))
+                      (is (= 4 (length decoder-threads)))
+                      (is (= (- 512 (ceiling 512 7)) decoder-call-count))
                       (is (= 512 (length values)))
                       (is (= 512 (length present)))
+                      (is (= 512 (length decoded)))
                       (dotimes (index 512)
                         (if (zerop (mod index 7))
                             (progn
                               (is (zerop (aref present index)))
-                              (is (null (aref values index))))
+                              (is (null (aref values index)))
+                              (is (null (aref decoded index))))
                             (progn
                               (is (= 1 (aref present index)))
                               (is (bytes= (vector (mod index 256))
-                                         (aref values index))))))))
+                                         (aref values index)))
+                              (is (equal (list index (mod index 256))
+                                         (aref decoded index))))))))
                   (setf
                    (fdefinition 'ethereum-lisp.database:kv-get-chain-records)
                    (lambda (candidate kind identifiers &optional default)
@@ -2362,9 +2377,14 @@
            (first-processed nil)
            (second-processed nil)
            (cache-hits 0)
+           (proof-count 0)
+           (proof-batches (make-hash-table :test #'eq))
            (real-present
              (fdefinition
-              'ethereum-lisp.snap-sync::snap-sync-healed-subtree-present-p)))
+              'ethereum-lisp.snap-sync::snap-sync-healed-subtree-present-p))
+           (real-populate
+             (fdefinition
+              'ethereum-lisp.snap-sync::snap-sync-populate-healed-subtree-batch)))
       (labels ((progress (pivot-seed target-seed number)
                  (ethereum-lisp.snap-sync::snap-sync-make-progress
                   :pivot-hash (make-hash32 (snap-test-hash pivot-seed))
@@ -2381,16 +2401,29 @@
         ;; six-nibble public-network setting.
         (let ((ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
                 1))
-          (ethereum-lisp.snap-sync::snap-sync-heal-state
-           target-database (list source) (progress 223 224 6000) 350
-           :on-heal-progress
-           (lambda (snapshot)
-             (when
-                 (ethereum-lisp.snap-sync::snap-sync-heal-progress-completed-p
-                  snapshot)
-               (setf first-processed
-                     (ethereum-lisp.snap-sync::snap-sync-heal-progress-processed-nodes
-                      snapshot)))))
+          (unwind-protect
+               (progn
+                 (setf
+                  (fdefinition
+                   'ethereum-lisp.snap-sync::snap-sync-populate-healed-subtree-batch)
+                  (lambda (batch reference)
+                    (incf proof-count)
+                    (incf (gethash batch proof-batches 0))
+                    (funcall real-populate batch reference)))
+                 (ethereum-lisp.snap-sync::snap-sync-heal-state
+                  target-database (list source) (progress 223 224 6000) 350
+                  :on-heal-progress
+                  (lambda (snapshot)
+                    (when
+                        (ethereum-lisp.snap-sync::snap-sync-heal-progress-completed-p
+                         snapshot)
+                      (setf first-processed
+                            (ethereum-lisp.snap-sync::snap-sync-heal-progress-processed-nodes
+                             snapshot))))))
+            (setf
+             (fdefinition
+              'ethereum-lisp.snap-sync::snap-sync-populate-healed-subtree-batch)
+             real-populate))
           (unwind-protect
                (progn
                  (setf
@@ -2417,6 +2450,17 @@
              real-present)))
         (is (plusp cache-hits))
         (is (plusp first-processed))
+        (is (> proof-count 1))
+        ;; Per-subtree KV commits make every proof use a distinct batch.  The
+        ;; production path must retain a hard 2,048-proof cap while publishing
+        ;; more than one independent proof in the same durable transaction.
+        (is (<= (loop for count being the hash-values of proof-batches
+                      maximize count)
+                ethereum-lisp.snap-sync::+snap-sync-healed-subtrees-per-batch+))
+        (is (> (loop for count being the hash-values of proof-batches
+                     maximize count)
+               1))
+        (is (< (hash-table-count proof-batches) proof-count))
         ;; Without the production cache-hit branch the second traversal
         ;; decodes the same number of nodes as the first and this witness fails.
         (is (< second-processed first-processed))
