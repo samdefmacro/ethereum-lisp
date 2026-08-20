@@ -202,7 +202,8 @@ them by their physical location instead reintroduces dependency cycles:
   Public presets carry the canonical pinned discv4 bootnodes; Hoodi also carries
   go-ethereum's canonical `all.hoodi.ethdisco.net` EIP-1459 URL. The DNS client
   asks only system-configured recursive resolvers, caps packet/TXT/section/query,
-  tree-depth, branch, and ENR counts, verifies the root secp256k1 signature and
+  tree-depth, branch, and ENR counts, stops successfully once the bounded
+  verified-candidate capacity is full, verifies the root secp256k1 signature and
   monotonic sequence, verifies every abbreviated Keccak Merkle label, then
   reuses EIP-778 signature verification and the eth fork-id filter before a
   candidate reaches the dial registry. The accepted sequence is atomically

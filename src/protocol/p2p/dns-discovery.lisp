@@ -228,13 +228,11 @@
                 (> additional 32) (> (+ answers authorities additional) 64))
         (error "DNS response section count exceeds policy"))
       (dotimes (i questions)
-        (declare (ignore i))
         (setf offset (dns-skip-name packet offset end))
         (when (> (+ offset 4) end) (error "Truncated DNS question"))
         (incf offset 4))
       (let ((texts '()))
         (dotimes (i (+ answers authorities additional))
-          (declare (ignore i))
           (setf offset (dns-skip-name packet offset end))
           (when (> (+ offset 10) end) (error "Truncated DNS resource record"))
           (let* ((type (dns-u16 packet offset end))
@@ -475,7 +473,10 @@ TCP endpoint. RECORD-FILTER, when supplied, receives each already verified ENR."
               (records 0)
               (matches 0)
               (mismatches 0))
-          (loop while queue
+          ;; EIP-1459 traversal is intentionally demand driven. Reaching the
+          ;; caller's verified-candidate capacity is a successful bounded
+          ;; prefix, not a reason to discard every candidate already proven.
+          (loop while (and queue (< (length enodes) max-enrs))
                 do (let* ((item (pop queue))
                           (label (car item))
                           (depth (cdr item)))
@@ -522,8 +523,6 @@ TCP endpoint. RECORD-FILTER, when supplied, receives each already verified ENR."
                                     (let ((id (nth-value 0
                                                 (parse-enode-url enode))))
                                       (unless (gethash id node-ids)
-                                        (when (>= (length enodes) max-enrs)
-                                          (error "EIP-1459 tree exceeds ENR policy"))
                                         (setf (gethash id node-ids) t)
                                         (push enode enodes)
                                         (incf matches)))

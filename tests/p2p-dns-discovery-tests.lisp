@@ -231,3 +231,60 @@
     (is (= 4096 (ethereum-lisp.p2p::dns-u16 packet (+ opt 3) end)))
     (is (zerop (ethereum-lisp.p2p::dns-u32 packet (+ opt 5) end)))
     (is (zerop (ethereum-lisp.p2p::dns-u16 packet (+ opt 9) end)))))
+
+(deftest eip1459-stops-successfully-at-the-verified-enr-cap
+  (:layer :unit :module :p2p)
+  (let* ((fixture (eip1459-test-fixture))
+         (first-label (getf fixture :leaf-label))
+         (second-key #x3a4b5c6d7e8f102132435465768798a9bacbdcedfe0f112233445566778899aa)
+         (second-record
+           (ethereum-lisp.p2p:encode-enr
+            second-key 1
+            (list (cons "ip" (hex-to-bytes "0xc000020a"))
+                  (cons "tcp" (integer-to-minimal-bytes 30304)))))
+         (second-leaf
+           (concatenate
+            'string "enr:"
+            (ethereum-lisp.p2p::eip1459-base64url-encode second-record)))
+         (second-label
+           (ethereum-lisp.p2p::eip1459-base32-encode
+            (subseq (keccak-256
+                     (ethereum-lisp.p2p::eip1459-ascii-bytes second-leaf))
+                    0 16)))
+         (branch (format nil "enrtree-branch:~A,~A"
+                         first-label second-label))
+         (branch-label
+           (ethereum-lisp.p2p::eip1459-base32-encode
+            (subseq (keccak-256
+                     (ethereum-lisp.p2p::eip1459-ascii-bytes branch))
+                    0 16)))
+         (unsigned-root
+           (format nil "enrtree-root:v1 e=~A l=~A seq=7"
+                   branch-label branch-label))
+         (root
+           (format nil "~A sig=~A" unsigned-root
+                   (ethereum-lisp.p2p::eip1459-base64url-encode
+                    (secp256k1-sign
+                     (keccak-256
+                      (ethereum-lisp.p2p::eip1459-ascii-bytes unsigned-root))
+                     (getf fixture :key)))))
+         (domain (getf fixture :domain))
+         (calls 0))
+    (flet ((query (name)
+             (incf calls)
+             (cond
+               ((string= name domain) (list root))
+               ((string= name (format nil "~A.~A" branch-label domain))
+                (list branch))
+               ((string= name (format nil "~A.~A" first-label domain))
+                (list (getf fixture :leaf)))
+               ((string= name (format nil "~A.~A" second-label domain))
+                (list second-leaf))
+               (t '()))))
+      (multiple-value-bind (enodes sequence stats)
+          (ethereum-lisp.p2p:eip1459-resolve-enodes
+           (getf fixture :url) :query-function #'query :max-enrs 1)
+        (declare (ignore sequence stats))
+        (is (= 1 (length enodes)))
+        ;; Root + branch + exactly one leaf; the second leaf is never queried.
+        (is (= 3 calls))))))
