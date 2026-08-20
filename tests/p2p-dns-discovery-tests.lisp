@@ -184,3 +184,20 @@
     (is (string= "abcdef"
                  (ethereum-lisp.p2p::dns-decode-txt-rdata
                   data 0 (length data))))))
+
+(deftest dns-resolver-parser-reads-docker-resolv-conf
+  (:layer :unit :module :p2p)
+  (let ((path (merge-pathnames
+               (format nil "ethereum-lisp-resolv-~36R.conf" (random (expt 36 8)))
+               (uiop:temporary-directory))))
+    (unwind-protect
+         (progn
+           (with-open-file (stream path :direction :output
+                                        :if-exists :error
+                                        :if-does-not-exist :create)
+             (format stream "# Docker Engine~%nameserver~C127.0.0.11~%search .~%"
+                     #\Tab))
+           (is (equal '("127.0.0.11")
+                      (ethereum-lisp.p2p::dns-resolver-addresses path))))
+      (when (probe-file path)
+        (delete-file path)))))
