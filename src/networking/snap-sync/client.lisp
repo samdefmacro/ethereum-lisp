@@ -10,7 +10,9 @@
 (defconstant +snap-sync-pivot-probe-bytes+ (* 4 1024))
 (defconstant +snap-sync-storage-accounts-per-request+ 256)
 (defconstant +snap-sync-account-task-count+ 16)
-(defconstant +snap-sync-heal-paths-per-request+ 2048)
+(defconstant +snap-sync-heal-paths-per-source+
+  +snap-sync-trie-node-lookups-per-request+
+  "Maximum healing paths assigned to one source in a concurrent round.")
 (defconstant +snap-sync-heal-local-reads-per-batch+ 512
   "Maximum local read width before frontier-aware shrinking.")
 (defparameter *snap-sync-heal-local-read-workers* 4
@@ -1049,17 +1051,23 @@ its bounded pivot tail will anchor the resumable import."
         (list compact)
         (list (snap-sync-heal-work-account-hash work) compact))))
 
-(defun snap-sync-heal-missing-limit (stack-count)
-  "Bound one remote missing-path batch without shrinking it at a wide frontier.
+(defun snap-sync-heal-missing-limit (stack-count source-count)
+  "Bound one remote missing-path batch by its concurrent source capacity.
 
 Missing work is popped out of the exact DFS frontier only until the response is
 made durable, then reinserted in the same order before any checkpoint can be
 published.  Coalescing those already-counted works therefore cannot enlarge the
 frontier.  The local-read limiter separately counts pending missing work while
-reserving room for trie expansion."
+reserving room for trie expansion.  Each source receives no more paths than
+pinned geth will look up, while independent sources can fill the bounded durable
+frontier concurrently."
   (unless (and (integerp stack-count) (not (minusp stack-count)))
     (error "Snap heal frontier count must be a non-negative integer"))
-  +snap-sync-heal-paths-per-request+)
+  (unless (and (integerp source-count) (plusp source-count))
+    (error "Snap heal source count must be a positive integer"))
+  (min +snap-sync-heal-checkpoint-max-works+
+       (* #+sbcl source-count #-sbcl 1
+          +snap-sync-heal-paths-per-source+)))
 
 (defun snap-sync-heal-local-read-limit
     (stack-count missing-count missing-limit checkpoint-room)
@@ -2142,7 +2150,8 @@ retired by this healing attempt cannot be re-admitted under the same identity."
                (missing-count 0)
                (missing-limit
                  (snap-sync-heal-missing-limit
-                  (+ (length stack) deferred-storage-count))))
+                  (+ (length stack) deferred-storage-count)
+                  (length active-sources))))
           (loop while (and stack
                            (< missing-count missing-limit)
                            (< deferred-storage-count

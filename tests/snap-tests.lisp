@@ -1285,6 +1285,33 @@
                    (length
                     (ethereum-lisp.snap:snap-trie-nodes-nodes response))))))))))
 
+(deftest snap-trie-node-server-caps-disk-lookups
+  (:layer :integration :module :p2p)
+  (multiple-value-bind (state addresses)
+      (snap-test-partitioned-state)
+    (declare (ignore addresses))
+    (let* ((database (make-memory-key-value-database))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              database state))
+           (limit
+             ethereum-lisp.snap-sync::+snap-sync-trie-node-lookups-per-request+)
+           (request
+             (ethereum-lisp.snap:make-snap-get-trie-nodes
+              79 (hash32-bytes (state-db-root state))
+              (loop repeat (+ limit 17) collect (list #(0)))
+              (* 8 1024 1024)))
+           (response
+             (snap-test-call-backend
+              backend ethereum-lisp.snap:+snap-message-get-trie-nodes+
+              request)))
+      ;; The decoder permits a structurally bounded larger list, but serving it
+      ;; must stop at pinned geth's disk-lookup boundary.
+      (is (= 1024 limit))
+      (is (= limit
+             (length
+              (ethereum-lisp.snap:snap-trie-nodes-nodes response)))))))
+
 (deftest snap-backend-keeps-the-session-for-an-unavailable-state-root
   (:layer :integration :module :p2p)
   ;; Pinned geth treats a state root that this snap server does not retain as
@@ -1946,16 +1973,20 @@
   ;; cap.  Keep that live, bounded shape encodable. Missing work is already part
   ;; of the exact frontier, so collecting it into a wire batch does not enlarge
   ;; the checkpoint; local expansion remains independently frontier-bounded.
+  (is (= 1024
+         (ethereum-lisp.snap-sync::snap-sync-heal-missing-limit 0 1)))
   (is (= 2048
-         (ethereum-lisp.snap-sync::snap-sync-heal-missing-limit 0)))
-  (is (= 2048
-         (ethereum-lisp.snap-sync::snap-sync-heal-missing-limit 3000)))
-  (is (= 2048
-         (ethereum-lisp.snap-sync::snap-sync-heal-missing-limit 4096)))
-  (is (= 2048
-         (ethereum-lisp.snap-sync::snap-sync-heal-missing-limit 8192)))
+         (ethereum-lisp.snap-sync::snap-sync-heal-missing-limit 3000 2)))
+  (is (= 3072
+         (ethereum-lisp.snap-sync::snap-sync-heal-missing-limit 4096 3)))
+  (is (= 8192
+         (ethereum-lisp.snap-sync::snap-sync-heal-missing-limit 8192 8)))
+  (is (= 8192
+         (ethereum-lisp.snap-sync::snap-sync-heal-missing-limit 8192 9)))
   (signals error
-    (ethereum-lisp.snap-sync::snap-sync-heal-missing-limit -1))
+    (ethereum-lisp.snap-sync::snap-sync-heal-missing-limit -1 1))
+  (signals error
+    (ethereum-lisp.snap-sync::snap-sync-heal-missing-limit 0 0))
   (let* ((pivot (make-hash32 (snap-test-hash 205)))
          (root (make-hash32 (snap-test-hash 206)))
          (target (make-hash32 (snap-test-hash 207)))
@@ -2099,7 +2130,7 @@
     ;; The live failure shape used to emit one TrieNodes request per node once
     ;; the frontier reached its hard cap. These works were already counted in
     ;; the frontier, so one full bounded request is both safe and required.
-    (is (= ethereum-lisp.snap-sync::+snap-sync-heal-paths-per-request+
+    (is (= ethereum-lisp.snap-sync::+snap-sync-heal-paths-per-source+
            (reduce #'max request-widths)))
     (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p completed))))
 
@@ -2183,6 +2214,46 @@
         (loop for (left right) on round-first-sources
               while right
               do (is (not (eq left right))))))))
+
+(deftest snap-state-healer-fills-each-source-within-geth-lookup-cap
+  (:layer :unit :module :p2p)
+  (let* ((source-count 3)
+         (per-source
+           ethereum-lisp.snap-sync::+snap-sync-heal-paths-per-source+)
+         (widths (make-array source-count :initial-element 0))
+         (sources
+           (loop for index below source-count
+                 collect
+                 (ethereum-lisp.snap-sync:make-snap-sync-source
+                  :account-range (lambda (request) (declare (ignore request)))
+                  :storage-ranges
+                  (lambda (request) (declare (ignore request)))
+                  :bytecodes (lambda (request) (declare (ignore request)))
+                  :trie-nodes
+                  (let ((worker-index index))
+                    (lambda (request)
+                      (setf (aref widths worker-index)
+                            (length
+                             (ethereum-lisp.snap:snap-get-trie-nodes-paths
+                              request)))
+                      (ethereum-lisp.snap:make-snap-trie-nodes 1 '()))))))
+         (work
+           (ethereum-lisp.snap-sync::snap-sync-make-heal-work
+            :account nil #(1) (snap-test-hash 193)))
+         (missing
+           (make-array (* source-count per-source) :initial-element work))
+         (results
+           (ethereum-lisp.snap-sync::snap-sync-heal-request-round
+            sources missing (snap-test-hash 194) (* 2 1024 1024))))
+    (is (= source-count (length results)))
+    (loop for width across widths do (is (= per-source width)))
+    ;; Empty replies are typed availability failures, but all independent
+    ;; requests must already have been issued at the safe per-peer width.
+    (loop for result across results
+          do (is (typep
+                  (ethereum-lisp.snap-sync::snap-sync-heal-fetch-result-condition
+                   result)
+                  'ethereum-lisp.snap-sync:snap-sync-state-unavailable)))))
 
 (deftest snap-state-healer-adds-sources-that-arrive-after-healing-starts
   (:layer :integration :module :p2p)
@@ -2322,7 +2393,7 @@
                (ethereum-lisp.snap-sync::snap-sync-heal-local-read-limit
                 stack-count 0
                 (ethereum-lisp.snap-sync::snap-sync-heal-missing-limit
-                 stack-count)
+                 stack-count 1)
                 ethereum-lisp.snap-sync::+snap-sync-heal-checkpoint-node-interval+))
             do (is
                 (<= (+ (- stack-count batch) (* 16 batch))

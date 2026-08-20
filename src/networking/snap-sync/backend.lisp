@@ -2,6 +2,13 @@
 
 ;;;; snap/1 service adapter over the runtime state and persistent trie store.
 
+(defconstant +snap-sync-trie-node-lookups-per-request+ 1024
+  "Maximum trie-node disk lookups served for one snap/1 request.
+
+This matches pinned geth's lookup cap.  The wire decoder has a larger structural
+limit, but an authenticated peer must not turn one small request into unbounded
+state-store work.")
+
 (defun snap-sync-root-trie (database state requested-root)
   "Return the requested live state trie, or NIL when this backend lacks ROOT.
 
@@ -234,33 +241,45 @@ proof verification (pinned commit 3827178, snap handlers.go and sync.go)."
       (return-from snap-sync-trie-node-response
         (make-snap-trie-nodes (snap-get-trie-nodes-id request) '())))
     (let* ((remaining (snap-get-trie-nodes-bytes request))
-           (nodes '()))
-      (dolist (path-set (snap-get-trie-nodes-paths request))
-        (when (null path-set)
-          (error "snap trie node request contains an empty path set"))
-        (if (= 1 (length path-set))
-            (multiple-value-bind (node present-p)
-                (mpt-get-node-by-compact-path account-trie (first path-set))
-              (when present-p
-                (when (and nodes (> (length node) remaining)) (return))
-                (push node nodes)
-                (decf remaining (min remaining (length node)))))
-            (let ((account-hash (first path-set)))
-              (unless (= 32 (length account-hash))
-                (error
-                 "snap storage trie path set requires a 32-byte account hash"))
-              (let ((storage-trie
-                      (snap-sync-account-storage-trie
-                       database state account-trie account-hash)))
-                (when storage-trie
-                  (dolist (compact-path (rest path-set))
-                    (multiple-value-bind (node present-p)
-                        (mpt-get-node-by-compact-path storage-trie compact-path)
-                      (when present-p
-                        (when (and nodes (> (length node) remaining))
-                          (return))
-                        (push node nodes)
-                        (decf remaining (min remaining (length node)))))))))))
+           (nodes '())
+           (lookups 0))
+      (block serve
+        (dolist (path-set (snap-get-trie-nodes-paths request))
+          (when (null path-set)
+            (error "snap trie node request contains an empty path set"))
+          (if (= 1 (length path-set))
+              (progn
+                (when (>= lookups +snap-sync-trie-node-lookups-per-request+)
+                  (return-from serve))
+                (incf lookups)
+                (multiple-value-bind (node present-p)
+                    (mpt-get-node-by-compact-path account-trie (first path-set))
+                  (when present-p
+                    (when (and nodes (> (length node) remaining))
+                      (return-from serve))
+                    (push node nodes)
+                    (decf remaining (min remaining (length node))))))
+              (let ((account-hash (first path-set)))
+                (unless (= 32 (length account-hash))
+                  (error
+                   "snap storage trie path set requires a 32-byte account hash"))
+                (let ((storage-trie
+                        (snap-sync-account-storage-trie
+                         database state account-trie account-hash)))
+                  (when storage-trie
+                    (dolist (compact-path (rest path-set))
+                      (when (>= lookups
+                                +snap-sync-trie-node-lookups-per-request+)
+                        (return-from serve))
+                      (incf lookups)
+                      (multiple-value-bind (node present-p)
+                          (mpt-get-node-by-compact-path storage-trie compact-path)
+                        (when present-p
+                          (when (and nodes (> (length node) remaining))
+                            (return-from serve))
+                          (push node nodes)
+                          (decf remaining
+                                (min remaining (length node))))))))))))
       (make-snap-trie-nodes
        (snap-get-trie-nodes-id request) (nreverse nodes)))))
 

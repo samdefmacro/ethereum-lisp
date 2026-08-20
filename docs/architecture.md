@@ -153,8 +153,13 @@ them by their physical location instead reintroduces dependency cycles:
   nodes, bytecode, complete small storage tries, and per-range cursor become
   durable. Byte-capped large storage is deferred to the content-addressed final
   traversal. Each round partitions its missing paths across the current snap
-  sources, with at most one outstanding TrieNodes request per source; a failed
-  source retires only its own slice while successful slices remain durable.
+  sources, with at most one outstanding TrieNodes request and 1,024 paths per
+  source. The total round width scales with the source count up to the durable
+  8,192-work frontier cap, so adding peers increases parallel work without
+  exceeding pinned geth's per-peer lookup capacity. The serving side applies
+  the same 1,024-lookup cap even when the structurally bounded wire list is
+  larger. A failed source retires only its own slice while successful slices
+  remain durable.
   Before each remote healing round the CLI refreshes its live session snapshot,
   reuses the existing sole-writer source wrappers, and incrementally admits new
   snap peers that completed their handshake after the long traversal began.

@@ -204,6 +204,10 @@ cl-workbench validation run cold-integration \
   --match SNAP-STATE-HEALER-DRAINS-OVERSIZED-OVERDUE-FRONTIER
 cl-workbench validation run cold-integration \
   --match SNAP-STATE-HEALER-ADDS-SOURCES-THAT-ARRIVE-AFTER-HEALING-STARTS
+cl-workbench validation run cold-unit \
+  --match SNAP-STATE-HEALER-FILLS-EACH-SOURCE-WITHIN-GETH-LOOKUP-CAP
+cl-workbench validation run cold-integration \
+  --match SNAP-TRIE-NODE-SERVER-CAPS-DISK-LOOKUPS
 ```
 
 The snap tests reconstruct and verify account/storage roots, reject altered
@@ -236,13 +240,18 @@ proves that its bounded record stays below the byte cap. A live-shape control
 resumes an 8,192-work frontier, expands its first branch to 8,207 at an overdue
 checkpoint, and proves that single-work traversal drains it back to the hard
 cap before the next record is published. The same control keeps pending missing
-work in the exact frontier accounting while coalescing 2,048 paths into one
-request; restoring the old frontier-dependent one-path limit makes the
-request-width witness fail. Restoring the old immediate checkpoint stop makes
-that control fail with the observed public-node error. Separate controls prove
-that account traversal defers storage roots into multi-path requests, that the
-version-two completion sentinel is backward compatible with version-one
-checkpoints, and that content-addressed account and contract-storage subtrees
+work in the exact frontier accounting while coalescing 1,024 paths into one
+single-source request; restoring the old frontier-dependent one-path limit
+makes the request-width witness fail. A separate count regression proves that
+three sources raise total round capacity to 3,072 while every request remains
+at the pinned geth 1,024-lookup cap. The serving regression sends 1,041 valid
+root paths and proves only 1,024 disk lookups are returned; raising the
+production cap makes it fail. Restoring the old immediate checkpoint stop
+makes the live-shape control fail with the observed public-node error. Separate
+controls prove that account traversal defers storage roots into multi-path
+requests, that the version-two completion sentinel is backward compatible with
+version-one checkpoints, and that content-addressed account and contract-storage
+subtrees
 proved under one pivot reduce the decoded work under the next pivot. The
 checkpoint codec round-trips an armed storage-subtree sentinel, and a namespace
 control proves that identical account and storage node hashes cannot share one
