@@ -25,7 +25,10 @@
   "snap-state-heal-checkpoint")
 (defparameter +snap-sync-healed-subtree-identifier-prefix+
   (ascii-to-bytes "snap-healed-subtree-v1:")
-  "Domain-separate durable, pivot-independent healed-subtree proof keys.")
+  "Domain-separate durable account-subtree proof keys.")
+(defparameter +snap-sync-healed-storage-subtree-identifier-prefix+
+  (ascii-to-bytes "snap-healed-storage-subtree-v1:")
+  "Domain-separate durable storage-subtree proof keys.")
 (defparameter +snap-sync-healed-subtree-value+ #(1)
   "Versioned value for a completely verified content-addressed subtree.")
 (defparameter *snap-sync-healed-subtree-prefix-nibbles* 6
@@ -993,15 +996,27 @@ its bounded pivot tail will anchor the resumable import."
       (error "Snap trie heal path exceeds a secure-key trie"))
     (unless (every (lambda (nibble) (<= 0 nibble 15)) path)
       (error "Snap trie heal path contains a non-nibble value"))
-    (when (and (member marker-state '(:armed :complete))
-               (not (and (eq kind :account)
-                         (null account-hash)
-                         (byte-vector-p reference)
-                         (= 32 (length reference)))))
-      (error "Snap healed-subtree marker work must name an account hash node"))
-    (when (and (eq marker-state :inside)
-               (not (and (eq kind :account) (null account-hash))))
-      (error "Snap healed-subtree descendants must remain in the account trie"))
+    (when (and
+           (member marker-state '(:armed :complete))
+           (not
+            (and
+             (byte-vector-p reference)
+             (= 32 (length reference))
+             (case kind
+               (:account (null account-hash))
+               (:storage
+                (and (byte-vector-p account-hash)
+                     (= 32 (length account-hash))))))))
+      (error "Snap healed-subtree marker work must name a typed hash node"))
+    (when (and
+           (eq marker-state :inside)
+           (not
+            (case kind
+              (:account (null account-hash))
+              (:storage
+               (and (byte-vector-p account-hash)
+                    (= 32 (length account-hash)))))))
+      (error "Snap healed-subtree descendants changed trie identity"))
     (make-snap-sync-heal-work
      :kind kind
      :account-hash (and account-hash (copy-seq account-hash))
@@ -1644,17 +1659,24 @@ the returned encoded, presence, and decoded vectors retain input order."
   (snap-sync-heal-chain-record-batch
    database :trie-node references :decoder decoder))
 
-(defun snap-sync-healed-subtree-identifier (reference)
+(defun snap-sync-healed-subtree-identifier
+    (reference &optional (kind :account))
   (unless (and (byte-vector-p reference) (= 32 (length reference)))
     (error "Snap healed-subtree identifier requires a 32-byte node hash"))
   (concatenate
-   'vector +snap-sync-healed-subtree-identifier-prefix+ reference))
+   'vector
+   (ecase kind
+     (:account +snap-sync-healed-subtree-identifier-prefix+)
+     (:storage +snap-sync-healed-storage-subtree-identifier-prefix+))
+   reference))
 
-(defun snap-sync-healed-subtree-present-p (database reference)
+(defun snap-sync-healed-subtree-present-p
+    (database reference &optional (kind :account))
   "Trust only this client's versioned proof that REFERENCE was fully healed."
   (multiple-value-bind (value present-p)
       (kv-get-chain-record
-       database :metadata (snap-sync-healed-subtree-identifier reference))
+       database :metadata
+       (snap-sync-healed-subtree-identifier reference kind))
     (when (and present-p
                (not (bytes= value +snap-sync-healed-subtree-value+)))
       (ethereum-lisp.validation:storage-fail
@@ -1662,37 +1684,43 @@ the returned encoded, presence, and decoded vectors retain input order."
     present-p))
 
 (defun snap-sync-healed-subtrees-present
-    (database references)
+    (database references &optional kinds)
   "Return ordered presence bits for versioned healed-subtree proofs.
 
 The production RocksDB path batches and partitions metadata reads just like
 local trie-node reads.  Unknown proof values remain storage corruption rather
 than cache misses."
-  (let ((identifiers
-          (map 'vector #'snap-sync-healed-subtree-identifier references)))
-    (multiple-value-bind (values present)
-        (snap-sync-heal-chain-record-batch database :metadata identifiers)
-      (dotimes (index (length references))
-        (when (= 1 (aref present index))
-          (unless (bytes= (aref values index)
-                          +snap-sync-healed-subtree-value+)
-            (ethereum-lisp.validation:storage-fail
-             "Persisted snap healed-subtree proof has an unknown version"))))
-      present)))
+  (let ((kinds
+          (or kinds
+              (make-array (length references) :initial-element :account))))
+    (unless (= (length references) (length kinds))
+      (error "Snap healed-subtree references and kinds differ in length"))
+    (let ((identifiers
+            (map 'vector #'snap-sync-healed-subtree-identifier
+                 references kinds)))
+      (multiple-value-bind (values present)
+          (snap-sync-heal-chain-record-batch database :metadata identifiers)
+        (dotimes (index (length references))
+          (when (= 1 (aref present index))
+            (unless (bytes= (aref values index)
+                            +snap-sync-healed-subtree-value+)
+              (ethereum-lisp.validation:storage-fail
+               "Persisted snap healed-subtree proof has an unknown version"))))
+        present))))
 
-(defun snap-sync-populate-healed-subtree-batch (batch reference)
+(defun snap-sync-populate-healed-subtree-batch
+    (batch reference &optional (kind :account))
   (kv-batch-put-chain-record
-   batch :metadata (snap-sync-healed-subtree-identifier reference)
+   batch :metadata (snap-sync-healed-subtree-identifier reference kind)
    +snap-sync-healed-subtree-value+)
   batch)
 
 (defun snap-sync-healed-subtree-candidate-p (work)
-  "Select bounded account subtrees whose content proof survives pivot changes."
+  "Select bounded trie subtrees whose content proof survives pivot changes."
   (unless (and (integerp *snap-sync-healed-subtree-prefix-nibbles*)
                (<= 1 *snap-sync-healed-subtree-prefix-nibbles* 64))
     (error "Snap healed-subtree prefix depth must be between one and 64"))
-  (and (eq :account (snap-sync-heal-work-kind work))
-       (null (snap-sync-heal-work-marker-state work))
+  (and (null (snap-sync-heal-work-marker-state work))
        (>= (length (snap-sync-heal-work-path work))
            *snap-sync-healed-subtree-prefix-nibbles*)
        (let ((reference (snap-sync-heal-work-reference work)))
@@ -1830,8 +1858,9 @@ the state-history marker and completed cursor share their final batch."
              (setf pending-healed-subtrees
                    (nreverse pending-healed-subtrees))
              (let ((batch (make-kv-write-batch)))
-               (dolist (reference pending-healed-subtrees)
-                 (snap-sync-populate-healed-subtree-batch batch reference))
+               (dolist (entry pending-healed-subtrees)
+                 (snap-sync-populate-healed-subtree-batch
+                  batch (cdr entry) (car entry)))
                (kv-apply-batch database batch))
              (setf pending-healed-subtrees nil
                    pending-healed-subtree-count 0)
@@ -1841,13 +1870,18 @@ the state-history marker and completed cursor share their final batch."
            ;; storage dependencies.  Publish the pivot-independent proof only
            ;; after every such dependency is durable; a failure leaves the
            ;; older checkpoint authoritative and merely repeats safe work.
-           (let ((reference (snap-sync-heal-work-reference work)))
-             (unless (snap-sync-healed-subtree-present-p database reference)
+           (let* ((reference (snap-sync-heal-work-reference work))
+                  (kind (snap-sync-heal-work-kind work))
+                  (identifier
+                    (snap-sync-healed-subtree-identifier reference kind)))
+             (unless
+                 (snap-sync-healed-subtree-present-p
+                  database reference kind)
                (unless
                    (nth-value
-                    1 (gethash reference pending-healed-subtree-index))
-                 (setf (gethash reference pending-healed-subtree-index) t)
-                 (push reference pending-healed-subtrees)
+                    1 (gethash identifier pending-healed-subtree-index))
+                 (setf (gethash identifier pending-healed-subtree-index) t)
+                 (push (cons kind reference) pending-healed-subtrees)
                  (incf pending-healed-subtree-count)
                  (when (= pending-healed-subtree-count
                           +snap-sync-healed-subtrees-per-batch+)
@@ -1914,7 +1948,6 @@ the state-history marker and completed cursor share their final batch."
                    (snap-sync-heal-work-account-hash work))
                  (child-marker-state
                    (and
-                    (eq :account (snap-sync-heal-work-kind work))
                     (member
                      (snap-sync-heal-work-marker-state work)
                      '(:armed :inside))
@@ -2148,18 +2181,24 @@ the state-history marker and completed cursor share their final batch."
                               (incf lookup-count))))
                   (when lookups
                     (let* ((ordered (coerce (nreverse lookups) 'vector))
-                           (candidate-references
+                           (candidate-works
                              (loop for work across ordered
                                    when
                                      (snap-sync-healed-subtree-candidate-p
                                       work)
-                                     collect
-                                       (snap-sync-heal-work-reference work)))
+                                     collect work))
+                           (candidate-references
+                             (map 'vector
+                                  #'snap-sync-heal-work-reference
+                                  candidate-works))
+                           (candidate-kinds
+                             (map 'vector
+                                  #'snap-sync-heal-work-kind
+                                  candidate-works))
                            (candidate-presence
-                             (if candidate-references
+                             (if candidate-works
                                  (snap-sync-healed-subtrees-present
-                                  database
-                                  (coerce candidate-references 'vector))
+                                  database candidate-references candidate-kinds)
                                  #()))
                            (candidate-index 0)
                            (actual-lookups '()))
@@ -2173,7 +2212,8 @@ the state-history marker and completed cursor share their final batch."
                                                candidate-index))
                                     (push
                                      (snap-sync-make-heal-work
-                                      :account nil
+                                      (snap-sync-heal-work-kind work)
+                                      (snap-sync-heal-work-account-hash work)
                                       (snap-sync-heal-work-path work)
                                       (snap-sync-heal-work-reference work)
                                       :fetched-p
@@ -2214,7 +2254,8 @@ the state-history marker and completed cursor share their final batch."
                                             work))
                                         (push
                                          (snap-sync-make-heal-work
-                                          :account nil
+                                          (snap-sync-heal-work-kind work)
+                                          (snap-sync-heal-work-account-hash work)
                                           (snap-sync-heal-work-path work)
                                           (snap-sync-heal-work-reference work)
                                           :marker-state :complete)

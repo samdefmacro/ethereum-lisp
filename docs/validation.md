@@ -237,8 +237,11 @@ request-width witness fail. Restoring the old immediate checkpoint stop makes
 that control fail with the observed public-node error. Separate controls prove
 that account traversal defers storage roots into multi-path requests, that the
 version-two completion sentinel is backward compatible with version-one
-checkpoints, and that a content-addressed subtree proved under one pivot reduces
-the decoded work under the next pivot. The same regression counts proof batch
+checkpoints, and that content-addressed account and contract-storage subtrees
+proved under one pivot reduce the decoded work under the next pivot. The
+checkpoint codec round-trips an armed storage-subtree sentinel, and a namespace
+control proves that identical account and storage node hashes cannot share one
+proof key. The same regression counts proof batch
 identity: more than one independent proof must share a durable batch and no
 batch may exceed 2,048 proofs. Proof publication failure leaves neither the
 cache record nor state completion. The RocksDB read regression also proves that

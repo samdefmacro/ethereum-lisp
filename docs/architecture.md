@@ -206,15 +206,19 @@ them by their physical location instead reintroduces dependency cycles:
   batch as both progress records.
   Checkpoint version two records armed, descendant, and completion-sentinel
   work while continuing to decode version-one restart records. At a six-nibble
-  account prefix, a sentinel publishes a domain-separated metadata proof keyed
-  by the subtree's content hash only after all descendant trie nodes, storage
-  roots, and bytecode are durable. Completed proofs are accumulated in input
-  order and published in bounded batches of at most 2,048 rather than forcing a
-  synchronous RocksDB transaction for every small subtree; checkpoint, missing
-  fetch, and final boundaries flush the remaining batch. These optional proofs
-  survive pivot rebase:
-  an unchanged subtree at a later authorized root can be skipped rather than
-  reread, while a changed content hash is traversed normally. An unknown proof
+  account or storage prefix, a sentinel publishes a trie-kind-domain-separated
+  metadata proof keyed by the subtree's content hash. An account proof becomes
+  visible only after all descendant trie nodes, storage roots, and bytecode are
+  durable; a storage proof similarly waits for all of its descendant nodes.
+  Kind separation prevents a storage proof from bypassing account-leaf semantic
+  validation even if an identical node encoding appears in both trie roles.
+  Completed proofs are accumulated in input order and published in bounded
+  batches of at most 2,048 rather than forcing a synchronous RocksDB transaction
+  for every small subtree; checkpoint, missing fetch, and final boundaries flush
+  the remaining batch. These optional proofs survive pivot rebase: an unchanged
+  account subtree or large contract-storage region at a later authorized root
+  can be skipped rather than reread, while a changed content hash is traversed
+  normally. An unknown proof
   version is local storage corruption, and a failed proof batch publishes
   neither the proof nor state completion. This cache relies on the current
   append-only trie-node/code stores; a future pruning implementation must remove
