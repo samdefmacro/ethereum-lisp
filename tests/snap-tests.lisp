@@ -1966,6 +1966,50 @@
         (ethereum-lisp.snap-sync::snap-sync-healed-subtree-present-p
          database subtree)))))
 
+(deftest snap-state-healer-yields-at-a-safe-batch-boundary
+  (:layer :unit :module :p2p)
+  (let* ((database (make-memory-key-value-database))
+         (request-calls 0)
+         (yield-calls 0)
+         (pivot-bytes (snap-test-hash 230))
+         (source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :account-range (lambda (request) (declare (ignore request)))
+            :storage-ranges (lambda (request) (declare (ignore request)))
+            :bytecodes (lambda (request) (declare (ignore request)))
+            :trie-nodes
+            (lambda (request)
+              (declare (ignore request))
+              (incf request-calls)
+              (error "Healer requested a peer after yielding"))))
+         (progress
+           (ethereum-lisp.snap-sync::snap-sync-make-progress
+            :pivot-hash (make-hash32 pivot-bytes)
+            :pivot-number 7000
+            :state-root (make-hash32 (snap-test-hash 231))
+            :partial-root +empty-trie-hash+
+            :target-hash (make-hash32 (snap-test-hash 232))
+            :chain-id 560048
+            :genesis-hash (make-hash32 (snap-test-hash 233))
+            :authority-id (make-hash32 (snap-test-hash 234))
+            :completed-p nil
+            :tasks
+            (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+             :count 1 :completed-p t))))
+    (signals ethereum-lisp.snap-sync:snap-sync-heal-yielded
+      (ethereum-lisp.snap-sync::snap-sync-heal-state
+       database (list source) progress (* 2 1024 1024)
+       :heal-yield-p
+       (lambda ()
+         (incf yield-calls)
+         t)))
+    (is (= 1 yield-calls))
+    (is (= 0 request-calls))
+    (multiple-value-bind (root present-p)
+        (kv-get-chain-record database :state-history pivot-bytes)
+      (is (null root))
+      (is (not present-p)))))
+
 (deftest snap-heal-checkpoint-bounds-large-live-frontiers
   (:layer :unit :module :p2p)
   ;; A real Hoodi soft-limit left an older fetched batch below the subtree being

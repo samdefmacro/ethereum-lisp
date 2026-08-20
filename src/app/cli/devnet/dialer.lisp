@@ -131,6 +131,9 @@ first, so a long backfill does not starve a short one."
 (defconstant +devnet-snap-heal-progress-log-interval-seconds+ 30
   "Minimum interval between non-terminal TrieNodes healing progress events.")
 
+(defconstant +devnet-snap-heal-target-check-interval-seconds+ 30
+  "Minimum interval between CL-target staleness checks during one heal.")
+
 (defun devnet-snap-heal-progress-log-due-p (last-log-at now completed-p)
   "Whether one cumulative healing snapshot should reach operator telemetry."
   (or completed-p
@@ -146,6 +149,31 @@ first, so a long backfill does not starve a short one."
 This is the same 2*64-8 stale-pivot window used by the pinned geth reference.
 It prevents slot-by-slot restarts while still escaping a state root that every
 live peer has pruned.")
+
+(defun devnet-node-stale-snap-successor
+    (node target-hash target-number)
+  "Return the newer CL-authorized target hash and number when TARGET is stale.
+
+Peer-advertised heads are deliberately excluded. Forkchoice has one current
+sync target; the Engine store retains its known header even while state is
+unavailable. The same 2*64-8 distance as DEVNET-NODE-ACTIVE-SNAP-TARGET avoids
+slot-by-slot healer churn."
+  (let ((latest-target (first (devnet-node-forkchoice-sync-targets node))))
+    (when (and latest-target (not (hash32= latest-target target-hash)))
+      (let ((latest-block
+              (call-with-devnet-node-store-guard
+               node
+               (lambda ()
+                 (let ((store (devnet-node-store node)))
+                   (or (chain-store-known-block store latest-target)
+                       (engine-payload-store-remote-block
+                        store latest-target)))))))
+        (when latest-block
+          (let ((latest-number
+                  (block-header-number (block-header latest-block))))
+            (when (> latest-number
+                     (+ target-number +devnet-snap-stale-target-distance+))
+              (values latest-target latest-number))))))))
 
 (defun devnet-node-active-snap-target (node latest-target)
   "Keep an unfinished durable Snap session pinned across advancing FCU heads.
@@ -606,7 +634,9 @@ must prove the new state root before either record can authorize publication."
                (values replacement t)))))))))
 
 (defun devnet-node-snap-import-with-failover
-    (node database pivot-header target-hash &key preferred-entry)
+    (node database pivot-header target-hash
+     &key preferred-entry
+          (target-number (block-header-number pivot-header)))
   "Resume disjoint pivot ranges concurrently across the live snap peers."
   (let* ((persistence (devnet-node-persistence-state node))
          (pivot-hash (block-header-hash pivot-header))
@@ -614,7 +644,8 @@ must prove the new state root before either record can authorize publication."
          (state-root (block-header-state-root pivot-header))
          (sources nil)
          (source-entries '())
-         (last-heal-log-at nil))
+         (last-heal-log-at nil)
+         (last-target-check-at (unix-time)))
     (labels
         ((ordered-live-entries ()
            (let ((current
@@ -645,7 +676,24 @@ must prove the new state root before either record can authorize publication."
                 (car (find entry source-entries :key #'cdr :test #'eq)))
               current)))
          (entry-for-source (source)
-           (cdr (assoc source source-entries :test #'eq))))
+           (cdr (assoc source source-entries :test #'eq)))
+         (yield-for-stale-target-p ()
+           (let ((now (unix-time)))
+             (when (or (< now last-target-check-at)
+                       (>= (- now last-target-check-at)
+                           +devnet-snap-heal-target-check-interval-seconds+))
+               (setf last-target-check-at now)
+               (multiple-value-bind (successor successor-number)
+                   (devnet-node-stale-snap-successor
+                    node target-hash target-number)
+                 (when successor
+                   (devnet-peer-manager-log
+                    node "peer.snap.target_stale"
+                    "target" target-number
+                    "targetHash" (hash32-to-hex target-hash)
+                    "successor" successor-number
+                    "successorHash" (hash32-to-hex successor))
+                   t))))))
       (setf sources (refresh-sources))
       (unless sources
         (eth-sync-multi-peer-fail
@@ -658,6 +706,7 @@ must prove the new state root before either record can authorize publication."
        :genesis-hash (block-hash (devnet-node-genesis-block node))
        :authority-id (devnet-persistence-state-authority-id persistence)
        :heal-source-provider #'refresh-sources
+       :heal-yield-p #'yield-for-stale-target-p
        ;; The multi-source importer invokes this on the coordinator thread only
        ;; after the task's account nodes, code, complete small storage tries,
        ;; and cursor are durable. Byte-capped storage is mandatory work for the
@@ -841,7 +890,8 @@ succeeded but whose storage ranges were pruned before the full import."
               (let ((state-progress
                       (devnet-node-snap-import-with-failover
                        node database pivot-header target-hash
-                       :preferred-entry entry)))
+                       :preferred-entry entry
+                       :target-number target-number)))
                 (unless (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
                          state-progress)
                   (storage-fail
@@ -897,19 +947,25 @@ observe.  In that case retry exactly once at the target parent; if every source
 lacks that state too, report a typed peer-availability failure to the continuous
 coordinator instead of terminating the node."
   (handler-case
-      (devnet-node-snap-sync-pivot-attempt node target-hash nil)
-    (ethereum-lisp.snap-sync:snap-sync-state-unavailable (first-condition)
-      (devnet-peer-manager-log
-       node "peer.snap.pivot_fallback"
-       "target" (hash32-to-hex target-hash)
-       "error" first-condition)
       (handler-case
-          (devnet-node-snap-sync-pivot-attempt node target-hash t)
-        (ethereum-lisp.snap-sync:snap-sync-state-unavailable
-            (second-condition)
-          (eth-sync-multi-peer-fail
-           "all snap peers lack both authorized pivot states for target ~A: ~A"
-           (hash32-to-hex target-hash) second-condition))))))
+          (devnet-node-snap-sync-pivot-attempt node target-hash nil)
+        (ethereum-lisp.snap-sync:snap-sync-state-unavailable (first-condition)
+          (devnet-peer-manager-log
+           node "peer.snap.pivot_fallback"
+           "target" (hash32-to-hex target-hash)
+           "error" first-condition)
+          (handler-case
+              (devnet-node-snap-sync-pivot-attempt node target-hash t)
+            (ethereum-lisp.snap-sync:snap-sync-state-unavailable
+                (second-condition)
+              (eth-sync-multi-peer-fail
+               "all snap peers lack both authorized pivot states for target ~A: ~A"
+               (hash32-to-hex target-hash) second-condition)))))
+    (ethereum-lisp.snap-sync:snap-sync-heal-yielded ()
+      ;; A truthy scheduling result prevents this pass from falling into the
+      ;; unbounded forward-gap path. The next pass re-evaluates the newest FCU
+      ;; target and atomically rebases the stale SNAP session.
+      :stale-target)))
 
 (defun devnet-node-consensus-forward-target (node)
   "Return a numbered full-block target supplied through Engine newPayload.

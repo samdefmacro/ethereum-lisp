@@ -81,6 +81,17 @@ live peer snapshot, and retry without hiding local integrity faults.")
              (mapcar #'princ-to-string
                      (snap-sync-sources-exhausted-failures condition))))))
 
+(define-condition snap-sync-heal-yielded (error) ()
+  (:documentation
+   "The healer yielded at a safe batch boundary to let its coordinator
+re-evaluate consensus-authorized target policy. Durable trie records remain
+reusable; callers must not treat this local scheduling result as peer fault or
+state completion.")
+  (:report
+   (lambda (condition stream)
+     (declare (ignore condition))
+     (write-string "Snap healer yielded for target re-evaluation" stream))))
+
 (defun snap-sync-signal-sources-exhausted (phase failures)
   (unless failures
     (error "Snap workers stopped without source-failure evidence"))
@@ -1756,6 +1767,7 @@ than cache misses."
 (defun snap-sync-heal-state
     (database sources progress byte-limit
      &key on-source-error on-heal-progress source-provider
+          heal-yield-p
           (code-batch-limit +snap-sync-heal-codes-per-request+))
   "Heal a mixed snap/1 flat download to PROGRESS's exact authorized root.
 
@@ -1766,13 +1778,17 @@ hashes before persistence.  Code and storage dependencies are completed before
 the state-history marker and completed cursor share their final batch.
 SOURCE-PROVIDER may return a fresh live-source snapshot before each remote
 round; newly observed complete sources join in stable order, while a source
-retired by this healing attempt cannot be re-admitted under the same identity."
+retired by this healing attempt cannot be re-admitted under the same identity.
+When HEAL-YIELD-P returns true at a safe batch boundary, signal
+SNAP-SYNC-HEAL-YIELDED without publishing completion."
   (unless (and (integerp code-batch-limit)
                (<= 1 code-batch-limit +snap-sync-heal-codes-per-request+))
     (error "Snap healing code batch limit must be between one and ~D"
            +snap-sync-heal-codes-per-request+))
   (when (and source-provider (not (functionp source-provider)))
     (error "Snap healing source provider must be a function"))
+  (when (and heal-yield-p (not (functionp heal-yield-p)))
+    (error "Snap healing yield predicate must be a function"))
   (unless (snap-sync-tasks-completed-p
            (snap-sync-progress-tasks progress))
     (error "Snap trie healing cannot precede flat-range completion"))
@@ -2146,6 +2162,12 @@ retired by this healing attempt cannot be re-admitted under the same identity."
                 on-heal-progress processed-nodes reused-nodes fetched-nodes
                 request-count response-bytes nil)))))
       (loop
+        ;; No request worker or uncommitted database batch crosses this seam.
+        ;; A coordinator may therefore yield a stale, CL-authorized target and
+        ;; atomically rebase its durable progress on the next pass. Content-
+        ;; addressed nodes and completed-subtree proofs remain reusable.
+        (when (and heal-yield-p (funcall heal-yield-p))
+          (error 'snap-sync-heal-yielded))
         (let* ((missing '())
                (missing-count 0)
                (missing-limit
@@ -2333,7 +2355,7 @@ retired by this healing attempt cannot be re-admitted under the same identity."
      &key pivot-hash pivot-number state-root chain-id genesis-hash authority-id
           target-hash
           (byte-limit +snap-sync-request-bytes+) on-progress on-heal-progress
-          heal-source-provider max-pages)
+          heal-source-provider heal-yield-p max-pages)
   "Download, verify, and atomically install a CL-authorized pivot state.
 
 Every account-range cursor is committed in the same batch as the partial trie
@@ -2363,6 +2385,7 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
         (snap-sync-heal-state
          database (list source) progress byte-limit
          :source-provider heal-source-provider
+         :heal-yield-p heal-yield-p
          :on-heal-progress on-heal-progress)))
     (loop
       (when (and max-pages (>= pages max-pages))
@@ -2386,6 +2409,7 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
             (snap-sync-heal-state
              database (list source) progress byte-limit
              :source-provider heal-source-provider
+             :heal-yield-p heal-yield-p
              :on-heal-progress on-heal-progress)))))))
 
 #+sbcl
@@ -2540,7 +2564,7 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
      &key pivot-hash pivot-number state-root chain-id genesis-hash authority-id
           target-hash (byte-limit +snap-sync-request-bytes+)
           on-progress on-source-error on-heal-progress heal-source-provider
-          max-pages)
+          heal-yield-p max-pages)
   "Import one pivot through disjoint durable ranges shared across SOURCES.
 
 Sixteen logical account tasks follow pinned geth 38271784.  At most one worker
@@ -2550,7 +2574,8 @@ the progress batch, and callbacks.  ON-PROGRESS receives PROGRESS, SOURCE, and
 TASK-INDEX after that task page is durable.  ON-SOURCE-ERROR receives SOURCE and
 the condition after its task has been made retryable by another source.
 HEAL-SOURCE-PROVIDER extends only the final content-addressed traversal with
-newly admitted live sources; the durable range-worker snapshot stays finite."
+newly admitted live sources; the durable range-worker snapshot stays finite.
+HEAL-YIELD-P is forwarded only to that final traversal."
   (unless (typep database 'key-value-database)
     (error "Snap state import requires a key-value database"))
   (setf sources (remove-duplicates (copy-list sources) :test #'eq))
@@ -2578,6 +2603,7 @@ newly admitted live sources; the durable range-worker snapshot stays finite."
         (snap-sync-heal-state
          database sources progress byte-limit
          :source-provider heal-source-provider
+         :heal-yield-p heal-yield-p
          :on-source-error on-source-error
          :on-heal-progress on-heal-progress)))
     (unwind-protect
@@ -2604,6 +2630,7 @@ newly admitted live sources; the durable range-worker snapshot stays finite."
                      database sources
                      (snap-sync-multi-runtime-progress runtime)
                      byte-limit :source-provider heal-source-provider
+                     :heal-yield-p heal-yield-p
                      :on-source-error on-source-error
                      :on-heal-progress on-heal-progress)))
                  (:exhausted
@@ -2671,6 +2698,8 @@ newly admitted live sources; the durable range-worker snapshot stays finite."
     (dolist (source sources)
       (handler-case
           (return (apply #'snap-sync-import-state database source arguments))
+        (snap-sync-heal-yielded (condition)
+          (error condition))
         (ethereum-lisp.validation:storage-error (condition)
           (error condition))
         (serious-condition (condition)

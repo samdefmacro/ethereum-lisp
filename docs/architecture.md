@@ -209,10 +209,17 @@ them by their physical location instead reintroduces dependency cycles:
   would delete the frontier and repeat the root traversal. Waiting for a Snap
   peer does not consume that process-local opportunity. Once a finite source
   generation has actually been attempted, ordinary stale-target rebase is
-  available again, so a pruned old root cannot pin the node forever. Missing,
-  corrupt, or identity-mismatched checkpoints never suppress rebase, and an
-  explicit authority-driven rebase still invalidates the frontier in the same
-  batch as both progress records.
+  available again. A long-running healer cannot defer that decision merely by
+  receiving small partial TrieNodes responses forever: every 30 seconds, at a
+  boundary with no request worker or uncommitted database batch, it checks the
+  current Engine forkchoice target. If that CL-authorized target is more than
+  120 blocks beyond the active target, a typed scheduling condition yields to
+  the coordinator. Peer-advertised heads never enter this decision. The next
+  pass atomically rebases the skeleton and state cursor, while already durable
+  content-addressed nodes and completed-subtree proofs remain reusable.
+  Missing, corrupt, or identity-mismatched checkpoints never suppress rebase,
+  and an explicit authority-driven rebase still invalidates the frontier in
+  the same batch as both progress records.
   Checkpoint version two records armed, descendant, and completion-sentinel
   work while continuing to decode version-one restart records. At a six-nibble
   account or storage prefix, a sentinel publishes a trie-kind-domain-separated

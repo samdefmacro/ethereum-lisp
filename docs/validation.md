@@ -206,6 +206,8 @@ cl-workbench validation run cold-integration \
   --match SNAP-STATE-HEALER-ADDS-SOURCES-THAT-ARRIVE-AFTER-HEALING-STARTS
 cl-workbench validation run cold-unit \
   --match SNAP-STATE-HEALER-FILLS-EACH-SOURCE-WITHIN-GETH-LOOKUP-CAP
+cl-workbench validation run cold-unit \
+  --match DEVNET-SNAP-LONG-HEAL-YIELDS-TO-A-STALE-CONSENSUS-TARGET
 cl-workbench validation run cold-integration \
   --match SNAP-TRIE-NODE-SERVER-CAPS-DISK-LOOKUPS
 ```
@@ -271,7 +273,13 @@ actual post-restart Snap attempt across the ordinary stale-pivot window, that
 waiting without a Snap peer does not consume that opportunity, and that
 starting an attempt restores the rebase escape for the next pass. Removing the
 production pin makes the focused restart decision regression fail, while an
-explicit rebase still deletes the frontier. The range tests prove that sixteen
+explicit rebase still deletes the frontier. Three stale-heal controls require
+the successor to be a known Engine forkchoice target beyond the exact
+120-block window, pass a 30-second-throttled yield predicate through the
+production multi-source importer, and turn its typed safe-boundary condition
+into a truthy scheduling result so the same pass cannot fall into unbounded
+forward gap filling. Removing the production predicate wiring makes the exact
+call-site test fail. The range tests prove that sixteen
 durable account ranges are fetched concurrently through three
 sources with geth's 2 MiB soft byte limit, completed ranges are not replayed
 after restart, and a failed source's claimed range is reassigned. A finite

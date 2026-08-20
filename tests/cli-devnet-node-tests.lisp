@@ -1476,6 +1476,151 @@ really reopens the directory instead of observing the first handle's memory."
   ;; A backwards-adjusted wall clock must not suppress logs indefinitely.
   (is (ethereum-lisp.cli::devnet-snap-heal-progress-log-due-p 100 99 nil)))
 
+(deftest devnet-snap-stale-successor-requires-a-newer-forkchoice-target
+  (:layer :unit :module :p2p)
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (store (ethereum-lisp.cli::devnet-node-store node))
+         (old-target (make-hash32 (make-byte-vector 32 :initial-element 80)))
+         (at-limit
+           (make-block
+            :header
+            (make-block-header :number 120 :timestamp 120
+                               :gas-limit 30000000)))
+         (past-limit
+           (make-block
+            :header
+            (make-block-header :number 121 :timestamp 121
+                               :gas-limit 30000000)))
+         (at-limit-hash (block-hash at-limit))
+         (past-limit-hash (block-hash past-limit))
+         (latest at-limit-hash))
+    (ethereum-lisp.cli::call-with-devnet-node-store-guard
+     node
+     (lambda ()
+       (ethereum-lisp.chain-store:engine-payload-store-put-remote-block
+        store at-limit)
+       (ethereum-lisp.chain-store:engine-payload-store-put-remote-block
+        store past-limit)))
+    (devnet-peer-sync-call-with-function-overrides
+     (list
+      (cons 'ethereum-lisp.cli::devnet-node-forkchoice-sync-targets
+            (lambda (seen-node)
+              (is (eq node seen-node))
+              (list latest))))
+     (lambda ()
+       ;; Exactly 2*64-8 blocks is still inside the pinned target window.
+       (is (null
+            (ethereum-lisp.cli::devnet-node-stale-snap-successor
+             node old-target 0)))
+       (setf latest past-limit-hash)
+       (multiple-value-bind (successor number)
+           (ethereum-lisp.cli::devnet-node-stale-snap-successor
+            node old-target 0)
+         (is (hash32= past-limit-hash successor))
+         (is (= 121 number)))
+       ;; The current target cannot supersede itself regardless of height.
+       (setf latest old-target)
+       (is (null
+            (ethereum-lisp.cli::devnet-node-stale-snap-successor
+             node old-target 0)))))))
+
+(deftest devnet-snap-long-heal-yields-to-a-stale-consensus-target
+  (:layer :unit :module :p2p)
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (database (make-memory-key-value-database))
+         (pivot-header (block-header
+                        (ethereum-lisp.cli::devnet-node-genesis-block node)))
+         (target-hash
+           (make-hash32 (make-byte-vector 32 :initial-element 81)))
+         (successor-hash
+           (make-hash32 (make-byte-vector 32 :initial-element 82)))
+         (source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :account-range (lambda (request) (declare (ignore request)))
+            :storage-ranges (lambda (request) (declare (ignore request)))
+            :bytecodes (lambda (request) (declare (ignore request)))
+            :trie-nodes (lambda (request) (declare (ignore request)))))
+         (entry (ethereum-lisp.cli::make-devnet-peer-entry :id-hex "peer-1"))
+         (now 100)
+         (logs '()))
+    (devnet-peer-sync-call-with-function-overrides
+     (list
+      (cons 'ethereum-lisp.cli::unix-time (lambda () now))
+      (cons 'ethereum-lisp.cli::devnet-node-live-sync-entries
+            (lambda (seen-node &key snap-only-p)
+              (is (eq node seen-node))
+              (is snap-only-p)
+              (list entry)))
+      (cons 'ethereum-lisp.cli::devnet-peer-queued-snap-source
+            (lambda (seen-entry)
+              (is (eq entry seen-entry))
+              source))
+      (cons 'ethereum-lisp.cli::devnet-node-stale-snap-successor
+            (lambda (seen-node seen-target seen-number)
+              (is (eq node seen-node))
+              (is (hash32= target-hash seen-target))
+              (is (= 64 seen-number))
+              (values successor-hash 185)))
+      (cons 'ethereum-lisp.snap-sync:snap-sync-import-state-multi
+            (lambda (seen-database sources &rest arguments)
+              (is (eq database seen-database))
+              (is (equal (list source) sources))
+              (let ((yield-p (getf arguments :heal-yield-p)))
+                (is (functionp yield-p))
+                (setf now 129)
+                (is (not (funcall yield-p)))
+                (setf now 130)
+                (is (funcall yield-p))
+                (error 'ethereum-lisp.snap-sync:snap-sync-heal-yielded))))
+      (cons 'ethereum-lisp.cli::devnet-peer-manager-log
+            (lambda (seen-node name &rest fields)
+              (is (eq node seen-node))
+              (push (cons name fields) logs))))
+     (lambda ()
+       (signals ethereum-lisp.snap-sync:snap-sync-heal-yielded
+         (ethereum-lisp.cli::devnet-node-snap-import-with-failover
+          node database pivot-header target-hash :target-number 64))))
+    (let ((record
+            (find "peer.snap.target_stale" logs
+                  :key #'first :test #'string=)))
+      (is record)
+      (flet ((field (name)
+               (loop for (key value) on (cdr record) by #'cddr
+                     when (string= key name) return value)))
+        (is (= 64 (field "target")))
+        (is (= 185 (field "successor")))
+        (is (string= (hash32-to-hex target-hash) (field "targetHash")))
+        (is (string= (hash32-to-hex successor-hash)
+                     (field "successorHash")))))))
+
+(deftest devnet-snap-heal-yield-skips-the-forward-gap-fallback
+  (:layer :unit :module :p2p)
+  (let ((node
+          (ethereum-lisp.cli:make-devnet-node
+           :genesis-json *eth-sync-paris-genesis-json*
+           :port 0 :public-port 0))
+        (target (make-hash32 (make-byte-vector 32 :initial-element 83)))
+        (attempts 0))
+    (devnet-peer-sync-call-with-function-overrides
+     (list
+      (cons 'ethereum-lisp.cli::devnet-node-snap-sync-pivot-attempt
+            (lambda (seen-node seen-target fallback-only-p)
+              (is (eq node seen-node))
+              (is (hash32= target seen-target))
+              (is (not fallback-only-p))
+              (incf attempts)
+              (error 'ethereum-lisp.snap-sync:snap-sync-heal-yielded))))
+     (lambda ()
+       (is (eq :stale-target
+               (ethereum-lisp.cli::devnet-node-snap-sync-target node target)))))
+    (is (= 1 attempts))))
+
 (deftest devnet-snap-restart-pin-waits-for-a-peer-and-is-consumed-on-attempt
   (:layer :unit :module :p2p)
   (let* ((node
@@ -1637,13 +1782,15 @@ really reopens the directory instead of observing the first handle's memory."
                      (cons
                       'ethereum-lisp.cli::devnet-node-snap-import-with-failover
                       (lambda (callback-node callback-database pivot-header
-                               callback-target &key preferred-entry)
+                               callback-target
+                               &key preferred-entry target-number)
                         (declare (ignore callback-node))
                         (is (eq :target-source preferred-entry))
                         (is (eq database callback-database))
                         (is (hash32= pivot-hash
                                      (block-header-hash pivot-header)))
                         (is (hash32= target-hash callback-target))
+                        (is (= 164 target-number))
                         ;; The real snap importer writes STATE-HISTORY only in
                         ;; its completed batch after reconstructing this root.
                         (kv-put-chain-record
