@@ -157,14 +157,21 @@ them by their physical location instead reintroduces dependency cycles:
   source retires only its own slice while successful slices remain durable.
   Source order rotates between rounds, so a retained path from a partially
   pruned peer reaches another source without duplicating any request inside one
-  round. Local content-addressed references are read in batches of at most 512
-  keys. The width shrinks with the live frontier so worst-case 16-way expansion
+  round. Account traversal defers up to 2,048 discovered storage roots instead
+  of descending into each contract immediately. The deferred roots become part
+  of the bounded work frontier before any checkpoint or remote request, so one
+  authenticated TrieNodes round can fill many contracts without weakening
+  restart safety. A subtree-completion sentinel also drains its deferred storage
+  before it can publish proof of completion.
+
+  Local content-addressed references are read in batches of at most 512 keys.
+  The width shrinks with the live frontier so worst-case 16-way expansion
   remains below the 8,192-work checkpoint cap throughout its soft-target
   region. RocksDB executes each batch with one native multi-get instead of
   crossing the Lisp/C boundary once per node; memory and file stores retain the
   same ordered value/presence contract through the generic fallback. The
   database API rejects more than 4,096 keys or 4 MiB of key bytes before native
-  allocation. The fetched nodes and the exact remaining depth-first frontier
+  allocation. The fetched nodes and the exact remaining work frontier
   are committed in one batch. That bounded, checksummed checkpoint is tied to
   the pivot, target, chain, genesis, and database authority, and is ignored if
   corrupt or stale. While it remains valid and non-empty, the coordinator pins
@@ -177,6 +184,17 @@ them by their physical location instead reintroduces dependency cycles:
   corrupt, or identity-mismatched checkpoints never suppress rebase, and an
   explicit authority-driven rebase still invalidates the frontier in the same
   batch as both progress records.
+  Checkpoint version two records armed, descendant, and completion-sentinel
+  work while continuing to decode version-one restart records. At a six-nibble
+  account prefix, a sentinel publishes a domain-separated metadata proof keyed
+  by the subtree's content hash only after all descendant trie nodes, storage
+  roots, and bytecode are durable. These optional proofs survive pivot rebase:
+  an unchanged subtree at a later authorized root can be skipped rather than
+  reread, while a changed content hash is traversed normally. An unknown proof
+  version is local storage corruption, and a failed proof batch publishes
+  neither the proof nor state completion. This cache relies on the current
+  append-only trie-node/code stores; a future pruning implementation must remove
+  or otherwise invalidate affected proofs before deleting their dependencies.
   Soft-limited responses can retain older work below the returned subtree, so
   later missing-path batches shrink as that frontier approaches its target;
   the larger hard record cap remains a fail-closed allocation boundary.

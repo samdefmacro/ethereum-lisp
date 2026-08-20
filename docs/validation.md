@@ -192,6 +192,12 @@ cl-workbench validation run cold-integration \
 cl-workbench validation run cold-unit --match GET-MANY
 cl-workbench validation run cold-unit --match BATCHES-LOCAL
 cl-workbench validation run cold-integration --match NATIVE-MULTI-GET
+cl-workbench validation run cold-integration \
+  --match SNAP-STATE-HEALER-REUSES-PROVED-SUBTREES
+cl-workbench validation run cold-integration \
+  --match SNAP-STATE-HEALER-BATCHES-DEFERRED-STORAGE-ROOTS
+cl-workbench validation run cold-integration \
+  --match SNAP-HEALED-SUBTREE-PUBLICATION-FAILS-CLOSED
 ```
 
 The snap tests reconstruct and verify account/storage roots, reject altered
@@ -206,13 +212,20 @@ peer. Local traversal proves that more than one trie hash crosses the ordered
 multi-get seam in a batch, while the RocksDB integration control proves the
 batch reaches exactly one native call and preserves duplicate-key order and
 per-key absence. Generic controls enforce the 4,096-key and 4 MiB key-byte
-bounds. They persist a bounded checksummed DFS frontier in the same batch as
+bounds. They persist a bounded checksummed work frontier in the same batch as
 newly accepted nodes. Abrupt source loss then resumes without rereading the root;
 corrupt, stale, empty, or oversized checkpoints fail closed, and
 rebase/completion failure injection proves that checkpoint invalidation remains
 atomic. A large-frontier control round-trips a 5,000-item live checkpoint and
 proves that missing batches shrink near the frontier target instead of stacking
-another full soft-limited response below it. A coordinator control proves that
+another full soft-limited response below it. Separate controls prove that
+account traversal defers storage roots into multi-path requests, that the
+version-two completion sentinel is backward compatible with version-one
+checkpoints, and that a content-addressed subtree proved under one pivot reduces
+the decoded work under the next pivot. Proof publication failure leaves neither
+the cache record nor state completion. Restoring immediate storage descent or
+removing the subtree cache-hit branch makes the corresponding focused test fail.
+A coordinator control proves that
 a valid identity-matched healer checkpoint pins its CL target for the first
 actual post-restart Snap attempt across the ordinary stale-pivot window, that
 waiting without a Snap peer does not consume that opportunity, and that
