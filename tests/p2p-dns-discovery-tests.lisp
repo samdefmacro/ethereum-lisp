@@ -201,3 +201,16 @@
                       (ethereum-lisp.p2p::dns-resolver-addresses path))))
       (when (probe-file path)
         (delete-file path)))))
+
+(deftest dns-query-reports-the-last-bounded-transport-error
+  (:layer :unit :module :p2p)
+  (let ((message
+          (handler-case
+              (progn
+                (ethereum-lisp.p2p:dns-query-txt
+                 "nodes.example.org"
+                 :resolvers '("not-an-ipv4-address")
+                 :attempts 1)
+                nil)
+            (error (condition) (princ-to-string condition)))))
+    (is (search "not-an-ipv4-address" message))))

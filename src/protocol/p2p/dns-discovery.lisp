@@ -292,7 +292,7 @@ records, or resolver errors."
   #-sbcl
   (error "DNS discovery requires SBCL sockets")
   #+sbcl
-  (progn
+  (let ((last-error nil))
     (unless resolvers (error "No IPv4 DNS resolver is configured"))
     (loop repeat attempts
           do (dolist (resolver resolvers)
@@ -307,22 +307,28 @@ records, or resolver errors."
                              socket query (length query)
                              :address
                              (list (sb-bsd-sockets:make-inet-address resolver) 53))
-                            (when (sb-sys:wait-until-fd-usable
-                                   (sb-bsd-sockets:socket-file-descriptor socket)
-                                   :input timeout-seconds)
-                              (let ((buffer
-                                      (make-byte-vector
-                                       +eip1459-max-dns-packet-bytes+)))
-                                (multiple-value-bind (received size)
-                                    (sb-bsd-sockets:socket-receive socket buffer nil)
-                                  (declare (ignore received))
-                                  (when (and size (plusp size))
-                                    (return-from dns-query-txt
-                                      (dns-decode-txt-response
-                                       (subseq buffer 0 size) id)))))))
-                        (error () nil))
+                            (if (sb-sys:wait-until-fd-usable
+                                 (sb-bsd-sockets:socket-file-descriptor socket)
+                                 :input timeout-seconds)
+                                (let ((buffer
+                                        (make-byte-vector
+                                         +eip1459-max-dns-packet-bytes+)))
+                                  (multiple-value-bind (received size)
+                                      (sb-bsd-sockets:socket-receive
+                                       socket buffer nil)
+                                    (declare (ignore received))
+                                    (if (and size (plusp size))
+                                        (return-from dns-query-txt
+                                          (dns-decode-txt-response
+                                           (subseq buffer 0 size) id))
+                                        (setf last-error "empty response"))))
+                                (setf last-error "timed out")))
+                        (error (condition)
+                          (setf last-error (princ-to-string condition))))
                    (ignore-errors (sb-bsd-sockets:socket-close socket)))))
-          finally (error "DNS TXT query for ~A exhausted its bounded retries" name))))
+          finally
+             (error "DNS TXT query for ~A exhausted its bounded retries: ~A"
+                    name (or last-error "no response")))))
 
 (defun eip1459-valid-hash-label-p (label)
   (and (= 26 (length label))
