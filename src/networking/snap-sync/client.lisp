@@ -1543,15 +1543,15 @@ the returned record in the same batch as its new skeleton metadata."
          (append (subseq sources offset) (subseq sources 0 offset)))))))
 
 #+sbcl
-(defun snap-sync-heal-parallel-local-node-batch
-    (database references workers decoder)
-  "Read REFERENCES concurrently and optionally decode present values.
+(defun snap-sync-heal-parallel-chain-record-batch
+    (database kind identifiers workers decoder)
+  "Read IDENTIFIERS of KIND concurrently and optionally decode present values.
 
-DECODER receives the original reference index and encoded value.  Reads,
+DECODER receives the original identifier index and encoded value.  Reads,
 validation, and decoding remain partitioned into bounded contiguous slices;
 the returned encoded, presence, and decoded vectors retain input order."
-  (let* ((references (coerce references 'vector))
-         (count (length references))
+  (let* ((identifiers (coerce identifiers 'vector))
+         (count (length identifiers))
          (worker-count (min workers count))
          (values-by-worker (make-array worker-count :initial-element nil))
          (present-by-worker (make-array worker-count :initial-element nil))
@@ -1564,8 +1564,8 @@ the returned encoded, presence, and decoded vectors retain input order."
                (handler-case
                    (multiple-value-bind (values present)
                        (kv-get-chain-records
-                        database :trie-node
-                        (subseq references (start index) (start (1+ index))))
+                        database kind
+                        (subseq identifiers (start index) (start (1+ index))))
                      (let ((decoded
                              (and decoder
                                   (make-array (length values)
@@ -1614,8 +1614,9 @@ the returned encoded, presence, and decoded vectors retain input order."
                      :start1 (start index))))
         (values values present decoded)))))
 
-(defun snap-sync-heal-local-node-batch (database references &key decoder)
-  "Read one ordered, bounded local trie-node batch and optionally decode it."
+(defun snap-sync-heal-chain-record-batch
+    (database kind identifiers &key decoder)
+  "Read one ordered, bounded chain-record batch and optionally decode it."
   (unless (and (integerp *snap-sync-heal-local-read-workers*)
                (<= 1 *snap-sync-heal-local-read-workers* 16))
     (error "Snap heal local read workers must be between one and 16"))
@@ -1623,21 +1624,25 @@ the returned encoded, presence, and decoded vectors retain input order."
   (when (and
          (typep database 'ethereum-lisp.database:rocksdb-key-value-database)
          (> *snap-sync-heal-local-read-workers* 1)
-         (>= (length references) +snap-sync-heal-parallel-read-minimum+))
-    (return-from snap-sync-heal-local-node-batch
-      (snap-sync-heal-parallel-local-node-batch
-       database references *snap-sync-heal-local-read-workers* decoder)))
+         (>= (length identifiers) +snap-sync-heal-parallel-read-minimum+))
+    (return-from snap-sync-heal-chain-record-batch
+      (snap-sync-heal-parallel-chain-record-batch
+       database kind identifiers *snap-sync-heal-local-read-workers* decoder)))
   (multiple-value-bind (values present)
-      (kv-get-chain-records database :trie-node references)
+      (kv-get-chain-records database kind identifiers)
     (let ((decoded
-            (and decoder
-                 (make-array (length values) :initial-element nil))))
+            (and decoder (make-array (length values) :initial-element nil))))
       (when decoder
         (dotimes (index (length values))
           (when (= 1 (aref present index))
             (setf (aref decoded index)
                   (funcall decoder index (aref values index))))))
       (values values present decoded))))
+
+(defun snap-sync-heal-local-node-batch (database references &key decoder)
+  "Read one ordered, bounded local trie-node batch and optionally decode it."
+  (snap-sync-heal-chain-record-batch
+   database :trie-node references :decoder decoder))
 
 (defun snap-sync-healed-subtree-identifier (reference)
   (unless (and (byte-vector-p reference) (= 32 (length reference)))
@@ -1655,6 +1660,25 @@ the returned encoded, presence, and decoded vectors retain input order."
       (ethereum-lisp.validation:storage-fail
        "Persisted snap healed-subtree proof has an unknown version"))
     present-p))
+
+(defun snap-sync-healed-subtrees-present
+    (database references)
+  "Return ordered presence bits for versioned healed-subtree proofs.
+
+The production RocksDB path batches and partitions metadata reads just like
+local trie-node reads.  Unknown proof values remain storage corruption rather
+than cache misses."
+  (let ((identifiers
+          (map 'vector #'snap-sync-healed-subtree-identifier references)))
+    (multiple-value-bind (values present)
+        (snap-sync-heal-chain-record-batch database :metadata identifiers)
+      (dotimes (index (length references))
+        (when (= 1 (aref present index))
+          (unless (bytes= (aref values index)
+                          +snap-sync-healed-subtree-value+)
+            (ethereum-lisp.validation:storage-fail
+             "Persisted snap healed-subtree proof has an unknown version"))))
+      present)))
 
 (defun snap-sync-populate-healed-subtree-batch (batch reference)
   (kv-batch-put-chain-record
@@ -2104,18 +2128,12 @@ the state-history marker and completed cursor share their final batch."
                                     (return))
                                   (persist-healed-subtree work)))
                              ((snap-sync-healed-subtree-candidate-p work)
-                              (unless
-                                  (snap-sync-healed-subtree-present-p
-                                   database reference)
-                                (push
-                                 (snap-sync-make-heal-work
-                                  :account nil
-                                  (snap-sync-heal-work-path work) reference
-                                  :fetched-p
-                                  (snap-sync-heal-work-fetched-p work)
-                                  :marker-state :armed)
-                                 lookups)
-                                (incf lookup-count)))
+                              ;; Resolve pivot-independent completion proofs in
+                              ;; one ordered batch below.  Counting the popped
+                              ;; work now preserves the frontier/read bound
+                              ;; even when the proof lets us skip its subtree.
+                              (push work lookups)
+                              (incf lookup-count))
                              ((or (rlp-list-p reference)
                                   (zerop (length reference)))
                               (if lookups
@@ -2130,43 +2148,82 @@ the state-history marker and completed cursor share their final batch."
                               (incf lookup-count))))
                   (when lookups
                     (let* ((ordered (coerce (nreverse lookups) 'vector))
-                           (references
-                             (map 'vector
-                                  #'snap-sync-heal-work-reference
-                                  ordered)))
-                      (multiple-value-bind (encoded present decoded)
-                          (snap-sync-heal-local-node-batch
-                           database references
-                           :decoder
-                           (lambda (index bytes)
-                             (let ((work (aref ordered index)))
-                               (decode-encoded
-                                work bytes
-                                (not
-                                 (snap-sync-heal-work-fetched-p work))))))
-                        (declare (ignore encoded))
-                        (dotimes (index (length ordered))
-                          (let ((work (aref ordered index)))
-                            (if (= 1 (aref present index))
+                           (candidate-references
+                             (loop for work across ordered
+                                   when
+                                     (snap-sync-healed-subtree-candidate-p
+                                      work)
+                                     collect
+                                       (snap-sync-heal-work-reference work)))
+                           (candidate-presence
+                             (if candidate-references
+                                 (snap-sync-healed-subtrees-present
+                                  database
+                                  (coerce candidate-references 'vector))
+                                 #()))
+                           (candidate-index 0)
+                           (actual-lookups '()))
+                      (loop for work across ordered
+                            do
+                            (if (snap-sync-healed-subtree-candidate-p work)
                                 (progn
                                   (unless
-                                      (snap-sync-heal-work-fetched-p work)
-                                    (incf reused-nodes))
-                                  (when
-                                      (eq :armed
-                                          (snap-sync-heal-work-marker-state
-                                           work))
+                                      (= 1
+                                         (aref candidate-presence
+                                               candidate-index))
                                     (push
                                      (snap-sync-make-heal-work
                                       :account nil
                                       (snap-sync-heal-work-path work)
                                       (snap-sync-heal-work-reference work)
-                                      :marker-state :complete)
-                                     stack))
-                                  (process-object work (aref decoded index)))
-                                (progn
-                                  (push work missing)
-                                  (incf missing-count))))))))))
+                                      :fetched-p
+                                      (snap-sync-heal-work-fetched-p work)
+                                      :marker-state :armed)
+                                     actual-lookups))
+                                  (incf candidate-index))
+                                (push work actual-lookups)))
+                      (setf ordered
+                            (coerce (nreverse actual-lookups) 'vector))
+                      (when (plusp (length ordered))
+                        (let ((references
+                                (map 'vector
+                                     #'snap-sync-heal-work-reference
+                                     ordered)))
+                          (multiple-value-bind (encoded present decoded)
+                              (snap-sync-heal-local-node-batch
+                               database references
+                               :decoder
+                               (lambda (index bytes)
+                                 (let ((work (aref ordered index)))
+                                   (decode-encoded
+                                    work bytes
+                                    (not
+                                     (snap-sync-heal-work-fetched-p work))))))
+                            (declare (ignore encoded))
+                            (dotimes (index (length ordered))
+                              (let ((work (aref ordered index)))
+                                (if (= 1 (aref present index))
+                                    (progn
+                                      (unless
+                                          (snap-sync-heal-work-fetched-p work)
+                                        (incf reused-nodes))
+                                      (when
+                                          (eq
+                                           :armed
+                                           (snap-sync-heal-work-marker-state
+                                            work))
+                                        (push
+                                         (snap-sync-make-heal-work
+                                          :account nil
+                                          (snap-sync-heal-work-path work)
+                                          (snap-sync-heal-work-reference work)
+                                          :marker-state :complete)
+                                         stack))
+                                      (process-object
+                                       work (aref decoded index)))
+                                    (progn
+                                      (push work missing)
+                                      (incf missing-count))))))))))))
           (drain-deferred-storage)
           (flush-healed-subtrees)
           (cond

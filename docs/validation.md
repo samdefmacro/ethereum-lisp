@@ -241,8 +241,13 @@ checkpoints, and that a content-addressed subtree proved under one pivot reduces
 the decoded work under the next pivot. The same regression counts proof batch
 identity: more than one independent proof must share a durable batch and no
 batch may exceed 2,048 proofs. Proof publication failure leaves neither the
-cache record nor state completion. Restoring immediate storage descent or
-removing the subtree cache-hit branch makes the corresponding focused test fail.
+cache record nor state completion. The RocksDB read regression also proves that
+large healed-subtree metadata probes use four bounded native multi-get workers,
+retain exact input presence order, and reject an unknown proof version. A
+production-call-site witness counts metadata batches during cross-pivot reuse;
+replacing it with the old per-reference lookup makes that witness fail.
+Restoring immediate storage descent or removing the subtree cache-hit branch
+makes the corresponding focused test fail.
 A coordinator control proves that
 a valid identity-matched healer checkpoint pins its CL target for the first
 actual post-restart Snap attempt across the ordinary stale-pivot window, that

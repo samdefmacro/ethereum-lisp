@@ -2283,8 +2283,10 @@
          (mutex (sb-thread:make-mutex :name "snap-heal-read-test"))
          (worker-threads '())
          (decoder-threads '())
+         (metadata-worker-threads '())
          (decoder-call-count 0)
-         (call-count 0))
+         (call-count 0)
+         (metadata-call-count 0))
     (unwind-protect
          (let ((database (make-rocksdb-key-value-database path)))
            (unwind-protect
@@ -2293,7 +2295,13 @@
                     (unless (zerop (mod index 7))
                       (ethereum-lisp.database:kv-batch-put-chain-record
                        batch :trie-node (aref references index)
-                       (vector (mod index 256)))))
+                       (vector (mod index 256))))
+                    (unless (zerop (mod index 5))
+                      (ethereum-lisp.database:kv-batch-put-chain-record
+                       batch :metadata
+                       (ethereum-lisp.snap-sync::snap-sync-healed-subtree-identifier
+                        (aref references index))
+                       ethereum-lisp.snap-sync::+snap-sync-healed-subtree-value+)))
                   (kv-apply-batch database batch)
                   (setf
                    (fdefinition 'ethereum-lisp.database:kv-get-chain-records)
@@ -2303,6 +2311,11 @@
                          (incf call-count)
                          (pushnew sb-thread:*current-thread* worker-threads
                                   :test #'eq)))
+                     (when (and (eq candidate database) (eq kind :metadata))
+                       (sb-thread:with-mutex (mutex)
+                         (incf metadata-call-count)
+                         (pushnew sb-thread:*current-thread*
+                                  metadata-worker-threads :test #'eq)))
                      (funcall
                       real-get-many candidate kind identifiers default)))
                   (let ((ethereum-lisp.snap-sync::*snap-sync-heal-local-read-workers*
@@ -2336,6 +2349,25 @@
                                          (aref values index)))
                               (is (equal (list index (mod index 256))
                                          (aref decoded index))))))))
+                  (let ((ethereum-lisp.snap-sync::*snap-sync-heal-local-read-workers*
+                          4))
+                    (let ((present
+                            (ethereum-lisp.snap-sync::snap-sync-healed-subtrees-present
+                             database references)))
+                      (is (= 4 metadata-call-count))
+                      (is (= 4 (length metadata-worker-threads)))
+                      (dotimes (index 512)
+                        (is (= (if (zerop (mod index 5)) 0 1)
+                               (aref present index))))))
+                  (kv-put-chain-record
+                   database :metadata
+                   (ethereum-lisp.snap-sync::snap-sync-healed-subtree-identifier
+                    (aref references 0))
+                   #(2))
+                  (signals
+                   ethereum-lisp.validation:storage-error
+                   (ethereum-lisp.snap-sync::snap-sync-healed-subtrees-present
+                    database (vector (aref references 0))))
                   (setf
                    (fdefinition 'ethereum-lisp.database:kv-get-chain-records)
                    (lambda (candidate kind identifiers &optional default)
@@ -2376,12 +2408,13 @@
            (authority (make-hash32 (snap-test-hash 222)))
            (first-processed nil)
            (second-processed nil)
+           (cache-batches 0)
            (cache-hits 0)
            (proof-count 0)
            (proof-batches (make-hash-table :test #'eq))
-           (real-present
+           (real-present-batch
              (fdefinition
-              'ethereum-lisp.snap-sync::snap-sync-healed-subtree-present-p))
+              'ethereum-lisp.snap-sync::snap-sync-healed-subtrees-present))
            (real-populate
              (fdefinition
               'ethereum-lisp.snap-sync::snap-sync-populate-healed-subtree-batch)))
@@ -2428,12 +2461,14 @@
                (progn
                  (setf
                   (fdefinition
-                   'ethereum-lisp.snap-sync::snap-sync-healed-subtree-present-p)
-                  (lambda (database reference)
-                    (let ((present-p
-                            (funcall real-present database reference)))
-                      (when present-p (incf cache-hits))
-                      present-p)))
+                   'ethereum-lisp.snap-sync::snap-sync-healed-subtrees-present)
+                  (lambda (database references)
+                    (incf cache-batches)
+                    (let ((present
+                            (funcall
+                             real-present-batch database references)))
+                      (incf cache-hits (count 1 present))
+                      present)))
                  (ethereum-lisp.snap-sync::snap-sync-heal-state
                   target-database (list source) (progress 225 226 6010) 350
                   :on-heal-progress
@@ -2446,8 +2481,9 @@
                              snapshot))))))
             (setf
              (fdefinition
-              'ethereum-lisp.snap-sync::snap-sync-healed-subtree-present-p)
-             real-present)))
+              'ethereum-lisp.snap-sync::snap-sync-healed-subtrees-present)
+             real-present-batch)))
+        (is (plusp cache-batches))
         (is (plusp cache-hits))
         (is (plusp first-processed))
         (is (> proof-count 1))

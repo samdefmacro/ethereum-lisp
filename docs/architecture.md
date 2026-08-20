@@ -175,14 +175,21 @@ them by their physical location instead reintroduces dependency cycles:
   checkpoint is written only after the complete frontier is back within 8,192,
   so the allocation bound remains unchanged without turning a temporary shape
   into a fatal node exit. On SBCL, production RocksDB batches of at least 128
-  keys are divided into at most four contiguous native multi-get slices. Each
-  worker also checks the content hash and performs the bounded RLP decode for
-  its present slice. The coordinator joins every reader, restores the original
+  keys are divided into at most four contiguous native multi-get slices. This
+  applies both to trie-node records and to the versioned metadata proofs used
+  to skip completed subtrees; proof candidates are collected under the same
+  frontier bound and resolved in input order before absent proofs enter the
+  trie-node batch. Thus a cache miss does not serialize one metadata lookup on
+  the coordinator before every trie read. For trie-node records, each worker
+  also checks the content hash and performs the bounded RLP decode for its
+  present slice. The coordinator joins every reader, restores the original
   value/presence/decoded order, and propagates the earliest worker-slice failure
   before mutating the DFS frontier; small batches and memory/file stores retain
-  the same ordered generic fallback. This bounded read/decode concurrency uses
-  otherwise idle CPU and I/O capacity without making frontier mutation or
-  checkpoint publication concurrent. The
+  the same ordered generic fallback. Proof values are version-checked after the
+  ordered join, so an unknown value remains local storage corruption rather
+  than a cache miss. This bounded read/decode concurrency uses otherwise idle
+  CPU and I/O capacity without making frontier mutation or checkpoint
+  publication concurrent. The
   database API rejects more than 4,096 keys or 4 MiB of key bytes before native
   allocation. The fetched nodes and the exact remaining work frontier
   are committed in one batch. That bounded, checksummed checkpoint is tied to
