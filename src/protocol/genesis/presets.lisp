@@ -9,7 +9,7 @@
 (defstruct (built-in-genesis-preset
             (:constructor %make-built-in-genesis-preset
                 (&key name config expected-hash allocation-path nonce timestamp
-                      gas-limit difficulty extra-data bootnodes)))
+                      gas-limit difficulty extra-data bootnodes discovery-dns)))
   name
   config
   expected-hash
@@ -19,7 +19,8 @@
   (gas-limit +genesis-gas-limit+ :type (integer 0 *))
   (difficulty +genesis-difficulty+ :type (integer 0 *))
   (extra-data (make-byte-vector 0) :type byte-vector)
-  (bootnodes '() :type list))
+  (bootnodes '() :type list)
+  discovery-dns)
 
 ;; Canonical execution-layer discovery-v4 bootnodes from go-ethereum
 ;; 38271784c2b31926563806da9a2e023b88f5e7a8, params/bootnodes.go. Keep these
@@ -46,6 +47,12 @@
   '("enode://2112dd3839dd752813d4df7f40936f06829fc54c0e051a93967c26e5f5d27d99d886b57b4ffcc3c475e930ec9e79c56ef1dbb7d86ca5ee83a9d2ccf36e5c240c@134.209.138.84:30303"
     "enode://60203fcb3524e07c5df60a14ae1c9c5b24023ea5d47463dfae051d2c9f3219f309657537576090ca0ae641f73d419f53d8e8000d7a464319d4784acd7d2abc41@209.38.124.160:30303"
     "enode://8ae4a48101b2299597341263da0deb47cc38aa4d3ef4b7430b897d49bfa10eb1ccfe1655679b1ed46928ef177fbf21b86837bd724400196c508427a6f41602cd@134.199.184.23:30303"))
+
+;; Canonical EIP-1459 execution discovery tree returned by go-ethereum's
+;; KnownDNSNetwork(HoodiGenesisHash, "all"). The URL embeds the signing key;
+;; the DNS transport is never an authority for the records it returns.
+(defparameter +hoodi-discovery-dns+
+  "enrtree://AKA3AM6LPBYEUDMVNU3BSVQJ5AD45Y7YPOHJLEF6W26QOE4VTUDPE@all.hoodi.ethdisco.net")
 
 (defun mainnet-chain-config ()
   (make-chain-config
@@ -185,7 +192,8 @@
    :timestamp 1742212800
    :gas-limit #x2255100
    :difficulty 1
-   :bootnodes (copy-list +hoodi-bootnodes+)))
+   :bootnodes (copy-list +hoodi-bootnodes+)
+   :discovery-dns +hoodi-discovery-dns+))
 
 (defun find-built-in-genesis-preset (name)
   (case (if (stringp name)

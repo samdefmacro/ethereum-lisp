@@ -825,4 +825,9 @@
   (is (search
        "2112dd3839dd752813d4df7f40936f06829fc54c0e051a93967c26e5f5d27d99"
        (first (built-in-genesis-preset-bootnodes
-               (hoodi-genesis-preset))))))
+               (hoodi-genesis-preset)))))
+  (multiple-value-bind (key domain)
+      (eip1459-parse-url
+       (built-in-genesis-preset-discovery-dns (hoodi-genesis-preset)))
+    (is (= 33 (length key)))
+    (is (string= "all.hoodi.ethdisco.net" domain))))

@@ -150,6 +150,12 @@ a filtered crawl adds a request/response round trip per bonded node -- and a
 node whose record has not arrived by the deadline is a node the crawl cannot
 return. Our policy.")
 
+(defconstant +devnet-dns-discovery-refresh-seconds+ 300
+  "How often to refresh an authenticated EIP-1459 tree after success. The root
+has a short DNS TTL, while its Merkle entries are content addressed and remain
+cacheable; five minutes keeps discovery current without downloading the tree on
+every thirty-second discv4 crawl.")
+
 (defun devnet-node-chain-context (node)
   "NODE's eth chain context, refreshed when the store guard happens to be free
 and reused from the last refresh when it is not.
@@ -240,79 +246,121 @@ chain it is on has no basis to refuse anyone else's."
 
 (defun devnet-start-discovery-thread
     (node shutdown-controller error-callback)
-  "Start the discv4 crawl worker, or return NIL when no bootnodes are configured
-(or off SBCL). It crawls the bootnodes and offers what it finds to the dial
-scheduler, re-crawling periodically. It no longer dials anything itself: doing
-that here meant one slow peer stalled every later dial on this thread. A failed
-crawl is logged and retried; only an escaping error is fail-stop."
+  "Start authenticated DNS and discv4 discovery, or NIL when neither is set.
+
+Both transports only offer candidates to the dial scheduler. EIP-1459 runs
+first so its chain-filtered, signed records cannot be crowded out by the noisy
+cross-chain discv4 DHT. Transport failures are logged and retried; only an
+escaping serious condition is fail-stop."
   #-sbcl
   (declare (ignore node shutdown-controller error-callback))
   #-sbcl
   nil
   #+sbcl
-  (let ((bootnodes (devnet-node-bootnodes node)))
-    (when (and (devnet-node-discovery-enabled-p node) bootnodes)
+  (let ((bootnodes (devnet-node-bootnodes node))
+        (dns-url (devnet-node-discovery-dns node)))
+    (when (and (devnet-node-discovery-enabled-p node)
+               (or bootnodes dns-url))
       (sb-thread:make-thread
        (lambda ()
          (handler-case
-             ;; Share the node's stable identity, and the node-wide dialed set,
-             ;; The crawl only produces candidates; the dial scheduler decides
-             ;; which to dial and when.
-             (let ((private-key (devnet-node-node-key node)))
-               (loop until (devnet-shutdown-requested-p shutdown-controller) do
-                 ;; Discovery is best-effort: a failed crawl (socket exhaustion,
-                 ;; a bad packet) is logged and retried, never a node-wide
-                 ;; fail-stop.
-                 (handler-case
-                     ;; Offer what the crawl found to the dial scheduler and
-                     ;; move on. This thread no longer dials: doing it here meant
-                     ;; one slow peer stalled every later dial on the same
-                     ;; thread, and the fixed crawl interval was the only
-                     ;; backoff there was.
-                     (let ((record-filter (devnet-discovery-record-filter node)))
-                      (multiple-value-bind (found stats)
-                         (discv4-lookup
-                          bootnodes private-key
-                          :timeout-seconds +devnet-discovery-crawl-seconds+
-                          :local-tcp-port (or (devnet-node-p2p-port node) 0)
-                          :advertised-host
-                          (devnet-node-advertised-host node)
-                          :record-filter record-filter)
-                       ;; Log the crawl's shape every time, not just when it
-                       ;; goes wrong. A filtered crawl legitimately returns far
-                       ;; fewer nodes than an unfiltered one, so without the
-                       ;; counts behind the number there is no way to tell a
-                       ;; working filter from a broken crawl.
-                       (telemetry-log
-                        :info "peer.discovery.crawl"
-                        :fields (append
-                                 (loop for (name . count) in stats
-                                       collect (cons name
-                                                     (princ-to-string count)))
-                                 (list (cons "filtered"
-                                             (if record-filter "true" "false"))
-                                       (cons "offered"
-                                             (princ-to-string (length found)))))
-                        :sink (devnet-node-telemetry-sink node))
-                       (call-with-devnet-peer-table
-                        node
-                        (lambda ()
-                          (dolist (enode found)
-                            (ignore-errors
-                             (devnet-dial-registry-offer-dynamic
-                              (devnet-node-dial-registry node)
-                              (node-id-to-hex
-                               (nth-value 0 (parse-enode-url enode)))
-                              enode)))))))
-                   (error (condition)
-                     (telemetry-log
-                      :warning "peer.discovery.crawl_failed"
-                      :fields (list (cons "error" (princ-to-string condition)))
-                      :sink (devnet-node-telemetry-sink node))))
-                 ;; Re-crawl periodically, waking each second to notice shutdown.
-                 (loop repeat 30
-                       until (devnet-shutdown-requested-p shutdown-controller)
-                       do (sleep 1))))
+             (let ((private-key (devnet-node-node-key node))
+                   (previous-dns-sequence
+                     (devnet-node-discovery-dns-sequence node))
+                   (next-dns-refresh-at 0))
+               (labels ((offer (found)
+                          (call-with-devnet-peer-table
+                           node
+                           (lambda ()
+                             (dolist (enode found)
+                               (ignore-errors
+                                (devnet-dial-registry-offer-dynamic
+                                 (devnet-node-dial-registry node)
+                                 (node-id-to-hex
+                                  (nth-value 0 (parse-enode-url enode)))
+                                 enode)))))))
+                 (loop until (devnet-shutdown-requested-p shutdown-controller) do
+                   (let ((record-filter (devnet-discovery-record-filter node))
+                         (now (get-universal-time)))
+                     (when (and dns-url (>= now next-dns-refresh-at))
+                       (handler-case
+                           (multiple-value-bind (found sequence stats)
+                               (eip1459-resolve-enodes
+                                dns-url
+                                :previous-sequence previous-dns-sequence
+                                :record-filter record-filter)
+                             ;; Publish candidates only after the new rollback
+                             ;; floor is durable. A crash can repeat work, but
+                             ;; cannot make the next process accept an older
+                             ;; signed root it had already observed.
+                             (when (devnet-node-discovery-dns-sequence-persistence-function
+                                    node)
+                               (funcall
+                                (devnet-node-discovery-dns-sequence-persistence-function
+                                 node)
+                                sequence))
+                             (setf previous-dns-sequence sequence
+                                   (devnet-node-discovery-dns-sequence node)
+                                   sequence
+                                   next-dns-refresh-at
+                                   (+ now +devnet-dns-discovery-refresh-seconds+))
+                             (offer found)
+                             (telemetry-log
+                              :info "peer.discovery.dns"
+                              :fields
+                              (append
+                               (list (cons "sequence" (princ-to-string sequence)))
+                               (loop for (name . count) in stats
+                                     collect (cons name (princ-to-string count)))
+                               (list
+                                (cons "filtered"
+                                      (if record-filter "true" "false"))
+                                (cons "offered"
+                                      (princ-to-string (length found)))))
+                              :sink (devnet-node-telemetry-sink node)))
+                         (error (condition)
+                           ;; A transient resolver failure retries on the normal
+                           ;; 30-second worker cadence rather than waiting five
+                           ;; minutes. The last accepted sequence remains the
+                           ;; rollback floor.
+                           (setf next-dns-refresh-at (+ now 30))
+                           (telemetry-log
+                            :warning "peer.discovery.dns_failed"
+                            :fields
+                            (list (cons "error" (princ-to-string condition)))
+                            :sink (devnet-node-telemetry-sink node)))))
+                     (when bootnodes
+                       (handler-case
+                           (multiple-value-bind (found stats)
+                               (discv4-lookup
+                                bootnodes private-key
+                                :timeout-seconds +devnet-discovery-crawl-seconds+
+                                :local-tcp-port (or (devnet-node-p2p-port node) 0)
+                                :advertised-host
+                                (devnet-node-advertised-host node)
+                                :record-filter record-filter)
+                             (telemetry-log
+                              :info "peer.discovery.crawl"
+                              :fields
+                              (append
+                               (loop for (name . count) in stats
+                                     collect (cons name (princ-to-string count)))
+                               (list
+                                (cons "filtered"
+                                      (if record-filter "true" "false"))
+                                (cons "offered"
+                                      (princ-to-string (length found)))))
+                              :sink (devnet-node-telemetry-sink node))
+                             (offer found))
+                         (error (condition)
+                           (telemetry-log
+                            :warning "peer.discovery.crawl_failed"
+                            :fields
+                            (list (cons "error" (princ-to-string condition)))
+                            :sink (devnet-node-telemetry-sink node))))))
+                   (loop repeat 30
+                         until (devnet-shutdown-requested-p shutdown-controller)
+                         do (sleep 1)))))
            (serious-condition (condition)
              (funcall error-callback condition)
              (devnet-shutdown-request shutdown-controller))))

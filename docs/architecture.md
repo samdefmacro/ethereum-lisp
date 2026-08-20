@@ -199,13 +199,25 @@ them by their physical location instead reintroduces dependency cycles:
   sender is refused outright, because both replies are far larger than the
   request and a forged one carries any source address the sender likes.
 
-  Public presets carry the canonical pinned discv4 bootnodes. A datadir owns a
-  stable node key and monotonically increasing ENR sequence, both created with
-  the same no-follow/exclusive/0600 file discipline as other node secrets.
-  `--nodiscover` disables both outbound crawling and discovery serving, while an
-  explicitly empty `--bootnodes` replaces (rather than supplements) preset
-  seeds. DNS discovery and automatic NAT modes are rejected at option parsing
-  until implementations exist; they are never accepted as no-op claims.
+  Public presets carry the canonical pinned discv4 bootnodes; Hoodi also carries
+  go-ethereum's canonical `all.hoodi.ethdisco.net` EIP-1459 URL. The DNS client
+  asks only system-configured recursive resolvers, caps packet/TXT/section/query,
+  tree-depth, branch, and ENR counts, verifies the root secp256k1 signature and
+  monotonic sequence, verifies every abbreviated Keccak Merkle label, then
+  reuses EIP-778 signature verification and the eth fork-id filter before a
+  candidate reaches the dial registry. The accepted sequence is atomically
+  persisted by signing-authority URL before candidates are published, so a
+  restart cannot replay an older signed root. DNS runs before the cross-chain
+  discv4 crawl and refreshes every five minutes, preserving registry capacity
+  for authenticated chain-matching candidates.
+
+  A datadir owns a stable node key and monotonically increasing local ENR
+  sequence, both created with the same no-follow/exclusive/0600 file discipline
+  as other node secrets. `--nodiscover` disables DNS, outbound crawling, and
+  discovery serving; an explicitly empty `--bootnodes` replaces preset seeds,
+  and an explicitly empty `--discovery.dns` disables the preset DNS tree.
+  Automatic NAT modes remain rejected until implemented; they are never
+  accepted as no-op claims.
 
   Peer admission policy (`devnet/peer-table.lisp`) and dial scheduling
   (`devnet/dial-schedule.lisp`) live in the CLI rather than here, because a peer

@@ -497,18 +497,25 @@ HTTPPort = 1945
           (is (search (first case) message))
           (is (search "not supported" message)))))))
 
-(deftest devnet-cli-rejects-unwired-dns-and-nat-transports
-  (labels ((parse-error (args)
+(deftest devnet-cli-wires-authenticated-dns-and-rejects-unwired-nat-transports
+  (labels ((parse-options (args)
+             (ethereum-lisp.cli::devnet-cli-options
+              (append (list "devnet") args (list "--no-serve"))))
+           (parse-error (args)
              (handler-case
                  (progn
-                   (ethereum-lisp.cli::devnet-cli-options
-                    (append (list "devnet") args (list "--no-serve")))
+                   (parse-options args)
                    nil)
                (error (condition) (princ-to-string condition)))))
-    ;; Empty DNS means explicitly disabled and is safe; a configured tree would
-    ;; otherwise be accepted without ever being queried.
-    (is (null (parse-error '("--discovery.dns" ""))))
-    (is (search "DNS discovery is not wired"
+    ;; Empty explicitly disables DNS. A non-empty tree is parsed now and later
+    ;; authenticated by the discovery worker before any candidate is offered.
+    (is (null (getf (parse-options '("--discovery.dns" ""))
+                    :discovery-dns)))
+    (let ((url (getf (eip1459-test-fixture) :url)))
+      (is (string= url
+                   (getf (parse-options (list "--discovery.dns" url))
+                         :discovery-dns))))
+    (is (search "Invalid EIP-1459 URL"
                 (parse-error '("--discovery.dns"
                                "enrtree://example.invalid"))))
     (dolist (mode '("any" "upnp" "pmp" "pmp:192.0.2.1"))

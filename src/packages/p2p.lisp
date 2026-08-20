@@ -126,6 +126,9 @@
    #:enr-public-key
    #:encode-enr
    #:decode-enr
+   #:eip1459-parse-url
+   #:eip1459-resolve-enodes
+   #:dns-query-txt
    #:ecies-encrypt
    #:ecies-decrypt
    #:ecies-concat-kdf

@@ -66,6 +66,8 @@
         (p2p-port nil)
         (p2p-port-specified-p nil)
         (discovery-enabled-p t)
+        (discovery-dns nil)
+        (discovery-dns-specified-p nil)
         (max-peers nil)
         (netrestrict nil)
         (nat-policy nil)
@@ -315,13 +317,13 @@
                ((string= option "--nodiscover")
                 (setf discovery-enabled-p (not (next-optional-boolean option))))
                ((string= option "--discovery.dns")
-                (let ((value (next-value option)))
-                  (unless (zerop
-                           (length
-                            (string-trim '(#\Space #\Tab #\Newline #\Return)
-                                         value)))
-                    (error
-                     "--discovery.dns is not supported: DNS discovery is not wired"))))
+                (setf discovery-dns-specified-p t)
+                (let ((value
+                        (string-trim '(#\Space #\Tab #\Newline #\Return)
+                                     (next-value option))))
+                  (setf discovery-dns
+                        (unless (zerop (length value))
+                          (progn (eip1459-parse-url value) value)))))
                ((string= option "--nodekey")
                 (setf node-key (devnet-cli-read-node-key (next-value option))))
                ((string= option "--nodekeyhex")
@@ -391,6 +393,9 @@
           (setf bootnodes
                 (reverse
                  (copy-list (built-in-genesis-preset-bootnodes preset)))))
+        (unless discovery-dns-specified-p
+          (setf discovery-dns
+                (built-in-genesis-preset-discovery-dns preset)))
         (unless p2p-port-specified-p
           (setf p2p-port 30303))))
     (list :genesis-path genesis-path
@@ -456,6 +461,7 @@
           :peers (nreverse peers)
           :bootnodes (nreverse bootnodes)
           :discovery-enabled-p discovery-enabled-p
+          :discovery-dns discovery-dns
           :p2p-port p2p-port
           :max-peers max-peers
           :netrestrict netrestrict

@@ -2725,15 +2725,21 @@ loop cannot block on a message that never comes."
                   "--no-serve")))
          (reenabled
            (ethereum-lisp.cli::devnet-cli-options
-            (list "devnet" "--hoodi" "--nodiscover=false" "--no-serve"))))
+            (list "devnet" "--hoodi" "--nodiscover=false" "--no-serve")))
+         (dns-disabled
+           (ethereum-lisp.cli::devnet-cli-options
+            (list "devnet" "--hoodi" "--discovery.dns" "" "--no-serve"))))
     (is (= 3 (length (getf defaults :bootnodes))))
+    (is (string= "enrtree://AKA3AM6LPBYEUDMVNU3BSVQJ5AD45Y7YPOHJLEF6W26QOE4VTUDPE@all.hoodi.ethdisco.net"
+                 (getf defaults :discovery-dns)))
     (is (= 30303 (getf defaults :p2p-port)))
     (is (getf defaults :discovery-enabled-p))
     ;; Explicit empty bootnodes override the public preset rather than being
     ;; mistaken for an absent option and silently refilled.
     (is (null (getf disabled :bootnodes)))
     (is (not (getf disabled :discovery-enabled-p)))
-    (is (getf reenabled :discovery-enabled-p))))
+    (is (getf reenabled :discovery-enabled-p))
+    (is (null (getf dns-disabled :discovery-dns)))))
 
 (deftest devnet-nodiscover-starts-neither-discovery-direction
   (:layer :integration :module :p2p)
@@ -2822,6 +2828,33 @@ loop cannot block on a message that never comes."
                    (devnet-cli-file-string
                     (ethereum-lisp.cli::devnet-cli-datadir-enr-seq-path
                      datadir)))))))
+      (uiop:delete-directory-tree datadir
+                                  :validate t
+                                  :if-does-not-exist :ignore))))
+
+(deftest devnet-datadir-persists-eip1459-anti-rollback-sequence-by-authority
+  (:layer :unit :module :cli)
+  (let* ((datadir (devnet-cli-temp-directory "ethereum-lisp-dns-sequence"))
+         (path (ethereum-lisp.cli::devnet-cli-datadir-dns-seq-path datadir))
+         (url (getf (eip1459-test-fixture) :url)))
+    (unwind-protect
+         (progn
+           (is (null (ethereum-lisp.cli::devnet-cli-load-dns-sequence
+                      path url)))
+           (is (= 2195
+                  (ethereum-lisp.cli::devnet-cli-write-dns-sequence
+                   path url 2195)))
+           (is (= 2195
+                  (ethereum-lisp.cli::devnet-cli-load-dns-sequence path url)))
+           ;; A configured authority change gets no floor from the old tree.
+           (is (null
+                (ethereum-lisp.cli::devnet-cli-load-dns-sequence
+                 path (concatenate 'string url ".changed"))))
+           (devnet-cli-write-temp-file path "malformed")
+           (is (eip1459-test-errors-p
+                (lambda ()
+                  (ethereum-lisp.cli::devnet-cli-load-dns-sequence
+                   path url)))))
       (uiop:delete-directory-tree datadir
                                   :validate t
                                   :if-does-not-exist :ignore))))

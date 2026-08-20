@@ -538,6 +538,9 @@
    #:enr-value
    #:discv4-neighbors-packets
    #:discv4-lookup
+   #:eip1459-parse-url
+   #:eip1459-resolve-enodes
+   #:dns-query-txt
    #:devp2p-capability-name
    #:devp2p-capability-version
    #:rlpx-disconnect
@@ -785,6 +788,7 @@
    #:built-in-genesis-preset-expected-hash
    #:built-in-genesis-preset-allocation-path
    #:built-in-genesis-preset-bootnodes
+   #:built-in-genesis-preset-discovery-dns
    #:mainnet-genesis-preset
    #:sepolia-genesis-preset
    #:holesky-genesis-preset

@@ -169,11 +169,14 @@ cl-workbench validation run cold-unit --match ETH-GOSSIP-NOTIFIES
 cl-workbench validation run cold-unit --match DEVNET-BROADCAST
 cl-workbench validation run cold-unit --match DEVNET-SNAP-HEAL-PROGRESS
 cl-workbench validation run cold-unit --match DEVNET-CLI-PUBLIC-PRESETS
+cl-workbench validation run cold-unit --match EIP1459
+cl-workbench validation run cold-unit --match DNS-TXT-DECODER
 
 # Persistent CLI identity/discovery behavior, verified snap client/server, durable
 # pivot progress, bounded multi-peer failover, sole-writer request queues, and
 # eth+snap multiplexing over one RLPx socket.
 cl-workbench validation run cold-integration --match DEVNET-DATADIR-PERSISTS
+cl-workbench validation run cold-integration --match DEVNET-CLI-WIRES-AUTHENTICATED-DNS
 cl-workbench validation run cold-integration --match SNAP-
 cl-workbench validation run cold-integration --match NODE-STORE-SNAP-SKELETON
 cl-workbench validation run cold-unit --match SNAP-PIVOT

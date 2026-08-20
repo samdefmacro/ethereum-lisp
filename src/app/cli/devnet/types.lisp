@@ -111,6 +111,9 @@ most one follow-up pass, so peer traffic cannot allocate unbounded wakeup work."
                       bootnodes
                       node-key
                       discovery-enabled-p
+                      discovery-dns
+                      discovery-dns-sequence
+                      discovery-dns-sequence-persistence-function
                       enr-seq
                       enr-seq-persistence-function
                       dial-registry
@@ -171,6 +174,9 @@ most one follow-up pass, so peer traffic cannot allocate unbounded wakeup work."
   bootnodes
   node-key
   (discovery-enabled-p t)
+  discovery-dns
+  discovery-dns-sequence
+  discovery-dns-sequence-persistence-function
   enr-seq-persistence-function
   dial-registry
   dial-guard-function
@@ -439,6 +445,7 @@ WAL files rather than the single CRC-framed log file the default backend uses.")
 (defparameter +devnet-geth-datadir-directory+ "geth/")
 (defparameter +devnet-datadir-node-key-file+ "nodekey")
 (defparameter +devnet-datadir-enr-seq-file+ "enrseq")
+(defparameter +devnet-datadir-dns-seq-file+ "dnsseq")
 (defconstant +devnet-default-dev-gas-limit+ #x1c9c380)
 
 (defun devnet-cli-dev-genesis-json (&key

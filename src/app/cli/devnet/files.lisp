@@ -453,6 +453,56 @@ RocksDB directory. Both are datadir-relative so a datadir stays self-contained."
      +devnet-geth-datadir-directory+
      (uiop:ensure-directory-pathname datadir)))))
 
+(defun devnet-cli-datadir-dns-seq-path (datadir)
+  (namestring
+   (merge-pathnames
+    +devnet-datadir-dns-seq-file+
+    (merge-pathnames
+     +devnet-geth-datadir-directory+
+     (uiop:ensure-directory-pathname datadir)))))
+
+(defun devnet-cli-write-dns-sequence (path url sequence)
+  "Atomically persist the anti-rollback floor for one EIP-1459 authority."
+  (unless (and (stringp url) (plusp (length url))
+               (integerp sequence) (<= 0 sequence #xffffffffffffffff))
+    (error "DNS discovery sequence record is invalid"))
+  (let ((temporary (devnet-cli-sibling-temp-path path))
+        (renamed-p nil))
+    (unwind-protect
+         (progn
+           (devnet-cli-write-private-file
+            temporary
+            (lambda (stream)
+              (format stream "~A~%~D~%" url sequence)))
+           (uiop:rename-file-overwriting-target temporary path)
+           (setf renamed-p t))
+      (unless renamed-p
+        (when (probe-file temporary)
+          (ignore-errors (delete-file temporary))))))
+  sequence)
+
+(defun devnet-cli-load-dns-sequence (path url)
+  "Load URL's durable EIP-1459 anti-rollback floor, or NIL for another tree."
+  (when (and url (probe-file path))
+    (handler-case
+        (let* ((content (devnet-cli-read-file-string path))
+               (lines
+                 (with-input-from-string (stream content)
+                   (loop for line = (read-line stream nil nil)
+                         while line
+                         for trimmed = (string-trim '(#\Space #\Tab #\Return)
+                                                    line)
+                         unless (zerop (length trimmed)) collect trimmed)))
+               (stored-url (first lines))
+               (sequence (and (= 2 (length lines))
+                              (parse-integer (second lines)
+                                             :junk-allowed nil))))
+          (unless (and sequence (<= 0 sequence #xffffffffffffffff))
+            (error "invalid sequence"))
+          (and (string= stored-url url) sequence))
+      (error ()
+        (error "Persisted DNS discovery sequence is malformed: ~A" path)))))
+
 (defun devnet-cli-write-enr-seq (path sequence)
   "Atomically replace PATH with a private decimal EIP-778 sequence file."
   (unless (and (integerp sequence) (plusp sequence))

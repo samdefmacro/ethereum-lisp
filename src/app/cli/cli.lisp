@@ -87,6 +87,21 @@
              (devnet-cli-datadir-node-key-path
               (getf options :datadir-path)))))
    :discovery-enabled-p (getf options :discovery-enabled-p)
+   :discovery-dns (getf options :discovery-dns)
+   :discovery-dns-sequence
+   (and (getf options :datadir-path)
+        (getf options :discovery-dns)
+        (devnet-cli-load-dns-sequence
+         (devnet-cli-datadir-dns-seq-path (getf options :datadir-path))
+         (getf options :discovery-dns)))
+   :discovery-dns-sequence-persistence-function
+   (when (and (getf options :datadir-path)
+              (getf options :discovery-dns))
+     (let ((path (devnet-cli-datadir-dns-seq-path
+                  (getf options :datadir-path)))
+           (url (getf options :discovery-dns)))
+       (lambda (sequence)
+         (devnet-cli-write-dns-sequence path url sequence))))
    :enr-seq
    (if (getf options :datadir-path)
        (devnet-cli-load-next-enr-seq

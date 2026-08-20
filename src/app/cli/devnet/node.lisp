@@ -55,6 +55,9 @@
        (bootnodes nil bootnodes-supplied-p)
        node-key
        (discovery-enabled-p t)
+       discovery-dns
+       discovery-dns-sequence
+       discovery-dns-sequence-persistence-function
        (enr-seq 1)
        enr-seq-persistence-function
        (public-allowed-method-p #'engine-rpc-public-method-p)
@@ -324,6 +327,10 @@
        ;; workers; a fresh key when none is configured.
        :node-key node-key
        :discovery-enabled-p discovery-enabled-p
+       :discovery-dns discovery-dns
+       :discovery-dns-sequence discovery-dns-sequence
+       :discovery-dns-sequence-persistence-function
+       discovery-dns-sequence-persistence-function
        :enr-seq enr-seq
        :enr-seq-persistence-function enr-seq-persistence-function
        ;; Every peer we might dial, with its cooldown and failure history.
