@@ -167,9 +167,13 @@ them by their physical location instead reintroduces dependency cycles:
   Local content-addressed references are read in batches of at most 512 keys.
   The width shrinks with the live frontier so worst-case 16-way expansion
   remains below the 8,192-work checkpoint cap throughout its soft-target
-  region. RocksDB executes each batch with one native multi-get instead of
-  crossing the Lisp/C boundary once per node; memory and file stores retain the
-  same ordered value/presence contract through the generic fallback. The
+  region. On SBCL, production RocksDB batches of at least 128 keys are divided
+  into at most four contiguous native multi-get slices. The coordinator joins
+  every reader, restores the original value/presence order, and propagates any
+  worker failure before processing a node; small batches and memory/file stores
+  retain the same ordered generic fallback. This bounded read concurrency uses
+  the otherwise idle I/O capacity of a public datadir without making trie
+  decoding, frontier mutation, or checkpoint publication concurrent. The
   database API rejects more than 4,096 keys or 4 MiB of key bytes before native
   allocation. The fetched nodes and the exact remaining work frontier
   are committed in one batch. That bounded, checksummed checkpoint is tied to

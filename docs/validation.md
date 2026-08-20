@@ -193,6 +193,8 @@ cl-workbench validation run cold-unit --match GET-MANY
 cl-workbench validation run cold-unit --match BATCHES-LOCAL
 cl-workbench validation run cold-integration --match NATIVE-MULTI-GET
 cl-workbench validation run cold-integration \
+  --match SNAP-HEAL-ROCKSDB-LOCAL-READ-BATCH-USES-BOUNDED-WORKERS
+cl-workbench validation run cold-integration \
   --match SNAP-STATE-HEALER-REUSES-PROVED-SUBTREES
 cl-workbench validation run cold-integration \
   --match SNAP-STATE-HEALER-BATCHES-DEFERRED-STORAGE-ROOTS
@@ -209,11 +211,16 @@ healer tests also require one missing-path slice per available source, prove a
 second source actually serves TrieNodes, and prove that consecutive rounds
 rotate the first source so retained work is not pinned to one partially pruned
 peer. Local traversal proves that more than one trie hash crosses the ordered
-multi-get seam in a batch, while the RocksDB integration control proves the
-batch reaches exactly one native call and preserves duplicate-key order and
-per-key absence. Generic controls enforce the 4,096-key and 4 MiB key-byte
-bounds. They persist a bounded checksummed work frontier in the same batch as
-newly accepted nodes. Abrupt source loss then resumes without rereading the root;
+multi-get seam in a batch, while the database integration control proves one
+generic RocksDB batch reaches exactly one native call and preserves
+duplicate-key order and per-key absence. A healer-specific RocksDB control
+proves that one 512-key local batch reaches four bounded read workers, rejoins
+their values and presence bits in exact input order, and propagates an injected
+worker failure. Switching the production dispatch back to serial makes its
+four-call witness fail. Generic controls enforce the 4,096-key and 4 MiB
+key-byte bounds. They persist a bounded checksummed work frontier in the same
+batch as newly accepted nodes. Abrupt source loss then resumes without
+rereading the root;
 corrupt, stale, empty, or oversized checkpoints fail closed, and
 rebase/completion failure injection proves that checkpoint invalidation remains
 atomic. A large-frontier control round-trips a 5,000-item live checkpoint and

@@ -2147,6 +2147,85 @@
         (is present-p)
         (is (bytes= persisted-root (hash32-bytes root)))))))
 
+#+sbcl
+(deftest snap-heal-rocksdb-local-read-batch-uses-bounded-workers
+  (:layer :integration :module :p2p)
+  (let* ((path
+           (merge-pathnames
+            (make-pathname
+             :directory
+             `(:relative ,(format nil "ethereum-lisp-snap-read-~A" (gensym))))
+            #P"/private/tmp/"))
+         (references
+           (map 'vector #'snap-test-index-hash
+                (loop for index below 512 collect index)))
+         (real-get-many
+           (fdefinition 'ethereum-lisp.database:kv-get-chain-records))
+         (mutex (sb-thread:make-mutex :name "snap-heal-read-test"))
+         (worker-threads '())
+         (call-count 0))
+    (unwind-protect
+         (let ((database (make-rocksdb-key-value-database path)))
+           (unwind-protect
+                (let ((batch (make-kv-write-batch)))
+                  (dotimes (index (length references))
+                    (unless (zerop (mod index 7))
+                      (ethereum-lisp.database:kv-batch-put-chain-record
+                       batch :trie-node (aref references index)
+                       (vector (mod index 256)))))
+                  (kv-apply-batch database batch)
+                  (setf
+                   (fdefinition 'ethereum-lisp.database:kv-get-chain-records)
+                   (lambda (candidate kind identifiers &optional default)
+                     (when (and (eq candidate database) (eq kind :trie-node))
+                       (sb-thread:with-mutex (mutex)
+                         (incf call-count)
+                         (pushnew sb-thread:*current-thread* worker-threads
+                                  :test #'eq)))
+                     (funcall
+                      real-get-many candidate kind identifiers default)))
+                  (let ((ethereum-lisp.snap-sync::*snap-sync-heal-local-read-workers*
+                          4))
+                    (multiple-value-bind (values present)
+                        (ethereum-lisp.snap-sync::snap-sync-heal-local-node-batch
+                         database references)
+                      (is (= 4 call-count))
+                      (is (= 4 (length worker-threads)))
+                      (is (= 512 (length values)))
+                      (is (= 512 (length present)))
+                      (dotimes (index 512)
+                        (if (zerop (mod index 7))
+                            (progn
+                              (is (zerop (aref present index)))
+                              (is (null (aref values index))))
+                            (progn
+                              (is (= 1 (aref present index)))
+                              (is (bytes= (vector (mod index 256))
+                                         (aref values index))))))))
+                  (setf
+                   (fdefinition 'ethereum-lisp.database:kv-get-chain-records)
+                   (lambda (candidate kind identifiers &optional default)
+                     (when (and (eq candidate database)
+                                (eq kind :trie-node)
+                                (bytes= (aref identifiers 0)
+                                        (aref references 128)))
+                       (error "Injected parallel snap read failure"))
+                     (funcall
+                      real-get-many candidate kind identifiers default)))
+                  (let ((ethereum-lisp.snap-sync::*snap-sync-heal-local-read-workers*
+                          4))
+                    (signals
+                     error
+                     (ethereum-lisp.snap-sync::snap-sync-heal-local-node-batch
+                      database references))))
+             (setf (fdefinition 'ethereum-lisp.database:kv-get-chain-records)
+                   real-get-many)
+             (close-rocksdb-key-value-database database)))
+      (setf (fdefinition 'ethereum-lisp.database:kv-get-chain-records)
+            real-get-many)
+      (when (probe-file path)
+        (uiop:delete-directory-tree path :validate t)))))
+
 (deftest snap-state-healer-reuses-proved-subtrees-across-pivots
   (:layer :integration :module :p2p)
   (multiple-value-bind (source-state addresses)

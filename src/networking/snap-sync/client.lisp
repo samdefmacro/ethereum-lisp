@@ -13,6 +13,10 @@
 (defconstant +snap-sync-heal-paths-per-request+ 2048)
 (defconstant +snap-sync-heal-local-reads-per-batch+ 512
   "Maximum local read width before frontier-aware shrinking.")
+(defparameter *snap-sync-heal-local-read-workers* 4
+  "Maximum concurrent RocksDB MultiGet calls during local trie healing.")
+(defconstant +snap-sync-heal-parallel-read-minimum+ 128
+  "Do not pay worker creation overhead below this local read width.")
 (defconstant +snap-sync-heal-deferred-storage-target+ 2048
   "Collect this many account storage roots before descending into them.")
 (defconstant +snap-sync-heal-codes-per-request+ 2048)
@@ -1531,8 +1535,68 @@ the returned record in the same batch as its new skeleton metadata."
        (let ((offset (mod round count)))
          (append (subseq sources offset) (subseq sources 0 offset)))))))
 
+#+sbcl
+(defun snap-sync-heal-parallel-local-node-batch (database references workers)
+  "Read REFERENCES concurrently and return results in their original order."
+  (let* ((references (coerce references 'vector))
+         (count (length references))
+         (worker-count (min workers count))
+         (values-by-worker (make-array worker-count :initial-element nil))
+         (present-by-worker (make-array worker-count :initial-element nil))
+         (conditions (make-array worker-count :initial-element nil))
+         (threads (make-array worker-count :initial-element nil)))
+    (labels ((start (index)
+               (floor (* index count) worker-count))
+             (run-worker (index)
+               (handler-case
+                   (multiple-value-bind (values present)
+                       (kv-get-chain-records
+                        database :trie-node
+                        (subseq references (start index) (start (1+ index))))
+                     (setf (aref values-by-worker index) values
+                           (aref present-by-worker index) present))
+                 (serious-condition (condition)
+                   (setf (aref conditions index) condition)))))
+      (unwind-protect
+           (progn
+             (dotimes (index worker-count)
+               (let ((worker-index index))
+                 (setf
+                  (aref threads index)
+                  (sb-thread:make-thread
+                   (lambda () (run-worker worker-index))
+                   :name "snap-sync-heal-local-read-worker"))))
+             (dotimes (index worker-count)
+               (sb-thread:join-thread (aref threads index))
+               (setf (aref threads index) nil)))
+        ;; A partial thread-creation failure must not detach readers from the
+        ;; database lifetime owned by the coordinator.
+        (loop for thread across threads
+              when thread
+                do (ignore-errors (sb-thread:join-thread thread))))
+      (let ((condition (find-if #'identity conditions)))
+        (when condition
+          (error condition)))
+      (let ((values (make-array count :initial-element nil))
+            (present (make-array count :element-type 'bit :initial-element 0)))
+        (dotimes (index worker-count)
+          (replace values (aref values-by-worker index) :start1 (start index))
+          (replace present (aref present-by-worker index) :start1 (start index)))
+        (values values present)))))
+
 (defun snap-sync-heal-local-node-batch (database references)
   "Read one ordered, bounded batch of local trie-node references."
+  (unless (and (integerp *snap-sync-heal-local-read-workers*)
+               (<= 1 *snap-sync-heal-local-read-workers* 16))
+    (error "Snap heal local read workers must be between one and 16"))
+  #+sbcl
+  (when (and
+         (typep database 'ethereum-lisp.database:rocksdb-key-value-database)
+         (> *snap-sync-heal-local-read-workers* 1)
+         (>= (length references) +snap-sync-heal-parallel-read-minimum+))
+    (return-from snap-sync-heal-local-node-batch
+      (snap-sync-heal-parallel-local-node-batch
+       database references *snap-sync-heal-local-read-workers*)))
   (kv-get-chain-records database :trie-node references))
 
 (defun snap-sync-healed-subtree-identifier (reference)
