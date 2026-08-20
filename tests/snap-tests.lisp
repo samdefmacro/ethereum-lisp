@@ -1974,6 +1974,106 @@
     (is (< (length record)
            ethereum-lisp.snap-sync::+snap-sync-heal-checkpoint-max-bytes+))))
 
+(deftest snap-state-healer-drains-oversized-overdue-frontier
+  (:layer :integration :module :p2p)
+  ;; A live Hoodi pivot resumed with a legal 8192-work frontier.  Expanding its
+  ;; first 16-way branch made the exact frontier 8207 works at the checkpoint
+  ;; boundary.  Keep the older checkpoint authoritative until single-work DFS
+  ;; reads drain that transient excess instead of terminating the whole node.
+  (let* ((database (make-memory-key-value-database))
+         (account-hash (snap-test-hash 220))
+         (leaf-object
+           (make-rlp-list
+            (ethereum-lisp.trie.encoding:hex-prefix-encode
+             #(0) :terminator t)
+            (make-byte-vector 1 :initial-element 1)))
+         (leaf-encoded (rlp-encode leaf-object))
+         (leaf-reference (keccak-256 leaf-encoded))
+         (branch-object
+           (apply #'make-rlp-list
+                  (append
+                   (loop repeat 16 collect leaf-reference)
+                   (list (make-byte-vector 0)))))
+         (branch-encoded (rlp-encode branch-object))
+         (branch-reference (keccak-256 branch-encoded))
+         (pivot (make-hash32 (snap-test-hash 221)))
+         (progress
+           (ethereum-lisp.snap-sync::snap-sync-make-progress
+            :pivot-hash pivot :pivot-number 6000
+            :state-root (make-hash32 branch-reference)
+            :partial-root +empty-trie-hash+
+            :target-hash (make-hash32 (snap-test-hash 222))
+            :chain-id 560048
+            :genesis-hash (make-hash32 (snap-test-hash 223))
+            :authority-id (make-hash32 (snap-test-hash 224))
+            :completed-p nil
+            :tasks
+            (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+             :count 1 :completed-p t)))
+         (leaf-work
+           (ethereum-lisp.snap-sync::snap-sync-make-heal-work
+            :storage account-hash (make-byte-vector 0) leaf-reference))
+         (stack
+           (cons
+            (ethereum-lisp.snap-sync::snap-sync-make-heal-work
+             :storage account-hash (make-byte-vector 0) branch-reference)
+            (loop repeat
+                  (1-
+                   ethereum-lisp.snap-sync::+snap-sync-heal-checkpoint-max-works+)
+                  collect leaf-work)))
+         (real-due
+           (fdefinition
+            'ethereum-lisp.snap-sync::snap-sync-heal-checkpoint-due-p))
+         (real-populate
+           (fdefinition
+            'ethereum-lisp.snap-sync::snap-sync-populate-heal-checkpoint-batch))
+         (forced-checkpoint-done-p nil)
+         (checkpoint-frontiers '())
+         (completed nil))
+    (let ((batch (make-kv-write-batch)))
+      (kv-batch-put-chain-record
+       batch :trie-node branch-reference branch-encoded)
+      (kv-batch-put-chain-record
+       batch :trie-node leaf-reference leaf-encoded)
+      (ethereum-lisp.snap-sync::snap-sync-populate-heal-checkpoint-batch
+       batch progress stack 0 0 0 0 0)
+      (kv-apply-batch database batch))
+    (unwind-protect
+         (progn
+           (setf
+            (fdefinition
+             'ethereum-lisp.snap-sync::snap-sync-heal-checkpoint-due-p)
+            (lambda (processed-nodes last-checkpoint-processed-nodes)
+              (declare (ignore last-checkpoint-processed-nodes))
+              (and (not forced-checkpoint-done-p)
+                   (plusp processed-nodes))))
+           (setf
+            (fdefinition
+             'ethereum-lisp.snap-sync::snap-sync-populate-heal-checkpoint-batch)
+            (lambda (batch progress frontier processed-nodes reused-nodes
+                     fetched-nodes request-count response-bytes)
+              (push (length frontier) checkpoint-frontiers)
+              (setf forced-checkpoint-done-p t)
+              (funcall
+               real-populate batch progress frontier processed-nodes
+               reused-nodes fetched-nodes request-count response-bytes)))
+           (setf completed
+                 (ethereum-lisp.snap-sync::snap-sync-heal-state
+                  database nil progress (* 2 1024 1024))))
+      (setf
+       (fdefinition
+        'ethereum-lisp.snap-sync::snap-sync-heal-checkpoint-due-p)
+       real-due
+       (fdefinition
+        'ethereum-lisp.snap-sync::snap-sync-populate-heal-checkpoint-batch)
+       real-populate))
+    (is forced-checkpoint-done-p)
+    (is (equal
+         (list
+          ethereum-lisp.snap-sync::+snap-sync-heal-checkpoint-max-works+)
+         checkpoint-frontiers))
+    (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p completed))))
+
 (deftest snap-state-healer-uses-multiple-trie-node-sources
   (:layer :integration :module :p2p)
   (multiple-value-bind (source-state addresses)

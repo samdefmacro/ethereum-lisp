@@ -167,9 +167,17 @@ them by their physical location instead reintroduces dependency cycles:
   Local content-addressed references are read in batches of at most 512 keys.
   The width shrinks with the live frontier so worst-case 16-way expansion
   remains below the 8,192-work checkpoint cap throughout its soft-target
-  region. On SBCL, production RocksDB batches of at least 128 keys are divided
-  into at most four contiguous native multi-get slices. The coordinator joins
-  every reader, restores the original value/presence order, and propagates any
+  region. A restart may begin at the legal hard cap, where its next branch can
+  transiently expand the exact DFS frontier above one checkpoint record. If a
+  checkpoint becomes due in that state, the prior durable record remains
+  authoritative while one-work reads drain the excess; fetched nodes may still
+  be committed by content hash, but no partial frontier is published. The next
+  checkpoint is written only after the complete frontier is back within 8,192,
+  so the allocation bound remains unchanged without turning a temporary shape
+  into a fatal node exit. On SBCL, production RocksDB batches of at least 128
+  keys are divided into at most four contiguous native multi-get slices. The
+  coordinator joins every reader, restores the original value/presence order,
+  and propagates any
   worker failure before processing a node; small batches and memory/file stores
   retain the same ordered generic fallback. This bounded read concurrency uses
   the otherwise idle I/O capacity of a public datadir without making trie

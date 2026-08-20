@@ -200,6 +200,8 @@ cl-workbench validation run cold-integration \
   --match SNAP-STATE-HEALER-BATCHES-DEFERRED-STORAGE-ROOTS
 cl-workbench validation run cold-integration \
   --match SNAP-HEALED-SUBTREE-PUBLICATION-FAILS-CLOSED
+cl-workbench validation run cold-integration \
+  --match SNAP-STATE-HEALER-DRAINS-OVERSIZED-OVERDUE-FRONTIER
 ```
 
 The snap tests reconstruct and verify account/storage roots, reject altered
@@ -225,8 +227,12 @@ corrupt, stale, empty, or oversized checkpoints fail closed, and
 rebase/completion failure injection proves that checkpoint invalidation remains
 atomic. A large-frontier control round-trips a 5,000-item live checkpoint and
 proves that missing batches shrink near the frontier target instead of stacking
-another full soft-limited response below it. Separate controls prove that
-account traversal defers storage roots into multi-path requests, that the
+another full soft-limited response below it. A live-shape control resumes an
+8,192-work frontier, expands its first branch to 8,207 at an overdue checkpoint,
+and proves that single-work traversal drains it back to the hard cap before the
+next record is published. Restoring the old immediate checkpoint stop makes
+that control fail with the observed public-node error. Separate controls prove
+that account traversal defers storage roots into multi-path requests, that the
 version-two completion sentinel is backward compatible with version-one
 checkpoints, and that a content-addressed subtree proved under one pivot reduces
 the decoded work under the next pivot. Proof publication failure leaves neither

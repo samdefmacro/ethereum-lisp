@@ -1077,6 +1077,16 @@ an already hard-sized frontier whose next node may reduce it."
       (error "~A exceeds uint64" label))
     integer))
 
+(defun snap-sync-heal-checkpoint-frontier-p (frontier)
+  "Return true when FRONTIER can be represented by one durable checkpoint."
+  (and frontier
+       (<= (length frontier) +snap-sync-heal-checkpoint-max-works+)))
+
+(defun snap-sync-heal-checkpoint-due-p (processed-nodes
+                                         last-checkpoint-processed-nodes)
+  (>= (- processed-nodes last-checkpoint-processed-nodes)
+      +snap-sync-heal-checkpoint-node-interval+))
+
 (defun snap-sync-heal-work-object (work)
   (make-rlp-list
    (ecase (snap-sync-heal-work-kind work)
@@ -1296,8 +1306,7 @@ caller cannot pin a stale sync target using untrusted metadata."
 (defun snap-sync-populate-heal-checkpoint-batch
     (batch progress stack processed-nodes reused-nodes fetched-nodes
      request-count response-bytes)
-  (unless (and stack
-               (<= (length stack) +snap-sync-heal-checkpoint-max-works+))
+  (unless (snap-sync-heal-checkpoint-frontier-p stack)
     (error "Snap heal checkpoint frontier is empty or oversized"))
   (kv-batch-put-chain-record
    batch :metadata +snap-sync-heal-checkpoint-identifier+
@@ -1774,8 +1783,17 @@ the state-history marker and completed cursor share their final batch."
              (kv-apply-batch database batch)
              (setf last-checkpoint-processed-nodes processed-nodes)))
          (checkpoint-due-p ()
-           (>= (- processed-nodes last-checkpoint-processed-nodes)
-               +snap-sync-heal-checkpoint-node-interval+))
+           (snap-sync-heal-checkpoint-due-p
+            processed-nodes last-checkpoint-processed-nodes))
+         (checkpoint-blocks-traversal-p ()
+           ;; A wide local batch may transiently expand the exact DFS frontier
+           ;; above the single-record checkpoint cap.  The older checkpoint
+           ;; remains authoritative while one-work reads drain that bounded
+           ;; excess; stopping here would make the node fail at the first
+           ;; checkpoint boundary without producing a resumable record.
+           (and (checkpoint-due-p)
+                (<= (+ (length stack) deferred-storage-count)
+                    +snap-sync-heal-checkpoint-max-works+)))
          (queue-code-hash (hash)
            ;; Keep one content hash for the whole traversal.  Flushing bounds
            ;; wire work and the pending list without repeating database reads
@@ -1961,7 +1979,8 @@ the state-history marker and completed cursor share their final batch."
                  ;; Preserve the exact unprocessed frontier before handing the
                  ;; finite source-generation failure back to the coordinator.
                  (setf stack (continuation-stack))
-                 (persist-checkpoint stack)
+                 (when (snap-sync-heal-checkpoint-frontier-p stack)
+                   (persist-checkpoint stack))
                  (snap-sync-heal-signal-source-errors
                   (nreverse round-errors)))
                (incf fetched-nodes fills)
@@ -1969,9 +1988,13 @@ the state-history marker and completed cursor share their final batch."
                ;; The same batch that makes response nodes durable publishes a
                ;; frontier whose FETCHED-P bits keep restart telemetry exact.
                (setf stack (continuation-stack))
-               (populate-checkpoint batch stack)
-               (kv-apply-batch database batch)
-               (setf last-checkpoint-processed-nodes processed-nodes)
+               (let ((checkpointable-p
+                       (snap-sync-heal-checkpoint-frontier-p stack)))
+                 (when checkpointable-p
+                   (populate-checkpoint batch stack))
+                 (kv-apply-batch database batch)
+                 (when checkpointable-p
+                   (setf last-checkpoint-processed-nodes processed-nodes)))
                (snap-sync-report-heal-progress
                 on-heal-progress processed-nodes reused-nodes fetched-nodes
                 request-count response-bytes nil)))))
@@ -1985,12 +2008,14 @@ the state-history marker and completed cursor share their final batch."
                            (< missing-count missing-limit)
                            (< deferred-storage-count
                               +snap-sync-heal-deferred-storage-target+)
-                           (not (checkpoint-due-p)))
+                           (not (checkpoint-blocks-traversal-p)))
                 do
                 (let* ((checkpoint-room
-                         (- +snap-sync-heal-checkpoint-node-interval+
-                            (- processed-nodes
-                               last-checkpoint-processed-nodes)))
+                         (max
+                          1
+                          (- +snap-sync-heal-checkpoint-node-interval+
+                             (- processed-nodes
+                                last-checkpoint-processed-nodes))))
                        (read-limit
                          (snap-sync-heal-local-read-limit
                           (+ (length stack) deferred-storage-count)
@@ -2004,7 +2029,7 @@ the state-history marker and completed cursor share their final batch."
                   ;; checkpoint never skips an unprocessed popped work.
                   (loop while (and stack
                                    (< lookup-count read-limit)
-                                   (not (checkpoint-due-p)))
+                                   (not (checkpoint-blocks-traversal-p)))
                         for work = (pop stack)
                         for reference =
                           (snap-sync-heal-work-reference work)
@@ -2082,7 +2107,9 @@ the state-history marker and completed cursor share their final batch."
           (cond
             (missing
              (fetch-missing (coerce (nreverse missing) 'vector)))
-            ((and stack (checkpoint-due-p))
+            ((and stack
+                  (checkpoint-due-p)
+                  (snap-sync-heal-checkpoint-frontier-p stack))
              (persist-checkpoint stack)))
           (when (and (null stack) (null missing))
             (return)))))
