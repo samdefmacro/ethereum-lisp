@@ -207,7 +207,7 @@ cl-workbench validation run cold-integration \
 cl-workbench validation run cold-unit \
   --match SNAP-STATE-HEALER-FILLS-EACH-SOURCE-WITHIN-GETH-LOOKUP-CAP
 cl-workbench validation run cold-unit \
-  --match DEVNET-SNAP-LONG-HEAL-YIELDS-TO-A-STALE-CONSENSUS-TARGET
+  --match DEVNET-SNAP-STALLED-LONG-HEAL-YIELDS-TO-A-STALE-CONSENSUS-TARGET
 cl-workbench validation run cold-integration \
   --match SNAP-TRIE-NODE-SERVER-CAPS-DISK-LOOKUPS
 ```
@@ -278,8 +278,12 @@ the successor to be a known Engine forkchoice target beyond the exact
 120-block window, pass a 30-second-throttled yield predicate through the
 production multi-source importer, and turn its typed safe-boundary condition
 into a truthy scheduling result so the same pass cannot fall into unbounded
-forward gap filling. Removing the production predicate wiring makes the exact
-call-site test fail. The range tests prove that sixteen
+forward gap filling. The call-site control also advances a real healing
+snapshot immediately before the five-minute silence boundary and proves that
+productive local or peer progress keeps the exact frontier; only five full
+minutes without a later snapshot permits the stale yield. Removing the
+production predicate wiring makes the exact call-site test fail. The range
+tests prove that sixteen
 durable account ranges are fetched concurrently through three
 sources with geth's 2 MiB soft byte limit, completed ranges are not replayed
 after restart, and a failed source's claimed range is reassigned. A finite

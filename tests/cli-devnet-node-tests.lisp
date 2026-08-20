@@ -1527,7 +1527,7 @@ really reopens the directory instead of observing the first handle's memory."
             (ethereum-lisp.cli::devnet-node-stale-snap-successor
              node old-target 0)))))))
 
-(deftest devnet-snap-long-heal-yields-to-a-stale-consensus-target
+(deftest devnet-snap-stalled-long-heal-yields-to-a-stale-consensus-target
   (:layer :unit :module :p2p)
   (let* ((node
            (ethereum-lisp.cli:make-devnet-node
@@ -1571,11 +1571,26 @@ really reopens the directory instead of observing the first handle's memory."
             (lambda (seen-database sources &rest arguments)
               (is (eq database seen-database))
               (is (equal (list source) sources))
-              (let ((yield-p (getf arguments :heal-yield-p)))
+              (let ((yield-p (getf arguments :heal-yield-p))
+                    (progress-callback (getf arguments :on-heal-progress)))
                 (is (functionp yield-p))
+                (is (functionp progress-callback))
                 (setf now 129)
                 (is (not (funcall yield-p)))
-                (setf now 130)
+                ;; Productive local reuse immediately before the old
+                ;; five-minute boundary must keep the exact DFS frontier.
+                (setf now 399)
+                (funcall
+                 progress-callback
+                 (ethereum-lisp.snap-sync::%make-snap-sync-heal-progress
+                  :processed-nodes 90000 :reused-nodes 89990
+                  :fetched-nodes 10 :request-count 4
+                  :response-bytes 4096 :completed-p nil))
+                (setf now 698)
+                (is (not (funcall yield-p)))
+                ;; The same stale target becomes yieldable only after five
+                ;; full minutes without another observational snapshot.
+                (setf now 699)
                 (is (funcall yield-p))
                 (error 'ethereum-lisp.snap-sync:snap-sync-heal-yielded))))
       (cons 'ethereum-lisp.cli::devnet-peer-manager-log

@@ -134,6 +134,9 @@ first, so a long backfill does not starve a short one."
 (defconstant +devnet-snap-heal-target-check-interval-seconds+ 30
   "Minimum interval between CL-target staleness checks during one heal.")
 
+(defconstant +devnet-snap-heal-stall-interval-seconds+ 300
+  "Minimum time without a healer progress snapshot before stale-target yield.")
+
 (defun devnet-snap-heal-progress-log-due-p (last-log-at now completed-p)
   "Whether one cumulative healing snapshot should reach operator telemetry."
   (or completed-p
@@ -645,6 +648,7 @@ must prove the new state root before either record can authorize publication."
          (sources nil)
          (source-entries '())
          (last-heal-log-at nil)
+         (last-heal-progress-at (unix-time))
          (last-target-check-at (unix-time)))
     (labels
         ((ordered-live-entries ()
@@ -679,9 +683,19 @@ must prove the new state root before either record can authorize publication."
            (cdr (assoc source source-entries :test #'eq)))
          (yield-for-stale-target-p ()
            (let ((now (unix-time)))
-             (when (or (< now last-target-check-at)
-                       (>= (- now last-target-check-at)
-                           +devnet-snap-heal-target-check-interval-seconds+))
+             ;; Advancing either through durable local reuse or accepted peer
+             ;; nodes is productive work on a consensus-authorized pivot. Do
+             ;; not repeatedly discard its exact DFS frontier merely because
+             ;; the live head advances. The yield is an escape hatch only for
+             ;; a genuinely silent healer; ordinary empty responses already
+             ;; retire their source as SNAP-SYNC-STATE-UNAVAILABLE.
+             (when (and
+                    (>= now last-heal-progress-at)
+                    (>= (- now last-heal-progress-at)
+                        +devnet-snap-heal-stall-interval-seconds+)
+                    (or (< now last-target-check-at)
+                        (>= (- now last-target-check-at)
+                            +devnet-snap-heal-target-check-interval-seconds+)))
                (setf last-target-check-at now)
                (multiple-value-bind (successor successor-number)
                    (devnet-node-stale-snap-successor
@@ -744,6 +758,7 @@ must prove the new state root before either record can authorize publication."
                 (completed-p
                   (ethereum-lisp.snap-sync:snap-sync-heal-progress-completed-p
                    heal-progress)))
+           (setf last-heal-progress-at now)
            (when (devnet-snap-heal-progress-log-due-p
                   last-heal-log-at now completed-p)
              (setf last-heal-log-at now)

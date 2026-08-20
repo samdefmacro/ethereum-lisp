@@ -210,13 +210,17 @@ them by their physical location instead reintroduces dependency cycles:
   peer does not consume that process-local opportunity. Once a finite source
   generation has actually been attempted, ordinary stale-target rebase is
   available again. A long-running healer cannot defer that decision merely by
-  receiving small partial TrieNodes responses forever: every 30 seconds, at a
-  boundary with no request worker or uncommitted database batch, it checks the
-  current Engine forkchoice target. If that CL-authorized target is more than
-  120 blocks beyond the active target, a typed scheduling condition yields to
-  the coordinator. Peer-advertised heads never enter this decision. The next
-  pass atomically rebases the skeleton and state cursor, while already durable
-  content-addressed nodes and completed-subtree proofs remain reusable.
+  receiving small partial TrieNodes responses forever: at a boundary with no
+  request worker or uncommitted database batch, it checks the current Engine
+  forkchoice target at most every 30 seconds. A typed scheduling condition
+  yields to the coordinator only when that CL-authorized target is more than
+  120 blocks beyond the active target and no healer progress snapshot has
+  arrived for five minutes. Productive local reuse and accepted partial
+  responses therefore retain their exact DFS frontier instead of repeatedly
+  restarting as the live head advances. Peer-advertised heads never enter this
+  decision. The next pass atomically rebases the skeleton and state cursor,
+  while already durable content-addressed nodes and completed-subtree proofs
+  remain reusable.
   Missing, corrupt, or identity-mismatched checkpoints never suppress rebase,
   and an explicit authority-driven rebase still invalidates the frontier in
   the same batch as both progress records.
