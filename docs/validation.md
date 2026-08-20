@@ -202,6 +202,8 @@ cl-workbench validation run cold-integration \
   --match SNAP-HEALED-SUBTREE-PUBLICATION-FAILS-CLOSED
 cl-workbench validation run cold-integration \
   --match SNAP-STATE-HEALER-DRAINS-OVERSIZED-OVERDUE-FRONTIER
+cl-workbench validation run cold-integration \
+  --match SNAP-STATE-HEALER-ADDS-SOURCES-THAT-ARRIVE-AFTER-HEALING-STARTS
 ```
 
 The snap tests reconstruct and verify account/storage roots, reject altered
@@ -212,7 +214,10 @@ state. Only the final traversal can install the completion marker. The final
 healer tests also require one missing-path slice per available source, prove a
 second source actually serves TrieNodes, and prove that consecutive rounds
 rotate the first source so retained work is not pinned to one partially pruned
-peer. Local traversal proves that more than one trie hash crosses the ordered
+peer. A late-admission control starts healing with one source, exposes a second
+source through the live provider only after the first request round, and proves
+that the new source serves TrieNodes before completion. Local traversal proves
+that more than one trie hash crosses the ordered
 multi-get seam in a batch, while the database integration control proves one
 generic RocksDB batch reaches exactly one native call and preserves
 duplicate-key order and per-key absence. A healer-specific RocksDB control

@@ -2184,6 +2184,70 @@
               while right
               do (is (not (eq left right))))))))
 
+(deftest snap-state-healer-adds-sources-that-arrive-after-healing-starts
+  (:layer :integration :module :p2p)
+  (multiple-value-bind (source-state addresses)
+      (snap-test-partitioned-state)
+    (declare (ignore addresses))
+    (let* ((root (state-db-root source-state))
+           (target-database (make-memory-key-value-database))
+           (calls (make-array 2 :initial-element 0))
+           (provider-calls 0)
+           (sources
+             (loop for index below 2
+                   for source-database = (make-memory-key-value-database)
+                   for backend =
+                     (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+                      source-database source-state)
+                   for base = (snap-test-source backend)
+                   collect
+                   (ethereum-lisp.snap-sync:make-snap-sync-source
+                    :account-range
+                    (ethereum-lisp.snap-sync:snap-sync-source-account-range
+                     base)
+                    :storage-ranges
+                    (ethereum-lisp.snap-sync:snap-sync-source-storage-ranges
+                     base)
+                    :bytecodes
+                    (ethereum-lisp.snap-sync:snap-sync-source-bytecodes base)
+                    :trie-nodes
+                    (let ((worker-index index)
+                          (callback
+                            (ethereum-lisp.snap-sync:snap-sync-source-trie-nodes
+                             base)))
+                      (lambda (request)
+                        (incf (aref calls worker-index))
+                        (funcall callback request))))))
+           (progress
+             (ethereum-lisp.snap-sync::snap-sync-make-progress
+              :pivot-hash (make-hash32 (snap-test-hash 197))
+              :pivot-number 3003 :state-root root
+              :partial-root +empty-trie-hash+
+              :target-hash (make-hash32 (snap-test-hash 198))
+              :chain-id 560048
+              :genesis-hash (make-hash32 (snap-test-hash 199))
+              :authority-id (make-hash32 (snap-test-hash 200))
+              :completed-p nil
+              :tasks
+              (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+               :count 1 :completed-p t))))
+      (let ((completed
+              (ethereum-lisp.snap-sync::snap-sync-heal-state
+               target-database (list (first sources)) progress 350
+               :source-provider
+               (lambda ()
+                 (incf provider-calls)
+                 ;; Model the common live-node sequence: the first peer starts
+                 ;; sync, then a second session finishes its handshake while
+                 ;; the long content-addressed traversal is already running.
+                 (if (= provider-calls 1)
+                     (list (first sources))
+                     sources)))))
+        (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p completed))
+        (is (> provider-calls 1))
+        (is (plusp (aref calls 0)))
+        (is (plusp (aref calls 1)))))))
+
 (deftest snap-state-healer-batches-local-trie-lookups
   (:layer :unit :module :p2p)
   (multiple-value-bind (source-state addresses)

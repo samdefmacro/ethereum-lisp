@@ -1747,7 +1747,7 @@ than cache misses."
 
 (defun snap-sync-heal-state
     (database sources progress byte-limit
-     &key on-source-error on-heal-progress
+     &key on-source-error on-heal-progress source-provider
           (code-batch-limit +snap-sync-heal-codes-per-request+))
   "Heal a mixed snap/1 flat download to PROGRESS's exact authorized root.
 
@@ -1755,11 +1755,16 @@ Traversal follows the new root and reuses every content-addressed node already
 written by older pivots.  Missing account/storage nodes are requested by their
 snap compact paths in bounded batches; response blobs are matched to requested
 hashes before persistence.  Code and storage dependencies are completed before
-the state-history marker and completed cursor share their final batch."
+the state-history marker and completed cursor share their final batch.
+SOURCE-PROVIDER may return a fresh live-source snapshot before each remote
+round; newly observed complete sources join in stable order, while a source
+retired by this healing attempt cannot be re-admitted under the same identity."
   (unless (and (integerp code-batch-limit)
                (<= 1 code-batch-limit +snap-sync-heal-codes-per-request+))
     (error "Snap healing code batch limit must be between one and ~D"
            +snap-sync-heal-codes-per-request+))
+  (when (and source-provider (not (functionp source-provider)))
+    (error "Snap healing source provider must be a function"))
   (unless (snap-sync-tasks-completed-p
            (snap-sync-progress-tasks progress))
     (error "Snap trie healing cannot precede flat-range completion"))
@@ -1774,7 +1779,8 @@ the state-history marker and completed cursor share their final batch."
                    (list
                     (snap-sync-make-heal-work
                      :account nil (make-byte-vector 0) root-bytes)))))
-           (active-sources (copy-list sources))
+           (active-sources (remove-duplicates (copy-list sources) :test #'eq))
+           (retired-sources '())
            (retired-source-errors '())
            (pending-codes '())
            (pending-code-count 0)
@@ -1807,7 +1813,22 @@ the state-history marker and completed cursor share their final batch."
            (source-round 0)
            (last-checkpoint-processed-nodes processed-nodes))
     (labels
-        ((report-local-checkpoint ()
+        ((refresh-active-sources ()
+           (when source-provider
+             (let ((fresh (funcall source-provider)))
+               (unless (listp fresh)
+                 (error "Snap healing source provider must return a list"))
+               (dolist (source fresh)
+                 (unless (snap-sync-source-complete-p source)
+                   (error "Snap healing source provider returned an incomplete source"))
+                 (unless (or (member source active-sources :test #'eq)
+                             (member source retired-sources :test #'eq))
+                   ;; Preserve the existing rotation order while allowing
+                   ;; sessions admitted after a long heal began to join its
+                   ;; next bounded request round.
+                   (setf active-sources
+                         (nconc active-sources (list source))))))))
+         (report-local-checkpoint ()
            (when (and on-heal-progress
                       (plusp *snap-sync-heal-progress-node-interval*)
                       (zerop
@@ -2006,6 +2027,7 @@ the state-history marker and completed cursor share their final batch."
                     "Persisted snap trie node is malformed: ~A" condition)
                    (error condition)))))
          (fetch-missing (missing)
+           (refresh-active-sources)
            (unless active-sources
              (snap-sync-heal-signal-source-errors
               (reverse retired-source-errors)))
@@ -2036,6 +2058,9 @@ the state-history marker and completed cursor share their final batch."
                            (error condition))
                          (push condition round-errors)
                          (push condition retired-source-errors)
+                         (pushnew
+                          (snap-sync-heal-fetch-result-source result)
+                          retired-sources :test #'eq)
                          (setf active-sources
                                (remove
                                 (snap-sync-heal-fetch-result-source result)
@@ -2299,7 +2324,7 @@ the state-history marker and completed cursor share their final batch."
      &key pivot-hash pivot-number state-root chain-id genesis-hash authority-id
           target-hash
           (byte-limit +snap-sync-request-bytes+) on-progress on-heal-progress
-          max-pages)
+          heal-source-provider max-pages)
   "Download, verify, and atomically install a CL-authorized pivot state.
 
 Every account-range cursor is committed in the same batch as the partial trie
@@ -2328,6 +2353,7 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
       (return-from snap-sync-import-state
         (snap-sync-heal-state
          database (list source) progress byte-limit
+         :source-provider heal-source-provider
          :on-heal-progress on-heal-progress)))
     (loop
       (when (and max-pages (>= pages max-pages))
@@ -2350,6 +2376,7 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
           (return
             (snap-sync-heal-state
              database (list source) progress byte-limit
+             :source-provider heal-source-provider
              :on-heal-progress on-heal-progress)))))))
 
 #+sbcl
@@ -2503,7 +2530,8 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
     (database sources
      &key pivot-hash pivot-number state-root chain-id genesis-hash authority-id
           target-hash (byte-limit +snap-sync-request-bytes+)
-          on-progress on-source-error on-heal-progress max-pages)
+          on-progress on-source-error on-heal-progress heal-source-provider
+          max-pages)
   "Import one pivot through disjoint durable ranges shared across SOURCES.
 
 Sixteen logical account tasks follow pinned geth 38271784.  At most one worker
@@ -2511,7 +2539,9 @@ uses each source, preserving the session's sole-writer rule.  Workers verify and
 heal independent pages concurrently; the caller thread serializes MPT merge,
 the progress batch, and callbacks.  ON-PROGRESS receives PROGRESS, SOURCE, and
 TASK-INDEX after that task page is durable.  ON-SOURCE-ERROR receives SOURCE and
-the condition after its task has been made retryable by another source."
+the condition after its task has been made retryable by another source.
+HEAL-SOURCE-PROVIDER extends only the final content-addressed traversal with
+newly admitted live sources; the durable range-worker snapshot stays finite."
   (unless (typep database 'key-value-database)
     (error "Snap state import requires a key-value database"))
   (setf sources (remove-duplicates (copy-list sources) :test #'eq))
@@ -2538,6 +2568,7 @@ the condition after its task has been made retryable by another source."
       (return-from snap-sync-import-state-multi
         (snap-sync-heal-state
          database sources progress byte-limit
+         :source-provider heal-source-provider
          :on-source-error on-source-error
          :on-heal-progress on-heal-progress)))
     (unwind-protect
@@ -2563,7 +2594,8 @@ the condition after its task has been made retryable by another source."
                     (snap-sync-heal-state
                      database sources
                      (snap-sync-multi-runtime-progress runtime)
-                     byte-limit :on-source-error on-source-error
+                     byte-limit :source-provider heal-source-provider
+                     :on-source-error on-source-error
                      :on-heal-progress on-heal-progress)))
                  (:exhausted
                   (cond

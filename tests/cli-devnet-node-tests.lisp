@@ -1430,6 +1430,11 @@ really reopens the directory instead of observing the first handle's memory."
               (remove-if-not
                (lambda (record)
                  (string= "peer.snap.heal_progress" (first record)))
+               logs))
+            (source-logs
+              (remove-if-not
+               (lambda (record)
+                 (string= "peer.snap.sources_refreshed" (first record)))
                logs)))
         (is (plusp (length page-logs)))
         (is (=
@@ -1454,7 +1459,12 @@ really reopens the directory instead of observing the first handle's memory."
           (is (integerp (field record "reusedNodes")))
           (is (= 0 (field record "requests")))
           (is (= 0 (field record "fetchedNodes")))
-          (is (= 0 (field record "nodeBytes"))))))))
+          (is (= 0 (field record "nodeBytes"))))
+        (is (= 1 (length source-logs)))
+        (let ((record (first source-logs)))
+          (is (= (block-header-number pivot-header) (field record "pivot")))
+          (is (= 1 (field record "added")))
+          (is (= 1 (field record "sources"))))))))
 
 (deftest devnet-snap-heal-progress-throttles-intermediate-events
   (:layer :unit :module :p2p)

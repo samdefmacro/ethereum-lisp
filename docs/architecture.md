@@ -155,6 +155,10 @@ them by their physical location instead reintroduces dependency cycles:
   traversal. Each round partitions its missing paths across the current snap
   sources, with at most one outstanding TrieNodes request per source; a failed
   source retires only its own slice while successful slices remain durable.
+  Before each remote healing round the CLI refreshes its live session snapshot,
+  reuses the existing sole-writer source wrappers, and incrementally admits new
+  snap peers that completed their handshake after the long traversal began.
+  Retired source identities are not re-admitted during the same attempt.
   Source order rotates between rounds, so a retained path from a partially
   pruned peer reaches another source without duplicating any request inside one
   round. Account traversal defers up to 2,048 discovered storage roots instead

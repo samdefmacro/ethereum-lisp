@@ -612,32 +612,52 @@ must prove the new state root before either record can authorize publication."
          (pivot-hash (block-header-hash pivot-header))
          (pivot-number (block-header-number pivot-header))
          (state-root (block-header-state-root pivot-header))
-         (live (devnet-node-live-sync-entries node :snap-only-p t))
-         ;; The peer that resolved the CL target is the strongest source for
-         ;; its nearby pivot state. Other live snap peers remain failover
-         ;; candidates, but may legitimately be behind or have pruned the root.
-         (entries
-           (if (and preferred-entry (member preferred-entry live :test #'eq))
-               (cons preferred-entry (remove preferred-entry live :test #'eq))
-               live))
-         (source-entries
-           (mapcar
-            (lambda (entry)
-              (cons (devnet-peer-queued-snap-source entry) entry))
-            entries))
+         (sources nil)
+         (source-entries '())
          (last-heal-log-at nil))
-    (unless source-entries
-      (eth-sync-multi-peer-fail
-       "no live snap peer can import pivot ~A" (hash32-to-hex pivot-hash)))
-    (flet ((entry-for-source (source)
-             (cdr (assoc source source-entries :test #'eq))))
+    (labels
+        ((ordered-live-entries ()
+           (let ((current
+                   (devnet-node-live-sync-entries node :snap-only-p t)))
+             (if (and preferred-entry
+                      (member preferred-entry current :test #'eq))
+                 (cons preferred-entry
+                       (remove preferred-entry current :test #'eq))
+                 current)))
+         (refresh-sources ()
+           (let ((current (ordered-live-entries))
+                 (added 0))
+             (dolist (entry current)
+               (unless (find entry source-entries :key #'cdr :test #'eq)
+                 (setf source-entries
+                       (nconc
+                        source-entries
+                        (list
+                         (cons (devnet-peer-queued-snap-source entry) entry))))
+                 (incf added)))
+             (when (plusp added)
+               (devnet-peer-manager-log
+                node "peer.snap.sources_refreshed"
+                "pivot" pivot-number "added" added
+                "sources" (length current)))
+             (mapcar
+              (lambda (entry)
+                (car (find entry source-entries :key #'cdr :test #'eq)))
+              current)))
+         (entry-for-source (source)
+           (cdr (assoc source source-entries :test #'eq))))
+      (setf sources (refresh-sources))
+      (unless sources
+        (eth-sync-multi-peer-fail
+         "no live snap peer can import pivot ~A" (hash32-to-hex pivot-hash)))
       (ethereum-lisp.snap-sync:snap-sync-import-state-multi
-       database (mapcar #'car source-entries)
+       database sources
        :pivot-hash pivot-hash :pivot-number pivot-number
        :state-root state-root :target-hash target-hash
        :chain-id (chain-config-chain-id (devnet-node-config node))
        :genesis-hash (block-hash (devnet-node-genesis-block node))
        :authority-id (devnet-persistence-state-authority-id persistence)
+       :heal-source-provider #'refresh-sources
        ;; The multi-source importer invokes this on the coordinator thread only
        ;; after the task's account nodes, code, complete small storage tries,
        ;; and cursor are durable. Byte-capped storage is mandatory work for the
