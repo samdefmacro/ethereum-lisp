@@ -1466,6 +1466,55 @@ really reopens the directory instead of observing the first handle's memory."
   ;; A backwards-adjusted wall clock must not suppress logs indefinitely.
   (is (ethereum-lisp.cli::devnet-snap-heal-progress-log-due-p 100 99 nil)))
 
+(deftest devnet-snap-restart-pin-waits-for-a-peer-and-is-consumed-on-attempt
+  (:layer :unit :module :p2p)
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (target (make-hash32 (make-byte-vector 32 :initial-element 77)))
+         (snap-entries nil)
+         (gap-calls 0)
+         (snap-calls 0))
+    (devnet-peer-sync-call-with-function-overrides
+     (list
+      (cons 'ethereum-lisp.cli::devnet-node-active-snap-target
+            (lambda (seen-node latest-target)
+              (is (eq node seen-node))
+              (is (null latest-target))
+              target))
+      (cons 'ethereum-lisp.cli::devnet-node-live-sync-entries
+            (lambda (seen-node &key snap-only-p)
+              (is (eq node seen-node))
+              (is snap-only-p)
+              snap-entries))
+      (cons 'ethereum-lisp.cli::devnet-node-snap-sync-target
+            (lambda (seen-node seen-target)
+              (is (eq node seen-node))
+              (is (hash32= target seen-target))
+              (incf snap-calls)
+              7))
+      (cons 'ethereum-lisp.cli::devnet-node-fill-sync-gaps-with-live-peer
+            (lambda (seen-node)
+              (is (eq node seen-node))
+              (incf gap-calls)
+              3)))
+     (lambda ()
+       ;; Merely observing an old checkpoint before any Snap peer connects
+       ;; cannot consume the one post-restart recovery attempt.
+       (is (= 3 (ethereum-lisp.cli::devnet-node-multi-sync-pass node)))
+       (is (ethereum-lisp.cli::devnet-node-snap-checkpoint-resume-p node))
+       (is (= 1 gap-calls))
+       (is (= 0 snap-calls))
+       ;; Starting the actual attempt consumes the process-local exception. If
+       ;; this source generation later exhausts, the next pass may rebase.
+       (setf snap-entries (list :snap-peer))
+       (is (= 7 (ethereum-lisp.cli::devnet-node-multi-sync-pass node)))
+       (is (not
+            (ethereum-lisp.cli::devnet-node-snap-checkpoint-resume-p node)))
+       (is (= 1 gap-calls))
+       (is (= 1 snap-calls))))))
+
 (deftest devnet-snap-target-downloads-only-the-bounded-pivot-tail
   (:layer :integration :module :p2p)
   (let* ((datadir
@@ -1742,7 +1791,7 @@ really reopens the directory instead of observing the first handle's memory."
                         (new-target
                           (make-block-header
                            :parent-hash (block-header-hash new-pivot)
-                           :number 284 :state-root new-root
+                           :number 285 :state-root new-root
                            :gas-limit 30000000))
                         (cursor
                           (make-byte-vector 32 :initial-element 1))
@@ -1777,7 +1826,35 @@ really reopens the directory instead of observing the first handle's memory."
                       database batch skeleton)
                      (ethereum-lisp.snap-sync::snap-sync-populate-progress-batch
                       batch state-progress)
+                     (ethereum-lisp.snap-sync::snap-sync-populate-heal-checkpoint-batch
+                      batch state-progress
+                      (list
+                       (ethereum-lisp.snap-sync::snap-sync-make-heal-work
+                        :account nil #() (hash32-bytes old-root)))
+                      17 11 6 3 512)
                      (kv-apply-batch database batch))
+                   (ethereum-lisp.cli::call-with-devnet-node-store-guard
+                    node
+                    (lambda ()
+                      (ethereum-lisp.chain-store:engine-payload-store-put-remote-block
+                       store (make-block :header new-target))))
+                   ;; A restartable healer frontier overrides the ordinary
+                   ;; 120-block staleness timer for one real recovery attempt.
+                   ;; Releasing it earlier would repeat the root scan.
+                   (is (hash32=
+                        (block-header-hash old-target)
+                        (ethereum-lisp.cli::devnet-node-active-snap-target
+                         node (block-header-hash new-target))))
+                   ;; Once a real post-restart source generation has been
+                   ;; attempted, the original stale-pivot escape is restored.
+                   (setf
+                    (ethereum-lisp.cli::devnet-node-snap-checkpoint-resume-p
+                     node)
+                    nil)
+                   (is (hash32=
+                        (block-header-hash new-target)
+                        (ethereum-lisp.cli::devnet-node-active-snap-target
+                         node (block-header-hash new-target))))
                    (ethereum-lisp.cli::call-with-devnet-node-store-guard
                     node
                     (lambda ()
@@ -1810,7 +1887,12 @@ really reopens the directory instead of observing the first handle's memory."
                                   restored)))
                      (is (not
                           (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
-                           restored))))
+                           restored)))
+                     ;; Explicit authority-driven rebase still invalidates the
+                     ;; old frontier atomically with the two progress records.
+                     (is (not
+                          (ethereum-lisp.snap-sync:snap-sync-heal-checkpoint-present-p
+                           database restored))))
                    ;; Rebase is metadata only; the new root remains private
                    ;; until TrieNodes healing reaches its final atomic batch.
                    (is (not

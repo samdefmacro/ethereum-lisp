@@ -441,6 +441,7 @@
    #:snap-sync-heal-progress-response-bytes
    #:snap-sync-heal-progress-completed-p
    #:snap-sync-read-progress
+   #:snap-sync-heal-checkpoint-present-p
    #:snap-sync-delete-progress
    #:snap-sync-populate-rebased-progress-batch
    #:snap-sync-rebase-progress

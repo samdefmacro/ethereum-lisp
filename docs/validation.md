@@ -212,8 +212,14 @@ corrupt, stale, empty, or oversized checkpoints fail closed, and
 rebase/completion failure injection proves that checkpoint invalidation remains
 atomic. A large-frontier control round-trips a 5,000-item live checkpoint and
 proves that missing batches shrink near the frontier target instead of stacking
-another full soft-limited response below it. They also prove
-that sixteen durable account ranges are fetched concurrently through three
+another full soft-limited response below it. A coordinator control proves that
+a valid identity-matched healer checkpoint pins its CL target for the first
+actual post-restart Snap attempt across the ordinary stale-pivot window, that
+waiting without a Snap peer does not consume that opportunity, and that
+starting an attempt restores the rebase escape for the next pass. Removing the
+production pin makes the focused restart decision regression fail, while an
+explicit rebase still deletes the frontier. The range tests prove that sixteen
+durable account ranges are fetched concurrently through three
 sources with geth's 2 MiB soft byte limit, completed ranges are not replayed
 after restart, and a failed source's claimed range is reassigned. A finite
 source generation may exhaust without stopping the node: the coordinator logs

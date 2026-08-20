@@ -1229,6 +1229,14 @@ an already hard-sized frontier whose next node may reduce it."
               (values checkpoint t)
               (values nil nil))))))
 
+(defun snap-sync-heal-checkpoint-present-p (database progress)
+  "Return true only for a bounded, valid checkpoint matching PROGRESS.
+
+This is the coordinator-facing restart signal.  Corrupt, oversized, or
+identity-mismatched cache records remain indistinguishable from absence, so a
+caller cannot pin a stale sync target using untrusted metadata."
+  (nth-value 1 (snap-sync-read-heal-checkpoint database progress)))
+
 (defun snap-sync-populate-heal-checkpoint-batch
     (batch progress stack processed-nodes reused-nodes fetched-nodes
      request-count response-bytes)

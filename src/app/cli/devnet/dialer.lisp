@@ -158,8 +158,13 @@ from following newer Engine targets.  Once account-range work has committed,
 the matching skeleton and state progress remain pinned until the target is
 executable, so normal slot-by-slot FCU updates cannot discard expensive state
 work.  If a known newer CL target advances beyond the stale-pivot window, it
-may supersede the session just as geth moves an uncommitted stale pivot.  The
-two records are one recovery session and must agree."
+may supersede a session that has no resumable healer frontier, just as geth
+moves an uncommitted stale pivot.  A bounded, identity-matched heal checkpoint
+pins the old target for the first actual Snap attempt after restart; discarding
+it immediately would turn a deploy into a full root rescan, while retaining it
+after that finite source generation fails would prevent the stale-pivot escape.
+The skeleton, state progress, and optional checkpoint are one recovery session
+and must agree."
   (let ((store (devnet-node-store node)))
     (if (not (database-engine-payload-store-p store))
         latest-target
@@ -200,7 +205,12 @@ two records are one recovery session and must agree."
                         (node-store-snap-skeleton-progress-target-hash
                          skeleton)))
                    (t
-                    (let* ((target
+                    (let* ((checkpoint-present-p
+                             (and
+                              (devnet-node-snap-checkpoint-resume-p node)
+                              (ethereum-lisp.snap-sync:snap-sync-heal-checkpoint-present-p
+                               database state-progress)))
+                           (target
                              (node-store-snap-skeleton-progress-target-hash
                               skeleton))
                            (latest-block
@@ -214,7 +224,8 @@ two records are one recovery session and must agree."
                                   (block-header-number
                                    (block-header latest-block))))
                            (stale-p
-                             (and latest-number
+                             (and (not checkpoint-present-p)
+                                  latest-number
                                   (> latest-number
                                      (+
                                       (node-store-snap-skeleton-progress-target-number
@@ -930,11 +941,19 @@ SYNCING or ACCEPTED, which gives the downloader a consensus-driven bound."
           (devnet-node-active-snap-target
            node (first (devnet-node-forkchoice-sync-targets node)))))
     (when forkchoice-target
-      (return-from devnet-node-multi-sync-pass
-        (if (devnet-node-live-sync-entries node :snap-only-p t)
-            (or (devnet-node-snap-sync-target node forkchoice-target)
-                (devnet-node-fill-sync-gaps-with-live-peer node))
-            (devnet-node-fill-sync-gaps-with-live-peer node)))))
+      (let ((snap-entries
+              (devnet-node-live-sync-entries node :snap-only-p t)))
+        (return-from devnet-node-multi-sync-pass
+          (if snap-entries
+              (progn
+                ;; A valid durable checkpoint may override the stale-pivot
+                ;; timer for this first real post-restart attempt.  If the
+                ;; finite source generation still cannot serve it, the next
+                ;; pass regains the ordinary rebase escape hatch.
+                (setf (devnet-node-snap-checkpoint-resume-p node) nil)
+                (or (devnet-node-snap-sync-target node forkchoice-target)
+                    (devnet-node-fill-sync-gaps-with-live-peer node)))
+              (devnet-node-fill-sync-gaps-with-live-peer node))))))
   (multiple-value-bind (head-number head-hash target-number target-hash)
       (devnet-node-consensus-forward-target node)
     (when target-number

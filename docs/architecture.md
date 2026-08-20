@@ -167,7 +167,16 @@ them by their physical location instead reintroduces dependency cycles:
   allocation. The fetched nodes and the exact remaining depth-first frontier
   are committed in one batch. That bounded, checksummed checkpoint is tied to
   the pivot, target, chain, genesis, and database authority, and is ignored if
-  corrupt or stale.
+  corrupt or stale. While it remains valid and non-empty, the coordinator pins
+  that exact CL target for one actual Snap attempt after process restart even
+  after the ordinary 120-block stale-pivot window; otherwise a routine deploy
+  would delete the frontier and repeat the root traversal. Waiting for a Snap
+  peer does not consume that process-local opportunity. Once a finite source
+  generation has actually been attempted, ordinary stale-target rebase is
+  available again, so a pruned old root cannot pin the node forever. Missing,
+  corrupt, or identity-mismatched checkpoints never suppress rebase, and an
+  explicit authority-driven rebase still invalidates the frontier in the same
+  batch as both progress records.
   Soft-limited responses can retain older work below the returned subtree, so
   later missing-path batches shrink as that frontier approaches its target;
   the larger hard record cap remains a fail-closed allocation boundary.
