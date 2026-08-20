@@ -58,7 +58,10 @@ previous_container="${HOODI_GATE_PREVIOUS_CONTAINER:-}"
 previous_revision="${HOODI_GATE_PREVIOUS_REVISION:-}"
 cl_network="${HOODI_GATE_CL_NETWORK:-hoodi-frozen}"
 egress_network="${HOODI_GATE_EGRESS_NETWORK:-hoodi-net}"
-cl_alias="${HOODI_GATE_CL_ALIAS:-hoodi-el-public-frozen}"
+# Lighthouse's persisted execution endpoint uses this stable network alias.
+# Every replacement EL must claim the same name or the CL remains online but
+# reports its execution layer offline after an otherwise successful upgrade.
+cl_alias="${HOODI_GATE_CL_ALIAS:-hoodi-el-public-36a22e47}"
 jwt_dir="${HOODI_GATE_JWT_DIR:-/data/hoodi/jwt}"
 public_ip="${HOODI_GATE_PUBLIC_IP:-165.154.224.110}"
 p2p_port="${HOODI_GATE_P2P_PORT:-30303}"

@@ -290,6 +290,11 @@ stopped on success. A new-container, network-attachment, exit, or readiness
 failure stops the attempted replacement and restarts the previous container;
 neither path removes a container, image, artifact, or datadir.
 
+The broker's default consensus-network alias is
+`hoodi-el-public-36a22e47`, matching the persisted Lighthouse execution
+endpoint on the dedicated gate. Override `HOODI_GATE_CL_ALIAS` only when the
+paired consensus client was explicitly configured with another stable name.
+
 After a live run has started, completion evidence or broker-only repairs may
 move the checkout past the runtime image revision. Set
 `HOODI_GATE_RUNTIME_REVISION` to that full ancestor revision when inspecting or
