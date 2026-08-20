@@ -270,14 +270,25 @@
 
 (defun dns-make-txt-query (name id)
   (let* ((encoded-name (dns-encode-name name))
-         (packet (make-byte-vector (+ 12 (length encoded-name) 4))))
+         ;; One eleven-byte EDNS(0) OPT pseudo-record advertises the same 4096
+         ;; byte UDP ceiling enforced by our receive buffer. Without it, a
+         ;; resolver may truncate an otherwise small TXT answer because the
+         ;; answer plus authority data crosses the legacy 512-byte DNS limit.
+         (packet (make-byte-vector (+ 12 (length encoded-name) 4 11))))
     (dns-write-u16 packet 0 id)
     (dns-write-u16 packet 2 #x0100) ; recursion desired
     (dns-write-u16 packet 4 1)
+    (dns-write-u16 packet 10 1) ; one additional OPT record
     (replace packet encoded-name :start1 12)
     (let ((tail (+ 12 (length encoded-name))))
       (dns-write-u16 packet tail 16) ; TXT
-      (dns-write-u16 packet (+ tail 2) 1)) ; IN
+      (dns-write-u16 packet (+ tail 2) 1) ; IN
+      (let ((opt (+ tail 4)))
+        ;; Root owner name, TYPE=OPT, advertised UDP payload=4096. Extended
+        ;; RCODE/version/flags and RDLEN remain their zero-initialized values.
+        (setf (aref packet opt) 0)
+        (dns-write-u16 packet (+ opt 1) 41)
+        (dns-write-u16 packet (+ opt 3) +eip1459-max-dns-packet-bytes+)))
     packet))
 
 (defun dns-query-txt (name &key (timeout-seconds 2) (attempts 2)

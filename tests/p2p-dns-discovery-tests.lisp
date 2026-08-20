@@ -214,3 +214,20 @@
                 nil)
             (error (condition) (princ-to-string condition)))))
     (is (search "not-an-ipv4-address" message))))
+
+(deftest dns-txt-query-advertises-the-bounded-edns-udp-size
+  (:layer :unit :module :p2p)
+  (let* ((packet (ethereum-lisp.p2p::dns-make-txt-query
+                  "nodes.example.org" #x1234))
+         (end (length packet))
+         (question-end
+           (+ 4 (ethereum-lisp.p2p::dns-skip-name packet 12 end)))
+         (opt question-end))
+    (is (= #x1234 (ethereum-lisp.p2p::dns-u16 packet 0 end)))
+    (is (= 1 (ethereum-lisp.p2p::dns-u16 packet 10 end)))
+    (is (= 11 (- end opt)))
+    (is (zerop (aref packet opt)))
+    (is (= 41 (ethereum-lisp.p2p::dns-u16 packet (1+ opt) end)))
+    (is (= 4096 (ethereum-lisp.p2p::dns-u16 packet (+ opt 3) end)))
+    (is (zerop (ethereum-lisp.p2p::dns-u32 packet (+ opt 5) end)))
+    (is (zerop (ethereum-lisp.p2p::dns-u16 packet (+ opt 9) end)))))
