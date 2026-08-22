@@ -2869,8 +2869,11 @@
                                   metadata-worker-threads :test #'eq)))
                      (funcall
                       real-get-many candidate kind identifiers default)))
+                  (is
+                   (= 8
+                      ethereum-lisp.snap-sync::*snap-sync-heal-local-read-workers*))
                   (let ((ethereum-lisp.snap-sync::*snap-sync-heal-local-read-workers*
-                          4))
+                          8))
                     (multiple-value-bind (values present decoded)
                         (ethereum-lisp.snap-sync::snap-sync-heal-local-node-batch
                          database references
@@ -2881,9 +2884,9 @@
                              (pushnew sb-thread:*current-thread*
                                       decoder-threads :test #'eq))
                            (list index (aref value 0))))
-                      (is (= 4 call-count))
-                      (is (= 4 (length worker-threads)))
-                      (is (= 4 (length decoder-threads)))
+                      (is (= 8 call-count))
+                      (is (= 8 (length worker-threads)))
+                      (is (= 8 (length decoder-threads)))
                       (is (= (- 512 (ceiling 512 7)) decoder-call-count))
                       (is (= 512 (length values)))
                       (is (= 512 (length present)))
@@ -2901,12 +2904,12 @@
                               (is (equal (list index (mod index 256))
                                          (aref decoded index))))))))
                   (let ((ethereum-lisp.snap-sync::*snap-sync-heal-local-read-workers*
-                          4))
+                          8))
                     (let ((present
                             (ethereum-lisp.snap-sync::snap-sync-healed-subtrees-present
                              database references)))
-                      (is (= 4 metadata-call-count))
-                      (is (= 4 (length metadata-worker-threads)))
+                      (is (= 8 metadata-call-count))
+                      (is (= 8 (length metadata-worker-threads)))
                       (dotimes (index 512)
                         (is (= (if (zerop (mod index 5)) 0 1)
                                (aref present index))))))
@@ -2930,7 +2933,7 @@
                      (funcall
                       real-get-many candidate kind identifiers default)))
                   (let ((ethereum-lisp.snap-sync::*snap-sync-heal-local-read-workers*
-                          4))
+                          8))
                     (signals
                      error
                      (ethereum-lisp.snap-sync::snap-sync-heal-local-node-batch

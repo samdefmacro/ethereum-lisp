@@ -19,7 +19,7 @@
   "Maximum healing paths assigned to one source in a concurrent round.")
 (defconstant +snap-sync-heal-local-reads-per-batch+ 512
   "Maximum local read width before frontier-aware shrinking.")
-(defparameter *snap-sync-heal-local-read-workers* 4
+(defparameter *snap-sync-heal-local-read-workers* 8
   "Maximum concurrent RocksDB MultiGet calls during local trie healing.")
 (defconstant +snap-sync-heal-parallel-read-minimum+ 128
   "Do not pay worker creation overhead below this local read width.")
