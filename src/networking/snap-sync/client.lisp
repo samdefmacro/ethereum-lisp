@@ -1513,6 +1513,43 @@ its bounded pivot tail will anchor the resumable import."
         (list compact)
         (list (snap-sync-heal-work-account-hash work) compact))))
 
+(defun snap-sync-heal-request-path-sets (missing start end)
+  "Encode one ordered MISSING slice with Geth-style storage-path grouping.
+
+Account trie nodes remain independent one-path sets. Consecutive storage trie
+nodes belonging to the same account share one account-hash prefix, avoiding a
+remote account-trie lookup for every storage node. Grouping is deliberately
+limited to consecutive work: the response-node order therefore remains the
+same as the caller's exact continuation and its hash matcher needs no reorder
+map."
+  (let ((path-sets '())
+        (storage-account nil)
+        (storage-paths '()))
+    (labels ((flush-storage ()
+               (when storage-account
+                 (push
+                  (cons storage-account (nreverse storage-paths))
+                  path-sets)
+                 (setf storage-account nil
+                       storage-paths nil))))
+      (loop for index from start below end
+            for work = (aref missing index)
+            for path-set = (snap-sync-heal-work-path-set work)
+            do
+               (if (eq :storage (snap-sync-heal-work-kind work))
+                   (let ((account-hash (first path-set))
+                         (compact-path (second path-set)))
+                     (unless (and storage-account
+                                  (bytes= storage-account account-hash))
+                       (flush-storage)
+                       (setf storage-account account-hash))
+                     (push compact-path storage-paths))
+                   (progn
+                     (flush-storage)
+                     (push path-set path-sets))))
+      (flush-storage)
+      (nreverse path-sets))))
+
 (defun snap-sync-heal-missing-limit (stack-count source-count)
   "Bound one remote missing-path batch by its concurrent source capacity.
 
@@ -1944,10 +1981,7 @@ the returned record in the same batch as its new skeleton metadata."
       (let* ((request
                (make-snap-get-trie-nodes
                 1 root-bytes
-                (loop for index from start below end
-                      collect
-                      (snap-sync-heal-work-path-set
-                       (aref missing index)))
+                (snap-sync-heal-request-path-sets missing start end)
                 byte-limit))
              (packet
                (snap-sync-source-call
