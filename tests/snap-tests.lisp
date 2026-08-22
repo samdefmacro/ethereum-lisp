@@ -3080,6 +3080,21 @@
       (is (plusp proof-count))
       (is (zerop exact-read-count)))))
 
+(deftest snap-healed-subtree-public-depth-bounds-rebase-regions
+  (:layer :unit :module :p2p)
+  (let ((depth
+          ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*))
+    (is (= 4 depth))
+    (is
+     (not
+      (ethereum-lisp.snap-sync::snap-sync-healed-subtree-candidate-p
+       (ethereum-lisp.snap-sync::snap-sync-make-heal-work
+        :account nil (make-byte-vector (1- depth)) (snap-test-hash 221)))))
+    (is
+     (ethereum-lisp.snap-sync::snap-sync-healed-subtree-candidate-p
+      (ethereum-lisp.snap-sync::snap-sync-make-heal-work
+       :account nil (make-byte-vector depth) (snap-test-hash 222))))))
+
 (deftest snap-state-healer-reuses-proved-subtrees-across-pivots
   (:layer :integration :module :p2p)
   (multiple-value-bind (source-state addresses)
@@ -3141,7 +3156,7 @@
                    :count 1 :completed-p t))))
         ;; A one-nibble boundary keeps this fixture small while exercising the
         ;; same content-addressed proof and completion-sentinel path as the
-        ;; six-nibble public-network setting.
+        ;; four-nibble public-network setting.
         (let ((ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
                 1))
           (unwind-protect

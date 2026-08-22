@@ -229,15 +229,16 @@
         (progn
           (%rocks-options-create-if-missing
            options (if create-if-missing-p 1 0))
-          ;; ROCKSDB_USE_IO_URING only compiles the backend in. ReadOptions
-          ;; keeps async_io disabled by default, in which case MultiGet still
-          ;; issues synchronous reads and never reaches the linked liburing
-          ;; path. Enable it on every production read handle and verify the
-          ;; exact library retained the setting before the handle can become
+          ;; ROCKSDB_USE_IO_URING makes the POSIX MultiRead backend use the
+          ;; ring even without this option. ReadOptions nevertheless keeps
+          ;; async_io disabled by default, which disables asynchronous
+          ;; iterator prefetch and any coroutine-enabled cross-level MultiGet
+          ;; scheduling. Enable it on every production read handle and verify
+          ;; the exact library retained the setting before the handle becomes
           ;; observable.
           (%rocks-read-options-set-async-io read-options 1)
           (unless (= 1 (%rocks-read-options-get-async-io read-options))
-            (error "RocksDB refused to enable asynchronous MultiGet I/O"))
+            (error "RocksDB refused to enable asynchronous read I/O"))
           ;; Ethereum bootstrap is a sustained batched insert workload.
           ;; RocksDB's default 64 MiB/one-memtable flush cadence produced
           ;; roughly 8x physical writes on the Hoodi gate. Keep leveled

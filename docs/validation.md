@@ -242,7 +242,10 @@ TrieNodes and consecutive rounds rotate the first source so retained work is
 not pinned to one partially pruned peer. A late-admission control starts
 healing with one source, exposes a second
 source through the live provider only after the first request round, and proves
-that the new source serves TrieNodes before completion. Local traversal proves
+that the new source serves TrieNodes before completion. A boundary regression
+pins the production completion-proof depth at four nibbles and proves work on
+either side of that threshold is classified correctly, keeping rebases granular
+without expanding toward a six-nibble proof index. Local traversal proves
 that more than one trie hash crosses the ordered
 multi-get seam in a batch, while the database integration control proves one
 generic RocksDB batch reaches exactly one native call and preserves
@@ -256,7 +259,9 @@ and 4 MiB key-byte bounds. The RocksDB construction regressions witness the
 exact 2 GiB block-cache budget, ten-bit full Bloom policy, production
 table-factory call site, and an enabled `ReadOptions.async_io` on the live
 adapter handle. Removing that setter or changing its value to zero makes the
-native readback witness fail. The reviewed image builds additionally fail
+native readback witness fail; this witnesses asynchronous read configuration,
+not the separate coroutine build needed for cross-level MultiGet scheduling.
+The reviewed image builds additionally fail
 unless the pinned native library links `liburing.so.2`, and the runtime layer
 checks that the dependency resolves before its client smoke. The vendored
 compatibility patch is applied with fuzz disabled so source drift fails the

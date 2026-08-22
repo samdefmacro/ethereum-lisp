@@ -65,15 +65,18 @@ the atomic durability contract above.
 Both reviewed images compile the pinned RocksDB archive with `liburing` and
 fail their builds unless the resulting shared object records that dependency;
 the production image carries the matching runtime library and checks its
-resolution before saving the image. Because RocksDB leaves
-`ReadOptions.async_io` disabled by default even in an io_uring build, the
-adapter enables that option on every production read handle and reads it back
-before opening the database. RocksDB then submits the disjoint file reads
-behind one synchronous `MultiGet` concurrently through io_uring on supporting
-Linux kernels, while retaining its built-in serialized-read fallback when a
-host or container runtime refuses ring creation. This changes scheduling only:
-ordered results, content verification, and the synchronous durable batch
-boundary remain unchanged. A narrow vendored patch retries without the Linux
+resolution before saving the image. RocksDB's POSIX `MultiRead` submits the
+disjoint block reads within one SST concurrently through io_uring on supporting
+Linux kernels; this path is independent of `ReadOptions.async_io`. The adapter
+also enables that disabled-by-default option and reads it back before opening
+the database, activating asynchronous iterator prefetch and keeping the read
+handle ready for a future coroutine-enabled cross-level MultiGet build. The
+current shared library does not compile RocksDB's Folly coroutine branch, so
+the option alone is not claimed to parallelize reads across SST levels. RocksDB
+retains its built-in serialized-read fallback when a host or container runtime
+refuses ring creation. These settings change scheduling only: ordered results,
+content verification, and the synchronous durable batch boundary remain
+unchanged. A narrow vendored patch retries without the Linux
 6.1 `DEFER_TASKRUN` scheduling hint when an older kernel rejects that hint with
 `EINVAL`; other setup failures still take the upstream fallback.
 The runtime image also carries a tiny probe which creates the same 256-entry

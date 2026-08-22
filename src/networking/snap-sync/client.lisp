@@ -39,8 +39,8 @@
   "Domain-separate durable storage-subtree proof keys.")
 (defparameter +snap-sync-healed-subtree-value+ #(1)
   "Versioned value for a completely verified content-addressed subtree.")
-(defparameter *snap-sync-healed-subtree-prefix-nibbles* 2
-  "Account-trie prefix depth whose completed subtrees survive pivot rebases.")
+(defparameter *snap-sync-healed-subtree-prefix-nibbles* 4
+  "Trie prefix depth whose completed subtrees survive pivot rebases.")
 (defconstant +snap-sync-healed-subtrees-per-batch+ 2048
   "Maximum completed subtree proofs published by one durable write batch.")
 (defconstant +snap-sync-healed-subtree-bloom-bits+ (ash 1 27)

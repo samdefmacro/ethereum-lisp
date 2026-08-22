@@ -336,7 +336,7 @@
            bloom-bits))
     (is (= 1 factory-calls))))
 
-(deftest rocksdb-key-value-database-enables-async-multi-get-io
+(deftest rocksdb-key-value-database-enables-async-read-io
   (:layer :integration :module :database)
   (let ((path
           (merge-pathnames

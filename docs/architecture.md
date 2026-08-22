@@ -232,12 +232,14 @@ them by their physical location instead reintroduces dependency cycles:
   index/filter blocks receive high cache priority and L0 pinning. These table
   settings alter neither verified values nor synchronous cursor batches. The
   reviewed images also require RocksDB's Linux io_uring support at link time.
-  Since that build capability does not change the disabled-by-default
-  `ReadOptions.async_io`, adapter construction explicitly enables and reads
-  back the option before opening RocksDB. One native multi-get can consequently
-  submit its disjoint file reads concurrently on a supporting kernel, with
-  RocksDB's serialized-read fallback retained if ring creation is unavailable
-  at runtime. Linux 5.15 retries ring creation without the newer
+  Its POSIX MultiRead consequently submits disjoint block reads within one SST
+  concurrently on a supporting kernel, independent of `ReadOptions.async_io`.
+  Adapter construction still enables and reads back that disabled-by-default
+  option for asynchronous iterator prefetch. The current shared build does not
+  include RocksDB's Folly coroutine branch and therefore does not claim
+  cross-level MultiGet parallelism from that option alone. RocksDB's serialized
+  fallback remains available if ring creation fails at runtime. Linux 5.15
+  retries ring creation without the newer
   `DEFER_TASKRUN` scheduling hint after `EINVAL`; policy failures do not bypass
   the fallback. The result ordering and caller-visible synchronous boundary do
   not change. The
@@ -298,9 +300,12 @@ them by their physical location instead reintroduces dependency cycles:
   and an explicit authority-driven rebase still invalidates the frontier in
   the same batch as both progress records.
   Checkpoint version two records armed, descendant, and completion-sentinel
-  work while continuing to decode version-one restart records. At a two-nibble
+  work while continuing to decode version-one restart records. At a four-nibble
   account or storage prefix, a sentinel publishes a trie-kind-domain-separated
-  metadata proof keyed by the subtree's content hash. An account proof becomes
+  metadata proof keyed by the subtree's content hash. This yields at most
+  65,536 boundary regions per secure trie: fine enough that a newer pivot can
+  skip the many regions untouched by its recent blocks, without the millions
+  of proof records produced by a six-nibble boundary. An account proof becomes
   visible only after all descendant trie nodes, storage roots, and bytecode are
   durable; a storage proof similarly waits for all of its descendant nodes.
   Kind separation prevents a storage proof from bypassing account-leaf semantic
