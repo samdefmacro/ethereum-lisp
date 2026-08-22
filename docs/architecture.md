@@ -139,10 +139,13 @@ them by their physical location instead reintroduces dependency cycles:
   backend are installed. The public direct RocksDB provider supplies that
   backend; memory/file stores remain test oracles and do not claim production
   snap service. A CL-authorized pivot binds the state download to target hash,
-  chain, genesis, and database authority. The account keyspace is split into
-  sixteen durable ranges matching pinned geth; one worker per available snap
-  peer fetches and verifies a geth-aligned 512 KiB-soft-limited page, while one
-  coordinator serializes verified record and progress publication. A failed
+  chain, genesis, and database authority. Fresh imports split the account
+  keyspace into thirty-two durable ranges. Two bounded workers share each
+  available snap peer's sole-writer request queue, so a second range can use the
+  connection while the first verifies its proof or writes RocksDB; an older
+  sixteen-range progress record remains resumable. Each request keeps geth's
+  512 KiB soft limit, while one coordinator serializes verified record and
+  progress publication. A failed
   peer releases only its claimed range for another worker. If every peer in
   that finite source snapshot fails, the importer reports a typed remote-source exhaustion result;
   the CLI keeps the node and Engine API alive, takes a fresh live-peer snapshot

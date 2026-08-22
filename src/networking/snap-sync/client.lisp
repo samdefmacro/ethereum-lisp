@@ -13,7 +13,17 @@
 (defconstant +snap-sync-pivot-probe-bytes+ (* 4 1024))
 (defconstant +snap-sync-storage-accounts-per-request+ 512
   "Maximum small storage tries in a 512 KiB geth-style request.")
-(defconstant +snap-sync-account-task-count+ 16)
+(defconstant +snap-sync-legacy-account-task-count+ 16
+  "Account partition count written by progress versions before oversubscription.")
+(defconstant +snap-sync-account-task-count+ 32
+  "Account partitions used by a fresh import.
+
+The wire still has at most one request in flight on a peer, but range proof
+verification and RocksDB writes happen after that request releases the session
+writer.  More logical partitions let a second worker keep the same peer's
+request queue full while the first worker verifies or persists its page.")
+(defconstant +snap-sync-range-workers-per-source+ 2
+  "Maximum account workers sharing one source's sole-writer request queue.")
 (defconstant +snap-sync-storage-task-count+ 16
   "Maximum parallel ranges used to finish one byte-capped storage trie.")
 (defconstant +snap-sync-heal-paths-per-source+
@@ -312,8 +322,10 @@ consensus-visible."
 (defun snap-sync-validate-account-tasks (tasks)
   (unless (and (listp tasks)
                (member (length tasks)
-                       (list 1 +snap-sync-account-task-count+)))
-    (error "Snap progress must contain one or ~D account tasks"
+                       (list 1 +snap-sync-legacy-account-task-count+
+                             +snap-sync-account-task-count+)))
+    (error "Snap progress must contain one, ~D, or ~D account tasks"
+           +snap-sync-legacy-account-task-count+
            +snap-sync-account-task-count+))
   (let ((expected-start (make-byte-vector 32)))
     (dolist (task tasks)
@@ -880,12 +892,21 @@ the exact authorized state root before completion."
 (defun snap-sync-progress-with-task-count (progress count)
   "Split legacy linear progress into COUNT disjoint durable account tasks."
   (if (or (= count (length (snap-sync-progress-tasks progress)))
+          ;; Keep an in-progress sixteen-way public import resumable after the
+          ;; fresh-import scheduler grows to thirty-two partitions. Splitting
+          ;; a partially advanced interval would need extra durable boundary
+          ;; witnesses and yields no correctness benefit.
+          (and (= count +snap-sync-account-task-count+)
+               (= +snap-sync-legacy-account-task-count+
+                  (length (snap-sync-progress-tasks progress))))
           ;; A single-source caller can finish a previously partitioned public
           ;; import serially.  Only the multi-source upgrade needs to split a
           ;; legacy one-task cursor.
           (and (= count 1)
-               (= +snap-sync-account-task-count+
-                  (length (snap-sync-progress-tasks progress)))))
+               (member
+                (length (snap-sync-progress-tasks progress))
+                (list +snap-sync-legacy-account-task-count+
+                      +snap-sync-account-task-count+))))
       progress
       (progn
         (unless (= 1 (length (snap-sync-progress-tasks progress)))
@@ -3894,6 +3915,7 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
   (changed (sb-thread:make-waitqueue :name "snap-sync-multi-changed"))
   progress
   (claims (make-hash-table))
+  (failed-sources (make-hash-table :test #'eq))
   (events '())
   source-count
   max-pages
@@ -3903,12 +3925,13 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
 #+sbcl
 (defstruct (snap-sync-multi-event
             (:constructor make-snap-sync-multi-event
-                (&key kind source task-index result condition)))
+                (&key kind source task-index result condition report-p)))
   kind
   source
   task-index
   result
-  condition)
+  condition
+  report-p)
 
 #+sbcl
 (defun snap-sync-multi-notify (runtime)
@@ -3920,6 +3943,8 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
     (loop
       (cond
         ((or (snap-sync-multi-runtime-stopped-p runtime)
+             (gethash source
+                      (snap-sync-multi-runtime-failed-sources runtime))
              (snap-sync-progress-completed-p
               (snap-sync-multi-runtime-progress runtime)))
          (return (values nil nil)))
@@ -3982,17 +4007,29 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
                   (make-snap-sync-multi-event
                    :kind :result :source source :task-index task-index
                    :result result))
-                 ;; One source has at most one verified but uncommitted page.
-                 ;; This bounds resident account data by source count rather
-                 ;; than by the sixteen logical partitions.
+                 ;; Each worker has at most one verified but uncommitted page.
+                 ;; The fixed two-workers-per-source bound keeps resident data
+                 ;; small while overlapping peer I/O with verification and
+                 ;; persistence on the sibling worker.
                  (snap-sync-multi-wait-for-commit
                   runtime task-index source))
              (serious-condition (condition)
-               (snap-sync-multi-push-event
-                runtime
-                (make-snap-sync-multi-event
-                 :kind :error :source source :task-index task-index
-                 :condition condition))
+               (let ((report-p nil))
+                 (sb-thread:with-mutex
+                     ((snap-sync-multi-runtime-lock runtime))
+                   (unless (gethash
+                            source
+                            (snap-sync-multi-runtime-failed-sources runtime))
+                     (setf (gethash
+                            source
+                            (snap-sync-multi-runtime-failed-sources runtime))
+                           t
+                           report-p t)))
+                 (snap-sync-multi-push-event
+                  runtime
+                  (make-snap-sync-multi-event
+                   :kind :error :source source :task-index task-index
+                   :condition condition :report-p report-p)))
                (return)))))
     (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
       (decf (snap-sync-multi-runtime-source-count runtime))
@@ -4041,16 +4078,18 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
           heal-yield-p max-pages)
   "Import one pivot through disjoint durable ranges shared across SOURCES.
 
-Sixteen logical account tasks follow pinned geth 38271784.  At most one worker
-uses each source, preserving the session's sole-writer rule.  Workers verify and
-heal independent pages concurrently; the caller thread serializes MPT merge,
+Thirty-two logical account tasks oversubscribe pinned geth's sixteen range
+partitions so peer I/O overlaps proof verification and persistence. At most two
+workers share each source, but its session request queue still preserves the
+connection's sole-writer and one-in-flight rule. Workers verify and heal
+independent pages concurrently; the caller thread serializes MPT merge,
 the progress batch, and callbacks.  ON-PROGRESS receives PROGRESS, SOURCE, and
 TASK-INDEX after that task page is durable.  ON-SOURCE-ERROR receives SOURCE and
 the condition after its task has been made retryable by another source.
 HEAL-SOURCE-PROVIDER refreshes both the account worker pool and the final
 content-addressed traversal. Newly connected sources join the range phase up to
-the sixteen-task concurrency bound; a failed source identity is never started
-twice in one import. HEAL-YIELD-P is forwarded only to final healing."
+the task concurrency bound; a failed source identity is never started twice in
+one import. HEAL-YIELD-P is forwarded only to final healing."
   (unless (typep database 'key-value-database)
     (error "Snap state import requires a key-value database"))
   (setf sources (remove-duplicates (copy-list sources) :test #'eq))
@@ -4069,7 +4108,7 @@ twice in one import. HEAL-YIELD-P is forwarded only to final healing."
             pivot-hash pivot-number state-root target-hash chain-id
             genesis-hash authority-id))
          (runtime
-           (make-snap-sync-multi-runtime progress (length sources) max-pages))
+           (make-snap-sync-multi-runtime progress 0 max-pages))
          (threads '())
          (errors '()))
     (when (snap-sync-progress-completed-p progress)
@@ -4084,12 +4123,11 @@ twice in one import. HEAL-YIELD-P is forwarded only to final healing."
          :on-source-error on-source-error
          :on-heal-progress on-heal-progress)))
     (labels
-        ((start-worker (source &optional count-source-p)
-           (when count-source-p
-             (sb-thread:with-mutex
-                 ((snap-sync-multi-runtime-lock runtime))
-               (incf (snap-sync-multi-runtime-source-count runtime))
-               (snap-sync-multi-notify runtime)))
+        ((start-worker (source)
+           (sb-thread:with-mutex
+               ((snap-sync-multi-runtime-lock runtime))
+             (incf (snap-sync-multi-runtime-source-count runtime))
+             (snap-sync-multi-notify runtime))
            (handler-case
                (let ((worker-source source))
                  (push
@@ -4100,16 +4138,25 @@ twice in one import. HEAL-YIELD-P is forwarded only to final healing."
                    :name "snap-sync-account-worker")
                   threads))
              (serious-condition (condition)
-               (when count-source-p
-                 (sb-thread:with-mutex
-                     ((snap-sync-multi-runtime-lock runtime))
-                   (decf (snap-sync-multi-runtime-source-count runtime))
-                   (snap-sync-multi-notify runtime)))
+               (sb-thread:with-mutex
+                   ((snap-sync-multi-runtime-lock runtime))
+                 (decf (snap-sync-multi-runtime-source-count runtime))
+                 (snap-sync-multi-notify runtime))
                (error condition))))
          (active-worker-count ()
            (sb-thread:with-mutex
                ((snap-sync-multi-runtime-lock runtime))
              (snap-sync-multi-runtime-source-count runtime)))
+         (start-source-workers (source)
+           (let ((started 0))
+             (loop repeat +snap-sync-range-workers-per-source+
+                   while (< (active-worker-count)
+                            (length
+                             (snap-sync-progress-tasks
+                              (snap-sync-multi-runtime-progress runtime))))
+                   do (start-worker source)
+                      (incf started))
+             started))
          (refresh-range-sources ()
            (let ((added 0))
              (when heal-source-provider
@@ -4121,19 +4168,21 @@ twice in one import. HEAL-YIELD-P is forwarded only to final healing."
                      (error "Multi-source snap import source provider returned an incomplete source"))
                    (when (and
                           (< (active-worker-count)
-                             +snap-sync-account-task-count+)
+                             (length
+                              (snap-sync-progress-tasks
+                               (snap-sync-multi-runtime-progress runtime))))
                           (not (member source sources :test #'eq)))
                      ;; SOURCES is also the permanent identity set for this
                      ;; import. A worker that retired after a timeout or bad
                      ;; response cannot be re-admitted by the live snapshot.
                      (setf sources (nconc sources (list source)))
-                     (start-worker source t)
+                     (start-source-workers source)
                      (incf added)))))
              added)))
       (unwind-protect
            (progn
              (dolist (source sources)
-               (start-worker source))
+               (start-source-workers source))
              (refresh-range-sources)
            (loop
              (let ((event (snap-sync-multi-next-event runtime)))
@@ -4174,11 +4223,12 @@ twice in one import. HEAL-YIELD-P is forwarded only to final healing."
                       (:error
                        (let ((condition
                                (snap-sync-multi-event-condition event)))
-                         (push condition errors)
                          (snap-sync-multi-release-claim
                           runtime task-index source)
-                         (when on-source-error
-                           (funcall on-source-error source condition))
+                         (when (snap-sync-multi-event-report-p event)
+                           (push condition errors)
+                           (when on-source-error
+                             (funcall on-source-error source condition)))
                          (when (typep condition
                                       'ethereum-lisp.validation:storage-error)
                            (error condition))))

@@ -970,11 +970,16 @@
             legacy-record))
          (migrated
            (ethereum-lisp.snap-sync::snap-sync-progress-with-task-count
-            legacy 16)))
+            legacy
+            ethereum-lisp.snap-sync::+snap-sync-account-task-count+)))
     (is (= 16
            (length
             (ethereum-lisp.snap-sync:snap-sync-progress-tasks
              round-tripped))))
+    (is (eq round-tripped
+            (ethereum-lisp.snap-sync::snap-sync-progress-with-task-count
+             round-tripped
+             ethereum-lisp.snap-sync::+snap-sync-account-task-count+)))
     ;; Completed flat ranges are not a publishable pivot until trie healing
     ;; reaches the exact consensus-authorized state root.  Preserve that
     ;; explicit incomplete flag both in memory and across durable round-trip.
@@ -992,7 +997,7 @@
     (is (= 1
            (length
             (ethereum-lisp.snap-sync:snap-sync-progress-tasks legacy))))
-    (is (= 16
+    (is (= 32
            (length
             (ethereum-lisp.snap-sync:snap-sync-progress-tasks migrated))))
     (is
@@ -1020,7 +1025,7 @@
          (rlp-encode (apply #'make-rlp-list fields)))))))
 
 #+sbcl
-(deftest snap-state-import-multi-uses-three-sources-and-sixteen-ranges
+(deftest snap-state-import-multi-oversubscribes-three-sources-across-thirty-two-ranges
   (:layer :integration :module :p2p)
   (multiple-value-bind (source-state addresses)
       (snap-test-partitioned-state)
@@ -1042,13 +1047,14 @@
            (sources
              (loop repeat 3
                    collect
-                   (let ((first-p t))
+                   (let ((source-calls 0))
                      (snap-test-source-with-account-callback
                       base-source
                       (lambda (request)
-                        (let ((barrier-p first-p))
+                        (let ((barrier-p
+                                (sb-thread:with-mutex (lock)
+                                  (<= (incf source-calls) 2))))
                           (when barrier-p
-                            (setf first-p nil)
                             (sb-thread:with-mutex (lock)
                               (incf arrived)
                               (incf active)
@@ -1057,7 +1063,7 @@
                                (ethereum-lisp.snap:snap-get-account-range-bytes
                                 request)
                                byte-limits)
-                              (when (= arrived 3)
+                              (when (= arrived 6)
                                 (setf released-p t)
                                 (sb-thread:condition-broadcast changed))
                               (loop until released-p
@@ -1079,11 +1085,11 @@
               :chain-id 560048
               :genesis-hash (make-hash32 (snap-test-hash 138))
               :authority-id (make-hash32 (snap-test-hash 139)))))
-      (is (= 3 max-active))
-      (is (= 3 (length byte-limits)))
+      (is (= 6 max-active))
+      (is (= 6 (length byte-limits)))
       (is (every (lambda (limit) (= limit (* 512 1024))) byte-limits))
       (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p progress))
-      (is (= 16
+      (is (= 32
              (length
               (ethereum-lisp.snap-sync:snap-sync-progress-tasks progress))))
       (is
@@ -2616,10 +2622,16 @@
             :bytecodes (lambda (request) (declare (ignore request)))
             :trie-nodes
             (lambda (request)
-              (let ((width
-                      (length
-                       (ethereum-lisp.snap:snap-get-trie-nodes-paths
-                        request))))
+              (let* ((path-sets
+                       (ethereum-lisp.snap:snap-get-trie-nodes-paths request))
+                     ;; Account paths are one-element sets. A storage set has
+                     ;; one account hash followed by every grouped compact
+                     ;; path; count requested nodes, not outer path sets.
+                     (width
+                       (loop for path-set in path-sets
+                             sum (if (= 1 (length path-set))
+                                     1
+                                     (1- (length path-set))))))
                 (push width request-widths)
                 (ethereum-lisp.snap:make-snap-trie-nodes
                  1 (loop repeat width collect leaf-encoded))))))

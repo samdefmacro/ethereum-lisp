@@ -1380,16 +1380,30 @@ really reopens the directory instead of observing the first handle's memory."
          (backend
            (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
             database state))
+         (source-lock
+           (sb-thread:make-mutex :name "devnet-snap-test-source-writer"))
          (source
-           (ethereum-lisp.snap-sync:make-snap-sync-source
-            :account-range
-            (ethereum-lisp.snap:snap-state-backend-account-range backend)
-            :storage-ranges
-            (ethereum-lisp.snap:snap-state-backend-storage-ranges backend)
-            :bytecodes
-            (ethereum-lisp.snap:snap-state-backend-bytecodes backend)
-            :trie-nodes
-            (ethereum-lisp.snap:snap-state-backend-trie-nodes backend)))
+           (flet ((serialized (function)
+                    (lambda (request)
+                      (sb-thread:with-mutex (source-lock)
+                        (funcall function request)))))
+             ;; DEVNET-PEER-QUEUED-SNAP-SOURCE provides this sole-writer
+             ;; serialization in production. Preserve that contract in the
+             ;; direct in-memory test double now that two range workers share
+             ;; one logical source.
+             (ethereum-lisp.snap-sync:make-snap-sync-source
+              :account-range
+              (serialized
+               (ethereum-lisp.snap:snap-state-backend-account-range backend))
+              :storage-ranges
+              (serialized
+               (ethereum-lisp.snap:snap-state-backend-storage-ranges backend))
+              :bytecodes
+              (serialized
+               (ethereum-lisp.snap:snap-state-backend-bytecodes backend))
+              :trie-nodes
+              (serialized
+               (ethereum-lisp.snap:snap-state-backend-trie-nodes backend)))))
          (entry
            (ethereum-lisp.cli::make-devnet-peer-entry :id-hex "peer-1"))
          (logs '()))
