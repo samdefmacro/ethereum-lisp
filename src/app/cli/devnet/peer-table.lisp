@@ -40,7 +40,8 @@ the headroom is small because each one costs a thread.")
 (defstruct (devnet-peer-entry
             (:constructor make-devnet-peer-entry
                 (&key id-hex direction remote-host remote-port socket thread
-                      eth-version client-id connected-at peer request-queue)))
+                      eth-version snap-version client-id connected-at peer
+                      request-queue)))
   "One connected peer. SOCKET and THREAD are what teardown needs; the rest is
 what an operator asks about."
   id-hex
@@ -50,6 +51,7 @@ what an operator asks about."
   socket
   thread
   eth-version
+  snap-version
   client-id
   connected-at
   ;; Process-private handles used by the node-wide sync coordinator. The
@@ -259,6 +261,7 @@ mutation."
                   :remote-host (devnet-peer-entry-remote-host entry)
                   :remote-port (devnet-peer-entry-remote-port entry)
                   :eth-version (devnet-peer-entry-eth-version entry)
+                  :snap-version (devnet-peer-entry-snap-version entry)
                   :client-id (devnet-peer-entry-client-id entry)
                   :connected-at (devnet-peer-entry-connected-at entry)))
           (reverse (devnet-peer-table-entries table))))

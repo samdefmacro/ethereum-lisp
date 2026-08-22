@@ -14,11 +14,12 @@
                                      :max-active-dials max-active)
           (ethereum-lisp.cli:make-devnet-peer-table :self-id-hex self :max-peers max-peers)))
 
-(defun dial-test-connect (table id-hex direction now)
+(defun dial-test-connect (table id-hex direction now &key snap-version)
   (ethereum-lisp.cli:devnet-peer-table-admit
    table
    (ethereum-lisp.cli:make-devnet-peer-entry :id-hex id-hex :direction direction
-                           :remote-host "127.0.0.1" :remote-port 30303)
+                           :remote-host "127.0.0.1" :remote-port 30303
+                           :snap-version snap-version)
    now))
 
 (deftest devnet-dial-verdict-truth-table
@@ -140,6 +141,28 @@
   (multiple-value-bind (registry table) (dial-test-registry :max-peers 50
                                                             :max-active 50)
     (is (= 16 (ethereum-lisp.cli:devnet-dial-free-slots registry table)))))
+
+(deftest devnet-dial-snap-demand-does-not-count-eth-only-outbound-peers
+  (:layer :unit :module :devnet)
+  (multiple-value-bind (registry table) (dial-test-registry :max-peers 9)
+    (dial-test-connect table "s1" :outbound 0 :snap-version 1)
+    (dial-test-connect table "e1" :outbound 0)
+    (dial-test-connect table "e2" :outbound 0)
+    ;; Outside state sync the ordinary one-third outbound budget is full.
+    (is (= 0 (ethereum-lisp.cli:devnet-dial-free-slots registry table)))
+    (setf (ethereum-lisp.cli::devnet-dial-registry-snap-demand-p registry) t)
+    ;; During state sync the two ETH-only connections remain useful and live,
+    ;; while two more dials may seek the missing SNAP-capable sessions.
+    (is (= 2 (ethereum-lisp.cli:devnet-dial-free-slots registry table)))
+    (dial-test-connect table "e3" :outbound 0)
+    (dial-test-connect table "e4" :outbound 0)
+    (dial-test-connect table "e5" :outbound 0)
+    (dial-test-connect table "e6" :outbound 0)
+    (dial-test-connect table "e7" :outbound 0)
+    (dial-test-connect table "e8" :outbound 0)
+    ;; The absolute peer-table limit remains authoritative even if SNAP demand
+    ;; is still short of its target.
+    (is (= 0 (ethereum-lisp.cli:devnet-dial-free-slots registry table)))))
 
 (deftest devnet-dial-plan-is-deterministic-and-bounded
   (:layer :unit :module :devnet)

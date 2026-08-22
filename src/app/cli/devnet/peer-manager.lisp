@@ -307,6 +307,9 @@ on the session thread rather than on the accept loop."
                                     :socket socket
                                     :thread sb-thread:*current-thread*
                                     :eth-version (eth-peer-eth-version peer)
+                                    :snap-version
+                                    (ethereum-lisp.eth-sync:eth-peer-snap-version
+                                     peer)
                                     :client-id (eth-peer-remote-client-id peer)
                                     :peer peer
                                     :request-queue request-queue)

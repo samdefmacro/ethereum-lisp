@@ -74,6 +74,8 @@ produce frames that authenticate."
                              :socket socket
                              :thread sb-thread:*current-thread*
                              :eth-version (eth-peer-eth-version peer)
+                             :snap-version
+                             (ethereum-lisp.eth-sync:eth-peer-snap-version peer)
                              :client-id (eth-peer-remote-client-id peer)
                              :peer peer
                              :request-queue request-queue)
@@ -366,6 +368,16 @@ into a permanent peer ban."))
     (lambda ()
       (copy-list
        (devnet-peer-table-entries (devnet-node-peer-table node)))))))
+
+(defun devnet-node-set-snap-dial-demand (node enabled-p)
+  "Let the dial scheduler fill SNAP-capable rather than generic peer slots."
+  (call-with-devnet-peer-table
+   node
+   (lambda ()
+     (setf
+      (devnet-dial-registry-snap-demand-p
+       (devnet-node-dial-registry node))
+      (not (null enabled-p))))))
 
 (defun devnet-peer-resolve-snap-target (entry target-hash)
   "Resolve TARGET-HASH and its 64-block pivot on ENTRY's session writer."
@@ -908,11 +920,14 @@ succeeded but whose storage ranges were pruned before the full import."
                        :last-number
                        (block-header-number (block-header last))
                        :last-hash (block-hash last)))))))
+              (devnet-node-set-snap-dial-demand node t)
               (let ((state-progress
-                      (devnet-node-snap-import-with-failover
-                       node database pivot-header target-hash
-                       :preferred-entry entry
-                       :target-number target-number)))
+                      (unwind-protect
+                           (devnet-node-snap-import-with-failover
+                            node database pivot-header target-hash
+                            :preferred-entry entry
+                            :target-number target-number)
+                        (devnet-node-set-snap-dial-demand node nil))))
                 (unless (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
                          state-progress)
                   (storage-fail

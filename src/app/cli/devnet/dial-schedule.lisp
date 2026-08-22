@@ -95,7 +95,10 @@ of sleeping thirty-five seconds."
   base-cooldown
   ceiling
   max-doublings
-  max-active-dials)
+  max-active-dials
+  ;; While a pivot import is active, non-SNAP outbound sessions remain useful
+  ;; for headers and bodies but must not consume every state-download slot.
+  snap-demand-p)
 
 (defun make-devnet-dial-registry
     (&key (base-cooldown +devnet-dial-cooldown-seconds+)
@@ -185,12 +188,33 @@ the peer table's to answer."
         (max 1 (floor max-peers +devnet-dial-ratio+))
         0)))
 
+(defun devnet-dial-established-count (registry table)
+  "How many established outbound sessions satisfy the current dial target.
+
+Ordinary operation counts every outbound session. During a SNAP import, only
+sessions that negotiated SNAP count toward the target: ETH-only peers remain
+connected and consume the absolute peer-table limit, but discovery may fill the
+otherwise missing state-download slots."
+  (if (devnet-dial-registry-snap-demand-p registry)
+      (count-if
+       (lambda (entry)
+         (and (eq :outbound (devnet-peer-entry-direction entry))
+              (devnet-peer-entry-snap-version entry)))
+       (devnet-peer-table-entries table))
+      (devnet-peer-table-count-by-direction table :outbound)))
+
 (defun devnet-dial-free-slots (registry table)
   "How many new dials may start right now."
-  (max 0 (- (min (devnet-dial-registry-max-active-dials registry)
-                 (- (devnet-dial-max-peers table)
-                    (devnet-peer-table-count-by-direction table :outbound)))
-            (devnet-dial-registry-dialing-count registry))))
+  (let ((max-peers (devnet-peer-table-max-peers table)))
+    (max
+     0
+     (- (min (devnet-dial-registry-max-active-dials registry)
+             (- (devnet-dial-max-peers table)
+                (devnet-dial-established-count registry table))
+             ;; ETH-only sessions stop counting toward SNAP demand, but they
+             ;; still consume real table capacity. Never overbook MAX-PEERS.
+             (- max-peers (devnet-peer-table-count table)))
+        (devnet-dial-registry-dialing-count registry)))))
 
 (defun devnet-dial-verdict (registry table id-hex now)
   "Whether to dial ID-HEX, and if not, why not.
