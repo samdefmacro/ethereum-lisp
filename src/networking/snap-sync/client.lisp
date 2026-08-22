@@ -41,6 +41,10 @@
   "Account-trie prefix depth whose completed subtrees survive pivot rebases.")
 (defconstant +snap-sync-healed-subtrees-per-batch+ 2048
   "Maximum completed subtree proofs published by one durable write batch.")
+(defconstant +snap-sync-healed-subtree-bloom-bits+ (ash 1 27)
+  "Fixed 16-MiB negative filter for durable healed-subtree proofs.")
+(defconstant +snap-sync-healed-subtree-bloom-hashes+ 4
+  "Double-hashed bit probes per healed-subtree proof identifier.")
 (defparameter +snap-sync-deferred-storage-identifier-prefix+
   (ascii-to-bytes "snap-deferred-storage-v1:")
   "Prefix for state-root-scoped storage work discovered during range import.")
@@ -2023,6 +2027,83 @@ the returned encoded, presence, and decoded vectors retain input order."
      (:storage +snap-sync-healed-storage-subtree-identifier-prefix+))
    reference))
 
+(defun snap-sync-healed-subtree-bloom-word (reference start)
+  "Read one big-endian uint32 from authenticated 32-byte REFERENCE."
+  (loop with word = 0
+        for index from start below (+ start 4)
+        do (setf word (logior (ash word 8) (aref reference index)))
+        finally (return word)))
+
+(defun snap-sync-map-healed-subtree-bloom-bits
+    (bloom reference kind function)
+  (unless (and (typep bloom 'bit-vector)
+               (= (length bloom) +snap-sync-healed-subtree-bloom-bits+)
+               (byte-vector-p reference) (= 32 (length reference))
+               (member kind '(:account :storage)))
+    (error "Snap healed-subtree Bloom input is malformed"))
+  (let* ((mask (1- +snap-sync-healed-subtree-bloom-bits+))
+         (salt (ecase kind (:account #x9e3779b9) (:storage #x85ebca6b)))
+         (first
+           (logxor salt (snap-sync-healed-subtree-bloom-word reference 0)))
+         (step
+           (logior 1 (snap-sync-healed-subtree-bloom-word reference 4))))
+    (dotimes (index +snap-sync-healed-subtree-bloom-hashes+)
+      (funcall function (logand mask (+ first (* index step))))))
+  bloom)
+
+(defun snap-sync-add-healed-subtree-bloom (bloom reference kind)
+  (snap-sync-map-healed-subtree-bloom-bits
+   bloom reference kind (lambda (index) (setf (sbit bloom index) 1))))
+
+(defun snap-sync-healed-subtree-bloom-maybe-p (bloom reference kind)
+  "Return false only when REFERENCE is definitely absent from the index."
+  (let ((present-p t))
+    (snap-sync-map-healed-subtree-bloom-bits
+     bloom reference kind
+     (lambda (index)
+       (when (zerop (sbit bloom index))
+         (setf present-p nil))))
+    present-p))
+
+(defun snap-sync-index-healed-subtree-prefix
+    (database bloom kind identifier-prefix)
+  "Sequentially add one durable proof namespace to BLOOM."
+  (let ((start (kv-chain-record-key :metadata identifier-prefix))
+        (end
+          (kv-chain-record-key
+           :metadata (snap-sync-byte-prefix-end identifier-prefix)))
+        (expected-length (+ (length identifier-prefix) 32)))
+    (multiple-value-bind (iterator close-iterator)
+        (kv-iterator database :start start :end end)
+      (unwind-protect
+           (loop
+             (multiple-value-bind (key value present-p) (funcall iterator)
+               (declare (ignore value))
+               (unless present-p (return))
+               (let ((identifier
+                       (kv-chain-record-key-identifier :metadata key)))
+                 ;; A future record with the same textual prefix but a longer
+                 ;; schema is outside this version's exact proof namespace.
+                 (when (= (length identifier) expected-length)
+                   (snap-sync-add-healed-subtree-bloom
+                    bloom
+                    (subseq identifier (length identifier-prefix))
+                    kind)))))
+        (funcall close-iterator))))
+  bloom)
+
+(defun snap-sync-make-healed-subtree-bloom (database)
+  "Index all existing proof keys with sequential reads and bounded memory."
+  (let ((bloom
+          (make-array +snap-sync-healed-subtree-bloom-bits+
+                      :element-type 'bit :initial-element 0)))
+    (snap-sync-index-healed-subtree-prefix
+     database bloom :account +snap-sync-healed-subtree-identifier-prefix+)
+    (snap-sync-index-healed-subtree-prefix
+     database bloom :storage
+     +snap-sync-healed-storage-subtree-identifier-prefix+)
+    bloom))
+
 (defun snap-sync-healed-subtree-present-p
     (database reference &optional (kind :account))
   "Trust only this client's versioned proof that REFERENCE was fully healed."
@@ -2060,6 +2141,41 @@ than cache misses."
               (ethereum-lisp.validation:storage-fail
                "Persisted snap healed-subtree proof has an unknown version"))))
         present))))
+
+(defun snap-sync-filtered-healed-subtrees-present
+    (database references kinds bloom)
+  "Use BLOOM negatives to avoid I/O; confirm every positive in RocksDB."
+  (unless (= (length references) (length kinds))
+    (error "Snap healed-subtree references and kinds differ in length"))
+  (let ((result
+          (make-array (length references) :element-type 'bit
+                                          :initial-element 0))
+        (maybe-indices '())
+        (maybe-references '())
+        (maybe-kinds '()))
+    (dotimes (index (length references))
+      (when (snap-sync-healed-subtree-bloom-maybe-p
+             bloom (aref references index) (aref kinds index))
+        (push index maybe-indices)
+        (push (aref references index) maybe-references)
+        (push (aref kinds index) maybe-kinds)))
+    (when maybe-indices
+      (let ((indices (coerce (nreverse maybe-indices) 'vector))
+            (present
+              (snap-sync-healed-subtrees-present
+               database
+               (coerce (nreverse maybe-references) 'vector)
+               (coerce (nreverse maybe-kinds) 'vector))))
+        (dotimes (index (length indices))
+          (setf (aref result (aref indices index))
+                (aref present index)))))
+    result))
+
+(defun snap-sync-filtered-healed-subtree-present-p
+    (database reference kind bloom)
+  "Avoid batch/list allocation for one completion-sentinel proof check."
+  (and (snap-sync-healed-subtree-bloom-maybe-p bloom reference kind)
+       (snap-sync-healed-subtree-present-p database reference kind)))
 
 (defun snap-sync-populate-healed-subtree-batch
     (batch reference &optional (kind :account))
@@ -2552,6 +2668,8 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
            (pending-healed-subtrees '())
            (pending-healed-subtree-count 0)
            (pending-healed-subtree-index (make-hash-table :test #'equalp))
+           (healed-subtree-bloom
+             (snap-sync-make-healed-subtree-bloom database))
            (deferred-storage '())
            (deferred-storage-count 0)
            (seen-code-hashes (make-hash-table :test #'equalp))
@@ -2701,6 +2819,11 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                  (snap-sync-populate-healed-subtree-batch
                   batch (cdr entry) (car entry)))
                (kv-apply-batch database batch))
+             ;; A failed durable batch unwinds before these negative-filter
+             ;; bits become visible to the remainder of the traversal.
+             (dolist (entry pending-healed-subtrees)
+               (snap-sync-add-healed-subtree-bloom
+                healed-subtree-bloom (cdr entry) (car entry)))
              (setf pending-healed-subtrees nil
                    pending-healed-subtree-count 0)
              (clrhash pending-healed-subtree-index)))
@@ -2714,11 +2837,11 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                   (identifier
                     (snap-sync-healed-subtree-identifier reference kind)))
              (unless
-                 (snap-sync-healed-subtree-present-p
-                  database reference kind)
+                 (nth-value
+                  1 (gethash identifier pending-healed-subtree-index))
                (unless
-                   (nth-value
-                    1 (gethash identifier pending-healed-subtree-index))
+                   (snap-sync-filtered-healed-subtree-present-p
+                    database reference kind healed-subtree-bloom)
                  (setf (gethash identifier pending-healed-subtree-index) t)
                  (push (cons kind reference) pending-healed-subtrees)
                  (incf pending-healed-subtree-count)
@@ -3070,8 +3193,9 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                                   candidate-works))
                            (candidate-presence
                              (if candidate-works
-                                 (snap-sync-healed-subtrees-present
-                                  database candidate-references candidate-kinds)
+                                 (snap-sync-filtered-healed-subtrees-present
+                                  database candidate-references candidate-kinds
+                                  healed-subtree-bloom)
                                  #()))
                            (candidate-index 0)
                            (actual-lookups '()))

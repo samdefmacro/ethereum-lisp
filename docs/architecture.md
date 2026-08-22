@@ -229,7 +229,13 @@ them by their physical location instead reintroduces dependency cycles:
   metadata proofs used
   to skip completed subtrees; proof candidates are collected under the same
   frontier bound and resolved in input order before absent proofs enter the
-  trie-node batch. Thus a cache miss does not serialize one metadata lookup on
+  trie-node batch. At healer startup, both versioned proof namespaces are
+  scanned sequentially into a fixed 16 MiB process-local negative filter. A
+  definite absence skips RocksDB entirely, while a possible hit still executes
+  the exact version-validating metadata read; newly durable proof batches enter
+  the filter only after their write succeeds. Thus first healing avoids an
+  extra random metadata miss per candidate without treating a probabilistic
+  result as proof, and a cache miss does not serialize one metadata lookup on
   the coordinator before every trie read. For trie-node records, each worker
   also checks the content hash and performs the bounded RLP decode for its
   present slice. The coordinator joins every reader, restores the original

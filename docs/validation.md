@@ -284,6 +284,10 @@ large healed-subtree metadata probes use four bounded native multi-get workers,
 retain exact input presence order, and reject an unknown proof version. A
 production-call-site witness counts metadata batches during cross-pivot reuse;
 replacing it with the old per-reference lookup makes that witness fail.
+An empty-target first-heal control also requires proof publication while
+observing zero exact metadata reads: restoring the unfiltered production batch
+call makes that witness fail. Positive filter results remain covered by the
+cross-pivot exact-version and storage-namespace checks.
 Restoring immediate storage descent or removing the subtree cache-hit branch
 makes the corresponding focused test fail.
 A coordinator control proves that

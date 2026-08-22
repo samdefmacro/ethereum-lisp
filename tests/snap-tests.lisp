@@ -2943,6 +2943,73 @@
       (when (probe-file path)
         (uiop:delete-directory-tree path :validate t)))))
 
+(deftest snap-state-healer-skips-definitely-absent-subtree-proof-reads
+  (:layer :integration :module :p2p)
+  (multiple-value-bind (source-state addresses)
+      (snap-test-partitioned-state)
+    (declare (ignore addresses))
+    (let* ((source-database (make-memory-key-value-database))
+           (target-database (make-memory-key-value-database))
+           (root (state-db-root source-state))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              source-database source-state))
+           (source (snap-test-source backend))
+           (progress
+             (ethereum-lisp.snap-sync::snap-sync-make-progress
+              :pivot-hash (make-hash32 (snap-test-hash 217))
+              :pivot-number 5990 :state-root root
+              :partial-root +empty-trie-hash+
+              :target-hash (make-hash32 (snap-test-hash 218))
+              :chain-id 560048
+              :genesis-hash (make-hash32 (snap-test-hash 219))
+              :authority-id (make-hash32 (snap-test-hash 220))
+              :completed-p nil
+              :tasks
+              (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+               :count 1 :completed-p t)))
+           (exact-read-count 0)
+           (proof-count 0)
+           (real-present
+             (fdefinition
+              'ethereum-lisp.snap-sync::snap-sync-healed-subtrees-present))
+           (real-populate
+             (fdefinition
+              'ethereum-lisp.snap-sync::snap-sync-populate-healed-subtree-batch)))
+      ;; The empty target has no durable completion proofs.  Production must
+      ;; still publish proofs, but the startup negative filter should reject
+      ;; every first-pass candidate without a metadata point/MultiGet.
+      (let ((ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
+              1))
+        (unwind-protect
+             (progn
+               (setf
+                (fdefinition
+                 'ethereum-lisp.snap-sync::snap-sync-healed-subtrees-present)
+                (lambda (database references &optional kinds)
+                  (incf exact-read-count (length references))
+                  (funcall real-present database references kinds))
+                (fdefinition
+                 'ethereum-lisp.snap-sync::snap-sync-populate-healed-subtree-batch)
+                (lambda (batch reference &optional (kind :account))
+                  (incf proof-count)
+                  (funcall real-populate batch reference kind)))
+               (let ((completed
+                       (ethereum-lisp.snap-sync::snap-sync-heal-state
+                        target-database (list source) progress 350)))
+                 (is
+                  (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
+                   completed))))
+          (setf
+           (fdefinition
+            'ethereum-lisp.snap-sync::snap-sync-healed-subtrees-present)
+           real-present
+           (fdefinition
+            'ethereum-lisp.snap-sync::snap-sync-populate-healed-subtree-batch)
+           real-populate)))
+      (is (plusp proof-count))
+      (is (zerop exact-read-count)))))
+
 (deftest snap-state-healer-reuses-proved-subtrees-across-pivots
   (:layer :integration :module :p2p)
   (multiple-value-bind (source-state addresses)
