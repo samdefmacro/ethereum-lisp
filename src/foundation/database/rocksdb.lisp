@@ -63,6 +63,12 @@
 (cffi:defcfun ("rocksdb_cache_destroy" %rocks-cache-destroy) :void
   (cache :pointer))
 (cffi:defcfun ("rocksdb_readoptions_create" %rocks-read-options-create) :pointer)
+(cffi:defcfun ("rocksdb_readoptions_set_async_io"
+               %rocks-read-options-set-async-io) :void
+  (options :pointer) (enabled :uchar))
+(cffi:defcfun ("rocksdb_readoptions_get_async_io"
+               %rocks-read-options-get-async-io) :uchar
+  (options :pointer))
 (cffi:defcfun ("rocksdb_readoptions_destroy" %rocks-read-options-destroy) :void
   (options :pointer))
 (cffi:defcfun ("rocksdb_writeoptions_create" %rocks-write-options-create) :pointer)
@@ -217,39 +223,59 @@
     (error "RocksDB shared library is unavailable"))
   (let ((options (%rocks-options-create))
         (read-options (%rocks-read-options-create))
-        (write-options (%rocks-write-options-create)))
-    (%rocks-options-create-if-missing options (if create-if-missing-p 1 0))
-    ;; Ethereum bootstrap is a sustained batched insert workload. RocksDB's
-    ;; default 64 MiB/one-memtable flush cadence produced roughly 8x physical
-    ;; writes on the Hoodi rotational-disk gate. Keep leveled compaction and
-    ;; every durability check, but use RocksDB's own bounded bulk-write preset:
-    ;; 128 MiB memtables, two-way flush merging, and a matching 512 MiB base
-    ;; level. Four background jobs fit the supported 8-vCPU/16-GiB node
-    ;; without the seek storm of one compaction worker per core.
-    (%rocks-options-optimize-level-style-compaction
-     options +rocksdb-level-compaction-memory-budget+)
-    (%rocks-options-increase-parallelism
-     options +rocksdb-background-job-count+)
-    (%rocks-options-dynamic-level-bytes options 1)
-    (%rocks-options-bytes-per-sync
-     options +rocksdb-background-bytes-per-sync+)
-    ;; The RocksDB 11 block-table default is only 32 MiB. SNAP account ranges
-    ;; and final healing issue wide random content-addressed reads over tens of
-    ;; gigabytes, so that fallback turns nearly every lookup into device I/O.
-    ;; Keep a bounded cache and Bloom filters in RocksDB's native table layer;
-    ;; neither changes WAL durability or the bytes returned to verification.
-    (rocksdb-configure-block-table options)
-    (%rocks-write-options-sync write-options 1)
+        (write-options (%rocks-write-options-create))
+        (handle (cffi:null-pointer)))
     (handler-case
-        (let ((handle
+        (progn
+          (%rocks-options-create-if-missing
+           options (if create-if-missing-p 1 0))
+          ;; ROCKSDB_USE_IO_URING only compiles the backend in. ReadOptions
+          ;; keeps async_io disabled by default, in which case MultiGet still
+          ;; issues synchronous reads and never reaches the linked liburing
+          ;; path. Enable it on every production read handle and verify the
+          ;; exact library retained the setting before the handle can become
+          ;; observable.
+          (%rocks-read-options-set-async-io read-options 1)
+          (unless (= 1 (%rocks-read-options-get-async-io read-options))
+            (error "RocksDB refused to enable asynchronous MultiGet I/O"))
+          ;; Ethereum bootstrap is a sustained batched insert workload.
+          ;; RocksDB's default 64 MiB/one-memtable flush cadence produced
+          ;; roughly 8x physical writes on the Hoodi gate. Keep leveled
+          ;; compaction and every durability check, but use RocksDB's own
+          ;; bounded bulk-write preset: 128 MiB memtables, two-way flush
+          ;; merging, and a matching 512 MiB base level. Four background jobs
+          ;; fit the supported 8-vCPU/16-GiB node.
+          (%rocks-options-optimize-level-style-compaction
+           options +rocksdb-level-compaction-memory-budget+)
+          (%rocks-options-increase-parallelism
+           options +rocksdb-background-job-count+)
+          (%rocks-options-dynamic-level-bytes options 1)
+          (%rocks-options-bytes-per-sync
+           options +rocksdb-background-bytes-per-sync+)
+          ;; The RocksDB 11 block-table default is only 32 MiB. SNAP account
+          ;; ranges and final healing issue wide random content-addressed reads
+          ;; over tens of gigabytes, so that fallback turns nearly every lookup
+          ;; into device I/O. Keep a bounded cache and Bloom filters in
+          ;; RocksDB's native table layer; neither changes WAL durability or
+          ;; the bytes returned to verification.
+          (rocksdb-configure-block-table options)
+          (%rocks-write-options-sync write-options 1)
+          (setf handle
                 (with-rocks-error (error)
-                  (%rocks-open options (namestring path) error))))
+                  (%rocks-open options (namestring path) error)))
           (%rocks-options-destroy options)
-          (make-instance 'rocksdb-key-value-database
-                         :handle handle :read-options read-options
-                         :write-options write-options :path path))
+          (setf options (cffi:null-pointer))
+          (prog1
+              (make-instance 'rocksdb-key-value-database
+                             :handle handle :read-options read-options
+                             :write-options write-options :path path)
+            ;; The returned adapter now owns all three surviving handles.
+            (setf handle (cffi:null-pointer))))
       (error (condition)
-        (%rocks-options-destroy options)
+        (unless (cffi:null-pointer-p handle)
+          (%rocks-close handle))
+        (unless (cffi:null-pointer-p options)
+          (%rocks-options-destroy options))
         (%rocks-read-options-destroy read-options)
         (%rocks-write-options-destroy write-options)
         (error condition)))))

@@ -252,12 +252,15 @@ present-value decoding on all eight workers, rejoins values, presence bits, and
 decoded objects in exact input order, and propagates an injected worker
 failure. Switching the production dispatch back to serial makes its eight-call
 and eight-decoder-thread witnesses fail. Generic controls enforce the 4,096-key
-and 4 MiB key-byte bounds. The RocksDB construction regression witnesses the
-exact 2 GiB block-cache budget, ten-bit full Bloom policy, and production
-table-factory call site. The reviewed image builds additionally fail unless the
-pinned native library links `liburing.so.2`, and the runtime layer checks that
-the dependency resolves before its client smoke. The vendored compatibility
-patch is applied with fuzz disabled so source drift fails the image build. They
+and 4 MiB key-byte bounds. The RocksDB construction regressions witness the
+exact 2 GiB block-cache budget, ten-bit full Bloom policy, production
+table-factory call site, and an enabled `ReadOptions.async_io` on the live
+adapter handle. Removing that setter or changing its value to zero makes the
+native readback witness fail. The reviewed image builds additionally fail
+unless the pinned native library links `liburing.so.2`, and the runtime layer
+checks that the dependency resolves before its client smoke. The vendored
+compatibility patch is applied with fuzz disabled so source drift fails the
+image build. They
 persist a bounded checksummed work frontier in the
 same batch as newly accepted nodes. Abrupt source loss then resumes without
 rereading the root; corrupt, stale, empty, or oversized checkpoints fail

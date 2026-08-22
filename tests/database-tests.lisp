@@ -336,6 +336,26 @@
            bloom-bits))
     (is (= 1 factory-calls))))
 
+(deftest rocksdb-key-value-database-enables-async-multi-get-io
+  (:layer :integration :module :database)
+  (let ((path
+          (merge-pathnames
+           (make-pathname
+            :directory
+            `(:relative ,(format nil "ethereum-lisp-rocks-async-~A"
+                                (gensym))))
+           #P"/private/tmp/")))
+    (unwind-protect
+         (let ((database (make-rocksdb-key-value-database path)))
+           (unwind-protect
+                (is (= 1
+                       (ethereum-lisp.database::%rocks-read-options-get-async-io
+                        (ethereum-lisp.database::rocksdb-read-options
+                         database))))
+             (close-rocksdb-key-value-database database)))
+      (when (probe-file path)
+        (uiop:delete-directory-tree path :validate t)))))
+
 (deftest rocksdb-key-value-database-uses-one-native-multi-get
   (:layer :integration :module :database)
   (let ((path
