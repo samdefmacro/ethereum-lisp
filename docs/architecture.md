@@ -156,12 +156,14 @@ them by their physical location instead reintroduces dependency cycles:
   prove that these keys are new, so proof reconstruction omits `mpt-put`'s
   redundant defensive point traversal. The verifier returns that reconstructed
   page instead of discarding it: its new nodes plus authenticated boundary
-  proof nodes are deduplicated, collision-checked with one ordered database
-  batch, and persisted by content hash in the cursor transaction. This matches
-  geth's hash-scheme range ingestion and removes the former second global MPT
-  rebuild and its per-node RocksDB point reads. Ordinary state transitions
-  retain checked `mpt-put`. The authenticated prefix of byte-capped large
-  storage is persisted immediately and its root is recorded beside that page
+  proof nodes are deduplicated and persisted by content hash in the cursor
+  transaction. Their keys are derived from the exact encoded nodes only after
+  proof verification, so blind puts are idempotent for healthy state and repair
+  a corrupt same-key local value without a RocksDB read for every reconstructed
+  node. This matches geth's hash-scheme range ingestion and removes the former
+  second global MPT rebuild and its per-node RocksDB point reads. Ordinary state
+  transitions retain checked `mpt-put`. The authenticated prefix of byte-capped
+  large storage is persisted immediately and its root is recorded beside that page
   in a state-root-scoped durable work set. Independently reconstructing every
   page against the same authorized root maintains a root-valued range-set witness;
   when the final cursor commits, that witness permits the batch to publish a

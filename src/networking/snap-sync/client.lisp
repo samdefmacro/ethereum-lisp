@@ -890,31 +890,24 @@ the exact authorized state root before completion."
 
 (defun snap-sync-populate-verified-trie-records-batch
     (database batch records)
-  "Batch-check and add absent content-addressed RECORDS to BATCH.
+  "Add state-root-authenticated content-addressed RECORDS to BATCH.
 
-One verified two-megabyte SNAP range can reconstruct more nodes than the
-database MultiGet contract accepts.  Preserve the single durable write batch,
-but split its read-side collision checks at that public bound."
-  (when records
-    (let* ((records (coerce records 'vector))
-           (count (length records)))
-      (loop for start from 0 below count by +kv-get-many-max-keys+
-            for end = (min count (+ start +kv-get-many-max-keys+))
-            for chunk = (subseq records start end)
-            for identifiers = (map 'vector #'car chunk)
-            do (multiple-value-bind (existing present)
-                   (kv-get-chain-records database :trie-node identifiers)
-                 (loop for record across chunk
-                       for index from 0
-                       do (if (= 1 (aref present index))
-                              (unless (bytes= (aref existing index)
-                                              (cdr record))
-                                (ethereum-lisp.validation:storage-fail
-                                 "Persisted trie node collides with content hash ~A"
-                                 (bytes-to-hex (car record))))
-                              (kv-batch-put-chain-record
-                               batch :trie-node
-                               (car record) (cdr record))))))))
+Every caller derives each key from the exact encoded node only after its range
+proof has verified.  An unconditional put is therefore idempotent for healthy
+state and repairs a corrupt local value.  Avoiding a database probe per node is
+essential for SNAP range ingestion, whose write set is much larger than the
+wire response.  DATABASE remains in the private signature so callers keep one
+uniform persistence interface."
+  (declare (ignore database))
+  (dolist (record records)
+    (unless (and (consp record)
+                 (byte-vector-p (car record))
+                 (= 32 (length (car record)))
+                 (byte-vector-p (cdr record))
+                 (plusp (length (cdr record))))
+      (error "Snap verified trie record is malformed"))
+    (kv-batch-put-chain-record
+     batch :trie-node (car record) (cdr record)))
   batch)
 
 (defun snap-sync-byte-prefix-end (prefix)

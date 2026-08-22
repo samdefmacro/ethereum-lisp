@@ -54,7 +54,7 @@
     (kv-apply-batch database batch))
   database)
 
-(deftest snap-verified-range-records-chunk-database-multigets
+(deftest snap-verified-range-records-write-without-database-reads
   (:layer :unit :module :p2p)
   (let* ((database (make-memory-key-value-database))
          (count (1+ ethereum-lisp.database:+kv-get-many-max-keys+))
@@ -64,25 +64,39 @@
                  collect (cons (keccak-256 encoded) encoded)))
          (real-get-many
            (fdefinition 'ethereum-lisp.database:kv-get-chain-records))
-         (calls 0)
-         (largest 0)
+         (real-get
+           (fdefinition 'ethereum-lisp.database:kv-get-chain-record))
+         (get-many-calls 0)
+         (get-calls 0)
          (batch (make-kv-write-batch)))
+    ;; A state-root-authenticated record is authoritative for its content hash.
+    ;; Plant a corrupt local value so the test proves both the no-read hot path
+    ;; and its repair semantics, not merely insertion into an empty store.
+    (kv-put-chain-record
+     database :trie-node (caar records) (rlp-encode "corrupt"))
     (unwind-protect
          (progn
            (setf
             (fdefinition 'ethereum-lisp.database:kv-get-chain-records)
             (lambda (candidate kind identifiers &optional default)
-              (when (and (eq candidate database) (eq kind :trie-node))
-                (incf calls)
-                (setf largest (max largest (length identifiers))))
-              (funcall real-get-many candidate kind identifiers default)))
+              (declare (ignore candidate kind identifiers default))
+              (incf get-many-calls)
+              (error "Verified SNAP range performed a database MultiGet")))
+           (setf
+            (fdefinition 'ethereum-lisp.database:kv-get-chain-record)
+            (lambda (candidate kind identifier &optional default)
+              (declare (ignore candidate kind identifier default))
+              (incf get-calls)
+              (error "Verified SNAP range performed a database point Get")))
            (ethereum-lisp.snap-sync::snap-sync-populate-verified-trie-records-batch
             database batch records)
            (kv-apply-batch database batch))
       (setf (fdefinition 'ethereum-lisp.database:kv-get-chain-records)
-            real-get-many))
-    (is (= 2 calls))
-    (is (= ethereum-lisp.database:+kv-get-many-max-keys+ largest))
+            real-get-many)
+      (setf (fdefinition 'ethereum-lisp.database:kv-get-chain-record)
+            real-get))
+    (is (zerop get-many-calls))
+    (is (zerop get-calls))
     (dolist (index (list 0 (1- count)))
       (multiple-value-bind (value present-p)
           (kv-get-chain-record database :trie-node (car (nth index records)))

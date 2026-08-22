@@ -215,8 +215,10 @@ cl-workbench validation run cold-integration \
 
 The snap tests reconstruct and verify account/storage roots, return the
 authenticated reconstructed page for direct content-addressed persistence,
-reject altered compact proofs, batch complete small storage tries with each
-account cursor, prove that the range-only proven-absent insertion produces the
+reject altered compact proofs, and prove that verified trie records perform no
+database reads while an authenticated put repairs a planted corrupt local
+value. They batch complete small storage tries with each account cursor and
+prove that the range-only proven-absent insertion produces the
 same root as the ordinary checked insertion and rejects empty values,
 persist the authenticated prefix of byte-capped large storage, record those
 roots with each durable page, and atomically publish the complete plan only
