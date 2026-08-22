@@ -215,9 +215,10 @@ cl-workbench validation run cold-integration \
 
 The snap tests reconstruct and verify account/storage roots, return the
 authenticated reconstructed page for direct content-addressed persistence,
-reject altered compact proofs, and prove that verified trie records perform no
-database reads while an authenticated put repairs a planted corrupt local
-value. They derive complete coarse subtrees from the verified range, reject
+reject altered compact proofs, and prove that verified trie records and
+hash-matched bytecodes perform no database reads while authenticated puts
+repair planted corrupt local values. They derive complete coarse subtrees from
+the verified range, reject
 proof-edge nodes, and publish the subtree hash in the same batch as its account
 cursor and external dependencies. StorageRanges pages publish equivalent
 storage-subtree proofs with their node and cursor batch. The integration

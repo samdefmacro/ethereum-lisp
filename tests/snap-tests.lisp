@@ -62,6 +62,8 @@
            (loop for index below count
                  for encoded = (rlp-encode index)
                  collect (cons (keccak-256 encoded) encoded)))
+         (code (hex-to-bytes "60006000f3"))
+         (codes (list (cons (keccak-256 code) code)))
          (real-get-many
            (fdefinition 'ethereum-lisp.database:kv-get-chain-records))
          (real-get
@@ -74,6 +76,7 @@
     ;; and its repair semantics, not merely insertion into an empty store.
     (kv-put-chain-record
      database :trie-node (caar records) (rlp-encode "corrupt"))
+    (kv-put-chain-record database :code (caar codes) #(255))
     (unwind-protect
          (progn
            (setf
@@ -90,6 +93,8 @@
               (error "Verified SNAP range performed a database point Get")))
            (ethereum-lisp.snap-sync::snap-sync-populate-verified-trie-records-batch
             database batch records)
+           (ethereum-lisp.snap-sync::snap-sync-populate-code-batch
+            database batch codes)
            (kv-apply-batch database batch))
       (setf (fdefinition 'ethereum-lisp.database:kv-get-chain-records)
             real-get-many)
@@ -97,6 +102,14 @@
             real-get))
     (is (zerop get-many-calls))
     (is (zerop get-calls))
+    (multiple-value-bind (value present-p)
+        (kv-get-chain-record database :code (caar codes))
+      (is present-p)
+      (is (bytes= value code)))
+    (signals error
+      (ethereum-lisp.snap-sync::snap-sync-populate-code-batch
+       database (make-kv-write-batch)
+       (list (cons (make-byte-vector 32) code))))
     (dolist (index (list 0 (1- count)))
       (multiple-value-bind (value present-p)
           (kv-get-chain-record database :trie-node (car (nth index records)))

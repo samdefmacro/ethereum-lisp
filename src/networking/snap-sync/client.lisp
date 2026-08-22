@@ -800,13 +800,19 @@ the exact authorized state root before completion."
     (nreverse codes)))
 
 (defun snap-sync-populate-code-batch (database batch codes)
+  "Add hash-verified bytecodes to BATCH without prereading durable storage."
+  (declare (ignore database))
   (dolist (entry codes)
-    (multiple-value-bind (existing present-p)
-        (kv-get-chain-record database :code (car entry))
-      (when (and present-p (not (bytes= existing (cdr entry))))
-        (error "Snap bytecode collides with an existing content hash"))
-      (unless present-p
-        (kv-batch-put-chain-record batch :code (car entry) (cdr entry)))))
+    (unless (and (consp entry)
+                 (byte-vector-p (car entry))
+                 (= 32 (length (car entry)))
+                 (byte-vector-p (cdr entry))
+                 (bytes= (car entry) (keccak-256 (cdr entry))))
+      (error "Snap verified bytecode record is malformed"))
+    ;; The response was matched to a requested code hash before this point.
+    ;; An unconditional content-addressed put is idempotent for healthy data
+    ;; and repairs a corrupt local value without a random read per code blob.
+    (kv-batch-put-chain-record batch :code (car entry) (cdr entry)))
   batch)
 
 (defun snap-sync-complete-batch (batch progress)
