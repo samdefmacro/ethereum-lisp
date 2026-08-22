@@ -2878,9 +2878,10 @@ heal independent pages concurrently; the caller thread serializes MPT merge,
 the progress batch, and callbacks.  ON-PROGRESS receives PROGRESS, SOURCE, and
 TASK-INDEX after that task page is durable.  ON-SOURCE-ERROR receives SOURCE and
 the condition after its task has been made retryable by another source.
-HEAL-SOURCE-PROVIDER extends only the final content-addressed traversal with
-newly admitted live sources; the durable range-worker snapshot stays finite.
-HEAL-YIELD-P is forwarded only to that final traversal."
+HEAL-SOURCE-PROVIDER refreshes both the account worker pool and the final
+content-addressed traversal. Newly connected sources join the range phase up to
+the sixteen-task concurrency bound; a failed source identity is never started
+twice in one import. HEAL-YIELD-P is forwarded only to final healing."
   (unless (typep database 'key-value-database)
     (error "Snap state import requires a key-value database"))
   (setf sources (remove-duplicates (copy-list sources) :test #'eq))
@@ -2889,6 +2890,8 @@ HEAL-YIELD-P is forwarded only to that final traversal."
   (dolist (source sources)
     (unless (snap-sync-source-complete-p source)
       (error "Multi-source snap import source is incomplete")))
+  (when (and heal-source-provider (not (functionp heal-source-provider)))
+    (error "Multi-source snap import source provider must be a function"))
   (setf target-hash (or target-hash pivot-hash))
   (snap-sync-require-hash32 target-hash "Snap consensus target hash")
   (let* ((progress
@@ -2911,17 +2914,58 @@ HEAL-YIELD-P is forwarded only to that final traversal."
          :heal-yield-p heal-yield-p
          :on-source-error on-source-error
          :on-heal-progress on-heal-progress)))
-    (unwind-protect
-         (progn
-           (dolist (source sources)
-             (let ((worker-source source))
-               (push
-                (sb-thread:make-thread
-                 (lambda ()
-                   (snap-sync-multi-worker
-                    runtime database worker-source state-root byte-limit))
-                 :name "snap-sync-account-worker")
-                threads)))
+    (labels
+        ((start-worker (source &optional count-source-p)
+           (when count-source-p
+             (sb-thread:with-mutex
+                 ((snap-sync-multi-runtime-lock runtime))
+               (incf (snap-sync-multi-runtime-source-count runtime))
+               (snap-sync-multi-notify runtime)))
+           (handler-case
+               (let ((worker-source source))
+                 (push
+                  (sb-thread:make-thread
+                   (lambda ()
+                     (snap-sync-multi-worker
+                      runtime database worker-source state-root byte-limit))
+                   :name "snap-sync-account-worker")
+                  threads))
+             (serious-condition (condition)
+               (when count-source-p
+                 (sb-thread:with-mutex
+                     ((snap-sync-multi-runtime-lock runtime))
+                   (decf (snap-sync-multi-runtime-source-count runtime))
+                   (snap-sync-multi-notify runtime)))
+               (error condition))))
+         (active-worker-count ()
+           (sb-thread:with-mutex
+               ((snap-sync-multi-runtime-lock runtime))
+             (snap-sync-multi-runtime-source-count runtime)))
+         (refresh-range-sources ()
+           (let ((added 0))
+             (when heal-source-provider
+               (let ((fresh (funcall heal-source-provider)))
+                 (unless (listp fresh)
+                   (error "Multi-source snap import source provider must return a list"))
+                 (dolist (source fresh)
+                   (unless (snap-sync-source-complete-p source)
+                     (error "Multi-source snap import source provider returned an incomplete source"))
+                   (when (and
+                          (< (active-worker-count)
+                             +snap-sync-account-task-count+)
+                          (not (member source sources :test #'eq)))
+                     ;; SOURCES is also the permanent identity set for this
+                     ;; import. A worker that retired after a timeout or bad
+                     ;; response cannot be re-admitted by the live snapshot.
+                     (setf sources (nconc sources (list source)))
+                     (start-worker source t)
+                     (incf added)))))
+             added)))
+      (unwind-protect
+           (progn
+             (dolist (source sources)
+               (start-worker source))
+             (refresh-range-sources)
            (loop
              (let ((event (snap-sync-multi-next-event runtime)))
                (case event
@@ -2939,20 +2983,21 @@ HEAL-YIELD-P is forwarded only to that final traversal."
                      :on-source-error on-source-error
                      :on-heal-progress on-heal-progress)))
                  (:exhausted
-                  (cond
-                    ((and errors
-                          (every
-                           (lambda (condition)
-                             (typep condition 'snap-sync-state-unavailable))
-                           errors))
-                     ;; Preserve the availability taxonomy across fan-out.
-                     ;; The CLI can then move or retry the CL-authorized pivot
-                     ;; without turning ordinary remote pruning into a fatal
-                     ;; local node error.
-                     (error (first errors)))
-                    (t
-                     (snap-sync-signal-sources-exhausted
-                      :account-ranges (nreverse errors)))))
+                  (unless (plusp (refresh-range-sources))
+                    (cond
+                      ((and errors
+                            (every
+                             (lambda (condition)
+                               (typep condition 'snap-sync-state-unavailable))
+                             errors))
+                       ;; Preserve the availability taxonomy across fan-out.
+                       ;; The CLI can then move or retry the CL-authorized pivot
+                       ;; without turning ordinary remote pruning into a fatal
+                       ;; local node error.
+                       (error (first errors)))
+                      (t
+                       (snap-sync-signal-sources-exhausted
+                        :account-ranges (nreverse errors))))))
                  (otherwise
                   (let ((source (snap-sync-multi-event-source event))
                         (task-index (snap-sync-multi-event-task-index event)))
@@ -2985,16 +3030,17 @@ HEAL-YIELD-P is forwarded only to that final traversal."
                                 (snap-sync-multi-runtime-claims runtime))
                                (snap-sync-multi-notify runtime))
                              (when on-progress
-                               (funcall on-progress next source task-index)))
+                               (funcall on-progress next source task-index))
+                             (refresh-range-sources))
                          (serious-condition (condition)
                            ;; A database or merge failure is local and fatal;
                            ;; it must never be misclassified as a bad peer.
                            (error condition)))))))))))
-      (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
-        (setf (snap-sync-multi-runtime-stopped-p runtime) t)
-        (snap-sync-multi-notify runtime))
-      (dolist (thread threads)
-        (sb-thread:join-thread thread)))))
+        (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
+          (setf (snap-sync-multi-runtime-stopped-p runtime) t)
+          (snap-sync-multi-notify runtime))
+        (dolist (thread threads)
+          (sb-thread:join-thread thread))))))
 
 #-sbcl
 (defun snap-sync-import-state-multi (database sources &rest arguments)

@@ -699,6 +699,55 @@
                1 (mpt-get trie (keccak-256 (address-bytes address))))))))))
 
 #+sbcl
+(deftest snap-state-import-multi-admits-new-range-sources
+  (:layer :integration :module :p2p)
+  (multiple-value-bind (source-state addresses)
+      (snap-test-partitioned-state)
+    (declare (ignore addresses))
+    (let* ((source-database (make-memory-key-value-database))
+           (target-database (make-memory-key-value-database))
+           (root (state-db-root source-state))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              source-database source-state))
+           (base-source (snap-test-source backend))
+           (lock (sb-thread:make-mutex :name "snap-test-live-range-sources"))
+           (calls (make-array 3 :initial-element 0))
+           (sources
+             (loop for index below 3
+                   collect
+                   (let ((worker-index index))
+                     (snap-test-source-with-account-callback
+                      base-source
+                      (lambda (request)
+                        (sb-thread:with-mutex (lock)
+                          (incf (aref calls worker-index)))
+                        (funcall
+                         (ethereum-lisp.snap-sync:snap-sync-source-account-range
+                          base-source)
+                         request))))))
+           (provider-calls 0)
+           (progress
+             (ethereum-lisp.snap-sync:snap-sync-import-state-multi
+              target-database (list (first sources))
+              :pivot-hash (make-hash32 (snap-test-hash 229))
+              :pivot-number 906 :state-root root
+              :target-hash (make-hash32 (snap-test-hash 230))
+              :chain-id 560048
+              :genesis-hash (make-hash32 (snap-test-hash 231))
+              :authority-id (make-hash32 (snap-test-hash 232))
+              :heal-source-provider
+              (lambda ()
+                (incf provider-calls)
+                sources))))
+      (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p progress))
+      (is (plusp provider-calls))
+      (is (plusp (aref calls 0)))
+      ;; Account callbacks distinguish range work from the later healer.
+      (is (plusp (aref calls 1)))
+      (is (plusp (aref calls 2))))))
+
+#+sbcl
 (deftest snap-state-import-multi-resumes-tasks-without-replaying-completed-ranges
   (:layer :integration :module :p2p)
   (multiple-value-bind (source-state addresses)
