@@ -40,7 +40,7 @@ worker still retains at most one verified, uncommitted page.")
   "Target TrieNodes path width while retaining a tail for fast-peer stealing.")
 (defconstant +snap-sync-heal-local-reads-per-batch+ 512
   "Maximum local read width before frontier-aware shrinking.")
-(defparameter *snap-sync-heal-local-read-workers* 8
+(defparameter *snap-sync-heal-local-read-workers* 16
   "Maximum concurrent RocksDB MultiGet calls during local trie healing.")
 (defparameter *snap-sync-heal-remote-first-p* nil
   "Experimentally prefer peer TrieNodes batches over cold RocksDB reads.
