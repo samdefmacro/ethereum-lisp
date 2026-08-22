@@ -19,8 +19,13 @@ recorded here rather than implied by the presence of a YAML file.
 | devp2p specs | `51dc101fddd52b5d90e59a2d695a92e4d600cfaf` |
 | Runtime base image | `debian:bookworm-slim@sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639d36e7456b0b229241` |
 | c-kzg-4844 (with bundled blst) | tag `v2.1.1` |
-| RocksDB | vendored `tools/rocksdb/rocksdb-11.1.2.tar.gz`, SHA-256 checked in the build |
+| RocksDB | vendored `tools/rocksdb/rocksdb-11.1.2.tar.gz`, SHA-256 checked; narrow Linux 5.15 io_uring compatibility patch; io_uring linkage required by the build |
 | Quicklisp dist | `2026-01-01` |
+
+The remote Hoodi performance gate additionally pins Docker 26.1.4's default
+seccomp profile and adds only `io_uring_setup`, `io_uring_enter`, and
+`io_uring_register`; see `tools/runtime/README.md`. This live-gate policy is
+host-side deployment metadata and is not embedded in the portable Hive image.
 
 `scripts/hive-run.sh` re-checks the Hive commit after fetching and refuses to
 run if the tree is anything else, so a result can always name the commit it came
@@ -33,8 +38,10 @@ changes and re-diffing `tools/hive/mapper.jq` against
 - **`Dockerfile.runtime`** — multi-stage, digest-pinned, non-root (uid 10001)
   image whose entrypoint is the client. The Lisp system is loaded once at build
   time and written out with `SAVE-LISP-AND-DIE :executable t`, so the shipped
-  layer has no SBCL, no compiler, no Quicklisp and no test tree: one executable,
-  `librocksdb`, `libethckzg`, `libethbls`, `libsecp256k1`, and the KZG trusted
+  layer has no SBCL, no compiler, no Quicklisp and no test tree: the client
+  executable, a tiny deployment-only io_uring availability probe,
+  `librocksdb`, its `liburing` runtime, `libethckzg`, `libethbls`,
+  `libsecp256k1`, and the KZG trusted
   setup. The saved executable reserves an explicit 8 GiB SBCL dynamic space:
   SBCL commits it on demand, while the operator's container limit remains the
   physical RSS authority. This is part of the runtime contract rather than a

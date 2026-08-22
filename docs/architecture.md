@@ -229,6 +229,13 @@ them by their physical location instead reintroduces dependency cycles:
   keep absent whole-key probes out of newly written SST data blocks, while
   index/filter blocks receive high cache priority and L0 pinning. These table
   settings alter neither verified values nor synchronous cursor batches. The
+  reviewed images also require RocksDB's Linux io_uring support at link time.
+  One native multi-get can consequently submit its disjoint file reads
+  concurrently on a supporting kernel, with RocksDB's serialized-read fallback
+  retained if ring creation is unavailable at runtime. Linux 5.15 retries ring
+  creation without the newer `DEFER_TASKRUN` scheduling hint after `EINVAL`;
+  policy failures do not bypass the fallback. The result ordering and caller-
+  visible synchronous boundary do not change. The
   parallel dispatch applies both to trie-node records and to the versioned
   metadata proofs used
   to skip completed subtrees; proof candidates are collected under the same

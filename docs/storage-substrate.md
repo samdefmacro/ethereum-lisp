@@ -62,6 +62,22 @@ cursor batch remains synchronous. This trades less than 768 MiB of worst-case
 memtable residency for lower compaction write amplification; it does not relax
 the atomic durability contract above.
 
+Both reviewed images compile the pinned RocksDB archive with `liburing` and
+fail their builds unless the resulting shared object records that dependency;
+the production image carries the matching runtime library and checks its
+resolution before saving the image. RocksDB therefore submits the disjoint
+file reads behind one synchronous `MultiGet` concurrently through io_uring on
+supporting Linux kernels, while retaining its built-in serialized-read fallback
+when a host or container runtime refuses ring creation. This changes scheduling
+only: ordered results, content verification, and the synchronous durable batch
+boundary remain unchanged. A narrow vendored patch retries without the Linux
+6.1 `DEFER_TASKRUN` scheduling hint when an older kernel rejects that hint with
+`EINVAL`; other setup failures still take the upstream fallback.
+The runtime image also carries a tiny probe which creates the same 256-entry
+ring. The reviewed remote broker runs it without network or capabilities under
+the pinned seccomp profile before replacing a live node, so an unavailable ring
+fails the upgrade while the previous client is still running.
+
 One process owns one writable database directory. Concurrent read handles are
 allowed only after tests establish their lifecycle; the initial adapter uses one
 shared handle. Column families are deferred until measured schema pressure
@@ -202,5 +218,6 @@ node uses remains an explicit operator action.
   also exceeds 384 MiB. The fresh process point-reads the persisted account,
   code, and storage before enforcing restart RSS below 256 MiB and
   whole-process restart below 30 seconds.
-- The Docker image builds the pinned source once and all test execution succeeds
-  with `--network none`.
+- The Docker image builds the pinned source once, fails unless `librocksdb`
+  links and resolves `liburing.so.2`, and all test execution succeeds with
+  `--network none`.

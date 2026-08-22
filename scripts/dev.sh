@@ -25,6 +25,8 @@ IMAGE_FINGERPRINT="$(
   for input in \
     Dockerfile \
     tools/rocksdb/rocksdb-11.1.2.tar.gz \
+    tools/rocksdb/io-uring-kernel-compat.patch \
+    tools/rocksdb/io-uring-probe.c \
     tools/ckzg-ffi/shim.c \
     tools/bls-ffi/shim.c
   do

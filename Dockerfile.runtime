@@ -41,6 +41,7 @@ RUN apt-get update \
         libgflags-dev \
         liblz4-dev \
         libsnappy-dev \
+        liburing-dev \
         libzstd-dev \
         zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
@@ -52,16 +53,28 @@ RUN apt-get update \
 # on RocksDB's larger translation units is a gigabyte apiece, so a wide build
 # gets OOM-killed rather than going faster.
 COPY tools/rocksdb/rocksdb-11.1.2.tar.gz /opt/rocksdb-11.1.2.tar.gz
+COPY tools/rocksdb/io-uring-kernel-compat.patch /opt/io-uring-kernel-compat.patch
 RUN --network=none \
     echo "d5e78b69e0fb2960576fd5f21c9f3d1a02f635da61159b01942ff285e891c9c0  /opt/rocksdb-11.1.2.tar.gz" \
         | sha256sum -c - \
     && mkdir /opt/rocksdb \
     && tar -xzf /opt/rocksdb-11.1.2.tar.gz -C /opt/rocksdb --strip-components=1 \
-    && make -C /opt/rocksdb -j2 shared_lib PORTABLE=1 DISABLE_WARNING_AS_ERROR=1 \
+    && patch -d /opt/rocksdb -p1 --fuzz=0 --input=/opt/io-uring-kernel-compat.patch \
+    && make -C /opt/rocksdb -j2 shared_lib PORTABLE=1 DISABLE_WARNING_AS_ERROR=1 ROCKSDB_USE_IO_URING=1 \
     && cp -a /opt/rocksdb/librocksdb.so* /usr/local/lib/ \
+    && readelf -d /usr/local/lib/librocksdb.so \
+        | grep -F 'Shared library: [liburing.so.2]' \
     && strip --strip-unneeded /usr/local/lib/librocksdb.so.*.*.* \
     && ldconfig \
-    && rm -rf /opt/rocksdb /opt/rocksdb-11.1.2.tar.gz
+    && rm -rf /opt/rocksdb /opt/rocksdb-11.1.2.tar.gz \
+        /opt/io-uring-kernel-compat.patch
+
+COPY tools/rocksdb/io-uring-probe.c /opt/io-uring-probe.c
+RUN mkdir -p /usr/local/libexec \
+    && gcc -O2 -Wall -Wextra -Werror /opt/io-uring-probe.c \
+        -o /usr/local/libexec/ethereum-lisp-io-uring-probe -luring \
+    && strip --strip-unneeded /usr/local/libexec/ethereum-lisp-io-uring-probe \
+    && rm /opt/io-uring-probe.c
 
 # c-kzg-4844 (which bundles blst) behind the two stable byte-pointer shims, as
 # in ./Dockerfile: libethckzg for KZG, libethbls for EIP-2537. Pinned to a tag.
@@ -184,15 +197,21 @@ RUN apt-get update \
         libsecp256k1-1 \
         libsnappy1v5 \
         libstdc++6 \
+        liburing2 \
         libzstd1 \
         zlib1g \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=native /usr/local/lib/librocksdb.so* /usr/local/lib/
+COPY --from=native /usr/local/libexec/ethereum-lisp-io-uring-probe /usr/local/libexec/ethereum-lisp-io-uring-probe
 COPY --from=native /usr/local/lib/libethckzg.so /usr/local/lib/libethckzg.so
 COPY --from=native /usr/local/lib/libethbls.so /usr/local/lib/libethbls.so
 COPY --from=native /usr/local/share/eth-kzg/trusted_setup.txt /usr/local/share/eth-kzg/trusted_setup.txt
-RUN ldconfig
+RUN ldconfig \
+    && ldd /usr/local/lib/librocksdb.so \
+        | grep -F 'liburing.so.2' \
+    && ldd /usr/local/libexec/ethereum-lisp-io-uring-probe \
+        | grep -F 'liburing.so.2'
 
 COPY --from=lisp /opt/ethereum-lisp/ethereum-lisp /usr/local/bin/ethereum-lisp
 COPY --from=lisp /opt/ethereum-lisp/ethereum-lisp.asd /opt/ethereum-lisp/ethereum-lisp.asd

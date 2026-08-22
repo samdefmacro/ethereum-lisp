@@ -51,6 +51,9 @@ artifact="${HOODI_GATE_ARTIFACT:-/private/tmp/ethereum-lisp-runtime-sec5-${short
 container="${HOODI_GATE_CONTAINER:-hoodi-el-sec5-${short_revision}}"
 datadir="${HOODI_GATE_DATADIR:-$remote_root/datadir-${short_revision}}"
 remote_artifact="$remote_root/${artifact##*/}"
+seccomp_profile="$repo_root/tools/runtime/docker-26.1.4-io-uring-seccomp.json"
+remote_seccomp_profile="$remote_root/${seccomp_profile##*/}"
+expected_seccomp_sha256="68afe4d839d125a335c352d1707caa1482923a4c2adf5fa7c1789ca1da72672b"
 
 lighthouse_container="${HOODI_GATE_LIGHTHOUSE_CONTAINER:-hoodi-lighthouse-public}"
 old_container="${HOODI_GATE_OLD_CONTAINER:-hoodi-el-sec5-rehearsal-old3}"
@@ -72,7 +75,7 @@ case "$remote_root" in
     /data/hoodi-sec5-*) ;;
     *) fail "remote root must stay below /data/hoodi-sec5-*" ;;
 esac
-case "$remote_root$datadir$remote_artifact$jwt_dir" in
+case "$remote_root$datadir$remote_artifact$remote_seccomp_profile$jwt_dir" in
     *'..'*|*$'\n'*|*$'\r'*|*$'\t'*|*' '*) fail "remote paths must be absolute, normalized, and whitespace-free" ;;
 esac
 case "$datadir" in "$remote_root"/*) ;; *) fail "datadir must stay below $remote_root" ;; esac
@@ -124,6 +127,10 @@ require_mutation() {
 require_local_artifact() {
     [ -f "$artifact" ] || fail "runtime artifact is absent: $artifact"
     artifact_sha256="$(sha256_file "$artifact")"
+    [ -f "$seccomp_profile" ] || fail "seccomp profile is absent: $seccomp_profile"
+    seccomp_sha256="$(sha256_file "$seccomp_profile")"
+    [ "$seccomp_sha256" = "$expected_seccomp_sha256" ] ||
+        fail "seccomp profile checksum is $seccomp_sha256, expected $expected_seccomp_sha256"
 }
 
 inspect_local_image() {
@@ -146,14 +153,17 @@ inspect_gate() {
     note "local exact-revision inputs"
     inspect_local_image
     printf 'artifact=%s sha256=%s\n' "$artifact" "$artifact_sha256"
+    printf 'seccomp-profile=%s sha256=%s\n' "$seccomp_profile" "$seccomp_sha256"
 
     note "remote read-only state"
     ssh "$host" bash -s -- \
-        "$revision" "$image" "$remote_root" "$remote_artifact" "$container" \
-        "$lighthouse_container" "$old_container" "$cl_network" "$egress_network" <<'REMOTE'
+        "$revision" "$image" "$remote_root" "$remote_artifact" "$remote_seccomp_profile" \
+        "$expected_seccomp_sha256" "$container" "$lighthouse_container" \
+        "$old_container" "$cl_network" "$egress_network" <<'REMOTE'
 set -eu
-revision="$1"; image="$2"; remote_root="$3"; remote_artifact="$4"; container="$5"
-lighthouse="$6"; old="$7"; cl_network="$8"; egress_network="$9"
+revision="$1"; image="$2"; remote_root="$3"; remote_artifact="$4"; remote_seccomp="$5"
+expected_seccomp="$6"; container="$7"; lighthouse="$8"; old="$9"
+cl_network="${10}"; egress_network="${11}"
 date -u +timestamp=%Y-%m-%dT%H:%M:%SZ
 df -h "$remote_root"
 for network in "$cl_network" "$egress_network"; do
@@ -180,6 +190,60 @@ if [ -f "$remote_artifact" ]; then
 else
     printf 'remote-artifact=%s absent\n' "$remote_artifact"
 fi
+if [ -f "$remote_seccomp" ]; then
+    actual_seccomp="$(sha256sum "$remote_seccomp" | awk '{print $1}')"
+    printf 'remote-seccomp=%s sha256=%s expected=%s\n' \
+        "$remote_seccomp" "$actual_seccomp" "$expected_seccomp"
+else
+    printf 'remote-seccomp=%s absent expected=%s\n' \
+        "$remote_seccomp" "$expected_seccomp"
+fi
+REMOTE
+}
+
+upload_seccomp_profile() {
+    local state partial
+    partial="$remote_seccomp_profile.partial-$seccomp_sha256"
+    state="$(ssh "$host" bash -s -- \
+        "$remote_root" "$remote_seccomp_profile" "$partial" "$seccomp_sha256" <<'REMOTE'
+set -eu
+remote_root="$1"; final="$2"; partial="$3"; expected="$4"
+install -d -m 0755 "$remote_root"
+if [ -e "$final" ]; then
+    actual="$(sha256sum "$final" | awk '{print $1}')"
+    [ "$actual" = "$expected" ] || {
+        echo "existing seccomp checksum $actual does not match $expected" >&2
+        exit 1
+    }
+    printf present
+elif [ -e "$partial" ]; then
+    echo "refusing to overwrite interrupted seccomp upload $partial" >&2
+    exit 1
+else
+    printf upload
+fi
+REMOTE
+)"
+    if [ "$state" = "present" ]; then
+        note "remote io_uring seccomp profile already has the expected checksum"
+        return
+    fi
+    [ "$state" = "upload" ] || fail "unexpected seccomp upload preflight result: $state"
+    note "uploading the pinned Docker 26.1.4 io_uring seccomp profile"
+    scp "$seccomp_profile" "$host:$partial"
+    ssh "$host" bash -s -- \
+        "$remote_seccomp_profile" "$partial" "$seccomp_sha256" <<'REMOTE'
+set -eu
+final="$1"; partial="$2"; expected="$3"
+actual="$(sha256sum "$partial" | awk '{print $1}')"
+[ "$actual" = "$expected" ] || {
+    echo "uploaded seccomp checksum $actual does not match $expected" >&2
+    exit 1
+}
+chmod 0600 "$partial"
+[ ! -e "$final" ] || { echo "refusing to overwrite $final" >&2; exit 1; }
+mv "$partial" "$final"
+printf 'uploaded-seccomp=%s sha256=%s\n' "$final" "$actual"
 REMOTE
 }
 
@@ -210,6 +274,7 @@ REMOTE
 )"
     if [ "$state" = "present" ]; then
         note "remote artifact already has the expected checksum"
+        upload_seccomp_profile
         return
     fi
     [ "$state" = "upload" ] || fail "unexpected upload preflight result: $state"
@@ -229,6 +294,7 @@ chmod 0600 "$partial"
 mv "$partial" "$final"
 printf 'uploaded-artifact=%s sha256=%s\n' "$final" "$actual"
 REMOTE
+    upload_seccomp_profile
 }
 
 load_image() {
@@ -262,17 +328,28 @@ start_gate() {
     note "cutting the existing Lighthouse alias over to the exact-revision EL"
     ssh "$host" bash -s -- \
         "$revision" "$image" "$container" "$datadir" "$jwt_dir" "$public_ip" \
-        "$lighthouse_container" "$old_container" "$cl_network" "$egress_network" "$cl_alias" \
-        "$p2p_port" <<'REMOTE'
+        "$remote_seccomp_profile" "$expected_seccomp_sha256" \
+        "$lighthouse_container" "$old_container" "$cl_network" "$egress_network" \
+        "$cl_alias" "$p2p_port" <<'REMOTE'
 set -eu
 revision="$1"; image="$2"; container="$3"; datadir="$4"; jwt_dir="$5"; public_ip="$6"
-lighthouse="$7"; old="$8"; cl_network="$9"; egress_network="${10}"; cl_alias="${11}"
-p2p_port="${12}"
+seccomp_profile="$7"; expected_seccomp="$8"; lighthouse="$9"; old="${10}"
+cl_network="${11}"; egress_network="${12}"; cl_alias="${13}"; p2p_port="${14}"
 
 image_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image")"
 image_platform="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image")"
 [ "$image_revision" = "$revision" ] || { echo "image revision mismatch: $image_revision" >&2; exit 1; }
 [ "$image_platform" = "linux/amd64" ] || { echo "image platform mismatch: $image_platform" >&2; exit 1; }
+[ "$(docker version --format '{{.Server.Version}}')" = "26.1.4" ] || {
+    echo "the pinned seccomp profile requires Docker server 26.1.4" >&2
+    exit 1
+}
+[ -f "$seccomp_profile" ] || { echo "seccomp profile is absent: $seccomp_profile" >&2; exit 1; }
+actual_seccomp="$(sha256sum "$seccomp_profile" | awk '{print $1}')"
+[ "$actual_seccomp" = "$expected_seccomp" ] || {
+    echo "seccomp profile checksum mismatch: $actual_seccomp" >&2
+    exit 1
+}
 [ "$(docker container inspect --format '{{.State.Running}}' "$lighthouse")" = true ] || {
     echo "required Lighthouse container is not running: $lighthouse" >&2
     exit 1
@@ -287,6 +364,15 @@ fi
 
 gate_uid="$(id -u)"; gate_gid="$(id -g)"
 [ "$gate_uid" -ne 0 ] || { echo "remote gate must run as a non-root uid" >&2; exit 1; }
+docker run --rm --pull never \
+    --user "$gate_uid:$gate_gid" \
+    --read-only \
+    --cap-drop ALL \
+    --security-opt no-new-privileges \
+    --security-opt "seccomp=$seccomp_profile" \
+    --network none \
+    --entrypoint /usr/local/libexec/ethereum-lisp-io-uring-probe \
+    "$image"
 if [ -d "$datadir" ]; then
     [ -z "$(find "$datadir" -mindepth 1 -maxdepth 1 -print -quit)" ] || {
         echo "fresh gate datadir is not empty: $datadir" >&2
@@ -324,6 +410,9 @@ if ! docker run --detach --pull never \
     --label "io.ethereum-lisp.gate-revision=$revision" \
     --user "$gate_uid:$gate_gid" \
     --read-only \
+    --cap-drop ALL \
+    --security-opt no-new-privileges \
+    --security-opt "seccomp=$seccomp_profile" \
     --mount "type=bind,source=$datadir,target=/data" \
     --mount "type=bind,source=$jwt_dir,target=/jwt,readonly" \
     --network "$cl_network" \
@@ -363,7 +452,7 @@ if [ "$(docker container inspect --format '{{.State.Running}}' "$container")" !=
     exit 1
 fi
 docker container inspect --format \
-    'container={{.Name}} running={{.State.Running}} started={{.State.StartedAt}} image={{.Image}} user={{.Config.User}} read-only={{.HostConfig.ReadonlyRootfs}} networks={{json .NetworkSettings.Networks}}' \
+    'container={{.Name}} running={{.State.Running}} started={{.State.StartedAt}} image={{.Image}} user={{.Config.User}} read-only={{.HostConfig.ReadonlyRootfs}} caps={{json .HostConfig.CapDrop}} security={{json .HostConfig.SecurityOpt}} networks={{json .NetworkSettings.Networks}}' \
     "$container"
 printf 'fresh-datadir=%s uid=%s gid=%s\n' "$datadir" "$gate_uid" "$gate_gid"
 REMOTE
@@ -378,18 +467,30 @@ upgrade_gate() {
     note "replacing the exact previous EL while preserving its durable datadir"
     ssh "$host" bash -s -- \
         "$revision" "$image" "$container" "$datadir" "$jwt_dir" "$public_ip" \
+        "$remote_seccomp_profile" "$expected_seccomp_sha256" \
         "$lighthouse_container" "$previous_container" "$previous_revision" \
         "$cl_network" "$egress_network" "$cl_alias" "$p2p_port" \
         "$restart_ready_timeout" <<'REMOTE'
 set -eu
 revision="$1"; image="$2"; container="$3"; datadir="$4"; jwt_dir="$5"; public_ip="$6"
-lighthouse="$7"; previous="$8"; previous_revision="$9"; cl_network="${10}"
-egress_network="${11}"; cl_alias="${12}"; p2p_port="${13}"; ready_timeout="${14}"
+seccomp_profile="$7"; expected_seccomp="$8"; lighthouse="$9"; previous="${10}"
+previous_revision="${11}"; cl_network="${12}"; egress_network="${13}"
+cl_alias="${14}"; p2p_port="${15}"; ready_timeout="${16}"
 
 image_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image")"
 image_platform="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image")"
 [ "$image_revision" = "$revision" ] || { echo "image revision mismatch: $image_revision" >&2; exit 1; }
 [ "$image_platform" = "linux/amd64" ] || { echo "image platform mismatch: $image_platform" >&2; exit 1; }
+[ "$(docker version --format '{{.Server.Version}}')" = "26.1.4" ] || {
+    echo "the pinned seccomp profile requires Docker server 26.1.4" >&2
+    exit 1
+}
+[ -f "$seccomp_profile" ] || { echo "seccomp profile is absent: $seccomp_profile" >&2; exit 1; }
+actual_seccomp="$(sha256sum "$seccomp_profile" | awk '{print $1}')"
+[ "$actual_seccomp" = "$expected_seccomp" ] || {
+    echo "seccomp profile checksum mismatch: $actual_seccomp" >&2
+    exit 1
+}
 [ "$(docker container inspect --format '{{.State.Running}}' "$lighthouse")" = true ] || {
     echo "required Lighthouse container is not running: $lighthouse" >&2
     exit 1
@@ -411,6 +512,15 @@ previous_read_only="$(docker container inspect --format '{{.HostConfig.ReadonlyR
 [ "$previous_datadir" = "$datadir" ] || { echo "previous datadir mismatch: $previous_datadir" >&2; exit 1; }
 [ "$previous_read_only" = true ] || { echo "previous gate root filesystem is not read-only" >&2; exit 1; }
 case "$previous_user" in 0|0:*|*:0|'') echo "previous gate does not have an explicit non-root user" >&2; exit 1 ;; esac
+docker run --rm --pull never \
+    --user "$previous_user" \
+    --read-only \
+    --cap-drop ALL \
+    --security-opt no-new-privileges \
+    --security-opt "seccomp=$seccomp_profile" \
+    --network none \
+    --entrypoint /usr/local/libexec/ethereum-lisp-io-uring-probe \
+    "$image"
 [ -d "$datadir" ] && [ -n "$(find "$datadir" -mindepth 1 -maxdepth 1 -print -quit)" ] || {
     echo "upgrade datadir is absent or empty: $datadir" >&2
     exit 1
@@ -490,6 +600,9 @@ if ! docker run --detach --pull never \
     --label "io.ethereum-lisp.gate-upgraded-from=$previous_revision" \
     --user "$previous_user" \
     --read-only \
+    --cap-drop ALL \
+    --security-opt no-new-privileges \
+    --security-opt "seccomp=$seccomp_profile" \
     --mount "type=bind,source=$datadir,target=/data" \
     --mount "type=bind,source=$jwt_dir,target=/jwt,readonly" \
     --network "$cl_network" \
@@ -553,7 +666,7 @@ printf 'after-block='; rpc "$container" eth_blockNumber; printf '\n'
 printf 'after-syncing='; rpc "$container" eth_syncing; printf '\n'
 printf 'previous-running='; docker container inspect --format '{{.State.Running}}' "$previous"
 docker container inspect --format \
-    'container={{.Name}} running={{.State.Running}} image={{.Image}} user={{.Config.User}} read-only={{.HostConfig.ReadonlyRootfs}} labels={{json .Config.Labels}} networks={{json .NetworkSettings.Networks}}' \
+    'container={{.Name}} running={{.State.Running}} image={{.Image}} user={{.Config.User}} read-only={{.HostConfig.ReadonlyRootfs}} caps={{json .HostConfig.CapDrop}} security={{json .HostConfig.SecurityOpt}} labels={{json .Config.Labels}} networks={{json .NetworkSettings.Networks}}' \
     "$container"
 REMOTE
 }
@@ -570,7 +683,7 @@ docker image inspect --format \
     'image={{.Id}} platform={{.Os}}/{{.Architecture}} revision={{ index .Config.Labels "org.opencontainers.image.revision" }}' \
     "$image"
 docker container inspect --format \
-    'container={{.Name}} running={{.State.Running}} started={{.State.StartedAt}} image={{.Image}} user={{.Config.User}} read-only={{.HostConfig.ReadonlyRootfs}} networks={{json .NetworkSettings.Networks}}' \
+    'container={{.Name}} running={{.State.Running}} started={{.State.StartedAt}} image={{.Image}} user={{.Config.User}} read-only={{.HostConfig.ReadonlyRootfs}} caps={{json .HostConfig.CapDrop}} security={{json .HostConfig.SecurityOpt}} networks={{json .NetworkSettings.Networks}}' \
     "$container"
 printf 'datadir-bytes='
 du -sb "$datadir" | awk '{print $1}'

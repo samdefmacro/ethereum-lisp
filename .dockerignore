@@ -7,6 +7,8 @@
 !tools/bls-ffi/shim.c
 !tools/rocksdb
 !tools/rocksdb/rocksdb-11.1.2.tar.gz
+!tools/rocksdb/io-uring-kernel-compat.patch
+!tools/rocksdb/io-uring-probe.c
 # Dockerfile.runtime compiles the client INTO the image instead of bind-mounting
 # the workspace the way the test image does, so it needs the system definition
 # and the source tree in the context. ./Dockerfile copies neither, so its layer

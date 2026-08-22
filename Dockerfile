@@ -18,6 +18,7 @@ RUN apt-get update \
         libbz2-dev \
         liblz4-dev \
         libzstd-dev \
+        liburing-dev \
         build-essential \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /private/tmp \
@@ -27,15 +28,26 @@ RUN apt-get update \
 # rebuilt with Docker networking disabled. Keep the version synchronized with
 # docs/storage-substrate.md and the CFFI backend.
 COPY tools/rocksdb/rocksdb-11.1.2.tar.gz /opt/rocksdb-11.1.2.tar.gz
+COPY tools/rocksdb/io-uring-kernel-compat.patch /opt/io-uring-kernel-compat.patch
 RUN --network=none \
     echo "d5e78b69e0fb2960576fd5f21c9f3d1a02f635da61159b01942ff285e891c9c0  /opt/rocksdb-11.1.2.tar.gz" \
         | sha256sum -c - \
     && mkdir /opt/rocksdb \
     && tar -xzf /opt/rocksdb-11.1.2.tar.gz -C /opt/rocksdb --strip-components=1 \
-    && make -C /opt/rocksdb -j2 shared_lib PORTABLE=1 DISABLE_WARNING_AS_ERROR=1 \
+    && patch -d /opt/rocksdb -p1 --fuzz=0 --input=/opt/io-uring-kernel-compat.patch \
+    && make -C /opt/rocksdb -j2 shared_lib PORTABLE=1 DISABLE_WARNING_AS_ERROR=1 ROCKSDB_USE_IO_URING=1 \
     && cp -a /opt/rocksdb/librocksdb.so* /usr/local/lib/ \
+    && readelf -d /usr/local/lib/librocksdb.so \
+        | grep -F 'Shared library: [liburing.so.2]' \
     && ldconfig \
-    && rm -rf /opt/rocksdb /opt/rocksdb-11.1.2.tar.gz
+    && rm -rf /opt/rocksdb /opt/rocksdb-11.1.2.tar.gz \
+        /opt/io-uring-kernel-compat.patch
+
+COPY tools/rocksdb/io-uring-probe.c /opt/io-uring-probe.c
+RUN mkdir -p /usr/local/libexec \
+    && gcc -O2 -Wall -Wextra -Werror /opt/io-uring-probe.c \
+        -o /usr/local/libexec/ethereum-lisp-io-uring-probe -luring \
+    && rm /opt/io-uring-probe.c
 
 # Build c-kzg-4844 (with its bundled blst) as a shared library for the KZG CFFI
 # binding, and stage its trusted setup. Pinned to a tag; the build has network,

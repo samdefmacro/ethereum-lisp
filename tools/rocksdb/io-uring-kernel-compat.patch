@@ -1,0 +1,17 @@
+--- a/env/io_posix.h
++++ b/env/io_posix.h
+@@ -339,6 +339,14 @@ inline struct io_uring* CreateIOUring() {
+   flags |= IORING_SETUP_SINGLE_ISSUER;
+   flags |= IORING_SETUP_DEFER_TASKRUN;
+   int ret = io_uring_queue_init(kIoUringDepth, new_io_uring, flags);
++  // DEFER_TASKRUN arrived after io_uring itself.  A Linux 5.15 public-node
++  // kernel can still execute the same thread-local MultiRead ring safely,
++  // but rejects these scheduling hints with EINVAL.  Retry only that
++  // compatibility failure without hints; policy failures such as EPERM must
++  // retain RocksDB's serialized-read fallback.
++  if (ret == -EINVAL) {
++    ret = io_uring_queue_init(kIoUringDepth, new_io_uring, 0);
++  }
+   if (ret) {
+     delete new_io_uring;
+     new_io_uring = nullptr;

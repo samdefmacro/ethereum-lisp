@@ -253,7 +253,11 @@ failure. Switching the production dispatch back to serial makes its eight-call
 and eight-decoder-thread witnesses fail. Generic controls enforce the 4,096-key
 and 4 MiB key-byte bounds. The RocksDB construction regression witnesses the
 exact 2 GiB block-cache budget, ten-bit full Bloom policy, and production
-table-factory call site. They persist a bounded checksummed work frontier in the
+table-factory call site. The reviewed image builds additionally fail unless the
+pinned native library links `liburing.so.2`, and the runtime layer checks that
+the dependency resolves before its client smoke. The vendored compatibility
+patch is applied with fuzz disabled so source drift fails the image build. They
+persist a bounded checksummed work frontier in the
 same batch as newly accepted nodes. Abrupt source loss then resumes without
 rereading the root; corrupt, stale, empty, or oversized checkpoints fail
 closed, and
@@ -375,6 +379,19 @@ scripts/hoodi-live-gate.sh status
 scripts/hoodi-live-gate.sh logs
 HOODI_GATE_ALLOW_MUTATION=1 scripts/hoodi-live-gate.sh restart
 ```
+
+`upload` transfers both the checksummed runtime archive and the pinned
+`tools/runtime/docker-26.1.4-io-uring-seccomp.json`. The latter is Docker
+26.1.4's official default profile with only the three io_uring syscalls added;
+the broker refuses another daemon version or profile checksum. `start` and
+`upgrade` retain a non-root/read-only container, drop every capability, set
+`no-new-privileges`, and use that profile. This lets RocksDB issue concurrent
+random reads without replacing Docker's syscall allowlist with an unconfined
+container. Before touching an existing execution client, the broker starts the
+exact candidate image in a read-only, networkless, capability-free one-shot and
+requires its bundled probe to create RocksDB's exact 256-entry ring. Linux 5.15
+must report the compatibility retry; any kernel, memory-lock, or seccomp failure
+leaves the previous client running.
 
 `HOODI_GATE_P2P_PORT` selects the same explicit TCP/UDP port inside and outside
 the container when the default 30303 is already reserved. If a live run exposes
