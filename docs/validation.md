@@ -225,7 +225,9 @@ regressions observe both kinds before final TrieNodes traversal, then promote
 legacy account and completed-storage plans through shallow trie walks. An
 incomplete large-storage plan excludes only its account prefix bucket, rather
 than forcing a full account-tree rescan, and cannot publish the final promotion
-marker until its cursors finish.
+marker until its cursors finish. The public depth regression fixes the legacy
+proof lookup boundary at four nibbles and the finer publication boundary at
+five, preserving existing proofs while limiting rebase invalidation.
 They batch complete small storage tries with each account cursor and
 prove that the range-only proven-absent insertion produces the
 same root as the ordinary checked insertion and rejects empty values,

@@ -176,8 +176,11 @@ them by their physical location instead reintroduces dependency cycles:
   and completed storage tries' shallow spines. Account buckets containing an
   incomplete large-storage cursor set remain excluded while every other bucket
   is immediately reusable; completed storage roots receive their own reusable
-  proofs. The records are written in 2,048-record batches and idempotency
-  markers follow them, so a crash can only repeat safe work.
+  proofs. New proofs use five-nibble buckets so a later pivot can still reuse
+  unchanged descendants inside a changed four-nibble bucket; the healer keeps
+  consuming older four-nibble proofs for migration compatibility. The records
+  are written in 2,048-record batches and versioned idempotency markers follow
+  them, so a crash can only repeat safe work.
   The authenticated prefix of byte-capped
   large storage is persisted immediately and its root is recorded beside that page
   in a state-root-scoped durable work set. Independently reconstructing every

@@ -53,7 +53,13 @@ remains disabled unless a controlled deployment binds it explicitly.")
 (defparameter +snap-sync-healed-subtree-value+ #(1)
   "Versioned value for a completely verified content-addressed subtree.")
 (defparameter *snap-sync-healed-subtree-prefix-nibbles* 4
-  "Trie prefix depth whose completed subtrees survive pivot rebases.")
+  "Minimum trie depth at which the healer consumes completion proofs.")
+(defparameter *snap-sync-range-subtree-prefix-nibbles* 5
+  "Finer trie depth published by range proofs and shallow legacy promotion.
+
+The healer still consumes older four-nibble proofs. Five-nibble proofs retain
+reuse inside a coarse bucket changed by a later pivot, while requiring only the
+first four levels of concrete nodes to discover the content-addressed roots.")
 (defconstant +snap-sync-healed-subtrees-per-batch+ 2048
   "Maximum completed subtree proofs published by one durable write batch.")
 (defconstant +snap-sync-healed-subtree-bloom-bits+ (ash 1 27)
@@ -69,9 +75,9 @@ remains disabled unless a controlled deployment binds it explicitly.")
 (defparameter +snap-sync-deferred-storage-value+ #(1)
   "Versioned value shared by deferred storage work and plan markers.")
 (defparameter +snap-sync-range-plan-promotion-prefix+
-  (ascii-to-bytes "snap-range-plan-promoted-v1:"))
+  (ascii-to-bytes "snap-range-plan-promoted-v2:"))
 (defparameter +snap-sync-storage-plan-promotion-prefix+
-  (ascii-to-bytes "snap-storage-plan-promoted-v1:"))
+  (ascii-to-bytes "snap-storage-plan-promoted-v2:"))
 (defconstant +snap-sync-range-plan-promotion-max-roots+ 64)
 (defparameter +snap-sync-storage-task-identifier-prefix+
   (ascii-to-bytes "snap-storage-range-task-v1:")
@@ -1188,8 +1194,8 @@ frontier also falls back safely instead of creating an uncheckpointable run."
                (candidates
                  (if (and account-trie proved-end)
                      (mpt-proved-range-subtrees
-                      account-trie origin proved-end
-                      *snap-sync-healed-subtree-prefix-nibbles*)
+                     account-trie origin proved-end
+                      *snap-sync-range-subtree-prefix-nibbles*)
                      '()))
                (safe-subtrees
                  (loop for (prefix . hash) in candidates
@@ -2401,9 +2407,9 @@ than cache misses."
   (let ((remaining references))
     (loop while remaining
           do (let ((batch (make-kv-write-batch)))
-               (dotimes (index +snap-sync-healed-subtrees-per-batch+)
-                 (declare (ignore index))
-                 (unless remaining (return))
+               (loop repeat +snap-sync-healed-subtrees-per-batch+
+                     while remaining
+                     do
                  (snap-sync-populate-healed-subtree-batch
                   batch (pop remaining) kind))
                (kv-apply-batch database batch))))
@@ -2438,7 +2444,7 @@ than cache misses."
                  (make-persisted-mpt
                   storage-root
                   (lambda (hash) (trie-node-store-get database hash)))
-                 *snap-sync-healed-subtree-prefix-nibbles*))))
+                 *snap-sync-range-subtree-prefix-nibbles*))))
       (snap-sync-persist-promoted-subtrees
        database references :storage
        (snap-sync-storage-plan-promotion-identifier storage-root)))))
@@ -2448,7 +2454,7 @@ than cache misses."
           (ethereum-lisp.trie.encoding:keybytes-to-nibbles
            account-hash :terminator nil)))
     (copy-seq
-     (subseq nibbles 0 *snap-sync-healed-subtree-prefix-nibbles*))))
+     (subseq nibbles 0 *snap-sync-range-subtree-prefix-nibbles*))))
 
 (defun snap-sync-promote-complete-range-plan (database state-root)
   "Turn one trusted range plan into shallow reusable subtree proofs.
@@ -2485,7 +2491,7 @@ never read or revalidated."
                       (make-persisted-mpt
                        state-root
                        (lambda (hash) (trie-node-store-get database hash)))
-                      *snap-sync-healed-subtree-prefix-nibbles*))))
+                      *snap-sync-range-subtree-prefix-nibbles*))))
           (dolist (work incomplete-works)
             (setf
              (gethash
@@ -2563,7 +2569,7 @@ never read or revalidated."
                       #'cdr
                       (mpt-proved-range-subtrees
                        trie origin proved-end
-                       *snap-sync-healed-subtree-prefix-nibbles*))
+                       *snap-sync-range-subtree-prefix-nibbles*))
                      '())))
           (when (and (not completed-p) (null next-origin))
             (error "Snap storage range page did not advance its task"))
@@ -2926,7 +2932,7 @@ caller safely falls back to TrieNodes healing with authenticated pages retained.
         (return nil)))))
 
 (defun snap-sync-healed-subtree-candidate-p (work)
-  "Select bounded trie subtrees whose content proof survives pivot changes."
+  "Select trie paths eligible to consume a reusable completion proof."
   (unless (and (integerp *snap-sync-healed-subtree-prefix-nibbles*)
                (<= 1 *snap-sync-healed-subtree-prefix-nibbles* 64))
     (error "Snap healed-subtree prefix depth must be between one and 64"))
@@ -2935,6 +2941,17 @@ caller safely falls back to TrieNodes healing with authenticated pages retained.
            *snap-sync-healed-subtree-prefix-nibbles*)
        (let ((reference (snap-sync-heal-work-reference work)))
          (and (byte-vector-p reference) (= 32 (length reference))))))
+
+(defun snap-sync-healed-subtree-publication-candidate-p (work)
+  "Select the finer boundary at which new completion proofs are published."
+  (unless (and (integerp *snap-sync-range-subtree-prefix-nibbles*)
+               (<= *snap-sync-healed-subtree-prefix-nibbles*
+                   *snap-sync-range-subtree-prefix-nibbles*
+                   64))
+    (error
+     "Snap range subtree depth must be between the lookup depth and 64"))
+  (>= (length (snap-sync-heal-work-path work))
+      *snap-sync-range-subtree-prefix-nibbles*))
 
 (defun snap-sync-heal-signal-source-errors (errors)
   (let ((storage-error
@@ -3581,7 +3598,11 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                                       (snap-sync-heal-work-reference work)
                                       :fetched-p
                                       (snap-sync-heal-work-fetched-p work)
-                                      :marker-state :armed)
+                                      :marker-state
+                                      (and
+                                       (snap-sync-healed-subtree-publication-candidate-p
+                                        work)
+                                       :armed))
                                      actual-lookups))
                                   (incf candidate-index))
                                 (push work actual-lookups)))

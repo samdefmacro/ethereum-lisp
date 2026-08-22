@@ -407,6 +407,8 @@
               'ethereum-lisp.snap-sync::snap-sync-populate-healed-subtree-batch))
            (progress nil))
       (let ((ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
+              1)
+            (ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*
               1))
         (unwind-protect
              (progn
@@ -433,6 +435,8 @@
       (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p progress))
       (is (plusp published))
       (let ((ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
+              1)
+            (ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*
               1))
         (is
          (plusp
@@ -472,6 +476,8 @@
         (ethereum-lisp.snap-sync::snap-sync-range-plan-fully-durable-p
          database state-root)))
       (let* ((ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
+               1)
+             (ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*
                1)
              (references
                (mpt-hashed-subtrees-with-prefix-at-depth
@@ -717,6 +723,8 @@
               :completed-p nil)))
       (let* ((ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
                1)
+             (ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*
+               1)
              (result
                (ethereum-lisp.snap-sync::snap-sync-prepare-storage-page
                 source state-root account-hash storage-root 0 task
@@ -780,6 +788,8 @@
                 batch state-root account-hash storage-root task-index task))
       (kv-apply-batch database batch)
       (let ((ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
+              1)
+            (ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*
               1))
         (let ((references
                 (mpt-hashed-subtrees-at-prefix-depth
@@ -3388,6 +3398,8 @@
       ;; still publish proofs, but the startup negative filter should reject
       ;; every first-pass candidate without a metadata point/MultiGet.
       (let ((ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
+              1)
+            (ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*
               1))
         (unwind-protect
              (progn
@@ -3420,18 +3432,32 @@
 
 (deftest snap-healed-subtree-public-depth-bounds-rebase-regions
   (:layer :unit :module :p2p)
-  (let ((depth
-          ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*))
-    (is (= 4 depth))
+  (let ((lookup-depth
+          ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*)
+        (publication-depth
+          ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*))
+    (is (= 4 lookup-depth))
+    (is (= 5 publication-depth))
     (is
      (not
       (ethereum-lisp.snap-sync::snap-sync-healed-subtree-candidate-p
        (ethereum-lisp.snap-sync::snap-sync-make-heal-work
-        :account nil (make-byte-vector (1- depth)) (snap-test-hash 221)))))
+        :account nil (make-byte-vector (1- lookup-depth))
+        (snap-test-hash 221)))))
     (is
      (ethereum-lisp.snap-sync::snap-sync-healed-subtree-candidate-p
       (ethereum-lisp.snap-sync::snap-sync-make-heal-work
-       :account nil (make-byte-vector depth) (snap-test-hash 222))))))
+       :account nil (make-byte-vector lookup-depth) (snap-test-hash 222))))
+    (is
+     (not
+      (ethereum-lisp.snap-sync::snap-sync-healed-subtree-publication-candidate-p
+       (ethereum-lisp.snap-sync::snap-sync-make-heal-work
+        :account nil (make-byte-vector lookup-depth) (snap-test-hash 223)))))
+    (is
+     (ethereum-lisp.snap-sync::snap-sync-healed-subtree-publication-candidate-p
+      (ethereum-lisp.snap-sync::snap-sync-make-heal-work
+       :account nil (make-byte-vector publication-depth)
+       (snap-test-hash 224))))))
 
 (deftest snap-state-healer-reuses-proved-subtrees-across-pivots
   (:layer :integration :module :p2p)
@@ -3496,6 +3522,8 @@
         ;; same content-addressed proof and completion-sentinel path as the
         ;; four-nibble public-network setting.
         (let ((ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
+                1)
+              (ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*
                 1))
           (unwind-protect
                (progn
@@ -3703,6 +3731,8 @@
               'ethereum-lisp.snap-sync::snap-sync-populate-healed-subtree-batch))
            (attempted-reference nil))
       (let ((ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
+              1)
+            (ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*
               1))
         (unwind-protect
              (progn
