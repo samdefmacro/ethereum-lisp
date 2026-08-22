@@ -234,10 +234,12 @@ a non-empty, non-root range witness; legacy, rebased, or oversized plans retain
 the fail-closed full-root traversal. The tests also
 inject a failed database batch to prove progress never outruns verified account
 state. Only the final traversal can install the completion marker. The final
-healer tests also require one missing-path slice per available source, prove a
-second source actually serves TrieNodes, and prove that consecutive rounds
-rotate the first source so retained work is not pinned to one partially pruned
-peer. A late-admission control starts healing with one source, exposes a second
+healer tests over-partition one missing frontier, prove every request remains
+within geth's 1,024-path cap, and block one source until a faster source has
+claimed multiple chunks. They also prove a second source actually serves
+TrieNodes and consecutive rounds rotate the first source so retained work is
+not pinned to one partially pruned peer. A late-admission control starts
+healing with one source, exposes a second
 source through the live provider only after the first request round, and proves
 that the new source serves TrieNodes before completion. Local traversal proves
 that more than one trie hash crosses the ordered

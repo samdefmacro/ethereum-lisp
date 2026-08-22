@@ -182,15 +182,18 @@ them by their physical location instead reintroduces dependency cycles:
   verified range pages retained. Completed ranges deliberately remain on the
   deferred frontier so final healing traverses the full storage root locally
   before it can publish completion. Work sets above the 8,192-item checkpoint
-  bound also fall back to that path. Each round
-  partitions its missing paths across the current snap
-  sources, with at most one outstanding TrieNodes request and 1,024 paths per
-  source. The total round width scales with the source count up to the durable
-  8,192-work frontier cap, so adding peers increases parallel work without
-  exceeding pinned geth's per-peer lookup capacity. The serving side applies
-  the same 1,024-lookup cap even when the structurally bounded wire list is
-  larger. A failed source retires only its own slice while successful slices
-  remain durable. The public-node peer default is 50, matching geth
+  bound also fall back to that path. Each bounded TrieNodes frontier is split
+  into four work chunks per current snap source. Every source retains at most
+  one outstanding request and every chunk remains below the pinned geth limit
+  of 1,024 paths, but a fast source immediately claims another disjoint chunk
+  instead of waiting at a global slowest-peer wave barrier. Initial chunks are
+  assigned deterministically across all sources so one fast peer cannot erase
+  peer diversity; only the shared tail is work-stealing. The total frontier
+  still scales with the source count up to the durable 8,192-work cap. The
+  serving side applies the same 1,024-lookup cap even when the structurally
+  bounded wire list is larger. A failed source stops claiming new chunks while
+  successful results remain durable and unrequested work stays in the exact
+  continuation. The public-node peer default is 50, matching geth
   `38271784c2b31926563806da9a2e023b88f5e7a8` and Nethermind
   `e52dc19a56a46f58170a730822580774d403c838`; the one-request-per-source rule
   remains stricter than either implementation's process-wide worker pool and

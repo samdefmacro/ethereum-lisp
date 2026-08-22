@@ -17,6 +17,8 @@
 (defconstant +snap-sync-heal-paths-per-source+
   +snap-sync-trie-node-lookups-per-request+
   "Maximum healing paths assigned to one source in a concurrent round.")
+(defconstant +snap-sync-heal-work-chunks-per-source+ 4
+  "Over-partition one healing frontier so fast peers can keep claiming work.")
 (defconstant +snap-sync-heal-local-reads-per-batch+ 512
   "Maximum local read width before frontier-aware shrinking.")
 (defparameter *snap-sync-heal-local-read-workers* 8
@@ -1853,32 +1855,70 @@ the returned record in the same batch as its new skeleton metadata."
 #+sbcl
 (defun snap-sync-heal-request-round
     (sources missing root-bytes byte-limit)
-  "Issue at most one disjoint TrieNodes request on each source concurrently."
+  "Drain one bounded missing frontier through continuously busy sources.
+
+Each source still owns at most one TrieNodes exchange at a time.  The frontier
+is deliberately over-partitioned, however, so a source that answers promptly
+claims another disjoint chunk instead of waiting at a global slowest-peer
+barrier.  Failed sources stop claiming; their unrequested remainder stays
+absent in the caller's exact continuation and is retried after source rotation."
   (let* ((worker-count (min (length sources) (length missing)))
-         (results (make-array worker-count :initial-element nil))
+         (chunk-count
+           (max
+            1
+            (min (length missing)
+                 (* worker-count +snap-sync-heal-work-chunks-per-source+))))
+         (chunk-size (ceiling (length missing) chunk-count))
+         (next-start (min (length missing) (* worker-count chunk-size)))
+         (results '())
+         (lock (sb-thread:make-mutex :name "snap-sync-heal-requests"))
          (threads (make-array worker-count :initial-element nil)))
     (when (zerop worker-count)
       (error "Snap healing requires a live source"))
-    (labels ((run-worker (index source start end)
-               (setf (aref results index)
-                     (snap-sync-heal-request-chunk
-                      source missing start end root-bytes byte-limit))))
+    (labels ((record-result (result)
+               (sb-thread:with-mutex (lock)
+                 (push result results)))
+             (claim-next ()
+               (sb-thread:with-mutex (lock)
+                 (when (< next-start (length missing))
+                   (let ((start next-start))
+                     (setf next-start
+                           (min (length missing) (+ start chunk-size)))
+                     (values start next-start)))))
+             (request-chunk (source start end)
+               (let ((result
+                       (snap-sync-heal-request-chunk
+                        source missing start end root-bytes byte-limit)))
+                 (record-result result)
+                 result))
+             (run-worker (index source)
+               ;; Give every source one deterministic initial chunk before
+               ;; opening the shared tail to work stealing.  This preserves
+               ;; peer diversity even when one in-process test source answers
+               ;; synchronously, while live fast peers can drain the tail.
+               (let* ((start (* index chunk-size))
+                      (end (min (length missing) (+ start chunk-size)))
+                      (result (request-chunk source start end)))
+                 (unless (snap-sync-heal-fetch-result-condition result)
+                   (loop
+                     (multiple-value-bind (next end) (claim-next)
+                       (unless next (return))
+                       (when
+                           (snap-sync-heal-fetch-result-condition
+                            (request-chunk source next end))
+                         (return))))))))
       (unwind-protect
            (progn
              (dotimes (index worker-count)
                (let* ((worker-index index)
-                      (source (nth index sources))
-                      (start (floor (* index (length missing)) worker-count))
-                      (end
-                        (floor
-                         (* (1+ index) (length missing)) worker-count)))
+                      (source (nth index sources)))
                  (if (= worker-count 1)
-                     (run-worker worker-index source start end)
+                     (run-worker worker-index source)
                      (setf
                       (aref threads index)
                       (sb-thread:make-thread
                        (lambda ()
-                         (run-worker worker-index source start end))
+                         (run-worker worker-index source))
                        :name "snap-sync-heal-worker")))))
              (when (> worker-count 1)
                (loop for index below worker-count
@@ -1891,7 +1931,9 @@ the returned record in the same batch as its new skeleton metadata."
         (loop for thread across threads
               when thread
                 do (ignore-errors (sb-thread:join-thread thread)))))
-    results))
+    (coerce
+     (stable-sort results #'< :key #'snap-sync-heal-fetch-result-start)
+     'vector)))
 
 #-sbcl
 (defun snap-sync-heal-request-round

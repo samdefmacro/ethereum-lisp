@@ -2444,9 +2444,13 @@
          checkpoint-frontiers))
     ;; The live failure shape used to emit one TrieNodes request per node once
     ;; the frontier reached its hard cap. These works were already counted in
-    ;; the frontier, so one full bounded request is both safe and required.
-    (is (= ethereum-lisp.snap-sync::+snap-sync-heal-paths-per-source+
-           (reduce #'max request-widths)))
+    ;; the frontier, so one full logical round remains safe; its four physical
+    ;; chunks let a fast source continue without weakening the frontier bound.
+    (is
+     (= (ceiling
+         ethereum-lisp.snap-sync::+snap-sync-heal-paths-per-source+
+         ethereum-lisp.snap-sync::+snap-sync-heal-work-chunks-per-source+)
+        (reduce #'max request-widths)))
     (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p completed))))
 
 (deftest snap-state-healer-uses-multiple-trie-node-sources
@@ -2530,12 +2534,12 @@
               while right
               do (is (not (eq left right))))))))
 
-(deftest snap-state-healer-fills-each-source-within-geth-lookup-cap
+(deftest snap-state-healer-keeps-sources-busy-within-geth-lookup-cap
   (:layer :unit :module :p2p)
   (let* ((source-count 3)
          (per-source
            ethereum-lisp.snap-sync::+snap-sync-heal-paths-per-source+)
-         (widths (make-array source-count :initial-element 0))
+         (widths (make-array source-count :initial-element nil))
          (sources
            (loop for index below source-count
                  collect
@@ -2547,11 +2551,14 @@
                   :trie-nodes
                   (let ((worker-index index))
                     (lambda (request)
-                      (setf (aref widths worker-index)
-                            (length
-                             (ethereum-lisp.snap:snap-get-trie-nodes-paths
-                              request)))
-                      (ethereum-lisp.snap:make-snap-trie-nodes 1 '()))))))
+                      (push
+                       (length
+                        (ethereum-lisp.snap:snap-get-trie-nodes-paths request))
+                       (aref widths worker-index))
+                      ;; Request-round scheduling does not inspect payloads;
+                      ;; one non-empty blob keeps this healthy source eligible
+                      ;; to claim another disjoint chunk.
+                      (ethereum-lisp.snap:make-snap-trie-nodes 1 '(#(128))))))))
          (work
            (ethereum-lisp.snap-sync::snap-sync-make-heal-work
             :account nil #(1) (snap-test-hash 193)))
@@ -2560,15 +2567,70 @@
          (results
            (ethereum-lisp.snap-sync::snap-sync-heal-request-round
             sources missing (snap-test-hash 194) (* 2 1024 1024))))
-    (is (= source-count (length results)))
-    (loop for width across widths do (is (= per-source width)))
-    ;; Empty replies are typed availability failures, but all independent
-    ;; requests must already have been issued at the safe per-peer width.
+    (is
+     (= (* source-count
+           ethereum-lisp.snap-sync::+snap-sync-heal-work-chunks-per-source+)
+        (length results)))
+    (is
+     (= (length missing)
+        (loop for source-widths across widths
+              sum (reduce #'+ source-widths))))
+    (loop for source-widths across widths
+          do (is (plusp (length source-widths)))
+             (loop for width in source-widths
+                   do (is (<= 1 width per-source))))
+    ;; A static one-request-per-source wave cannot produce more completed
+    ;; chunks than sources. Every request remains under geth's lookup cap.
+    (is (> (length results) source-count))
     (loop for result across results
-          do (is (typep
+          do (is (null
                   (ethereum-lisp.snap-sync::snap-sync-heal-fetch-result-condition
-                   result)
-                  'ethereum-lisp.snap-sync:snap-sync-state-unavailable)))))
+                   result))))))
+
+(deftest snap-state-healer-fast-source-claims-before-slow-source-returns
+  (:layer :unit :module :p2p)
+  (let* ((lock (sb-thread:make-mutex :name "snap-heal-fast-source"))
+         (changed (sb-thread:make-waitqueue :name "snap-heal-fast-source"))
+         (fast-calls 0)
+         (fast-reused-before-slow-release-p nil)
+         (slow-source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :account-range (lambda (request) (declare (ignore request)))
+            :storage-ranges (lambda (request) (declare (ignore request)))
+            :bytecodes (lambda (request) (declare (ignore request)))
+            :trie-nodes
+            (lambda (request)
+              (declare (ignore request))
+              (sb-thread:with-mutex (lock)
+                (when (< fast-calls 2)
+                  (sb-thread:condition-wait changed lock :timeout 1))
+                (setf fast-reused-before-slow-release-p (>= fast-calls 2)))
+              (ethereum-lisp.snap:make-snap-trie-nodes 1 '(#(128))))))
+         (fast-source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :account-range (lambda (request) (declare (ignore request)))
+            :storage-ranges (lambda (request) (declare (ignore request)))
+            :bytecodes (lambda (request) (declare (ignore request)))
+            :trie-nodes
+            (lambda (request)
+              (declare (ignore request))
+              (sb-thread:with-mutex (lock)
+                (incf fast-calls)
+                (sb-thread:condition-broadcast changed))
+              (ethereum-lisp.snap:make-snap-trie-nodes 1 '(#(128))))))
+         (work
+           (ethereum-lisp.snap-sync::snap-sync-make-heal-work
+            :account nil #(1) (snap-test-hash 195)))
+         (missing (make-array 16 :initial-element work))
+         (results
+           (ethereum-lisp.snap-sync::snap-sync-heal-request-round
+            (list slow-source fast-source) missing
+            (snap-test-hash 196) (* 2 1024 1024))))
+    (is (= 8 (length results)))
+    (is (>= fast-calls 2))
+    ;; With the old global wave the fast source made exactly one request and
+    ;; could not release this source before its bounded wait elapsed.
+    (is fast-reused-before-slow-release-p)))
 
 (deftest snap-state-healer-processes-fetched-nodes-without-rereading-them
   (:layer :unit :module :p2p)
