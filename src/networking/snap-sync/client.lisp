@@ -40,7 +40,7 @@ worker still retains at most one verified, uncommitted page.")
   "Target TrieNodes path width while retaining a tail for fast-peer stealing.")
 (defconstant +snap-sync-heal-local-reads-per-batch+ 512
   "Maximum local read width before frontier-aware shrinking.")
-(defparameter *snap-sync-heal-local-read-workers* 16
+(defparameter *snap-sync-heal-local-read-workers* 8
   "Maximum concurrent RocksDB MultiGet calls during local trie healing.")
 (defparameter *snap-sync-heal-remote-first-p* nil
   "Experimentally prefer peer TrieNodes batches over cold RocksDB reads.
@@ -67,8 +67,14 @@ remains disabled unless a controlled deployment binds it explicitly.")
 (defparameter +snap-sync-healed-storage-subtree-identifier-prefix+
   (ascii-to-bytes "snap-healed-storage-subtree-v1:")
   "Domain-separate durable storage-subtree proof keys.")
+(defparameter +snap-sync-account-subtree-dependencies-identifier-prefix+
+  (ascii-to-bytes "snap-account-subtree-dependencies-v1:")
+  "Account-trie completion proofs carrying deferred storage dependencies.")
 (defparameter +snap-sync-healed-subtree-value+ #(1)
   "Versioned value for a completely verified content-addressed subtree.")
+(defconstant +snap-sync-account-subtree-dependencies-version+ 1)
+(defconstant +snap-sync-account-subtree-dependencies-max+ 64
+  "Maximum deferred storage roots carried by one account-subtree proof.")
 (defparameter *snap-sync-healed-subtree-prefix-nibbles* 4
   "Minimum trie depth at which the healer consumes completion proofs.")
 (defparameter *snap-sync-range-subtree-prefix-nibbles* 5
@@ -1022,13 +1028,15 @@ the exact authorized state root before completion."
 (defstruct (snap-sync-page-result
             (:constructor make-snap-sync-page-result
                 (&key task-index origin account-records codes deferred-storage
-                      healed-subtrees next-origin completed-p)))
+                      healed-subtrees dependency-subtrees next-origin
+                      completed-p)))
   task-index
   origin
   account-records
   codes
   deferred-storage
   healed-subtrees
+  dependency-subtrees
   next-origin
   completed-p)
 
@@ -1269,6 +1277,30 @@ frontier also falls back safely instead of creating an uncheckpointable run."
            (loop for record across records
                  collect (snap-sync-storage-task-from-record record))))))))
 
+(defun snap-sync-classify-account-range-subtrees
+    (candidates deferred-storage)
+  "Split proved account subtrees by their unresolved storage dependencies."
+  (let ((dependencies-by-prefix (make-hash-table :test #'equalp))
+        (safe-subtrees '())
+        (dependency-subtrees '()))
+    (dolist (commitment deferred-storage)
+      (push commitment
+            (gethash
+             (snap-sync-account-prefix-bucket (car commitment))
+             dependencies-by-prefix)))
+    (dolist (candidate candidates)
+      (let* ((prefix (car candidate))
+             (reference (cdr candidate))
+             (dependencies
+               (nreverse (gethash prefix dependencies-by-prefix))))
+        (cond
+          ((null dependencies)
+           (push reference safe-subtrees))
+          ((<= (length dependencies)
+               +snap-sync-account-subtree-dependencies-max+)
+           (push (cons reference dependencies) dependency-subtrees)))))
+    (values (nreverse safe-subtrees) (nreverse dependency-subtrees))))
+
 (defun snap-sync-prepare-account-page
     (database source state-root task-index task byte-limit)
   "Fetch and verify one page without advancing authoritative progress."
@@ -1329,36 +1361,28 @@ frontier also falls back safely instead of creating an uncheckpointable run."
                (candidates
                  (if (and account-trie proved-end)
                      (mpt-proved-range-subtrees
-                     account-trie origin proved-end
+                      account-trie origin proved-end
                       *snap-sync-range-subtree-prefix-nibbles*)
-                     '()))
-               (safe-subtrees
-                 (loop for (prefix . hash) in candidates
-                       unless
-                         (some
-                          (lambda (commitment)
-                            (let ((account-nibbles
-                                    (ethereum-lisp.trie.encoding:keybytes-to-nibbles
-                                     (car commitment) :terminator nil)))
-                              (and (<= (length prefix)
-                                       (length account-nibbles))
-                                   (= (length prefix)
-                                      (ethereum-lisp.trie.encoding:common-prefix-length
-                                       prefix account-nibbles)))))
-                          deferred-storage)
-                         collect hash)))
-          (make-snap-sync-page-result
-           :task-index task-index
-           :origin (copy-seq origin)
-           :account-records account-records
-           :codes (if missing-code-hashes
-                      (snap-sync-fetch-codes
-                       source missing-code-hashes byte-limit)
-                      '())
-           :deferred-storage deferred-storage
-           :healed-subtrees safe-subtrees
-           :next-origin next-origin
-           :completed-p complete-p)))))))
+                     '())))
+          (multiple-value-bind (safe-subtrees dependency-subtrees)
+              (snap-sync-classify-account-range-subtrees
+               candidates deferred-storage)
+            (make-snap-sync-page-result
+             :task-index task-index
+             :origin (copy-seq origin)
+             :account-records account-records
+             :codes (if missing-code-hashes
+                        (snap-sync-fetch-codes
+                         source missing-code-hashes byte-limit)
+                        '())
+             :deferred-storage deferred-storage
+             :healed-subtrees safe-subtrees
+             ;; Account nodes and code are already durable. Keep the exact
+             ;; storage gaps beside the subtree hash so a later pivot can skip
+             ;; the account walk without skipping external dependencies.
+             :dependency-subtrees dependency-subtrees
+             :next-origin next-origin
+             :completed-p complete-p))))))))
 
 (defun snap-sync-replace-task (tasks index replacement)
   (loop for task in tasks
@@ -1428,6 +1452,9 @@ frontier also falls back safely instead of creating an uncheckpointable run."
         ;; later root can skip the unchanged subtree instead of rereading it.
         (dolist (reference (snap-sync-page-result-healed-subtrees result))
           (snap-sync-populate-healed-subtree-batch batch reference :account))
+        (dolist (entry (snap-sync-page-result-dependency-subtrees result))
+          (snap-sync-populate-account-subtree-dependencies-batch
+           batch (car entry) (cdr entry)))
         (when (and (snap-sync-tasks-completed-p tasks)
                    (hash32= partial-root
                             (snap-sync-progress-state-root progress)))
@@ -2332,6 +2359,74 @@ the returned encoded, presence, and decoded vectors retain input order."
      (:storage +snap-sync-healed-storage-subtree-identifier-prefix+))
    reference))
 
+(defun snap-sync-account-subtree-dependencies-identifier (reference)
+  (unless (and (byte-vector-p reference) (= 32 (length reference)))
+    (error "Snap account-subtree dependency proof requires a 32-byte hash"))
+  (concatenate
+   'vector +snap-sync-account-subtree-dependencies-identifier-prefix+
+   reference))
+
+(defun snap-sync-account-subtree-dependencies-value (dependencies)
+  "Encode one bounded, non-empty account-subtree storage frontier."
+  (unless (and (listp dependencies) dependencies
+               (<= (length dependencies)
+                   +snap-sync-account-subtree-dependencies-max+))
+    (error "Snap account-subtree dependency count is out of bounds"))
+  (let ((value
+          (make-byte-vector (+ 1 (* 64 (length dependencies)))))
+        (seen (make-hash-table :test #'equalp)))
+    (setf (aref value 0)
+          +snap-sync-account-subtree-dependencies-version+)
+    (loop for commitment in dependencies
+          for offset from 1 by 64
+          do
+      (unless (and (consp commitment)
+                   (byte-vector-p (car commitment))
+                   (= 32 (length (car commitment)))
+                   (hash32-p (cdr commitment))
+                   (not (hash32= (cdr commitment) +empty-trie-hash+)))
+        (error "Snap account-subtree dependency is malformed"))
+      (let ((identity
+              (concatenate
+               'vector (car commitment) (hash32-bytes (cdr commitment)))))
+        (when (nth-value 1 (gethash identity seen))
+          (error "Snap account-subtree dependency is duplicated"))
+        (setf (gethash identity seen) t)
+        (replace value identity :start1 offset)))
+    value))
+
+(defun snap-sync-account-subtree-dependencies-from-value (value)
+  "Decode one persisted account-subtree storage frontier or fail closed."
+  (unless (and (byte-vector-p value)
+               (>= (length value) 65)
+               (zerop (mod (1- (length value)) 64))
+               (= (aref value 0)
+                  +snap-sync-account-subtree-dependencies-version+))
+    (ethereum-lisp.validation:storage-fail
+     "Persisted snap account-subtree dependency proof is malformed"))
+  (let ((count (/ (1- (length value)) 64))
+        (seen (make-hash-table :test #'equalp))
+        (dependencies '()))
+    (when (> count +snap-sync-account-subtree-dependencies-max+)
+      (ethereum-lisp.validation:storage-fail
+       "Persisted snap account-subtree dependency proof exceeds its bound"))
+    (loop for offset from 1 below (length value) by 64
+          for account-hash = (subseq value offset (+ offset 32))
+          for storage-bytes = (subseq value (+ offset 32) (+ offset 64))
+          for storage-root = (make-hash32 storage-bytes)
+          do
+      (when (hash32= storage-root +empty-trie-hash+)
+        (ethereum-lisp.validation:storage-fail
+         "Persisted snap account-subtree dependency names an empty trie"))
+      (let ((identity
+              (concatenate 'vector account-hash storage-bytes)))
+        (when (nth-value 1 (gethash identity seen))
+          (ethereum-lisp.validation:storage-fail
+           "Persisted snap account-subtree dependency is duplicated"))
+        (setf (gethash identity seen) t)
+        (push (cons account-hash storage-root) dependencies)))
+    (nreverse dependencies)))
+
 (defun snap-sync-healed-subtree-bloom-word (reference start)
   "Read one big-endian uint32 from authenticated 32-byte REFERENCE."
   (loop with word = 0
@@ -2344,10 +2439,14 @@ the returned encoded, presence, and decoded vectors retain input order."
   (unless (and (typep bloom 'bit-vector)
                (= (length bloom) +snap-sync-healed-subtree-bloom-bits+)
                (byte-vector-p reference) (= 32 (length reference))
-               (member kind '(:account :storage)))
+               (member kind '(:account :storage :account-dependencies)))
     (error "Snap healed-subtree Bloom input is malformed"))
   (let* ((mask (1- +snap-sync-healed-subtree-bloom-bits+))
-         (salt (ecase kind (:account #x9e3779b9) (:storage #x85ebca6b)))
+         (salt
+           (ecase kind
+             (:account #x9e3779b9)
+             (:storage #x85ebca6b)
+             (:account-dependencies #xc2b2ae35)))
          (first
            (logxor salt (snap-sync-healed-subtree-bloom-word reference 0)))
          (step
@@ -2407,6 +2506,9 @@ the returned encoded, presence, and decoded vectors retain input order."
     (snap-sync-index-healed-subtree-prefix
      database bloom :storage
      +snap-sync-healed-storage-subtree-identifier-prefix+)
+    (snap-sync-index-healed-subtree-prefix
+     database bloom :account-dependencies
+     +snap-sync-account-subtree-dependencies-identifier-prefix+)
     bloom))
 
 (defun snap-sync-healed-subtree-present-p
@@ -2482,11 +2584,54 @@ than cache misses."
   (and (snap-sync-healed-subtree-bloom-maybe-p bloom reference kind)
        (snap-sync-healed-subtree-present-p database reference kind)))
 
+(defun snap-sync-filtered-account-subtree-dependencies
+    (database references kinds completed bloom)
+  "Return dependency lists for incomplete account proof candidates.
+
+Bloom negatives and already complete proofs avoid RocksDB reads. Persisted
+values are decoded only after one ordered, bounded metadata MultiGet."
+  (unless (and (= (length references) (length kinds))
+               (= (length references) (length completed)))
+    (error "Snap account-subtree dependency inputs differ in length"))
+  (let ((result (make-array (length references) :initial-element nil))
+        (maybe-indices '())
+        (maybe-identifiers '()))
+    (dotimes (index (length references))
+      (when (and (eq :account (aref kinds index))
+                 (zerop (aref completed index))
+                 (snap-sync-healed-subtree-bloom-maybe-p
+                  bloom (aref references index) :account-dependencies))
+        (push index maybe-indices)
+        (push
+         (snap-sync-account-subtree-dependencies-identifier
+          (aref references index))
+         maybe-identifiers)))
+    (when maybe-indices
+      (let ((indices (coerce (nreverse maybe-indices) 'vector))
+            (identifiers (coerce (nreverse maybe-identifiers) 'vector)))
+        (multiple-value-bind (values present)
+            (snap-sync-heal-chain-record-batch
+             database :metadata identifiers)
+          (dotimes (index (length indices))
+            (when (= 1 (aref present index))
+              (setf (aref result (aref indices index))
+                    (snap-sync-account-subtree-dependencies-from-value
+                     (aref values index))))))))
+    result))
+
 (defun snap-sync-populate-healed-subtree-batch
     (batch reference &optional (kind :account))
   (kv-batch-put-chain-record
    batch :metadata (snap-sync-healed-subtree-identifier reference kind)
    +snap-sync-healed-subtree-value+)
+  batch)
+
+(defun snap-sync-populate-account-subtree-dependencies-batch
+    (batch reference dependencies)
+  (kv-batch-put-chain-record
+   batch :metadata
+   (snap-sync-account-subtree-dependencies-identifier reference)
+   (snap-sync-account-subtree-dependencies-value dependencies))
   batch)
 
 (defun snap-sync-range-plan-promotion-identifier (state-root)
@@ -3768,30 +3913,58 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                                   database candidate-references candidate-kinds
                                   healed-subtree-bloom)
                                  #()))
+                           (candidate-dependencies
+                             (if candidate-works
+                                 (snap-sync-filtered-account-subtree-dependencies
+                                  database candidate-references candidate-kinds
+                                  candidate-presence healed-subtree-bloom)
+                                 #()))
                            (candidate-index 0)
                            (actual-lookups '()))
                       (loop for work across ordered
                             do
                             (if (snap-sync-healed-subtree-candidate-p work)
-                                (progn
-                                  (if (= 1
-                                         (aref candidate-presence
-                                               candidate-index))
-                                      (incf skipped-subtrees)
-                                      (push
-                                       (snap-sync-make-heal-work
-                                        (snap-sync-heal-work-kind work)
-                                        (snap-sync-heal-work-account-hash work)
-                                        (snap-sync-heal-work-path work)
-                                        (snap-sync-heal-work-reference work)
-                                        :fetched-p
-                                        (snap-sync-heal-work-fetched-p work)
-                                        :marker-state
-                                        (and
-                                         (snap-sync-healed-subtree-publication-candidate-p
-                                          work)
-                                         :armed))
-                                       actual-lookups))
+                                (let ((dependencies
+                                        (aref candidate-dependencies
+                                              candidate-index)))
+                                  (cond
+                                    ((= 1
+                                        (aref candidate-presence
+                                              candidate-index))
+                                     (incf skipped-subtrees))
+                                    ((and
+                                      dependencies
+                                      (<= (+ deferred-storage-count
+                                             (length dependencies))
+                                          +snap-sync-heal-deferred-storage-target+)
+                                      (<= (+ (length stack) missing-count
+                                             deferred-storage-count
+                                             (length dependencies))
+                                          +snap-sync-heal-checkpoint-max-works+))
+                                     ;; The account trie and its code are
+                                     ;; complete. Keep the explicitly listed
+                                     ;; storage roots in the ordinary bounded
+                                     ;; frontier, then skip the account walk.
+                                     (dolist (commitment dependencies)
+                                       (defer-storage-reference
+                                        (car commitment)
+                                        (hash32-bytes (cdr commitment))))
+                                     (incf skipped-subtrees))
+                                    (t
+                                     (push
+                                      (snap-sync-make-heal-work
+                                       (snap-sync-heal-work-kind work)
+                                       (snap-sync-heal-work-account-hash work)
+                                       (snap-sync-heal-work-path work)
+                                       (snap-sync-heal-work-reference work)
+                                       :fetched-p
+                                       (snap-sync-heal-work-fetched-p work)
+                                       :marker-state
+                                       (and
+                                        (snap-sync-healed-subtree-publication-candidate-p
+                                         work)
+                                        :armed))
+                                      actual-lookups)))
                                   (incf candidate-index))
                                 (push work actual-lookups)))
                       (setf ordered

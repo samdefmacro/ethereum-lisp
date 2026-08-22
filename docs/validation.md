@@ -231,9 +231,13 @@ cursor and external dependencies. StorageRanges pages publish equivalent
 storage-subtree proofs with their node and cursor batch. The integration
 regressions observe both kinds before final TrieNodes traversal, then promote
 legacy account and completed-storage plans through shallow trie walks. An
-incomplete large-storage plan excludes only its account prefix bucket, rather
-than forcing a full account-tree rescan, and cannot publish the final promotion
-marker until its cursors finish. The public depth regression fixes the legacy
+incomplete legacy large-storage plan excludes only its account prefix bucket,
+rather than forcing a full account-tree rescan, and cannot publish the final
+promotion marker until its cursors finish. New range pages instead persist a
+bounded dependency proof for such a bucket. A healer regression rejects a
+direct read of that account-subtree node, observes the proof skip, and still
+requests the listed storage paths; malformed, duplicate, empty-root, or
+over-limit dependency values fail closed. The public depth regression fixes the legacy
 proof lookup boundary at four nibbles and the finer publication boundary at
 five, preserving existing proofs while limiting rebase invalidation.
 They batch complete small storage tries with each account cursor and
@@ -277,11 +281,11 @@ that more than one trie hash crosses the ordered
 multi-get seam in a batch, while the database integration control proves one
 generic RocksDB batch reaches exactly one native call and preserves
 duplicate-key order and per-key absence. A healer-specific RocksDB control
-proves that one 512-key local batch reaches sixteen bounded read workers,
-performs present-value decoding on all sixteen workers, rejoins values,
+proves that one 512-key local batch reaches eight bounded read workers,
+performs present-value decoding on all eight workers, rejoins values,
 presence bits, and decoded objects in exact input order, and propagates an
 injected worker failure. Switching the production dispatch back to serial makes
-its sixteen-call and sixteen-decoder-thread witnesses fail. Generic controls
+its eight-call and eight-decoder-thread witnesses fail. Generic controls
 enforce the 4,096-key
 and 4 MiB key-byte bounds. The RocksDB construction regressions witness the
 exact 2 GiB block-cache budget, ten-bit full Bloom policy, production
@@ -335,7 +339,7 @@ proof key. The same regression counts proof batch
 identity: more than one independent proof must share a durable batch and no
 batch may exceed 2,048 proofs. Proof publication failure leaves neither the
 cache record nor state completion. The RocksDB read regression also proves that
-large healed-subtree metadata probes use sixteen bounded native multi-get workers,
+large healed-subtree metadata probes use eight bounded native multi-get workers,
 retain exact input presence order, and reject an unknown proof version. A
 production-call-site witness counts metadata batches during cross-pivot reuse;
 replacing it with the old per-reference lookup makes that witness fail.

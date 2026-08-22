@@ -526,6 +526,64 @@
           (ethereum-lisp.snap-sync::snap-sync-range-plan-promoted-p
            database state-root)))))))
 
+(deftest snap-account-range-subtree-proofs-carry-bounded-storage-gaps
+  (:layer :unit :module :p2p)
+  (let* ((account-hash (make-byte-vector 32))
+         (storage-root (make-hash32 (snap-test-hash 249)))
+         (dependency (cons account-hash storage-root))
+         (dependent-reference (snap-test-hash 250))
+         (safe-reference (snap-test-hash 251)))
+    (setf (aref account-hash 0) #x10)
+    (let ((ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*
+            1))
+      (multiple-value-bind (safe dependency-subtrees)
+          (ethereum-lisp.snap-sync::snap-sync-classify-account-range-subtrees
+           (list (cons #(1) dependent-reference)
+                 (cons #(2) safe-reference))
+           (list dependency))
+        (is (= 1 (length safe)))
+        (is (bytes= safe-reference (first safe)))
+        (is (= 1 (length dependency-subtrees)))
+        (is (bytes= dependent-reference
+                    (caar dependency-subtrees)))
+        (let* ((encoded
+                 (ethereum-lisp.snap-sync::snap-sync-account-subtree-dependencies-value
+                  (cdar dependency-subtrees)))
+               (decoded
+                 (ethereum-lisp.snap-sync::snap-sync-account-subtree-dependencies-from-value
+                  encoded)))
+          (is (= 1 (length decoded)))
+          (is (bytes= account-hash (caar decoded)))
+          (is (hash32= storage-root (cdar decoded))))))
+    (signals
+     ethereum-lisp.validation:storage-error
+     (ethereum-lisp.snap-sync::snap-sync-account-subtree-dependencies-from-value
+      #(1 2 3)))
+    (signals
+     error
+     (ethereum-lisp.snap-sync::snap-sync-account-subtree-dependencies-value
+      (list dependency dependency)))
+    (let ((empty-root-value (make-byte-vector 65)))
+      (setf (aref empty-root-value 0)
+            ethereum-lisp.snap-sync::+snap-sync-account-subtree-dependencies-version+)
+      (replace empty-root-value (hash32-bytes +empty-trie-hash+) :start1 33)
+      (signals
+       ethereum-lisp.validation:storage-error
+       (ethereum-lisp.snap-sync::snap-sync-account-subtree-dependencies-from-value
+        empty-root-value)))
+    (let ((oversized
+            (make-byte-vector
+             (+ 1
+                (* 64
+                   (1+
+                    ethereum-lisp.snap-sync::+snap-sync-account-subtree-dependencies-max+))))))
+      (setf (aref oversized 0)
+            ethereum-lisp.snap-sync::+snap-sync-account-subtree-dependencies-version+)
+      (signals
+       ethereum-lisp.validation:storage-error
+       (ethereum-lisp.snap-sync::snap-sync-account-subtree-dependencies-from-value
+        oversized)))))
+
 (deftest snap-state-import-defers-byte-capped-storage-to-resumable-healing
   (:layer :integration :module :p2p)
   ;; A large storage trie can outlive a public peer's retained pivot while the
@@ -3347,10 +3405,10 @@
                      (funcall
                       real-get-many candidate kind identifiers default)))
                   (is
-                   (= 16
+                   (= 8
                       ethereum-lisp.snap-sync::*snap-sync-heal-local-read-workers*))
                   (let ((ethereum-lisp.snap-sync::*snap-sync-heal-local-read-workers*
-                          16))
+                          8))
                     (multiple-value-bind (values present decoded)
                         (ethereum-lisp.snap-sync::snap-sync-heal-local-node-batch
                          database references
@@ -3361,9 +3419,9 @@
                              (pushnew sb-thread:*current-thread*
                                       decoder-threads :test #'eq))
                            (list index (aref value 0))))
-                      (is (= 16 call-count))
-                      (is (= 16 (length worker-threads)))
-                      (is (= 16 (length decoder-threads)))
+                      (is (= 8 call-count))
+                      (is (= 8 (length worker-threads)))
+                      (is (= 8 (length decoder-threads)))
                       (is (= (- 512 (ceiling 512 7)) decoder-call-count))
                       (is (= 512 (length values)))
                       (is (= 512 (length present)))
@@ -3381,12 +3439,12 @@
                               (is (equal (list index (mod index 256))
                                          (aref decoded index))))))))
                   (let ((ethereum-lisp.snap-sync::*snap-sync-heal-local-read-workers*
-                          16))
+                          8))
                     (let ((present
                             (ethereum-lisp.snap-sync::snap-sync-healed-subtrees-present
                              database references)))
-                      (is (= 16 metadata-call-count))
-                      (is (= 16 (length metadata-worker-threads)))
+                      (is (= 8 metadata-call-count))
+                      (is (= 8 (length metadata-worker-threads)))
                       (dotimes (index 512)
                         (is (= (if (zerop (mod index 5)) 0 1)
                                (aref present index))))))
@@ -3877,6 +3935,141 @@
               ;; Immediate DFS storage descent turns this red: an account
               ;; request appears after the first storage request.
               (is (not seen-storage-p))))))))
+
+(deftest snap-state-healer-consumes-account-subtree-dependency-proofs
+  (:layer :integration :module :p2p)
+  (let* ((source-state (make-state-db))
+         (source-database (make-memory-key-value-database))
+         (target-database (make-memory-key-value-database))
+         (addresses
+           (loop with buckets = (make-array 16 :initial-element nil)
+                 for integer from 1
+                 for address = (snap-test-address-from-integer integer)
+                 for account-hash =
+                   (ethereum-lisp.crypto:keccak-256 (address-bytes address))
+                 for nibble =
+                   (aref
+                    (ethereum-lisp.trie.encoding:keybytes-to-nibbles
+                     account-hash :terminator nil)
+                    0)
+                 do (push address (aref buckets nibble))
+                 when (= 4 (length (aref buckets nibble)))
+                   return (nreverse (aref buckets nibble))))
+         (account-node-read-p nil)
+         (storage-paths 0)
+         (skipped-subtrees 0))
+    (loop for address in addresses
+          for index from 1
+          do (state-db-set-storage
+              source-state address
+              (make-hash32
+               (make-byte-vector 32 :initial-element index))
+              (+ 7000 index)))
+    (let* ((root (state-db-root source-state))
+           (account-hashes
+             (mapcar
+              (lambda (address)
+                (ethereum-lisp.crypto:keccak-256 (address-bytes address)))
+              addresses))
+           (prefix
+             (subseq
+              (ethereum-lisp.trie.encoding:keybytes-to-nibbles
+               (first account-hashes) :terminator nil)
+              0 1))
+           (dependencies
+             (mapcar
+              (lambda (address account-hash)
+                (cons account-hash
+                      (state-db-get-storage-root source-state address)))
+              addresses account-hashes))
+           (account-trie
+             (ethereum-lisp.state::state-db-state-trie source-state))
+           (persisted-root (mpt-persist target-database account-trie))
+           (reference
+             (cdr
+              (find
+               prefix
+               (mpt-hashed-subtrees-with-prefix-at-depth
+                (make-persisted-mpt
+                 persisted-root
+                 (lambda (hash)
+                   (trie-node-store-get target-database hash)))
+                1)
+               :key #'car :test #'equalp)))
+           (batch (make-kv-write-batch))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              source-database source-state))
+           (base (snap-test-source backend))
+           (source
+             (ethereum-lisp.snap-sync:make-snap-sync-source
+              :account-range
+              (ethereum-lisp.snap-sync:snap-sync-source-account-range base)
+              :storage-ranges
+              (ethereum-lisp.snap-sync:snap-sync-source-storage-ranges base)
+              :bytecodes
+              (ethereum-lisp.snap-sync:snap-sync-source-bytecodes base)
+              :trie-nodes
+              (lambda (request)
+                (incf
+                 storage-paths
+                 (count-if
+                  (lambda (path-set) (= 2 (length path-set)))
+                  (ethereum-lisp.snap:snap-get-trie-nodes-paths request)))
+                (funcall
+                 (ethereum-lisp.snap-sync:snap-sync-source-trie-nodes base)
+                 request))))
+           (progress
+             (ethereum-lisp.snap-sync::snap-sync-make-progress
+              :pivot-hash (make-hash32 (snap-test-hash 245))
+              :pivot-number 6030 :state-root root
+              :partial-root +empty-trie-hash+
+              :target-hash (make-hash32 (snap-test-hash 246))
+              :chain-id 560048
+              :genesis-hash (make-hash32 (snap-test-hash 247))
+              :authority-id (make-hash32 (snap-test-hash 248))
+              :completed-p nil
+              :tasks
+              (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+               :count 1 :completed-p t)))
+           (real-get-many
+             (fdefinition 'ethereum-lisp.database:kv-get-chain-records)))
+      (is (hash32= root persisted-root))
+      (is reference)
+      (ethereum-lisp.snap-sync::snap-sync-populate-account-subtree-dependencies-batch
+       batch reference dependencies)
+      (kv-apply-batch target-database batch)
+      (unwind-protect
+           (progn
+             (setf
+              (fdefinition 'ethereum-lisp.database:kv-get-chain-records)
+              (lambda (database kind identifiers &optional default)
+                (when (and (eq database target-database)
+                           (eq kind :trie-node)
+                           (find reference identifiers :test #'bytes=))
+                  (setf account-node-read-p t))
+                (funcall real-get-many database kind identifiers default)))
+             (let ((ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
+                     1)
+                   (ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*
+                     1))
+               (is
+                (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
+                 (ethereum-lisp.snap-sync::snap-sync-heal-state
+                  target-database (list source) progress 350
+                  :on-heal-progress
+                  (lambda (snapshot)
+                    (when
+                        (ethereum-lisp.snap-sync:snap-sync-heal-progress-completed-p
+                         snapshot)
+                      (setf skipped-subtrees
+                            (ethereum-lisp.snap-sync:snap-sync-heal-progress-skipped-subtrees
+                             snapshot)))))))))
+        (setf (fdefinition 'ethereum-lisp.database:kv-get-chain-records)
+              real-get-many))
+      (is (not account-node-read-p))
+      (is (= 1 skipped-subtrees))
+      (is (plusp storage-paths)))))
 
 (deftest snap-healed-subtree-publication-fails-closed
   (:layer :integration :module :p2p)

@@ -187,15 +187,20 @@ them by their physical location instead reintroduces dependency cycles:
   root hashes are published as the same pivot-independent subtree proofs used by the
   healer. A later pivot therefore traverses only changed and boundary buckets,
   rather than rereading every range-ingested node once before it can build the
-  proof index. Buckets containing deferred storage are excluded until those
-  dependencies are durable. StorageRanges pages apply the same rule directly
+  proof index. A bucket containing at most 64 deferred storage roots publishes
+  a distinct account-completion proof whose bounded value lists those exact
+  `(account hash, storage root)` dependencies. A later pivot can skip the
+  unchanged account trie and its already durable code while placing every
+  listed storage root into the ordinary checkpointed healer frontier. A wider
+  dependency set remains unproved and takes the fail-closed account walk.
+  StorageRanges pages apply the complete-proof rule directly
   to their reconstructed storage trie, publishing coarse storage-subtree proofs
   atomically with their node records and successor cursor. Pre-optimization
   range plans are upgraded lazily with depth-bounded walks over only the account
-  and completed storage tries' shallow spines. Account buckets containing an
-  incomplete large-storage cursor set remain excluded while every other bucket
-  is immediately reusable; completed storage roots receive their own reusable
-  proofs. New proofs use five-nibble buckets so a later pivot can still reuse
+  and completed storage tries' shallow spines. Legacy account buckets containing
+  an incomplete large-storage cursor set remain excluded while every other
+  bucket is immediately reusable; completed storage roots receive their own
+  reusable proofs. New proofs use five-nibble buckets so a later pivot can still reuse
   unchanged descendants inside a changed four-nibble bucket; the healer keeps
   consuming older four-nibble proofs for migration compatibility. The records
   are written in 2,048-record batches and versioned idempotency markers follow
@@ -267,9 +272,8 @@ them by their physical location instead reintroduces dependency cycles:
   checkpoint is written only after the complete frontier is back within 8,192,
   so the allocation bound remains unchanged without turning a temporary shape
   into a fatal node exit. On SBCL, production RocksDB batches of at least 128
-  keys are divided into at most sixteen contiguous native multi-get slices on
-  the supported eight-core public-node profile. Two synchronous reads per core
-  keep cloud-SSD random I/O in flight while the caller waits. This
+  keys are divided into at most eight contiguous native multi-get slices on the
+  supported eight-core public-node profile. This
   path uses a 2 GiB sharded block cache on the supported 16 GiB public-node
   profile instead of RocksDB 11's 32 MiB fallback. Ten-bit full Bloom filters
   keep absent whole-key probes out of newly written SST data blocks, while
