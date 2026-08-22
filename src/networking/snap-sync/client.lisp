@@ -1301,6 +1301,39 @@ frontier also falls back safely instead of creating an uncheckpointable run."
            (push (cons reference dependencies) dependency-subtrees)))))
     (values (nreverse safe-subtrees) (nreverse dependency-subtrees))))
 
+(defun snap-sync-buffer-account-page-content
+    (database state-root result)
+  "Buffer RESULT's verified content before its task cursor is published.
+
+The records and proof metadata are authenticated and content-addressed, hence
+safe to write idempotently from the fetching worker.  The coordinator later
+publishes the successor cursor with KV-APPLY-BATCH; that synchronous write
+flushes this earlier WAL prefix before the cursor becomes durable.  A crash
+before that seam can expose no cursor and merely causes the page to be fetched
+again."
+  (let ((batch (make-kv-write-batch)))
+    (snap-sync-populate-verified-trie-records-batch
+     database batch (snap-sync-page-result-account-records result))
+    (snap-sync-populate-code-batch
+     database batch (snap-sync-page-result-codes result))
+    (dolist (commitment (snap-sync-page-result-deferred-storage result))
+      (snap-sync-populate-deferred-storage-batch
+       batch state-root commitment))
+    (dolist (reference (snap-sync-page-result-healed-subtrees result))
+      (snap-sync-populate-healed-subtree-batch batch reference :account))
+    (dolist (entry (snap-sync-page-result-dependency-subtrees result))
+      (snap-sync-populate-account-subtree-dependencies-batch
+       batch (car entry) (cdr entry)))
+    (kv-apply-batch-buffered database batch)
+    ;; The coordinator now needs only ordering metadata. Do not retain a large
+    ;; page's reconstructed nodes and code while it waits behind other cursors.
+    (setf (snap-sync-page-result-account-records result) '()
+          (snap-sync-page-result-codes result) '()
+          (snap-sync-page-result-deferred-storage result) '()
+          (snap-sync-page-result-healed-subtrees result) '()
+          (snap-sync-page-result-dependency-subtrees result) '())
+    result))
+
 (defun snap-sync-prepare-account-page
     (database source state-root task-index task byte-limit)
   "Fetch and verify one page without advancing authoritative progress."
@@ -1367,22 +1400,24 @@ frontier also falls back safely instead of creating an uncheckpointable run."
           (multiple-value-bind (safe-subtrees dependency-subtrees)
               (snap-sync-classify-account-range-subtrees
                candidates deferred-storage)
-            (make-snap-sync-page-result
-             :task-index task-index
-             :origin (copy-seq origin)
-             :account-records account-records
-             :codes (if missing-code-hashes
-                        (snap-sync-fetch-codes
-                         source missing-code-hashes byte-limit)
-                        '())
-             :deferred-storage deferred-storage
-             :healed-subtrees safe-subtrees
-             ;; Account nodes and code are already durable. Keep the exact
-             ;; storage gaps beside the subtree hash so a later pivot can skip
-             ;; the account walk without skipping external dependencies.
-             :dependency-subtrees dependency-subtrees
-             :next-origin next-origin
-             :completed-p complete-p))))))))
+            (snap-sync-buffer-account-page-content
+             database state-root
+             (make-snap-sync-page-result
+              :task-index task-index
+              :origin (copy-seq origin)
+              :account-records account-records
+              :codes (if missing-code-hashes
+                         (snap-sync-fetch-codes
+                          source missing-code-hashes byte-limit)
+                         '())
+              :deferred-storage deferred-storage
+              :healed-subtrees safe-subtrees
+              ;; Keep the exact storage gaps beside the authenticated subtree
+              ;; hash so a later pivot can skip the account walk without
+              ;; skipping external dependencies.
+              :dependency-subtrees dependency-subtrees
+              :next-origin next-origin
+              :completed-p complete-p)))))))))
 
 (defun snap-sync-replace-task (tasks index replacement)
   (loop for task in tasks
@@ -1392,7 +1427,7 @@ frontier also falls back safely instead of creating an uncheckpointable run."
                     (snap-sync-copy-account-task task))))
 
 (defun snap-sync-commit-account-page (database progress result)
-  "Commit RESULT's verified nodes, dependencies, and task cursor once."
+  "Publish RESULT's task cursor after its buffered content is complete."
   (let* ((task-index (snap-sync-page-result-task-index result))
          (task (nth task-index (snap-sync-progress-tasks progress))))
     (unless task
@@ -1401,72 +1436,57 @@ frontier also falls back safely instead of creating an uncheckpointable run."
                  (bytes= (snap-sync-account-task-next-origin task)
                          (snap-sync-page-result-origin result)))
       (error "Snap account result no longer matches its durable task cursor"))
-    (let ((batch (make-kv-write-batch)))
-      (snap-sync-populate-verified-trie-records-batch
-       database batch (snap-sync-page-result-account-records result))
-      (let* ((previous-root (snap-sync-progress-partial-root progress))
-             ;; EMPTY means this is the first page of a fresh import. Once a
-             ;; page has independently reconstructed STATE-ROOT, retain that
-             ;; value as the same-root range-set witness. Rebase installs a
-             ;; distinct poison witness, so later pages cannot publish a plan
-             ;; that omits ranges downloaded under the older root.
-             (partial-root
-               (if (or (hash32= previous-root +empty-trie-hash+)
-                       (hash32= previous-root
-                                (snap-sync-progress-state-root progress)))
-                   (snap-sync-progress-state-root progress)
-                   previous-root))
-             (replacement
-               (snap-sync-account-task
-                :start (snap-sync-account-task-start task)
-                :limit (snap-sync-account-task-limit task)
-                :next-origin (snap-sync-page-result-next-origin result)
-                :completed-p (snap-sync-page-result-completed-p result)))
-             (tasks
-               (snap-sync-replace-task
-                (snap-sync-progress-tasks progress) task-index replacement))
-             (next
-               (snap-sync-make-progress
-                :pivot-hash (snap-sync-progress-pivot-hash progress)
-                :pivot-number (snap-sync-progress-pivot-number progress)
-                :state-root (snap-sync-progress-state-root progress)
-                :partial-root partial-root
-                :target-hash (snap-sync-progress-target-hash progress)
-                :chain-id (snap-sync-progress-chain-id progress)
-                :genesis-hash (snap-sync-progress-genesis-hash progress)
-                :authority-id (snap-sync-progress-authority-id progress)
-                ;; Even an equal account-trie root cannot prove that deferred
-                ;; byte-capped storage and code dependencies exist locally.
-                ;; Only the final content-addressed traversal may install the
-                ;; completion/state-history marker.
-                :completed-p nil :tasks tasks)))
-        (snap-sync-populate-code-batch
-         database batch (snap-sync-page-result-codes result))
-        (dolist (commitment
-                 (snap-sync-page-result-deferred-storage result))
-          (snap-sync-populate-deferred-storage-batch
-           batch (snap-sync-progress-state-root progress) commitment))
-        ;; A complete account-range bucket contains no unresolved proof edge,
-        ;; its non-deferred storage is already durable, and its code joins this
-        ;; cursor batch. Publish the pivot-independent proof atomically so a
-        ;; later root can skip the unchanged subtree instead of rereading it.
-        (dolist (reference (snap-sync-page-result-healed-subtrees result))
-          (snap-sync-populate-healed-subtree-batch batch reference :account))
-        (dolist (entry (snap-sync-page-result-dependency-subtrees result))
-          (snap-sync-populate-account-subtree-dependencies-batch
-           batch (car entry) (cdr entry)))
-        (when (and (snap-sync-tasks-completed-p tasks)
-                   (hash32= partial-root
-                            (snap-sync-progress-state-root progress)))
-          ;; Every durable range independently reconstructed the same authorized
-          ;; root. Publishing this marker with the last cursor makes the
-          ;; deferred storage set complete: after restart, absence of a queue
-          ;; record means there was no such work.
-          (snap-sync-populate-deferred-storage-plan-batch
-           batch (snap-sync-progress-state-root progress)))
-        (snap-sync-populate-progress-batch batch next)
-        (kv-apply-batch database batch)
-        next))))
+    (let* ((batch (make-kv-write-batch))
+           (previous-root (snap-sync-progress-partial-root progress))
+           ;; EMPTY means this is the first page of a fresh import. Once a
+           ;; page has independently reconstructed STATE-ROOT, retain that
+           ;; value as the same-root range-set witness. Rebase installs a
+           ;; distinct poison witness, so later pages cannot publish a plan
+           ;; that omits ranges downloaded under the older root.
+           (partial-root
+             (if (or (hash32= previous-root +empty-trie-hash+)
+                     (hash32= previous-root
+                              (snap-sync-progress-state-root progress)))
+                 (snap-sync-progress-state-root progress)
+                 previous-root))
+           (replacement
+             (snap-sync-account-task
+              :start (snap-sync-account-task-start task)
+              :limit (snap-sync-account-task-limit task)
+              :next-origin (snap-sync-page-result-next-origin result)
+              :completed-p (snap-sync-page-result-completed-p result)))
+           (tasks
+             (snap-sync-replace-task
+              (snap-sync-progress-tasks progress) task-index replacement))
+           (next
+             (snap-sync-make-progress
+              :pivot-hash (snap-sync-progress-pivot-hash progress)
+              :pivot-number (snap-sync-progress-pivot-number progress)
+              :state-root (snap-sync-progress-state-root progress)
+              :partial-root partial-root
+              :target-hash (snap-sync-progress-target-hash progress)
+              :chain-id (snap-sync-progress-chain-id progress)
+              :genesis-hash (snap-sync-progress-genesis-hash progress)
+              :authority-id (snap-sync-progress-authority-id progress)
+              ;; Even an equal account-trie root cannot prove that deferred
+              ;; byte-capped storage and code dependencies exist locally.
+              ;; Only the final content-addressed traversal may install the
+              ;; completion/state-history marker.
+              :completed-p nil :tasks tasks)))
+      (when (and (snap-sync-tasks-completed-p tasks)
+                 (hash32= partial-root
+                          (snap-sync-progress-state-root progress)))
+        ;; Every buffered range independently reconstructed the same authorized
+        ;; root. Publishing this marker with the last cursor makes the
+        ;; deferred storage set complete: after restart, absence of a queue
+        ;; record means there was no such work.
+        (snap-sync-populate-deferred-storage-plan-batch
+         batch (snap-sync-progress-state-root progress)))
+      ;; This deliberately tiny synchronous batch is the publication seam. It
+      ;; flushes all preceding worker WAL writes before exposing the cursor.
+      (snap-sync-populate-progress-batch batch next)
+      (kv-apply-batch database batch)
+      next)))
 
 (defun snap-sync-next-unfinished-task (progress &optional claimed)
   (loop for task in (snap-sync-progress-tasks progress)

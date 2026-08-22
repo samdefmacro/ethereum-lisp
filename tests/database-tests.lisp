@@ -622,9 +622,10 @@
 (deftest rocksdb-durable-seam-flushes-prior-buffered-batches-across-sigkill
   (:layer :e2e :module :database :launches-processes t
    :estimated-seconds 60)
-  ;; A SNAP storage page may write authenticated, content-addressed nodes with
-  ;; sync=0 before the account-page cursor is published.  RocksDB's following
-  ;; sync=1 cursor write must flush those earlier WAL records too.  Kill the
+  ;; SNAP account and storage pages may write authenticated, content-addressed
+  ;; nodes with sync=0 before the account-page cursor is published. RocksDB's
+  ;; following sync=1 cursor write must flush those earlier WAL records too.
+  ;; Kill the
   ;; writer immediately after that durable seam and prove both batches reopen.
   (let* ((dir
            (namestring

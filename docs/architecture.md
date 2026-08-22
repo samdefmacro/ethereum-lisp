@@ -154,20 +154,21 @@ them by their physical location instead reintroduces dependency cycles:
   a rate-limited consensus-head check moves a pivot that has fallen outside
   geth's `2*64-8` window; the atomic rebase retains completed ranges and makes
   the fresher state root serviceable by the full live peer set. Each request
-  keeps geth's 512 KiB soft limit, while one coordinator serializes verified record and
-  progress publication. A failed
+  keeps geth's 512 KiB soft limit. Fetch workers construct and atomically append
+  verified content batches in parallel, while one coordinator serializes only
+  the small successor-cursor and final-plan publication batches. A failed
   peer releases only its claimed range for another worker. If every peer in
   that finite source snapshot fails, the importer reports a typed remote-source exhaustion result;
   the CLI keeps the node and Engine API alive, takes a fresh live-peer snapshot
   on its next bounded pass, and resumes from the durable per-range cursors.
   Local persistence and trie-merge failures remain fatal and are not converted
   into retries. Account and storage ranges carry compact boundary proofs, trie
-  nodes are served by path set, and every page is verified before its account
-  nodes, bytecode, complete small storage tries, and per-range cursor become
-  durable. Large-storage page nodes are authenticated and content-addressed, so
-  their intermediate atomic RocksDB batches keep WAL enabled without forcing a
-  separate sync. No progress is published at that point; the following account
-  page's synchronous cursor batch flushes the complete earlier WAL prefix. A
+  nodes are served by path set, and every page is verified before its worker
+  buffers account nodes, bytecode, complete small storage tries, and proof
+  metadata. These authenticated, content-addressed intermediate RocksDB batches
+  keep WAL enabled without forcing a separate sync. No progress is published at
+  that point; the following account page's synchronous cursor batch flushes the
+  complete earlier WAL prefix. A
   crash before that seam only repeats the page, while a visible cursor still
   implies durable prerequisites. Range reconstruction uses a dedicated
   proven-absent MPT insertion:
@@ -175,16 +176,17 @@ them by their physical location instead reintroduces dependency cycles:
   prove that these keys are new, so proof reconstruction omits `mpt-put`'s
   redundant defensive point traversal. The verifier returns that reconstructed
   page instead of discarding it: its new nodes plus authenticated boundary
-  proof nodes are deduplicated and persisted by content hash in the cursor
-  transaction. Their keys are derived from the exact encoded nodes only after
+  proof nodes are deduplicated and persisted by content hash in the worker's
+  buffered transaction. Their keys are derived from the exact encoded nodes
+  only after
   proof verification, so blind puts are idempotent for healthy state and repair
   a corrupt same-key local value without a RocksDB read for every reconstructed
   node. This matches geth's hash-scheme range ingestion and removes the former
   second global MPT rebuild and its per-node RocksDB point reads. Ordinary state
   transitions retain checked `mpt-put`. Complete coarse buckets strictly inside
   each authenticated range contain only newly reconstructed nodes. After that
-  page's small storage is durable and its code joins the cursor batch, their
-  root hashes are published as the same pivot-independent subtree proofs used by the
+  page's small storage and code join its buffered content batch, their root
+  hashes join the same WAL prefix as the pivot-independent subtree proofs used by the
   healer. A later pivot therefore traverses only changed and boundary buckets,
   rather than rereading every range-ingested node once before it can build the
   proof index. A bucket containing at most 64 deferred storage roots publishes

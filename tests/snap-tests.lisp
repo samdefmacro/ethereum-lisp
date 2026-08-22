@@ -1,5 +1,7 @@
 (in-package #:ethereum-lisp.test)
 
+(defvar *snap-test-buffered-apply-p* nil)
+
 (defclass snap-failing-test-database (memory-key-value-database)
   ((fail-next-apply-p
     :initform nil
@@ -7,14 +9,29 @@
 
 (defmethod kv-apply-batch :around
     ((database snap-failing-test-database) (batch kv-write-batch))
-  (if (snap-failing-test-database-fail-next-apply-p database)
+  (if (and (not *snap-test-buffered-apply-p*)
+           (snap-failing-test-database-fail-next-apply-p database))
       (progn
         (setf (snap-failing-test-database-fail-next-apply-p database) nil)
         (error "Simulated snap progress batch failure"))
       (call-next-method)))
 
+(defmethod kv-apply-batch-buffered :around
+    ((database snap-failing-test-database) (batch kv-write-batch))
+  ;; The memory backend implements buffered writes through KV-APPLY-BATCH.
+  ;; Preserve that oracle's atomic visibility without consuming a failure that
+  ;; production RocksDB would encounter only at the later synchronous seam.
+  (let ((*snap-test-buffered-apply-p* t))
+    (call-next-method)))
+
 (defclass snap-counting-test-database (memory-key-value-database)
   ((apply-count :initform 0 :accessor snap-counting-test-database-apply-count)
+   (buffered-apply-count
+    :initform 0
+    :accessor snap-counting-test-database-buffered-apply-count)
+   (buffered-batch-sizes
+    :initform '()
+    :accessor snap-counting-test-database-buffered-batch-sizes)
    (batch-sizes :initform '()
                 :accessor snap-counting-test-database-batch-sizes)
    (batch-prefixes :initform '()
@@ -31,6 +48,13 @@
     (reverse
      (ethereum-lisp.database::kv-write-batch-operations batch)))
    (snap-counting-test-database-batch-prefixes database))
+  (call-next-method))
+
+(defmethod kv-apply-batch-buffered :around
+    ((database snap-counting-test-database) (batch kv-write-batch))
+  (incf (snap-counting-test-database-buffered-apply-count database))
+  (push (length (ethereum-lisp.database::kv-write-batch-operations batch))
+        (snap-counting-test-database-buffered-batch-sizes database))
   (call-next-method))
 
 (defun snap-test-hash (byte)
@@ -366,13 +390,13 @@
       (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p progress))
       (is (= 1 storage-calls))
       (is (= (length addresses) largest-request))
-      ;; One WAL batch installs every verified storage trie in the response;
-      ;; the account data and terminal range each advance the durable cursor;
-      ;; the final traversal alone writes the completion marker.
+      ;; One buffered WAL batch installs every verified storage trie. Each
+      ;; account page also buffers its content before a separate small cursor
+      ;; batch publishes it; the final traversal alone writes completion.
       (let ((apply-count
               (snap-counting-test-database-apply-count target-database)))
-        (unless (= 4 apply-count)
-          (error "Expected four storage/account/completion batches, got ~D (~S)"
+        (unless (= 6 apply-count)
+          (error "Expected six content/cursor/completion batches, got ~D (~S)"
                  apply-count
                  (list
                   (nreverse
@@ -380,7 +404,13 @@
                   (nreverse
                    (snap-counting-test-database-batch-prefixes
                     target-database)))))
-        (is (= 4 apply-count)))
+        (is (= 6 apply-count)))
+      (is (= 3
+             (snap-counting-test-database-buffered-apply-count
+              target-database)))
+      (is (every #'plusp
+                 (snap-counting-test-database-buffered-batch-sizes
+                  target-database)))
       (dolist (address addresses)
         (multiple-value-bind (node present-p)
             (ethereum-lisp.trie:trie-node-store-get
@@ -4591,8 +4621,9 @@
          (target-database (make-instance 'snap-failing-test-database))
          (address
            (address-from-hex "0x0000000000000000000000000000000000000042")))
-    ;; No code or storage keeps the injected failure on the account
-    ;; trie+cursor batch whose atomicity this test is proving.
+    ;; No code or storage keeps the setup compact. The account trie is allowed
+    ;; to reach buffered WAL first; the injected synchronous cursor failure
+    ;; must still leave authoritative progress behind it.
     (state-db-set-account
      source-state address (make-state-account :nonce 1 :balance 42))
     (let* ((root (state-db-root source-state))
@@ -4613,6 +4644,19 @@
       (is (not (nth-value 1
                           (ethereum-lisp.snap-sync:snap-sync-read-progress
                            target-database))))
+      ;; The verified content is idempotent and may already be visible in this
+      ;; in-memory oracle, just as it may survive a production crash. Without a
+      ;; cursor it is unpublished and the retry must remain safe.
+      (multiple-value-bind (persisted-account present-p)
+          (ethereum-lisp.trie:mpt-get
+           (ethereum-lisp.trie:make-persisted-mpt
+            root
+            (lambda (hash)
+              (ethereum-lisp.trie:trie-node-store-get
+               target-database hash)))
+           (ethereum-lisp.crypto:keccak-256 (address-bytes address)))
+        (declare (ignore persisted-account))
+        (is present-p))
       (is (not (nth-value
                 1 (kv-get-chain-record target-database :state-history
                                        (hash32-bytes pivot-hash)))))

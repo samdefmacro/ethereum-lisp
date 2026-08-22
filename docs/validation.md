@@ -226,8 +226,11 @@ after its latest verified page is durable, preserving that exact cursor for the
 atomic rebase onto a fresher consensus root. They derive complete coarse subtrees from
 the verified range, batch code-existence probes before requesting a page's
 missing bytecodes, reject
-proof-edge nodes, and publish the subtree hash in the same batch as its account
-cursor and external dependencies. StorageRanges pages publish equivalent
+proof-edge nodes, and buffer the subtree hash with its account content and
+external dependencies before a separate synchronous cursor batch publishes the
+whole WAL prefix. The failure regression permits that idempotent content to
+survive while proving the cursor stays behind a failed seam and a retry
+completes. StorageRanges pages publish equivalent
 storage-subtree proofs with their node and cursor batch. The integration
 regressions observe both kinds before final TrieNodes traversal, then promote
 legacy account and completed-storage plans through shallow trie walks. An
