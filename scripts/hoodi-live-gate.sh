@@ -106,7 +106,8 @@ if [ "$actual_head" != "$revision" ]; then
     runtime_sensitive_changes="$(git -C "$repo_root" diff --name-only \
         "$revision" "$actual_head" -- . \
         ':(exclude)docs/**' \
-        ':(exclude)scripts/hoodi-live-gate.sh')"
+        ':(exclude)scripts/hoodi-live-gate.sh' \
+        ':(exclude)scripts/hoodi-geth-benchmark-gate.sh')"
     [ -z "$runtime_sensitive_changes" ] ||
         fail "checkout changed runtime-sensitive paths after $revision: $runtime_sensitive_changes"
 fi

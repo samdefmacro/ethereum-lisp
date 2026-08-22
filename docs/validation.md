@@ -453,8 +453,9 @@ After a live run has started, completion evidence or broker-only repairs may
 move the checkout past the runtime image revision. Set
 `HOODI_GATE_RUNTIME_REVISION` to that full ancestor revision when inspecting or
 restarting the existing gate. The broker permits this override only when every
-intervening change is below `docs/` or is `scripts/hoodi-live-gate.sh`; any
-runtime-sensitive change keeps the exact-revision check fail-closed.
+intervening change is below `docs/` or is one of the two reviewed Hoodi gate
+scripts; any runtime-sensitive change keeps the exact-revision check
+fail-closed.
 
 `start` stops only the specifically labelled Section 5 rehearsal EL, preserves
 that stopped container and its datadir, and connects the exact-revision EL to
