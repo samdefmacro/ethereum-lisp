@@ -224,16 +224,18 @@ persist the authenticated prefix of byte-capped large storage, record those
 roots with each durable page, and atomically publish the complete plan only
 when the rebuilt account root equals the authorized state root. Sixteen
 restart-safe StorageRanges cursors then finish each large trie through
-512 KiB-capped pages. The byte-capped-storage regression proves that final
-healing validates the complete root locally with zero TrieNodes requests; a
+512 KiB-capped pages. The byte-capped-storage regression proves that an
+un-rebased import atomically publishes the state from its complete account,
+code, and storage range proofs with zero TrieNodes requests; a
 second regression interrupts StorageRanges after one page and proves a fresh
 source resumes the exact durable cursor. A concurrency regression blocks one
 source and proves a faster source receives its next partition without waiting
 for a global wave. A changed-root rebase installs
-a non-empty, non-root range witness; legacy, rebased, or oversized plans retain
-the fail-closed full-root traversal. The tests also
+a non-empty, non-root range witness; legacy, rebased, oversized, or incomplete
+dependency plans retain the fail-closed full-root traversal. The tests also
 inject a failed database batch to prove progress never outruns verified account
-state. Only the final traversal can install the completion marker. The final
+state. Only the complete same-root range/dependency proof set or the final
+traversal can install the completion marker. The final
 healer tests partition one missing frontier, prove every request remains
 within geth's 1,024-path cap, target approximately 512 paths per request to
 amortize live RTT, and block one source until a faster source has

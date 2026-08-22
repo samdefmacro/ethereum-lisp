@@ -396,8 +396,6 @@
             "0x0000000000000000000000000000000000000043"))
          (storage-calls 0)
          (trie-node-requests 0)
-         (trie-node-responses 0)
-         (trie-node-response-bytes 0)
          (heal-progress-events '())
          (saw-byte-capped-storage-p nil)
          (saw-account-heal-path-p nil))
@@ -442,17 +440,10 @@
                      (lambda (path-set) (= 1 (length path-set)))
                      (ethereum-lisp.snap:snap-get-trie-nodes-paths request))
                   (setf saw-account-heal-path-p t))
-                (let* ((response
-                         (funcall
-                          (ethereum-lisp.snap-sync:snap-sync-source-trie-nodes
-                           base-source)
-                          request))
-                       (nodes
-                         (ethereum-lisp.snap:snap-trie-nodes-nodes response)))
-                  (incf trie-node-responses (length nodes))
-                  (incf trie-node-response-bytes
-                        (reduce #'+ nodes :key #'length :initial-value 0))
-                  response))))
+                (funcall
+                 (ethereum-lisp.snap-sync:snap-sync-source-trie-nodes
+                  base-source)
+                 request))))
            (progress
              (let ((ethereum-lisp.snap-sync::*snap-sync-heal-progress-node-interval*
                      1))
@@ -471,65 +462,30 @@
       (is saw-byte-capped-storage-p)
       (is (> storage-calls 1))
       ;; Sixteen restart-safe StorageRanges partitions retain all authenticated
-      ;; nodes. Final healing still traverses the root as the trust boundary,
-      ;; but it must not download any TrieNodes for this storage trie.
+      ;; nodes. Their completed cursors join the same-root account/code proofs
+      ;; as the trust boundary, without downloading or traversing TrieNodes.
       (is (zerop trie-node-requests))
       ;; The final account-page batch published a complete dependency plan.
       ;; Healing starts directly at the deferred storage root; a one-item path
       ;; set would prove that production fell back to the account trie root.
       (is (not saw-account-heal-path-p))
       (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p progress))
-      (is (plusp (length heal-progress-events)))
-      (is (some
-           (lambda (event)
-             (not
-              (ethereum-lisp.snap-sync:snap-sync-heal-progress-completed-p
-               event)))
-           heal-progress-events))
-      (is (some
-           (lambda (event)
-             (and
-              (not
-               (ethereum-lisp.snap-sync:snap-sync-heal-progress-completed-p
-                event))
-              (plusp
-               (ethereum-lisp.snap-sync:snap-sync-heal-progress-reused-nodes
-                event))))
-           heal-progress-events))
+      (is (= 1 (length heal-progress-events)))
       (let ((final (first heal-progress-events)))
         (is (ethereum-lisp.snap-sync:snap-sync-heal-progress-completed-p final))
-        (is (= trie-node-requests
-               (ethereum-lisp.snap-sync:snap-sync-heal-progress-request-count
-                final)))
-        (is (= trie-node-responses
-               (ethereum-lisp.snap-sync:snap-sync-heal-progress-fetched-nodes
-                final)))
-        (is (= trie-node-response-bytes
-               (ethereum-lisp.snap-sync:snap-sync-heal-progress-response-bytes
-                final)))
-        (is (plusp
-             (ethereum-lisp.snap-sync:snap-sync-heal-progress-reused-nodes
-              final)))
-        (is (>=
-             (ethereum-lisp.snap-sync:snap-sync-heal-progress-processed-nodes
-              final)
-             (+
-              (ethereum-lisp.snap-sync:snap-sync-heal-progress-reused-nodes
-               final)
-              (ethereum-lisp.snap-sync:snap-sync-heal-progress-fetched-nodes
-               final)))))
-      (loop for (older newer) on (nreverse heal-progress-events)
-            while newer
-            do (is (<=
-                    (ethereum-lisp.snap-sync:snap-sync-heal-progress-processed-nodes
-                     older)
-                    (ethereum-lisp.snap-sync:snap-sync-heal-progress-processed-nodes
-                     newer)))
-               (is (<=
-                    (ethereum-lisp.snap-sync:snap-sync-heal-progress-request-count
-                     older)
-                    (ethereum-lisp.snap-sync:snap-sync-heal-progress-request-count
-                     newer))))
+        (dolist (value
+                 (list
+                  (ethereum-lisp.snap-sync:snap-sync-heal-progress-request-count
+                   final)
+                  (ethereum-lisp.snap-sync:snap-sync-heal-progress-fetched-nodes
+                   final)
+                  (ethereum-lisp.snap-sync:snap-sync-heal-progress-response-bytes
+                   final)
+                  (ethereum-lisp.snap-sync:snap-sync-heal-progress-reused-nodes
+                   final)
+                  (ethereum-lisp.snap-sync:snap-sync-heal-progress-processed-nodes
+                   final)))
+          (is (zerop value))))
       (multiple-value-bind (node present-p)
           (ethereum-lisp.trie:trie-node-store-get
            target-database storage-root)
@@ -1813,7 +1769,26 @@
            (backend
              (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
               source-database source-state))
-           (source (snap-test-source backend))
+           (base-source (snap-test-source backend))
+           (trie-node-requests 0)
+           (heal-events '())
+           (source
+             (ethereum-lisp.snap-sync:make-snap-sync-source
+              :account-range
+              (ethereum-lisp.snap-sync:snap-sync-source-account-range
+               base-source)
+              :storage-ranges
+              (ethereum-lisp.snap-sync:snap-sync-source-storage-ranges
+               base-source)
+              :bytecodes
+              (ethereum-lisp.snap-sync:snap-sync-source-bytecodes base-source)
+              :trie-nodes
+              (lambda (request)
+                (incf trie-node-requests)
+                (funcall
+                 (ethereum-lisp.snap-sync:snap-sync-source-trie-nodes
+                  base-source)
+                 request))))
            (pivot-hash (make-hash32 (snap-test-hash 91)))
            (genesis-hash (make-hash32 (snap-test-hash 92)))
            (authority-id (make-hash32 (snap-test-hash 93)))
@@ -1835,8 +1810,21 @@
                target-database source
                :pivot-hash pivot-hash :pivot-number 1234 :state-root root
                :chain-id 560048 :genesis-hash genesis-hash
-               :authority-id authority-id :byte-limit 180)))
+               :authority-id authority-id :byte-limit 180
+               :on-heal-progress
+               (lambda (event) (push event heal-events)))))
         (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p completed))
+        ;; Complete same-root range, code, and storage proofs are already the
+        ;; trust boundary; do not re-read the whole authenticated trie.
+        (is (zerop trie-node-requests))
+        (is (= 1 (length heal-events)))
+        (is
+         (ethereum-lisp.snap-sync:snap-sync-heal-progress-completed-p
+          (first heal-events)))
+        (is
+         (zerop
+          (ethereum-lisp.snap-sync:snap-sync-heal-progress-processed-nodes
+           (first heal-events))))
         (multiple-value-bind (persisted-root present-p)
             (kv-get-chain-record target-database :state-history
                                  (hash32-bytes pivot-hash))
@@ -3014,7 +3002,7 @@
         (uiop:delete-directory-tree path :validate t)))))
 
 #+sbcl
-(deftest snap-state-healer-prefers-live-peers-over-cold-rocksdb-reads
+(deftest snap-state-healer-peer-first-experiment-falls-back-to-rocksdb
   (:layer :integration :module :p2p)
   (let* ((path
            (merge-pathnames
@@ -3082,10 +3070,12 @@
                       (ethereum-lisp.snap-sync::snap-sync-heal-state
                        database (list source) progress 350))
                     (is (zerop trie-node-requests))
-                    ;; Production RocksDB healing deliberately replaces cold
-                    ;; random reads with authenticated peer path requests.
+                    ;; The measured production default stays on local MultiGet;
+                    ;; explicitly enabling the experiment replaces cold random
+                    ;; reads with authenticated peer path requests.
                     (is
-                     ethereum-lisp.snap-sync::*snap-sync-heal-remote-first-p*)
+                     (not
+                      ethereum-lisp.snap-sync::*snap-sync-heal-remote-first-p*))
                     (let ((ethereum-lisp.snap-sync::*snap-sync-heal-remote-first-p*
                             t))
                       (ethereum-lisp.snap-sync::snap-sync-heal-state
@@ -3112,8 +3102,10 @@
                                (error
                                 'ethereum-lisp.snap-sync:snap-sync-state-unavailable
                                 :request-kind "trie-nodes")))))
-                      (ethereum-lisp.snap-sync::snap-sync-heal-state
-                       database (list unavailable-source) progress 350))
+                      (let ((ethereum-lisp.snap-sync::*snap-sync-heal-remote-first-p*
+                              t))
+                        (ethereum-lisp.snap-sync::snap-sync-heal-state
+                         database (list unavailable-source) progress 350)))
                     (is (plusp unavailable-requests)))
                (close-rocksdb-key-value-database database)))
         (when (probe-file path)

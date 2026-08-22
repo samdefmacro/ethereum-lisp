@@ -23,15 +23,17 @@
   "Maximum local read width before frontier-aware shrinking.")
 (defparameter *snap-sync-heal-local-read-workers* 8
   "Maximum concurrent RocksDB MultiGet calls during local trie healing.")
-(defparameter *snap-sync-heal-remote-first-p* t
-  "Prefer bounded peer TrieNodes batches over cold RocksDB trie-node reads.
+(defparameter *snap-sync-heal-remote-first-p* nil
+  "Experimentally prefer peer TrieNodes batches over cold RocksDB reads.
 
 Range import has already made many authenticated nodes durable, but a rebased
 final heal still has to prove a different root.  Cloud block storage can make
 that content-addressed walk random-I/O bound.  On RocksDB with a live source,
 request the authenticated paths from peers and write the hash-verified replies
 sequentially instead.  Freshly fetched nodes remain satisfied by the bounded
-decoded cache, and loss of every source automatically restores local reads.")
+decoded cache, and loss of every source automatically restores local reads.
+Public-peer A/B measurements currently favor the local MultiGet path, so this
+remains disabled unless a controlled deployment binds it explicitly.")
 (defconstant +snap-sync-heal-parallel-read-minimum+ 128
   "Do not pay worker creation overhead below this local read width.")
 (defconstant +snap-sync-heal-deferred-storage-target+ 2048
@@ -794,6 +796,19 @@ the exact authorized state root before completion."
   (snap-sync-populate-progress-batch batch progress)
   (kv-batch-delete-chain-record
    batch :metadata +snap-sync-heal-checkpoint-identifier+))
+
+(defun snap-sync-completed-progress (progress)
+  "Return PROGRESS with its exact authorized state root published complete."
+  (snap-sync-make-progress
+   :pivot-hash (snap-sync-progress-pivot-hash progress)
+   :pivot-number (snap-sync-progress-pivot-number progress)
+   :state-root (snap-sync-progress-state-root progress)
+   :partial-root (snap-sync-progress-state-root progress)
+   :target-hash (snap-sync-progress-target-hash progress)
+   :chain-id (snap-sync-progress-chain-id progress)
+   :genesis-hash (snap-sync-progress-genesis-hash progress)
+   :authority-id (snap-sync-progress-authority-id progress)
+   :completed-p t :tasks (snap-sync-progress-tasks progress)))
 
 (defun snap-sync-progress-with-task-count (progress count)
   "Split legacy linear progress into COUNT disjoint durable account tasks."
@@ -3355,16 +3370,7 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
              (persist-checkpoint stack)))
           (when (and (null stack) (null missing))
             (return)))))
-    (let* ((completed
-             (snap-sync-make-progress
-              :pivot-hash (snap-sync-progress-pivot-hash progress)
-              :pivot-number (snap-sync-progress-pivot-number progress)
-              :state-root state-root :partial-root state-root
-              :target-hash (snap-sync-progress-target-hash progress)
-              :chain-id (snap-sync-progress-chain-id progress)
-              :genesis-hash (snap-sync-progress-genesis-hash progress)
-              :authority-id (snap-sync-progress-authority-id progress)
-              :completed-p t :tasks (snap-sync-progress-tasks progress)))
+    (let* ((completed (snap-sync-completed-progress progress))
            (batch (make-kv-write-batch)))
       (snap-sync-complete-batch batch completed)
       (kv-apply-batch database batch)
@@ -3376,13 +3382,38 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
 (defun snap-sync-fill-storage-then-heal
     (database sources progress byte-limit
      &key source-provider on-source-error on-heal-progress heal-yield-p)
-  "Run range-efficient large-storage retrieval, then prove the complete state."
-  (snap-sync-fill-deferred-storage
-   database sources progress
-   (min byte-limit +snap-sync-storage-request-bytes+)
-   :source-provider source-provider
-   :on-source-error on-source-error
-   :heal-yield-p heal-yield-p)
+  "Complete range-proved storage, then publish or heal the exact state.
+
+For an unre-based import, every account partition independently authenticated
+its records against the same authorized root, persisted code before its cursor,
+and atomically published the complete deferred-storage plan with the final
+cursor.  When every range-proved storage task is also durable, those independent
+proofs already cover the complete state and can publish completion without a
+redundant full trie traversal.  Rebased, legacy, oversized, or source-exhausted
+plans retain the content-addressed healer as the fail-closed path."
+  (unless (snap-sync-tasks-completed-p
+           (snap-sync-progress-tasks progress))
+    (error "Snap storage completion cannot precede flat-range completion"))
+  (let ((storage-completed-p
+          (snap-sync-fill-deferred-storage
+           database sources progress
+           (min byte-limit +snap-sync-storage-request-bytes+)
+           :source-provider source-provider
+           :on-source-error on-source-error
+           :heal-yield-p heal-yield-p)))
+    (when (and storage-completed-p
+               (hash32=
+                (snap-sync-progress-partial-root progress)
+                (snap-sync-progress-state-root progress)))
+      (let ((completed (snap-sync-completed-progress progress))
+            (batch (make-kv-write-batch)))
+        ;; The state marker and completed cursor remain one atomic publication;
+        ;; a crash before this batch merely repeats already durable proofs.
+        (snap-sync-complete-batch batch completed)
+        (kv-apply-batch database batch)
+        (snap-sync-report-heal-progress
+         on-heal-progress 0 0 0 0 0 t)
+        (return-from snap-sync-fill-storage-then-heal completed))))
   (snap-sync-heal-state
    database sources progress byte-limit
    :source-provider source-provider
