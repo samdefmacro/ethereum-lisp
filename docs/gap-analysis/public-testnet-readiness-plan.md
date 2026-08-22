@@ -285,7 +285,7 @@ The implementation boundary is split deliberately:
   server/importer. Compact account/storage proofs, path-set trie responses,
   bytecode/storage healing, target/authority-bound progress, and skeleton
   block/cursor batches all fail closed. Sixteen durable account ranges match the
-  pinned geth scheduler: one worker per live source verifies 2 MiB-soft-limited
+  pinned geth scheduler: one worker per live source verifies 512 KiB-soft-limited
   pages concurrently, while the coordinator alone merges state and commits each
   range cursor. A failed source releases its range for another peer. Exhausting
   every source in one live-peer snapshot is a typed availability result: the

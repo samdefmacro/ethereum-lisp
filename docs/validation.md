@@ -217,7 +217,12 @@ The snap tests reconstruct and verify account/storage roots, return the
 authenticated reconstructed page for direct content-addressed persistence,
 reject altered compact proofs, and prove that verified trie records perform no
 database reads while an authenticated put repairs a planted corrupt local
-value. They batch complete small storage tries with each account cursor and
+value. They derive complete coarse subtrees from the verified range, reject
+proof-edge nodes, and publish the subtree hash in the same batch as its account
+cursor and external dependencies. The integration regression observes those
+proofs before any final TrieNodes traversal, then promotes the complete legacy
+range plan through a shallow trie walk and proves the promotion is idempotent.
+They batch complete small storage tries with each account cursor and
 prove that the range-only proven-absent insertion produces the
 same root as the ordinary checked insertion and rejects empty values,
 persist the authenticated prefix of byte-capped large storage, record those
@@ -324,9 +329,9 @@ productive local or peer progress keeps the exact frontier; only five full
 minutes without a later snapshot permits the stale yield. Removing the
 production predicate wiring makes the exact call-site test fail. The range
 tests prove that sixteen durable account ranges are fetched concurrently
-through three sources with geth's 2 MiB soft byte limit, completed ranges are not replayed
-after restart, and a failed source's claimed range is reassigned. A finite
-source generation may exhaust without stopping the node: the coordinator logs
+through three sources with geth's 512 KiB snap byte limit, completed ranges are
+not replayed after restart, and a failed source's claimed range is reassigned. A
+finite source generation may exhaust without stopping the node: the coordinator logs
 that typed availability result, refreshes live sessions on its next pass, and
 resumes without replaying the page committed by the retired generation. A
 local database failure is the fail-closed control and still escapes the

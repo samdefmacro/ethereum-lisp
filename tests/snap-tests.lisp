@@ -237,7 +237,8 @@
          (slot (make-hash32 (make-byte-vector 32 :initial-element 7)))
          (storage-calls 0)
          (observed-origin-length nil)
-         (observed-limit-length nil))
+         (observed-limit-length nil)
+         (observed-byte-limit nil))
     (state-db-set-storage source-state address slot 256)
     (let* ((root (state-db-root source-state))
            (backend
@@ -259,7 +260,10 @@
                       observed-limit-length
                       (length
                        (ethereum-lisp.snap:snap-get-storage-ranges-limit
-                        request)))
+                        request))
+                      observed-byte-limit
+                      (ethereum-lisp.snap:snap-get-storage-ranges-bytes
+                       request))
                 (if (and (zerop observed-origin-length)
                          (zerop observed-limit-length))
                     (snap-test-call-backend
@@ -285,7 +289,8 @@
       (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p progress))
       (is (= 1 storage-calls))
       (is (zerop observed-origin-length))
-      (is (zerop observed-limit-length)))))
+      (is (zerop observed-limit-length))
+      (is (= (* 512 1024) observed-byte-limit)))))
 
 (deftest snap-state-import-batches-complete-storage-tries
   (:layer :integration :module :p2p)
@@ -380,6 +385,92 @@
              (ethereum-lisp.crypto:keccak-256 (address-bytes address)))
           (declare (ignore account))
           (is present-p))))))
+
+(deftest snap-state-import-publishes-proved-range-subtrees
+  (:layer :integration :module :p2p)
+  ;; Range verification reconstructs every interior node. Once the same page's
+  ;; external dependencies are durable, publish coarse subtree proofs with the
+  ;; atomic cursor batch so a later pivot heals only changed/boundary regions.
+  (multiple-value-bind (source-state addresses)
+      (snap-test-partitioned-state)
+    (declare (ignore addresses))
+    (let* ((source-database (make-memory-key-value-database))
+           (target-database (make-memory-key-value-database))
+           (root (state-db-root source-state))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              source-database source-state))
+           (source (snap-test-source backend))
+           (published 0)
+           (real-populate
+             (fdefinition
+              'ethereum-lisp.snap-sync::snap-sync-populate-healed-subtree-batch))
+           (progress nil))
+      (let ((ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
+              1))
+        (unwind-protect
+             (progn
+               (setf
+                (fdefinition
+                 'ethereum-lisp.snap-sync::snap-sync-populate-healed-subtree-batch)
+                (lambda (batch reference &optional (kind :account))
+                  (incf published)
+                  (funcall real-populate batch reference kind)))
+               (setf
+                progress
+                (ethereum-lisp.snap-sync:snap-sync-import-state
+                 target-database source
+                 :pivot-hash (make-hash32 (snap-test-hash 241))
+                 :pivot-number 42 :state-root root
+                 :target-hash (make-hash32 (snap-test-hash 242))
+                 :chain-id 560048
+                 :genesis-hash (make-hash32 (snap-test-hash 243))
+                 :authority-id (make-hash32 (snap-test-hash 244)))))
+          (setf
+           (fdefinition
+            'ethereum-lisp.snap-sync::snap-sync-populate-healed-subtree-batch)
+           real-populate)))
+      (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p progress))
+      (is (plusp published))
+      (let ((ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
+              1))
+        (is
+         (plusp
+          (ethereum-lisp.snap-sync::snap-sync-promote-complete-range-plan
+           target-database root)))
+        (is
+         (ethereum-lisp.snap-sync::snap-sync-range-plan-promoted-p
+          target-database root))
+        (is
+         (zerop
+          (ethereum-lisp.snap-sync::snap-sync-promote-complete-range-plan
+           target-database root)))))))
+
+(deftest snap-range-plan-promotion-requires-complete-storage-cursors
+  (:layer :unit :module :p2p)
+  (let* ((database (make-memory-key-value-database))
+         (state-root (make-hash32 (snap-test-hash 245)))
+         (commitment
+           (cons (snap-test-hash 246)
+                 (make-hash32 (snap-test-hash 247))))
+         (batch (make-kv-write-batch)))
+    (ethereum-lisp.snap-sync::snap-sync-populate-deferred-storage-batch
+     batch state-root commitment)
+    (ethereum-lisp.snap-sync::snap-sync-populate-deferred-storage-plan-batch
+     batch state-root)
+    (kv-apply-batch database batch)
+    (is
+     (not
+      (ethereum-lisp.snap-sync::snap-sync-range-plan-fully-durable-p
+       database state-root)))
+    (is
+     (zerop
+      (ethereum-lisp.snap-sync::snap-sync-promote-complete-range-plan
+       database state-root)))
+    (is
+     (not
+      (ethereum-lisp.snap-sync::snap-sync-range-plan-promoted-p
+       database state-root)))))
 
 (deftest snap-state-import-defers-byte-capped-storage-to-resumable-healing
   (:layer :integration :module :p2p)
@@ -814,7 +905,7 @@
               :authority-id (make-hash32 (snap-test-hash 139)))))
       (is (= 3 max-active))
       (is (= 3 (length byte-limits)))
-      (is (every (lambda (limit) (= limit (* 2 1024 1024))) byte-limits))
+      (is (every (lambda (limit) (= limit (* 512 1024))) byte-limits))
       (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p progress))
       (is (= 16
              (length

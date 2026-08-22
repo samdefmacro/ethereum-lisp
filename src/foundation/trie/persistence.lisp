@@ -58,6 +58,133 @@ durability coordinator. No node is marked clean by this observational call."
             (cons (node-hash node) (encoded-node node)))
           (mpt-dirty-nodes trie)))
 
+(defun mpt-proved-range-subtrees (trie start end minimum-prefix-nibbles)
+  "Return maximal hashed subtrees wholly reconstructed by a proved range.
+
+START and END are inclusive secure keys.  A result is `(PREFIX . HASH)`, where
+PREFIX is the coarse key-space bucket used to establish that the whole subtree
+lies inside the verified interval.  Clean or unresolved proof-edge nodes are
+never returned: every descendant of a result must be newly reconstructed and
+therefore present in `MPT-DIRTY-NODE-RECORDS`.  Callers may durably publish the
+hash as a reusable completion proof only after the range's external account
+dependencies are durable too."
+  (let ((start (ensure-byte-vector start))
+        (end (ensure-byte-vector end)))
+    (unless (and (= 32 (length start)) (= 32 (length end)))
+      (error "MPT proved range bounds must contain 32 bytes"))
+    (unless (and (integerp minimum-prefix-nibbles)
+                 (<= 1 minimum-prefix-nibbles 64))
+      (error "MPT proved range prefix depth must be between one and 64"))
+    (let ((first (keybytes-to-nibbles start :terminator nil))
+          (last (keybytes-to-nibbles end :terminator nil))
+          (results '()))
+      (when (plusp (mpt-nibbles-compare first last))
+        (error "MPT proved range bounds are reversed"))
+      (labels
+          ((dirty-subtree-p (node)
+             (and node
+                  (not (hash-node-p node))
+                  (trie-concrete-node-dirty-p node)
+                  (etypecase node
+                    (leaf-node t)
+                    (extension-node
+                     (dirty-subtree-p (extension-node-child node)))
+                    (branch-node
+                     (loop for child across (branch-node-children node)
+                           always (or (null child)
+                                      (dirty-subtree-p child)))))))
+           (coverage-prefix (node pointer-path)
+             (etypecase node
+               (leaf-node
+                (concatenate 'vector pointer-path (leaf-node-path node)))
+               (extension-node
+                (concatenate 'vector pointer-path (extension-node-path node)))
+               (branch-node pointer-path)))
+           (bucket-inside-range-p (coverage)
+             (when (>= (length coverage) minimum-prefix-nibbles)
+               (let* ((bucket
+                        (subseq coverage 0 minimum-prefix-nibbles))
+                      (low
+                        (concatenate
+                         'vector bucket
+                         (make-byte-vector
+                          (- 64 minimum-prefix-nibbles))))
+                      (high
+                        (concatenate
+                         'vector bucket
+                         (make-byte-vector
+                          (- 64 minimum-prefix-nibbles)
+                          :initial-element 15))))
+                 (when (and (not (minusp (mpt-nibbles-compare low first)))
+                            (not (plusp (mpt-nibbles-compare high last))))
+                   bucket))))
+           (visit (node pointer-path)
+             (when (and node (not (hash-node-p node)))
+               (let* ((coverage (coverage-prefix node pointer-path))
+                      (bucket (bucket-inside-range-p coverage)))
+                 (if (and bucket
+                          (>= (length pointer-path) minimum-prefix-nibbles)
+                          (node-reference-hashed-p node)
+                          (dirty-subtree-p node))
+                     (push (cons (copy-seq bucket) (node-hash node)) results)
+                     (etypecase node
+                       (leaf-node nil)
+                       (extension-node
+                        (visit
+                         (extension-node-child node)
+                         (concatenate
+                          'vector pointer-path (extension-node-path node))))
+                       (branch-node
+                        (dotimes (index 16)
+                          (let ((child
+                                  (aref (branch-node-children node) index)))
+                            (when child
+                              (visit
+                               child
+                               (concatenate
+                                'vector pointer-path (vector index)))))))))))))
+        (visit (mpt-root-node trie) (make-byte-vector 0)))
+      (nreverse results))))
+
+(defun mpt-hashed-subtrees-at-prefix-depth (trie minimum-prefix-nibbles)
+  "Resolve only the shallow trie spine and return hashed subtree roots.
+
+The returned hashes are the first content-addressed references encountered at
+or below MINIMUM-PREFIX-NIBBLES.  Their descendants are deliberately not
+resolved.  This is suitable only when a separate trust proof already establishes
+that every descendant and external dependency is durable."
+  (unless (and (integerp minimum-prefix-nibbles)
+               (<= 1 minimum-prefix-nibbles 64))
+    (error "MPT subtree prefix depth must be between one and 64"))
+  (let ((results '()))
+    (labels
+        ((visit (node pointer-path)
+           (when node
+             (cond
+               ((and (>= (length pointer-path) minimum-prefix-nibbles)
+                     (or (hash-node-p node)
+                         (node-reference-hashed-p node)))
+                (push (node-hash node) results))
+               ((hash-node-p node)
+                (visit (trie-resolve-node node) pointer-path))
+               ((leaf-node-p node) nil)
+               ((extension-node-p node)
+                (visit
+                 (extension-node-child node)
+                 (concatenate
+                  'vector pointer-path (extension-node-path node))))
+               ((branch-node-p node)
+                (dotimes (index 16)
+                  (let ((child (aref (branch-node-children node) index)))
+                    (when child
+                      (visit
+                       child
+                       (concatenate
+                        'vector pointer-path (vector index)))))))
+               (t (error "MPT contains an invalid node type"))))))
+      (visit (mpt-root-node trie) (make-byte-vector 0)))
+    (nreverse results)))
+
 (defun mpt-populate-dirty-batch (batch trie &optional database)
   "Add TRIE's dirty nodes to BATCH and return the exact nodes added.
 

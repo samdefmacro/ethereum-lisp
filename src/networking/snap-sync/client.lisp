@@ -6,11 +6,13 @@
 (defconstant +snap-sync-partitioned-progress-version+ 3)
 (defconstant +snap-sync-legacy-progress-version+ 2)
 (defparameter +snap-sync-progress-identifier+ "snap-state-import")
-(defconstant +snap-sync-request-bytes+ (* 2 1024 1024))
+(defconstant +snap-sync-request-bytes+ (* 512 1024)
+  "Geth-aligned upper bound for responsive parallel snap/1 pages.")
 (defconstant +snap-sync-storage-request-bytes+ (* 512 1024)
   "Geth-aligned upper bound for responsive parallel StorageRanges pages.")
 (defconstant +snap-sync-pivot-probe-bytes+ (* 4 1024))
-(defconstant +snap-sync-storage-accounts-per-request+ 256)
+(defconstant +snap-sync-storage-accounts-per-request+ 512
+  "Maximum small storage tries in a 512 KiB geth-style request.")
 (defconstant +snap-sync-account-task-count+ 16)
 (defconstant +snap-sync-storage-task-count+ 16
   "Maximum parallel ranges used to finish one byte-capped storage trie.")
@@ -66,6 +68,9 @@ remains disabled unless a controlled deployment binds it explicitly.")
   "Prefix for the trusted marker that says the deferred work set is complete.")
 (defparameter +snap-sync-deferred-storage-value+ #(1)
   "Versioned value shared by deferred storage work and plan markers.")
+(defparameter +snap-sync-range-plan-promotion-prefix+
+  (ascii-to-bytes "snap-range-plan-promoted-v1:"))
+(defconstant +snap-sync-range-plan-promotion-max-roots+ 64)
 (defparameter +snap-sync-storage-task-identifier-prefix+
   (ascii-to-bytes "snap-storage-range-task-v1:")
   "Prefix for restart-safe large-contract StorageRanges cursors.")
@@ -876,12 +881,13 @@ the exact authorized state root before completion."
 (defstruct (snap-sync-page-result
             (:constructor make-snap-sync-page-result
                 (&key task-index origin account-records codes deferred-storage
-                      next-origin completed-p)))
+                      healed-subtrees next-origin completed-p)))
   task-index
   origin
   account-records
   codes
   deferred-storage
+  healed-subtrees
   next-origin
   completed-p)
 
@@ -1171,18 +1177,42 @@ frontier also falls back safely instead of creating an uncheckpointable run."
       (let ((deferred-storage
               (snap-sync-fetch-storage-commitments
                database source state-root
-               (snap-sync-page-storage-commitments entries) byte-limit))
+               (snap-sync-page-storage-commitments entries)
+               (min byte-limit +snap-sync-storage-request-bytes+)))
             (code-hashes (snap-sync-page-code-hashes entries)))
-        (make-snap-sync-page-result
-         :task-index task-index
-         :origin (copy-seq origin)
-         :account-records account-records
-         :codes (if code-hashes
-                    (snap-sync-fetch-codes source code-hashes byte-limit)
-                    '())
-         :deferred-storage deferred-storage
-         :next-origin next-origin
-         :completed-p complete-p))))))
+        (let* ((proved-end (if complete-p limit last-entry))
+               (candidates
+                 (if (and account-trie proved-end)
+                     (mpt-proved-range-subtrees
+                      account-trie origin proved-end
+                      *snap-sync-healed-subtree-prefix-nibbles*)
+                     '()))
+               (safe-subtrees
+                 (loop for (prefix . hash) in candidates
+                       unless
+                         (some
+                          (lambda (commitment)
+                            (let ((account-nibbles
+                                    (ethereum-lisp.trie.encoding:keybytes-to-nibbles
+                                     (car commitment) :terminator nil)))
+                              (and (<= (length prefix)
+                                       (length account-nibbles))
+                                   (= (length prefix)
+                                      (ethereum-lisp.trie.encoding:common-prefix-length
+                                       prefix account-nibbles)))))
+                          deferred-storage)
+                         collect hash)))
+          (make-snap-sync-page-result
+           :task-index task-index
+           :origin (copy-seq origin)
+           :account-records account-records
+           :codes (if code-hashes
+                      (snap-sync-fetch-codes source code-hashes byte-limit)
+                      '())
+           :deferred-storage deferred-storage
+           :healed-subtrees safe-subtrees
+           :next-origin next-origin
+           :completed-p complete-p)))))))
 
 (defun snap-sync-replace-task (tasks index replacement)
   (loop for task in tasks
@@ -1246,6 +1276,12 @@ frontier also falls back safely instead of creating an uncheckpointable run."
                  (snap-sync-page-result-deferred-storage result))
           (snap-sync-populate-deferred-storage-batch
            batch (snap-sync-progress-state-root progress) commitment))
+        ;; A complete account-range bucket contains no unresolved proof edge,
+        ;; its non-deferred storage is already durable, and its code joins this
+        ;; cursor batch. Publish the pivot-independent proof atomically so a
+        ;; later root can skip the unchanged subtree instead of rereading it.
+        (dolist (reference (snap-sync-page-result-healed-subtrees result))
+          (snap-sync-populate-healed-subtree-batch batch reference :account))
         (when (and (snap-sync-tasks-completed-p tasks)
                    (hash32= partial-root
                             (snap-sync-progress-state-root progress)))
@@ -2260,6 +2296,125 @@ than cache misses."
    +snap-sync-healed-subtree-value+)
   batch)
 
+(defun snap-sync-range-plan-promotion-identifier (state-root)
+  (concatenate
+   'vector +snap-sync-range-plan-promotion-prefix+ (hash32-bytes state-root)))
+
+(defun snap-sync-range-plan-promoted-p (database state-root)
+  (multiple-value-bind (value present-p)
+      (kv-get-chain-record
+       database :metadata
+       (snap-sync-range-plan-promotion-identifier state-root))
+    (when (and present-p
+               (not (bytes= value +snap-sync-healed-subtree-value+)))
+      (ethereum-lisp.validation:storage-fail
+       "Persisted snap range-plan promotion has an unknown version"))
+    present-p))
+
+(defun snap-sync-deferred-storage-plan-roots (database)
+  "Return the bounded set of state roots with complete range-plan markers."
+  (let* ((prefix +snap-sync-deferred-storage-plan-prefix+)
+         (start (kv-chain-record-key :metadata prefix))
+         (end
+           (kv-chain-record-key
+            :metadata (snap-sync-byte-prefix-end prefix)))
+         (expected-length (+ (length prefix) 32))
+         (roots '()))
+    (multiple-value-bind (iterator close-iterator)
+        (kv-iterator database :start start :end end)
+      (unwind-protect
+           (loop
+             (multiple-value-bind (key value present-p) (funcall iterator)
+               (unless present-p (return))
+               (unless (bytes= value +snap-sync-deferred-storage-value+)
+                 (ethereum-lisp.validation:storage-fail
+                  "Persisted snap deferred-storage plan has an unknown version"))
+               (let ((identifier
+                       (kv-chain-record-key-identifier :metadata key)))
+                 (unless (= expected-length (length identifier))
+                   (ethereum-lisp.validation:storage-fail
+                    "Persisted snap deferred-storage plan is malformed"))
+                 (push
+                  (make-hash32 (subseq identifier (length prefix))) roots)
+                 (when (> (length roots)
+                          +snap-sync-range-plan-promotion-max-roots+)
+                   (ethereum-lisp.validation:storage-fail
+                    "Persisted snap range-plan root set exceeds its bound")))))
+        (when close-iterator (funcall close-iterator))))
+    (nreverse roots)))
+
+(defun snap-sync-storage-range-tasks-completed-p
+    (database state-root account-hash storage-root)
+  "Check an existing large-storage cursor set without creating missing work."
+  (let ((identifiers
+          (coerce
+           (loop for index below +snap-sync-storage-task-count+
+                 collect
+                 (snap-sync-storage-task-identifier
+                  state-root account-hash storage-root index))
+           'vector)))
+    (multiple-value-bind (records present)
+        (kv-get-chain-records database :metadata identifiers)
+      (and (= +snap-sync-storage-task-count+ (count 1 present))
+           (loop for record across records
+                 always
+                   (snap-sync-account-task-completed-p
+                    (snap-sync-storage-task-from-record record)))))))
+
+(defun snap-sync-range-plan-fully-durable-p (database state-root)
+  "Prove that a range plan's complete account/code/storage set is durable."
+  (multiple-value-bind (works trusted-plan-p overflow-p)
+      (snap-sync-deferred-storage-works database state-root)
+    (and trusted-plan-p
+         (not overflow-p)
+         (every
+          (lambda (work)
+            (snap-sync-storage-range-tasks-completed-p
+             database state-root
+             (snap-sync-heal-work-account-hash work)
+             (make-hash32 (snap-sync-heal-work-reference work))))
+          works))))
+
+(defun snap-sync-promote-complete-range-plan (database state-root)
+  "Turn one complete range plan into shallow reusable subtree proofs.
+
+The plan already proves every account range and external dependency. Resolving
+only the first few trie levels discovers the content hashes at the healer's
+coarse boundary; descendants are neither read nor revalidated."
+  (when (or (snap-sync-range-plan-promoted-p database state-root)
+            (not (snap-sync-range-plan-fully-durable-p database state-root)))
+    (return-from snap-sync-promote-complete-range-plan 0))
+  (let* ((references
+           (if (hash32= state-root +empty-trie-hash+)
+               '()
+               (mpt-hashed-subtrees-at-prefix-depth
+                (make-persisted-mpt
+                 state-root
+                 (lambda (hash) (trie-node-store-get database hash)))
+                *snap-sync-healed-subtree-prefix-nibbles*)))
+         (remaining references))
+    (loop while remaining
+          do (let ((batch (make-kv-write-batch)))
+               (dotimes (index +snap-sync-healed-subtrees-per-batch+)
+                 (declare (ignore index))
+                 (unless remaining (return))
+                 (snap-sync-populate-healed-subtree-batch
+                  batch (pop remaining) :account))
+               (kv-apply-batch database batch)))
+    ;; Publish the root-level idempotency marker only after every independent
+    ;; subtree proof is durable. A crash before this batch safely repeats work.
+    (let ((batch (make-kv-write-batch)))
+      (kv-batch-put-chain-record
+       batch :metadata (snap-sync-range-plan-promotion-identifier state-root)
+       +snap-sync-healed-subtree-value+)
+      (kv-apply-batch database batch))
+    (length references)))
+
+(defun snap-sync-promote-complete-range-plans (database)
+  "Backfill shallow subtree proofs for trusted pre-optimization range plans."
+  (loop for state-root in (snap-sync-deferred-storage-plan-roots database)
+        sum (snap-sync-promote-complete-range-plan database state-root)))
+
 (defun snap-sync-prepare-storage-page
     (source state-root account-hash storage-root task-index task byte-limit)
   "Fetch and authenticate one page of a partitioned large storage trie."
@@ -2714,6 +2869,10 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
   (unless (snap-sync-tasks-completed-p
            (snap-sync-progress-tasks progress))
     (error "Snap trie healing cannot precede flat-range completion"))
+  ;; Older deployments may already have a complete authenticated range plan
+  ;; but no per-range subtree proofs. Promote it with a shallow walk before the
+  ;; Bloom index is built, reducing this rebase to changed/boundary regions.
+  (snap-sync-promote-complete-range-plans database)
   (multiple-value-bind (checkpoint checkpoint-present-p)
       (snap-sync-read-heal-checkpoint database progress)
     (multiple-value-bind

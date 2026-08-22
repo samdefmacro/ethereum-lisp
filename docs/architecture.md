@@ -141,10 +141,10 @@ them by their physical location instead reintroduces dependency cycles:
   snap service. A CL-authorized pivot binds the state download to target hash,
   chain, genesis, and database authority. The account keyspace is split into
   sixteen durable ranges matching pinned geth; one worker per available snap
-  peer fetches and verifies a 2 MiB-soft-limited page, while one coordinator
-  serializes verified record and progress publication. A failed peer releases only
-  its claimed range for another worker. If every peer in that finite source
-  snapshot fails, the importer reports a typed remote-source exhaustion result;
+  peer fetches and verifies a geth-aligned 512 KiB-soft-limited page, while one
+  coordinator serializes verified record and progress publication. A failed
+  peer releases only its claimed range for another worker. If every peer in
+  that finite source snapshot fails, the importer reports a typed remote-source exhaustion result;
   the CLI keeps the node and Engine API alive, takes a fresh live-peer snapshot
   on its next bounded pass, and resumes from the durable per-range cursors.
   Local persistence and trie-merge failures remain fatal and are not converted
@@ -162,7 +162,19 @@ them by their physical location instead reintroduces dependency cycles:
   a corrupt same-key local value without a RocksDB read for every reconstructed
   node. This matches geth's hash-scheme range ingestion and removes the former
   second global MPT rebuild and its per-node RocksDB point reads. Ordinary state
-  transitions retain checked `mpt-put`. The authenticated prefix of byte-capped
+  transitions retain checked `mpt-put`. Complete coarse buckets strictly inside
+  each authenticated range contain only newly reconstructed nodes. After that
+  page's small storage is durable and its code joins the cursor batch, their
+  root hashes are published as the same pivot-independent subtree proofs used by the
+  healer. A later pivot therefore traverses only changed and boundary buckets,
+  rather than rereading every range-ingested node once before it can build the
+  proof index. Buckets containing deferred storage are excluded until the
+  ordinary healer proves those dependencies. Pre-optimization range plans are
+  upgraded lazily: after all sixteen durable storage cursors prove their queued
+  dependencies, a depth-bounded walk resolves only the account trie's shallow
+  spine and publishes its coarse hashes in 2,048-record batches. An idempotency
+  marker follows the subtree records, so a crash can only repeat safe work.
+  The authenticated prefix of byte-capped
   large storage is persisted immediately and its root is recorded beside that page
   in a state-root-scoped durable work set. Independently reconstructing every
   page against the same authorized root maintains a root-valued range-set witness;
