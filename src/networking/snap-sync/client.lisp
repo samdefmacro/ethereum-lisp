@@ -45,6 +45,9 @@
   "Prefix for the trusted marker that says the deferred work set is complete.")
 (defparameter +snap-sync-deferred-storage-value+ #(1)
   "Versioned value shared by deferred storage work and plan markers.")
+(defparameter +snap-sync-rebased-range-witness-domain+
+  (ascii-to-bytes "snap-rebased-range-witness-v1:")
+  "Domain for a non-root witness that permanently disables range-set plans.")
 (defconstant +snap-sync-deferred-storage-max-works+ 8192
   "Maximum direct storage frontier loaded into one resumable heal checkpoint.")
 (defconstant +snap-sync-heal-checkpoint-frontier-target+ 4096)
@@ -611,14 +614,14 @@ consensus-visible."
   (let ((entries (snap-sync-storage-entries slots)))
     (when (null entries)
       (error "Snap peer returned an empty group for a non-empty storage root"))
-    (mpt-verify-range-proof
-     storage-root entries nil :start (make-byte-vector 32))
-    (let ((trie (make-mpt)))
-      (dolist (entry entries)
-        (mpt-put trie (car entry) (cdr entry)))
-      (unless (hash32= storage-root (make-hash32 (mpt-root-hash trie)))
-        (error "Complete snap storage group did not reconstruct its root"))
-      (mpt-populate-dirty-batch batch trie database))))
+    (multiple-value-bind (verified-p trie)
+        (mpt-verify-range-proof
+         storage-root entries nil :start (make-byte-vector 32))
+      (declare (ignore verified-p))
+      (unless trie
+        (error "Complete snap storage group did not reconstruct its trie"))
+      (snap-sync-populate-verified-trie-records-batch
+       database batch (mpt-dirty-node-records trie)))))
 
 (defun snap-sync-fetch-storage-commitments
     (database source state-root commitments byte-limit)
@@ -658,18 +661,15 @@ must still reconstruct the exact authorized state root before completion."
                  (error "Snap peer returned an invalid storage group count"))
                (let ((complete-count (if proof (1- received) received))
                      (batch (make-kv-write-batch))
-                     (nodes '()))
+                     (populated-p nil))
                  (loop for commitment in requested
                        for slots in groups
                        repeat complete-count
-                       do (setf nodes
-                                (nconc
-                                 nodes
-                                 (snap-sync-populate-complete-storage-group
-                                  database batch (cdr commitment) slots))))
-                 (when nodes
-                   (kv-apply-batch database batch)
-                   (mpt-mark-nodes-persisted nodes)))
+                       do (snap-sync-populate-complete-storage-group
+                           database batch (cdr commitment) slots)
+                          (setf populated-p t))
+                 (when populated-p
+                   (kv-apply-batch database batch)))
                  ;; A proof marks the last returned group as byte-capped.  Do
                  ;; not restart and fully paginate that potentially enormous
                  ;; storage trie inside the account-page transaction.  Its
@@ -807,15 +807,57 @@ must still reconstruct the exact authorized state root before completion."
 
 (defstruct (snap-sync-page-result
             (:constructor make-snap-sync-page-result
-                (&key task-index origin entries codes deferred-storage
+                (&key task-index origin account-records codes deferred-storage
                       next-origin completed-p)))
   task-index
   origin
-  entries
+  account-records
   codes
   deferred-storage
   next-origin
   completed-p)
+
+(defun snap-sync-verified-account-records (trie proof)
+  "Collect one verified account page's reconstructed and boundary nodes."
+  (let ((seen (make-hash-table :test #'equalp))
+        (records '()))
+    (labels ((add (hash encoded)
+               (unless (and (byte-vector-p hash) (= 32 (length hash))
+                            (byte-vector-p encoded) (plusp (length encoded)))
+                 (error "Snap verified account trie record is malformed"))
+               (multiple-value-bind (existing present-p) (gethash hash seen)
+                 (when (and present-p (not (bytes= existing encoded)))
+                   (error "Snap verified account trie records collide"))
+                 (unless present-p
+                   (setf (gethash hash seen) encoded)
+                   (push (cons hash encoded) records)))))
+      (when trie
+        (dolist (record (mpt-dirty-node-records trie))
+          (add (car record) (cdr record))))
+      ;; Boundary proof nodes are decoded and used by MPT-VERIFY-RANGE-PROOF,
+      ;; but are clean resolver nodes in its reconstructed trie. Persist their
+      ;; raw content too or a later traversal could reach a missing boundary.
+      (dolist (encoded proof)
+        (add (keccak-256 encoded) encoded)))
+    (nreverse records)))
+
+(defun snap-sync-populate-verified-trie-records-batch
+    (database batch records)
+  "Batch-check and add absent content-addressed RECORDS to BATCH."
+  (when records
+    (let ((identifiers (map 'vector #'car records)))
+      (multiple-value-bind (existing present)
+          (kv-get-chain-records database :trie-node identifiers)
+        (loop for record in records
+              for index from 0
+              do (if (= 1 (aref present index))
+                     (unless (bytes= (aref existing index) (cdr record))
+                       (ethereum-lisp.validation:storage-fail
+                        "Persisted trie node collides with content hash ~A"
+                        (bytes-to-hex (car record))))
+                     (kv-batch-put-chain-record
+                      batch :trie-node (car record) (cdr record)))))))
+  batch)
 
 (defun snap-sync-byte-prefix-end (prefix)
   "Return the exclusive lexicographic end key for non-empty byte PREFIX."
@@ -942,12 +984,17 @@ frontier also falls back safely instead of creating an uncheckpointable run."
     ;; Geth's inclusive task limit may produce the first account beyond the
     ;; requested partition.  Verify the complete wire response first, then
     ;; discard that overlap before inserting this task's accounts.
-    (if wire-entries
-        (mpt-verify-range-proof state-root wire-entries proof :start origin)
-        (mpt-verify-range-proof
-         state-root wire-entries proof :start origin
-         :end (snap-sync-increment-hash limit)))
-    (let* ((last-wire (and wire-entries (caar (last wire-entries))))
+    (multiple-value-bind (verified-p account-trie)
+        (if wire-entries
+            (mpt-verify-range-proof
+             state-root wire-entries proof :start origin)
+            (mpt-verify-range-proof
+             state-root wire-entries proof :start origin
+             :end (snap-sync-increment-hash limit)))
+      (declare (ignore verified-p))
+      (let* ((account-records
+               (snap-sync-verified-account-records account-trie proof))
+             (last-wire (and wire-entries (caar (last wire-entries))))
            (entries
              (remove-if-not
               (lambda (entry) (snap-sync-key-at-most-p (car entry) limit))
@@ -972,13 +1019,13 @@ frontier also falls back safely instead of creating an uncheckpointable run."
         (make-snap-sync-page-result
          :task-index task-index
          :origin (copy-seq origin)
-         :entries entries
+         :account-records account-records
          :codes (if code-hashes
                     (snap-sync-fetch-codes source code-hashes byte-limit)
                     '())
          :deferred-storage deferred-storage
          :next-origin next-origin
-         :completed-p complete-p)))))
+         :completed-p complete-p))))))
 
 (defun snap-sync-replace-task (tasks index replacement)
   (loop for task in tasks
@@ -988,7 +1035,7 @@ frontier also falls back safely instead of creating an uncheckpointable run."
                     (snap-sync-copy-account-task task))))
 
 (defun snap-sync-commit-account-page (database progress result)
-  "Commit RESULT's account nodes, code, task cursor, and global root once."
+  "Commit RESULT's verified nodes, dependencies, and task cursor once."
   (let* ((task-index (snap-sync-page-result-task-index result))
          (task (nth task-index (snap-sync-progress-tasks progress))))
     (unless task
@@ -997,14 +1044,21 @@ frontier also falls back safely instead of creating an uncheckpointable run."
                  (bytes= (snap-sync-account-task-next-origin task)
                          (snap-sync-page-result-origin result)))
       (error "Snap account result no longer matches its durable task cursor"))
-    (let* ((trie
-             (snap-sync-open-partial-trie
-              database (snap-sync-progress-partial-root progress)))
-           (batch (make-kv-write-batch)))
-      (dolist (entry (snap-sync-page-result-entries result))
-        (mpt-put trie (car entry) (cdr entry)))
-      (let* ((nodes (mpt-populate-dirty-batch batch trie database))
-             (partial-root (make-hash32 (mpt-root-hash trie)))
+    (let ((batch (make-kv-write-batch)))
+      (snap-sync-populate-verified-trie-records-batch
+       database batch (snap-sync-page-result-account-records result))
+      (let* ((previous-root (snap-sync-progress-partial-root progress))
+             ;; EMPTY means this is the first page of a fresh import. Once a
+             ;; page has independently reconstructed STATE-ROOT, retain that
+             ;; value as the same-root range-set witness. Rebase installs a
+             ;; distinct poison witness, so later pages cannot publish a plan
+             ;; that omits ranges downloaded under the older root.
+             (partial-root
+               (if (or (hash32= previous-root +empty-trie-hash+)
+                       (hash32= previous-root
+                                (snap-sync-progress-state-root progress)))
+                   (snap-sync-progress-state-root progress)
+                   previous-root))
              (replacement
                (snap-sync-account-task
                 :start (snap-sync-account-task-start task)
@@ -1038,15 +1092,14 @@ frontier also falls back safely instead of creating an uncheckpointable run."
         (when (and (snap-sync-tasks-completed-p tasks)
                    (hash32= partial-root
                             (snap-sync-progress-state-root progress)))
-          ;; Every range proof and the locally rebuilt account trie now commit
-          ;; to the authorized root.  Publishing this marker in the same batch
-          ;; as the last cursor makes the deferred storage set complete: after
-          ;; restart, absence of a queue record means there was no such work.
+          ;; Every durable range independently reconstructed the same authorized
+          ;; root. Publishing this marker with the last cursor makes the
+          ;; deferred storage set complete: after restart, absence of a queue
+          ;; record means there was no such work.
           (snap-sync-populate-deferred-storage-plan-batch
            batch (snap-sync-progress-state-root progress)))
         (snap-sync-populate-progress-batch batch next)
         (kv-apply-batch database batch)
-        (mpt-mark-nodes-persisted nodes)
         next))))
 
 (defun snap-sync-next-unfinished-task (progress &optional claimed)
@@ -1513,16 +1566,32 @@ mark the rebased progress complete."
   (unless (and (integerp pivot-number)
                (>= pivot-number (snap-sync-progress-pivot-number progress)))
     (error "Snap pivot rebase cannot move backwards"))
-  (snap-sync-make-progress
-   :pivot-hash pivot-hash :pivot-number pivot-number
-   :state-root state-root
-   :partial-root (snap-sync-progress-partial-root progress)
-   :target-hash target-hash
-   :chain-id (snap-sync-progress-chain-id progress)
-   :genesis-hash (snap-sync-progress-genesis-hash progress)
-   :authority-id (snap-sync-progress-authority-id progress)
-   :completed-p nil
-   :tasks (snap-sync-progress-tasks progress)))
+  (let ((range-witness
+          (if (hash32= state-root (snap-sync-progress-state-root progress))
+              (snap-sync-progress-partial-root progress)
+              (let ((candidate
+                      (make-hash32
+                       (keccak-256
+                        (concatenate
+                         'vector +snap-sync-rebased-range-witness-domain+
+                         (hash32-bytes
+                          (snap-sync-progress-state-root progress))
+                         (hash32-bytes state-root)
+                         (hash32-bytes pivot-hash))))))
+                (when (or (hash32= candidate +empty-trie-hash+)
+                          (hash32= candidate state-root))
+                  (error "Snap rebased range witness collides with a root"))
+                candidate))))
+    (snap-sync-make-progress
+     :pivot-hash pivot-hash :pivot-number pivot-number
+     :state-root state-root
+     :partial-root range-witness
+     :target-hash target-hash
+     :chain-id (snap-sync-progress-chain-id progress)
+     :genesis-hash (snap-sync-progress-genesis-hash progress)
+     :authority-id (snap-sync-progress-authority-id progress)
+     :completed-p nil
+     :tasks (snap-sync-progress-tasks progress))))
 
 (defun snap-sync-populate-rebased-progress-batch
     (batch progress

@@ -288,12 +288,31 @@
       (mpt-put trie (vector index) (vector (+ 10 index))))
     (multiple-value-bind (entries proof)
         (mpt-get-range-proof trie :start #(1) :end #(4))
-      (is (mpt-verify-range-proof
-           (mpt-root-hash trie) entries proof :start #(1) :end #(4)))
+      (multiple-value-bind (verified-p reconstructed)
+          (mpt-verify-range-proof
+           (mpt-root-hash trie) entries proof :start #(1) :end #(4))
+        (is verified-p)
+        (is reconstructed)
+        (is (bytes= (mpt-root-hash trie)
+                    (mpt-root-hash reconstructed)))
+        (is (find (mpt-root-hash trie)
+                  (mpt-dirty-node-records reconstructed)
+                  :key #'car :test #'bytes=)))
       (signals error
         (mpt-verify-range-proof
          (mpt-root-hash trie) (rest entries) proof
          :start #(1) :end #(4))))))
+
+(deftest trie-proven-absent-insert-matches-ordinary-insert
+  (let ((ordinary (make-mpt))
+        (range-built (make-mpt)))
+    (loop for key across #(#(1) #(2) #(16) #(255))
+          for value across #(#(11) #(22) #(33) #(44))
+          do (mpt-put ordinary key value)
+             (mpt-put-proven-absent range-built key value))
+    (is (bytes= (mpt-root-hash ordinary) (mpt-root-hash range-built)))
+    (signals error
+      (mpt-put-proven-absent range-built #(3) #()))))
 
 (deftest trie-range-proof-is-compact-and-rejects-range-tampering
   (let ((trie (make-mpt)))

@@ -142,7 +142,7 @@ them by their physical location instead reintroduces dependency cycles:
   chain, genesis, and database authority. The account keyspace is split into
   sixteen durable ranges matching pinned geth; one worker per available snap
   peer fetches and verifies a 2 MiB-soft-limited page, while one coordinator
-  serializes trie merge and progress publication. A failed peer releases only
+  serializes verified record and progress publication. A failed peer releases only
   its claimed range for another worker. If every peer in that finite source
   snapshot fails, the importer reports a typed remote-source exhaustion result;
   the CLI keeps the node and Engine API alive, takes a fresh live-peer snapshot
@@ -151,13 +151,26 @@ them by their physical location instead reintroduces dependency cycles:
   into retries. Account and storage ranges carry compact boundary proofs, trie
   nodes are served by path set, and every page is verified before its account
   nodes, bytecode, complete small storage tries, and per-range cursor become
-  durable. Byte-capped large storage is recorded beside that page in a
-  state-root-scoped durable work set. When the final account page also makes
-  the locally reconstructed account root equal the authorized state root, its
-  batch publishes a versioned plan marker proving that the work set is
-  complete. Final healing then starts directly from those storage roots instead
-  of rereading the already verified account trie. An old or rebased partial
-  import has no marker and safely retains the full-root traversal. Work sets
+  durable. Range reconstruction uses a dedicated proven-absent MPT insertion:
+  the verified gap-free page and its monotonic durable successor cursor already
+  prove that these keys are new, so proof reconstruction omits `mpt-put`'s
+  redundant defensive point traversal. The verifier returns that reconstructed
+  page instead of discarding it: its new nodes plus authenticated boundary
+  proof nodes are deduplicated, collision-checked with one ordered database
+  batch, and persisted by content hash in the cursor transaction. This matches
+  geth's hash-scheme range ingestion and removes the former second global MPT
+  rebuild and its per-node RocksDB point reads. Ordinary state transitions
+  retain checked `mpt-put`. Byte-capped large storage is recorded beside that
+  page in a
+  state-root-scoped durable work set. Independently reconstructing every page
+  against the same authorized root maintains a root-valued range-set witness;
+  when the final cursor commits, that witness permits the batch to publish a
+  versioned plan marker proving the work set is complete. A state-root rebase
+  replaces it with a domain-separated non-root witness, permanently preventing
+  a mixed-root range set from publishing the plan. Final healing then starts
+  directly from those storage roots instead of rereading the already verified
+  account trie. An old or rebased partial import has no marker and safely
+  retains the full-root traversal. Work sets
   above the 8,192-item checkpoint bound also fall back to that path. Each round
   partitions its missing paths across the current snap
   sources, with at most one outstanding TrieNodes request and 1,024 paths per

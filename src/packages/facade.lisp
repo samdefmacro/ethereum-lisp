@@ -149,6 +149,7 @@
    #:copy-mpt-root
    #:make-persisted-mpt
    #:mpt-put
+   #:mpt-put-proven-absent
    #:mpt-delete
    #:mpt-get
    #:mpt-entry-pairs
@@ -159,6 +160,7 @@
    #:mpt-root-hex
    #:mpt-root-node
    #:mpt-persist
+   #:mpt-dirty-node-records
    #:mpt-populate-dirty-batch
    #:mpt-mark-nodes-persisted
    #:trie-node-store-get

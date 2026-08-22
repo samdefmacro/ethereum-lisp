@@ -181,6 +181,7 @@ cl-workbench validation run cold-integration --match SNAP-
 cl-workbench validation run cold-integration --match NODE-STORE-SNAP-SKELETON
 cl-workbench validation run cold-unit --match SNAP-PIVOT
 cl-workbench validation run cold-integration --match SNAP-PIVOT
+cl-workbench validation run cold-unit --match TRIE-PROVEN-ABSENT
 cl-workbench validation run cold-integration --match BOUNDED-PIVOT
 cl-workbench validation run cold-integration --match ETH-SYNC-MULTI-PEER
 cl-workbench validation run cold-integration --match ETH-SYNC-THREE-SCRIPTED
@@ -212,14 +213,18 @@ cl-workbench validation run cold-integration \
   --match SNAP-TRIE-NODE-SERVER-CAPS-DISK-LOOKUPS
 ```
 
-The snap tests reconstruct and verify account/storage roots, reject altered
-compact proofs, batch complete small storage tries with each account cursor,
+The snap tests reconstruct and verify account/storage roots, return the
+authenticated reconstructed page for direct content-addressed persistence,
+reject altered compact proofs, batch complete small storage tries with each
+account cursor, prove that the range-only proven-absent insertion produces the
+same root as the ordinary checked insertion and rejects empty values,
 defer byte-capped large storage to resumable content-addressed healing, record
 those roots with each durable page, and atomically publish the complete plan
 only when the rebuilt account root equals the authorized state root. The
 byte-capped-storage regression proves that final TrieNodes requests are all
-storage-scoped and never rescan the account root. Legacy, rebased, or oversized
-plans retain the fail-closed full-root traversal. The tests also
+storage-scoped and never rescan the account root. A changed-root rebase installs
+a non-empty, non-root range witness; legacy, rebased, or oversized plans retain
+the fail-closed full-root traversal. The tests also
 inject a failed database batch to prove progress never outruns verified account
 state. Only the final traversal can install the completion marker. The final
 healer tests also require one missing-path slice per available source, prove a

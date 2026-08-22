@@ -48,6 +48,16 @@ retained trie."
       (visit (mpt-root-node trie)))
     (nreverse dirty)))
 
+(defun mpt-dirty-node-records (trie)
+  "Return the content-addressed records for TRIE's newly allocated nodes.
+
+The result retains encoded bytes rather than the concrete node graph, allowing
+a verified range worker to hand a compact immutable result to a separate
+durability coordinator. No node is marked clean by this observational call."
+  (mapcar (lambda (node)
+            (cons (node-hash node) (encoded-node node)))
+          (mpt-dirty-nodes trie)))
+
 (defun mpt-populate-dirty-batch (batch trie &optional database)
   "Add TRIE's dirty nodes to BATCH and return the exact nodes added.
 
@@ -436,7 +446,9 @@ unrelated subtries remain authenticated by their hash references."
 PROOF may be the MPT-RANGE-PROOF returned by MPT-GET-RANGE-PROOF or the raw
 snap/1 list of encoded edge nodes. Missing or altered interior leaves rebuild
 a different root. A proofless response is accepted only when ENTRIES alone
-reconstruct the entire trie."
+reconstruct the entire trie. The second return value is the verified
+reconstructed trie for a non-empty range, allowing its new nodes to be
+persisted without rebuilding the same page."
   (mpt-range-entries-valid-p entries start end limit)
   (let* ((root-hash (if (hash32-p root-hash)
                         (hash32-bytes root-hash)
@@ -444,55 +456,57 @@ reconstruct the entire trie."
          (nodes (mpt-range-proof-nodes-list proof)))
     (unless (= 32 (length root-hash))
       (error "MPT range proof root must contain 32 bytes"))
-    (if (null nodes)
+    (cond
+      ((null nodes)
         (let ((trie (make-mpt)))
           (dolist (entry entries)
-            (mpt-put trie (car entry) (cdr entry)))
+            (mpt-put-proven-absent trie (car entry) (cdr entry)))
           (let ((reconstructed-root (mpt-root-hash trie)))
             (unless (bytes= root-hash reconstructed-root)
               (error
                "MPT proofless range of ~D entries reconstructs ~A, not ~A"
                (length entries) (bytes-to-hex reconstructed-root)
-               (bytes-to-hex root-hash)))))
-        (progn
-          (when (and (null entries) (null start))
-            (error "An empty compact MPT range requires an explicit origin"))
-          (let* ((first-key (or start (caar entries)))
-                 (proof-index (mpt-proof-node-index nodes)))
-            (when (null entries)
-              (flet ((resolver (hash)
-                       (let ((encoded (mpt-proof-index-node hash proof-index)))
-                         (values encoded (not (null encoded))))))
-                (let* ((trie (make-persisted-mpt root-hash #'resolver))
-                       (first
-                         (keybytes-to-nibbles first-key :terminator nil))
-                       (end-nibbles
-                         (and end
-                              (keybytes-to-nibbles end :terminator nil))))
-                  (when (mpt-node-has-key-in-half-open-range-p
-                         (mpt-root trie) (make-byte-vector 0)
-                         first end-nibbles (length first))
-                    (error "Empty MPT range omits an available entry"))))
-              (return-from mpt-verify-range-proof t))
-            (let* ((last-key (car (car (last entries)))))
-            (unless (= (length first-key) (length last-key))
-              (error "MPT range boundary keys have different lengths"))
-              (flet ((resolver (hash)
-                       (let ((encoded (mpt-proof-index-node hash proof-index)))
-                         (values encoded (not (null encoded))))))
-                (let* ((trie (make-persisted-mpt root-hash #'resolver))
-                       (first
-                         (keybytes-to-nibbles first-key :terminator nil))
-                       (last
-                         (keybytes-to-nibbles last-key :terminator nil)))
-                  (when (plusp (mpt-nibbles-compare first last))
-                    (error "MPT range edge keys are reversed"))
-                  (setf (mpt-root trie)
-                        (mpt-trim-range-node
-                         (mpt-root trie) (make-byte-vector 0)
-                         first last (length first)))
-                  (dolist (entry entries)
-                    (mpt-put trie (car entry) (cdr entry)))
-                  (unless (bytes= root-hash (mpt-root-hash trie))
-                    (error "MPT compact range proof root hash mismatch"))))))))
-    t))
+               (bytes-to-hex root-hash))))
+          (values t trie)))
+      ((null entries)
+       (unless start
+         (error "An empty compact MPT range requires an explicit origin"))
+       (let ((proof-index (mpt-proof-node-index nodes)))
+         (flet ((resolver (hash)
+                  (let ((encoded (mpt-proof-index-node hash proof-index)))
+                    (values encoded (not (null encoded))))))
+           (let* ((trie (make-persisted-mpt root-hash #'resolver))
+                  (first (keybytes-to-nibbles start :terminator nil))
+                  (end-nibbles
+                    (and end (keybytes-to-nibbles end :terminator nil))))
+             (when (mpt-node-has-key-in-half-open-range-p
+                    (mpt-root trie) (make-byte-vector 0)
+                    first end-nibbles (length first))
+               (error "Empty MPT range omits an available entry")))))
+       (values t nil))
+      (t
+       (let* ((first-key (or start (caar entries)))
+              (last-key (caar (last entries)))
+              (proof-index (mpt-proof-node-index nodes)))
+         (unless (= (length first-key) (length last-key))
+           (error "MPT range boundary keys have different lengths"))
+         (flet ((resolver (hash)
+                  (let ((encoded (mpt-proof-index-node hash proof-index)))
+                    (values encoded (not (null encoded))))))
+           (let* ((trie (make-persisted-mpt root-hash #'resolver))
+                  (first (keybytes-to-nibbles first-key :terminator nil))
+                  (last (keybytes-to-nibbles last-key :terminator nil)))
+             (when (plusp (mpt-nibbles-compare first last))
+               (error "MPT range edge keys are reversed"))
+             (setf (mpt-root trie)
+                   (mpt-trim-range-node
+                    (mpt-root trie) (make-byte-vector 0)
+                    first last (length first)))
+             (dolist (entry entries)
+               ;; Trimming removed this verified, gap-free interval. Its
+               ;; entries are therefore proven absent from the retained edge
+               ;; trie; avoid a redundant point traversal per leaf.
+               (mpt-put-proven-absent trie (car entry) (cdr entry)))
+             (unless (bytes= root-hash (mpt-root-hash trie))
+               (error "MPT compact range proof root hash mismatch"))
+             (values t trie))))))))

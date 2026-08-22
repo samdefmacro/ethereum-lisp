@@ -220,6 +220,25 @@
                                  value))))))
   trie)
 
+(defun mpt-put-proven-absent (trie key value)
+  "Insert a non-empty KEY whose absence is already established by the caller.
+
+Unlike MPT-PUT, this deliberately omits the defensive point lookup.  It is for
+verified, gap-free range reconstruction where a monotonic durable cursor proves
+that every key in the page is new.  General state transitions must keep using
+MPT-PUT so updating an existing leaf retains its ordinary checked semantics."
+  (let* ((key (ensure-byte-vector key))
+         (key-id (trie-key-id key))
+         (value (ensure-byte-vector value)))
+    (when (zerop (length value))
+      (error "A proven-absent MPT insertion requires a non-empty value"))
+    (setf (gethash key-id (mpt-entries trie)) value
+          (mpt-root trie)
+          (trie-put-node (mpt-root trie)
+                         (trie-path-with-terminator key)
+                         value)))
+  trie)
+
 (defun mpt-delete (trie key)
   (let* ((key (ensure-byte-vector key))
          (key-id (trie-key-id key)))

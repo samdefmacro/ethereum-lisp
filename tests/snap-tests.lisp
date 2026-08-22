@@ -3035,6 +3035,16 @@
              database :pivot-hash pivot-b :pivot-number 4010
              :state-root root-b :target-hash target-b :chain-id 560048
              :genesis-hash genesis :authority-id authority)))
+      (is (not
+           (hash32=
+            root-b
+            (ethereum-lisp.snap-sync:snap-sync-progress-partial-root
+             progress-b))))
+      (is (not
+           (hash32=
+            +empty-trie-hash+
+            (ethereum-lisp.snap-sync:snap-sync-progress-partial-root
+             progress-b))))
       (multiple-value-bind (checkpoint present-p)
           (ethereum-lisp.snap-sync::snap-sync-read-heal-checkpoint
            database progress-b)
