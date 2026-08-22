@@ -219,9 +219,13 @@ reject altered compact proofs, and prove that verified trie records perform no
 database reads while an authenticated put repairs a planted corrupt local
 value. They derive complete coarse subtrees from the verified range, reject
 proof-edge nodes, and publish the subtree hash in the same batch as its account
-cursor and external dependencies. The integration regression observes those
-proofs before any final TrieNodes traversal, then promotes the complete legacy
-range plan through a shallow trie walk and proves the promotion is idempotent.
+cursor and external dependencies. StorageRanges pages publish equivalent
+storage-subtree proofs with their node and cursor batch. The integration
+regressions observe both kinds before final TrieNodes traversal, then promote
+legacy account and completed-storage plans through shallow trie walks. An
+incomplete large-storage plan excludes only its account prefix bucket, rather
+than forcing a full account-tree rescan, and cannot publish the final promotion
+marker until its cursors finish.
 They batch complete small storage tries with each account cursor and
 prove that the range-only proven-absent insertion produces the
 same root as the ordinary checked insertion and rejects empty values,

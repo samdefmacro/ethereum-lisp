@@ -146,13 +146,15 @@ dependencies are durable too."
         (visit (mpt-root-node trie) (make-byte-vector 0)))
       (nreverse results))))
 
-(defun mpt-hashed-subtrees-at-prefix-depth (trie minimum-prefix-nibbles)
-  "Resolve only the shallow trie spine and return hashed subtree roots.
+(defun mpt-hashed-subtrees-with-prefix-at-depth
+    (trie minimum-prefix-nibbles)
+  "Resolve only the shallow trie spine and return prefixed subtree roots.
 
-The returned hashes are the first content-addressed references encountered at
-or below MINIMUM-PREFIX-NIBBLES.  Their descendants are deliberately not
-resolved.  This is suitable only when a separate trust proof already establishes
-that every descendant and external dependency is durable."
+Each result is `(PREFIX . HASH)`.  HASH is the first content-addressed
+reference encountered at or below MINIMUM-PREFIX-NIBBLES and PREFIX is its
+coarse bucket at exactly that depth.  Descendants are deliberately not
+resolved.  This is suitable only when a separate trust proof already
+establishes that every descendant and external dependency is durable."
   (unless (and (integerp minimum-prefix-nibbles)
                (<= 1 minimum-prefix-nibbles 64))
     (error "MPT subtree prefix depth must be between one and 64"))
@@ -164,7 +166,12 @@ that every descendant and external dependency is durable."
                ((and (>= (length pointer-path) minimum-prefix-nibbles)
                      (or (hash-node-p node)
                          (node-reference-hashed-p node)))
-                (push (node-hash node) results))
+                (push
+                 (cons
+                  (copy-seq
+                   (subseq pointer-path 0 minimum-prefix-nibbles))
+                  (node-hash node))
+                 results))
                ((hash-node-p node)
                 (visit (trie-resolve-node node) pointer-path))
                ((leaf-node-p node) nil)
@@ -184,6 +191,16 @@ that every descendant and external dependency is durable."
                (t (error "MPT contains an invalid node type"))))))
       (visit (mpt-root-node trie) (make-byte-vector 0)))
     (nreverse results)))
+
+(defun mpt-hashed-subtrees-at-prefix-depth (trie minimum-prefix-nibbles)
+  "Resolve only the shallow trie spine and return hashed subtree roots.
+
+This compatibility projection omits the coarse prefixes returned by
+MPT-HASHED-SUBTREES-WITH-PREFIX-AT-DEPTH."
+  (mapcar
+   #'cdr
+   (mpt-hashed-subtrees-with-prefix-at-depth
+    trie minimum-prefix-nibbles)))
 
 (defun mpt-populate-dirty-batch (batch trie &optional database)
   "Add TRIE's dirty nodes to BATCH and return the exact nodes added.

@@ -162,6 +162,7 @@
    #:mpt-persist
    #:mpt-dirty-node-records
    #:mpt-proved-range-subtrees
+   #:mpt-hashed-subtrees-with-prefix-at-depth
    #:mpt-hashed-subtrees-at-prefix-depth
    #:mpt-populate-dirty-batch
    #:mpt-mark-nodes-persisted

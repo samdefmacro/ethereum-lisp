@@ -168,12 +168,16 @@ them by their physical location instead reintroduces dependency cycles:
   root hashes are published as the same pivot-independent subtree proofs used by the
   healer. A later pivot therefore traverses only changed and boundary buckets,
   rather than rereading every range-ingested node once before it can build the
-  proof index. Buckets containing deferred storage are excluded until the
-  ordinary healer proves those dependencies. Pre-optimization range plans are
-  upgraded lazily: after all sixteen durable storage cursors prove their queued
-  dependencies, a depth-bounded walk resolves only the account trie's shallow
-  spine and publishes its coarse hashes in 2,048-record batches. An idempotency
-  marker follows the subtree records, so a crash can only repeat safe work.
+  proof index. Buckets containing deferred storage are excluded until those
+  dependencies are durable. StorageRanges pages apply the same rule directly
+  to their reconstructed storage trie, publishing coarse storage-subtree proofs
+  atomically with their node records and successor cursor. Pre-optimization
+  range plans are upgraded lazily with depth-bounded walks over only the account
+  and completed storage tries' shallow spines. Account buckets containing an
+  incomplete large-storage cursor set remain excluded while every other bucket
+  is immediately reusable; completed storage roots receive their own reusable
+  proofs. The records are written in 2,048-record batches and idempotency
+  markers follow them, so a crash can only repeat safe work.
   The authenticated prefix of byte-capped
   large storage is persisted immediately and its root is recorded beside that page
   in a state-root-scoped durable work set. Independently reconstructing every
@@ -192,7 +196,8 @@ them by their physical location instead reintroduces dependency cycles:
   and versioned per-range successor cursor. A restart resumes those exact
   cursors. Source exhaustion merely falls back to TrieNodes healing with all
   verified range pages retained. Completed ranges deliberately remain on the
-  deferred frontier so final healing traverses the full storage root locally
+  deferred frontier so final healing can verify or skip their storage roots
+  through the durable subtree proofs
   before it can publish completion. Work sets above the 8,192-item checkpoint
   bound also fall back to that path. Each bounded TrieNodes frontier is split
   into approximately 512-path chunks, always below the pinned geth limit of

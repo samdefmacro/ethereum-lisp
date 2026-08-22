@@ -293,7 +293,9 @@ The implementation boundary is split deliberately:
   set, and retries while local persistence/merge faults remain fatal. The CLI
   persists the authenticated prefix of a byte-capped storage response, then
   finishes that large trie through sixteen restart-safe, 512 KiB-capped
-  StorageRanges partitions before the final full-root local healing pass.
+  StorageRanges partitions. Each page publishes reusable coarse storage
+  subtree proofs with its durable cursor; legacy completed partitions receive
+  the same proofs from a shallow spine walk before final healing.
   advertises snap only when both sides are operational and only serves
   production state through the direct RocksDB provider.
 - `src/networking/eth-sync/sync.lisp` supplies the bounded downloader, while

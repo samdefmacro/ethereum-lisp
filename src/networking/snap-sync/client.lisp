@@ -70,6 +70,8 @@ remains disabled unless a controlled deployment binds it explicitly.")
   "Versioned value shared by deferred storage work and plan markers.")
 (defparameter +snap-sync-range-plan-promotion-prefix+
   (ascii-to-bytes "snap-range-plan-promoted-v1:"))
+(defparameter +snap-sync-storage-plan-promotion-prefix+
+  (ascii-to-bytes "snap-storage-plan-promoted-v1:"))
 (defconstant +snap-sync-range-plan-promotion-max-roots+ 64)
 (defparameter +snap-sync-storage-task-identifier-prefix+
   (ascii-to-bytes "snap-storage-range-task-v1:")
@@ -893,10 +895,12 @@ the exact authorized state root before completion."
 
 (defstruct (snap-sync-storage-page-result
             (:constructor make-snap-sync-storage-page-result
-                (&key task-index origin records next-origin completed-p)))
+                (&key task-index origin records healed-subtrees next-origin
+                      completed-p)))
   task-index
   origin
   records
+  healed-subtrees
   next-origin
   completed-p)
 
@@ -2311,6 +2315,22 @@ than cache misses."
        "Persisted snap range-plan promotion has an unknown version"))
     present-p))
 
+(defun snap-sync-storage-plan-promotion-identifier (storage-root)
+  (concatenate
+   'vector +snap-sync-storage-plan-promotion-prefix+
+   (hash32-bytes storage-root)))
+
+(defun snap-sync-storage-plan-promoted-p (database storage-root)
+  (multiple-value-bind (value present-p)
+      (kv-get-chain-record
+       database :metadata
+       (snap-sync-storage-plan-promotion-identifier storage-root))
+    (when (and present-p
+               (not (bytes= value +snap-sync-healed-subtree-value+)))
+      (ethereum-lisp.validation:storage-fail
+       "Persisted snap storage-plan promotion has an unknown version"))
+    present-p))
+
 (defun snap-sync-deferred-storage-plan-roots (database)
   "Return the bounded set of state roots with complete range-plan markers."
   (let* ((prefix +snap-sync-deferred-storage-plan-prefix+)
@@ -2375,40 +2395,117 @@ than cache misses."
              (make-hash32 (snap-sync-heal-work-reference work))))
           works))))
 
-(defun snap-sync-promote-complete-range-plan (database state-root)
-  "Turn one complete range plan into shallow reusable subtree proofs.
-
-The plan already proves every account range and external dependency. Resolving
-only the first few trie levels discovers the content hashes at the healer's
-coarse boundary; descendants are neither read nor revalidated."
-  (when (or (snap-sync-range-plan-promoted-p database state-root)
-            (not (snap-sync-range-plan-fully-durable-p database state-root)))
-    (return-from snap-sync-promote-complete-range-plan 0))
-  (let* ((references
-           (if (hash32= state-root +empty-trie-hash+)
-               '()
-               (mpt-hashed-subtrees-at-prefix-depth
-                (make-persisted-mpt
-                 state-root
-                 (lambda (hash) (trie-node-store-get database hash)))
-                *snap-sync-healed-subtree-prefix-nibbles*)))
-         (remaining references))
+(defun snap-sync-persist-promoted-subtrees
+    (database references kind &optional promotion-identifier)
+  "Publish reusable subtree proofs, then an optional idempotency marker."
+  (let ((remaining references))
     (loop while remaining
           do (let ((batch (make-kv-write-batch)))
                (dotimes (index +snap-sync-healed-subtrees-per-batch+)
                  (declare (ignore index))
                  (unless remaining (return))
                  (snap-sync-populate-healed-subtree-batch
-                  batch (pop remaining) :account))
-               (kv-apply-batch database batch)))
-    ;; Publish the root-level idempotency marker only after every independent
-    ;; subtree proof is durable. A crash before this batch safely repeats work.
+                  batch (pop remaining) kind))
+               (kv-apply-batch database batch))))
+  (when promotion-identifier
+    ;; Publish idempotency only after every independent subtree proof is
+    ;; durable. A crash before this batch safely repeats content-addressed
+    ;; writes.
     (let ((batch (make-kv-write-batch)))
       (kv-batch-put-chain-record
-       batch :metadata (snap-sync-range-plan-promotion-identifier state-root)
+       batch :metadata promotion-identifier
        +snap-sync-healed-subtree-value+)
-      (kv-apply-batch database batch))
-    (length references)))
+      (kv-apply-batch database batch)))
+  (length references))
+
+(defun snap-sync-promote-complete-storage-plan
+    (database state-root work &optional completed-p)
+  "Turn one completed legacy StorageRanges task set into subtree proofs."
+  (let ((storage-root
+          (make-hash32 (snap-sync-heal-work-reference work))))
+    (when (or (snap-sync-storage-plan-promoted-p database storage-root)
+              (not
+               (or completed-p
+                   (snap-sync-storage-range-tasks-completed-p
+                    database state-root
+                    (snap-sync-heal-work-account-hash work)
+                    storage-root))))
+      (return-from snap-sync-promote-complete-storage-plan 0))
+    (let ((references
+            (if (hash32= storage-root +empty-trie-hash+)
+                '()
+                (mpt-hashed-subtrees-at-prefix-depth
+                 (make-persisted-mpt
+                  storage-root
+                  (lambda (hash) (trie-node-store-get database hash)))
+                 *snap-sync-healed-subtree-prefix-nibbles*))))
+      (snap-sync-persist-promoted-subtrees
+       database references :storage
+       (snap-sync-storage-plan-promotion-identifier storage-root)))))
+
+(defun snap-sync-account-prefix-bucket (account-hash)
+  (let ((nibbles
+          (ethereum-lisp.trie.encoding:keybytes-to-nibbles
+           account-hash :terminator nil)))
+    (copy-seq
+     (subseq nibbles 0 *snap-sync-healed-subtree-prefix-nibbles*))))
+
+(defun snap-sync-promote-complete-range-plan (database state-root)
+  "Turn one trusted range plan into shallow reusable subtree proofs.
+
+The plan already proves every account range and code. Completed large-storage
+task sets independently prove their tries and are promoted as storage subtree
+proofs.  Account buckets containing an incomplete large-storage dependency are
+excluded, while all other buckets can be promoted immediately. Descendants are
+never read or revalidated."
+  (multiple-value-bind (works trusted-plan-p overflow-p)
+      (snap-sync-deferred-storage-works database state-root)
+    (unless (and trusted-plan-p (not overflow-p))
+      (return-from snap-sync-promote-complete-range-plan 0))
+    (let ((complete-works '())
+          (incomplete-works '())
+          (promoted 0))
+      (dolist (work works)
+        (if (snap-sync-storage-range-tasks-completed-p
+             database state-root
+             (snap-sync-heal-work-account-hash work)
+             (make-hash32 (snap-sync-heal-work-reference work)))
+            (push work complete-works)
+            (push work incomplete-works)))
+      (dolist (work complete-works)
+        (incf promoted
+              (snap-sync-promote-complete-storage-plan
+               database state-root work t)))
+      (unless (snap-sync-range-plan-promoted-p database state-root)
+        (let* ((unsafe-buckets (make-hash-table :test #'equalp))
+               (prefixed-references
+                 (if (hash32= state-root +empty-trie-hash+)
+                     '()
+                     (mpt-hashed-subtrees-with-prefix-at-depth
+                      (make-persisted-mpt
+                       state-root
+                       (lambda (hash) (trie-node-store-get database hash)))
+                      *snap-sync-healed-subtree-prefix-nibbles*))))
+          (dolist (work incomplete-works)
+            (setf
+             (gethash
+              (snap-sync-account-prefix-bucket
+               (snap-sync-heal-work-account-hash work))
+              unsafe-buckets)
+             t))
+          (let ((safe-references
+                  (loop for (prefix . reference) in prefixed-references
+                        unless (gethash prefix unsafe-buckets)
+                          collect reference)))
+            (incf
+             promoted
+             (snap-sync-persist-promoted-subtrees
+              database safe-references :account
+              ;; Incomplete buckets are retried after their StorageRanges
+              ;; cursors finish; do not freeze a partial promotion as final.
+              (and (null incomplete-works)
+                   (snap-sync-range-plan-promotion-identifier state-root)))))))
+      promoted)))
 
 (defun snap-sync-promote-complete-range-plans (database)
   "Backfill shallow subtree proofs for trusted pre-optimization range plans."
@@ -2458,12 +2555,22 @@ coarse boundary; descendants are neither read nor revalidated."
                        last-wire limit))))
                (next-origin
                  (and (not completed-p) last-wire
-                      (snap-sync-increment-hash last-wire))))
+                      (snap-sync-increment-hash last-wire)))
+               (proved-end (if completed-p limit last-wire))
+               (healed-subtrees
+                 (if (and trie proved-end)
+                     (mapcar
+                      #'cdr
+                      (mpt-proved-range-subtrees
+                       trie origin proved-end
+                       *snap-sync-healed-subtree-prefix-nibbles*))
+                     '())))
           (when (and (not completed-p) (null next-origin))
             (error "Snap storage range page did not advance its task"))
           (make-snap-sync-storage-page-result
            :task-index task-index :origin (copy-seq origin)
            :records (snap-sync-verified-account-records trie proof)
+           :healed-subtrees healed-subtrees
            :next-origin next-origin :completed-p completed-p))))))
 
 (defun snap-sync-commit-storage-page
@@ -2491,6 +2598,13 @@ coarse boundary; descendants are neither read nor revalidated."
        database batch (snap-sync-storage-page-result-records result))
       (snap-sync-populate-storage-task-batch
        batch state-root account-hash storage-root task-index replacement)
+      ;; Storage leaves have no external state dependencies. Publish these
+      ;; range-derived completion proofs in the same batch as their nodes and
+      ;; cursor so a crash can never expose a proof ahead of durable content.
+      (dolist (reference
+               (snap-sync-storage-page-result-healed-subtrees result))
+        (snap-sync-populate-healed-subtree-batch
+         batch reference :storage))
       (kv-apply-batch database batch)
       next)))
 

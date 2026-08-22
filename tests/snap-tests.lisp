@@ -446,31 +446,66 @@
           (ethereum-lisp.snap-sync::snap-sync-promote-complete-range-plan
            target-database root)))))))
 
-(deftest snap-range-plan-promotion-requires-complete-storage-cursors
+(deftest snap-range-plan-promotion-excludes-incomplete-storage-bucket
   (:layer :unit :module :p2p)
   (let* ((database (make-memory-key-value-database))
-         (state-root (make-hash32 (snap-test-hash 245)))
+         (trie (make-mpt))
+         (unsafe-account (snap-test-hash 246))
          (commitment
-           (cons (snap-test-hash 246)
+           (cons unsafe-account
                  (make-hash32 (snap-test-hash 247))))
          (batch (make-kv-write-batch)))
-    (ethereum-lisp.snap-sync::snap-sync-populate-deferred-storage-batch
-     batch state-root commitment)
-    (ethereum-lisp.snap-sync::snap-sync-populate-deferred-storage-plan-batch
-     batch state-root)
-    (kv-apply-batch database batch)
-    (is
-     (not
-      (ethereum-lisp.snap-sync::snap-sync-range-plan-fully-durable-p
-       database state-root)))
-    (is
-     (zerop
-      (ethereum-lisp.snap-sync::snap-sync-promote-complete-range-plan
-       database state-root)))
-    (is
-     (not
-      (ethereum-lisp.snap-sync::snap-sync-range-plan-promoted-p
-       database state-root)))))
+    ;; Give every first-nibble bucket a hashed child so the test can prove
+    ;; that one incomplete storage dependency excludes only its own bucket.
+    (dotimes (nibble 16)
+      (let ((key (make-byte-vector 32 :initial-element nibble)))
+        (setf (aref key 0) (logior (ash nibble 4) nibble))
+        (mpt-put trie key (make-byte-vector 64 :initial-element (1+ nibble)))))
+    (let ((state-root (mpt-persist database trie)))
+      (ethereum-lisp.snap-sync::snap-sync-populate-deferred-storage-batch
+       batch state-root commitment)
+      (ethereum-lisp.snap-sync::snap-sync-populate-deferred-storage-plan-batch
+       batch state-root)
+      (kv-apply-batch database batch)
+      (is
+       (not
+        (ethereum-lisp.snap-sync::snap-sync-range-plan-fully-durable-p
+         database state-root)))
+      (let* ((ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
+               1)
+             (references
+               (mpt-hashed-subtrees-with-prefix-at-depth
+                (make-persisted-mpt
+                 state-root
+                 (lambda (hash) (trie-node-store-get database hash)))
+                1))
+             (unsafe-prefix
+               (ethereum-lisp.snap-sync::snap-sync-account-prefix-bucket
+                unsafe-account))
+             (unsafe-reference
+               (cdr (find unsafe-prefix references :key #'car :test #'equalp)))
+             (safe-reference
+               (cdr
+                (find-if
+                 (lambda (entry) (not (equalp unsafe-prefix (car entry))))
+                 references))))
+        (is (plusp (length references)))
+        (is
+         (plusp
+          (ethereum-lisp.snap-sync::snap-sync-promote-complete-range-plan
+           database state-root)))
+        (is
+         (ethereum-lisp.snap-sync::snap-sync-healed-subtree-present-p
+          database safe-reference :account))
+        (is
+         (not
+          (ethereum-lisp.snap-sync::snap-sync-healed-subtree-present-p
+           database unsafe-reference :account)))
+        ;; Partial promotion must retry after this storage cursor set finishes.
+        (is
+         (not
+          (ethereum-lisp.snap-sync::snap-sync-range-plan-promoted-p
+           database state-root)))))))
 
 (deftest snap-state-import-defers-byte-capped-storage-to-resumable-healing
   (:layer :integration :module :p2p)
@@ -652,6 +687,120 @@
            target-database storage-root)
         (is present-p)
         (is (plusp (length node)))))))
+
+(deftest snap-storage-range-page-publishes-proved-subtrees
+  (:layer :integration :module :p2p)
+  (let* ((source-state (make-state-db))
+         (source-database (make-memory-key-value-database))
+         (target-database (make-memory-key-value-database))
+         (address
+           (address-from-hex
+            "0x0000000000000000000000000000000000000046"))
+         (account-hash
+           (ethereum-lisp.crypto:keccak-256 (address-bytes address))))
+    (loop for byte from 1 to 128
+          do (state-db-set-storage
+              source-state address
+              (make-hash32 (make-byte-vector 32 :initial-element byte))
+              (+ 4000 byte)))
+    (let* ((state-root (state-db-root source-state))
+           (storage-root (state-db-get-storage-root source-state address))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              source-database source-state))
+           (source (snap-test-source backend))
+           (origin (make-byte-vector 32))
+           (limit (make-byte-vector 32 :initial-element #xff))
+           (task
+             (ethereum-lisp.snap-sync::snap-sync-account-task
+              :start origin :limit limit :next-origin origin
+              :completed-p nil)))
+      (let* ((ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
+               1)
+             (result
+               (ethereum-lisp.snap-sync::snap-sync-prepare-storage-page
+                source state-root account-hash storage-root 0 task
+                (* 512 1024))))
+        (is
+         (ethereum-lisp.snap-sync::snap-sync-storage-page-result-next-origin
+          result))
+        (is
+         (plusp
+          (length
+           (ethereum-lisp.snap-sync::snap-sync-storage-page-result-healed-subtrees
+            result))))
+        (ethereum-lisp.snap-sync::snap-sync-commit-storage-page
+         target-database state-root account-hash storage-root
+         (list task) result)
+        (is
+         (every
+          (lambda (reference)
+            (ethereum-lisp.snap-sync::snap-sync-healed-subtree-present-p
+             target-database reference :storage))
+          (ethereum-lisp.snap-sync::snap-sync-storage-page-result-healed-subtrees
+           result)))))))
+
+(deftest snap-legacy-storage-plan-promotes-without-descendant-scan
+  (:layer :unit :module :p2p)
+  (let* ((state (make-state-db))
+         (database (make-memory-key-value-database))
+         (address
+           (address-from-hex
+            "0x0000000000000000000000000000000000000047"))
+         (account-hash
+           (ethereum-lisp.crypto:keccak-256 (address-bytes address))))
+    (loop for byte from 1 to 128
+          do (state-db-set-storage
+              state address
+              (make-hash32 (make-byte-vector 32 :initial-element byte))
+              (+ 5000 byte)))
+    (let* ((state-root
+             (progn
+               (state-db-root state)
+               (mpt-persist
+                database (ethereum-lisp.state::state-db-state-trie state))))
+           (object (ethereum-lisp.state::state-db-get-object state address))
+           (storage-root
+             (mpt-persist
+              database
+              (ethereum-lisp.state::state-object-storage-trie object)))
+           (commitment (cons account-hash storage-root))
+           (tasks
+             (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+              :count ethereum-lisp.snap-sync::+snap-sync-storage-task-count+
+              :completed-p t))
+           (batch (make-kv-write-batch)))
+      (ethereum-lisp.snap-sync::snap-sync-populate-deferred-storage-batch
+       batch state-root commitment)
+      (ethereum-lisp.snap-sync::snap-sync-populate-deferred-storage-plan-batch
+       batch state-root)
+      (loop for task in tasks
+            for task-index from 0
+            do (ethereum-lisp.snap-sync::snap-sync-populate-storage-task-batch
+                batch state-root account-hash storage-root task-index task))
+      (kv-apply-batch database batch)
+      (let ((ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
+              1))
+        (let ((references
+                (mpt-hashed-subtrees-at-prefix-depth
+                 (make-persisted-mpt
+                  storage-root
+                  (lambda (hash) (trie-node-store-get database hash)))
+                 1)))
+          (is (plusp (length references)))
+          (is
+           (plusp
+            (ethereum-lisp.snap-sync::snap-sync-promote-complete-range-plan
+             database state-root)))
+          (is
+           (ethereum-lisp.snap-sync::snap-sync-storage-plan-promoted-p
+            database storage-root))
+          (is
+           (every
+            (lambda (reference)
+              (ethereum-lisp.snap-sync::snap-sync-healed-subtree-present-p
+               database reference :storage))
+            references)))))))
 
 #+sbcl
 (deftest snap-large-storage-ranges-use-live-sources-concurrently
