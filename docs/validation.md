@@ -218,7 +218,8 @@ authenticated reconstructed page for direct content-addressed persistence,
 reject altered compact proofs, and prove that verified trie records and
 hash-matched bytecodes perform no database reads while authenticated puts
 repair planted corrupt local values. They derive complete coarse subtrees from
-the verified range, reject
+the verified range, batch code-existence probes before requesting a page's
+missing bytecodes, reject
 proof-edge nodes, and publish the subtree hash in the same batch as its account
 cursor and external dependencies. StorageRanges pages publish equivalent
 storage-subtree proofs with their node and cursor batch. The integration

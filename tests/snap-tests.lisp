@@ -4069,22 +4069,28 @@
            (loop for index below unique-count
                  collect (snap-test-index-hash index)))
          (hashes (append unique (mapcar #'copy-seq unique)))
-         (lookup-count 0)
+         (lookup-batches 0)
+         (lookup-items 0)
          (comparison-count 0)
-         (real-get
-           (fdefinition 'ethereum-lisp.database:kv-get-chain-record))
+         (real-get-many
+           (fdefinition 'ethereum-lisp.database:kv-get-chain-records))
          (real-bytes=
            (fdefinition 'ethereum-lisp.bytes:bytes=)))
     (unwind-protect
          (progn
            (setf
-            (fdefinition 'ethereum-lisp.database:kv-get-chain-record)
-            (lambda (candidate kind identifier &optional default)
+            (fdefinition 'ethereum-lisp.database:kv-get-chain-records)
+            (lambda (candidate kind identifiers &optional default)
               (if (and (eq candidate database) (eq kind :code))
                   (progn
-                    (incf lookup-count)
-                    (values (make-byte-vector 0) t))
-                  (funcall real-get candidate kind identifier default))))
+                    (incf lookup-batches)
+                    (incf lookup-items (length identifiers))
+                    (values
+                     (make-array (length identifiers) :initial-element nil)
+                     (make-array (length identifiers) :element-type 'bit
+                                                      :initial-element 1)))
+                  (funcall real-get-many
+                           candidate kind identifiers default))))
            (setf
             (fdefinition 'ethereum-lisp.bytes:bytes=)
             (lambda (left right)
@@ -4098,9 +4104,11 @@
            (is (null
                 (ethereum-lisp.snap-sync::snap-sync-heal-missing-code-hashes
                  database hashes)))
-           (is (= unique-count lookup-count))
+           (is (= 1 lookup-batches))
+           (is (= unique-count lookup-items))
            (is (= 0 comparison-count)))
-      (setf (fdefinition 'ethereum-lisp.database:kv-get-chain-record) real-get
+      (setf (fdefinition 'ethereum-lisp.database:kv-get-chain-records)
+            real-get-many
             (fdefinition 'ethereum-lisp.bytes:bytes=) real-bytes=))))
 
 (deftest snap-heal-code-hashes-preserve-order-and-reject-malformed-input
@@ -4144,7 +4152,9 @@
          (genesis (make-hash32 (snap-test-hash 233)))
          (authority (make-hash32 (snap-test-hash 234)))
          (request-sizes '())
-         (target-code-lookups 0))
+         (target-code-point-lookups 0)
+         (target-code-lookup-batches 0)
+         (target-code-lookup-items 0))
     (loop for address in addresses
           for code in codes
           do (state-db-set-account
@@ -4186,6 +4196,8 @@
                :count 1 :completed-p t)))
            (real-get
              (fdefinition 'ethereum-lisp.database:kv-get-chain-record))
+           (real-get-many
+             (fdefinition 'ethereum-lisp.database:kv-get-chain-records))
            (completed nil))
       (unwind-protect
            (progn
@@ -4193,19 +4205,31 @@
               (fdefinition 'ethereum-lisp.database:kv-get-chain-record)
               (lambda (database kind identifier &optional default)
                 (when (and (eq database target-database) (eq kind :code))
-                  (incf target-code-lookups))
+                  (incf target-code-point-lookups))
                 (funcall real-get database kind identifier default)))
+             (setf
+              (fdefinition 'ethereum-lisp.database:kv-get-chain-records)
+              (lambda (database kind identifiers &optional default)
+                (when (and (eq database target-database) (eq kind :code))
+                  (incf target-code-lookup-batches)
+                  (incf target-code-lookup-items (length identifiers)))
+                (funcall real-get-many database kind identifiers default)))
              (setf completed
                    (ethereum-lisp.snap-sync::snap-sync-heal-state
                     target-database (list source) progress 350
                     :code-batch-limit 2)))
         (setf (fdefinition 'ethereum-lisp.database:kv-get-chain-record)
-              real-get))
+              real-get
+              (fdefinition 'ethereum-lisp.database:kv-get-chain-records)
+              real-get-many))
       (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p completed))
       (is (equal '(2 1) (nreverse request-sizes)))
-      ;; One missing check and one collision-safe batch check per distinct
-      ;; code hash.  The repeated account code does not add a database lookup.
-      (is (= 6 target-code-lookups))
+      ;; One bounded MultiGet per two-code flush discovers missing hashes.
+      ;; Verified content-addressed writes need no collision point reads, and
+      ;; the repeated account code does not add a database lookup.
+      (is (zerop target-code-point-lookups))
+      (is (= 2 target-code-lookup-batches))
+      (is (= 3 target-code-lookup-items))
       (dolist (code (list code-a code-b code-c))
         (multiple-value-bind (persisted present-p)
             (kv-get-chain-record target-database :code (keccak-256 code))

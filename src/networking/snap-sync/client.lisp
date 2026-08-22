@@ -815,6 +815,35 @@ the exact authorized state root before completion."
     (kv-batch-put-chain-record batch :code (car entry) (cdr entry)))
   batch)
 
+(defun snap-sync-heal-missing-code-hashes (database hashes)
+  "Return distinct missing code hashes in first-seen order using MultiGet."
+  (let ((seen (make-hash-table :test #'equalp))
+        (unique '())
+        (missing '()))
+    ;; Account values are peer-derived. Reject malformed commitments before
+    ;; they reach either the database key codec or the wire request. EQUALP
+    ;; hashes octet vectors by content without quadratic byte comparisons.
+    (dolist (hash hashes)
+      (unless (and (byte-vector-p hash) (= 32 (length hash)))
+        (error "Snap healing code hash must contain exactly 32 bytes"))
+      (unless (nth-value 1 (gethash hash seen))
+        (setf (gethash hash seen) t)
+        (push hash unique)))
+    (setf unique (nreverse unique))
+    (loop while unique
+          for count = (min +kv-get-many-max-keys+ (length unique))
+          for identifiers = (coerce (subseq unique 0 count) 'vector)
+          do
+             (multiple-value-bind (records present)
+                 (kv-get-chain-records database :code identifiers)
+               (declare (ignore records))
+               (loop for hash across identifiers
+                     for index from 0
+                     unless (= 1 (aref present index))
+                       do (push hash missing)))
+             (setf unique (nthcdr count unique)))
+    (nreverse missing)))
+
 (defun snap-sync-complete-batch (batch progress)
   (kv-batch-put-chain-record
    batch :state-history
@@ -1204,7 +1233,9 @@ frontier also falls back safely instead of creating an uncheckpointable run."
                (snap-sync-page-storage-commitments entries)
                (min byte-limit +snap-sync-storage-request-bytes+)))
             (code-hashes (snap-sync-page-code-hashes entries)))
-        (let* ((proved-end (if complete-p limit last-entry))
+        (let* ((missing-code-hashes
+                 (snap-sync-heal-missing-code-hashes database code-hashes))
+               (proved-end (if complete-p limit last-entry))
                (candidates
                  (if (and account-trie proved-end)
                      (mpt-proved-range-subtrees
@@ -1230,8 +1261,9 @@ frontier also falls back safely instead of creating an uncheckpointable run."
            :task-index task-index
            :origin (copy-seq origin)
            :account-records account-records
-           :codes (if code-hashes
-                      (snap-sync-fetch-codes source code-hashes byte-limit)
+           :codes (if missing-code-hashes
+                      (snap-sync-fetch-codes
+                       source missing-code-hashes byte-limit)
                       '())
            :deferred-storage deferred-storage
            :healed-subtrees safe-subtrees
@@ -1879,22 +1911,6 @@ the returned record in the same batch as its new skeleton metadata."
        (snap-sync-signal-sources-exhausted :healing (nreverse errors)))
       (t
        (error "Snap healing requires a live source")))))
-
-(defun snap-sync-heal-missing-code-hashes (database hashes)
-  (let ((seen (make-hash-table :test #'equalp))
-        (missing '()))
-    ;; Account values are peer-derived.  Reject malformed code commitments
-    ;; before they reach either the database key codec or the wire request.
-    ;; EQUALP hashes fixed-width octet vectors by content, keeping this scan
-    ;; linear while preserving the first-seen order of distinct hashes.
-    (dolist (hash hashes)
-      (unless (and (byte-vector-p hash) (= 32 (length hash)))
-        (error "Snap healing code hash must contain exactly 32 bytes"))
-      (unless (nth-value 1 (gethash hash seen))
-        (setf (gethash hash seen) t)
-        (unless (nth-value 1 (kv-get-chain-record database :code hash))
-          (push hash missing))))
-    (nreverse missing)))
 
 (defun snap-sync-heal-fetch-codes
     (database sources hashes byte-limit on-source-error)
