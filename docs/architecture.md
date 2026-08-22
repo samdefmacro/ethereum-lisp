@@ -141,7 +141,11 @@ them by their physical location instead reintroduces dependency cycles:
   snap service. A CL-authorized pivot binds the state download to target hash,
   chain, genesis, and database authority. Fresh imports split the account
   keyspace into thirty-two durable ranges. Two bounded workers share each
-  available snap peer's sole-writer request queue, so a second range can use the
+  available snap peer. Its session thread remains the only RLPx writer, but it
+  may pipeline one account, storage, bytecode, and trie-node request at once;
+  decoded replies are matched by response type and request id before waking the
+  worker. Synchronous eth jobs wait for an empty SNAP response seam, so they
+  cannot consume a pipelined reply. A second range can therefore use the
   connection while the first verifies its proof or writes RocksDB; an older
   sixteen-range progress record remains resumable. Each request keeps geth's
   512 KiB soft limit, while one coordinator serializes verified record and

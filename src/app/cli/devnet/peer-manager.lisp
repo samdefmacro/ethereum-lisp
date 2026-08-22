@@ -30,8 +30,15 @@ nothing would hold a thread and a descriptor indefinitely.")
 
 #+sbcl
 (defstruct (devnet-peer-request-job
-            (:constructor make-devnet-peer-request-job (function)))
+            (:constructor make-devnet-peer-request-job
+                (function &key snap-response-id snap-request-id)))
   function
+  ;; NIL identifies an ordinary synchronous eth/session job. A snap job names
+  ;; its response message and request id, allowing one in-flight request per
+  ;; snap response type without ever giving up the session's sole writer.
+  snap-response-id
+  snap-request-id
+  deadline
   (lock (sb-thread:make-mutex :name "ethereum-lisp-peer-request-job"))
   (changed (sb-thread:make-waitqueue :name "ethereum-lisp-peer-request-job"))
   values
@@ -43,26 +50,31 @@ nothing would hold a thread and a descriptor indefinitely.")
             (:constructor make-devnet-peer-request-queue ()))
   (lock (sb-thread:make-mutex :name "ethereum-lisp-peer-request-queue"))
   (pending '())
+  (active '())
   closed-p)
 
 #+sbcl
 (defun devnet-peer-request-job-finish (job values condition)
   (sb-thread:with-mutex ((devnet-peer-request-job-lock job))
-    (setf (devnet-peer-request-job-values job) values
-          (devnet-peer-request-job-condition job) condition
-          (devnet-peer-request-job-done-p job) t)
-    (sb-thread:condition-broadcast
-     (devnet-peer-request-job-changed job))))
+    (unless (devnet-peer-request-job-done-p job)
+      (setf (devnet-peer-request-job-values job) values
+            (devnet-peer-request-job-condition job) condition
+            (devnet-peer-request-job-done-p job) t)
+      (sb-thread:condition-broadcast
+       (devnet-peer-request-job-changed job))
+      t)))
 
 #+sbcl
 (defun devnet-peer-request-queue-close (queue)
-  "Close QUEUE and fail every job not yet taken by the session writer."
-  (let ((pending nil))
+  "Close QUEUE and fail every queued or in-flight coordinator job."
+  (let ((jobs nil))
     (sb-thread:with-mutex ((devnet-peer-request-queue-lock queue))
       (setf (devnet-peer-request-queue-closed-p queue) t
-            pending (prog1 (devnet-peer-request-queue-pending queue)
-                      (setf (devnet-peer-request-queue-pending queue) nil))))
-    (dolist (job pending)
+            jobs (append (devnet-peer-request-queue-pending queue)
+                         (devnet-peer-request-queue-active queue))
+            (devnet-peer-request-queue-pending queue) nil
+            (devnet-peer-request-queue-active queue) nil))
+    (dolist (job jobs)
       (devnet-peer-request-job-finish
        job nil
        (make-condition 'simple-error
@@ -71,41 +83,147 @@ nothing would hold a thread and a descriptor indefinitely.")
   t)
 
 #+sbcl
+(defun devnet-peer-request-queue-submit-job (queue job)
+  "Queue JOB, wait for its session-owned completion, and return its values."
+  (sb-thread:with-mutex ((devnet-peer-request-queue-lock queue))
+    (when (devnet-peer-request-queue-closed-p queue)
+      (error "peer session request queue is closed"))
+    (setf (devnet-peer-request-queue-pending queue)
+          (nconc (devnet-peer-request-queue-pending queue) (list job))))
+  (sb-thread:with-mutex ((devnet-peer-request-job-lock job))
+    (loop until (devnet-peer-request-job-done-p job)
+          do (sb-thread:condition-wait
+              (devnet-peer-request-job-changed job)
+              (devnet-peer-request-job-lock job))))
+  (when (devnet-peer-request-job-condition job)
+    (error (devnet-peer-request-job-condition job)))
+  (values-list (devnet-peer-request-job-values job)))
+
+#+sbcl
 (defun devnet-peer-request-queue-submit (queue function)
-  "Run FUNCTION on the queue's session writer and preserve all return values."
+  "Run synchronous FUNCTION on the queue's session writer."
   (unless (functionp function)
     (error "Peer request job must be a function"))
-  (let ((job (make-devnet-peer-request-job function)))
+  (devnet-peer-request-queue-submit-job
+   queue (make-devnet-peer-request-job function)))
+
+#+sbcl
+(defun devnet-peer-request-queue-submit-snap
+    (queue peer message-id request)
+  "Pipeline one typed snap request through PEER's sole-writer session.
+
+Only one request for each response message type may be in flight. Different
+account, storage, bytecode, and trie-node response types may overlap and are
+routed back to their waiting worker by message type plus request id."
+  (let ((request-id (ethereum-lisp.snap:snap-request-id message-id request)))
+    (unless (integerp request-id)
+      (error "Snap request has no request id for message ~D" message-id))
+    (devnet-peer-request-queue-submit-job
+     queue
+     (make-devnet-peer-request-job
+      (lambda ()
+        (ethereum-lisp.eth-sync:eth-peer-start-snap-request
+         peer message-id request))
+      :snap-response-id (1+ message-id)
+      :snap-request-id request-id))))
+
+#+sbcl
+(defun devnet-peer-request-monotonic-seconds ()
+  (/ (get-internal-real-time)
+     (float internal-time-units-per-second 1d0)))
+
+#+sbcl
+(defun devnet-peer-request-queue-complete-snap
+    (queue job response)
+  (sb-thread:with-mutex ((devnet-peer-request-queue-lock queue))
+    (setf (devnet-peer-request-queue-active queue)
+          (delete job (devnet-peer-request-queue-active queue)
+                  :test #'eq :count 1)))
+  (devnet-peer-request-job-finish job (list response) nil))
+
+#+sbcl
+(defun devnet-peer-snap-response-handler (queue)
+  "Return the session-owned decoder/router for QUEUE's pipelined responses."
+  (lambda (message-id payload)
+    (let ((job
+            (sb-thread:with-mutex ((devnet-peer-request-queue-lock queue))
+              (find message-id (devnet-peer-request-queue-active queue)
+                    :key #'devnet-peer-request-job-snap-response-id))))
+      (when job
+        (let ((response
+                (ethereum-lisp.snap:decode-snap-message message-id payload)))
+          (unless (= (devnet-peer-request-job-snap-request-id job)
+                     (ethereum-lisp.snap:snap-response-id
+                      message-id response))
+            (error "Snap response id does not match its in-flight request"))
+          (devnet-peer-request-queue-complete-snap queue job response)
+          t)))))
+
+#+sbcl
+(defun devnet-peer-request-queue-take-eligible (queue)
+  "Take one job that cannot consume a live response belonging to another job."
+  (let ((now (devnet-peer-request-monotonic-seconds)))
     (sb-thread:with-mutex ((devnet-peer-request-queue-lock queue))
-      (when (devnet-peer-request-queue-closed-p queue)
-        (error "peer session request queue is closed"))
-      (setf (devnet-peer-request-queue-pending queue)
-            (nconc (devnet-peer-request-queue-pending queue) (list job))))
-    (sb-thread:with-mutex ((devnet-peer-request-job-lock job))
-      (loop until (devnet-peer-request-job-done-p job)
-            do (sb-thread:condition-wait
-                (devnet-peer-request-job-changed job)
-                (devnet-peer-request-job-lock job))))
-    (when (devnet-peer-request-job-condition job)
-      (error (devnet-peer-request-job-condition job)))
-    (values-list (devnet-peer-request-job-values job))))
+      (let ((expired
+              (find-if
+               (lambda (job)
+                 (let ((deadline (devnet-peer-request-job-deadline job)))
+                   (and deadline (>= now deadline))))
+               (devnet-peer-request-queue-active queue))))
+        (when expired
+          (error
+           "snap/1 request ~D exceeded the 30 second wall-clock deadline"
+           (devnet-peer-request-job-snap-request-id expired))))
+      (let ((job
+              (find-if
+               (lambda (candidate)
+                 (let ((response-id
+                         (devnet-peer-request-job-snap-response-id candidate)))
+                   (if response-id
+                       (not
+                        (find response-id
+                              (devnet-peer-request-queue-active queue)
+                              :key #'devnet-peer-request-job-snap-response-id))
+                       ;; ETH-PEER-AWAIT cannot coexist with an asynchronous
+                       ;; snap response: it would reject that response as
+                       ;; unsolicited. Run synchronous jobs only at an empty
+                       ;; response seam.
+                       (null (devnet-peer-request-queue-active queue)))))
+               (devnet-peer-request-queue-pending queue))))
+        (when job
+          (setf (devnet-peer-request-queue-pending queue)
+                (delete job (devnet-peer-request-queue-pending queue)
+                        :test #'eq :count 1))
+          (when (devnet-peer-request-job-snap-response-id job)
+            (setf (devnet-peer-request-job-deadline job) (+ now 30d0))
+            (push job (devnet-peer-request-queue-active queue)))
+          job)))))
 
 #+sbcl
 (defun devnet-peer-pending-request (queue)
   "Return a closure that hands the pump its next writer-owned request thunk."
   (lambda ()
-    (let ((job
-            (sb-thread:with-mutex ((devnet-peer-request-queue-lock queue))
-              (pop (devnet-peer-request-queue-pending queue)))))
+    (let ((job (devnet-peer-request-queue-take-eligible queue)))
       (when job
         (lambda ()
           (handler-case
-              (devnet-peer-request-job-finish
-               job
-               (multiple-value-list
-                (funcall (devnet-peer-request-job-function job)))
-               nil)
+              (if (devnet-peer-request-job-snap-response-id job)
+                  ;; Sending returns immediately; the session's read path
+                  ;; finishes this job after decoding its matching response.
+                  (funcall (devnet-peer-request-job-function job))
+                  (devnet-peer-request-job-finish
+                   job
+                   (multiple-value-list
+                    (funcall (devnet-peer-request-job-function job)))
+                   nil))
             (serious-condition (condition)
+              (when (devnet-peer-request-job-snap-response-id job)
+                (sb-thread:with-mutex
+                    ((devnet-peer-request-queue-lock queue))
+                  (setf (devnet-peer-request-queue-active queue)
+                        (delete job
+                                (devnet-peer-request-queue-active queue)
+                                :test #'eq :count 1))))
               (devnet-peer-request-job-finish job nil condition)
               ;; A mid-frame fault makes the stream unusable. Wake the
               ;; coordinator, then propagate so session teardown closes it.
@@ -222,6 +340,9 @@ a dial knows who it is calling before it connects and so never reserves."
                        :pending-request
                        (let ((queue (devnet-peer-entry-request-queue entry)))
                          (and queue (devnet-peer-pending-request queue)))
+                       :snap-response-handler
+                       (let ((queue (devnet-peer-entry-request-queue entry)))
+                         (and queue (devnet-peer-snap-response-handler queue)))
                        :pending-chain-update
                        (devnet-peer-pending-chain-update node peer)
                        ;; Our own pool reaches this peer through here, as DATA

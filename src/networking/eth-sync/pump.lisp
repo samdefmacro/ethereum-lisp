@@ -16,10 +16,11 @@
 ;;;;
 ;;;; THREE CONTRACTS a caller must not break:
 ;;;;
-;;;; 1. ONE REQUEST IN FLIGHT PER PEER. ETH-PEER-AWAIT drops a reply whose id
-;;;;    does not match the one it is waiting for, without offering it to the
-;;;;    handler, so two overlapping requests lose each other's replies. Every
-;;;;    request this loop issues is issued from its own top level, one at a time.
+;;;; 1. SYNCHRONOUS REQUESTS NEVER OVERLAP. ETH-PEER-AWAIT drops a reply whose
+;;;;    id does not match the one it is waiting for. The production queue may
+;;;;    pipeline one snap request per response message type, but those replies
+;;;;    are routed by SNAP-RESPONSE-HANDLER and every ordinary synchronous eth
+;;;;    job waits for an empty snap seam before it starts.
 ;;;;
 ;;;; 2. THE LOOP IS THE ONLY WRITER ON ITS CONNECTION. RLPX-WRITE-FRAME advances
 ;;;;    the egress cipher and the running MAC per frame, and nothing locks it. A
@@ -115,6 +116,7 @@ gate."
                readable-function
                stop-p
                pending-request
+               snap-response-handler
                pending-chain-update
                pending-broadcast
                on-event
@@ -137,8 +139,11 @@ never write to this connection themselves -- see contract 2 in the file header.
 
 PENDING-REQUEST returns a zero-argument thunk representing one coordinator job.
 The thunk runs here, on the sole session thread, and may synchronously request
-eth or snap data. PENDING-CHAIN-UPDATE similarly returns a zero-argument thunk
-that sends a local canonical-head announcement from this writer.
+eth data or start one asynchronous snap request. SNAP-RESPONSE-HANDLER, when
+given, receives snap message id and encoded payload and returns true only after
+routing a matching pipelined response to its waiting worker. PENDING-CHAIN-
+UPDATE similarly returns a zero-argument thunk that sends a local canonical-
+head announcement from this writer.
 
 ON-EVENT, when given, is called with a keyword for each action taken, which is
 how a caller observes the session without this file knowing what telemetry is."
@@ -195,7 +200,9 @@ how a caller observes the session without this file knowing what telemetry is."
              (case kind
                (:eth (eth-peer-handle-message peer id payload))
                (:snap
-                (unless (eth-peer-serve-snap-message peer id payload)
+                (unless (or (and snap-response-handler
+                                 (funcall snap-response-handler id payload))
+                            (eth-peer-serve-snap-message peer id payload))
                   (error "unsolicited snap/1 response id ~D" id)))
                (:base (eth-peer-handle-base-message peer id)))))
           (:ping

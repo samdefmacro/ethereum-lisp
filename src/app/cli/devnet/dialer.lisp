@@ -453,15 +453,12 @@ into a permanent peer ban."))
          "error" condition)))))
 
 (defun devnet-peer-queued-snap-source (entry)
-  "Build a snap source whose calls execute only on ENTRY's session writer."
+  "Build a per-type-pipelined snap source on ENTRY's sole session writer."
   (let ((peer (devnet-peer-entry-peer entry))
         (queue (devnet-peer-entry-request-queue entry)))
     (flet ((request (message-id packet)
-             (devnet-peer-request-queue-submit
-              queue
-              (lambda ()
-                (ethereum-lisp.eth-sync:eth-peer-snap-request
-                 peer message-id packet)))))
+             (devnet-peer-request-queue-submit-snap
+              queue peer message-id packet)))
       (ethereum-lisp.snap-sync:make-snap-sync-source
        :account-range
        (lambda (packet)

@@ -245,7 +245,11 @@ code, and storage range proofs with zero TrieNodes requests; a
 second regression interrupts StorageRanges after one page and proves a fresh
 source resumes the exact durable cursor. A concurrency regression blocks one
 source and proves a faster source receives its next partition without waiting
-for a global wave. A changed-root rebase installs
+for a global wave. The production peer-queue regression puts two account jobs
+ahead of a storage job and proves the storage request bypasses the occupied
+account response slot, then routes out-of-order typed replies to the correct
+workers. A pump regression separately proves that a SNAP response reaches that
+router instead of being rejected as unsolicited. A changed-root rebase installs
 a non-empty, non-root range witness; legacy, rebased, oversized, or incomplete
 dependency plans retain the fail-closed full-root traversal. The tests also
 inject a failed database batch to prove progress never outruns verified account

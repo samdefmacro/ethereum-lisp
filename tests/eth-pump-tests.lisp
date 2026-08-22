@@ -105,6 +105,46 @@
       (is (= 1 request-calls))
       (is (zerop readiness-calls)))))
 
+(deftest eth-peer-run-session-routes-a-pipelined-snap-response
+  (:layer :unit :module :p2p)
+  (let* ((peer (ethereum-lisp.eth-sync::%make-eth-peer))
+         (read-symbol 'ethereum-lisp.eth-sync:eth-peer-read-once)
+         (real-read (fdefinition read-symbol))
+         (payload
+           (ethereum-lisp.snap:encode-snap-message
+            ethereum-lisp.snap:+snap-message-account-range+
+            (ethereum-lisp.snap:make-snap-account-range 77 nil nil)))
+         (routed nil))
+    (unwind-protect
+         (progn
+           (setf (fdefinition read-symbol)
+                 (lambda (candidate)
+                   (is (eq peer candidate))
+                   (values :snap
+                           ethereum-lisp.snap:+snap-message-account-range+
+                           payload)))
+           (multiple-value-bind (actions reason)
+               (eth-peer-run-session
+                peer
+                :readable-function (lambda (timeout)
+                                     (declare (ignore timeout))
+                                     t)
+                :snap-response-handler
+                (lambda (message-id encoded)
+                  (setf routed
+                        (list message-id
+                              (ethereum-lisp.snap:snap-account-range-id
+                               (ethereum-lisp.snap:decode-snap-message
+                                message-id encoded))))
+                  t)
+                :max-actions 1)
+             (is (= 1 actions))
+             (is (eq :max-actions reason)))
+           (is (equal
+                (list ethereum-lisp.snap:+snap-message-account-range+ 77)
+                routed)))
+      (setf (fdefinition read-symbol) real-read))))
+
 (deftest eth-peer-run-session-answers-a-keepalive-and-still-returns
   (:layer :integration :module :p2p :requires-local-sockets t)
   ;; THE regression for the reader split. A peer that sends only a devp2p Ping

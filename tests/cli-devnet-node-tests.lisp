@@ -3215,7 +3215,147 @@ loop cannot block on a message that never comes."
                           (sb-thread:join-thread
                            submitter :timeout 2 :default :timeout))))
              (is (typep submitted-condition 'serious-condition)))
+        (ethereum-lisp.cli::devnet-peer-request-queue-close queue)))
+    (let* ((queue (ethereum-lisp.cli::make-devnet-peer-request-queue))
+           (submitted-condition nil)
+           (submitter
+             (sb-thread:make-thread
+              (lambda ()
+                (handler-case
+                    (ethereum-lisp.cli::devnet-peer-request-queue-submit-job
+                     queue
+                     (ethereum-lisp.cli::make-devnet-peer-request-job
+                      (lambda () nil)
+                      :snap-response-id
+                      ethereum-lisp.snap:+snap-message-account-range+
+                      :snap-request-id 404))
+                  (serious-condition (condition)
+                    (setf submitted-condition condition))))
+              :name "section5-active-snap-close")))
+      (unwind-protect
+           (progn
+             (wait-for-test-condition
+              "queued active snap request" 2d0 (lambda () (queued-p queue)))
+             (funcall
+              (funcall
+               (ethereum-lisp.cli::devnet-peer-pending-request queue)))
+             (ethereum-lisp.cli::devnet-peer-request-queue-close queue)
+             (is (not (eq :timeout
+                          (sb-thread:join-thread
+                           submitter :timeout 2 :default :timeout))))
+             (is (typep submitted-condition 'serious-condition)))
         (ethereum-lisp.cli::devnet-peer-request-queue-close queue))))
+  #-sbcl
+  (is t))
+
+(deftest devnet-peer-request-queue-pipelines-distinct-snap-response-types
+  (:layer :integration :module :p2p)
+  #+sbcl
+  (labels
+      ((queue-count (queue accessor)
+         (sb-thread:with-mutex
+             ((ethereum-lisp.cli::devnet-peer-request-queue-lock queue))
+           (length (funcall accessor queue))))
+       (wait-count (queue accessor count description)
+         (wait-for-test-condition
+          description 2d0
+          (lambda () (= count (queue-count queue accessor))))))
+    (let* ((queue (ethereum-lisp.cli::make-devnet-peer-request-queue))
+           (pending
+             (ethereum-lisp.cli::devnet-peer-pending-request queue))
+           (handler
+             (ethereum-lisp.cli::devnet-peer-snap-response-handler queue))
+           (started '())
+           (account-one nil)
+           (storage nil)
+           (account-two nil)
+           (threads '()))
+      (labels
+          ((submit (response-id request-id marker result-setter)
+             (let ((thread
+                     (sb-thread:make-thread
+                      (lambda ()
+                        (funcall
+                         result-setter
+                         (ethereum-lisp.cli::devnet-peer-request-queue-submit-job
+                          queue
+                          (ethereum-lisp.cli::make-devnet-peer-request-job
+                           (lambda () (push marker started))
+                           :snap-response-id response-id
+                           :snap-request-id request-id))))
+                      :name "section5-pipelined-snap-submit")))
+               (push thread threads))))
+        (unwind-protect
+             (progn
+               ;; Preserve queue order deterministically: the second account
+               ;; job must sit ahead of storage, yet storage must bypass it
+               ;; while the first account response type is occupied.
+               (submit ethereum-lisp.snap:+snap-message-account-range+ 101
+                       :account-one (lambda (value) (setf account-one value)))
+               (wait-count
+                queue #'ethereum-lisp.cli::devnet-peer-request-queue-pending
+                1 "first pipelined snap request")
+               (submit ethereum-lisp.snap:+snap-message-account-range+ 202
+                       :account-two (lambda (value) (setf account-two value)))
+               (wait-count
+                queue #'ethereum-lisp.cli::devnet-peer-request-queue-pending
+                2 "second pipelined snap request")
+               (submit ethereum-lisp.snap:+snap-message-storage-ranges+ 303
+                       :storage (lambda (value) (setf storage value)))
+               (wait-count
+                queue #'ethereum-lisp.cli::devnet-peer-request-queue-pending
+                3 "third pipelined snap request")
+               (funcall (funcall pending))
+               (funcall (funcall pending))
+               (is (equal '(:account-one :storage) (reverse started)))
+               (is (null (funcall pending)))
+               (is (= 2
+                      (queue-count
+                       queue #'ethereum-lisp.cli::devnet-peer-request-queue-active)))
+               (is
+                (funcall
+                 handler ethereum-lisp.snap:+snap-message-storage-ranges+
+                 (ethereum-lisp.snap:encode-snap-message
+                  ethereum-lisp.snap:+snap-message-storage-ranges+
+                  (ethereum-lisp.snap:make-snap-storage-ranges 303 nil nil))))
+               (signals error
+                 (funcall
+                  handler ethereum-lisp.snap:+snap-message-account-range+
+                  (ethereum-lisp.snap:encode-snap-message
+                   ethereum-lisp.snap:+snap-message-account-range+
+                   (ethereum-lisp.snap:make-snap-account-range 999 nil nil))))
+               (is
+                (funcall
+                 handler ethereum-lisp.snap:+snap-message-account-range+
+                 (ethereum-lisp.snap:encode-snap-message
+                  ethereum-lisp.snap:+snap-message-account-range+
+                  (ethereum-lisp.snap:make-snap-account-range 101 nil nil))))
+               (funcall (funcall pending))
+               (is (equal '(:account-one :storage :account-two)
+                          (reverse started)))
+               (is
+                (funcall
+                 handler ethereum-lisp.snap:+snap-message-account-range+
+                 (ethereum-lisp.snap:encode-snap-message
+                  ethereum-lisp.snap:+snap-message-account-range+
+                  (ethereum-lisp.snap:make-snap-account-range 202 nil nil))))
+               (dolist (thread threads)
+                 (is (not (eq :timeout
+                              (sb-thread:join-thread
+                               thread :timeout 2 :default :timeout)))))
+               (is (= 101
+                      (ethereum-lisp.snap:snap-account-range-id account-one)))
+               (is (= 303
+                      (ethereum-lisp.snap:snap-storage-ranges-id storage)))
+               (is (= 202
+                      (ethereum-lisp.snap:snap-account-range-id account-two)))
+               (is (zerop
+                    (queue-count
+                     queue #'ethereum-lisp.cli::devnet-peer-request-queue-active))))
+          (ethereum-lisp.cli::devnet-peer-request-queue-close queue)
+          (dolist (thread threads)
+            (when (sb-thread:thread-alive-p thread)
+              (sb-thread:join-thread thread :timeout 2 :default nil)))))))
   #-sbcl
   (is t))
 

@@ -33,6 +33,7 @@
    #:eth-wire-read-once
    #:eth-peer-send
    #:eth-peer-send-snap
+   #:eth-peer-start-snap-request
    #:eth-peer-snap-request
    #:eth-peer-snap-sync-source
    #:eth-peer-serve-snap-message

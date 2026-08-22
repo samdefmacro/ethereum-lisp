@@ -300,20 +300,32 @@ without continuing on a cipher stream whose response may still arrive later.")
   #-sbcl
   (funcall function))
 
-(defun eth-peer-snap-request (peer message-id request)
-  "Send one typed snap/1 REQUEST and return its decoded matching response."
+(defun eth-peer-start-snap-request (peer message-id request)
+  "Send one typed snap/1 REQUEST without consuming its response.
+
+The caller must remain the connection's sole writer and must route exactly one
+matching response before reusing this request message type. This split is used
+by the production session pump to overlap account, storage, bytecode, and
+trie-node requests while retaining one writer for the RLPx cipher/MAC stream."
   (unless (member message-id
                   (list +snap-message-get-account-range+
                         +snap-message-get-storage-ranges+
                         +snap-message-get-bytecodes+
                         +snap-message-get-trie-nodes+))
     (error "snap/1 message id ~D is not a request" message-id))
+  (let ((request-id (snap-request-id message-id request)))
+    (unless (integerp request-id)
+      (error "snap/1 request ~D has no uint64 request id" message-id))
+    (eth-peer-send-snap peer message-id
+                        (encode-snap-message message-id request))
+    (values (1+ message-id) request-id)))
+
+(defun eth-peer-snap-request (peer message-id request)
+  "Send one typed snap/1 REQUEST and return its decoded matching response."
   (call-with-eth-peer-snap-request-deadline
    (lambda ()
-     (let ((request-id (snap-request-id message-id request))
-           (expected-id (1+ message-id)))
-       (eth-peer-send-snap peer message-id
-                           (encode-snap-message message-id request))
+     (multiple-value-bind (expected-id request-id)
+         (eth-peer-start-snap-request peer message-id request)
        (dotimes (i +snap-max-skipped-messages+
                    (error
                     "no snap/1 response id ~D for request ~D after ~D messages"

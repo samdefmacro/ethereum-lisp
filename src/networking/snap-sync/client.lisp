@@ -18,12 +18,12 @@
 (defconstant +snap-sync-account-task-count+ 32
   "Account partitions used by a fresh import.
 
-The wire still has at most one request in flight on a peer, but range proof
-verification and RocksDB writes happen after that request releases the session
-writer.  More logical partitions let a second worker keep the same peer's
-request queue full while the first worker verifies or persists its page.")
+The session remains the only RLPx writer. It may pipeline one request per snap
+response type, while range-proof verification and RocksDB writes happen on the
+workers after their response is routed. More logical partitions keep those
+typed request slots and the verification cores busy.")
 (defconstant +snap-sync-range-workers-per-source+ 2
-  "Maximum account workers sharing one source's sole-writer request queue.")
+  "Maximum account workers sharing one source's typed request pipeline.")
 (defconstant +snap-sync-storage-task-count+ 16
   "Maximum parallel ranges used to finish one byte-capped storage trie.")
 (defconstant +snap-sync-heal-paths-per-source+
@@ -4086,9 +4086,10 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
 
 Thirty-two logical account tasks oversubscribe pinned geth's sixteen range
 partitions so peer I/O overlaps proof verification and persistence. At most two
-workers share each source, but its session request queue still preserves the
-connection's sole-writer and one-in-flight rule. Workers verify and heal
-independent pages concurrently; the caller thread serializes MPT merge,
+workers share each source. Its session remains the sole RLPx writer while one
+request per snap response type may be in flight, matching replies by both type
+and request id. Workers verify and heal independent pages concurrently; the
+caller thread serializes MPT merge,
 the progress batch, and callbacks.  ON-PROGRESS receives PROGRESS, SOURCE, and
 TASK-INDEX after that task page is durable.  ON-SOURCE-ERROR receives SOURCE and
 the condition after its task has been made retryable by another source.
