@@ -3856,7 +3856,7 @@ plans retain the content-addressed healer as the fail-closed path."
      &key pivot-hash pivot-number state-root chain-id genesis-hash authority-id
           target-hash
           (byte-limit +snap-sync-request-bytes+) on-progress on-heal-progress
-          heal-source-provider heal-yield-p max-pages)
+          heal-source-provider range-yield-p heal-yield-p max-pages)
   "Download, verify, and atomically install a CL-authorized pivot state.
 
 Every account-range cursor is committed in the same batch as the partial trie
@@ -3871,6 +3871,8 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
     (error "Snap state import requires a key-value database"))
   (unless (snap-sync-source-complete-p source)
     (error "Snap state import source is incomplete"))
+  (when (and range-yield-p (not (functionp range-yield-p)))
+    (error "Snap state import range yield predicate must be a function"))
   (setf target-hash (or target-hash pivot-hash))
   (snap-sync-require-hash32 target-hash "Snap consensus target hash")
   (let ((progress
@@ -3902,6 +3904,8 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
                 database source state-root task-index task byte-limit)))
         (incf pages)
         (when on-progress (funcall on-progress progress))
+        (when (and range-yield-p (funcall range-yield-p))
+          (error 'snap-sync-heal-yielded))
         (when (snap-sync-progress-completed-p progress)
           (return progress))
         (when (snap-sync-tasks-completed-p
@@ -4081,7 +4085,7 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
      &key pivot-hash pivot-number state-root chain-id genesis-hash authority-id
           target-hash (byte-limit +snap-sync-request-bytes+)
           on-progress on-source-error on-heal-progress heal-source-provider
-          heal-yield-p max-pages)
+          range-yield-p heal-yield-p max-pages)
   "Import one pivot through disjoint durable ranges shared across SOURCES.
 
 Thirty-two logical account tasks oversubscribe pinned geth's sixteen range
@@ -4096,7 +4100,9 @@ the condition after its task has been made retryable by another source.
 HEAL-SOURCE-PROVIDER refreshes both the account worker pool and the final
 content-addressed traversal. Newly connected sources join the range phase up to
 the task concurrency bound; a failed source identity is never started twice in
-one import. HEAL-YIELD-P is forwarded only to final healing."
+one import. RANGE-YIELD-P runs only after a verified account page and its
+cursor are durable; a true result stops the current pivot without discarding
+those cursors. HEAL-YIELD-P is forwarded to final healing."
   (unless (typep database 'key-value-database)
     (error "Snap state import requires a key-value database"))
   (setf sources (remove-duplicates (copy-list sources) :test #'eq))
@@ -4107,6 +4113,8 @@ one import. HEAL-YIELD-P is forwarded only to final healing."
       (error "Multi-source snap import source is incomplete")))
   (when (and heal-source-provider (not (functionp heal-source-provider)))
     (error "Multi-source snap import source provider must be a function"))
+  (when (and range-yield-p (not (functionp range-yield-p)))
+    (error "Multi-source snap import range yield predicate must be a function"))
   (setf target-hash (or target-hash pivot-hash))
   (snap-sync-require-hash32 target-hash "Snap consensus target hash")
   (let* ((progress
@@ -4257,6 +4265,13 @@ one import. HEAL-YIELD-P is forwarded only to final healing."
                                (snap-sync-multi-notify runtime))
                              (when on-progress
                                (funcall on-progress next source task-index))
+                             ;; Match geth's moving-pivot behavior at a durable
+                             ;; page boundary. Other workers may still own
+                             ;; bounded in-flight pages; unwind stops them and
+                             ;; their uncommitted results remain retryable.
+                             (when (and range-yield-p
+                                        (funcall range-yield-p))
+                               (error 'snap-sync-heal-yielded))
                              (refresh-range-sources))
                          (serious-condition (condition)
                            ;; A database or merge failure is local and fatal;

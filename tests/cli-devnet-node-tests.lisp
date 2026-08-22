@@ -1585,10 +1585,17 @@ really reopens the directory instead of observing the first handle's memory."
             (lambda (seen-database sources &rest arguments)
               (is (eq database seen-database))
               (is (equal (list source) sources))
-              (let ((yield-p (getf arguments :heal-yield-p))
+              (let ((range-yield-p (getf arguments :range-yield-p))
+                    (yield-p (getf arguments :heal-yield-p))
                     (progress-callback (getf arguments :on-heal-progress)))
+                (is (functionp range-yield-p))
                 (is (functionp yield-p))
                 (is (functionp progress-callback))
+                ;; Account-range work follows geth's moving pivot as soon as
+                ;; one verified page is durable, then rate-limits checks.
+                (is (funcall range-yield-p))
+                (setf now 101)
+                (is (not (funcall range-yield-p)))
                 (setf now 129)
                 (is (not (funcall yield-p)))
                 ;; Productive local reuse immediately before the old

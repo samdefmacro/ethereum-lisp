@@ -655,7 +655,8 @@ must prove the new state root before either record can authorize publication."
          (source-entries '())
          (last-heal-log-at nil)
          (last-heal-progress-at (unix-time))
-         (last-target-check-at (unix-time)))
+         (last-range-target-check-at nil)
+         (last-heal-target-check-at (unix-time)))
     (labels
         ((ordered-live-entries ()
            (let ((current
@@ -687,6 +688,29 @@ must prove the new state root before either record can authorize publication."
               current)))
          (entry-for-source (source)
            (cdr (assoc source source-entries :test #'eq)))
+         (stale-target-p ()
+           (multiple-value-bind (successor successor-number)
+               (devnet-node-stale-snap-successor
+                node target-hash target-number)
+             (when successor
+               (devnet-peer-manager-log
+                node "peer.snap.target_stale"
+                "target" target-number
+                "targetHash" (hash32-to-hex target-hash)
+                "successor" successor-number
+                "successorHash" (hash32-to-hex successor))
+               t)))
+         (yield-for-stale-range-target-p ()
+           ;; Geth moves an uncommitted pivot once the live head advances past
+           ;; its 2*64-block window. Check at most twice per minute, and only
+           ;; after the importer has made a page durable.
+           (let ((now (unix-time)))
+             (when (or (null last-range-target-check-at)
+                       (< now last-range-target-check-at)
+                       (>= (- now last-range-target-check-at)
+                           +devnet-snap-heal-target-check-interval-seconds+))
+               (setf last-range-target-check-at now)
+               (stale-target-p))))
          (yield-for-stale-target-p ()
            (let ((now (unix-time)))
              ;; Advancing either through durable local reuse or accepted peer
@@ -699,21 +723,11 @@ must prove the new state root before either record can authorize publication."
                     (>= now last-heal-progress-at)
                     (>= (- now last-heal-progress-at)
                         +devnet-snap-heal-stall-interval-seconds+)
-                    (or (< now last-target-check-at)
-                        (>= (- now last-target-check-at)
+                    (or (< now last-heal-target-check-at)
+                        (>= (- now last-heal-target-check-at)
                             +devnet-snap-heal-target-check-interval-seconds+)))
-               (setf last-target-check-at now)
-               (multiple-value-bind (successor successor-number)
-                   (devnet-node-stale-snap-successor
-                    node target-hash target-number)
-                 (when successor
-                   (devnet-peer-manager-log
-                    node "peer.snap.target_stale"
-                    "target" target-number
-                    "targetHash" (hash32-to-hex target-hash)
-                    "successor" successor-number
-                    "successorHash" (hash32-to-hex successor))
-                   t))))))
+               (setf last-heal-target-check-at now)
+               (stale-target-p)))))
       (setf sources (refresh-sources))
       (unless sources
         (eth-sync-multi-peer-fail
@@ -726,6 +740,7 @@ must prove the new state root before either record can authorize publication."
        :genesis-hash (block-hash (devnet-node-genesis-block node))
        :authority-id (devnet-persistence-state-authority-id persistence)
        :heal-source-provider #'refresh-sources
+       :range-yield-p #'yield-for-stale-range-target-p
        :heal-yield-p #'yield-for-stale-target-p
        ;; The multi-source importer invokes this on the coordinator thread only
        ;; after the task's account nodes, code, complete small storage tries,

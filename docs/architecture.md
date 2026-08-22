@@ -147,7 +147,10 @@ them by their physical location instead reintroduces dependency cycles:
   worker. Synchronous eth jobs wait for an empty SNAP response seam, so they
   cannot consume a pipelined reply. A second range can therefore use the
   connection while the first verifies its proof or writes RocksDB; an older
-  sixteen-range progress record remains resumable. Each request keeps geth's
+  sixteen-range progress record remains resumable. At each durable page seam,
+  a rate-limited consensus-head check moves a pivot that has fallen outside
+  geth's `2*64-8` window; the atomic rebase retains completed ranges and makes
+  the fresher state root serviceable by the full live peer set. Each request keeps geth's
   512 KiB soft limit, while one coordinator serializes verified record and
   progress publication. A failed
   peer releases only its claimed range for another worker. If every peer in

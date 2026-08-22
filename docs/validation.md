@@ -212,6 +212,8 @@ cl-workbench validation run cold-unit \
 cl-workbench validation run cold-unit \
   --match DEVNET-SNAP-STALLED-LONG-HEAL-YIELDS-TO-A-STALE-CONSENSUS-TARGET
 cl-workbench validation run cold-integration \
+  --match SNAP-STATE-IMPORT-MULTI-YIELDS-A-STALE-RANGE-PIVOT-AFTER-DURABILITY
+cl-workbench validation run cold-integration \
   --match SNAP-TRIE-NODE-SERVER-CAPS-DISK-LOOKUPS
 ```
 
@@ -219,7 +221,9 @@ The snap tests reconstruct and verify account/storage roots, return the
 authenticated reconstructed page for direct content-addressed persistence,
 reject altered compact proofs, and prove that verified trie records and
 hash-matched bytecodes perform no database reads while authenticated puts
-repair planted corrupt local values. They derive complete coarse subtrees from
+repair planted corrupt local values. They also stop a moving range pivot only
+after its latest verified page is durable, preserving that exact cursor for the
+atomic rebase onto a fresher consensus root. They derive complete coarse subtrees from
 the verified range, batch code-existence probes before requesting a page's
 missing bytecodes, reject
 proof-edge nodes, and publish the subtree hash in the same batch as its account

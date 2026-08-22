@@ -1495,6 +1495,44 @@
     (is (= 3 requests))
     (is (= 3 callbacks))))
 
+#+sbcl
+(deftest snap-state-import-multi-yields-a-stale-range-pivot-after-durability
+  (:layer :integration :module :p2p)
+  (multiple-value-bind (source-state addresses)
+      (snap-test-partitioned-state)
+    (declare (ignore addresses))
+    (let* ((source-database (make-memory-key-value-database))
+           (target-database (make-memory-key-value-database))
+           (root (state-db-root source-state))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              source-database source-state))
+           (source (snap-test-source backend))
+           (yield-calls 0))
+      (signals ethereum-lisp.snap-sync:snap-sync-heal-yielded
+        (ethereum-lisp.snap-sync:snap-sync-import-state-multi
+         target-database (list source)
+         :pivot-hash (make-hash32 (snap-test-hash 233))
+         :pivot-number 907 :state-root root
+         :target-hash (make-hash32 (snap-test-hash 234))
+         :chain-id 560048
+         :genesis-hash (make-hash32 (snap-test-hash 235))
+         :authority-id (make-hash32 (snap-test-hash 236))
+         :range-yield-p (lambda () (incf yield-calls) t)))
+      (is (= 1 yield-calls))
+      (multiple-value-bind (progress present-p)
+          (ethereum-lisp.snap-sync:snap-sync-read-progress target-database)
+        (is present-p)
+        (when present-p
+          (is (not
+               (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
+                progress)))
+          (is (= 1
+                 (count-if
+                  #'ethereum-lisp.snap-sync:snap-sync-account-task-completed-p
+                  (ethereum-lisp.snap-sync:snap-sync-progress-tasks
+                   progress)))))))))
+
 (deftest snap-state-healing-reports-a-typed-source-generation-exhaustion
   (:layer :integration :module :p2p)
   (let* ((database (make-memory-key-value-database))
