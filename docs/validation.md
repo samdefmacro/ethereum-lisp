@@ -313,7 +313,13 @@ TrieNodes healing reports monotonic processed/reused/fetched/request/byte
 counters through `peer.snap.heal_progress`, throttled to the first event, every
 30 seconds, and completion. Its focused controls are
 `SNAP-STATE-HEALER` and `SNAP-HEAL-CHECKPOINT`; both are also included by the
-broader `SNAP-` selectors above.
+broader `SNAP-` selectors above. The fetched-node hot-path control plants
+positive witnesses for both single-key and batch trie reads, then proves that a
+one-node remote heal performs only the initial missing-root MultiGet: the
+content-hash-matched response is decoded once and consumed from the bounded
+response cache, with no per-node point Get and no write-then-reread MultiGet.
+Restoring either redundant production read
+makes `SNAP-STATE-HEALER-PROCESSES-FETCHED-NODES-WITHOUT-REREADING-THEM` fail.
 
 These selectors do not prove public reachability. Section 5 also requires an
 ephemeral Hoodi run from an empty datadir, using the reviewed container runtime,

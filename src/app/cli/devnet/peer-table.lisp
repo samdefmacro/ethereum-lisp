@@ -24,8 +24,9 @@
 ;;;; Peers are keyed by the hex node id, the same key the dial registry uses, so
 ;;;; a peer that dials us while we are dialing it is recognised as one peer.
 
-(defconstant +devnet-default-max-peers+ 25
-  "How many peers we hold at once by default. Our policy, not a parity claim.")
+(defconstant +devnet-default-max-peers+ 50
+  "How many peers we hold at once by default. This matches the current geth
+and Nethermind public-node defaults while remaining an operator policy.")
 
 (defconstant +devnet-peer-handshake-headroom+ 4
   "How many handshakes beyond the peer limit may be in flight. A handshake can

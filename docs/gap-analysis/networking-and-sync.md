@@ -857,7 +857,7 @@ behaviour.
 
 | Purpose | Ours | geth | Nethermind |
 | --- | --- | --- | --- |
-| Peer limit (default) | 25 (`+devnet-default-max-peers+`, `devnet/peer-table.lisp:27`) | 50 (`node/defaults.go:74`) | 50 (`MaxActivePeers`, `Network/Config/NetworkConfig.cs:22`) |
+| Peer limit (default) | 50 (`+devnet-default-max-peers+`, `devnet/peer-table.lisp:27`) | 50 (`node/defaults.go:74`) | 50 (`MaxActivePeers`, `Network/Config/NetworkConfig.cs:22`) |
 | Dial ratio (outbound share) | 3 (`+devnet-dial-ratio+`, `devnet/dial-schedule.lisp:52`) | 3 (`defaultDialRatio`, `p2p/server.go:50`; applied `:557`) | no equivalent constant |
 | Max concurrent dials | 8 (`+devnet-max-active-dials+`, `devnet/dial-schedule.lisp:48`) | 50 (`defaultMaxPendingPeers`, `p2p/server.go:49`; `dial.go:153`) | 20/sec (`MaxOutgoingConnectPerSec`, `NetworkConfig.cs:40`) |
 | Dial timeout | 15s (`+eth-sync-dial-timeout-seconds+`, `eth-sync/node.lisp:13`) | 15s (`defaultDialTimeout`, `p2p/server.go:46`) | 2000ms (`ConnectTimeoutMs`, `NetworkConfig.cs:41`) |

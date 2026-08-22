@@ -159,7 +159,11 @@ them by their physical location instead reintroduces dependency cycles:
   exceeding pinned geth's per-peer lookup capacity. The serving side applies
   the same 1,024-lookup cap even when the structurally bounded wire list is
   larger. A failed source retires only its own slice while successful slices
-  remain durable.
+  remain durable. The public-node peer default is 50, matching geth
+  `38271784c2b31926563806da9a2e023b88f5e7a8` and Nethermind
+  `e52dc19a56a46f58170a730822580774d403c838`; the one-request-per-source rule
+  remains stricter than either implementation's process-wide worker pool and
+  preserves this client's sole-writer session boundary.
   Before each remote healing round the CLI refreshes its live session snapshot,
   reuses the existing sole-writer source wrappers, and incrementally admits new
   snap peers that completed their handshake after the long traversal began.
@@ -194,7 +198,17 @@ them by their physical location instead reintroduces dependency cycles:
   present slice. The coordinator joins every reader, restores the original
   value/presence/decoded order, and propagates the earliest worker-slice failure
   before mutating the DFS frontier; small batches and memory/file stores retain
-  the same ordered generic fallback. Proof values are version-checked after the
+  the same ordered generic fallback. A content-hash- and path-matched remote
+  response is decoded once before its node batch becomes visible, then retained
+  in a bounded in-memory response cache after that batch and the exact fetched
+  frontier become durable. The normal coordinator traversal consumes the
+  cached object without either a per-node point Get or a write-then-reread
+  MultiGet, preserving checkpoint and completion-sentinel ordering across
+  crashes. This adopts geth's `ProcessNode` response locality without weakening
+  the stronger per-round restart batch; Nethermind's `TreeSync` likewise routes
+  responses directly into its processing/store pipeline rather than rediscovering
+  them as pending disk reads. A restart merely loses the cache and reads the
+  already-durable content-addressed node normally. Proof values are version-checked after the
   ordered join, so an unknown value remains local storage corruption rather
   than a cache miss. This bounded read/decode concurrency uses otherwise idle
   CPU and I/O capacity without making frontier mutation or checkpoint

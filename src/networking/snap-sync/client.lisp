@@ -1814,6 +1814,11 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
            (deferred-storage '())
            (deferred-storage-count 0)
            (seen-code-hashes (make-hash-table :test #'equalp))
+           ;; A fetched node is made durable before its work re-enters STACK.
+           ;; Keep its verified decoded object until that exact continuation
+           ;; consumes it, avoiding an immediate RocksDB reread without
+           ;; changing durable frontier or subtree-sentinel ordering.
+           (fetched-node-cache (make-hash-table :test #'equalp))
            (processed-nodes
              (if checkpoint-present-p
                  (snap-sync-heal-checkpoint-processed-nodes checkpoint)
@@ -1861,6 +1866,54 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
              (snap-sync-report-heal-progress
               on-heal-progress processed-nodes reused-nodes fetched-nodes
               request-count response-bytes nil)))
+         (read-local-nodes (references &key decoder)
+           ;; Preserve the ordered batch contract while satisfying freshly
+           ;; fetched hashes from the bounded response cache.  All other
+           ;; references retain the production database batch path.
+           (let* ((count (length references))
+                  (encoded (make-array count :initial-element nil))
+                  (present (make-array count :element-type 'bit
+                                             :initial-element 0))
+                  (decoded (make-array count :initial-element nil))
+                  (cached-references '())
+                  (uncached-indices '())
+                  (uncached-references '()))
+             (dotimes (index count)
+               (let ((reference (aref references index)))
+                 (multiple-value-bind (object cached-p)
+                     (gethash reference fetched-node-cache)
+                   (if cached-p
+                       (progn
+                         (setf (aref present index) 1
+                               (aref decoded index) object)
+                         (push reference cached-references))
+                       (progn
+                         (push index uncached-indices)
+                         (push reference uncached-references))))))
+             (when uncached-indices
+               (let ((indices
+                       (coerce (nreverse uncached-indices) 'vector))
+                     (references
+                       (coerce (nreverse uncached-references) 'vector)))
+                 (multiple-value-bind
+                       (stored stored-present stored-decoded)
+                     (snap-sync-heal-local-node-batch
+                      database references
+                      :decoder
+                      (lambda (index bytes)
+                        (funcall decoder (aref indices index) bytes)))
+                   (dotimes (index (length indices))
+                     (let ((destination (aref indices index)))
+                       (setf (aref encoded destination) (aref stored index)
+                             (aref present destination)
+                             (aref stored-present index)
+                             (aref decoded destination)
+                             (aref stored-decoded index)))))))
+             ;; Duplicate references in the same batch all observe the cache;
+             ;; later visits safely fall back to the now-durable database.
+             (dolist (reference cached-references)
+               (remhash reference fetched-node-cache))
+             (values encoded present decoded)))
          (push-reference (kind account-hash path reference &optional marker-state)
            (unless (and (byte-vector-p reference)
                         (zerop (length reference)))
@@ -2115,19 +2168,19 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                              (unless found
                                (error
                                 "Snap peer returned an unrequested healing node"))
-                             (setf (aref matched found) encoded)
-                             (incf fills)
-                             (incf fetched-bytes (length encoded))
-                             (multiple-value-bind (old present-p)
-                                 (kv-get-chain-record
-                                  database :trie-node hash)
-                               (when (and present-p
-                                          (not (bytes= old encoded)))
-                                 (ethereum-lisp.validation:storage-fail
-                                  "Persisted snap trie node collides with its hash"))
-                               (unless present-p
-                                 (kv-batch-put-chain-record
-                                  batch :trie-node hash encoded))))))))
+                           (setf (aref matched found) encoded)
+                           (incf fills)
+                           (incf fetched-bytes (length encoded))
+                           ;; MISSING was produced by the immediately preceding
+                           ;; ordered local lookup, so another point read here
+                           ;; can only rediscover absence (or the same content-
+                           ;; addressed value written by another disjoint
+                           ;; slice).  The response hash is the collision and
+                           ;; identity check.  Stage it directly, as geth's
+                           ;; healer does, instead of turning every fetched
+                           ;; node into an extra random RocksDB Get.
+                           (kv-batch-put-chain-record
+                            batch :trie-node hash encoded))))))
              (labels ((continuation-stack ()
                         (let ((continuation stack))
                           (loop for index downfrom (1- (length missing)) to 0
@@ -2146,18 +2199,41 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                    (persist-checkpoint stack))
                  (snap-sync-heal-signal-source-errors
                   (nreverse round-errors)))
-               (incf fetched-nodes fills)
-               (incf response-bytes fetched-bytes)
-               ;; The same batch that makes response nodes durable publishes a
-               ;; frontier whose FETCHED-P bits keep restart telemetry exact.
-               (setf stack (continuation-stack))
-               (let ((checkpointable-p
-                       (snap-sync-heal-checkpoint-frontier-p stack)))
-                 (when checkpointable-p
-                   (populate-checkpoint batch stack))
-                 (kv-apply-batch database batch)
-                 (when checkpointable-p
-                   (setf last-checkpoint-processed-nodes processed-nodes)))
+               ;; Decode every delivered node before publishing any of them.
+               ;; A malformed peer response therefore cannot leave an invalid
+               ;; trie blob behind.  Keep the verified objects in a bounded
+               ;; cache after the durable write so the continuation can retain
+               ;; its exact DFS/checkpoint semantics without rereading them.
+               (let ((decoded
+                       (make-array (length missing) :initial-element nil)))
+                 (dotimes (index (length missing))
+                   (let ((encoded (aref matched index)))
+                     (when encoded
+                       (setf (aref decoded index)
+                             (decode-encoded
+                              (aref missing index) encoded nil)))))
+                 (incf fetched-nodes fills)
+                 (incf response-bytes fetched-bytes)
+                 ;; The same batch that makes response nodes durable publishes
+                 ;; a frontier whose FETCHED-P bits keep restart telemetry and
+                 ;; completion-sentinel ordering exact.
+                 (setf stack (continuation-stack))
+                 (let ((checkpointable-p
+                         (snap-sync-heal-checkpoint-frontier-p stack)))
+                   (when checkpointable-p
+                     (populate-checkpoint batch stack))
+                   (kv-apply-batch database batch)
+                   (when checkpointable-p
+                     (setf last-checkpoint-processed-nodes processed-nodes)))
+                 ;; Cache only after the durable write succeeds.  A crash or
+                 ;; restart simply reads these content-addressed nodes normally.
+                 (dotimes (index (length missing))
+                   (when (aref matched index)
+                     (setf
+                      (gethash
+                       (snap-sync-heal-work-reference (aref missing index))
+                       fetched-node-cache)
+                      (aref decoded index)))))
                (snap-sync-report-heal-progress
                 on-heal-progress processed-nodes reused-nodes fetched-nodes
                 request-count response-bytes nil)))))
@@ -2286,8 +2362,8 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                                      #'snap-sync-heal-work-reference
                                      ordered)))
                           (multiple-value-bind (encoded present decoded)
-                              (snap-sync-heal-local-node-batch
-                               database references
+                              (read-local-nodes
+                               references
                                :decoder
                                (lambda (index bytes)
                                  (let ((work (aref ordered index)))

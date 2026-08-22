@@ -2299,6 +2299,97 @@
                    result)
                   'ethereum-lisp.snap-sync:snap-sync-state-unavailable)))))
 
+(deftest snap-state-healer-processes-fetched-nodes-without-rereading-them
+  (:layer :unit :module :p2p)
+  (let* ((source-state (make-state-db))
+         (source-database (make-memory-key-value-database))
+         (target-database (make-memory-key-value-database))
+         (address
+           (address-from-hex
+            "0x0000000000000000000000000000000000000051"))
+         (pivot (make-hash32 (snap-test-hash 201)))
+         (target (make-hash32 (snap-test-hash 202)))
+         (genesis (make-hash32 (snap-test-hash 203)))
+         (authority (make-hash32 (snap-test-hash 204)))
+         (real-get
+           (fdefinition 'ethereum-lisp.database:kv-get-chain-record))
+         (real-get-many
+           (fdefinition 'ethereum-lisp.database:kv-get-chain-records))
+         (point-reads 0)
+         (batch-reads 0)
+         (trie-requests 0))
+    (state-db-set-account
+     source-state address (make-state-account :nonce 1 :balance 51))
+    (let* ((root (state-db-root source-state))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              source-database source-state))
+           (base (snap-test-source backend))
+           (source
+             (ethereum-lisp.snap-sync:make-snap-sync-source
+              :account-range
+              (ethereum-lisp.snap-sync:snap-sync-source-account-range base)
+              :storage-ranges
+              (ethereum-lisp.snap-sync:snap-sync-source-storage-ranges base)
+              :bytecodes
+              (ethereum-lisp.snap-sync:snap-sync-source-bytecodes base)
+              :trie-nodes
+              (lambda (request)
+                (incf trie-requests)
+                (funcall
+                 (ethereum-lisp.snap-sync:snap-sync-source-trie-nodes base)
+                 request))))
+           (progress
+             (ethereum-lisp.snap-sync::snap-sync-make-progress
+              :pivot-hash pivot :pivot-number 3004 :state-root root
+              :partial-root +empty-trie-hash+ :target-hash target
+              :chain-id 560048 :genesis-hash genesis
+              :authority-id authority :completed-p nil
+              :tasks
+              (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+               :count 1 :completed-p t)))
+           (completed nil))
+      (unwind-protect
+           (progn
+             (setf
+              (fdefinition 'ethereum-lisp.database:kv-get-chain-record)
+              (lambda (database kind identifier &optional default)
+                (when (and (eq database target-database)
+                           (eq kind :trie-node))
+                  (incf point-reads))
+                (funcall real-get database kind identifier default))
+              (fdefinition 'ethereum-lisp.database:kv-get-chain-records)
+              (lambda (database kind identifiers &optional default)
+                (when (and (eq database target-database)
+                           (eq kind :trie-node))
+                  (incf batch-reads))
+                (funcall real-get-many database kind identifiers default)))
+             ;; Positive controls: both counters observe their real production
+             ;; entry points before the cost assertion resets them.
+             (kv-get-chain-record
+              target-database :trie-node (snap-test-hash 205))
+             (kv-get-chain-records
+              target-database :trie-node (vector (snap-test-hash 206)))
+             (is (= 1 point-reads))
+             (is (= 1 batch-reads))
+             (setf point-reads 0
+                   batch-reads 0)
+             (setf completed
+                   (ethereum-lisp.snap-sync::snap-sync-heal-state
+                    target-database (list source) progress
+                    (* 2 1024 1024))))
+        (setf
+         (fdefinition 'ethereum-lisp.database:kv-get-chain-record) real-get
+         (fdefinition 'ethereum-lisp.database:kv-get-chain-records)
+         real-get-many))
+      (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p completed))
+      (is (plusp trie-requests))
+      ;; One MultiGet discovers the missing root. The verified reply is decoded
+      ;; once and consumed from the bounded response cache, causing neither the
+      ;; former per-node Get nor a second MultiGet of the node just written.
+      (is (= 0 point-reads))
+      (is (= 1 batch-reads)))))
+
 (deftest snap-state-healer-adds-sources-that-arrive-after-healing-starts
   (:layer :integration :module :p2p)
   (multiple-value-bind (source-state addresses)

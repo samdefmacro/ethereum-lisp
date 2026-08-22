@@ -345,7 +345,7 @@ if ! docker run --detach --pull never \
     --authrpc.port 8551 \
     --authrpc.jwtsecret /jwt/jwt.hex \
     --authrpc.vhosts '*' \
-    --maxpeers 25 >/dev/null; then
+    --maxpeers 50 >/dev/null; then
     rollback
     exit 1
 fi
@@ -480,7 +480,7 @@ if ! docker run --detach --pull never \
     --authrpc.port 8551 \
     --authrpc.jwtsecret /jwt/jwt.hex \
     --authrpc.vhosts '*' \
-    --maxpeers 25 >/dev/null; then
+    --maxpeers 50 >/dev/null; then
     rollback
     trap - EXIT HUP INT TERM
     exit 1

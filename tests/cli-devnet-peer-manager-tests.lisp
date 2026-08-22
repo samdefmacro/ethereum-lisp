@@ -17,6 +17,16 @@
    :id-hex id-hex :direction direction
    :remote-host host :remote-port 30303))
 
+(deftest devnet-peer-table-default-matches-public-client-baseline
+  (:layer :unit :module :p2p)
+  (let ((table
+          (ethereum-lisp.cli:make-devnet-peer-table :self-id-hex "self")))
+    ;; geth 38271784 and Nethermind e52dc19a both default to 50. Keeping the
+    ;; public-node default here avoids halving the candidate pool from which
+    ;; the long SNAP healer obtains state-capable peers.
+    (is (= 50 ethereum-lisp.cli:+devnet-default-max-peers+))
+    (is (= 50 (ethereum-lisp.cli::devnet-peer-table-max-peers table)))))
+
 (deftest devnet-peer-table-admission-verdicts
   ;; Both phases of admission, as a table. No sockets, no threads, no clock:
   ;; `now` is just an integer.
