@@ -23,6 +23,15 @@
   "Maximum local read width before frontier-aware shrinking.")
 (defparameter *snap-sync-heal-local-read-workers* 8
   "Maximum concurrent RocksDB MultiGet calls during local trie healing.")
+(defparameter *snap-sync-heal-remote-first-p* t
+  "Prefer bounded peer TrieNodes batches over cold RocksDB trie-node reads.
+
+Range import has already made many authenticated nodes durable, but a rebased
+final heal still has to prove a different root.  Cloud block storage can make
+that content-addressed walk random-I/O bound.  On RocksDB with a live source,
+request the authenticated paths from peers and write the hash-verified replies
+sequentially instead.  Freshly fetched nodes remain satisfied by the bounded
+decoded cache, and loss of every source automatically restores local reads.")
 (defconstant +snap-sync-heal-parallel-read-minimum+ 128
   "Do not pay worker creation overhead below this local read width.")
 (defconstant +snap-sync-heal-deferred-storage-target+ 2048
@@ -2777,10 +2786,11 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
              (snap-sync-report-heal-progress
               on-heal-progress processed-nodes reused-nodes fetched-nodes
               request-count response-bytes nil)))
-         (read-local-nodes (references &key decoder)
+         (read-local-nodes (references &key decoder (disk-p t))
            ;; Preserve the ordered batch contract while satisfying freshly
-           ;; fetched hashes from the bounded response cache.  All other
-           ;; references retain the production database batch path.
+           ;; fetched hashes from the bounded response cache.  DISK-P may
+           ;; deliberately leave other hashes absent so the existing bounded,
+           ;; authenticated TrieNodes path fetches them from live peers.
            (let* ((count (length references))
                   (encoded (make-array count :initial-element nil))
                   (present (make-array count :element-type 'bit
@@ -2801,7 +2811,7 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                        (progn
                          (push index uncached-indices)
                          (push reference uncached-references))))))
-             (when uncached-indices
+             (when (and disk-p uncached-indices)
                (let ((indices
                        (coerce (nreverse uncached-indices) 'vector))
                      (references
@@ -3281,6 +3291,14 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                           (multiple-value-bind (encoded present decoded)
                               (read-local-nodes
                                references
+                               :disk-p
+                               (not
+                                (and
+                                 *snap-sync-heal-remote-first-p*
+                                 active-sources
+                                 (typep
+                                  database
+                                  'ethereum-lisp.database:rocksdb-key-value-database)))
                                :decoder
                                (lambda (index bytes)
                                  (let ((work (aref ordered index)))

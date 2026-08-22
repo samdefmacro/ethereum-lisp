@@ -3013,6 +3013,87 @@
       (when (probe-file path)
         (uiop:delete-directory-tree path :validate t)))))
 
+#+sbcl
+(deftest snap-state-healer-prefers-live-peers-over-cold-rocksdb-reads
+  (:layer :integration :module :p2p)
+  (let* ((path
+           (merge-pathnames
+            (make-pathname
+             :directory
+             `(:relative ,(format nil "ethereum-lisp-snap-remote-~A" (gensym))))
+            #P"/private/tmp/"))
+         (source-state (make-state-db))
+         (source-database (make-memory-key-value-database))
+         (address (snap-test-address-from-integer 777))
+         (pivot (make-hash32 (snap-test-hash 235)))
+         (target (make-hash32 (snap-test-hash 236)))
+         (genesis (make-hash32 (snap-test-hash 237)))
+         (authority (make-hash32 (snap-test-hash 238)))
+         (trie-node-requests 0))
+    ;; A single account produces a hashed root leaf but no four-nibble subtree
+    ;; sentinel, so repeated direct heals exercise the root lookup itself.
+    (state-db-set-account
+     source-state address (make-state-account :balance 777))
+    (let* ((root (state-db-root source-state))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              source-database source-state))
+           (base-source (snap-test-source backend))
+           (source
+             (ethereum-lisp.snap-sync:make-snap-sync-source
+              :account-range
+              (ethereum-lisp.snap-sync:snap-sync-source-account-range
+               base-source)
+              :storage-ranges
+              (ethereum-lisp.snap-sync:snap-sync-source-storage-ranges
+               base-source)
+              :bytecodes
+              (ethereum-lisp.snap-sync:snap-sync-source-bytecodes base-source)
+              :trie-nodes
+              (lambda (request)
+                (incf trie-node-requests)
+                (funcall
+                 (ethereum-lisp.snap-sync:snap-sync-source-trie-nodes
+                  base-source)
+                 request))))
+           (progress
+             (ethereum-lisp.snap-sync::snap-sync-make-progress
+              :pivot-hash pivot :pivot-number 2002 :state-root root
+              :partial-root +empty-trie-hash+ :target-hash target
+              :chain-id 560048 :genesis-hash genesis
+              :authority-id authority :completed-p nil
+              :tasks
+              (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+               :count 1 :completed-p t))))
+      (unwind-protect
+           (let ((database (make-rocksdb-key-value-database path)))
+             (unwind-protect
+                  (progn
+                    ;; Populate the target through the ordinary miss path.
+                    (let ((ethereum-lisp.snap-sync::*snap-sync-heal-remote-first-p*
+                            nil))
+                      (ethereum-lisp.snap-sync::snap-sync-heal-state
+                       database (list source) progress 350))
+                    (setf trie-node-requests 0)
+                    ;; The mutation/control path must still reuse local data.
+                    (let ((ethereum-lisp.snap-sync::*snap-sync-heal-remote-first-p*
+                            nil))
+                      (ethereum-lisp.snap-sync::snap-sync-heal-state
+                       database (list source) progress 350))
+                    (is (zerop trie-node-requests))
+                    ;; Production RocksDB healing deliberately replaces cold
+                    ;; random reads with authenticated peer path requests.
+                    (is
+                     ethereum-lisp.snap-sync::*snap-sync-heal-remote-first-p*)
+                    (let ((ethereum-lisp.snap-sync::*snap-sync-heal-remote-first-p*
+                            t))
+                      (ethereum-lisp.snap-sync::snap-sync-heal-state
+                       database (list source) progress 350))
+                    (is (plusp trie-node-requests)))
+               (close-rocksdb-key-value-database database)))
+        (when (probe-file path)
+          (uiop:delete-directory-tree path :validate t))))))
+
 (deftest snap-state-healer-skips-definitely-absent-subtree-proof-reads
   (:layer :integration :module :p2p)
   (multiple-value-bind (source-state addresses)
