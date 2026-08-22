@@ -29,6 +29,39 @@
 (cffi:defcfun ("rocksdb_options_set_bytes_per_sync"
                %rocks-options-bytes-per-sync) :void
   (options :pointer) (bytes :uint64))
+(cffi:defcfun ("rocksdb_block_based_options_create"
+               %rocks-block-options-create) :pointer)
+(cffi:defcfun ("rocksdb_block_based_options_destroy"
+               %rocks-block-options-destroy) :void
+  (options :pointer))
+(cffi:defcfun ("rocksdb_block_based_options_set_filter_policy"
+               %rocks-block-options-set-filter-policy) :void
+  (options :pointer) (filter-policy :pointer))
+(cffi:defcfun ("rocksdb_block_based_options_set_block_cache"
+               %rocks-block-options-set-block-cache) :void
+  (options :pointer) (cache :pointer))
+(cffi:defcfun ("rocksdb_block_based_options_set_cache_index_and_filter_blocks"
+               %rocks-block-options-cache-index-and-filter-blocks) :void
+  (options :pointer) (enabled :uchar))
+(cffi:defcfun ("rocksdb_block_based_options_set_cache_index_and_filter_blocks_with_high_priority"
+               %rocks-block-options-cache-index-and-filter-high-priority) :void
+  (options :pointer) (enabled :uchar))
+(cffi:defcfun ("rocksdb_block_based_options_set_pin_l0_filter_and_index_blocks_in_cache"
+               %rocks-block-options-pin-l0-filter-and-index) :void
+  (options :pointer) (enabled :uchar))
+(cffi:defcfun ("rocksdb_options_set_block_based_table_factory"
+               %rocks-options-set-block-table-factory) :void
+  (options :pointer) (block-options :pointer))
+(cffi:defcfun ("rocksdb_filterpolicy_create_bloom_full"
+               %rocks-filter-policy-create-bloom-full) :pointer
+  (bits-per-key :double))
+(cffi:defcfun ("rocksdb_filterpolicy_destroy"
+               %rocks-filter-policy-destroy) :void
+  (filter-policy :pointer))
+(cffi:defcfun ("rocksdb_cache_create_lru" %rocks-cache-create-lru) :pointer
+  (capacity :size))
+(cffi:defcfun ("rocksdb_cache_destroy" %rocks-cache-destroy) :void
+  (cache :pointer))
 (cffi:defcfun ("rocksdb_readoptions_create" %rocks-read-options-create) :pointer)
 (cffi:defcfun ("rocksdb_readoptions_destroy" %rocks-read-options-destroy) :void
   (options :pointer))
@@ -103,6 +136,10 @@
   "Bounded flush/compaction parallelism for the supported public-node profile.")
 (defconstant +rocksdb-background-bytes-per-sync+ (* 1024 1024)
   "Incremental background-file sync width; WAL cursor batches remain synced.")
+(defconstant +rocksdb-block-cache-bytes+ (* 2 1024 1024 1024)
+  "Block-cache budget for the supported 16-GiB public-node profile.")
+(defconstant +rocksdb-bloom-bits-per-key+ 10.0d0
+  "Full-filter budget for random content-addressed state lookups.")
 
 (defun rocksdb-available-p ()
   (or *rocksdb-library-loaded-p*
@@ -137,6 +174,44 @@
      (multiple-value-prog1 (progn ,@body)
        (rocksdb-check-error ,error))))
 
+(defun rocksdb-configure-block-table (options)
+  "Install the bounded public-node cache and whole-key Bloom filter."
+  (let ((block-options (%rocks-block-options-create))
+        (cache (%rocks-cache-create-lru +rocksdb-block-cache-bytes+))
+        (filter-policy
+          (%rocks-filter-policy-create-bloom-full
+           +rocksdb-bloom-bits-per-key+)))
+    (when (or (cffi:null-pointer-p block-options)
+              (cffi:null-pointer-p cache)
+              (cffi:null-pointer-p filter-policy))
+      (unless (cffi:null-pointer-p filter-policy)
+        (%rocks-filter-policy-destroy filter-policy))
+      (unless (cffi:null-pointer-p cache)
+        (%rocks-cache-destroy cache))
+      (unless (cffi:null-pointer-p block-options)
+        (%rocks-block-options-destroy block-options))
+      (error "RocksDB block-table cache allocation failed"))
+    (unwind-protect
+         (progn
+           ;; SET-FILTER-POLICY transfers the wrapper into BLOCK-OPTIONS.
+           ;; The table factory copies that shared policy before BLOCK-OPTIONS
+           ;; is released. SET-BLOCK-CACHE instead copies CACHE's shared
+           ;; object, so its C wrapper remains ours to destroy below.
+           (%rocks-block-options-set-filter-policy
+            block-options filter-policy)
+           (setf filter-policy (cffi:null-pointer))
+           (%rocks-block-options-set-block-cache block-options cache)
+           (%rocks-block-options-cache-index-and-filter-blocks block-options 1)
+           (%rocks-block-options-cache-index-and-filter-high-priority
+            block-options 1)
+           (%rocks-block-options-pin-l0-filter-and-index block-options 1)
+           (%rocks-options-set-block-table-factory options block-options))
+      (unless (cffi:null-pointer-p filter-policy)
+        (%rocks-filter-policy-destroy filter-policy))
+      (%rocks-cache-destroy cache)
+      (%rocks-block-options-destroy block-options)))
+  options)
+
 (defun make-rocksdb-key-value-database (path &key (create-if-missing-p t))
   (unless (rocksdb-available-p)
     (error "RocksDB shared library is unavailable"))
@@ -158,6 +233,12 @@
     (%rocks-options-dynamic-level-bytes options 1)
     (%rocks-options-bytes-per-sync
      options +rocksdb-background-bytes-per-sync+)
+    ;; The RocksDB 11 block-table default is only 32 MiB. SNAP account ranges
+    ;; and final healing issue wide random content-addressed reads over tens of
+    ;; gigabytes, so that fallback turns nearly every lookup into device I/O.
+    ;; Keep a bounded cache and Bloom filters in RocksDB's native table layer;
+    ;; neither changes WAL durability or the bytes returned to verification.
+    (rocksdb-configure-block-table options)
     (%rocks-write-options-sync write-options 1)
     (handler-case
         (let ((handle

@@ -249,10 +249,12 @@ present-value decoding on all four workers, rejoins values, presence bits, and
 decoded objects in exact input order, and propagates an injected worker
 failure. Switching the production dispatch back to serial makes its four-call
 and four-decoder-thread witnesses fail. Generic controls enforce the 4,096-key
-and 4 MiB key-byte bounds. They persist a bounded checksummed work frontier in
-the same batch as newly accepted nodes. Abrupt source loss then resumes without
-rereading the root;
-corrupt, stale, empty, or oversized checkpoints fail closed, and
+and 4 MiB key-byte bounds. The RocksDB construction regression witnesses the
+exact 2 GiB block-cache budget, ten-bit full Bloom policy, and production
+table-factory call site. They persist a bounded checksummed work frontier in the
+same batch as newly accepted nodes. Abrupt source loss then resumes without
+rereading the root; corrupt, stale, empty, or oversized checkpoints fail
+closed, and
 rebase/completion failure injection proves that checkpoint invalidation remains
 atomic. A large-frontier control round-trips a 5,000-item live checkpoint and
 proves that its bounded record stays below the byte cap. A live-shape control

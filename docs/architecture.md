@@ -220,7 +220,13 @@ them by their physical location instead reintroduces dependency cycles:
   so the allocation bound remains unchanged without turning a temporary shape
   into a fatal node exit. On SBCL, production RocksDB batches of at least 128
   keys are divided into at most four contiguous native multi-get slices. This
-  applies both to trie-node records and to the versioned metadata proofs used
+  path uses a 2 GiB sharded block cache on the supported 16 GiB public-node
+  profile instead of RocksDB 11's 32 MiB fallback. Ten-bit full Bloom filters
+  keep absent whole-key probes out of newly written SST data blocks, while
+  index/filter blocks receive high cache priority and L0 pinning. These table
+  settings alter neither verified values nor synchronous cursor batches. The
+  parallel dispatch applies both to trie-node records and to the versioned
+  metadata proofs used
   to skip completed subtrees; proof candidates are collected under the same
   frontier bound and resolved in input order before absent proofs enter the
   trie-node batch. Thus a cache miss does not serialize one metadata lookup on

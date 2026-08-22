@@ -273,6 +273,69 @@
       (when (probe-file path)
         (uiop:delete-directory-tree path :validate t)))))
 
+(deftest rocksdb-key-value-database-configures-public-node-read-cache
+  (:layer :integration :module :database)
+  (let* ((path
+           (merge-pathnames
+            (make-pathname
+             :directory
+             `(:relative ,(format nil "ethereum-lisp-rocks-cache-~A"
+                                 (gensym))))
+            #P"/private/tmp/"))
+         (real-cache-create
+           (fdefinition 'ethereum-lisp.database::%rocks-cache-create-lru))
+         (real-bloom-create
+           (fdefinition
+            'ethereum-lisp.database::%rocks-filter-policy-create-bloom-full))
+         (real-set-factory
+           (fdefinition
+            'ethereum-lisp.database::%rocks-options-set-block-table-factory))
+         (cache-capacity nil)
+         (bloom-bits nil)
+         (factory-calls 0))
+    (unwind-protect
+         (progn
+           (setf
+            (fdefinition 'ethereum-lisp.database::%rocks-cache-create-lru)
+            (lambda (capacity)
+              (setf cache-capacity capacity)
+              (funcall real-cache-create capacity)))
+           (setf
+            (fdefinition
+             'ethereum-lisp.database::%rocks-filter-policy-create-bloom-full)
+            (lambda (bits-per-key)
+              (setf bloom-bits bits-per-key)
+              (funcall real-bloom-create bits-per-key)))
+           (setf
+            (fdefinition
+             'ethereum-lisp.database::%rocks-options-set-block-table-factory)
+            (lambda (options block-options)
+              (incf factory-calls)
+              (funcall real-set-factory options block-options)))
+           (let ((database (make-rocksdb-key-value-database path)))
+             (unwind-protect
+                  (progn
+                    (kv-put database #(1) #(2))
+                    (is (bytes= #(2) (kv-get database #(1)))))
+               (close-rocksdb-key-value-database database))))
+      (setf (fdefinition 'ethereum-lisp.database::%rocks-cache-create-lru)
+            real-cache-create)
+      (setf
+       (fdefinition
+        'ethereum-lisp.database::%rocks-filter-policy-create-bloom-full)
+       real-bloom-create)
+      (setf
+       (fdefinition
+        'ethereum-lisp.database::%rocks-options-set-block-table-factory)
+       real-set-factory)
+      (when (probe-file path)
+        (uiop:delete-directory-tree path :validate t)))
+    (is (= ethereum-lisp.database::+rocksdb-block-cache-bytes+
+           cache-capacity))
+    (is (= ethereum-lisp.database::+rocksdb-bloom-bits-per-key+
+           bloom-bits))
+    (is (= 1 factory-calls))))
+
 (deftest rocksdb-key-value-database-uses-one-native-multi-get
   (:layer :integration :module :database)
   (let ((path
