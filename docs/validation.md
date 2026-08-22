@@ -471,6 +471,25 @@ waits up to 600 wall-clock seconds for public RPC by default, fails early if
 the container exits, and accepts a bounded 30--1800 second override through
 `HOODI_GATE_RESTART_READY_TIMEOUT`.
 
+When a performance claim needs a same-host geth control, use the separate
+`scripts/hoodi-geth-benchmark-gate.sh`. Its defaults pin the already-installed
+geth v1.17.4 amd64 image by image ID and give geth the same Lighthouse, JWT,
+networks, public P2P port, 50-peer limit, 4 GiB cache budget, and fresh SSD
+datadir. The benchmark process is explicitly non-root with a read-only root
+filesystem, all capabilities dropped, and `no-new-privileges`; Docker pulls are
+disabled. `start` first verifies the exact owned ethereum-lisp source, empty
+geth datadir, and networkless geth binary, then performs a rollback-protected
+alias cutover. `restore` verifies both ownership chains before restoring the
+preserved ethereum-lisp container. Neither action removes a container, image,
+or datadir:
+
+```sh
+scripts/hoodi-geth-benchmark-gate.sh status
+HOODI_GETH_ALLOW_MUTATION=1 scripts/hoodi-geth-benchmark-gate.sh start
+# Collect equivalent time, RPC, peer, byte, CPU, and block-I/O samples.
+HOODI_GETH_ALLOW_MUTATION=1 scripts/hoodi-geth-benchmark-gate.sh restore
+```
+
 The reviewed runtime image must also pass
 `cl-workbench validation run runtime-smoke IMAGE`: this delegates to the
 reviewed runtime smoke broker and checks non-root/read-only Hoodi startup,
