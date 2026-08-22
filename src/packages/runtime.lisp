@@ -440,6 +440,7 @@
    #:snap-sync-heal-progress-fetched-nodes
    #:snap-sync-heal-progress-request-count
    #:snap-sync-heal-progress-response-bytes
+   #:snap-sync-heal-progress-skipped-subtrees
    #:snap-sync-heal-progress-completed-p
    #:snap-sync-read-progress
    #:snap-sync-heal-checkpoint-present-p

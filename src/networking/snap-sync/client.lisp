@@ -188,24 +188,27 @@ state completion.")
 (defstruct (snap-sync-heal-progress
             (:constructor %make-snap-sync-heal-progress
                 (&key processed-nodes reused-nodes fetched-nodes request-count
-                      response-bytes completed-p)))
+                      response-bytes skipped-subtrees completed-p)))
   "One cumulative, observational snapshot of final TrieNodes healing.
 
 PROCESSED-NODES includes decoded inline and hash-addressed trie nodes.
 REUSED-NODES counts hash-addressed nodes read from the local database, while
 FETCHED-NODES and RESPONSE-BYTES count accepted TrieNodes response blobs.
-REQUEST-COUNT includes failover attempts.  None of these counters is durable or
+REQUEST-COUNT includes failover attempts. SKIPPED-SUBTREES counts durable
+completion proofs that stopped traversal below a content-addressed root during
+the current healer invocation. These counters are observational and not
 consensus-visible."
   (processed-nodes 0)
   (reused-nodes 0)
   (fetched-nodes 0)
   (request-count 0)
   (response-bytes 0)
+  (skipped-subtrees 0)
   (completed-p nil))
 
 (defun snap-sync-report-heal-progress
     (callback processed-nodes reused-nodes fetched-nodes request-count
-     response-bytes completed-p)
+     response-bytes skipped-subtrees completed-p)
   (when callback
     (funcall
      callback
@@ -215,6 +218,7 @@ consensus-visible."
       :fetched-nodes fetched-nodes
       :request-count request-count
       :response-bytes response-bytes
+      :skipped-subtrees skipped-subtrees
       :completed-p completed-p))))
 
 (defun snap-sync-require-hash32 (value label)
@@ -3064,6 +3068,7 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
              (if checkpoint-present-p
                  (snap-sync-heal-checkpoint-response-bytes checkpoint)
                  0))
+           (skipped-subtrees 0)
            (source-round 0)
            (last-checkpoint-processed-nodes processed-nodes))
     (labels
@@ -3096,7 +3101,7 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                             *snap-sync-heal-progress-node-interval*)))
              (snap-sync-report-heal-progress
               on-heal-progress processed-nodes reused-nodes fetched-nodes
-              request-count response-bytes nil)))
+              request-count response-bytes skipped-subtrees nil)))
          (read-local-nodes (references &key decoder (disk-p t))
            ;; Preserve the ordered batch contract while satisfying freshly
            ;; fetched hashes from the bounded response cache.  DISK-P may
@@ -3480,7 +3485,7 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                       (aref decoded index)))))
                (snap-sync-report-heal-progress
                 on-heal-progress processed-nodes reused-nodes fetched-nodes
-                request-count response-bytes nil)))))
+                request-count response-bytes skipped-subtrees nil)))))
       (loop
         ;; No request worker or uncommitted database batch crosses this seam.
         ;; A coordinator may therefore yield a stale, CL-authorized target and
@@ -3586,24 +3591,24 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                             do
                             (if (snap-sync-healed-subtree-candidate-p work)
                                 (progn
-                                  (unless
-                                      (= 1
+                                  (if (= 1
                                          (aref candidate-presence
                                                candidate-index))
-                                    (push
-                                     (snap-sync-make-heal-work
-                                      (snap-sync-heal-work-kind work)
-                                      (snap-sync-heal-work-account-hash work)
-                                      (snap-sync-heal-work-path work)
-                                      (snap-sync-heal-work-reference work)
-                                      :fetched-p
-                                      (snap-sync-heal-work-fetched-p work)
-                                      :marker-state
-                                      (and
-                                       (snap-sync-healed-subtree-publication-candidate-p
-                                        work)
-                                       :armed))
-                                     actual-lookups))
+                                      (incf skipped-subtrees)
+                                      (push
+                                       (snap-sync-make-heal-work
+                                        (snap-sync-heal-work-kind work)
+                                        (snap-sync-heal-work-account-hash work)
+                                        (snap-sync-heal-work-path work)
+                                        (snap-sync-heal-work-reference work)
+                                        :fetched-p
+                                        (snap-sync-heal-work-fetched-p work)
+                                        :marker-state
+                                        (and
+                                         (snap-sync-healed-subtree-publication-candidate-p
+                                          work)
+                                         :armed))
+                                       actual-lookups))
                                   (incf candidate-index))
                                 (push work actual-lookups)))
                       (setf ordered
@@ -3670,7 +3675,7 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
       (kv-apply-batch database batch)
       (snap-sync-report-heal-progress
        on-heal-progress processed-nodes reused-nodes fetched-nodes
-       request-count response-bytes t)
+       request-count response-bytes skipped-subtrees t)
       completed)))))
 
 (defun snap-sync-fill-storage-then-heal
@@ -3706,7 +3711,7 @@ plans retain the content-addressed healer as the fail-closed path."
         (snap-sync-complete-batch batch completed)
         (kv-apply-batch database batch)
         (snap-sync-report-heal-progress
-         on-heal-progress 0 0 0 0 0 t)
+         on-heal-progress 0 0 0 0 0 0 t)
         (return-from snap-sync-fill-storage-then-heal completed))))
   (snap-sync-heal-state
    database sources progress byte-limit

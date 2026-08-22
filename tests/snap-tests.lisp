@@ -613,6 +613,8 @@
                    final)
                   (ethereum-lisp.snap-sync:snap-sync-heal-progress-response-bytes
                    final)
+                  (ethereum-lisp.snap-sync:snap-sync-heal-progress-skipped-subtrees
+                   final)
                   (ethereum-lisp.snap-sync:snap-sync-heal-progress-reused-nodes
                    final)
                   (ethereum-lisp.snap-sync:snap-sync-heal-progress-processed-nodes
@@ -3495,6 +3497,7 @@
            (authority (make-hash32 (snap-test-hash 222)))
            (first-processed nil)
            (second-processed nil)
+           (second-skipped-subtrees nil)
            (cache-batches 0)
            (cache-hits 0)
            (storage-cache-hits 0)
@@ -3578,6 +3581,9 @@
                          snapshot)
                       (setf second-processed
                             (ethereum-lisp.snap-sync::snap-sync-heal-progress-processed-nodes
+                             snapshot)
+                            second-skipped-subtrees
+                            (ethereum-lisp.snap-sync::snap-sync-heal-progress-skipped-subtrees
                              snapshot))))))
             (setf
              (fdefinition
@@ -3585,6 +3591,7 @@
              real-present-batch)))
         (is (plusp cache-batches))
         (is (plusp cache-hits))
+        (is (= cache-hits second-skipped-subtrees))
         (is (plusp storage-cache-hits))
         (is (plusp first-processed))
         (is (> proof-count 1))

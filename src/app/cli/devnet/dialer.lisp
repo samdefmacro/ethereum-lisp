@@ -780,6 +780,9 @@ must prove the new state root before either record can authorize publication."
               "nodeBytes"
               (ethereum-lisp.snap-sync:snap-sync-heal-progress-response-bytes
                heal-progress)
+              "skippedSubtrees"
+              (ethereum-lisp.snap-sync:snap-sync-heal-progress-skipped-subtrees
+               heal-progress)
               "completed" completed-p))))
        :on-source-error
        (lambda (source condition)

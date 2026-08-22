@@ -360,8 +360,9 @@ sets the node's single coalesced wake bit, that an update racing an active sync
 pass is not lost, and that shutdown wakes a coordinator waiting on its condition
 variable. A one-second periodic pass remains as a bounded fallback. Final
 TrieNodes healing reports monotonic processed/reused/fetched/request/byte
-counters through `peer.snap.heal_progress`, throttled to the first event, every
-30 seconds, and completion. Its focused controls are
+counters plus the number of whole durable subtrees skipped through
+`peer.snap.heal_progress`, throttled to the first event, every 30 seconds, and
+completion. Its focused controls are
 `SNAP-STATE-HEALER` and `SNAP-HEAL-CHECKPOINT`; both are also included by the
 broader `SNAP-` selectors above. The fetched-node hot-path control plants
 positive witnesses for both single-key and batch trie reads, then proves that a
