@@ -360,10 +360,13 @@ snapshot immediately before the five-minute silence boundary and proves that
 productive local or peer progress keeps the exact frontier; only five full
 minutes without a later snapshot permits the stale yield. Removing the
 production predicate wiring makes the exact call-site test fail. The range
-tests prove that thirty-two durable account ranges are fetched with two bounded
-workers per source, including six simultaneous workers through three
+tests prove that sixty-four durable account ranges are fetched with three
+bounded workers per source, including nine simultaneous workers through three
 sole-writer request queues, with geth's 512 KiB snap byte limit. Completed
-ranges are not replayed after restart, and a failed source's claimed range is reassigned. A
+ranges are not replayed after restart, thirty-two-range cursors expand without
+replay, and a failed source's claimed range is reassigned. SNAP demand raises
+the default outbound target from sixteen to twenty-five capable sessions while
+retaining the absolute fifty-peer bound. A
 finite source generation may exhaust without stopping the node: the coordinator logs
 that typed availability result, refreshes live sessions on its next pass, and
 resumes without replaying the page committed by the retired generation. A

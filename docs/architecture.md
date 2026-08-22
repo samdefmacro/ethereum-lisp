@@ -140,18 +140,21 @@ them by their physical location instead reintroduces dependency cycles:
   backend; memory/file stores remain test oracles and do not claim production
   snap service. A CL-authorized pivot binds the state download to target hash,
   chain, genesis, and database authority. Fresh imports split the account
-  keyspace into thirty-two durable ranges. Two bounded workers share each
+  keyspace into sixty-four durable ranges. Three bounded workers share each
   available snap peer. Its session thread remains the only RLPx writer, but it
   may pipeline one account, storage, bytecode, and trie-node request at once;
   decoded replies are matched by response type and request id before waking the
   worker. Synchronous eth jobs wait for an empty SNAP response seam, so they
   cannot consume a pipelined reply. A second range can therefore use the
-  connection while the first verifies its proof or writes RocksDB; an older
-  sixteen-range progress record remains resumable. At each durable page seam,
+  connection while the first verifies its proof or writes RocksDB; older
+  sixteen-range progress remains resumable and thirty-two-range progress is
+  expanded at its exact durable cursors. During range import the dial scheduler
+  seeks SNAP-capable outbound sessions up to half of `--maxpeers`, returning to
+  the ordinary one-third target afterwards. At each durable page seam,
   a rate-limited consensus-head check moves a pivot that has fallen outside
   geth's `2*64-8` window; the atomic rebase retains completed ranges and makes
-  the fresher state root serviceable by the full live peer set. Each request keeps geth's
-  512 KiB soft limit, while one coordinator serializes verified record and
+  the fresher state root serviceable by the full live peer set. Each request
+  keeps geth's 512 KiB soft limit, while one coordinator serializes verified record and
   progress publication. A failed
   peer releases only its claimed range for another worker. If every peer in
   that finite source snapshot fails, the importer reports a typed remote-source exhaustion result;

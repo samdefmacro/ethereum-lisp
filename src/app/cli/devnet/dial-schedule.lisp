@@ -59,6 +59,13 @@ most sixteen of these dials and continues to reserve inbound capacity.")
 reason it exists: a node that dials until it is full has no room left to be
 reached from outside, which is the whole thing the inbound wave was built for.")
 
+(defconstant +devnet-snap-dial-ratio+ 2
+  "One in this many peer slots is an outbound SNAP target during state sync.
+
+Geth reserves roughly half of its peer capacity for SNAP-capable sessions while
+state download is active. The ordinary one-third outbound target is restored
+as soon as SNAP demand ends, preserving inbound capacity in steady operation.")
+
 (defconstant +devnet-dial-dynamic-candidate-limit+ 256
   "How many discovered candidates we remember. Our policy — the bound that the
 old dial registry, a table only ever added to, did not have.")
@@ -188,6 +195,15 @@ the peer table's to answer."
         (max 1 (floor max-peers +devnet-dial-ratio+))
         0)))
 
+(defun devnet-dial-target-peers (registry table)
+  "Return the outbound target for the registry's current workload."
+  (let ((max-peers (devnet-peer-table-max-peers table)))
+    (if (and (plusp max-peers)
+             (devnet-dial-registry-snap-demand-p registry))
+        (max 1
+             (floor max-peers +devnet-snap-dial-ratio+))
+        (devnet-dial-max-peers table))))
+
 (defun devnet-dial-established-count (registry table)
   "How many established outbound sessions satisfy the current dial target.
 
@@ -209,7 +225,7 @@ otherwise missing state-download slots."
     (max
      0
      (- (min (devnet-dial-registry-max-active-dials registry)
-             (- (devnet-dial-max-peers table)
+             (- (devnet-dial-target-peers registry table)
                 (devnet-dial-established-count registry table))
              ;; ETH-only sessions stop counting toward SNAP demand, but they
              ;; still consume real table capacity. Never overbook MAX-PEERS.

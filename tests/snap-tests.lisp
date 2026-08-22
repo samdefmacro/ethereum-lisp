@@ -997,7 +997,7 @@
     (is (= 1
            (length
             (ethereum-lisp.snap-sync:snap-sync-progress-tasks legacy))))
-    (is (= 32
+    (is (= 64
            (length
             (ethereum-lisp.snap-sync:snap-sync-progress-tasks migrated))))
     (is
@@ -1024,8 +1024,66 @@
         (ethereum-lisp.snap-sync::snap-sync-progress-from-record
          (rlp-encode (apply #'make-rlp-list fields)))))))
 
+(deftest snap-sync-progress-expands-thirty-two-durable-cursors-to-sixty-four
+  (:layer :unit :module :p2p)
+  (let* ((old
+           (ethereum-lisp.snap-sync::snap-sync-make-account-tasks :count 32))
+         (new-boundaries
+           (ethereum-lisp.snap-sync::snap-sync-task-boundaries 64))
+         (cursor (car (nth 3 new-boundaries)))
+         (tasks
+           (append
+            (list
+             (ethereum-lisp.snap-sync::snap-sync-account-task
+              :start
+              (ethereum-lisp.snap-sync:snap-sync-account-task-start
+               (first old))
+              :limit
+              (ethereum-lisp.snap-sync:snap-sync-account-task-limit
+               (first old))
+              :completed-p t)
+             (ethereum-lisp.snap-sync::snap-sync-account-task
+              :start
+              (ethereum-lisp.snap-sync:snap-sync-account-task-start
+               (second old))
+              :limit
+              (ethereum-lisp.snap-sync:snap-sync-account-task-limit
+               (second old))
+              :next-origin cursor))
+            (cddr old)))
+         (progress
+           (ethereum-lisp.snap-sync::snap-sync-make-progress
+            :pivot-hash (make-hash32 (snap-test-hash 141))
+            :pivot-number 42
+            :state-root (make-hash32 (snap-test-hash 142))
+            :partial-root +empty-trie-hash+
+            :target-hash (make-hash32 (snap-test-hash 143))
+            :chain-id 560048
+            :genesis-hash (make-hash32 (snap-test-hash 144))
+            :authority-id (make-hash32 (snap-test-hash 145))
+            :completed-p nil :tasks tasks))
+         (migrated
+           (ethereum-lisp.snap-sync::snap-sync-progress-with-task-count
+            progress 64))
+         (expanded
+           (ethereum-lisp.snap-sync:snap-sync-progress-tasks migrated))
+         (round-tripped
+           (ethereum-lisp.snap-sync::snap-sync-progress-from-record
+            (ethereum-lisp.snap-sync::snap-sync-progress-record migrated))))
+    (is (= 64 (length expanded)))
+    (is (every
+         #'ethereum-lisp.snap-sync:snap-sync-account-task-completed-p
+         (subseq expanded 0 3)))
+    (is (bytes= cursor
+                (ethereum-lisp.snap-sync:snap-sync-account-task-next-origin
+                 (fourth expanded))))
+    (is (= 64
+           (length
+            (ethereum-lisp.snap-sync:snap-sync-progress-tasks
+             round-tripped))))))
+
 #+sbcl
-(deftest snap-state-import-multi-oversubscribes-three-sources-across-thirty-two-ranges
+(deftest snap-state-import-multi-oversubscribes-three-sources-across-sixty-four-ranges
   (:layer :integration :module :p2p)
   (multiple-value-bind (source-state addresses)
       (snap-test-partitioned-state)
@@ -1053,7 +1111,7 @@
                       (lambda (request)
                         (let ((barrier-p
                                 (sb-thread:with-mutex (lock)
-                                  (<= (incf source-calls) 2))))
+                                  (<= (incf source-calls) 3))))
                           (when barrier-p
                             (sb-thread:with-mutex (lock)
                               (incf arrived)
@@ -1063,7 +1121,7 @@
                                (ethereum-lisp.snap:snap-get-account-range-bytes
                                 request)
                                byte-limits)
-                              (when (= arrived 6)
+                              (when (= arrived 9)
                                 (setf released-p t)
                                 (sb-thread:condition-broadcast changed))
                               (loop until released-p
@@ -1085,11 +1143,11 @@
               :chain-id 560048
               :genesis-hash (make-hash32 (snap-test-hash 138))
               :authority-id (make-hash32 (snap-test-hash 139)))))
-      (is (= 6 max-active))
-      (is (= 6 (length byte-limits)))
+      (is (= 9 max-active))
+      (is (= 9 (length byte-limits)))
       (is (every (lambda (limit) (= limit (* 512 1024))) byte-limits))
       (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p progress))
-      (is (= 32
+      (is (= 64
              (length
               (ethereum-lisp.snap-sync:snap-sync-progress-tasks progress))))
       (is

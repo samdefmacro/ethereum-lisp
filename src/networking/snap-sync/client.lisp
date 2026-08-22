@@ -15,15 +15,22 @@
   "Maximum small storage tries in a 512 KiB geth-style request.")
 (defconstant +snap-sync-legacy-account-task-count+ 16
   "Account partition count written by progress versions before oversubscription.")
-(defconstant +snap-sync-account-task-count+ 32
+(defconstant +snap-sync-previous-account-task-count+ 32
+  "Account partition count written by the first oversubscribed scheduler.")
+(defconstant +snap-sync-account-task-count+ 64
   "Account partitions used by a fresh import.
 
 The session remains the only RLPx writer. It may pipeline one request per snap
 response type, while range-proof verification and RocksDB writes happen on the
-workers after their response is routed. More logical partitions keep those
-typed request slots and the verification cores busy.")
-(defconstant +snap-sync-range-workers-per-source+ 2
-  "Maximum account workers sharing one source's typed request pipeline.")
+workers after their response is routed. Sixty-four logical partitions keep a
+three-stage per-source pipeline and newly admitted peers busy without changing
+the durable page bound.")
+(defconstant +snap-sync-range-workers-per-source+ 3
+  "Maximum account workers sharing one source's typed request pipeline.
+
+Three workers prevent the AccountRange slot from going idle while one page owns
+StorageRanges and a sibling page is queued behind that typed request. Each
+worker still retains at most one verified, uncommitted page.")
 (defconstant +snap-sync-storage-task-count+ 16
   "Maximum parallel ranges used to finish one byte-capped storage trie.")
 (defconstant +snap-sync-heal-paths-per-source+
@@ -323,9 +330,11 @@ consensus-visible."
   (unless (and (listp tasks)
                (member (length tasks)
                        (list 1 +snap-sync-legacy-account-task-count+
+                             +snap-sync-previous-account-task-count+
                              +snap-sync-account-task-count+)))
-    (error "Snap progress must contain one, ~D, or ~D account tasks"
+    (error "Snap progress must contain one, ~D, ~D, or ~D account tasks"
            +snap-sync-legacy-account-task-count+
+           +snap-sync-previous-account-task-count+
            +snap-sync-account-task-count+))
   (let ((expected-start (make-byte-vector 32)))
     (dolist (task tasks)
@@ -536,7 +545,7 @@ consensus-visible."
 
 (defun snap-sync-progress-from-record (record)
   (handler-case
-      (let* ((value (rlp-decode-one record :max-list-items 32))
+      (let* ((value (rlp-decode-one record :max-list-items 128))
              (items
                (progn
                  (unless (rlp-list-p value)
@@ -895,13 +904,47 @@ the exact authorized state root before completion."
    :authority-id (snap-sync-progress-authority-id progress)
    :completed-p t :tasks (snap-sync-progress-tasks progress)))
 
+(defun snap-sync-expand-account-tasks (tasks count)
+  "Split TASKS into aligned COUNT partitions without replaying their cursors."
+  (snap-sync-validate-account-tasks tasks)
+  (loop for (start . limit) in (snap-sync-task-boundaries count)
+        for old =
+          (find-if
+           (lambda (task)
+             (and
+              (not
+               (ethereum-lisp.validation:byte-vector-lexicographic<
+                start (snap-sync-account-task-start task)))
+              (not
+               (ethereum-lisp.validation:byte-vector-lexicographic<
+                (snap-sync-account-task-limit task) limit))))
+           tasks)
+        do (unless old
+             (error "Snap task expansion is not aligned with durable ranges"))
+        collect
+        (cond
+          ((snap-sync-account-task-completed-p old)
+           (snap-sync-account-task
+            :start start :limit limit :completed-p t))
+          ((ethereum-lisp.validation:byte-vector-lexicographic<
+            limit (snap-sync-account-task-next-origin old))
+           (snap-sync-account-task
+            :start start :limit limit :completed-p t))
+          (t
+           (snap-sync-account-task
+            :start start :limit limit
+            :next-origin
+            (if (ethereum-lisp.validation:byte-vector-lexicographic<
+                 (snap-sync-account-task-next-origin old) start)
+                start
+                (snap-sync-account-task-next-origin old)))))))
+
 (defun snap-sync-progress-with-task-count (progress count)
-  "Split legacy linear progress into COUNT disjoint durable account tasks."
+  "Expand resumable account cursors to COUNT disjoint durable tasks."
   (if (or (= count (length (snap-sync-progress-tasks progress)))
-          ;; Keep an in-progress sixteen-way public import resumable after the
-          ;; fresh-import scheduler grows to thirty-two partitions. Splitting
-          ;; a partially advanced interval would need extra durable boundary
-          ;; witnesses and yields no correctness benefit.
+          ;; Retain the oldest sixteen-way public layout. The actively measured
+          ;; thirty-two-way layout below has aligned boundaries and is expanded
+          ;; to sixty-four so more live SNAP sessions can join immediately.
           (and (= count +snap-sync-account-task-count+)
                (= +snap-sync-legacy-account-task-count+
                   (length (snap-sync-progress-tasks progress))))
@@ -912,11 +955,24 @@ the exact authorized state root before completion."
                (member
                 (length (snap-sync-progress-tasks progress))
                 (list +snap-sync-legacy-account-task-count+
+                      +snap-sync-previous-account-task-count+
                       +snap-sync-account-task-count+))))
       progress
-      (progn
-        (unless (= 1 (length (snap-sync-progress-tasks progress)))
-          (error "Persisted snap progress uses an incompatible task layout"))
+      (let* ((tasks (snap-sync-progress-tasks progress))
+             (replacement
+               (cond
+                 ((= 1 (length tasks))
+                  (snap-sync-make-account-tasks
+                   :count count
+                   :next-origin (snap-sync-progress-next-origin progress)
+                   :completed-p (snap-sync-progress-completed-p progress)))
+                 ((and (= count +snap-sync-account-task-count+)
+                       (= (length tasks)
+                          +snap-sync-previous-account-task-count+))
+                  (snap-sync-expand-account-tasks tasks count))
+                 (t
+                  (error
+                   "Persisted snap progress uses an incompatible task layout")))))
         (snap-sync-make-progress
          :pivot-hash (snap-sync-progress-pivot-hash progress)
          :pivot-number (snap-sync-progress-pivot-number progress)
@@ -927,11 +983,7 @@ the exact authorized state root before completion."
          :genesis-hash (snap-sync-progress-genesis-hash progress)
          :authority-id (snap-sync-progress-authority-id progress)
          :completed-p (snap-sync-progress-completed-p progress)
-         :tasks
-         (snap-sync-make-account-tasks
-          :count count
-          :next-origin (snap-sync-progress-next-origin progress)
-          :completed-p (snap-sync-progress-completed-p progress))))))
+         :tasks replacement))))
 
 (defun snap-sync-load-progress
     (database task-count pivot-hash pivot-number state-root target-hash chain-id
@@ -4018,9 +4070,9 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
                    :kind :result :source source :task-index task-index
                    :result result))
                  ;; Each worker has at most one verified but uncommitted page.
-                 ;; The fixed two-workers-per-source bound keeps resident data
-                 ;; small while overlapping peer I/O with verification and
-                 ;; persistence on the sibling worker.
+                 ;; The fixed per-source bound keeps resident data small while
+                 ;; overlapping account I/O with verification, persistence,
+                 ;; and a queued storage-heavy sibling page.
                  (snap-sync-multi-wait-for-commit
                   runtime task-index source))
              (serious-condition (condition)
@@ -4088,12 +4140,12 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
           range-yield-p heal-yield-p max-pages)
   "Import one pivot through disjoint durable ranges shared across SOURCES.
 
-Thirty-two logical account tasks oversubscribe pinned geth's sixteen range
-partitions so peer I/O overlaps proof verification and persistence. At most two
-workers share each source. Its session remains the sole RLPx writer while one
-request per snap response type may be in flight, matching replies by both type
-and request id. Workers verify and heal independent pages concurrently; the
-caller thread serializes MPT merge,
+Sixty-four logical account tasks oversubscribe pinned geth's independent
+account/storage schedulers so peer I/O overlaps proof verification and
+persistence. At most three workers share each source. Its session remains the
+sole RLPx writer while one request per snap response type may be in flight,
+matching replies by both type and request id. Workers verify and heal
+independent pages concurrently; the caller thread serializes MPT merge,
 the progress batch, and callbacks.  ON-PROGRESS receives PROGRESS, SOURCE, and
 TASK-INDEX after that task page is durable.  ON-SOURCE-ERROR receives SOURCE and
 the condition after its task has been made retryable by another source.
