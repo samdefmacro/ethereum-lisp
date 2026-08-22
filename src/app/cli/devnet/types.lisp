@@ -205,11 +205,13 @@ most one follow-up pass, so peer traffic cannot allocate unbounded wakeup work."
   ;; Whether a peer session is currently catching up. Guarded by the peer-table
   ;; mutex, and the reason it exists is in DEVNET-NODE-CLAIM-SYNC.
   (syncing-p nil)
-  ;; One process-local chance to resume a valid durable healer frontier before
-  ;; the ordinary stale-pivot policy may rebase it.  It is consumed only when
-  ;; a live Snap peer exists and the coordinator starts the attempt; a node
-  ;; that is still waiting for peers must not lose its restart opportunity.
-  (snap-checkpoint-resume-p t)
+  ;; One process-local chance to resume a matching durable Snap session before
+  ;; the ordinary stale-pivot policy may rebase it.  The session's exact healer
+  ;; checkpoint is optional: range cursors and completed-subtree proofs are
+  ;; already expensive reusable work, and a routine process restart must not
+  ;; replace their pivot before a live source gets one real attempt.  The chance
+  ;; is consumed only when that attempt starts, so waiting for peers is free.
+  (snap-session-resume-p t)
   ;; A bounded condition-variable notification from peer session threads to the
   ;; node-wide coordinator.  It is independent of both the peer-table mutex and
   ;; the store guard, so an announcement can never enter either lock order.

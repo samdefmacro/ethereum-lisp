@@ -1670,10 +1670,10 @@ really reopens the directory instead of observing the first handle's memory."
               (incf gap-calls)
               3)))
      (lambda ()
-       ;; Merely observing an old checkpoint before any Snap peer connects
+       ;; Merely observing an old durable session before any Snap peer connects
        ;; cannot consume the one post-restart recovery attempt.
        (is (= 3 (ethereum-lisp.cli::devnet-node-multi-sync-pass node)))
-       (is (ethereum-lisp.cli::devnet-node-snap-checkpoint-resume-p node))
+       (is (ethereum-lisp.cli::devnet-node-snap-session-resume-p node))
        (is (= 1 gap-calls))
        (is (= 0 snap-calls))
        ;; Starting the actual attempt consumes the process-local exception. If
@@ -1681,7 +1681,7 @@ really reopens the directory instead of observing the first handle's memory."
        (setf snap-entries (list :snap-peer))
        (is (= 7 (ethereum-lisp.cli::devnet-node-multi-sync-pass node)))
        (is (not
-            (ethereum-lisp.cli::devnet-node-snap-checkpoint-resume-p node)))
+            (ethereum-lisp.cli::devnet-node-snap-session-resume-p node)))
        (is (= 1 gap-calls))
        (is (= 1 snap-calls))))))
 
@@ -1866,6 +1866,12 @@ really reopens the directory instead of observing the first handle's memory."
                         target-hash
                         (ethereum-lisp.cli::devnet-node-active-snap-target
                          node newer-target-hash)))
+                   ;; This test invokes the lower-level target routine
+                   ;; directly. Production consumes the one restart pin in
+                   ;; DEVNET-NODE-MULTI-SYNC-PASS immediately before doing so.
+                   (setf
+                    (ethereum-lisp.cli::devnet-node-snap-session-resume-p node)
+                    nil)
                    ;; Match geth's stale-pivot rule: committed progress is
                    ;; protected across ordinary slots, but a known CL target
                    ;; more than 2*64-8 blocks ahead may move the uninstalled
@@ -1998,21 +2004,17 @@ really reopens the directory instead of observing the first handle's memory."
                       database batch skeleton)
                      (ethereum-lisp.snap-sync::snap-sync-populate-progress-batch
                       batch state-progress)
-                     (ethereum-lisp.snap-sync::snap-sync-populate-heal-checkpoint-batch
-                      batch state-progress
-                      (list
-                       (ethereum-lisp.snap-sync::snap-sync-make-heal-work
-                        :account nil #() (hash32-bytes old-root)))
-                      17 11 6 3 512)
                      (kv-apply-batch database batch))
                    (ethereum-lisp.cli::call-with-devnet-node-store-guard
                     node
                     (lambda ()
                       (ethereum-lisp.chain-store:engine-payload-store-put-remote-block
                        store (make-block :header new-target))))
-                   ;; A restartable healer frontier overrides the ordinary
-                   ;; 120-block staleness timer for one real recovery attempt.
-                   ;; Releasing it earlier would repeat the root scan.
+                   ;; Even without a healer checkpoint, a matching durable
+                   ;; range session overrides the ordinary 120-block staleness
+                   ;; timer for one real recovery attempt. Releasing it before
+                   ;; a peer is tried made every routine deploy change pivot
+                   ;; and repeat the root scan.
                    (is (hash32=
                         (block-header-hash old-target)
                         (ethereum-lisp.cli::devnet-node-active-snap-target
@@ -2020,7 +2022,7 @@ really reopens the directory instead of observing the first handle's memory."
                    ;; Once a real post-restart source generation has been
                    ;; attempted, the original stale-pivot escape is restored.
                    (setf
-                    (ethereum-lisp.cli::devnet-node-snap-checkpoint-resume-p
+                    (ethereum-lisp.cli::devnet-node-snap-session-resume-p
                      node)
                     nil)
                    (is (hash32=

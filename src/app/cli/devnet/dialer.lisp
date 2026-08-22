@@ -238,11 +238,8 @@ and must agree."
                         (node-store-snap-skeleton-progress-target-hash
                          skeleton)))
                    (t
-                    (let* ((checkpoint-present-p
-                             (and
-                              (devnet-node-snap-checkpoint-resume-p node)
-                              (ethereum-lisp.snap-sync:snap-sync-heal-checkpoint-present-p
-                               database state-progress)))
+                    (let* ((restart-pin-p
+                             (devnet-node-snap-session-resume-p node))
                            (target
                              (node-store-snap-skeleton-progress-target-hash
                               skeleton))
@@ -257,7 +254,7 @@ and must agree."
                                   (block-header-number
                                    (block-header latest-block))))
                            (stale-p
-                             (and (not checkpoint-present-p)
+                             (and (not restart-pin-p)
                                   latest-number
                                   (> latest-number
                                      (+
@@ -1058,11 +1055,12 @@ SYNCING or ACCEPTED, which gives the downloader a consensus-driven bound."
         (return-from devnet-node-multi-sync-pass
           (if snap-entries
               (progn
-                ;; A valid durable checkpoint may override the stale-pivot
-                ;; timer for this first real post-restart attempt.  If the
-                ;; finite source generation still cannot serve it, the next
-                ;; pass regains the ordinary rebase escape hatch.
-                (setf (devnet-node-snap-checkpoint-resume-p node) nil)
+                ;; A matching durable Snap session overrides the stale-pivot
+                ;; timer for this first real post-restart attempt, even when a
+                ;; deploy landed between healer checkpoints. If that source
+                ;; generation still cannot serve it, the next pass regains the
+                ;; ordinary rebase escape hatch.
+                (setf (devnet-node-snap-session-resume-p node) nil)
                 (or (devnet-node-snap-sync-target node forkchoice-target)
                     (devnet-node-fill-sync-gaps-with-live-peer node)))
               (devnet-node-fill-sync-gaps-with-live-peer node))))))

@@ -301,14 +301,15 @@ them by their physical location instead reintroduces dependency cycles:
   allocation. The fetched nodes and the exact remaining work frontier
   are committed in one batch. That bounded, checksummed checkpoint is tied to
   the pivot, target, chain, genesis, and database authority, and is ignored if
-  corrupt or stale. While it remains valid and non-empty, the coordinator pins
-  that exact CL target for one actual Snap attempt after process restart even
-  after the ordinary 120-block stale-pivot window; otherwise a routine deploy
-  would delete the frontier and repeat the root traversal. Waiting for a Snap
-  peer does not consume that process-local opportunity. Once a finite source
-  generation has actually been attempted, ordinary stale-target rebase is
-  available again. A long-running healer cannot defer that decision merely by
-  receiving small partial TrieNodes responses forever: at a boundary with no
+  corrupt or stale. After process restart, any identity-matched unfinished Snap
+  session pins that exact CL target for one actual attempt even after the
+  ordinary 120-block stale-pivot window. An exact checkpoint resumes its
+  frontier; without one, the retained range cursors and completed-subtree proofs
+  still prevent a routine deploy from changing pivot before a peer is tried.
+  Waiting for a Snap peer does not consume that process-local opportunity. Once
+  a finite source generation has actually been attempted, ordinary stale-target
+  rebase is available again. A long-running healer cannot defer that decision
+  merely by receiving small partial TrieNodes responses forever: at a boundary with no
   request worker or uncommitted database batch, it checks the current Engine
   forkchoice target at most every 30 seconds. A typed scheduling condition
   yields to the coordinator only when that CL-authorized target is more than
