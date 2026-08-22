@@ -780,6 +780,9 @@ must prove the new state root before either record can authorize publication."
               "nodeBytes"
               (ethereum-lisp.snap-sync:snap-sync-heal-progress-response-bytes
                heal-progress)
+              "promotedSubtrees"
+              (ethereum-lisp.snap-sync:snap-sync-heal-progress-promoted-subtrees
+               heal-progress)
               "skippedSubtrees"
               (ethereum-lisp.snap-sync:snap-sync-heal-progress-skipped-subtrees
                heal-progress)

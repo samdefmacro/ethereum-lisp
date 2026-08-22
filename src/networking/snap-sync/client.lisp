@@ -188,27 +188,30 @@ state completion.")
 (defstruct (snap-sync-heal-progress
             (:constructor %make-snap-sync-heal-progress
                 (&key processed-nodes reused-nodes fetched-nodes request-count
-                      response-bytes skipped-subtrees completed-p)))
+                      response-bytes promoted-subtrees skipped-subtrees
+                      completed-p)))
   "One cumulative, observational snapshot of final TrieNodes healing.
 
 PROCESSED-NODES includes decoded inline and hash-addressed trie nodes.
 REUSED-NODES counts hash-addressed nodes read from the local database, while
 FETCHED-NODES and RESPONSE-BYTES count accepted TrieNodes response blobs.
-REQUEST-COUNT includes failover attempts. SKIPPED-SUBTREES counts durable
-completion proofs that stopped traversal below a content-addressed root during
-the current healer invocation. These counters are observational and not
+REQUEST-COUNT includes failover attempts. PROMOTED-SUBTREES counts legacy range
+proofs converted into completion records at startup. SKIPPED-SUBTREES counts
+such records that stopped traversal below a content-addressed root during the
+current healer invocation. These counters are observational and not
 consensus-visible."
   (processed-nodes 0)
   (reused-nodes 0)
   (fetched-nodes 0)
   (request-count 0)
   (response-bytes 0)
+  (promoted-subtrees 0)
   (skipped-subtrees 0)
   (completed-p nil))
 
 (defun snap-sync-report-heal-progress
     (callback processed-nodes reused-nodes fetched-nodes request-count
-     response-bytes skipped-subtrees completed-p)
+     response-bytes promoted-subtrees skipped-subtrees completed-p)
   (when callback
     (funcall
      callback
@@ -218,6 +221,7 @@ consensus-visible."
       :fetched-nodes fetched-nodes
       :request-count request-count
       :response-bytes response-bytes
+      :promoted-subtrees promoted-subtrees
       :skipped-subtrees skipped-subtrees
       :completed-p completed-p))))
 
@@ -3007,8 +3011,9 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
   ;; Older deployments may already have a complete authenticated range plan
   ;; but no per-range subtree proofs. Promote it with a shallow walk before the
   ;; Bloom index is built, reducing this rebase to changed/boundary regions.
-  (snap-sync-promote-complete-range-plans database)
-  (multiple-value-bind (checkpoint checkpoint-present-p)
+  (let ((promoted-subtrees
+          (snap-sync-promote-complete-range-plans database)))
+    (multiple-value-bind (checkpoint checkpoint-present-p)
       (snap-sync-read-heal-checkpoint database progress)
     (multiple-value-bind
           (planned-storage planned-storage-present-p planned-storage-overflow-p)
@@ -3101,7 +3106,8 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                             *snap-sync-heal-progress-node-interval*)))
              (snap-sync-report-heal-progress
               on-heal-progress processed-nodes reused-nodes fetched-nodes
-              request-count response-bytes skipped-subtrees nil)))
+              request-count response-bytes promoted-subtrees
+              skipped-subtrees nil)))
          (read-local-nodes (references &key decoder (disk-p t))
            ;; Preserve the ordered batch contract while satisfying freshly
            ;; fetched hashes from the bounded response cache.  DISK-P may
@@ -3485,7 +3491,8 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                       (aref decoded index)))))
                (snap-sync-report-heal-progress
                 on-heal-progress processed-nodes reused-nodes fetched-nodes
-                request-count response-bytes skipped-subtrees nil)))))
+                request-count response-bytes promoted-subtrees
+                skipped-subtrees nil)))))
       (loop
         ;; No request worker or uncommitted database batch crosses this seam.
         ;; A coordinator may therefore yield a stale, CL-authorized target and
@@ -3675,8 +3682,8 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
       (kv-apply-batch database batch)
       (snap-sync-report-heal-progress
        on-heal-progress processed-nodes reused-nodes fetched-nodes
-       request-count response-bytes skipped-subtrees t)
-      completed)))))
+       request-count response-bytes promoted-subtrees skipped-subtrees t)
+      completed))))))
 
 (defun snap-sync-fill-storage-then-heal
     (database sources progress byte-limit
@@ -3711,7 +3718,7 @@ plans retain the content-addressed healer as the fail-closed path."
         (snap-sync-complete-batch batch completed)
         (kv-apply-batch database batch)
         (snap-sync-report-heal-progress
-         on-heal-progress 0 0 0 0 0 0 t)
+         on-heal-progress 0 0 0 0 0 0 0 t)
         (return-from snap-sync-fill-storage-then-heal completed))))
   (snap-sync-heal-state
    database sources progress byte-limit

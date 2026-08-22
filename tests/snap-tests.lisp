@@ -613,6 +613,8 @@
                    final)
                   (ethereum-lisp.snap-sync:snap-sync-heal-progress-response-bytes
                    final)
+                  (ethereum-lisp.snap-sync:snap-sync-heal-progress-promoted-subtrees
+                   final)
                   (ethereum-lisp.snap-sync:snap-sync-heal-progress-skipped-subtrees
                    final)
                   (ethereum-lisp.snap-sync:snap-sync-heal-progress-reused-nodes
