@@ -33,15 +33,17 @@
 Clean decoded nodes and unresolved HASH-NODE subtrees are already durable and
 are not traversed. Thus work is proportional to changed paths rather than the
 retained trie."
-  (let ((seen (make-hash-table :test #'equal))
+  (let ((seen (make-hash-table :test #'equalp))
         (dirty nil))
     (labels ((visit (node)
                (when (and node (not (hash-node-p node))
                           (trie-concrete-node-dirty-p node))
-                 (let* ((hash (node-hash node))
-                        (key (bytes-to-hex hash :prefix nil)))
-                   (unless (gethash key seen)
-                     (setf (gethash key seen) t)
+                 (let ((hash (node-hash node)))
+                   ;; EQUALP hashes octet vectors by content. Using the hash
+                   ;; bytes directly avoids allocating a 64-character hex
+                   ;; string for every generated SNAP trie node.
+                   (unless (nth-value 1 (gethash hash seen))
+                     (setf (gethash hash seen) t)
                      (dolist (child (trie-node-children node))
                        (visit child))
                      (push node dirty))))))
