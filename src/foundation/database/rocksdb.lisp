@@ -80,6 +80,8 @@
   (options :pointer) (name :string) (error :pointer))
 (cffi:defcfun ("rocksdb_close" %rocks-close) :void (database :pointer))
 (cffi:defcfun ("rocksdb_free" %rocks-free) :void (pointer :pointer))
+(cffi:defcfun ("memcpy" %rocks-memory-copy) :pointer
+  (destination :pointer) (source :pointer) (bytes :size))
 (cffi:defcfun ("rocksdb_put" %rocks-put) :void
   (database :pointer) (options :pointer)
   (key :pointer) (key-length :size)
@@ -132,6 +134,9 @@
   ((handle :initarg :handle :accessor rocksdb-handle)
    (read-options :initarg :read-options :reader rocksdb-read-options)
    (write-options :initarg :write-options :reader rocksdb-write-options)
+   (buffered-write-options
+    :initarg :buffered-write-options
+    :reader rocksdb-buffered-write-options)
    (path :initarg :path :reader rocksdb-path)))
 
 (defvar *rocksdb-library-loaded-p* nil)
@@ -157,15 +162,13 @@
 
 (defmacro with-rocks-bytes ((pointer length bytes) &body body)
   `(let* ((data (ensure-byte-vector ,bytes))
-          (,length (length data))
-          (,pointer (cffi:foreign-alloc :uint8 :count (max 1 ,length))))
-     (unwind-protect
-          (progn
-            (dotimes (index ,length)
-              (setf (cffi:mem-aref ,pointer :uint8 index)
-                    (aref data index)))
-            ,@body)
-       (cffi:foreign-free ,pointer))))
+          (,length (length data)))
+     ;; RocksDB copies every key/value before the native call returns. Pin the
+     ;; specialized Lisp vector for that bounded call instead of allocating an
+     ;; intermediate foreign buffer and crossing CFFI once per octet. CFFI
+     ;; provides a valid pointer for a zero-length specialized vector too.
+     (cffi:with-pointer-to-vector-data (,pointer data)
+       ,@body)))
 
 (defun rocksdb-check-error (error)
   (let ((pointer (cffi:mem-ref error :pointer)))
@@ -224,6 +227,7 @@
   (let ((options (%rocks-options-create))
         (read-options (%rocks-read-options-create))
         (write-options (%rocks-write-options-create))
+        (buffered-write-options (%rocks-write-options-create))
         (handle (cffi:null-pointer)))
     (handler-case
         (progn
@@ -261,6 +265,10 @@
           ;; the bytes returned to verification.
           (rocksdb-configure-block-table options)
           (%rocks-write-options-sync write-options 1)
+          ;; Only unpublished, content-addressed SNAP prerequisites use this
+          ;; handle. Their following cursor batch uses WRITE-OPTIONS above;
+          ;; RocksDB's synced write flushes the preceding WAL prefix too.
+          (%rocks-write-options-sync buffered-write-options 0)
           (setf handle
                 (with-rocks-error (error)
                   (%rocks-open options (namestring path) error)))
@@ -269,7 +277,9 @@
           (prog1
               (make-instance 'rocksdb-key-value-database
                              :handle handle :read-options read-options
-                             :write-options write-options :path path)
+                             :write-options write-options
+                             :buffered-write-options buffered-write-options
+                             :path path)
             ;; The returned adapter now owns all three surviving handles.
             (setf handle (cffi:null-pointer))))
       (error (condition)
@@ -279,6 +289,7 @@
           (%rocks-options-destroy options))
         (%rocks-read-options-destroy read-options)
         (%rocks-write-options-destroy write-options)
+        (%rocks-write-options-destroy buffered-write-options)
         (error condition)))))
 
 (defun close-rocksdb-key-value-database (database)
@@ -286,13 +297,17 @@
     (%rocks-close (rocksdb-handle database))
     (%rocks-read-options-destroy (rocksdb-read-options database))
     (%rocks-write-options-destroy (rocksdb-write-options database))
+    (%rocks-write-options-destroy
+     (rocksdb-buffered-write-options database))
     (setf (rocksdb-handle database) (cffi:null-pointer)))
   nil)
 
 (defun rocksdb-copy-foreign-bytes (pointer length)
   (let ((result (make-byte-vector length)))
-    (dotimes (index length result)
-      (setf (aref result index) (cffi:mem-aref pointer :uint8 index)))))
+    (when (plusp length)
+      (cffi:with-pointer-to-vector-data (result-pointer result)
+        (%rocks-memory-copy result-pointer pointer length)))
+    result))
 
 (defmethod kv-get ((database rocksdb-key-value-database) key &optional default)
   (with-rocks-bytes (key-pointer key-length key)
@@ -347,9 +362,11 @@
                      for key-length = (length key)
                      for key-pointer =
                        (cffi:inc-pointer key-buffer key-offset)
-                     do (dotimes (offset key-length)
-                          (setf (cffi:mem-aref key-pointer :uint8 offset)
-                                (aref key offset)))
+                     do (when (plusp key-length)
+                          (cffi:with-pointer-to-vector-data
+                              (source-pointer key)
+                            (%rocks-memory-copy
+                             key-pointer source-pointer key-length)))
                         (setf
                          (cffi:mem-aref key-pointers :pointer index)
                          key-pointer
@@ -410,8 +427,7 @@
                        key-pointer key-length error)))
     present-p))
 
-(defmethod kv-apply-batch ((database rocksdb-key-value-database)
-                           (batch kv-write-batch))
+(defun rocksdb-apply-batch-with-options (database batch write-options)
   (let ((native (%rocks-batch-create)))
     (unwind-protect
          (progn
@@ -428,9 +444,19 @@
                   (%rocks-batch-delete native key-pointer key-length)))))
            (with-rocks-error (error)
              (%rocks-write (rocksdb-handle database)
-                           (rocksdb-write-options database) native error)))
+                           write-options native error)))
       (%rocks-batch-destroy native)))
   database)
+
+(defmethod kv-apply-batch ((database rocksdb-key-value-database)
+                           (batch kv-write-batch))
+  (rocksdb-apply-batch-with-options
+   database batch (rocksdb-write-options database)))
+
+(defmethod kv-apply-batch-buffered
+    ((database rocksdb-key-value-database) (batch kv-write-batch))
+  (rocksdb-apply-batch-with-options
+   database batch (rocksdb-buffered-write-options database)))
 
 (defun rocksdb-iterator-check-error (iterator)
   "Signal if the iterator carries a non-OK status.

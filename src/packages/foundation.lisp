@@ -59,6 +59,7 @@
    #:kv-batch-put
    #:kv-batch-delete
    #:kv-apply-batch
+   #:kv-apply-batch-buffered
    #:kv-iterator
    #:kv-chain-record-key
    #:kv-chain-record-key-kind

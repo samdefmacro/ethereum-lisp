@@ -47,8 +47,18 @@ ordered iteration, and recovery would become consensus-client maintenance work.
 The database package exposes the existing `kv-get`, `kv-put`,
 `kv-delete`, iteration, and `kv-apply-batch` behavior through a backend-neutral
 protocol. A RocksDB batch is committed with WAL sync before success is returned.
+The adapter also exposes one narrowly scoped buffered-batch operation for
+unpublished, content-addressed SNAP prerequisites. It keeps WAL enabled but
+does not independently sync that intermediate batch; the following ordinary
+cursor batch is synchronous, and RocksDB flushes the complete preceding WAL
+prefix before returning. No cursor or completion marker is published between
+those calls. A crash before the cursor can therefore lose only retryable work,
+while a returned cursor still proves that all of its prerequisites are durable.
 Values returned across the C boundary are copied into Lisp-owned byte vectors
-and freed exactly once. Database and iterator handles have explicit,
+with one native `memcpy` and freed exactly once. Keys and values passed into a
+bounded RocksDB call use CFFI's pinned specialized-vector view; RocksDB copies
+them before the call returns, so no per-record foreign allocation or
+octet-by-octet CFFI loop is needed. Database and iterator handles have explicit,
 idempotent close operations; options and native batches have unwind-protected
 ownership. Iterators close themselves on exhaustion, and callers that stop at a
 chunk boundary close them explicitly so a long migration or backup never pins
@@ -60,7 +70,7 @@ matching base level, dynamic level sizing, four bounded background jobs, and
 1 MiB incremental background-file syncs. WAL remains enabled and each logical
 cursor batch remains synchronous. This trades less than 768 MiB of worst-case
 memtable residency for lower compaction write amplification; it does not relax
-the atomic durability contract above.
+the durable cursor contract above.
 
 Both reviewed images compile the pinned RocksDB archive with `liburing` and
 fail their builds unless the resulting shared object records that dependency;

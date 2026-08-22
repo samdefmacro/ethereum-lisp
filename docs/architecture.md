@@ -154,7 +154,13 @@ them by their physical location instead reintroduces dependency cycles:
   into retries. Account and storage ranges carry compact boundary proofs, trie
   nodes are served by path set, and every page is verified before its account
   nodes, bytecode, complete small storage tries, and per-range cursor become
-  durable. Range reconstruction uses a dedicated proven-absent MPT insertion:
+  durable. Large-storage page nodes are authenticated and content-addressed, so
+  their intermediate atomic RocksDB batches keep WAL enabled without forcing a
+  separate sync. No progress is published at that point; the following account
+  page's synchronous cursor batch flushes the complete earlier WAL prefix. A
+  crash before that seam only repeats the page, while a visible cursor still
+  implies durable prerequisites. Range reconstruction uses a dedicated
+  proven-absent MPT insertion:
   the verified gap-free page and its monotonic durable successor cursor already
   prove that these keys are new, so proof reconstruction omits `mpt-put`'s
   redundant defensive point traversal. The verifier returns that reconstructed
@@ -258,6 +264,11 @@ them by their physical location instead reintroduces dependency cycles:
   keep absent whole-key probes out of newly written SST data blocks, while
   index/filter blocks receive high cache priority and L0 pinning. These table
   settings alter neither verified values nor synchronous cursor batches. The
+  CFFI adapter pins specialized Lisp key/value vectors for the bounded native
+  call that copies them, bulk-copies returned values with native `memcpy`, and
+  likewise bulk-copies MultiGet keys into its one contiguous request buffer.
+  This removes per-record foreign allocations and per-octet foreign accesses
+  without changing ownership, ordering, WAL sync, or the durable cursor seam. The
   reviewed images also require RocksDB's Linux io_uring support at link time.
   Its POSIX MultiRead consequently submits disjoint block reads within one SST
   concurrently on a supporting kernel, independent of `ReadOptions.async_io`.

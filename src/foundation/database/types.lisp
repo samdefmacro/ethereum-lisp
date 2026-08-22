@@ -87,6 +87,16 @@ and recovery on reopen drops any partially written record. If the durable
 sync itself fails after the bytes reached the operating system, whether the
 record survives a crash is filesystem-dependent; the handle refuses further
 writes either way and must be reopened."))
+(defgeneric kv-apply-batch-buffered (database batch)
+  (:documentation
+   "Apply BATCH atomically without independently establishing a durable seam.
+
+The default delegates to KV-APPLY-BATCH. A production backend may return after
+the atomic WAL append but before syncing it only when the caller will publish
+no cursor or externally visible completion marker until a later
+KV-APPLY-BATCH. That later synchronous batch must make all preceding buffered
+writes durable before it returns. A crash before the seam may lose the
+unpublished work, which the absent cursor makes safe to retry."))
 (defgeneric kv-iterator (database &key start end reverse-p)
   (:documentation
    "Return an iterator function and, as a second value, an idempotent closer.

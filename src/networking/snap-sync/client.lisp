@@ -756,7 +756,13 @@ the exact authorized state root before completion."
                     proof)
                    (setf populated-p t))
                  (when populated-p
-                   (kv-apply-batch database batch)))
+                   ;; These authenticated, content-addressed nodes do not
+                   ;; publish the account cursor. Buffer their atomic WAL
+                   ;; records; SNAP-SYNC-COMMIT-ACCOUNT-PAGE follows only after
+                   ;; every dependency is verified, and its synchronous batch
+                   ;; durably flushes this complete prefix before exposing the
+                   ;; cursor. A crash before that seam simply retries the page.
+                   (kv-apply-batch-buffered database batch)))
                  ;; A proof marks the last returned group as byte-capped.  Its
                  ;; verified prefix is durable, but do not fully paginate that
                  ;; potentially enormous storage trie inside the account-page

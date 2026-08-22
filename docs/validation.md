@@ -103,6 +103,8 @@ cl-workbench validation run cold-integration --match DEV-PERIOD
 # Kill a writer after candidate+cursor batches return but before clean close,
 # then reopen RocksDB and verify candidate state, cursor, and canonical view.
 cl-workbench validation run cold-e2e \
+  --match ROCKSDB-DURABLE-SEAM-FLUSHES-PRIOR-BUFFERED-BATCHES-ACROSS-SIGKILL
+cl-workbench validation run cold-e2e \
   --match ROCKSDB-PEER-SYNC-CANDIDATE-PROGRESS-SURVIVES-SIGKILL
 cl-workbench validation run cold-e2e \
   --match DEV-PERIOD-SEAL-SURVIVES-SIGKILL
@@ -278,6 +280,18 @@ table-factory call site, and an enabled `ReadOptions.async_io` on the live
 adapter handle. Removing that setter or changing its value to zero makes the
 native readback witness fail; this witnesses asynchronous read configuration,
 not the separate coroutine build needed for cross-level MultiGet scheduling.
+The native-transfer regression intercepts a real RocksDB write and requires its
+key/value pointers to name the exact pinned Lisp vectors, then requires one-key
+MultiGet to use exactly two native bulk copies: one into the contiguous key
+buffer and one out of the returned value. It also covers the zero-length pinned
+field case. Falling back to per-record foreign allocation or per-octet CFFI
+access makes those witnesses fail while all synchronous durability checks stay
+unchanged. A separate adapter regression observes the buffered write-options
+followed by the ordinary synchronous options. Its SIGKILL child writes an
+unsynced content-addressed prerequisite batch, then a synced cursor batch; the
+parent kills it without closing RocksDB and requires both batches after reopen.
+This proves the optimized prefix is covered by the cursor's durable seam rather
+than merely surviving a clean close.
 The reviewed image builds additionally fail
 unless the pinned native library links `liburing.so.2`, and the runtime layer
 checks that the dependency resolves before its client smoke. The vendored

@@ -37,3 +37,9 @@
   (kv-log-write-durable-set
    database
    (reverse (kv-write-batch-operations batch))))
+
+(defmethod kv-apply-batch-buffered
+    ((database key-value-database) (batch kv-write-batch))
+  ;; Memory and the fsync-per-record file oracle have no cheaper recoverable
+  ;; prefix. Preserve their existing behavior; RocksDB specializes this seam.
+  (kv-apply-batch database batch))

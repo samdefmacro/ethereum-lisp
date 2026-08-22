@@ -356,6 +356,131 @@
       (when (probe-file path)
         (uiop:delete-directory-tree path :validate t)))))
 
+(deftest rocksdb-key-value-database-pins-writes-and-bulk-copies-reads
+  (:layer :integration :module :database)
+  (let* ((path
+           (merge-pathnames
+            (make-pathname
+             :directory
+             `(:relative ,(format nil "ethereum-lisp-rocks-transfer-~A"
+                                 (gensym))))
+            #P"/private/tmp/"))
+         (key (make-byte-vector 32 :initial-element #x31))
+         (value (make-byte-vector 257 :initial-element #x72))
+         (real-put
+           (fdefinition 'ethereum-lisp.database::%rocks-put))
+         (real-memory-copy
+           (fdefinition 'ethereum-lisp.database::%rocks-memory-copy))
+         (direct-key-p nil)
+         (direct-value-p nil)
+         (memory-copies 0))
+    (unwind-protect
+         (let ((database (make-rocksdb-key-value-database path)))
+           (unwind-protect
+                (progn
+                  ;; The native write must see the exact pinned Lisp storage,
+                  ;; not one foreign allocation populated a byte at a time.
+                  (setf
+                   (fdefinition 'ethereum-lisp.database::%rocks-put)
+                   (lambda (handle options key-pointer key-length
+                            value-pointer value-length error)
+                     (is (= (length key) key-length))
+                     (is (= (length value) value-length))
+                     (cffi:with-pointer-to-vector-data
+                         (expected-key-pointer key)
+                       (setf direct-key-p
+                             (cffi:pointer-eq
+                              expected-key-pointer key-pointer)))
+                     (cffi:with-pointer-to-vector-data
+                         (expected-value-pointer value)
+                       (setf direct-value-p
+                             (cffi:pointer-eq
+                              expected-value-pointer value-pointer)))
+                     (funcall real-put handle options key-pointer key-length
+                              value-pointer value-length error)))
+                  (kv-put database key value)
+                  (setf (fdefinition 'ethereum-lisp.database::%rocks-put)
+                        real-put)
+                  (is direct-key-p)
+                  (is direct-value-p)
+                  ;; MultiGet bulk-copies its contiguous input key buffer and
+                  ;; its returned value with one native memcpy each.
+                  (setf
+                   (fdefinition 'ethereum-lisp.database::%rocks-memory-copy)
+                   (lambda (destination source bytes)
+                     (incf memory-copies)
+                     (funcall real-memory-copy destination source bytes)))
+                  (multiple-value-bind (results present)
+                      (kv-get-many database (vector key))
+                    (is (equal '(1) (coerce present 'list)))
+                    (is (bytes= value (aref results 0))))
+                  (is (= 2 memory-copies))
+                  ;; Zero-length protocol fields still receive a valid pinned
+                  ;; pointer and never need a special foreign allocation.
+                  (ethereum-lisp.database::with-rocks-bytes
+                      (pointer length (make-byte-vector 0))
+                    (is (zerop length))
+                    (is (not (cffi:null-pointer-p pointer)))))
+             (setf (fdefinition 'ethereum-lisp.database::%rocks-put) real-put)
+             (setf (fdefinition 'ethereum-lisp.database::%rocks-memory-copy)
+                   real-memory-copy)
+             (close-rocksdb-key-value-database database)))
+      (setf (fdefinition 'ethereum-lisp.database::%rocks-put) real-put)
+      (setf (fdefinition 'ethereum-lisp.database::%rocks-memory-copy)
+            real-memory-copy)
+      (when (probe-file path)
+        (uiop:delete-directory-tree path :validate t)))))
+
+(deftest rocksdb-buffered-batch-is-flushed-by-the-next-durable-seam
+  (:layer :integration :module :database)
+  (let* ((path
+           (merge-pathnames
+            (make-pathname
+             :directory
+             `(:relative ,(format nil "ethereum-lisp-rocks-buffered-~A"
+                                 (gensym))))
+            #P"/private/tmp/"))
+         (real-write
+           (fdefinition 'ethereum-lisp.database::%rocks-write))
+         (modes '()))
+    (unwind-protect
+         (let ((database (make-rocksdb-key-value-database path)))
+           (unwind-protect
+                (progn
+                  (setf
+                   (fdefinition 'ethereum-lisp.database::%rocks-write)
+                   (lambda (handle options batch error)
+                     (push
+                      (cond
+                        ((cffi:pointer-eq
+                          options
+                          (ethereum-lisp.database::rocksdb-buffered-write-options
+                           database))
+                         :buffered)
+                        ((cffi:pointer-eq
+                          options
+                          (ethereum-lisp.database::rocksdb-write-options
+                           database))
+                         :durable)
+                        (t :unknown))
+                      modes)
+                     (funcall real-write handle options batch error)))
+                  (let ((prerequisite (make-kv-write-batch)))
+                    (kv-batch-put prerequisite #(1) #(10))
+                    (kv-apply-batch-buffered database prerequisite))
+                  (let ((cursor (make-kv-write-batch)))
+                    (kv-batch-put cursor #(2) #(20))
+                    (kv-apply-batch database cursor))
+                  (is (equal '(:buffered :durable) (nreverse modes)))
+                  (is (bytes= #(10) (kv-get database #(1))))
+                  (is (bytes= #(20) (kv-get database #(2)))))
+             (setf (fdefinition 'ethereum-lisp.database::%rocks-write)
+                   real-write)
+             (close-rocksdb-key-value-database database)))
+      (setf (fdefinition 'ethereum-lisp.database::%rocks-write) real-write)
+      (when (probe-file path)
+        (uiop:delete-directory-tree path :validate t)))))
+
 (deftest rocksdb-key-value-database-uses-one-native-multi-get
   (:layer :integration :module :database)
   (let ((path
@@ -485,6 +610,48 @@
                         (kv-get database (vector i))
                       (is present-p)
                       (is (bytes= (vector (+ 100 i)) value))))
+               (close-rocksdb-key-value-database database))))
+      (when (probe-file marker)
+        (ignore-errors (delete-file marker)))
+      (when (probe-file (uiop:ensure-directory-pathname dir))
+        (uiop:delete-directory-tree
+         (uiop:ensure-directory-pathname dir)
+         :validate t :if-does-not-exist :ignore)))))
+
+#+sbcl
+(deftest rocksdb-durable-seam-flushes-prior-buffered-batches-across-sigkill
+  (:layer :e2e :module :database :launches-processes t
+   :estimated-seconds 60)
+  ;; A SNAP storage page may write authenticated, content-addressed nodes with
+  ;; sync=0 before the account-page cursor is published.  RocksDB's following
+  ;; sync=1 cursor write must flush those earlier WAL records too.  Kill the
+  ;; writer immediately after that durable seam and prove both batches reopen.
+  (let* ((dir
+           (namestring
+            (devnet-cli-temp-directory
+             "ethereum-lisp-rocksdb-buffered-crash")))
+         (marker
+           (namestring
+            (devnet-cli-temp-path
+             "ethereum-lisp-rocksdb-buffered-crash-marker" "sexp"))))
+    (unwind-protect
+         (let ((marker-record
+                 (rocksdb-crash-test-run-child
+                  "buffered-before-sync" dir marker
+                  :buffered-before-sync)))
+           (is (= 16 (getf marker-record :count)))
+           (let ((database (make-rocksdb-key-value-database dir)))
+             (unwind-protect
+                  (progn
+                    (dotimes (i 16)
+                      (multiple-value-bind (value present-p)
+                          (kv-get database (vector i))
+                        (is present-p)
+                        (is (bytes= (vector (+ 100 i)) value))))
+                    (multiple-value-bind (value present-p)
+                        (kv-get database #(255))
+                      (is present-p)
+                      (is (bytes= #(42) value))))
                (close-rocksdb-key-value-database database))))
       (when (probe-file marker)
         (ignore-errors (delete-file marker)))

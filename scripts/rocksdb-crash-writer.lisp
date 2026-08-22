@@ -1,10 +1,10 @@
 ;;;; RocksDB crash-injection helper.
 ;;;;
-;;;; Each mode writes WAL-synced data into the requested RocksDB directory,
-;;;; publishes a readable marker only after the final commit returns, and then
-;;;; blocks forever.  It deliberately never closes the database: the parent
-;;;; test SIGKILLs this process so reopening exercises crash recovery rather
-;;;; than a clean shutdown.  See the crash tests in tests/database-tests.lisp.
+;;;; Each mode ends with WAL-synced data in the requested RocksDB directory,
+;;;; publishes a readable marker only after that durable seam returns, and then
+;;;; blocks forever. It deliberately never closes the database: the parent test
+;;;; SIGKILLs this process so reopening exercises crash recovery rather than a
+;;;; clean shutdown. See the crash tests in tests/database-tests.lisp.
 
 (defparameter *root*
   (merge-pathnames "../" (or *load-truename* *default-pathname-defaults*)))
@@ -33,6 +33,24 @@
     (ethereum-lisp.database:kv-apply-batch database batch)
     (rocksdb-crash-writer-publish-marker
      marker '(:mode :raw-batch :count 16))))
+
+(defun rocksdb-crash-writer-buffered-before-sync (database marker)
+  (let ((prerequisite (ethereum-lisp.database:make-kv-write-batch))
+        (cursor (ethereum-lisp.database:make-kv-write-batch)))
+    (dotimes (i 16)
+      (ethereum-lisp.database:kv-batch-put
+       prerequisite (vector i) (vector (+ 100 i))))
+    ;; Model one SNAP page: authenticated content is atomically visible but is
+    ;; not a published restart seam yet.
+    (ethereum-lisp.database:kv-apply-batch-buffered
+     database prerequisite)
+    ;; The synced cursor batch must flush all preceding WAL records before it
+    ;; returns. Publishing the external marker after this call lets the parent
+    ;; SIGKILL us and prove that guarantee without a clean database close.
+    (ethereum-lisp.database:kv-batch-put cursor #(255) #(42))
+    (ethereum-lisp.database:kv-apply-batch database cursor)
+    (rocksdb-crash-writer-publish-marker
+     marker '(:mode :buffered-before-sync :count 16))))
 
 (defun rocksdb-crash-writer-peer-id ()
   (let ((peer-id (ethereum-lisp:make-byte-vector 64)))
@@ -228,6 +246,8 @@
     (cond
       ((string= mode "raw-batch")
        (rocksdb-crash-writer-raw-batch database marker))
+      ((string= mode "buffered-before-sync")
+       (rocksdb-crash-writer-buffered-before-sync database marker))
       ((string= mode "peer-sync-candidates")
        (rocksdb-crash-writer-peer-sync-candidates database marker))
       (t
