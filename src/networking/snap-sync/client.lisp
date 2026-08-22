@@ -761,13 +761,16 @@ the exact authorized state root before completion."
     (nreverse deferred)))
 
 (defun snap-sync-page-code-hashes (entries)
-  (remove-duplicates
-   (loop for entry in entries
-         for account = (decode-state-account-rlp (cdr entry))
-         for hash = (state-account-code-hash account)
-         unless (hash32= hash +empty-code-hash+)
-           collect (hash32-bytes hash))
-   :test #'bytes=))
+  (let ((seen (make-hash-table :test #'equalp))
+        (hashes '()))
+    (dolist (entry entries (nreverse hashes))
+      (let* ((account (decode-state-account-rlp (cdr entry)))
+             (hash (state-account-code-hash account))
+             (bytes (hash32-bytes hash)))
+        (unless (or (hash32= hash +empty-code-hash+)
+                    (nth-value 1 (gethash bytes seen)))
+          (setf (gethash bytes seen) t)
+          (push bytes hashes))))))
 
 (defun snap-sync-page-storage-commitments (entries)
   (loop for entry in entries
@@ -778,7 +781,10 @@ the exact authorized state root before completion."
 
 (defun snap-sync-fetch-codes (source hashes byte-limit)
   (let ((remaining (mapcar #'copy-seq hashes))
+        (pending (make-hash-table :test #'equalp))
         (codes '()))
+    (dolist (hash remaining)
+      (setf (gethash hash pending) t))
     (loop while remaining
           do (let* ((request
                       (make-snap-get-bytecodes 1 remaining byte-limit))
@@ -793,10 +799,15 @@ the exact authorized state root before completion."
                  (error "Snap peer omitted requested bytecode"))
                (dolist (code received)
                  (let ((hash (keccak-256 code)))
-                   (unless (find hash remaining :test #'bytes=)
+                   (unless (nth-value 1 (gethash hash pending))
                      (error "Snap peer returned unrequested bytecode"))
                    (push (cons hash (copy-seq code)) codes)
-                   (setf remaining (delete hash remaining :test #'bytes=))))))
+                   (remhash hash pending)))
+               (setf remaining
+                     (delete-if-not
+                      (lambda (hash)
+                        (nth-value 1 (gethash hash pending)))
+                      remaining))))
     (nreverse codes)))
 
 (defun snap-sync-populate-code-batch (database batch codes)
