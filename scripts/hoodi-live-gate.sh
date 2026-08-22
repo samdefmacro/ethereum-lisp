@@ -394,10 +394,11 @@ image_platform="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$im
     echo "required Lighthouse container is not running: $lighthouse" >&2
     exit 1
 }
-[ "$(docker container inspect --format '{{.State.Running}}' "$previous")" = true ] || {
-    echo "previous gate container is not running: $previous" >&2
-    exit 1
-}
+previous_initially_running="$(docker container inspect --format '{{.State.Running}}' "$previous")"
+case "$previous_initially_running" in
+    true|false) ;;
+    *) echo "previous gate has an unknown running state: $previous_initially_running" >&2; exit 1 ;;
+esac
 previous_agent="$(docker container inspect --format '{{ index .Config.Labels "agent" }}' "$previous")"
 previous_gate_revision="$(docker container inspect --format '{{ index .Config.Labels "io.ethereum-lisp.gate-revision" }}' "$previous")"
 previous_image_revision="$(docker container inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$previous")"
@@ -435,6 +436,36 @@ rpc() {
         --data "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$method\",\"params\":[]}" \
         "http://127.0.0.1:$rpc_port"
 }
+
+if [ "$previous_initially_running" != true ]; then
+    docker start "$previous" >/dev/null
+fi
+previous_ready=false
+previous_ready_deadline="$(( $(date +%s) + ready_timeout ))"
+while :; do
+    previous_ready_now="$(date +%s)"
+    previous_ready_remaining="$(( previous_ready_deadline - previous_ready_now ))"
+    [ "$previous_ready_remaining" -gt 0 ] || break
+    if [ "$previous_ready_remaining" -gt 10 ]; then
+        previous_attempt_timeout=10
+    else
+        previous_attempt_timeout="$previous_ready_remaining"
+    fi
+    if rpc "$previous" eth_chainId "$previous_attempt_timeout" >/dev/null 2>&1; then
+        previous_ready=true
+        break
+    fi
+    [ "$(docker container inspect --format '{{.State.Running}}' "$previous")" = true ] || break
+    sleep 1
+done
+if [ "$previous_ready" != true ]; then
+    docker logs "$previous" 2>&1 | tail -80 >&2 || true
+    if [ "$previous_initially_running" != true ]; then
+        docker stop --time 10 "$previous" >/dev/null 2>&1 || true
+    fi
+    echo "previous public RPC did not return within ${ready_timeout}s" >&2
+    exit 1
+fi
 
 date -u +before-timestamp=%Y-%m-%dT%H:%M:%SZ
 printf 'before-container=%s\n' "$previous"

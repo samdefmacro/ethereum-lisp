@@ -390,11 +390,14 @@ HOODI_GATE_P2P_PORT=30304 \
 scripts/hoodi-live-gate.sh upgrade
 ```
 
-`upgrade` requires the previous container to be running, owned by this gate,
+`upgrade` requires the previous container to be owned by this gate,
 read-only-root, explicitly non-root, labelled with the supplied exact revision,
-and mounted on that same non-empty datadir. It preserves the previous container
-stopped on success. A new-container, network-attachment, exit, or readiness
-failure stops the attempted replacement and restarts the previous container;
+and mounted on that same non-empty datadir. If an interrupted control-plane
+operation left that exact container stopped, the broker starts it and waits for
+public-RPC readiness before collecting the before evidence and continuing. It
+preserves the previous container stopped on success. A previous-readiness,
+new-container, network-attachment, exit, or replacement-readiness failure stops
+the attempted process where applicable and restores the previous container;
 neither path removes a container, image, artifact, or datadir.
 
 The broker's default consensus-network alias is
