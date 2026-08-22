@@ -563,22 +563,18 @@ unrelated subtries remain authenticated by their hash references."
                    (plusp (length (cdr entry))))
         (error "MPT range contains a malformed or deleted entry"))
       (when (and previous
-                 (not (minusp
-                       (mpt-nibbles-compare
-                        (keybytes-to-nibbles previous :terminator nil)
-                        (keybytes-to-nibbles (car entry) :terminator nil)))))
+                 (not
+                  (ethereum-lisp.validation:byte-vector-lexicographic<
+                   previous (car entry))))
         (error "MPT range is not monotonically increasing"))
       (when (and start
-                 (minusp
-                  (mpt-nibbles-compare
-                   (keybytes-to-nibbles (car entry) :terminator nil)
-                   (keybytes-to-nibbles start :terminator nil))))
+                 (ethereum-lisp.validation:byte-vector-lexicographic<
+                  (car entry) start))
         (error "MPT range contains an entry before its requested origin"))
       (when (and end
-                 (not (minusp
-                       (mpt-nibbles-compare
-                        (keybytes-to-nibbles (car entry) :terminator nil)
-                        (keybytes-to-nibbles end :terminator nil)))))
+                 (not
+                  (ethereum-lisp.validation:byte-vector-lexicographic<
+                   (car entry) end)))
         (error "MPT range contains an entry at or beyond its exclusive limit"))
       (setf previous (car entry))))
   t)

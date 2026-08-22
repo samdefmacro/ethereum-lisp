@@ -228,12 +228,17 @@ verified, gap-free range reconstruction where a monotonic durable cursor proves
 that every key in the page is new.  General state transitions must keep using
 MPT-PUT so updating an existing leaf retains its ordinary checked semantics."
   (let* ((key (ensure-byte-vector key))
-         (key-id (trie-key-id key))
          (value (ensure-byte-vector value)))
     (when (zerop (length value))
       (error "A proven-absent MPT insertion requires a non-empty value"))
-    (setf (gethash key-id (mpt-entries trie)) value
-          (mpt-root trie)
+    ;; A persisted trie is authoritative through its root graph. Range-proof
+    ;; reconstruction creates exactly this kind of temporary trie, then walks
+    ;; its dirty nodes and discards it. Avoid allocating a hexadecimal key and
+    ;; retaining every leaf in the optional eager-entry cache in that path.
+    ;; MPT-ENTRY-PAIRS already walks the root whenever MPT-LAZY-P is true.
+    (unless (mpt-lazy-p trie)
+      (setf (gethash (trie-key-id key) (mpt-entries trie)) value))
+    (setf (mpt-root trie)
           (trie-put-node (mpt-root trie)
                          (trie-path-with-terminator key)
                          value)))
