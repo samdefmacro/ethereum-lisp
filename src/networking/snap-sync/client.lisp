@@ -2762,7 +2762,13 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
            (source-round 0)
            (last-checkpoint-processed-nodes processed-nodes))
     (labels
-        ((refresh-active-sources ()
+        ((prefer-peer-nodes-p ()
+           (and
+            *snap-sync-heal-remote-first-p*
+            (typep
+             database
+             'ethereum-lisp.database:rocksdb-key-value-database)))
+         (refresh-active-sources ()
            (when source-provider
              (let ((fresh (funcall source-provider)))
                (unless (listp fresh)
@@ -3120,9 +3126,16 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                (when (zerop successful-results)
                  ;; Preserve the exact unprocessed frontier before handing the
                  ;; finite source-generation failure back to the coordinator.
+                 ;; A remote-first round may have skipped durable nodes, so
+                 ;; first retire that peer generation and let the next loop
+                 ;; perform the ordinary RocksDB batch reads. If those reads
+                 ;; also find a genuinely missing node, FETCH-MISSING observes
+                 ;; no remaining source and reports the original exhaustion.
                  (setf stack (continuation-stack))
                  (when (snap-sync-heal-checkpoint-frontier-p stack)
                    (persist-checkpoint stack))
+                 (when (prefer-peer-nodes-p)
+                   (return-from fetch-missing nil))
                  (snap-sync-heal-signal-source-errors
                   (nreverse round-errors)))
                ;; Decode every delivered node before publishing any of them.
@@ -3175,7 +3188,10 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                (missing-limit
                  (snap-sync-heal-missing-limit
                   (+ (length stack) deferred-storage-count)
-                  (length active-sources))))
+                  ;; One local fallback batch remains useful after every peer
+                  ;; in a pruned-pivot generation has been retired. A truly
+                  ;; absent node reaches FETCH-MISSING and reports exhaustion.
+                  (max 1 (length active-sources)))))
           (loop while (and stack
                            (< missing-count missing-limit)
                            (< deferred-storage-count
@@ -3294,11 +3310,7 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                                :disk-p
                                (not
                                 (and
-                                 *snap-sync-heal-remote-first-p*
-                                 active-sources
-                                 (typep
-                                  database
-                                  'ethereum-lisp.database:rocksdb-key-value-database)))
+                                 active-sources (prefer-peer-nodes-p)))
                                :decoder
                                (lambda (index bytes)
                                  (let ((work (aref ordered index)))

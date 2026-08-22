@@ -3029,7 +3029,8 @@
          (target (make-hash32 (snap-test-hash 236)))
          (genesis (make-hash32 (snap-test-hash 237)))
          (authority (make-hash32 (snap-test-hash 238)))
-         (trie-node-requests 0))
+         (trie-node-requests 0)
+         (unavailable-requests 0))
     ;; A single account produces a hashed root leaf but no four-nibble subtree
     ;; sentinel, so repeated direct heals exercise the root lookup itself.
     (state-db-set-account
@@ -3089,7 +3090,31 @@
                             t))
                       (ethereum-lisp.snap-sync::snap-sync-heal-state
                        database (list source) progress 350))
-                    (is (plusp trie-node-requests)))
+                    (is (plusp trie-node-requests))
+                    ;; Public peers eventually prune an old pivot. After one
+                    ;; failed peer generation, durable data must remain a
+                    ;; usable fallback instead of causing a restart loop.
+                    (let ((unavailable-source
+                            (ethereum-lisp.snap-sync:make-snap-sync-source
+                             :account-range
+                             (ethereum-lisp.snap-sync:snap-sync-source-account-range
+                              base-source)
+                             :storage-ranges
+                             (ethereum-lisp.snap-sync:snap-sync-source-storage-ranges
+                              base-source)
+                             :bytecodes
+                             (ethereum-lisp.snap-sync:snap-sync-source-bytecodes
+                              base-source)
+                             :trie-nodes
+                             (lambda (request)
+                               (declare (ignore request))
+                               (incf unavailable-requests)
+                               (error
+                                'ethereum-lisp.snap-sync:snap-sync-state-unavailable
+                                :request-kind "trie-nodes")))))
+                      (ethereum-lisp.snap-sync::snap-sync-heal-state
+                       database (list unavailable-source) progress 350))
+                    (is (plusp unavailable-requests)))
                (close-rocksdb-key-value-database database)))
         (when (probe-file path)
           (uiop:delete-directory-tree path :validate t))))))
