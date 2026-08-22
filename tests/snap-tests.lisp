@@ -54,6 +54,41 @@
     (kv-apply-batch database batch))
   database)
 
+(deftest snap-verified-range-records-chunk-database-multigets
+  (:layer :unit :module :p2p)
+  (let* ((database (make-memory-key-value-database))
+         (count (1+ ethereum-lisp.database:+kv-get-many-max-keys+))
+         (records
+           (loop for index below count
+                 for encoded = (rlp-encode index)
+                 collect (cons (keccak-256 encoded) encoded)))
+         (real-get-many
+           (fdefinition 'ethereum-lisp.database:kv-get-chain-records))
+         (calls 0)
+         (largest 0)
+         (batch (make-kv-write-batch)))
+    (unwind-protect
+         (progn
+           (setf
+            (fdefinition 'ethereum-lisp.database:kv-get-chain-records)
+            (lambda (candidate kind identifiers &optional default)
+              (when (and (eq candidate database) (eq kind :trie-node))
+                (incf calls)
+                (setf largest (max largest (length identifiers))))
+              (funcall real-get-many candidate kind identifiers default)))
+           (ethereum-lisp.snap-sync::snap-sync-populate-verified-trie-records-batch
+            database batch records)
+           (kv-apply-batch database batch))
+      (setf (fdefinition 'ethereum-lisp.database:kv-get-chain-records)
+            real-get-many))
+    (is (= 2 calls))
+    (is (= ethereum-lisp.database:+kv-get-many-max-keys+ largest))
+    (dolist (index (list 0 (1- count)))
+      (multiple-value-bind (value present-p)
+          (kv-get-chain-record database :trie-node (car (nth index records)))
+        (is present-p)
+        (is (bytes= value (cdr (nth index records))))))))
+
 (defun snap-test-address-from-integer (value)
   (let* ((minimal (integer-to-minimal-bytes value))
          (bytes (make-byte-vector 20)))

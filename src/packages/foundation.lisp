@@ -51,6 +51,7 @@
    #:kv-log-corruption-error-detail
    #:kv-get
    #:kv-get-many
+   #:+kv-get-many-max-keys+
    #:kv-put
    #:kv-delete
    #:kv-write-batch
