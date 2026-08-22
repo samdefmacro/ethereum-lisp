@@ -225,7 +225,9 @@ restart-safe StorageRanges cursors then finish each large trie through
 512 KiB-capped pages. The byte-capped-storage regression proves that final
 healing validates the complete root locally with zero TrieNodes requests; a
 second regression interrupts StorageRanges after one page and proves a fresh
-source resumes the exact durable cursor. A changed-root rebase installs
+source resumes the exact durable cursor. A concurrency regression blocks one
+source and proves a faster source receives its next partition without waiting
+for a global wave. A changed-root rebase installs
 a non-empty, non-root range witness; legacy, rebased, or oversized plans retain
 the fail-closed full-root traversal. The tests also
 inject a failed database batch to prove progress never outruns verified account

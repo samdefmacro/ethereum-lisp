@@ -606,10 +606,10 @@
          (lock (sb-thread:make-mutex :name "snap-test-storage-sources"))
          (changed
            (sb-thread:make-waitqueue :name "snap-test-storage-sources"))
-         (arrived 0)
-         (released-p nil)
          (active 0)
-         (max-active 0))
+         (max-active 0)
+         (fast-calls 0)
+         (fast-reused-before-slow-release-p nil))
     (loop for byte from 1 to 128
           do (state-db-set-storage
               source-state address
@@ -621,46 +621,68 @@
              (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
               source-database source-state))
            (base-source (snap-test-source backend))
-           (sources
-             (loop repeat 2
-                   collect
-                   (let ((first-p t))
-                     (ethereum-lisp.snap-sync:make-snap-sync-source
-                      :account-range
-                      (ethereum-lisp.snap-sync:snap-sync-source-account-range
+           (slow-first-p t)
+           (slow-source
+             (ethereum-lisp.snap-sync:make-snap-sync-source
+              :account-range
+              (ethereum-lisp.snap-sync:snap-sync-source-account-range
+               base-source)
+              :storage-ranges
+              (lambda (request)
+                (let ((wait-p slow-first-p))
+                  (when wait-p
+                    (setf slow-first-p nil))
+                  (sb-thread:with-mutex (lock)
+                    (incf active)
+                    (setf max-active (max max-active active))
+                    (when (and wait-p (< fast-calls 2))
+                      (sb-thread:condition-wait changed lock :timeout 5))
+                    (when wait-p
+                      (setf fast-reused-before-slow-release-p
+                            (>= fast-calls 2))))
+                  (unwind-protect
+                       (funcall
+                        (ethereum-lisp.snap-sync:snap-sync-source-storage-ranges
+                         base-source)
+                        request)
+                    (sb-thread:with-mutex (lock)
+                      (decf active)))))
+              :bytecodes
+              (ethereum-lisp.snap-sync:snap-sync-source-bytecodes base-source)
+              :trie-nodes
+              (ethereum-lisp.snap-sync:snap-sync-source-trie-nodes
+               base-source)))
+           (fast-source
+             (ethereum-lisp.snap-sync:make-snap-sync-source
+              :account-range
+              (ethereum-lisp.snap-sync:snap-sync-source-account-range
+               base-source)
+              :storage-ranges
+              (lambda (request)
+                (sb-thread:with-mutex (lock)
+                  (incf fast-calls)
+                  (incf active)
+                  (setf max-active (max max-active active))
+                  (when (>= fast-calls 2)
+                    (sb-thread:condition-broadcast changed)))
+                (unwind-protect
+                     (funcall
+                      (ethereum-lisp.snap-sync:snap-sync-source-storage-ranges
                        base-source)
-                      :storage-ranges
-                      (lambda (request)
-                        (let ((barrier-p first-p))
-                          (when barrier-p
-                            (setf first-p nil)
-                            (sb-thread:with-mutex (lock)
-                              (incf arrived)
-                              (incf active)
-                              (setf max-active (max max-active active))
-                              (when (= arrived 2)
-                                (setf released-p t)
-                                (sb-thread:condition-broadcast changed))
-                              (loop until released-p
-                                    do (sb-thread:condition-wait changed lock))))
-                          (unwind-protect
-                               (funcall
-                                (ethereum-lisp.snap-sync:snap-sync-source-storage-ranges
-                                 base-source)
-                                request)
-                            (when barrier-p
-                              (sb-thread:with-mutex (lock)
-                                (decf active))))))
-                      :bytecodes
-                      (ethereum-lisp.snap-sync:snap-sync-source-bytecodes
-                       base-source)
-                      :trie-nodes
-                      (ethereum-lisp.snap-sync:snap-sync-source-trie-nodes
-                       base-source))))))
+                      request)
+                  (sb-thread:with-mutex (lock)
+                    (decf active))))
+              :bytecodes
+              (ethereum-lisp.snap-sync:snap-sync-source-bytecodes base-source)
+              :trie-nodes
+              (ethereum-lisp.snap-sync:snap-sync-source-trie-nodes
+               base-source)))
+           (sources (list slow-source fast-source)))
       (is (ethereum-lisp.snap-sync::snap-sync-fill-storage-root
            target-database sources root account-hash storage-root
            (* 512 1024)))
-      (is (= 2 max-active)))))
+      (is (= 2 max-active))
+      (is fast-reused-before-slow-release-p))))
 
 (deftest snap-sync-progress-v3-round-trips-and-migrates-v2
   (:layer :unit :module :p2p)

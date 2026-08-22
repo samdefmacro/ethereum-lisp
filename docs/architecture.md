@@ -172,14 +172,15 @@ them by their physical location instead reintroduces dependency cycles:
   account trie. An old or rebased partial import has no marker and safely
   retains the full-root traversal. Before final healing, every planned large
   storage root is split into sixteen inclusive hash ranges matching current
-  geth. One 512 KiB-capped page per live source is verified concurrently; the
-  coordinator atomically commits its content-addressed nodes and versioned
-  per-range successor cursor. A restart resumes those exact cursors. Source
-  exhaustion merely falls back to TrieNodes healing with all verified range
-  pages retained. Completed ranges deliberately remain on the deferred
-  frontier so final healing traverses the full storage root locally before it
-  can publish completion. Work sets above the 8,192-item checkpoint bound also
-  fall back to that path. Each round
+  geth. Each live source continuously fetches one 512 KiB-capped page at a
+  time and immediately claims another unfinished partition without a global
+  wave barrier; the coordinator atomically commits its content-addressed nodes
+  and versioned per-range successor cursor. A restart resumes those exact
+  cursors. Source exhaustion merely falls back to TrieNodes healing with all
+  verified range pages retained. Completed ranges deliberately remain on the
+  deferred frontier so final healing traverses the full storage root locally
+  before it can publish completion. Work sets above the 8,192-item checkpoint
+  bound also fall back to that path. Each round
   partitions its missing paths across the current snap
   sources, with at most one outstanding TrieNodes request and 1,024 paths per
   source. The total round width scales with the source count up to the durable

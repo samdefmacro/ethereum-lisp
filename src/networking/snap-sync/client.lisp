@@ -2154,85 +2154,257 @@ than cache misses."
       (kv-apply-batch database batch)
       next)))
 
-(defun snap-sync-storage-source-snapshot (sources source-provider failed)
-  (let ((fresh (if source-provider (funcall source-provider) '())))
-    (unless (listp fresh)
-      (error "Snap storage range source provider must return a list"))
-    (let ((combined
-            (remove-duplicates (append sources fresh) :test #'eq)))
-      (dolist (source combined)
-        (unless (snap-sync-source-complete-p source)
-          (error "Snap storage range source is incomplete")))
-      (remove-if (lambda (source) (member source failed :test #'eq))
-                 combined))))
-
-(defun snap-sync-storage-wave-assignments (tasks sources)
-  (loop for task in tasks
-        for task-index from 0
-        unless (snap-sync-account-task-completed-p task)
-          collect (list task-index task)
-            into pending
-        finally
-           (return
-             (loop for source in sources
-                   for (task-index task) in pending
-                   collect (list source task-index task)))))
+#+sbcl
+(defstruct (snap-sync-storage-runtime
+            (:constructor make-snap-sync-storage-runtime
+                (tasks source-count)))
+  (lock (sb-thread:make-mutex :name "snap-sync-storage"))
+  (changed (sb-thread:make-waitqueue :name "snap-sync-storage-changed"))
+  tasks
+  (claims (make-hash-table))
+  (events '())
+  source-count
+  stopped-p)
 
 #+sbcl
-(defun snap-sync-run-storage-wave
-    (source-tasks state-root account-hash storage-root byte-limit)
-  "Fetch one page per source concurrently; callers serialize all commits."
-  (let* ((count (length source-tasks))
-         (outcomes (make-array count))
-         (threads '()))
-    (loop for (source task-index task) in source-tasks
-          for slot from 0
-          do (let ((worker-source source)
-                   (worker-index task-index)
-                   (worker-task task)
-                   (worker-slot slot))
-               (push
-                (sb-thread:make-thread
-                 (lambda ()
-                   (setf (aref outcomes worker-slot)
-                         (handler-case
-                             (list
-                              worker-source worker-index
-                              (snap-sync-prepare-storage-page
-                               worker-source state-root account-hash storage-root
-                               worker-index worker-task byte-limit)
-                              nil)
-                           (serious-condition (condition)
-                             (list worker-source worker-index nil condition)))))
-                 :name "snap-sync-storage-worker")
-                threads)))
-    (dolist (thread threads)
-      (sb-thread:join-thread thread))
-    (coerce outcomes 'list)))
+(defstruct (snap-sync-storage-worker-event
+            (:constructor make-snap-sync-storage-worker-event
+                (&key source task-index result condition)))
+  source
+  task-index
+  result
+  condition)
 
-#-sbcl
-(defun snap-sync-run-storage-wave
-    (source-tasks state-root account-hash storage-root byte-limit)
-  (loop for (source task-index task) in source-tasks
-        collect
-        (handler-case
-            (list source task-index
-                  (snap-sync-prepare-storage-page
-                   source state-root account-hash storage-root
-                   task-index task byte-limit)
-                  nil)
-          (serious-condition (condition)
-            (list source task-index nil condition)))))
+#+sbcl
+(defun snap-sync-storage-runtime-notify (runtime)
+  (sb-thread:condition-broadcast
+   (snap-sync-storage-runtime-changed runtime)))
 
+#+sbcl
+(defun snap-sync-storage-runtime-claim (runtime source)
+  (sb-thread:with-mutex ((snap-sync-storage-runtime-lock runtime))
+    (loop
+      (when (or (snap-sync-storage-runtime-stopped-p runtime)
+                (every #'snap-sync-account-task-completed-p
+                       (snap-sync-storage-runtime-tasks runtime)))
+        (return (values nil nil)))
+      (loop for task in (snap-sync-storage-runtime-tasks runtime)
+            for task-index from 0
+            unless (or (snap-sync-account-task-completed-p task)
+                       (gethash task-index
+                                (snap-sync-storage-runtime-claims runtime)))
+              do (setf
+                  (gethash task-index
+                           (snap-sync-storage-runtime-claims runtime))
+                  source)
+                 (return-from snap-sync-storage-runtime-claim
+                   (values task-index (snap-sync-copy-account-task task))))
+      (sb-thread:condition-wait
+       (snap-sync-storage-runtime-changed runtime)
+       (snap-sync-storage-runtime-lock runtime)))))
+
+#+sbcl
+(defun snap-sync-storage-runtime-push-event (runtime event)
+  (sb-thread:with-mutex ((snap-sync-storage-runtime-lock runtime))
+    (setf (snap-sync-storage-runtime-events runtime)
+          (nconc (snap-sync-storage-runtime-events runtime) (list event)))
+    (snap-sync-storage-runtime-notify runtime)))
+
+#+sbcl
+(defun snap-sync-storage-runtime-wait-for-commit
+    (runtime task-index source)
+  (sb-thread:with-mutex ((snap-sync-storage-runtime-lock runtime))
+    (loop while (and
+                 (not (snap-sync-storage-runtime-stopped-p runtime))
+                 (eq source
+                     (gethash task-index
+                              (snap-sync-storage-runtime-claims runtime))))
+          do (sb-thread:condition-wait
+              (snap-sync-storage-runtime-changed runtime)
+              (snap-sync-storage-runtime-lock runtime)))))
+
+#+sbcl
+(defun snap-sync-storage-worker
+    (runtime source state-root account-hash storage-root byte-limit)
+  (unwind-protect
+       (loop
+         (multiple-value-bind (task-index task)
+             (snap-sync-storage-runtime-claim runtime source)
+           (unless task (return))
+           (handler-case
+               (let ((result
+                       (snap-sync-prepare-storage-page
+                        source state-root account-hash storage-root
+                        task-index task byte-limit)))
+                 (snap-sync-storage-runtime-push-event
+                  runtime
+                  (make-snap-sync-storage-worker-event
+                   :source source :task-index task-index :result result))
+                 ;; Bound verified-but-uncommitted data to one page per peer.
+                 (snap-sync-storage-runtime-wait-for-commit
+                  runtime task-index source))
+             (serious-condition (condition)
+               (snap-sync-storage-runtime-push-event
+                runtime
+                (make-snap-sync-storage-worker-event
+                 :source source :task-index task-index
+                 :condition condition))
+               (return)))))
+    (sb-thread:with-mutex ((snap-sync-storage-runtime-lock runtime))
+      (decf (snap-sync-storage-runtime-source-count runtime))
+      (snap-sync-storage-runtime-notify runtime))))
+
+#+sbcl
+(defun snap-sync-storage-runtime-next-event (runtime)
+  (sb-thread:with-mutex ((snap-sync-storage-runtime-lock runtime))
+    (loop
+      (when (snap-sync-storage-runtime-events runtime)
+        (return (pop (snap-sync-storage-runtime-events runtime))))
+      (when (every #'snap-sync-account-task-completed-p
+                   (snap-sync-storage-runtime-tasks runtime))
+        (return :complete))
+      (when (zerop (snap-sync-storage-runtime-source-count runtime))
+        (return :exhausted))
+      (sb-thread:condition-wait
+       (snap-sync-storage-runtime-changed runtime)
+       (snap-sync-storage-runtime-lock runtime)))))
+
+#+sbcl
+(defun snap-sync-storage-runtime-release
+    (runtime task-index source &optional tasks)
+  (sb-thread:with-mutex ((snap-sync-storage-runtime-lock runtime))
+    (when tasks
+      (setf (snap-sync-storage-runtime-tasks runtime) tasks))
+    (when (eq source
+              (gethash task-index
+                       (snap-sync-storage-runtime-claims runtime)))
+      (remhash task-index (snap-sync-storage-runtime-claims runtime)))
+    (snap-sync-storage-runtime-notify runtime)))
+
+#+sbcl
 (defun snap-sync-fill-storage-root
     (database sources state-root account-hash storage-root byte-limit
      &key source-provider on-source-error heal-yield-p)
-  "Fill one large storage trie through restart-safe sixteen-way range waves.
+  "Fill one large storage trie through a restart-safe continuous worker pool.
 
-This is an optimization, not the trust boundary: completed range cursors stay
-durable and the deferred root remains queued for a final full local traversal.
-If all StorageRanges sources disappear, the caller may safely fall back to
-TrieNodes healing with every authenticated page already retained."
+This is an optimization, not the trust boundary: completed cursors stay durable
+and the deferred root remains queued for a final full local traversal. Each
+source owns at most one request and verified page at a time, but a fast source
+immediately claims another unfinished partition instead of waiting for the
+slowest source in a global wave. If every StorageRanges source disappears, the
+caller safely falls back to TrieNodes healing with authenticated pages retained."
+  (setf sources (remove-duplicates (copy-list sources) :test #'eq))
+  (dolist (source sources)
+    (unless (snap-sync-source-complete-p source)
+      (error "Snap storage range source is incomplete")))
+  (when (and source-provider (not (functionp source-provider)))
+    (error "Snap storage range source provider must be a function"))
+  (let* ((tasks
+           (snap-sync-load-or-create-storage-tasks
+            database state-root account-hash storage-root))
+         (runtime
+           (make-snap-sync-storage-runtime tasks (length sources)))
+         (threads '()))
+    (labels
+        ((start-worker (source &optional count-source-p)
+           (when count-source-p
+             (sb-thread:with-mutex
+                 ((snap-sync-storage-runtime-lock runtime))
+               (incf (snap-sync-storage-runtime-source-count runtime))
+               (snap-sync-storage-runtime-notify runtime)))
+           (handler-case
+               (let ((worker-source source))
+                 (push
+                  (sb-thread:make-thread
+                   (lambda ()
+                     (snap-sync-storage-worker
+                      runtime worker-source state-root account-hash storage-root
+                      byte-limit))
+                   :name "snap-sync-storage-worker")
+                  threads))
+             (serious-condition (condition)
+               (when count-source-p
+                 (sb-thread:with-mutex
+                     ((snap-sync-storage-runtime-lock runtime))
+                   (decf (snap-sync-storage-runtime-source-count runtime))
+                   (snap-sync-storage-runtime-notify runtime)))
+               (error condition))))
+         (active-worker-count ()
+           (sb-thread:with-mutex
+               ((snap-sync-storage-runtime-lock runtime))
+             (snap-sync-storage-runtime-source-count runtime)))
+         (refresh-sources ()
+           (let ((added 0))
+             (when source-provider
+               (let ((fresh (funcall source-provider)))
+                 (unless (listp fresh)
+                   (error "Snap storage range source provider must return a list"))
+                 (dolist (source fresh)
+                   (unless (snap-sync-source-complete-p source)
+                     (error "Snap storage range source provider returned an incomplete source"))
+                   (when (and
+                          (< (active-worker-count)
+                             +snap-sync-storage-task-count+)
+                          (not (member source sources :test #'eq)))
+                     (setf sources (nconc sources (list source)))
+                     (start-worker source t)
+                     (incf added)))))
+             added)))
+      (unwind-protect
+           (progn
+             (dolist (source sources)
+               (start-worker source))
+             (refresh-sources)
+             (loop
+               (let ((event (snap-sync-storage-runtime-next-event runtime)))
+                 (case event
+                   (:complete (return t))
+                   (:exhausted
+                    (unless (plusp (refresh-sources))
+                      (return nil)))
+                   (otherwise
+                    (let ((source
+                            (snap-sync-storage-worker-event-source event))
+                          (task-index
+                            (snap-sync-storage-worker-event-task-index event))
+                          (condition
+                            (snap-sync-storage-worker-event-condition event)))
+                      (cond
+                        (condition
+                         (snap-sync-storage-runtime-release
+                          runtime task-index source)
+                         (when on-source-error
+                           (funcall on-source-error source condition))
+                         (when (typep condition
+                                      'ethereum-lisp.validation:storage-error)
+                           (error condition))
+                         (refresh-sources))
+                        (t
+                         (let* ((current
+                                  (sb-thread:with-mutex
+                                      ((snap-sync-storage-runtime-lock runtime))
+                                    (snap-sync-storage-runtime-tasks runtime)))
+                                (next
+                                  (snap-sync-commit-storage-page
+                                   database state-root account-hash storage-root
+                                   current
+                                   (snap-sync-storage-worker-event-result event))))
+                           (snap-sync-storage-runtime-release
+                            runtime task-index source next)
+                           (when (and heal-yield-p (funcall heal-yield-p))
+                             (error 'snap-sync-heal-yielded))
+                           (refresh-sources))))))))))
+        (sb-thread:with-mutex ((snap-sync-storage-runtime-lock runtime))
+          (setf (snap-sync-storage-runtime-stopped-p runtime) t)
+          (snap-sync-storage-runtime-notify runtime))
+        (dolist (thread threads)
+          (sb-thread:join-thread thread))))))
+
+#-sbcl
+(defun snap-sync-fill-storage-root
+    (database sources state-root account-hash storage-root byte-limit
+     &key source-provider on-source-error heal-yield-p)
+  "Portable serial fallback for restart-safe large storage ranges."
   (let ((tasks
           (snap-sync-load-or-create-storage-tasks
            database state-root account-hash storage-root))
@@ -2241,39 +2413,43 @@ TrieNodes healing with every authenticated page already retained."
     (loop
       (when (every #'snap-sync-account-task-completed-p tasks)
         (return t))
-      (setf live
-            (snap-sync-storage-source-snapshot live source-provider failed))
-      (let ((assignments (snap-sync-storage-wave-assignments tasks live)))
-        (unless assignments
-          (return nil))
-        (let ((progress-p nil))
-          (dolist (outcome
-                   (snap-sync-run-storage-wave
-                    assignments state-root account-hash storage-root
-                    byte-limit))
-            (destructuring-bind (source task-index result condition) outcome
-              (declare (ignore task-index))
-              (cond
-                (condition
-                 (when (typep condition
-                              'ethereum-lisp.validation:storage-error)
-                   (error condition))
-                 (pushnew source failed :test #'eq)
-                 (setf live (delete source live :test #'eq))
-                 (when on-source-error
-                   (funcall on-source-error source condition)))
-                (t
-                 (setf tasks
-                       (snap-sync-commit-storage-page
-                        database state-root account-hash storage-root
-                        tasks result)
-                       progress-p t)))))
-          (when (and progress-p heal-yield-p (funcall heal-yield-p))
-            (error 'snap-sync-heal-yielded))
-          (unless (or progress-p
-                      (snap-sync-storage-source-snapshot
-                       live source-provider failed))
-            (return nil)))))))
+      (when source-provider
+        (let ((fresh (funcall source-provider)))
+          (unless (listp fresh)
+            (error "Snap storage range source provider must return a list"))
+          (setf live
+                (remove-if
+                 (lambda (source) (member source failed :test #'eq))
+                 (remove-duplicates (append live fresh) :test #'eq)))))
+      (dolist (source live)
+        (unless (snap-sync-source-complete-p source)
+          (error "Snap storage range source is incomplete")))
+      (unless live
+        (return nil))
+      (let* ((source (pop live))
+             (task-index
+               (position-if-not
+                #'snap-sync-account-task-completed-p tasks))
+             (task (nth task-index tasks))
+             (progress-p nil))
+        (handler-case
+            (setf
+             tasks
+             (snap-sync-commit-storage-page
+              database state-root account-hash storage-root tasks
+              (snap-sync-prepare-storage-page
+               source state-root account-hash storage-root task-index task
+               byte-limit))
+             live (nconc live (list source))
+             progress-p t)
+          (ethereum-lisp.validation:storage-error (condition)
+            (error condition))
+          (serious-condition (condition)
+            (pushnew source failed :test #'eq)
+            (when on-source-error
+              (funcall on-source-error source condition))))
+        (when (and progress-p heal-yield-p (funcall heal-yield-p))
+          (error 'snap-sync-heal-yielded))))))
 
 (defun snap-sync-fill-deferred-storage
     (database sources progress byte-limit
