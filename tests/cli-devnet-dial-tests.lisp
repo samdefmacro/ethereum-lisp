@@ -131,10 +131,15 @@
     (ethereum-lisp.cli:devnet-dial-registry-put-static registry "aa" "enode://aa@127.0.0.1:1")
     (is (= 0 (ethereum-lisp.cli:devnet-dial-free-slots registry table)))
     (is (eq :no-slot (ethereum-lisp.cli:devnet-dial-verdict registry table "aa" 0))))
-  ;; The hard cap wins over a generous ratio.
+  ;; The geth-aligned hard cap wins over a generous ratio.
   (multiple-value-bind (registry table) (dial-test-registry :max-peers 600
                                                             :max-active 8)
-    (is (= 8 (ethereum-lisp.cli:devnet-dial-free-slots registry table)))))
+    (is (= 8 (ethereum-lisp.cli:devnet-dial-free-slots registry table))))
+  ;; Production defaults may fill all sixteen outbound slots concurrently at
+  ;; --maxpeers 50 instead of serializing them through an eight-dial window.
+  (multiple-value-bind (registry table) (dial-test-registry :max-peers 50
+                                                            :max-active 50)
+    (is (= 16 (ethereum-lisp.cli:devnet-dial-free-slots registry table)))))
 
 (deftest devnet-dial-plan-is-deterministic-and-bounded
   (:layer :unit :module :devnet)

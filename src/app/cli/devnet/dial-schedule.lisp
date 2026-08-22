@@ -45,9 +45,14 @@ keeps escalating backoff from becoming permanent abandonment.")
 (defconstant +devnet-dial-backoff-max-doublings+ 4
   "How many times the cooldown may double. Our policy.")
 
-(defconstant +devnet-max-active-dials+ 8
-  "Hard cap on dials in flight, whatever the peer limit implies. Our policy:
-at --maxpeers 60 the ratio below would otherwise authorise 20 dial threads.")
+(defconstant +devnet-max-active-dials+ 50
+  "Hard cap on dials in flight, whatever the peer limit implies.
+
+This matches geth's default pending-peer budget. Public discovery returns many
+stale, saturated, or unreachable nodes; limiting attempts to eight made those
+ordinary failures serialize replacement of useful SNAP peers. The outbound
+ratio below still bounds established sessions, so a default node can start at
+most sixteen of these dials and continues to reserve inbound capacity.")
 
 (defconstant +devnet-dial-ratio+ 3
   "One in this many peer slots may be filled by dialing. Our policy, and the
