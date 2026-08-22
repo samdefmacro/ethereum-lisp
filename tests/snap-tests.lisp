@@ -2444,12 +2444,10 @@
          checkpoint-frontiers))
     ;; The live failure shape used to emit one TrieNodes request per node once
     ;; the frontier reached its hard cap. These works were already counted in
-    ;; the frontier, so one full logical round remains safe; its four physical
-    ;; chunks let a fast source continue without weakening the frontier bound.
+    ;; the frontier, so one full logical round remains safe; its 512-path
+    ;; physical chunks amortize RTT without weakening the frontier bound.
     (is
-     (= (ceiling
-         ethereum-lisp.snap-sync::+snap-sync-heal-paths-per-source+
-         ethereum-lisp.snap-sync::+snap-sync-heal-work-chunks-per-source+)
+     (= ethereum-lisp.snap-sync::*snap-sync-heal-request-target-paths*
         (reduce #'max request-widths)))
     (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p completed))))
 
@@ -2568,8 +2566,8 @@
            (ethereum-lisp.snap-sync::snap-sync-heal-request-round
             sources missing (snap-test-hash 194) (* 2 1024 1024))))
     (is
-     (= (* source-count
-           ethereum-lisp.snap-sync::+snap-sync-heal-work-chunks-per-source+)
+     (= (ceiling (length missing)
+                 ethereum-lisp.snap-sync::*snap-sync-heal-request-target-paths*)
         (length results)))
     (is
      (= (length missing)
@@ -2602,8 +2600,13 @@
             (lambda (request)
               (declare (ignore request))
               (sb-thread:with-mutex (lock)
-                (when (< fast-calls 2)
-                  (sb-thread:condition-wait changed lock :timeout 1))
+                ;; A broadcast for the fast source's first request is not the
+                ;; witness. Re-check after every wakeup, while keeping the
+                ;; total synthetic slow-peer delay bounded to one second.
+                (loop repeat 4
+                      while (< fast-calls 2)
+                      do (sb-thread:condition-wait
+                          changed lock :timeout 1/4))
                 (setf fast-reused-before-slow-release-p (>= fast-calls 2)))
               (ethereum-lisp.snap:make-snap-trie-nodes 1 '(#(128))))))
          (fast-source
@@ -2623,10 +2626,12 @@
             :account nil #(1) (snap-test-hash 195)))
          (missing (make-array 16 :initial-element work))
          (results
-           (ethereum-lisp.snap-sync::snap-sync-heal-request-round
-            (list slow-source fast-source) missing
-            (snap-test-hash 196) (* 2 1024 1024))))
-    (is (= 8 (length results)))
+           (let ((ethereum-lisp.snap-sync::*snap-sync-heal-request-target-paths*
+                   4))
+             (ethereum-lisp.snap-sync::snap-sync-heal-request-round
+              (list slow-source fast-source) missing
+              (snap-test-hash 196) (* 2 1024 1024)))))
+    (is (= 4 (length results)))
     (is (>= fast-calls 2))
     ;; With the old global wave the fast source made exactly one request and
     ;; could not release this source before its bounded wait elapsed.

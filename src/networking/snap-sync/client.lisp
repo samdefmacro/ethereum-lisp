@@ -17,8 +17,8 @@
 (defconstant +snap-sync-heal-paths-per-source+
   +snap-sync-trie-node-lookups-per-request+
   "Maximum healing paths assigned to one source in a concurrent round.")
-(defconstant +snap-sync-heal-work-chunks-per-source+ 4
-  "Over-partition one healing frontier so fast peers can keep claiming work.")
+(defparameter *snap-sync-heal-request-target-paths* 512
+  "Target TrieNodes path width while retaining a tail for fast-peer stealing.")
 (defconstant +snap-sync-heal-local-reads-per-batch+ 512
   "Maximum local read width before frontier-aware shrinking.")
 (defparameter *snap-sync-heal-local-read-workers* 8
@@ -1862,12 +1862,22 @@ is deliberately over-partitioned, however, so a source that answers promptly
 claims another disjoint chunk instead of waiting at a global slowest-peer
 barrier.  Failed sources stop claiming; their unrequested remainder stays
 absent in the caller's exact continuation and is retried after source rotation."
+  (unless (and (integerp *snap-sync-heal-request-target-paths*)
+               (<= 1 *snap-sync-heal-request-target-paths*
+                   +snap-sync-heal-paths-per-source+))
+    (error "Snap healing request target must be between 1 and ~D paths"
+           +snap-sync-heal-paths-per-source+))
   (let* ((worker-count (min (length sources) (length missing)))
          (chunk-count
            (max
             1
-            (min (length missing)
-                 (* worker-count +snap-sync-heal-work-chunks-per-source+))))
+            (min
+             (length missing)
+             (max
+              worker-count
+              (ceiling
+               (length missing)
+               *snap-sync-heal-request-target-paths*)))))
          (chunk-size (ceiling (length missing) chunk-count))
          (next-start (min (length missing) (* worker-count chunk-size)))
          (results '())

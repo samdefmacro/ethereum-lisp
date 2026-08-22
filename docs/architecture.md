@@ -183,12 +183,14 @@ them by their physical location instead reintroduces dependency cycles:
   deferred frontier so final healing traverses the full storage root locally
   before it can publish completion. Work sets above the 8,192-item checkpoint
   bound also fall back to that path. Each bounded TrieNodes frontier is split
-  into four work chunks per current snap source. Every source retains at most
-  one outstanding request and every chunk remains below the pinned geth limit
-  of 1,024 paths, but a fast source immediately claims another disjoint chunk
-  instead of waiting at a global slowest-peer wave barrier. Initial chunks are
-  assigned deterministically across all sources so one fast peer cannot erase
-  peer diversity; only the shared tail is work-stealing. The total frontier
+  into approximately 512-path chunks, always below the pinned geth limit of
+  1,024 paths and with at least one initial chunk per source. This avoids the
+  roughly 186-path requests observed with eleven live peers under fixed four-
+  way over-partitioning. Every source retains at most one outstanding request,
+  but a fast source immediately claims another disjoint tail chunk instead of
+  waiting at a global slowest-peer wave barrier. Initial chunks are assigned
+  deterministically across all sources so one fast peer cannot erase peer
+  diversity; only the shared tail is work-stealing. The total frontier
   still scales with the source count up to the durable 8,192-work cap. The
   serving side applies the same 1,024-lookup cap even when the structurally
   bounded wire list is larger. A failed source stops claiming new chunks while

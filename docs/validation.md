@@ -234,8 +234,9 @@ a non-empty, non-root range witness; legacy, rebased, or oversized plans retain
 the fail-closed full-root traversal. The tests also
 inject a failed database batch to prove progress never outruns verified account
 state. Only the final traversal can install the completion marker. The final
-healer tests over-partition one missing frontier, prove every request remains
-within geth's 1,024-path cap, and block one source until a faster source has
+healer tests partition one missing frontier, prove every request remains
+within geth's 1,024-path cap, target approximately 512 paths per request to
+amortize live RTT, and block one source until a faster source has
 claimed multiple chunks. They also prove a second source actually serves
 TrieNodes and consecutive rounds rotate the first source so retained work is
 not pinned to one partially pruned peer. A late-admission control starts
