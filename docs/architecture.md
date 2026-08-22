@@ -151,8 +151,15 @@ them by their physical location instead reintroduces dependency cycles:
   into retries. Account and storage ranges carry compact boundary proofs, trie
   nodes are served by path set, and every page is verified before its account
   nodes, bytecode, complete small storage tries, and per-range cursor become
-  durable. Byte-capped large storage is deferred to the content-addressed final
-  traversal. Each round partitions its missing paths across the current snap
+  durable. Byte-capped large storage is recorded beside that page in a
+  state-root-scoped durable work set. When the final account page also makes
+  the locally reconstructed account root equal the authorized state root, its
+  batch publishes a versioned plan marker proving that the work set is
+  complete. Final healing then starts directly from those storage roots instead
+  of rereading the already verified account trie. An old or rebased partial
+  import has no marker and safely retains the full-root traversal. Work sets
+  above the 8,192-item checkpoint bound also fall back to that path. Each round
+  partitions its missing paths across the current snap
   sources, with at most one outstanding TrieNodes request and 1,024 paths per
   source. The total round width scales with the source count up to the durable
   8,192-work frontier cap, so adding peers increases parallel work without
@@ -239,7 +246,7 @@ them by their physical location instead reintroduces dependency cycles:
   and an explicit authority-driven rebase still invalidates the frontier in
   the same batch as both progress records.
   Checkpoint version two records armed, descendant, and completion-sentinel
-  work while continuing to decode version-one restart records. At a six-nibble
+  work while continuing to decode version-one restart records. At a two-nibble
   account or storage prefix, a sentinel publishes a trie-kind-domain-separated
   metadata proof keyed by the subtree's content hash. An account proof becomes
   visible only after all descendant trie nodes, storage roots, and bytecode are

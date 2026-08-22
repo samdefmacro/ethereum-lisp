@@ -214,7 +214,12 @@ cl-workbench validation run cold-integration \
 
 The snap tests reconstruct and verify account/storage roots, reject altered
 compact proofs, batch complete small storage tries with each account cursor,
-defer byte-capped large storage to resumable content-addressed healing, and
+defer byte-capped large storage to resumable content-addressed healing, record
+those roots with each durable page, and atomically publish the complete plan
+only when the rebuilt account root equals the authorized state root. The
+byte-capped-storage regression proves that final TrieNodes requests are all
+storage-scoped and never rescan the account root. Legacy, rebased, or oversized
+plans retain the fail-closed full-root traversal. The tests also
 inject a failed database batch to prove progress never outruns verified account
 state. Only the final traversal can install the completion marker. The final
 healer tests also require one missing-path slice per available source, prove a

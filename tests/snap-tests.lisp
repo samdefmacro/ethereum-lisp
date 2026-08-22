@@ -350,7 +350,8 @@
          (trie-node-responses 0)
          (trie-node-response-bytes 0)
          (heal-progress-events '())
-         (saw-byte-capped-storage-p nil))
+         (saw-byte-capped-storage-p nil)
+         (saw-account-heal-path-p nil))
     (loop for byte from 1 to 96
           do (state-db-set-storage
               source-state address
@@ -389,6 +390,11 @@
               :trie-nodes
               (lambda (request)
                 (incf trie-node-requests)
+                (when
+                    (some
+                     (lambda (path-set) (= 1 (length path-set)))
+                     (ethereum-lisp.snap:snap-get-trie-nodes-paths request))
+                  (setf saw-account-heal-path-p t))
                 (let* ((response
                          (funcall
                           (ethereum-lisp.snap-sync:snap-sync-source-trie-nodes
@@ -418,6 +424,10 @@
       (is saw-byte-capped-storage-p)
       (is (= 1 storage-calls))
       (is (plusp trie-node-requests))
+      ;; The final account-page batch published a complete dependency plan.
+      ;; Healing starts directly at the deferred storage root; a one-item path
+      ;; set would prove that production fell back to the account trie root.
+      (is (not saw-account-heal-path-p))
       (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p progress))
       (is (plusp (length heal-progress-events)))
       (is (some
@@ -433,7 +443,7 @@
                (ethereum-lisp.snap-sync:snap-sync-heal-progress-completed-p
                 event))
               (plusp
-               (ethereum-lisp.snap-sync:snap-sync-heal-progress-reused-nodes
+               (ethereum-lisp.snap-sync:snap-sync-heal-progress-fetched-nodes
                 event))))
            heal-progress-events))
       (let ((final (first heal-progress-events)))
@@ -447,7 +457,7 @@
         (is (= trie-node-response-bytes
                (ethereum-lisp.snap-sync:snap-sync-heal-progress-response-bytes
                 final)))
-        (is (plusp
+        (is (zerop
              (ethereum-lisp.snap-sync:snap-sync-heal-progress-reused-nodes
               final)))
         (is (>=

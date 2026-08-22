@@ -33,10 +33,20 @@
   "Domain-separate durable storage-subtree proof keys.")
 (defparameter +snap-sync-healed-subtree-value+ #(1)
   "Versioned value for a completely verified content-addressed subtree.")
-(defparameter *snap-sync-healed-subtree-prefix-nibbles* 6
+(defparameter *snap-sync-healed-subtree-prefix-nibbles* 2
   "Account-trie prefix depth whose completed subtrees survive pivot rebases.")
 (defconstant +snap-sync-healed-subtrees-per-batch+ 2048
   "Maximum completed subtree proofs published by one durable write batch.")
+(defparameter +snap-sync-deferred-storage-identifier-prefix+
+  (ascii-to-bytes "snap-deferred-storage-v1:")
+  "Prefix for state-root-scoped storage work discovered during range import.")
+(defparameter +snap-sync-deferred-storage-plan-prefix+
+  (ascii-to-bytes "snap-deferred-storage-plan-v1:")
+  "Prefix for the trusted marker that says the deferred work set is complete.")
+(defparameter +snap-sync-deferred-storage-value+ #(1)
+  "Versioned value shared by deferred storage work and plan markers.")
+(defconstant +snap-sync-deferred-storage-max-works+ 8192
+  "Maximum direct storage frontier loaded into one resumable heal checkpoint.")
 (defconstant +snap-sync-heal-checkpoint-frontier-target+ 4096)
 (defconstant +snap-sync-heal-checkpoint-max-works+ 8192)
 (defconstant +snap-sync-heal-checkpoint-max-bytes+ (* 4 1024 1024))
@@ -621,7 +631,8 @@ healing phase.  Completing a large storage trie here can outlive a public
 peer's retained pivot and would force the otherwise verified account page to be
 retried from its durable cursor.  Healing reuses every node already on disk and
 must still reconstruct the exact authorized state root before completion."
-  (let ((remaining commitments))
+  (let ((remaining commitments)
+        (deferred '()))
     (loop while remaining
           do (let* ((count
                       (min +snap-sync-storage-accounts-per-request+
@@ -664,8 +675,14 @@ must still reconstruct the exact authorized state root before completion."
                  ;; storage trie inside the account-page transaction.  Its
                  ;; root remains in the verified account value and therefore
                  ;; becomes mandatory work for SNAP-SYNC-HEAL-STATE.
-               (setf remaining (nthcdr received remaining))))
-    t))
+                 ;; Preserve that exact dependency with the verified account
+                 ;; page.  Once every account range is durable, final healing
+                 ;; can start from this bounded set instead of rediscovering it
+                 ;; by traversing the already reconstructed account trie.
+                 (when proof
+                   (push (nth (1- received) requested) deferred))
+                 (setf remaining (nthcdr received remaining))))
+    (nreverse deferred)))
 
 (defun snap-sync-page-code-hashes (entries)
   (remove-duplicates
@@ -790,13 +807,119 @@ must still reconstruct the exact authorized state root before completion."
 
 (defstruct (snap-sync-page-result
             (:constructor make-snap-sync-page-result
-                (&key task-index origin entries codes next-origin completed-p)))
+                (&key task-index origin entries codes deferred-storage
+                      next-origin completed-p)))
   task-index
   origin
   entries
   codes
+  deferred-storage
   next-origin
   completed-p)
+
+(defun snap-sync-byte-prefix-end (prefix)
+  "Return the exclusive lexicographic end key for non-empty byte PREFIX."
+  (let ((bytes (copy-seq (ensure-byte-vector prefix))))
+    (loop for index downfrom (1- (length bytes)) to 0
+          when (< (aref bytes index) #xff)
+            do (incf (aref bytes index))
+               (return-from snap-sync-byte-prefix-end
+                 (subseq bytes 0 (1+ index))))
+    (error "Snap metadata prefix has no finite exclusive end key")))
+
+(defun snap-sync-deferred-storage-root-prefix (state-root)
+  (concatenate
+   'vector +snap-sync-deferred-storage-identifier-prefix+
+   (hash32-bytes state-root)))
+
+(defun snap-sync-deferred-storage-identifier
+    (state-root account-hash storage-root)
+  (unless (and (byte-vector-p account-hash) (= 32 (length account-hash)))
+    (error "Deferred snap storage work requires a 32-byte account hash"))
+  (concatenate
+   'vector (snap-sync-deferred-storage-root-prefix state-root)
+   account-hash (hash32-bytes storage-root)))
+
+(defun snap-sync-deferred-storage-plan-identifier (state-root)
+  (concatenate
+   'vector +snap-sync-deferred-storage-plan-prefix+
+   (hash32-bytes state-root)))
+
+(defun snap-sync-populate-deferred-storage-batch
+    (batch state-root commitment)
+  (kv-batch-put-chain-record
+   batch :metadata
+   (snap-sync-deferred-storage-identifier
+    state-root (car commitment) (cdr commitment))
+   +snap-sync-deferred-storage-value+)
+  batch)
+
+(defun snap-sync-populate-deferred-storage-plan-batch (batch state-root)
+  (kv-batch-put-chain-record
+   batch :metadata
+   (snap-sync-deferred-storage-plan-identifier state-root)
+   +snap-sync-deferred-storage-value+)
+  batch)
+
+(defun snap-sync-deferred-storage-plan-present-p (database state-root)
+  (multiple-value-bind (value present-p)
+      (kv-get-chain-record
+       database :metadata
+       (snap-sync-deferred-storage-plan-identifier state-root))
+    (when (and present-p
+               (not (bytes= value +snap-sync-deferred-storage-value+)))
+      (ethereum-lisp.validation:storage-fail
+       "Persisted snap deferred-storage plan has an unknown version"))
+    present-p))
+
+(defun snap-sync-deferred-storage-works (database state-root)
+  "Load a bounded, trusted final-healing frontier for STATE-ROOT.
+
+The plan marker is published only with the final verified account-range page.
+Without it, callers must use the legacy full-root traversal.  An oversized
+frontier also falls back safely instead of creating an uncheckpointable run."
+  (unless (snap-sync-deferred-storage-plan-present-p database state-root)
+    (return-from snap-sync-deferred-storage-works (values nil nil nil)))
+  (let* ((identifier-prefix
+           (snap-sync-deferred-storage-root-prefix state-root))
+         (start (kv-chain-record-key :metadata identifier-prefix))
+         (end
+           (kv-chain-record-key
+            :metadata (snap-sync-byte-prefix-end identifier-prefix)))
+         (expected-length
+           (+ (length identifier-prefix) 32 32))
+         (works '())
+         (overflow-p nil))
+    (multiple-value-bind (iterator close-iterator)
+        (kv-iterator database :start start :end end)
+      (unwind-protect
+           (loop
+             (multiple-value-bind (key value present-p)
+                 (funcall iterator)
+               (unless present-p (return))
+               (unless (bytes= value +snap-sync-deferred-storage-value+)
+                 (ethereum-lisp.validation:storage-fail
+                  "Persisted snap deferred-storage work has an unknown version"))
+               (let ((identifier
+                       (kv-chain-record-key-identifier :metadata key)))
+                 (unless (= expected-length (length identifier))
+                   (ethereum-lisp.validation:storage-fail
+                    "Persisted snap deferred-storage work is malformed"))
+                 (push
+                  (snap-sync-make-heal-work
+                   :storage
+                   (subseq identifier (length identifier-prefix)
+                           (+ (length identifier-prefix) 32))
+                   (make-byte-vector 0)
+                   (subseq identifier (+ (length identifier-prefix) 32)))
+                  works)
+                 (when (> (length works)
+                          +snap-sync-deferred-storage-max-works+)
+                   (setf overflow-p t)
+                   (return)))))
+        (when close-iterator
+          (funcall close-iterator))))
+    (values (and (not overflow-p) (nreverse works)) t overflow-p)))
 
 (defun snap-sync-prepare-account-page
     (database source state-root task-index task byte-limit)
@@ -841,10 +964,11 @@ must still reconstruct the exact authorized state root before completion."
                   (snap-sync-increment-hash last-entry))))
       (when (and (not complete-p) (null next-origin))
         (error "Snap account page did not advance its assigned task"))
-      (snap-sync-fetch-storage-commitments
-       database source state-root
-       (snap-sync-page-storage-commitments entries) byte-limit)
-      (let ((code-hashes (snap-sync-page-code-hashes entries)))
+      (let ((deferred-storage
+              (snap-sync-fetch-storage-commitments
+               database source state-root
+               (snap-sync-page-storage-commitments entries) byte-limit))
+            (code-hashes (snap-sync-page-code-hashes entries)))
         (make-snap-sync-page-result
          :task-index task-index
          :origin (copy-seq origin)
@@ -852,6 +976,7 @@ must still reconstruct the exact authorized state root before completion."
          :codes (if code-hashes
                     (snap-sync-fetch-codes source code-hashes byte-limit)
                     '())
+         :deferred-storage deferred-storage
          :next-origin next-origin
          :completed-p complete-p)))))
 
@@ -906,6 +1031,19 @@ must still reconstruct the exact authorized state root before completion."
                 :completed-p nil :tasks tasks)))
         (snap-sync-populate-code-batch
          database batch (snap-sync-page-result-codes result))
+        (dolist (commitment
+                 (snap-sync-page-result-deferred-storage result))
+          (snap-sync-populate-deferred-storage-batch
+           batch (snap-sync-progress-state-root progress) commitment))
+        (when (and (snap-sync-tasks-completed-p tasks)
+                   (hash32= partial-root
+                            (snap-sync-progress-state-root progress)))
+          ;; Every range proof and the locally rebuilt account trie now commit
+          ;; to the authorized root.  Publishing this marker in the same batch
+          ;; as the last cursor makes the deferred storage set complete: after
+          ;; restart, absence of a queue record means there was no such work.
+          (snap-sync-populate-deferred-storage-plan-batch
+           batch (snap-sync-progress-state-root progress)))
         (snap-sync-populate-progress-batch batch next)
         (kv-apply-batch database batch)
         (mpt-mark-nodes-persisted nodes)
@@ -1794,15 +1932,26 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
     (error "Snap trie healing cannot precede flat-range completion"))
   (multiple-value-bind (checkpoint checkpoint-present-p)
       (snap-sync-read-heal-checkpoint database progress)
-    (let* ((state-root (snap-sync-progress-state-root progress))
+    (multiple-value-bind
+          (planned-storage planned-storage-present-p planned-storage-overflow-p)
+        (if checkpoint-present-p
+            (values nil nil nil)
+            (snap-sync-deferred-storage-works
+             database (snap-sync-progress-state-root progress)))
+      (let* ((state-root (snap-sync-progress-state-root progress))
            (root-bytes (hash32-bytes state-root))
            (stack
-             (if checkpoint-present-p
-                 (copy-list (snap-sync-heal-checkpoint-stack checkpoint))
-                 (unless (hash32= state-root +empty-trie-hash+)
-                   (list
-                    (snap-sync-make-heal-work
-                     :account nil (make-byte-vector 0) root-bytes)))))
+             (cond
+               (checkpoint-present-p
+                (copy-list (snap-sync-heal-checkpoint-stack checkpoint)))
+               ((and planned-storage-present-p
+                     (not planned-storage-overflow-p))
+                planned-storage)
+               ((hash32= state-root +empty-trie-hash+) nil)
+               (t
+                (list
+                 (snap-sync-make-heal-work
+                  :account nil (make-byte-vector 0) root-bytes)))))
            (active-sources (remove-duplicates (copy-list sources) :test #'eq))
            (retired-sources '())
            (retired-source-errors '())
@@ -2424,7 +2573,7 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
       (snap-sync-report-heal-progress
        on-heal-progress processed-nodes reused-nodes fetched-nodes
        request-count response-bytes t)
-      completed))))
+      completed)))))
 
 (defun snap-sync-import-state
     (database source
