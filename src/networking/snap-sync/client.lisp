@@ -1431,10 +1431,11 @@ its bounded pivot tail will anchor the resumable import."
 
 (defstruct (snap-sync-heal-fetch-result
             (:constructor make-snap-sync-heal-fetch-result
-                (&key source start end response condition)))
+                (&key source start end order response condition)))
   source
   start
   end
+  order
   response
   condition)
 
@@ -1514,17 +1515,41 @@ its bounded pivot tail will anchor the resumable import."
         (list (snap-sync-heal-work-account-hash work) compact))))
 
 (defun snap-sync-heal-request-path-sets (missing start end)
-  "Encode one ordered MISSING slice with Geth-style storage-path grouping.
+  "Encode and sort one MISSING slice with Geth-style storage-path grouping.
 
-Account trie nodes remain independent one-path sets. Consecutive storage trie
-nodes belonging to the same account share one account-hash prefix, avoiding a
-remote account-trie lookup for every storage node. Grouping is deliberately
-limited to consecutive work: the response-node order therefore remains the
-same as the caller's exact continuation and its hash matcher needs no reorder
-map."
-  (let ((path-sets '())
+Account trie nodes remain independent one-path sets. Storage trie nodes are
+sorted by account hash and compact path before all paths for one account share
+a single account-hash prefix, avoiding repeated remote account-trie lookups even
+when exact DFS work was interleaved. The second value maps response order back
+to MISSING, so partial responses retain the caller's durable continuation."
+  (let* ((entries
+           (loop for index from start below end
+                 collect
+                 (cons index
+                       (snap-sync-heal-work-path-set (aref missing index)))))
+         (ordered
+           (stable-sort
+            entries
+            (lambda (left right)
+              (let ((left-path (cdr left))
+                    (right-path (cdr right)))
+                (cond
+                  ((ethereum-lisp.validation:byte-vector-lexicographic<
+                    (first left-path) (first right-path))
+                   t)
+                  ((ethereum-lisp.validation:byte-vector-lexicographic<
+                    (first right-path) (first left-path))
+                   nil)
+                  ((< (length left-path) (length right-path)) t)
+                  ((> (length left-path) (length right-path)) nil)
+                  ((= 1 (length left-path)) nil)
+                  (t
+                   (ethereum-lisp.validation:byte-vector-lexicographic<
+                    (second left-path) (second right-path))))))))
+         (path-sets '())
         (storage-account nil)
-        (storage-paths '()))
+        (storage-paths '())
+        (order (make-array (length ordered))))
     (labels ((flush-storage ()
                (when storage-account
                  (push
@@ -1532,10 +1557,13 @@ map."
                   path-sets)
                  (setf storage-account nil
                        storage-paths nil))))
-      (loop for index from start below end
+      (loop for entry in ordered
+            for position from 0
+            for index = (car entry)
             for work = (aref missing index)
-            for path-set = (snap-sync-heal-work-path-set work)
+            for path-set = (cdr entry)
             do
+               (setf (aref order position) index)
                (if (eq :storage (snap-sync-heal-work-kind work))
                    (let ((account-hash (first path-set))
                          (compact-path (second path-set)))
@@ -1548,7 +1576,7 @@ map."
                      (flush-storage)
                      (push path-set path-sets))))
       (flush-storage)
-      (nreverse path-sets))))
+      (values (nreverse path-sets) order))))
 
 (defun snap-sync-heal-missing-limit (stack-count source-count)
   "Bound one remote missing-path batch by its concurrent source capacity.
@@ -1978,21 +2006,22 @@ the returned record in the same batch as its new skeleton metadata."
 (defun snap-sync-heal-request-chunk
     (source missing start end root-bytes byte-limit)
   (handler-case
-      (let* ((request
-               (make-snap-get-trie-nodes
-                1 root-bytes
-                (snap-sync-heal-request-path-sets missing start end)
-                byte-limit))
-             (packet
-               (snap-sync-source-call
-                (snap-sync-source-trie-nodes source)
-                request "trie nodes")))
-        (unless (= 1 (snap-trie-nodes-id packet))
-          (error "Snap trie-node response id mismatch"))
-        (when (null (snap-trie-nodes-nodes packet))
-          (snap-sync-state-unavailable "trie-nodes"))
-        (make-snap-sync-heal-fetch-result
-         :source source :start start :end end :response packet))
+      (multiple-value-bind (path-sets order)
+          (snap-sync-heal-request-path-sets missing start end)
+        (let* ((request
+                 (make-snap-get-trie-nodes
+                  1 root-bytes path-sets byte-limit))
+               (packet
+                 (snap-sync-source-call
+                  (snap-sync-source-trie-nodes source)
+                  request "trie nodes")))
+          (unless (= 1 (snap-trie-nodes-id packet))
+            (error "Snap trie-node response id mismatch"))
+          (when (null (snap-trie-nodes-nodes packet))
+            (snap-sync-state-unavailable "trie-nodes"))
+          (make-snap-sync-heal-fetch-result
+           :source source :start start :end end :order order
+           :response packet)))
     (serious-condition (condition)
       (make-snap-sync-heal-fetch-result
        :source source :start start :end end :condition condition))))
@@ -3462,9 +3491,9 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                             on-source-error
                             (snap-sync-heal-fetch-result-source result)
                             condition)))
-                       (let ((cursor
-                               (snap-sync-heal-fetch-result-start result))
-                             (end (snap-sync-heal-fetch-result-end result)))
+                       (let ((cursor 0)
+                             (order
+                               (snap-sync-heal-fetch-result-order result)))
                          (incf successful-results)
                          (dolist
                              (encoded
@@ -3472,13 +3501,14 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                                (snap-sync-heal-fetch-result-response result)))
                            (let ((hash (keccak-256 encoded))
                                  (found nil))
-                             (loop while (< cursor end)
-                                   for work = (aref missing cursor)
+                             (loop while (< cursor (length order))
+                                   for index = (aref order cursor)
+                                   for work = (aref missing index)
                                    for expected =
                                      (snap-sync-heal-work-reference work)
                                    do (incf cursor)
                                       (when (bytes= hash expected)
-                                        (setf found (1- cursor))
+                                        (setf found index)
                                         (return)))
                              (unless found
                                (error

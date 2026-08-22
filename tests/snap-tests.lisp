@@ -2840,53 +2840,51 @@
                   (ethereum-lisp.snap-sync::snap-sync-heal-fetch-result-condition
                    result))))))
 
-(deftest snap-state-healer-groups-consecutive-storage-paths-by-account
+(deftest snap-state-healer-sorts-and-groups-storage-paths-by-account
   (:layer :unit :module :p2p)
-  (let* ((account-a (snap-test-hash 197))
-         (account-b (snap-test-hash 198))
+  (let* ((account-a (make-byte-vector 32 :initial-element #x20))
+         (account-b (make-byte-vector 32 :initial-element #x10))
          (reference (snap-test-hash 199))
          (works
            (vector
             (ethereum-lisp.snap-sync::snap-sync-make-heal-work
              :storage account-a #(1 2) reference)
             (ethereum-lisp.snap-sync::snap-sync-make-heal-work
-             :storage account-a #(3 4) reference)
+             :storage account-b #(7 8) reference)
             (ethereum-lisp.snap-sync::snap-sync-make-heal-work
              :account nil #(5 6) reference)
             (ethereum-lisp.snap-sync::snap-sync-make-heal-work
-             :storage account-b #(7 8) reference)
+             :storage account-a #(3 4) reference)
             (ethereum-lisp.snap-sync::snap-sync-make-heal-work
              :storage account-b #(9 10) reference)))
-         (path-sets
-           (ethereum-lisp.snap-sync::snap-sync-heal-request-path-sets
-            works 0 (length works))))
+         (path-sets nil)
+         (order nil))
+    (multiple-value-setq (path-sets order)
+      (ethereum-lisp.snap-sync::snap-sync-heal-request-path-sets
+       works 0 (length works)))
+    (is (equalp #(2 1 4 0 3) order))
     (is (= 3 (length path-sets)))
-    (is (= 3 (length (first path-sets))))
-    (is (bytes= account-a (first (first path-sets))))
-    (is
-     (bytes=
-      (ethereum-lisp.trie.encoding:hex-prefix-encode
-       #(1 2) :terminator nil)
-      (second (first path-sets))))
-    (is
-     (bytes=
-      (ethereum-lisp.trie.encoding:hex-prefix-encode
-       #(3 4) :terminator nil)
-      (third (first path-sets))))
-    (is (= 1 (length (second path-sets))))
+    (is (= 1 (length (first path-sets))))
     (is
      (bytes=
       (ethereum-lisp.trie.encoding:hex-prefix-encode
        #(5 6) :terminator nil)
-      (first (second path-sets))))
-    (is (= 3 (length (third path-sets))))
-    (is (bytes= account-b (first (third path-sets))))
-    ;; The second account group proves that grouping resumes after an account
-    ;; trie work item without changing the original response-node order.
+      (first (first path-sets))))
+    (is (= 3 (length (second path-sets))))
+    (is (bytes= account-b (first (second path-sets))))
     (is
      (bytes=
       (ethereum-lisp.trie.encoding:hex-prefix-encode
        #(9 10) :terminator nil)
+      (third (second path-sets))))
+    (is (= 3 (length (third path-sets))))
+    (is (bytes= account-a (first (third path-sets))))
+    ;; The two account-A paths were separated by unrelated work in the exact
+    ;; DFS frontier, proving grouping is global within the request slice.
+    (is
+     (bytes=
+      (ethereum-lisp.trie.encoding:hex-prefix-encode
+       #(3 4) :terminator nil)
       (third (third path-sets))))))
 
 (deftest snap-state-healer-fast-source-claims-before-slow-source-returns

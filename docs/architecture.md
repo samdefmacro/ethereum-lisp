@@ -204,10 +204,11 @@ them by their physical location instead reintroduces dependency cycles:
   before it can publish completion. Work sets above the 8,192-item checkpoint
   bound also fall back to that path. Each bounded TrieNodes frontier is split
   into approximately 512-path chunks, always below the pinned geth limit of
-  1,024 paths and with at least one initial chunk per source. Consecutive
-  storage paths for the same account share one wire path set, matching geth's
-  grouping and avoiding a repeated remote account-trie lookup per storage
-  node. This avoids the
+  1,024 paths and with at least one initial chunk per source. Each request slice
+  is sorted by account and compact path, then all storage paths for the same
+  account share one wire path set, matching geth's grouping and avoiding a
+  repeated remote account-trie lookup per storage node. A response-order index
+  maps partial replies back to the exact durable DFS continuation. This avoids the
   roughly 186-path requests observed with eleven live peers under fixed four-
   way over-partitioning. Every source retains at most one outstanding request,
   but a fast source immediately claims another disjoint tail chunk instead of
