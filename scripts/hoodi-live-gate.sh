@@ -107,7 +107,8 @@ if [ "$actual_head" != "$revision" ]; then
         "$revision" "$actual_head" -- . \
         ':(exclude)docs/**' \
         ':(exclude)scripts/hoodi-live-gate.sh' \
-        ':(exclude)scripts/hoodi-geth-benchmark-gate.sh')"
+        ':(exclude)scripts/hoodi-geth-benchmark-gate.sh' \
+        ':(exclude)scripts/hoodi-lisp-benchmark-gate.sh')"
     [ -z "$runtime_sensitive_changes" ] ||
         fail "checkout changed runtime-sensitive paths after $revision: $runtime_sensitive_changes"
 fi

@@ -524,6 +524,31 @@ HOODI_GETH_ALLOW_MUTATION=1 scripts/hoodi-geth-benchmark-gate.sh start
 HOODI_GETH_ALLOW_MUTATION=1 scripts/hoodi-geth-benchmark-gate.sh restore
 ```
 
+To measure a new ethereum-lisp revision from an empty datadir without
+discarding the current live gate's recovery point, use the matching same-host
+broker. It verifies the exact amd64 runtime revision and io_uring seccomp
+profile, stops only the exact owned live-gate source, and starts the candidate
+with the same Lighthouse alias, JWT, networks, public P2P port, and 50-peer
+limit. A failed cutover restarts the source. `restore` verifies both ownership
+chains before reversing the cutover, and neither action removes a container,
+image, or datadir:
+
+```sh
+HOODI_LISP_BENCH_RUNTIME_REVISION=0123456789abcdef0123456789abcdef01234567 \
+HOODI_LISP_BENCH_SOURCE_CONTAINER=hoodi-el-sec5-01234567 \
+scripts/hoodi-lisp-benchmark-gate.sh status
+
+HOODI_LISP_BENCH_ALLOW_MUTATION=1 \
+HOODI_LISP_BENCH_RUNTIME_REVISION=0123456789abcdef0123456789abcdef01234567 \
+HOODI_LISP_BENCH_SOURCE_CONTAINER=hoodi-el-sec5-01234567 \
+scripts/hoodi-lisp-benchmark-gate.sh start
+
+HOODI_LISP_BENCH_ALLOW_MUTATION=1 \
+HOODI_LISP_BENCH_RUNTIME_REVISION=0123456789abcdef0123456789abcdef01234567 \
+HOODI_LISP_BENCH_SOURCE_CONTAINER=hoodi-el-sec5-01234567 \
+scripts/hoodi-lisp-benchmark-gate.sh restore
+```
+
 The reviewed runtime image must also pass
 `cl-workbench validation run runtime-smoke IMAGE`: this delegates to the
 reviewed runtime smoke broker and checks non-root/read-only Hoodi startup,
