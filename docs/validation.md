@@ -218,11 +218,14 @@ authenticated reconstructed page for direct content-addressed persistence,
 reject altered compact proofs, batch complete small storage tries with each
 account cursor, prove that the range-only proven-absent insertion produces the
 same root as the ordinary checked insertion and rejects empty values,
-defer byte-capped large storage to resumable content-addressed healing, record
-those roots with each durable page, and atomically publish the complete plan
-only when the rebuilt account root equals the authorized state root. The
-byte-capped-storage regression proves that final TrieNodes requests are all
-storage-scoped and never rescan the account root. A changed-root rebase installs
+persist the authenticated prefix of byte-capped large storage, record those
+roots with each durable page, and atomically publish the complete plan only
+when the rebuilt account root equals the authorized state root. Sixteen
+restart-safe StorageRanges cursors then finish each large trie through
+512 KiB-capped pages. The byte-capped-storage regression proves that final
+healing validates the complete root locally with zero TrieNodes requests; a
+second regression interrupts StorageRanges after one page and proves a fresh
+source resumes the exact durable cursor. A changed-root rebase installs
 a non-empty, non-root range witness; legacy, rebased, or oversized plans retain
 the fail-closed full-root traversal. The tests also
 inject a failed database batch to prove progress never outruns verified account
@@ -293,9 +296,8 @@ snapshot immediately before the five-minute silence boundary and proves that
 productive local or peer progress keeps the exact frontier; only five full
 minutes without a later snapshot permits the stale yield. Removing the
 production predicate wiring makes the exact call-site test fail. The range
-tests prove that sixteen
-durable account ranges are fetched concurrently through three
-sources with geth's 2 MiB soft byte limit, completed ranges are not replayed
+tests prove that sixteen durable account ranges are fetched concurrently
+through three sources with geth's 2 MiB soft byte limit, completed ranges are not replayed
 after restart, and a failed source's claimed range is reassigned. A finite
 source generation may exhaust without stopping the node: the coordinator logs
 that typed availability result, refreshes live sessions on its next pass, and

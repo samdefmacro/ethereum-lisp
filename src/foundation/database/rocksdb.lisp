@@ -17,6 +17,18 @@
 (cffi:defcfun ("rocksdb_options_set_create_if_missing"
                %rocks-options-create-if-missing) :void
   (options :pointer) (enabled :uchar))
+(cffi:defcfun ("rocksdb_options_optimize_level_style_compaction"
+               %rocks-options-optimize-level-style-compaction) :void
+  (options :pointer) (memtable-memory-budget :uint64))
+(cffi:defcfun ("rocksdb_options_increase_parallelism"
+               %rocks-options-increase-parallelism) :void
+  (options :pointer) (total-threads :int))
+(cffi:defcfun ("rocksdb_options_set_level_compaction_dynamic_level_bytes"
+               %rocks-options-dynamic-level-bytes) :void
+  (options :pointer) (enabled :uchar))
+(cffi:defcfun ("rocksdb_options_set_bytes_per_sync"
+               %rocks-options-bytes-per-sync) :void
+  (options :pointer) (bytes :uint64))
 (cffi:defcfun ("rocksdb_readoptions_create" %rocks-read-options-create) :pointer)
 (cffi:defcfun ("rocksdb_readoptions_destroy" %rocks-read-options-destroy) :void
   (options :pointer))
@@ -85,6 +97,13 @@
 
 (defvar *rocksdb-library-loaded-p* nil)
 
+(defconstant +rocksdb-level-compaction-memory-budget+ (* 512 1024 1024)
+  "Total memtable budget used to reduce write amplification during bulk sync.")
+(defconstant +rocksdb-background-job-count+ 4
+  "Bounded flush/compaction parallelism for the supported public-node profile.")
+(defconstant +rocksdb-background-bytes-per-sync+ (* 1024 1024)
+  "Incremental background-file sync width; WAL cursor batches remain synced.")
+
 (defun rocksdb-available-p ()
   (or *rocksdb-library-loaded-p*
       (handler-case
@@ -125,6 +144,20 @@
         (read-options (%rocks-read-options-create))
         (write-options (%rocks-write-options-create)))
     (%rocks-options-create-if-missing options (if create-if-missing-p 1 0))
+    ;; Ethereum bootstrap is a sustained batched insert workload. RocksDB's
+    ;; default 64 MiB/one-memtable flush cadence produced roughly 8x physical
+    ;; writes on the Hoodi rotational-disk gate. Keep leveled compaction and
+    ;; every durability check, but use RocksDB's own bounded bulk-write preset:
+    ;; 128 MiB memtables, two-way flush merging, and a matching 512 MiB base
+    ;; level. Four background jobs fit the supported 8-vCPU/16-GiB node
+    ;; without the seek storm of one compaction worker per core.
+    (%rocks-options-optimize-level-style-compaction
+     options +rocksdb-level-compaction-memory-budget+)
+    (%rocks-options-increase-parallelism
+     options +rocksdb-background-job-count+)
+    (%rocks-options-dynamic-level-bytes options 1)
+    (%rocks-options-bytes-per-sync
+     options +rocksdb-background-bytes-per-sync+)
     (%rocks-write-options-sync write-options 1)
     (handler-case
         (let ((handle

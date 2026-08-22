@@ -7,9 +7,13 @@
 (defconstant +snap-sync-legacy-progress-version+ 2)
 (defparameter +snap-sync-progress-identifier+ "snap-state-import")
 (defconstant +snap-sync-request-bytes+ (* 2 1024 1024))
+(defconstant +snap-sync-storage-request-bytes+ (* 512 1024)
+  "Geth-aligned upper bound for responsive parallel StorageRanges pages.")
 (defconstant +snap-sync-pivot-probe-bytes+ (* 4 1024))
 (defconstant +snap-sync-storage-accounts-per-request+ 256)
 (defconstant +snap-sync-account-task-count+ 16)
+(defconstant +snap-sync-storage-task-count+ 16
+  "Maximum parallel ranges used to finish one byte-capped storage trie.")
 (defconstant +snap-sync-heal-paths-per-source+
   +snap-sync-trie-node-lookups-per-request+
   "Maximum healing paths assigned to one source in a concurrent round.")
@@ -45,6 +49,10 @@
   "Prefix for the trusted marker that says the deferred work set is complete.")
 (defparameter +snap-sync-deferred-storage-value+ #(1)
   "Versioned value shared by deferred storage work and plan markers.")
+(defparameter +snap-sync-storage-task-identifier-prefix+
+  (ascii-to-bytes "snap-storage-range-task-v1:")
+  "Prefix for restart-safe large-contract StorageRanges cursors.")
+(defconstant +snap-sync-storage-task-version+ 1)
 (defparameter +snap-sync-rebased-range-witness-domain+
   (ascii-to-bytes "snap-rebased-range-witness-v1:")
   "Domain for a non-root witness that permanently disables range-set plans.")
@@ -623,17 +631,39 @@ consensus-visible."
       (snap-sync-populate-verified-trie-records-batch
        database batch (mpt-dirty-node-records trie)))))
 
+(defun snap-sync-populate-partial-storage-group
+    (database batch storage-root slots proof)
+  "Verify one byte-capped storage prefix and retain every authenticated node.
+
+The range remains deferred because this response does not prove that the
+storage trie is complete.  Persisting its reconstructed interior and compact
+edge proof is nevertheless safe: every record is content-addressed and the
+range proof authenticates it against STORAGE-ROOT.  Final healing can then
+reuse this work instead of downloading the same prefix again."
+  (let ((entries (snap-sync-storage-entries slots)))
+    (when (null entries)
+      (error "Snap peer returned an empty byte-capped storage group"))
+    (multiple-value-bind (verified-p trie)
+        (mpt-verify-range-proof
+         storage-root entries proof :start (make-byte-vector 32))
+      (declare (ignore verified-p))
+      (unless trie
+        (error "Byte-capped snap storage group did not reconstruct its range"))
+      (snap-sync-populate-verified-trie-records-batch
+       database batch (snap-sync-verified-account-records trie proof)))))
+
 (defun snap-sync-fetch-storage-commitments
     (database source state-root commitments byte-limit)
   "Fetch non-empty storage tries in bounded snap/1 multi-account requests.
 
 Geth returns a prefix of the requested accounts.  All groups preceding a
 proof are complete tries and are persisted eagerly.  The final proved group
-was byte-capped and is deliberately deferred to the content-addressed TrieNodes
-healing phase.  Completing a large storage trie here can outlive a public
-peer's retained pivot and would force the otherwise verified account page to be
-retried from its durable cursor.  Healing reuses every node already on disk and
-must still reconstruct the exact authorized state root before completion."
+was byte-capped: its authenticated prefix is persisted too, while the remaining
+trie is deferred to the content-addressed TrieNodes healing phase.  Completing
+a large storage trie here can outlive a public peer's retained pivot and would
+force the otherwise verified account page to be retried from its durable
+cursor.  Healing reuses every node already on disk and must still reconstruct
+the exact authorized state root before completion."
   (let ((remaining commitments)
         (deferred '()))
     (loop while remaining
@@ -668,13 +698,21 @@ must still reconstruct the exact authorized state root before completion."
                        do (snap-sync-populate-complete-storage-group
                            database batch (cdr commitment) slots)
                           (setf populated-p t))
+                 (when proof
+                   (snap-sync-populate-partial-storage-group
+                    database batch
+                    (cdr (nth (1- received) requested))
+                    (nth (1- received) groups)
+                    proof)
+                   (setf populated-p t))
                  (when populated-p
                    (kv-apply-batch database batch)))
-                 ;; A proof marks the last returned group as byte-capped.  Do
-                 ;; not restart and fully paginate that potentially enormous
-                 ;; storage trie inside the account-page transaction.  Its
-                 ;; root remains in the verified account value and therefore
-                 ;; becomes mandatory work for SNAP-SYNC-HEAL-STATE.
+                 ;; A proof marks the last returned group as byte-capped.  Its
+                 ;; verified prefix is durable, but do not fully paginate that
+                 ;; potentially enormous storage trie inside the account-page
+                 ;; transaction. Its root remains in the verified account value
+                 ;; and therefore becomes mandatory work for
+                 ;; SNAP-SYNC-HEAL-STATE.
                  ;; Preserve that exact dependency with the verified account
                  ;; page.  Once every account range is durable, final healing
                  ;; can start from this bounded set instead of rediscovering it
@@ -814,6 +852,15 @@ must still reconstruct the exact authorized state root before completion."
   account-records
   codes
   deferred-storage
+  next-origin
+  completed-p)
+
+(defstruct (snap-sync-storage-page-result
+            (:constructor make-snap-sync-storage-page-result
+                (&key task-index origin records next-origin completed-p)))
+  task-index
+  origin
+  records
   next-origin
   completed-p)
 
@@ -973,6 +1020,82 @@ frontier also falls back safely instead of creating an uncheckpointable run."
         (when close-iterator
           (funcall close-iterator))))
     (values (and (not overflow-p) (nreverse works)) t overflow-p)))
+
+(defun snap-sync-storage-task-identifier
+    (state-root account-hash storage-root task-index)
+  (unless (and (integerp task-index)
+               (<= 0 task-index)
+               (< task-index +snap-sync-storage-task-count+))
+    (error "Snap storage range task index is out of bounds"))
+  (unless (and (byte-vector-p account-hash) (= 32 (length account-hash)))
+    (error "Snap storage range task requires a 32-byte account hash"))
+  (concatenate
+   'vector +snap-sync-storage-task-identifier-prefix+
+   (hash32-bytes state-root) account-hash (hash32-bytes storage-root)
+   (vector task-index)))
+
+(defun snap-sync-storage-task-record (task)
+  (rlp-encode
+   (make-rlp-list
+    +snap-sync-storage-task-version+
+    (snap-sync-account-task-object task))))
+
+(defun snap-sync-storage-task-from-record (record)
+  (handler-case
+      (destructuring-bind (version task)
+          (snap-sync-rlp-list
+           (rlp-decode-one
+            record :max-depth 2 :max-list-items 4 :max-total-items 8
+            :max-string-bytes 256)
+           2 "Snap storage range task")
+        (unless (= +snap-sync-storage-task-version+
+                   (snap-sync-rlp-uint
+                    version "Snap storage range task version"))
+          (error "Unsupported snap storage range task version"))
+        (snap-sync-account-task-from-object task))
+    (rlp-error (condition)
+      (error "Invalid snap storage range task RLP: ~A" condition))))
+
+(defun snap-sync-populate-storage-task-batch
+    (batch state-root account-hash storage-root task-index task)
+  (kv-batch-put-chain-record
+   batch :metadata
+   (snap-sync-storage-task-identifier
+    state-root account-hash storage-root task-index)
+   (snap-sync-storage-task-record task))
+  batch)
+
+(defun snap-sync-load-or-create-storage-tasks
+    (database state-root account-hash storage-root)
+  "Load all sixteen durable cursors, or atomically initialize a fresh set."
+  (let* ((identifiers
+           (coerce
+            (loop for index below +snap-sync-storage-task-count+
+                  collect
+                  (snap-sync-storage-task-identifier
+                   state-root account-hash storage-root index))
+            'vector)))
+    (multiple-value-bind (records present)
+        (kv-get-chain-records database :metadata identifiers)
+      (let ((present-count (count 1 present)))
+        (cond
+          ((zerop present-count)
+           (let ((tasks
+                   (snap-sync-make-account-tasks
+                    :count +snap-sync-storage-task-count+))
+                 (batch (make-kv-write-batch)))
+             (loop for task in tasks
+                   for index from 0
+                   do (snap-sync-populate-storage-task-batch
+                       batch state-root account-hash storage-root index task))
+             (kv-apply-batch database batch)
+             tasks))
+          ((/= present-count +snap-sync-storage-task-count+)
+           (ethereum-lisp.validation:storage-fail
+            "Persisted snap storage range task set is incomplete"))
+          (t
+           (loop for record across records
+                 collect (snap-sync-storage-task-from-record record))))))))
 
 (defun snap-sync-prepare-account-page
     (database source state-root task-index task byte-limit)
@@ -1952,6 +2075,226 @@ than cache misses."
    +snap-sync-healed-subtree-value+)
   batch)
 
+(defun snap-sync-prepare-storage-page
+    (source state-root account-hash storage-root task-index task byte-limit)
+  "Fetch and authenticate one page of a partitioned large storage trie."
+  (let* ((origin (snap-sync-account-task-next-origin task))
+         (limit (snap-sync-account-task-limit task))
+         (request
+           (make-snap-get-storage-ranges
+            1 (hash32-bytes state-root) (list (copy-seq account-hash))
+            origin limit byte-limit))
+         (response
+           (snap-sync-source-call
+            (snap-sync-source-storage-ranges source)
+            request "storage ranges"))
+         (groups (snap-storage-ranges-slots response))
+         (proof (snap-storage-ranges-proof response)))
+    (unless (= 1 (snap-storage-ranges-id response))
+      (error "Snap storage response id mismatch"))
+    ;; Some snap/1 servers encode an empty proved range as no slot groups,
+    ;; while others return one empty group. Both representations are
+    ;; unambiguous because large-trie tasks request exactly one account.
+    (when (> (length groups) 1)
+      (error "Snap peer returned multiple groups for one storage range task"))
+    (when (and (null groups) (null proof))
+      (snap-sync-state-unavailable "storage-range"))
+    (let* ((entries
+             (snap-sync-storage-entries (if groups (first groups) '())))
+           (last-wire (and entries (caar (last entries)))))
+      (multiple-value-bind (verified-p trie)
+          (if entries
+              (mpt-verify-range-proof
+               storage-root entries proof :start origin)
+              (mpt-verify-range-proof
+               storage-root entries proof :start origin
+               :end (snap-sync-increment-hash limit)))
+        (declare (ignore verified-p))
+        (let* ((completed-p
+                 (or (null entries)
+                     (null proof)
+                     (not
+                      (ethereum-lisp.validation:byte-vector-lexicographic<
+                       last-wire limit))))
+               (next-origin
+                 (and (not completed-p) last-wire
+                      (snap-sync-increment-hash last-wire))))
+          (when (and (not completed-p) (null next-origin))
+            (error "Snap storage range page did not advance its task"))
+          (make-snap-sync-storage-page-result
+           :task-index task-index :origin (copy-seq origin)
+           :records (snap-sync-verified-account-records trie proof)
+           :next-origin next-origin :completed-p completed-p))))))
+
+(defun snap-sync-commit-storage-page
+    (database state-root account-hash storage-root tasks result)
+  "Atomically install one authenticated storage page and its durable cursor."
+  (let* ((task-index (snap-sync-storage-page-result-task-index result))
+         (task (nth task-index tasks)))
+    (unless task
+      (error "Snap storage result names an unknown task"))
+    (unless (and (not (snap-sync-account-task-completed-p task))
+                 (bytes= (snap-sync-account-task-next-origin task)
+                         (snap-sync-storage-page-result-origin result)))
+      (error "Snap storage result no longer matches its durable task cursor"))
+    (let* ((replacement
+             (snap-sync-account-task
+              :start (snap-sync-account-task-start task)
+              :limit (snap-sync-account-task-limit task)
+              :next-origin
+              (snap-sync-storage-page-result-next-origin result)
+              :completed-p
+              (snap-sync-storage-page-result-completed-p result)))
+           (next (snap-sync-replace-task tasks task-index replacement))
+           (batch (make-kv-write-batch)))
+      (snap-sync-populate-verified-trie-records-batch
+       database batch (snap-sync-storage-page-result-records result))
+      (snap-sync-populate-storage-task-batch
+       batch state-root account-hash storage-root task-index replacement)
+      (kv-apply-batch database batch)
+      next)))
+
+(defun snap-sync-storage-source-snapshot (sources source-provider failed)
+  (let ((fresh (if source-provider (funcall source-provider) '())))
+    (unless (listp fresh)
+      (error "Snap storage range source provider must return a list"))
+    (let ((combined
+            (remove-duplicates (append sources fresh) :test #'eq)))
+      (dolist (source combined)
+        (unless (snap-sync-source-complete-p source)
+          (error "Snap storage range source is incomplete")))
+      (remove-if (lambda (source) (member source failed :test #'eq))
+                 combined))))
+
+(defun snap-sync-storage-wave-assignments (tasks sources)
+  (loop for task in tasks
+        for task-index from 0
+        unless (snap-sync-account-task-completed-p task)
+          collect (list task-index task)
+            into pending
+        finally
+           (return
+             (loop for source in sources
+                   for (task-index task) in pending
+                   collect (list source task-index task)))))
+
+#+sbcl
+(defun snap-sync-run-storage-wave
+    (source-tasks state-root account-hash storage-root byte-limit)
+  "Fetch one page per source concurrently; callers serialize all commits."
+  (let* ((count (length source-tasks))
+         (outcomes (make-array count))
+         (threads '()))
+    (loop for (source task-index task) in source-tasks
+          for slot from 0
+          do (let ((worker-source source)
+                   (worker-index task-index)
+                   (worker-task task)
+                   (worker-slot slot))
+               (push
+                (sb-thread:make-thread
+                 (lambda ()
+                   (setf (aref outcomes worker-slot)
+                         (handler-case
+                             (list
+                              worker-source worker-index
+                              (snap-sync-prepare-storage-page
+                               worker-source state-root account-hash storage-root
+                               worker-index worker-task byte-limit)
+                              nil)
+                           (serious-condition (condition)
+                             (list worker-source worker-index nil condition)))))
+                 :name "snap-sync-storage-worker")
+                threads)))
+    (dolist (thread threads)
+      (sb-thread:join-thread thread))
+    (coerce outcomes 'list)))
+
+#-sbcl
+(defun snap-sync-run-storage-wave
+    (source-tasks state-root account-hash storage-root byte-limit)
+  (loop for (source task-index task) in source-tasks
+        collect
+        (handler-case
+            (list source task-index
+                  (snap-sync-prepare-storage-page
+                   source state-root account-hash storage-root
+                   task-index task byte-limit)
+                  nil)
+          (serious-condition (condition)
+            (list source task-index nil condition)))))
+
+(defun snap-sync-fill-storage-root
+    (database sources state-root account-hash storage-root byte-limit
+     &key source-provider on-source-error heal-yield-p)
+  "Fill one large storage trie through restart-safe sixteen-way range waves.
+
+This is an optimization, not the trust boundary: completed range cursors stay
+durable and the deferred root remains queued for a final full local traversal.
+If all StorageRanges sources disappear, the caller may safely fall back to
+TrieNodes healing with every authenticated page already retained."
+  (let ((tasks
+          (snap-sync-load-or-create-storage-tasks
+           database state-root account-hash storage-root))
+        (live (remove-duplicates (copy-list sources) :test #'eq))
+        (failed '()))
+    (loop
+      (when (every #'snap-sync-account-task-completed-p tasks)
+        (return t))
+      (setf live
+            (snap-sync-storage-source-snapshot live source-provider failed))
+      (let ((assignments (snap-sync-storage-wave-assignments tasks live)))
+        (unless assignments
+          (return nil))
+        (let ((progress-p nil))
+          (dolist (outcome
+                   (snap-sync-run-storage-wave
+                    assignments state-root account-hash storage-root
+                    byte-limit))
+            (destructuring-bind (source task-index result condition) outcome
+              (declare (ignore task-index))
+              (cond
+                (condition
+                 (when (typep condition
+                              'ethereum-lisp.validation:storage-error)
+                   (error condition))
+                 (pushnew source failed :test #'eq)
+                 (setf live (delete source live :test #'eq))
+                 (when on-source-error
+                   (funcall on-source-error source condition)))
+                (t
+                 (setf tasks
+                       (snap-sync-commit-storage-page
+                        database state-root account-hash storage-root
+                        tasks result)
+                       progress-p t)))))
+          (when (and progress-p heal-yield-p (funcall heal-yield-p))
+            (error 'snap-sync-heal-yielded))
+          (unless (or progress-p
+                      (snap-sync-storage-source-snapshot
+                       live source-provider failed))
+            (return nil)))))))
+
+(defun snap-sync-fill-deferred-storage
+    (database sources progress byte-limit
+     &key source-provider on-source-error heal-yield-p)
+  "Best-effort Geth-style StorageRanges stage before final TrieNodes healing."
+  (multiple-value-bind (works trusted-plan-p overflow-p)
+      (snap-sync-deferred-storage-works
+       database (snap-sync-progress-state-root progress))
+    (unless (and trusted-plan-p (not overflow-p))
+      (return-from snap-sync-fill-deferred-storage nil))
+    (dolist (work works t)
+      (unless
+          (snap-sync-fill-storage-root
+           database sources (snap-sync-progress-state-root progress)
+           (snap-sync-heal-work-account-hash work)
+           (make-hash32 (snap-sync-heal-work-reference work)) byte-limit
+           :source-provider source-provider
+           :on-source-error on-source-error
+           :heal-yield-p heal-yield-p)
+        (return nil)))))
+
 (defun snap-sync-healed-subtree-candidate-p (work)
   "Select bounded trie subtrees whose content proof survives pivot changes."
   (unless (and (integerp *snap-sync-healed-subtree-prefix-nibbles*)
@@ -2655,6 +2998,23 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
        request-count response-bytes t)
       completed)))))
 
+(defun snap-sync-fill-storage-then-heal
+    (database sources progress byte-limit
+     &key source-provider on-source-error on-heal-progress heal-yield-p)
+  "Run range-efficient large-storage retrieval, then prove the complete state."
+  (snap-sync-fill-deferred-storage
+   database sources progress
+   (min byte-limit +snap-sync-storage-request-bytes+)
+   :source-provider source-provider
+   :on-source-error on-source-error
+   :heal-yield-p heal-yield-p)
+  (snap-sync-heal-state
+   database sources progress byte-limit
+   :source-provider source-provider
+   :on-source-error on-source-error
+   :heal-yield-p heal-yield-p
+   :on-heal-progress on-heal-progress))
+
 (defun snap-sync-import-state
     (database source
      &key pivot-hash pivot-number state-root chain-id genesis-hash authority-id
@@ -2687,7 +3047,7 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
     (when (snap-sync-tasks-completed-p
            (snap-sync-progress-tasks progress))
       (return-from snap-sync-import-state
-        (snap-sync-heal-state
+        (snap-sync-fill-storage-then-heal
          database (list source) progress byte-limit
          :source-provider heal-source-provider
          :heal-yield-p heal-yield-p
@@ -2711,7 +3071,7 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
         (when (snap-sync-tasks-completed-p
                (snap-sync-progress-tasks progress))
           (return
-            (snap-sync-heal-state
+            (snap-sync-fill-storage-then-heal
              database (list source) progress byte-limit
              :source-provider heal-source-provider
              :heal-yield-p heal-yield-p
@@ -2908,7 +3268,7 @@ twice in one import. HEAL-YIELD-P is forwarded only to final healing."
     (when (snap-sync-tasks-completed-p
            (snap-sync-progress-tasks progress))
       (return-from snap-sync-import-state-multi
-        (snap-sync-heal-state
+        (snap-sync-fill-storage-then-heal
          database sources progress byte-limit
          :source-provider heal-source-provider
          :heal-yield-p heal-yield-p
@@ -2975,7 +3335,7 @@ twice in one import. HEAL-YIELD-P is forwarded only to final healing."
                   (return (snap-sync-multi-runtime-progress runtime)))
                  (:heal
                   (return
-                    (snap-sync-heal-state
+                    (snap-sync-fill-storage-then-heal
                      database sources
                      (snap-sync-multi-runtime-progress runtime)
                      byte-limit :source-provider heal-source-provider

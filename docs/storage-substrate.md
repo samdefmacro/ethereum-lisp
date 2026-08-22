@@ -54,6 +54,14 @@ ownership. Iterators close themselves on exhaustion, and callers that stop at a
 chunk boundary close them explicitly so a long migration or backup never pins
 one native cursor per batch.
 
+The supported 8-vCPU/16-GiB public-node profile applies RocksDB's leveled bulk
+write preset with a 512 MiB memtable budget, two-way memtable flush merging, a
+matching base level, dynamic level sizing, four bounded background jobs, and
+1 MiB incremental background-file syncs. WAL remains enabled and each logical
+cursor batch remains synchronous. This trades less than 768 MiB of worst-case
+memtable residency for lower compaction write amplification; it does not relax
+the atomic durability contract above.
+
 One process owns one writable database directory. Concurrent read handles are
 allowed only after tests establish their lifecycle; the initial adapter uses one
 shared handle. Column families are deferred until measured schema pressure

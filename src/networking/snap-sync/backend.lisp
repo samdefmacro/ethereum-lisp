@@ -197,7 +197,11 @@ proof verification (pinned commit 3827178, snap handlers.go and sync.go)."
             (push (nreverse slots) slot-groups)
             ;; A proof terminates a storage response: it means this account
             ;; began at a non-zero origin or the byte budget cut its trie short.
-            (when (or origin truncated-p)
+            ;; Either bound makes this a partial trie range.  In particular a
+            ;; zero-origin request with a non-empty limit still needs an edge
+            ;; proof; without it a receiver could only validate the response
+            ;; as a (false) proofless complete trie.
+            (when (or origin limit truncated-p)
               (setf proofs
                     (snap-sync-unique-nodes
                      (mpt-get-proof trie (or origin (make-byte-vector 32)))

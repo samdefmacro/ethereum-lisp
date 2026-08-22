@@ -160,18 +160,26 @@ them by their physical location instead reintroduces dependency cycles:
   batch, and persisted by content hash in the cursor transaction. This matches
   geth's hash-scheme range ingestion and removes the former second global MPT
   rebuild and its per-node RocksDB point reads. Ordinary state transitions
-  retain checked `mpt-put`. Byte-capped large storage is recorded beside that
-  page in a
-  state-root-scoped durable work set. Independently reconstructing every page
-  against the same authorized root maintains a root-valued range-set witness;
+  retain checked `mpt-put`. The authenticated prefix of byte-capped large
+  storage is persisted immediately and its root is recorded beside that page
+  in a state-root-scoped durable work set. Independently reconstructing every
+  page against the same authorized root maintains a root-valued range-set witness;
   when the final cursor commits, that witness permits the batch to publish a
   versioned plan marker proving the work set is complete. A state-root rebase
   replaces it with a domain-separated non-root witness, permanently preventing
   a mixed-root range set from publishing the plan. Final healing then starts
   directly from those storage roots instead of rereading the already verified
   account trie. An old or rebased partial import has no marker and safely
-  retains the full-root traversal. Work sets
-  above the 8,192-item checkpoint bound also fall back to that path. Each round
+  retains the full-root traversal. Before final healing, every planned large
+  storage root is split into sixteen inclusive hash ranges matching current
+  geth. One 512 KiB-capped page per live source is verified concurrently; the
+  coordinator atomically commits its content-addressed nodes and versioned
+  per-range successor cursor. A restart resumes those exact cursors. Source
+  exhaustion merely falls back to TrieNodes healing with all verified range
+  pages retained. Completed ranges deliberately remain on the deferred
+  frontier so final healing traverses the full storage root locally before it
+  can publish completion. Work sets above the 8,192-item checkpoint bound also
+  fall back to that path. Each round
   partitions its missing paths across the current snap
   sources, with at most one outstanding TrieNodes request and 1,024 paths per
   source. The total round width scales with the source count up to the durable
