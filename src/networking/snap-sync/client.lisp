@@ -23,6 +23,8 @@ fill the response without repeatedly retransmitting a page's entire remaining
 hash set after the peer reaches its soft byte cap.")
 (defconstant +snap-sync-code-batch-workers+ 4
   "Maximum geth-sized ByteCodes batches advanced for one account page.")
+(defconstant +snap-sync-dependency-workers+ 32
+  "Global account-page dependency jobs advanced independently of range peers.")
 (defconstant +snap-sync-legacy-account-task-count+ 16
   "Account partition count written by progress versions before oversubscription.")
 (defconstant +snap-sync-previous-account-task-count+ 32
@@ -31,16 +33,15 @@ hash set after the peer reaches its soft byte cap.")
   "Account partitions used by a fresh import.
 
 The session remains the only RLPx writer. It may pipeline one request per snap
-response type, while range-proof verification and RocksDB writes happen on the
-workers after their response is routed. Sixty-four logical partitions keep a
-three-stage per-source pipeline and newly admitted peers busy without changing
-the durable page bound.")
-(defconstant +snap-sync-range-workers-per-source+ 3
-  "Maximum account workers sharing one source's typed request pipeline.
+response type, while range-proof verification and RocksDB writes happen on
+workers after their response is routed. Sixty-four logical partitions bound the
+global dependency backlog and keep newly admitted account peers busy without
+changing the durable page bound.")
+(defconstant +snap-sync-range-workers-per-source+ 1
+  "One AccountRange dispatcher per source, matching geth's idle-peer model.
 
-Three workers prevent the AccountRange slot from going idle while one page owns
-StorageRanges and a sibling page is queued behind that typed request. Each
-worker still retains at most one verified, uncommitted page.")
+Verified pages move to the global dependency queue immediately, so the account
+dispatcher can claim another partition without waiting for storage or code.")
 (defconstant +snap-sync-storage-task-count+ 16
   "Maximum parallel ranges used to finish one byte-capped storage trie.")
 (defconstant +snap-sync-heal-paths-per-source+
@@ -1020,7 +1021,8 @@ fixed peer whose single ByteCodes slot would only serialize those calls."
 
 #+sbcl
 (defun snap-sync-fetch-page-dependencies
-    (database source state-root storage-commitments code-hashes byte-limit)
+    (database source state-root storage-commitments code-hashes byte-limit
+     &key code-fetch-function)
   "Fetch one page's storage and bytecode dependencies concurrently.
 
 The source transport already owns independent typed SNAP request slots. Running
@@ -1041,8 +1043,10 @@ publishes the account cursor."
         (let ((started-at (get-internal-real-time)))
           (handler-case
               (setf code-result
-                    (snap-sync-fetch-page-codes
-                     database source code-hashes byte-limit))
+                    (if code-fetch-function
+                        (funcall code-fetch-function)
+                        (snap-sync-fetch-page-codes
+                         database source code-hashes byte-limit)))
             (serious-condition (condition)
               (setf code-condition condition)))
           (setf code-ms
@@ -1067,7 +1071,8 @@ publishes the account cursor."
 
 #-sbcl
 (defun snap-sync-fetch-page-dependencies
-    (database source state-root storage-commitments code-hashes byte-limit)
+    (database source state-root storage-commitments code-hashes byte-limit
+     &key code-fetch-function)
   "Portable sequential fallback for page dependencies."
   (let* ((storage-started-at (get-internal-real-time))
          (storage-result
@@ -1079,8 +1084,10 @@ publishes the account cursor."
             storage-started-at (get-internal-real-time)))
          (code-started-at (get-internal-real-time))
          (code-result
-           (snap-sync-fetch-page-codes
-            database source code-hashes byte-limit))
+           (if code-fetch-function
+               (funcall code-fetch-function)
+               (snap-sync-fetch-page-codes
+                database source code-hashes byte-limit)))
          (code-ms
            (snap-sync-elapsed-milliseconds
             code-started-at (get-internal-real-time))))
@@ -1255,6 +1262,26 @@ publishes the account cursor."
   next-origin
   completed-p
   profile)
+
+(defstruct (snap-sync-account-page-work
+            (:constructor make-snap-sync-account-page-work
+                (&key task-index origin account-records storage-commitments
+                      code-hashes candidates account-count next-origin
+                      completed-p started-at account-response-at
+                      proof-finished-at)))
+  "Verified account range waiting for globally scheduled dependencies."
+  task-index
+  origin
+  account-records
+  storage-commitments
+  code-hashes
+  candidates
+  account-count
+  next-origin
+  completed-p
+  started-at
+  account-response-at
+  proof-finished-at)
 
 (defstruct (snap-sync-storage-page-result
             (:constructor make-snap-sync-storage-page-result
@@ -1550,9 +1577,9 @@ again."
           (snap-sync-page-result-dependency-subtrees result) '())
     result))
 
-(defun snap-sync-prepare-account-page
-    (database source state-root task-index task byte-limit)
-  "Fetch and verify one page without advancing authoritative progress."
+(defun snap-sync-prepare-account-page-range
+    (source state-root task-index task byte-limit)
+  "Fetch and verify one account range, without waiting for its dependencies."
   (let* ((started-at (get-internal-real-time))
          (origin (snap-sync-account-task-next-origin task))
          (limit (snap-sync-account-task-limit task))
@@ -1604,63 +1631,99 @@ again."
            (code-hashes (snap-sync-page-code-hashes entries)))
       (when (and (not complete-p) (null next-origin))
         (error "Snap account page did not advance its assigned task"))
-      (multiple-value-bind (deferred-storage codes storage-ms code-ms)
-          (snap-sync-fetch-page-dependencies
-           database source state-root storage-commitments code-hashes
-           byte-limit)
-        (let* ((dependencies-finished-at (get-internal-real-time))
-               (proved-end (if complete-p limit last-entry))
-               (candidates
-                 (if (and account-trie proved-end)
-                     (mpt-proved-range-subtrees
-                      account-trie origin proved-end
-                      *snap-sync-range-subtree-prefix-nibbles*)
-                     '())))
-          (multiple-value-bind (safe-subtrees dependency-subtrees)
-              (snap-sync-classify-account-range-subtrees
-               candidates deferred-storage)
-            (let* ((metadata-finished-at (get-internal-real-time))
-                   (profile
-                     (make-snap-sync-page-profile
-                      :account-count (length entries)
-                      :storage-account-count (length storage-commitments)
-                      :code-count (length codes)
-                      :account-request-ms
-                      (snap-sync-elapsed-milliseconds
-                       started-at account-response-at)
-                      :proof-ms
-                      (snap-sync-elapsed-milliseconds
-                       account-response-at proof-finished-at)
-                      :storage-ms storage-ms
-                      :code-ms code-ms
-                      :metadata-ms
-                      (snap-sync-elapsed-milliseconds
-                       dependencies-finished-at metadata-finished-at)))
-                   (result
-                     (make-snap-sync-page-result
-                      :task-index task-index
-                      :origin (copy-seq origin)
-                      :account-records account-records
-                      :codes codes
-                      :deferred-storage deferred-storage
-                      :healed-subtrees safe-subtrees
-                      ;; Keep the exact storage gaps beside the authenticated
-                      ;; subtree hash so a later pivot can skip the account walk
-                      ;; without skipping external dependencies.
-                      :dependency-subtrees dependency-subtrees
-                      :next-origin next-origin
-                      :completed-p complete-p
-                      :profile profile)))
-              (snap-sync-buffer-account-page-content
-               database state-root result)
-              (let ((finished-at (get-internal-real-time)))
-                (setf
-                 (snap-sync-page-profile-buffer-ms profile)
-                 (snap-sync-elapsed-milliseconds
-                  metadata-finished-at finished-at)
-                 (snap-sync-page-profile-total-ms profile)
-                 (snap-sync-elapsed-milliseconds started-at finished-at)))
-              result))))))))
+      (let* ((proved-end (if complete-p limit last-entry))
+             (candidates
+               (if (and account-trie proved-end)
+                   (mpt-proved-range-subtrees
+                    account-trie origin proved-end
+                    *snap-sync-range-subtree-prefix-nibbles*)
+                   '())))
+        (make-snap-sync-account-page-work
+         :task-index task-index
+         :origin (copy-seq origin)
+         :account-records account-records
+         :storage-commitments storage-commitments
+         :code-hashes code-hashes
+         :candidates candidates
+         :account-count (length entries)
+         :next-origin next-origin
+         :completed-p complete-p
+         :started-at started-at
+         :account-response-at account-response-at
+         :proof-finished-at proof-finished-at))))))
+
+(defun snap-sync-complete-account-page
+    (database source state-root work byte-limit &key code-fetch-function)
+  "Resolve WORK's storage/code globally, then buffer its verified content."
+  (multiple-value-bind (deferred-storage codes storage-ms code-ms)
+      (snap-sync-fetch-page-dependencies
+       database source state-root
+       (snap-sync-account-page-work-storage-commitments work)
+       (snap-sync-account-page-work-code-hashes work)
+       byte-limit :code-fetch-function code-fetch-function)
+    (let ((dependencies-finished-at (get-internal-real-time)))
+      (multiple-value-bind (safe-subtrees dependency-subtrees)
+          (snap-sync-classify-account-range-subtrees
+           (snap-sync-account-page-work-candidates work) deferred-storage)
+        (let* ((metadata-finished-at (get-internal-real-time))
+               (started-at (snap-sync-account-page-work-started-at work))
+               (profile
+                 (make-snap-sync-page-profile
+                  :account-count
+                  (snap-sync-account-page-work-account-count work)
+                  :storage-account-count
+                  (length
+                   (snap-sync-account-page-work-storage-commitments work))
+                  :code-count
+                  (length (snap-sync-account-page-work-code-hashes work))
+                  :account-request-ms
+                  (snap-sync-elapsed-milliseconds
+                   started-at
+                   (snap-sync-account-page-work-account-response-at work))
+                  :proof-ms
+                  (snap-sync-elapsed-milliseconds
+                   (snap-sync-account-page-work-account-response-at work)
+                   (snap-sync-account-page-work-proof-finished-at work))
+                  :storage-ms storage-ms
+                  :code-ms code-ms
+                  :metadata-ms
+                  (snap-sync-elapsed-milliseconds
+                   dependencies-finished-at metadata-finished-at)))
+               (result
+                 (make-snap-sync-page-result
+                  :task-index (snap-sync-account-page-work-task-index work)
+                  :origin (snap-sync-account-page-work-origin work)
+                  :account-records
+                  (snap-sync-account-page-work-account-records work)
+                  :codes codes
+                  :deferred-storage deferred-storage
+                  :healed-subtrees safe-subtrees
+                  ;; Keep the exact storage gaps beside the authenticated
+                  ;; subtree hash so a later pivot can skip the account walk
+                  ;; without skipping external dependencies.
+                  :dependency-subtrees dependency-subtrees
+                  :next-origin (snap-sync-account-page-work-next-origin work)
+                  :completed-p
+                  (snap-sync-account-page-work-completed-p work)
+                  :profile profile)))
+          (snap-sync-buffer-account-page-content database state-root result)
+          (let ((finished-at (get-internal-real-time)))
+            (setf
+             (snap-sync-page-profile-buffer-ms profile)
+             (snap-sync-elapsed-milliseconds
+              metadata-finished-at finished-at)
+             (snap-sync-page-profile-total-ms profile)
+             (snap-sync-elapsed-milliseconds started-at finished-at)))
+          result)))))
+
+(defun snap-sync-prepare-account-page
+    (database source state-root task-index task byte-limit)
+  "Fetch, verify, and complete one page without advancing durable progress."
+  (snap-sync-complete-account-page
+   database source state-root
+   (snap-sync-prepare-account-page-range
+    source state-root task-index task byte-limit)
+   byte-limit))
 
 (defun snap-sync-replace-task (tasks index replacement)
   (loop for task in tasks
@@ -4415,6 +4478,8 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
   progress
   (claims (make-hash-table))
   (failed-sources (make-hash-table :test #'eq))
+  (code-inflight (make-hash-table :test #'equalp))
+  (dependency-jobs '())
   (events '())
   source-count
   max-pages
@@ -4479,15 +4544,34 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
     (snap-sync-multi-notify runtime)))
 
 #+sbcl
-(defun snap-sync-multi-wait-for-commit (runtime task-index source)
+(defun snap-sync-multi-push-dependency (runtime event)
+  "Move one verified account range to the independent dependency scheduler."
   (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
-    (loop while (and (not (snap-sync-multi-runtime-stopped-p runtime))
-                     (eq source
-                         (gethash task-index
-                                  (snap-sync-multi-runtime-claims runtime))))
-          do (sb-thread:condition-wait
-              (snap-sync-multi-runtime-changed runtime)
-              (snap-sync-multi-runtime-lock runtime)))))
+    (setf (snap-sync-multi-runtime-dependency-jobs runtime)
+          (nconc
+           (snap-sync-multi-runtime-dependency-jobs runtime) (list event)))
+    (snap-sync-multi-notify runtime)))
+
+#+sbcl
+(defun snap-sync-multi-claim-dependency (runtime)
+  (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
+    (loop
+      (when (snap-sync-multi-runtime-stopped-p runtime)
+        (return nil))
+      (when (snap-sync-multi-runtime-dependency-jobs runtime)
+        (return (pop (snap-sync-multi-runtime-dependency-jobs runtime))))
+      (sb-thread:condition-wait
+       (snap-sync-multi-runtime-changed runtime)
+       (snap-sync-multi-runtime-lock runtime)))))
+
+#+sbcl
+(defun snap-sync-multi-mark-source-failed (runtime source)
+  "Mark SOURCE once and return whether its failure should be reported."
+  (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
+    (unless (gethash source (snap-sync-multi-runtime-failed-sources runtime))
+      (setf (gethash source (snap-sync-multi-runtime-failed-sources runtime)) t)
+      (snap-sync-multi-notify runtime)
+      t)))
 
 #+sbcl
 (defun snap-sync-multi-worker
@@ -4498,32 +4582,17 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
              (snap-sync-multi-claim-task runtime source)
            (unless task (return))
            (handler-case
-               (let ((result
-                       (snap-sync-prepare-account-page
-                        database source state-root task-index task byte-limit)))
-                 (snap-sync-multi-push-event
+               (let ((work
+                       (snap-sync-prepare-account-page-range
+                        source state-root task-index task byte-limit)))
+                 (snap-sync-multi-push-dependency
                   runtime
                   (make-snap-sync-multi-event
-                   :kind :result :source source :task-index task-index
-                   :result result))
-                 ;; Each worker has at most one verified but uncommitted page.
-                 ;; The fixed per-source bound keeps resident data small while
-                 ;; overlapping account I/O with verification, persistence,
-                 ;; and a queued storage-heavy sibling page.
-                 (snap-sync-multi-wait-for-commit
-                  runtime task-index source))
+                   :kind :dependency :source source :task-index task-index
+                   :result work)))
              (serious-condition (condition)
-               (let ((report-p nil))
-                 (sb-thread:with-mutex
-                     ((snap-sync-multi-runtime-lock runtime))
-                   (unless (gethash
-                            source
-                            (snap-sync-multi-runtime-failed-sources runtime))
-                     (setf (gethash
-                            source
-                            (snap-sync-multi-runtime-failed-sources runtime))
-                           t
-                           report-p t)))
+               (let ((report-p
+                       (snap-sync-multi-mark-source-failed runtime source)))
                  (snap-sync-multi-push-event
                   runtime
                   (make-snap-sync-multi-event
@@ -4533,6 +4602,83 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
     (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
       (decf (snap-sync-multi-runtime-source-count runtime))
       (snap-sync-multi-notify runtime))))
+
+#+sbcl
+(defun snap-sync-multi-fetch-page-codes
+    (runtime database source code-hashes byte-limit)
+  "Fetch each missing CODE-HASH once across every pending account page.
+
+Claimed code is hash-verified and buffered before its flight is published as
+complete. A later synchronous account cursor therefore flushes that earlier
+WAL prefix before it can make a dependent page durable. Waiters recheck RocksDB
+after each wake and take over hashes whose owner failed."
+  (loop
+    (let ((missing
+            (snap-sync-heal-missing-code-hashes database code-hashes)))
+      (unless missing (return '()))
+      (let ((owned '()))
+        (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
+          (when (snap-sync-multi-runtime-stopped-p runtime)
+            (return-from snap-sync-multi-fetch-page-codes '()))
+          (dolist (hash missing)
+            (unless (gethash hash
+                             (snap-sync-multi-runtime-code-inflight runtime))
+              (setf (gethash
+                     hash (snap-sync-multi-runtime-code-inflight runtime))
+                    t)
+              (push hash owned)))
+          (unless owned
+            (sb-thread:condition-wait
+             (snap-sync-multi-runtime-changed runtime)
+             (snap-sync-multi-runtime-lock runtime))))
+        (when owned
+          (setf owned (nreverse owned))
+          (unwind-protect
+               (let ((codes
+                       (snap-sync-fetch-codes
+                        source owned byte-limit :parallel-p t)))
+                 (when codes
+                   (let ((batch (make-kv-write-batch)))
+                     (snap-sync-populate-code-batch database batch codes)
+                     (kv-apply-batch-buffered database batch))))
+            (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
+              (dolist (hash owned)
+                (remhash hash
+                         (snap-sync-multi-runtime-code-inflight runtime)))
+              (snap-sync-multi-notify runtime))))))))
+
+#+sbcl
+(defun snap-sync-multi-dependency-worker
+    (runtime database state-root byte-limit)
+  "Complete globally queued storage/code work without occupying range peers."
+  (loop
+    (let ((job (snap-sync-multi-claim-dependency runtime)))
+      (unless job (return))
+      (let ((source (snap-sync-multi-event-source job))
+            (task-index (snap-sync-multi-event-task-index job))
+            (work (snap-sync-multi-event-result job)))
+        (handler-case
+            (snap-sync-multi-push-event
+             runtime
+             (make-snap-sync-multi-event
+              :kind :result :source source :task-index task-index
+              :result
+              (snap-sync-complete-account-page
+               database source state-root work byte-limit
+               :code-fetch-function
+               (lambda ()
+                 (snap-sync-multi-fetch-page-codes
+                  runtime database source
+                  (snap-sync-account-page-work-code-hashes work)
+                  byte-limit)))))
+          (serious-condition (condition)
+            (snap-sync-multi-push-event
+             runtime
+             (make-snap-sync-multi-event
+              :kind :error :source source :task-index task-index
+              :condition condition
+              :report-p
+              (snap-sync-multi-mark-source-failed runtime source)))))))))
 
 #+sbcl
 (defun snap-sync-multi-next-event (runtime)
@@ -4554,7 +4700,10 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
              (snap-sync-progress-tasks
               (snap-sync-multi-runtime-progress runtime)))
         (return :heal))
-      (when (zerop (snap-sync-multi-runtime-source-count runtime))
+      (when (and
+             (zerop (snap-sync-multi-runtime-source-count runtime))
+             (zerop
+              (hash-table-count (snap-sync-multi-runtime-claims runtime))))
         (return :exhausted))
       (sb-thread:condition-wait
        (snap-sync-multi-runtime-changed runtime)
@@ -4577,13 +4726,14 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
           heal-source-provider range-yield-p heal-yield-p max-pages)
   "Import one pivot through disjoint durable ranges shared across SOURCES.
 
-Sixty-four logical account tasks oversubscribe pinned geth's independent
-account/storage schedulers so peer I/O overlaps proof verification and
-persistence. At most three workers share each source. Its session remains the
-sole RLPx writer while one request per snap response type may be in flight,
-matching replies by both type and request id. Workers verify and heal
-independent pages concurrently; the caller thread serializes only the progress
-batch and callbacks.  ON-PROGRESS receives PROGRESS, SOURCE, and TASK-INDEX
+Sixty-four logical account tasks feed independent geth-style account and
+dependency schedulers. One range worker per source keeps its AccountRange slot
+busy, then hands the verified page to a bounded global storage/code pool instead
+of occupying the range peer until those dependencies finish. Each session
+remains the sole RLPx writer while one request per snap response type may be in
+flight, matching replies by both type and request id. The caller thread
+serializes only the progress batch and callbacks. ON-PROGRESS receives
+PROGRESS, SOURCE, and TASK-INDEX
 after that task page is durable. ON-PAGE-PROFILE then receives its observational
 timing profile, SOURCE, and TASK-INDEX. ON-SOURCE-ERROR receives SOURCE and the
 condition after its task has been made retryable by another source.
@@ -4617,6 +4767,7 @@ those cursors. HEAL-YIELD-P is forwarded to final healing."
          (runtime
            (make-snap-sync-multi-runtime progress 0 max-pages))
          (threads '())
+         (dependency-threads '())
          (errors '()))
     (when (snap-sync-progress-completed-p progress)
       (return-from snap-sync-import-state-multi progress))
@@ -4630,7 +4781,17 @@ those cursors. HEAL-YIELD-P is forwarded to final healing."
          :on-source-error on-source-error
          :on-heal-progress on-heal-progress)))
     (labels
-        ((start-worker (source)
+        ((start-dependency-workers ()
+           (dotimes (index +snap-sync-dependency-workers+)
+             (declare (ignore index))
+             (push
+              (sb-thread:make-thread
+               (lambda ()
+                 (snap-sync-multi-dependency-worker
+                  runtime database state-root byte-limit))
+               :name "snap-sync-dependency-worker")
+              dependency-threads)))
+         (start-worker (source)
            (sb-thread:with-mutex
                ((snap-sync-multi-runtime-lock runtime))
              (incf (snap-sync-multi-runtime-source-count runtime))
@@ -4688,6 +4849,7 @@ those cursors. HEAL-YIELD-P is forwarded to final healing."
              added)))
       (unwind-protect
            (progn
+             (start-dependency-workers)
              (dolist (source sources)
                (start-source-workers source))
              (refresh-range-sources)
@@ -4780,6 +4942,8 @@ those cursors. HEAL-YIELD-P is forwarded to final healing."
           (setf (snap-sync-multi-runtime-stopped-p runtime) t)
           (snap-sync-multi-notify runtime))
         (dolist (thread threads)
+          (sb-thread:join-thread thread))
+        (dolist (thread dependency-threads)
           (sb-thread:join-thread thread))))))
 
 #-sbcl

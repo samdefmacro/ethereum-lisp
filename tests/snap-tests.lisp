@@ -240,6 +240,69 @@
              (bytes= (car entry) (keccak-256 (cdr entry))))
            fetched)))))
 
+(deftest snap-multi-code-flight-deduplicates-pending-pages
+  (:layer :unit :module :p2p)
+  #+sbcl
+  (let* ((database (make-memory-key-value-database))
+         (runtime
+           (ethereum-lisp.snap-sync::make-snap-sync-multi-runtime nil 0 nil))
+         (code (snap-test-index-hash 5))
+         (hash (keccak-256 code))
+         (entered (sb-thread:make-semaphore :count 0))
+         (release (sb-thread:make-semaphore :count 0))
+         (lock (sb-thread:make-mutex :name "snap-test-code-flight"))
+         (calls 0)
+         (source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :bytecodes
+            (lambda (request)
+              (sb-thread:with-mutex (lock) (incf calls))
+              (sb-thread:signal-semaphore entered)
+              (sb-thread:wait-on-semaphore release :timeout 5)
+              (ethereum-lisp.snap:make-snap-bytecodes
+               (ethereum-lisp.snap:snap-get-bytecodes-id request)
+               (list code)))))
+         (first-thread nil)
+         (second-thread nil))
+    (flet ((fetch ()
+             (ethereum-lisp.snap-sync::snap-sync-multi-fetch-page-codes
+              runtime database source (list hash) (* 512 1024))))
+      (unwind-protect
+           (progn
+             (setf first-thread
+                   (sb-thread:make-thread
+                    #'fetch :name "snap-test-code-flight-owner"))
+             (is (sb-thread:wait-on-semaphore entered :timeout 5))
+             (setf second-thread
+                   (sb-thread:make-thread
+                    #'fetch :name "snap-test-code-flight-waiter"))
+             (is (eq :blocked
+                     (sb-thread:join-thread
+                      second-thread :timeout 0.1 :default :blocked)))
+             (sb-thread:signal-semaphore release)
+             (is (not (eq :timeout
+                          (sb-thread:join-thread
+                           first-thread :timeout 5 :default :timeout))))
+             (setf first-thread nil)
+             (is (not (eq :timeout
+                          (sb-thread:join-thread
+                           second-thread :timeout 5 :default :timeout))))
+             (setf second-thread nil)
+             (is (= 1 calls))
+             (multiple-value-bind (stored present-p)
+                 (kv-get-chain-record database :code hash)
+               (is present-p)
+               (is (bytes= code stored))))
+        (sb-thread:signal-semaphore release)
+        (when first-thread
+          (ignore-errors
+            (sb-thread:join-thread first-thread :timeout 5 :default nil)))
+        (when second-thread
+          (ignore-errors
+            (sb-thread:join-thread second-thread :timeout 5 :default nil))))))
+  #-sbcl
+  (is t))
+
 #+sbcl
 (deftest snap-bytecode-batches-use-bounded-concurrent-workers
   (:layer :unit :module :p2p)
@@ -1296,7 +1359,7 @@
              round-tripped))))))
 
 #+sbcl
-(deftest snap-state-import-multi-oversubscribes-three-sources-across-sixty-four-ranges
+(deftest snap-state-import-multi-keeps-three-account-peers-busy-across-sixty-four-ranges
   (:layer :integration :module :p2p)
   (multiple-value-bind (source-state addresses)
       (snap-test-partitioned-state)
@@ -1324,7 +1387,7 @@
                       (lambda (request)
                         (let ((barrier-p
                                 (sb-thread:with-mutex (lock)
-                                  (<= (incf source-calls) 3))))
+                                  (= (incf source-calls) 1))))
                           (when barrier-p
                             (sb-thread:with-mutex (lock)
                               (incf arrived)
@@ -1334,7 +1397,7 @@
                                (ethereum-lisp.snap:snap-get-account-range-bytes
                                 request)
                                byte-limits)
-                              (when (= arrived 9)
+                              (when (= arrived 3)
                                 (setf released-p t)
                                 (sb-thread:condition-broadcast changed))
                               (loop until released-p
@@ -1356,8 +1419,8 @@
               :chain-id 560048
               :genesis-hash (make-hash32 (snap-test-hash 138))
               :authority-id (make-hash32 (snap-test-hash 139)))))
-      (is (= 9 max-active))
-      (is (= 9 (length byte-limits)))
+      (is (= 3 max-active))
+      (is (= 3 (length byte-limits)))
       (is (every (lambda (limit) (= limit (* 512 1024))) byte-limits))
       (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p progress))
       (is (= 64
