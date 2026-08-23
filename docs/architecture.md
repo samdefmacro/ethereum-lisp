@@ -168,7 +168,7 @@ them by their physical location instead reintroduces dependency cycles:
   one synchronous publication batch, so a visible cursor still flushes the
   complete preceding WAL prefix without a per-page fsync. Storage and bytecode
   dependencies are scheduled independently of the peer that returned their
-  account page. ByteCodes jobs from every page share four import-wide workers;
+  account page. ByteCodes jobs from every page share sixteen import-wide workers;
   each assignment considers only idle sessions, chooses the largest learned
   item capacity, and uses measured RTT to break ties. This matches geth's
   central capacity-sorted assignment without multiplying worker count by the

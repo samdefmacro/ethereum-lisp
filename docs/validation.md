@@ -284,8 +284,8 @@ peer starts account and storage ranges at 64 KiB, a fast sequence grows at
 most twofold per response toward 512 KiB, a slow sequence falls back without
 crossing the lower bound, and the production source applies the learned
 per-type cap to its outgoing packet. ByteCodes learns in returned-code units
-from 1 through the 84-hash protocol cap; two concurrent pages prove that
-their six batches never exceed the fixed import-wide worker count. Ready
+from 1 through the 84-hash protocol cap; concurrent pages prove that their
+batches never exceed the fixed sixteen-worker import-wide pool. Ready
 account results prove sixteen successor cursors share one durable publication
 write, while the existing injected-failure controls keep all of those cursors
 behind an unsuccessful seam. A changed-root rebase installs

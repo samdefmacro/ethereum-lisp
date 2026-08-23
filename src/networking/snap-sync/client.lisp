@@ -22,7 +22,9 @@ maximum-sized blobs that fit in a 512 KiB response: enough small contracts to
 fill the response without repeatedly retransmitting a page's entire remaining
 hash set after the peer reaches its soft byte cap.")
 (defconstant +snap-sync-code-batch-workers+ 4
-  "Maximum geth-sized ByteCodes batches advanced for one account page.")
+  "Maximum geth-sized ByteCodes batches in the isolated per-page fallback.")
+(defconstant +snap-sync-global-code-workers+ 16
+  "Import-wide ByteCodes assignments, aligned with the quality SNAP peer floor.")
 (defconstant +snap-sync-dependency-workers+ 32
   "Global account-page dependency jobs advanced independently of range peers.")
 (defconstant +snap-sync-cursor-batch-pages+ 16
@@ -5123,8 +5125,8 @@ those cursors. HEAL-YIELD-P is forwarded to final healing."
     (labels
         ((start-code-workers ()
            (setf (snap-sync-multi-runtime-code-worker-count runtime)
-                 +snap-sync-code-batch-workers+)
-           (dotimes (index +snap-sync-code-batch-workers+)
+                 +snap-sync-global-code-workers+)
+           (dotimes (index +snap-sync-global-code-workers+)
              (declare (ignore index))
              (push
               (sb-thread:make-thread
