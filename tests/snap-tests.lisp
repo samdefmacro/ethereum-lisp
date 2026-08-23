@@ -304,6 +304,90 @@
   (is t))
 
 #+sbcl
+(deftest snap-multi-code-flight-publishes-each-finished-batch
+  (:layer :unit :module :p2p)
+  (let* ((database (make-memory-key-value-database))
+         (runtime
+           (ethereum-lisp.snap-sync::make-snap-sync-multi-runtime nil 0 nil))
+         (codes
+           (loop for index below 85
+                 collect (snap-test-index-hash (+ 1000 index))))
+         (hashes (mapcar #'keccak-256 codes))
+         (codes-by-hash (make-hash-table :test #'equalp))
+         (large-returned (sb-thread:make-semaphore :count 0))
+         (singleton-entered (sb-thread:make-semaphore :count 0))
+         (release-singleton (sb-thread:make-semaphore :count 0))
+         (calls-lock
+           (sb-thread:make-mutex :name "snap-test-stream-code-calls"))
+         (calls 0)
+         (source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :bytecodes
+            (lambda (request)
+              (let ((requested
+                      (ethereum-lisp.snap:snap-get-bytecodes-hashes request)))
+                (sb-thread:with-mutex (calls-lock) (incf calls))
+                (if (= 1 (length requested))
+                    (progn
+                      (sb-thread:signal-semaphore singleton-entered)
+                      (sb-thread:wait-on-semaphore
+                       release-singleton :timeout 5))
+                    (sb-thread:signal-semaphore large-returned))
+                (ethereum-lisp.snap:make-snap-bytecodes
+                 (ethereum-lisp.snap:snap-get-bytecodes-id request)
+                 (mapcar
+                  (lambda (hash)
+                    (copy-seq (gethash hash codes-by-hash)))
+                  requested))))))
+         (owner-thread nil)
+         (waiter-thread nil))
+    (loop for code in codes
+          for hash in hashes
+          do (setf (gethash hash codes-by-hash) code))
+    (flet ((fetch (requested)
+             (ethereum-lisp.snap-sync::snap-sync-multi-fetch-page-codes
+              runtime database source requested (* 512 1024))))
+      (unwind-protect
+           (progn
+             (setf owner-thread
+                   (sb-thread:make-thread
+                    (lambda () (fetch hashes))
+                    :name "snap-test-stream-code-owner"))
+             (is (sb-thread:wait-on-semaphore large-returned :timeout 5))
+             (is (sb-thread:wait-on-semaphore singleton-entered :timeout 5))
+             ;; The singleton request is still blocked. A page sharing a hash
+             ;; from the completed 84-item response must nevertheless observe
+             ;; that response and finish without issuing another request.
+             (setf waiter-thread
+                   (sb-thread:make-thread
+                    (lambda () (fetch (list (first hashes))))
+                    :name "snap-test-stream-code-waiter"))
+             (let ((joined
+                     (sb-thread:join-thread
+                      waiter-thread :timeout 5 :default :blocked)))
+               (is (not (eq :blocked joined)))
+               (unless (eq :blocked joined)
+                 (setf waiter-thread nil)))
+             (multiple-value-bind (stored present-p)
+                 (kv-get-chain-record database :code (first hashes))
+               (is present-p)
+               (when present-p
+                 (is (bytes= (first codes) stored))))
+             (is (= 2 calls))
+             (sb-thread:signal-semaphore release-singleton)
+             (is (not (eq :timeout
+                          (sb-thread:join-thread
+                           owner-thread :timeout 5 :default :timeout))))
+             (setf owner-thread nil))
+        (sb-thread:signal-semaphore release-singleton)
+        (when owner-thread
+          (ignore-errors
+            (sb-thread:join-thread owner-thread :timeout 5 :default nil)))
+        (when waiter-thread
+          (ignore-errors
+            (sb-thread:join-thread waiter-thread :timeout 5 :default nil)))))))
+
+#+sbcl
 (deftest snap-bytecode-batches-use-bounded-concurrent-workers
   (:layer :unit :module :p2p)
   (let ((real

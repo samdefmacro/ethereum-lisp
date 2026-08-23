@@ -4604,19 +4604,100 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
       (snap-sync-multi-notify runtime))))
 
 #+sbcl
+(defun snap-sync-multi-release-code-flight
+    (runtime owner hashes)
+  "Release OWNER's HASHES and wake pages that can now recheck durable code."
+  (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
+    (dolist (hash hashes)
+      ;; A completed batch is published before this release. The owner token
+      ;; prevents a late cleanup from removing a flight that another page took
+      ;; over after an earlier failure.
+      (when (eq owner
+                (gethash hash
+                         (snap-sync-multi-runtime-code-inflight runtime)))
+        (remhash hash (snap-sync-multi-runtime-code-inflight runtime))))
+    (snap-sync-multi-notify runtime)))
+
+#+sbcl
+(defun snap-sync-multi-buffer-code-batches
+    (runtime database source owner hashes byte-limit)
+  "Fetch and publish OWNER's HASHES one geth-sized batch at a time.
+
+Each verified response becomes visible before its flight is released. This
+matches geth's response integration and prevents an unrelated slow tail batch
+from holding every page that shares an already delivered contract code."
+  (let* ((batches (snap-sync-code-hash-batches hashes))
+         (count (length batches))
+         (worker-count (min count +snap-sync-code-batch-workers+))
+         (threads (make-array (1- worker-count) :initial-element nil))
+         (next-index 0)
+         (condition nil)
+         (lock (sb-thread:make-mutex :name "snap-sync-multi-code-batches")))
+    (labels ((claim ()
+               (sb-thread:with-mutex (lock)
+                 (if (or condition (>= next-index count))
+                     (values nil nil)
+                     (let ((index next-index))
+                       (incf next-index)
+                       (values index t)))))
+             (fetch-and-publish (batch)
+               (unwind-protect
+                    (let ((codes
+                            (snap-sync-fetch-code-hash-batch
+                             source batch byte-limit)))
+                      (when codes
+                        (let ((write-batch (make-kv-write-batch)))
+                          (snap-sync-populate-code-batch
+                           database write-batch codes)
+                          (kv-apply-batch-buffered database write-batch))))
+                 (snap-sync-multi-release-code-flight
+                  runtime owner batch)))
+             (worker ()
+               (loop
+                 (multiple-value-bind (index present-p) (claim)
+                   (unless present-p (return))
+                   (handler-case
+                       (fetch-and-publish (nth index batches))
+                     (serious-condition (error)
+                       (sb-thread:with-mutex (lock)
+                         (unless condition (setf condition error)))
+                       (return)))))))
+      (unwind-protect
+           (progn
+             (dotimes (index (length threads))
+               (setf
+                (aref threads index)
+                (sb-thread:make-thread
+                 #'worker :name "snap-sync-multi-code-batch-worker")))
+             (worker)
+             (loop for index below (length threads)
+                   for thread = (aref threads index)
+                   do (sb-thread:join-thread thread)
+                      (setf (aref threads index) nil)))
+        (loop for thread across threads
+              when thread
+                do (ignore-errors (sb-thread:join-thread thread)))
+        ;; This is idempotent for completed batches and releases unclaimed
+        ;; batches after either a request or thread-creation failure.
+        (snap-sync-multi-release-code-flight runtime owner hashes)))
+    (when condition (error condition))
+    '()))
+
+#+sbcl
 (defun snap-sync-multi-fetch-page-codes
     (runtime database source code-hashes byte-limit)
   "Fetch each missing CODE-HASH once across every pending account page.
 
-Claimed code is hash-verified and buffered before its flight is published as
-complete. A later synchronous account cursor therefore flushes that earlier
-WAL prefix before it can make a dependent page durable. Waiters recheck RocksDB
-after each wake and take over hashes whose owner failed."
+Each geth-sized response is hash-verified and buffered before its individual
+flights are published complete. A later synchronous account cursor therefore
+flushes that earlier WAL prefix before it can make a dependent page durable.
+Waiters recheck RocksDB after each wake and take over hashes whose owner failed."
   (loop
     (let ((missing
             (snap-sync-heal-missing-code-hashes database code-hashes)))
       (unless missing (return '()))
-      (let ((owned '()))
+      (let ((owned '())
+            (owner (list :snap-code-flight-owner)))
         (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
           (when (snap-sync-multi-runtime-stopped-p runtime)
             (return-from snap-sync-multi-fetch-page-codes '()))
@@ -4625,7 +4706,7 @@ after each wake and take over hashes whose owner failed."
                              (snap-sync-multi-runtime-code-inflight runtime))
               (setf (gethash
                      hash (snap-sync-multi-runtime-code-inflight runtime))
-                    t)
+                    owner)
               (push hash owned)))
           (unless owned
             (sb-thread:condition-wait
@@ -4633,19 +4714,8 @@ after each wake and take over hashes whose owner failed."
              (snap-sync-multi-runtime-lock runtime))))
         (when owned
           (setf owned (nreverse owned))
-          (unwind-protect
-               (let ((codes
-                       (snap-sync-fetch-codes
-                        source owned byte-limit :parallel-p t)))
-                 (when codes
-                   (let ((batch (make-kv-write-batch)))
-                     (snap-sync-populate-code-batch database batch codes)
-                     (kv-apply-batch-buffered database batch))))
-            (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
-              (dolist (hash owned)
-                (remhash hash
-                         (snap-sync-multi-runtime-code-inflight runtime)))
-              (snap-sync-multi-notify runtime))))))))
+          (snap-sync-multi-buffer-code-batches
+           runtime database source owner owned byte-limit))))))
 
 #+sbcl
 (defun snap-sync-multi-dependency-worker

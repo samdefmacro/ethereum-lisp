@@ -140,13 +140,15 @@ them by their physical location instead reintroduces dependency cycles:
   backend; memory/file stores remain test oracles and do not claim production
   snap service. A CL-authorized pivot binds the state download to target hash,
   chain, genesis, and database authority. Fresh imports split the account
-  keyspace into sixty-four durable ranges. Three bounded workers share each
-  available snap peer. Its session thread remains the only RLPx writer, but it
+  keyspace into sixty-four durable ranges. One AccountRange dispatcher uses
+  each available snap peer and hands its verified pages to a bounded global
+  dependency queue. The session thread remains the only RLPx writer, but it
   may pipeline one account, storage, bytecode, and trie-node request at once;
   decoded replies are matched by response type and request id before waking the
   worker. Synchronous eth jobs wait for an empty SNAP response seam, so they
-  cannot consume a pipelined reply. A second range can therefore use the
-  connection while the first verifies its proof or writes RocksDB; older
+  cannot consume a pipelined reply. The next range can therefore use the
+  connection while an earlier page resolves storage, bytecode, or RocksDB
+  work through the global queue; older
   sixteen-range progress remains resumable and thirty-two-range progress is
   expanded at its exact durable cursors. During range import the dial scheduler
   seeks SNAP-capable outbound sessions up to half of `--maxpeers`, returning to
@@ -163,10 +165,10 @@ them by their physical location instead reintroduces dependency cycles:
   verified content batches in parallel, while one coordinator serializes only
   the small successor-cursor and final-plan publication batches. Storage and
   bytecode dependencies are scheduled independently of the peer that returned
-  their account page. Each response type chooses the shortest estimated finish
-  from measured RTT and outstanding reservations, with learned capacity
-  breaking ties, so an unmeasured or slow idle peer cannot drag a fast page's
-  dependencies. A dependency transport enters a thirty-second cooldown and the
+  their account page. Each response type considers only idle sessions, chooses
+  the largest learned delivery capacity, and uses measured RTT to break ties,
+  matching geth's capacity-sorted assignment. A dependency transport enters a
+  thirty-second cooldown and the
   already authenticated account page's remaining work retries elsewhere
   instead of being discarded. A failed account peer releases only
   its claimed range for another worker. If every peer in
@@ -175,9 +177,13 @@ them by their physical location instead reintroduces dependency cycles:
   on its next bounded pass, and resumes from the durable per-range cursors.
   Local persistence and trie-merge failures remain fatal and are not converted
   into retries. Account and storage ranges carry compact boundary proofs, trie
-  nodes are served by path set, and every page is verified before its worker
-  buffers account nodes, bytecode, complete small storage tries, and proof
-  metadata. These authenticated, content-addressed intermediate RocksDB batches
+  nodes are served by path set, and every page is verified before its dependency
+  worker buffers account nodes, complete small storage tries, and proof
+  metadata. Each geth-sized ByteCodes response is hash-verified and buffered
+  immediately before its individual global flights are released. Pages sharing
+  that contract code can therefore recheck RocksDB and advance without waiting
+  for an unrelated tail batch owned by the same page. These authenticated,
+  content-addressed intermediate RocksDB batches
   keep WAL enabled without forcing a separate sync. No progress is published at
   that point; the following account page's synchronous cursor batch flushes the
   complete earlier WAL prefix. A
@@ -197,8 +203,8 @@ them by their physical location instead reintroduces dependency cycles:
   second global MPT rebuild and its per-node RocksDB point reads. Ordinary state
   transitions retain checked `mpt-put`. Complete coarse buckets strictly inside
   each authenticated range contain only newly reconstructed nodes. After that
-  page's small storage and code join its buffered content batch, their root
-  hashes join the same WAL prefix as the pivot-independent subtree proofs used by the
+  page's small storage and code become buffered prerequisites, their root
+  hashes share the same WAL prefix as the pivot-independent subtree proofs used by the
   healer. A later pivot therefore traverses only changed and boundary buckets,
   rather than rereading every range-ingested node once before it can build the
   proof index. A bucket containing at most 64 deferred storage roots publishes
