@@ -717,9 +717,9 @@ reuse this work instead of downloading the same prefix again."
       (snap-sync-populate-verified-trie-records-batch
        database batch (snap-sync-verified-account-records trie proof)))))
 
-(defun snap-sync-fetch-storage-commitments
+(defun snap-sync-fetch-storage-commitments-serial
     (database source state-root commitments byte-limit)
-  "Fetch non-empty storage tries in bounded snap/1 multi-account requests.
+  "Fetch one storage commitment chunk in bounded snap/1 requests.
 
 Geth returns a prefix of the requested accounts.  All groups preceding a
 proof are complete tries and are persisted eagerly.  The final proved group
@@ -792,6 +792,86 @@ the exact authorized state root before completion."
                    (push (nth (1- received) requested) deferred))
                  (setf remaining (nthcdr received remaining))))
     (nreverse deferred)))
+
+(defconstant +snap-sync-storage-chunk-workers+ 2
+  "Maximum independent multi-account StorageRanges chunks per account page.")
+
+(defun snap-sync-storage-commitment-chunks (commitments)
+  "Partition COMMITMENTS into geth-aligned multi-account request chunks."
+  (loop with remaining = commitments
+        while remaining
+        for count = (min +snap-sync-storage-accounts-per-request+
+                         (length remaining))
+        collect (subseq remaining 0 count)
+        do (setf remaining (nthcdr count remaining))))
+
+#+sbcl
+(defun snap-sync-fetch-storage-chunks-concurrently
+    (database source state-root chunks byte-limit)
+  "Fetch CHUNKS through a bounded worker pool and retain input result order."
+  (let* ((count (length chunks))
+         (results (make-array count :initial-element nil))
+         (next-index 0)
+         (condition nil)
+         (lock (sb-thread:make-mutex :name "snap-sync-storage-chunks"))
+         (threads '()))
+    (labels ((claim ()
+               (sb-thread:with-mutex (lock)
+                 (if (or condition (>= next-index count))
+                     (values nil nil)
+                     (let ((index next-index))
+                       (incf next-index)
+                       (values index t)))))
+             (worker ()
+               (loop
+                 (multiple-value-bind (index present-p) (claim)
+                   (unless present-p (return))
+                   (handler-case
+                       (setf
+                        (aref results index)
+                        (snap-sync-fetch-storage-commitments-serial
+                         database source state-root (nth index chunks)
+                         byte-limit))
+                     (serious-condition (error)
+                       (sb-thread:with-mutex (lock)
+                         (unless condition (setf condition error)))
+                       (return)))))))
+      ;; The account worker is already available: use it as one bounded
+      ;; storage worker and create only the remaining helpers.
+      (loop repeat (1- (min count +snap-sync-storage-chunk-workers+))
+            do (push
+                (sb-thread:make-thread
+                 #'worker :name "snap-sync-storage-chunk-worker")
+                threads))
+      (worker)
+      (dolist (thread threads)
+        (sb-thread:join-thread thread))
+      (when condition (error condition))
+      (loop for result across results append result))))
+
+(defun snap-sync-fetch-storage-commitments
+    (database source state-root commitments byte-limit)
+  "Fetch non-empty storage tries with bounded parallel multi-account chunks.
+
+Each chunk retains the serial continuation required when a byte-capped response
+returns only a prefix. Independent chunks use separate StorageRanges requests,
+matching geth's storage-task concurrency while preserving the account cursor's
+single durable publication seam."
+  (let ((chunks (snap-sync-storage-commitment-chunks commitments)))
+    (cond
+      ((null chunks) '())
+      ((null (rest chunks))
+       (snap-sync-fetch-storage-commitments-serial
+        database source state-root (first chunks) byte-limit))
+      (t
+       #+sbcl
+       (snap-sync-fetch-storage-chunks-concurrently
+        database source state-root chunks byte-limit)
+       #-sbcl
+       (loop for chunk in chunks
+             append
+             (snap-sync-fetch-storage-commitments-serial
+              database source state-root chunk byte-limit))))))
 
 (defun snap-sync-page-code-hashes (entries)
   (let ((seen (make-hash-table :test #'equalp))
@@ -887,6 +967,89 @@ the exact authorized state root before completion."
                        do (push hash missing)))
              (setf unique (nthcdr count unique)))
     (nreverse missing)))
+
+(defun snap-sync-elapsed-milliseconds (start end)
+  "Return non-negative monotonic milliseconds between internal clock ticks."
+  (max 0
+       (round
+        (* 1000 (- end start))
+        internal-time-units-per-second)))
+
+(defun snap-sync-fetch-page-codes (database source code-hashes byte-limit)
+  "Return only page bytecodes that are not already durable."
+  (let ((missing
+          (snap-sync-heal-missing-code-hashes database code-hashes)))
+    (if missing
+        (snap-sync-fetch-codes source missing byte-limit)
+        '())))
+
+#+sbcl
+(defun snap-sync-fetch-page-dependencies
+    (database source state-root storage-commitments code-hashes byte-limit)
+  "Fetch one page's storage and bytecode dependencies concurrently.
+
+The source transport already owns independent typed SNAP request slots. Running
+the two dependency families concurrently lets pooled peers fill both slots like
+geth's storage and bytecode schedulers. All child work joins before the caller
+publishes the account cursor."
+  (let ((storage-result '())
+        (code-result '())
+        (storage-ms 0)
+        (code-ms 0)
+        (storage-condition nil)
+        (code-condition nil)
+        (code-thread nil))
+    (setf
+     code-thread
+     (sb-thread:make-thread
+      (lambda ()
+        (let ((started-at (get-internal-real-time)))
+          (handler-case
+              (setf code-result
+                    (snap-sync-fetch-page-codes
+                     database source code-hashes byte-limit))
+            (serious-condition (condition)
+              (setf code-condition condition)))
+          (setf code-ms
+                (snap-sync-elapsed-milliseconds
+                 started-at (get-internal-real-time)))))
+      :name "snap-sync-page-bytecodes"))
+    (let ((started-at (get-internal-real-time)))
+      (handler-case
+          (setf storage-result
+                (snap-sync-fetch-storage-commitments
+                 database source state-root storage-commitments
+                 (min byte-limit +snap-sync-storage-request-bytes+)))
+        (serious-condition (condition)
+          (setf storage-condition condition)))
+      (setf storage-ms
+            (snap-sync-elapsed-milliseconds
+             started-at (get-internal-real-time))))
+    (sb-thread:join-thread code-thread)
+    (when storage-condition (error storage-condition))
+    (when code-condition (error code-condition))
+    (values storage-result code-result storage-ms code-ms)))
+
+#-sbcl
+(defun snap-sync-fetch-page-dependencies
+    (database source state-root storage-commitments code-hashes byte-limit)
+  "Portable sequential fallback for page dependencies."
+  (let* ((storage-started-at (get-internal-real-time))
+         (storage-result
+           (snap-sync-fetch-storage-commitments
+            database source state-root storage-commitments
+            (min byte-limit +snap-sync-storage-request-bytes+)))
+         (storage-ms
+           (snap-sync-elapsed-milliseconds
+            storage-started-at (get-internal-real-time)))
+         (code-started-at (get-internal-real-time))
+         (code-result
+           (snap-sync-fetch-page-codes
+            database source code-hashes byte-limit))
+         (code-ms
+           (snap-sync-elapsed-milliseconds
+            code-started-at (get-internal-real-time))))
+    (values storage-result code-result storage-ms code-ms)))
 
 (defun snap-sync-complete-batch (batch progress)
   (kv-batch-put-chain-record
@@ -1068,13 +1231,6 @@ the exact authorized state root before completion."
   healed-subtrees
   next-origin
   completed-p)
-
-(defun snap-sync-elapsed-milliseconds (start end)
-  "Return non-negative monotonic milliseconds between internal clock ticks."
-  (max 0
-       (round
-        (* 1000 (- end start))
-        internal-time-units-per-second)))
 
 (defun snap-sync-verified-account-records (trie proof)
   "Collect one verified account page's reconstructed and boundary nodes."
@@ -1410,75 +1566,66 @@ again."
            (proof-finished-at (get-internal-real-time))
            (storage-commitments
              (snap-sync-page-storage-commitments entries))
-           (deferred-storage
-             (snap-sync-fetch-storage-commitments
-              database source state-root storage-commitments
-              (min byte-limit +snap-sync-storage-request-bytes+)))
-           (storage-finished-at (get-internal-real-time))
-           (code-hashes (snap-sync-page-code-hashes entries))
-           (missing-code-hashes
-             (snap-sync-heal-missing-code-hashes database code-hashes))
-           (codes
-             (if missing-code-hashes
-                 (snap-sync-fetch-codes source missing-code-hashes byte-limit)
-                 '()))
-           (code-finished-at (get-internal-real-time))
-           (proved-end (if complete-p limit last-entry))
-           (candidates
-             (if (and account-trie proved-end)
-                 (mpt-proved-range-subtrees
-                  account-trie origin proved-end
-                  *snap-sync-range-subtree-prefix-nibbles*)
-                 '())))
+           (code-hashes (snap-sync-page-code-hashes entries)))
       (when (and (not complete-p) (null next-origin))
         (error "Snap account page did not advance its assigned task"))
-      (multiple-value-bind (safe-subtrees dependency-subtrees)
-          (snap-sync-classify-account-range-subtrees
-           candidates deferred-storage)
-        (let* ((metadata-finished-at (get-internal-real-time))
-               (profile
-                 (make-snap-sync-page-profile
-                  :account-count (length entries)
-                  :storage-account-count (length storage-commitments)
-                  :code-count (length codes)
-                  :account-request-ms
-                  (snap-sync-elapsed-milliseconds
-                   started-at account-response-at)
-                  :proof-ms
-                  (snap-sync-elapsed-milliseconds
-                   account-response-at proof-finished-at)
-                  :storage-ms
-                  (snap-sync-elapsed-milliseconds
-                   proof-finished-at storage-finished-at)
-                  :code-ms
-                  (snap-sync-elapsed-milliseconds
-                   storage-finished-at code-finished-at)
-                  :metadata-ms
-                  (snap-sync-elapsed-milliseconds
-                   code-finished-at metadata-finished-at)))
-               (result
-                 (make-snap-sync-page-result
-                  :task-index task-index
-                  :origin (copy-seq origin)
-                  :account-records account-records
-                  :codes codes
-                  :deferred-storage deferred-storage
-                  :healed-subtrees safe-subtrees
-                  ;; Keep the exact storage gaps beside the authenticated
-                  ;; subtree hash so a later pivot can skip the account walk
-                  ;; without skipping external dependencies.
-                  :dependency-subtrees dependency-subtrees
-                  :next-origin next-origin
-                  :completed-p complete-p
-                  :profile profile)))
-          (snap-sync-buffer-account-page-content database state-root result)
-          (let ((finished-at (get-internal-real-time)))
-            (setf
-             (snap-sync-page-profile-buffer-ms profile)
-             (snap-sync-elapsed-milliseconds metadata-finished-at finished-at)
-             (snap-sync-page-profile-total-ms profile)
-             (snap-sync-elapsed-milliseconds started-at finished-at)))
-          result))))))
+      (multiple-value-bind (deferred-storage codes storage-ms code-ms)
+          (snap-sync-fetch-page-dependencies
+           database source state-root storage-commitments code-hashes
+           byte-limit)
+        (let* ((dependencies-finished-at (get-internal-real-time))
+               (proved-end (if complete-p limit last-entry))
+               (candidates
+                 (if (and account-trie proved-end)
+                     (mpt-proved-range-subtrees
+                      account-trie origin proved-end
+                      *snap-sync-range-subtree-prefix-nibbles*)
+                     '())))
+          (multiple-value-bind (safe-subtrees dependency-subtrees)
+              (snap-sync-classify-account-range-subtrees
+               candidates deferred-storage)
+            (let* ((metadata-finished-at (get-internal-real-time))
+                   (profile
+                     (make-snap-sync-page-profile
+                      :account-count (length entries)
+                      :storage-account-count (length storage-commitments)
+                      :code-count (length codes)
+                      :account-request-ms
+                      (snap-sync-elapsed-milliseconds
+                       started-at account-response-at)
+                      :proof-ms
+                      (snap-sync-elapsed-milliseconds
+                       account-response-at proof-finished-at)
+                      :storage-ms storage-ms
+                      :code-ms code-ms
+                      :metadata-ms
+                      (snap-sync-elapsed-milliseconds
+                       dependencies-finished-at metadata-finished-at)))
+                   (result
+                     (make-snap-sync-page-result
+                      :task-index task-index
+                      :origin (copy-seq origin)
+                      :account-records account-records
+                      :codes codes
+                      :deferred-storage deferred-storage
+                      :healed-subtrees safe-subtrees
+                      ;; Keep the exact storage gaps beside the authenticated
+                      ;; subtree hash so a later pivot can skip the account walk
+                      ;; without skipping external dependencies.
+                      :dependency-subtrees dependency-subtrees
+                      :next-origin next-origin
+                      :completed-p complete-p
+                      :profile profile)))
+              (snap-sync-buffer-account-page-content
+               database state-root result)
+              (let ((finished-at (get-internal-real-time)))
+                (setf
+                 (snap-sync-page-profile-buffer-ms profile)
+                 (snap-sync-elapsed-milliseconds
+                  metadata-finished-at finished-at)
+                 (snap-sync-page-profile-total-ms profile)
+                 (snap-sync-elapsed-milliseconds started-at finished-at)))
+              result))))))))
 
 (defun snap-sync-replace-task (tasks index replacement)
   (loop for task in tasks

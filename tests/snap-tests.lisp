@@ -207,6 +207,110 @@
      (snap-test-call-backend
       backend ethereum-lisp.snap:+snap-message-get-trie-nodes+ request))))
 
+(deftest snap-storage-commitments-use-geth-sized-independent-chunks
+  (:layer :unit :module :p2p)
+  (let* ((commitments (loop for index below 1025 collect index))
+         (chunks
+           (ethereum-lisp.snap-sync::snap-sync-storage-commitment-chunks
+            commitments)))
+    (is (equal '(512 512 1) (mapcar #'length chunks)))
+    (is (equal commitments (apply #'append chunks)))))
+
+#+sbcl
+(deftest snap-storage-chunks-use-bounded-concurrent-workers
+  (:layer :unit :module :p2p)
+  (let ((real
+          (fdefinition
+           'ethereum-lisp.snap-sync::snap-sync-fetch-storage-commitments-serial)))
+    (unwind-protect
+         (progn
+           (setf
+            (fdefinition
+             'ethereum-lisp.snap-sync::snap-sync-fetch-storage-commitments-serial)
+            (lambda (database source state-root commitments byte-limit)
+              (declare
+               (ignore database source state-root byte-limit))
+              (sleep 0.2)
+              (copy-list commitments)))
+           (let* ((started-at (get-internal-real-time))
+                  (result
+                    (ethereum-lisp.snap-sync::snap-sync-fetch-storage-chunks-concurrently
+                     nil nil nil '((:first) (:second)) 1))
+                  (elapsed
+                    (ethereum-lisp.snap-sync::snap-sync-elapsed-milliseconds
+                     started-at (get-internal-real-time))))
+             (is (equal '(:first :second) result))
+             ;; Two serial sleeps need at least 400ms; the bounded two-worker
+             ;; pool should complete near one sleep even on a loaded runner.
+             (is (< elapsed 380))))
+      (setf
+       (fdefinition
+        'ethereum-lisp.snap-sync::snap-sync-fetch-storage-commitments-serial)
+       real))))
+
+(deftest snap-account-page-overlaps-storage-and-bytecode-dependencies
+  (:layer :integration :module :p2p)
+  (let* ((source-state (make-state-db))
+         (source-database (make-memory-key-value-database))
+         (target-database (make-memory-key-value-database))
+         (address
+           (address-from-hex
+            "0x0000000000000000000000000000000000000042"))
+         (slot (make-hash32 (snap-test-hash 41)))
+         (code #(96 0 96 0)))
+    (state-db-set-account
+     source-state address (make-state-account :nonce 1 :balance 42))
+    (state-db-set-storage source-state address slot 256)
+    (state-db-set-code source-state address code)
+    (let* ((root (state-db-root source-state))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              source-database source-state))
+           (base (snap-test-source backend))
+           (source
+             (ethereum-lisp.snap-sync:make-snap-sync-source
+              :account-range
+              (ethereum-lisp.snap-sync:snap-sync-source-account-range base)
+              :storage-ranges
+              (lambda (request)
+                (sleep 0.2)
+                (funcall
+                 (ethereum-lisp.snap-sync:snap-sync-source-storage-ranges base)
+                 request))
+              :bytecodes
+              (lambda (request)
+                (sleep 0.2)
+                (funcall
+                 (ethereum-lisp.snap-sync:snap-sync-source-bytecodes base)
+                 request))
+              :trie-nodes
+              (ethereum-lisp.snap-sync:snap-sync-source-trie-nodes base)))
+           (task
+             (first
+              (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+               :count 1)))
+           (result
+             (ethereum-lisp.snap-sync::snap-sync-prepare-account-page
+              target-database source root 0 task (* 512 1024)))
+           (profile
+             (ethereum-lisp.snap-sync::snap-sync-page-result-profile result))
+           (storage-ms
+             (ethereum-lisp.snap-sync:snap-sync-page-profile-storage-ms
+              profile))
+           (code-ms
+             (ethereum-lisp.snap-sync:snap-sync-page-profile-code-ms profile))
+           (total-ms
+             (ethereum-lisp.snap-sync:snap-sync-page-profile-total-ms profile)))
+      (is (>= storage-ms 150))
+      (is (>= code-ms 150))
+      ;; If the two 200ms delays were serial, TOTAL-MS would be at least their
+      ;; sum. The account proof and memory persistence are deliberately tiny.
+      (is (< total-ms (+ storage-ms code-ms)))
+      (multiple-value-bind (persisted present-p)
+          (kv-get-chain-record target-database :code (keccak-256 code))
+        (is present-p)
+        (is (bytes= code persisted))))))
+
 (deftest snap-state-root-probe-verifies-a-small-range-and-classifies-pruning
   (:layer :unit :module :p2p)
   (let* ((database (make-memory-key-value-database))
