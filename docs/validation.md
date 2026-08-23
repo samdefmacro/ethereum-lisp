@@ -377,13 +377,14 @@ snapshot immediately before the five-minute silence boundary and proves that
 productive local or peer progress keeps the exact frontier; only five full
 minutes without a later snapshot permits the stale yield. Removing the
 production predicate wiring makes the exact call-site test fail. The range
-tests prove that sixty-four durable account ranges are fetched with three
-bounded workers per source, including nine simultaneous workers through three
-sole-writer request queues, with geth's adaptive 64--512 KiB snap byte limits.
-The source-pool controls prove that measured completion time can prefer a fast
-peer despite one outstanding reservation, learned capacity wins an idle tie,
-bytecode reservations remain independent of storage load, and a failed
-dependency peer enters cooldown while the same request succeeds elsewhere.
+tests prove that sixty-four durable account ranges feed one AccountRange
+dispatcher per source and a bounded global dependency scheduler, while three
+sole-writer request queues overlap independent response types with geth's
+adaptive 64--512 KiB snap byte limits. The source-pool controls prove that
+learned capacity wins an idle tie, bytecode reservations remain independent of
+storage load, an ordinary failed dependency peer enters cooldown while the same
+request succeeds elsewhere, and an explicit state-unavailable response cannot
+be readmitted by expiring that cooldown.
 Completed
 ranges are not replayed after restart, thirty-two-range cursors expand without
 replay, and a failed source's claimed range is reassigned. SNAP demand raises
@@ -391,7 +392,10 @@ the default outbound target from sixteen to twenty-five capable sessions while
 retaining the absolute fifty-peer bound. A
 finite source generation may exhaust without stopping the node: the coordinator logs
 that typed availability result, refreshes live sessions on its next pass, and
-resumes without replaying the page committed by the retired generation. A
+resumes without replaying the page committed by the retired generation. A peer
+which rejected the active pivot is remembered by stable node id across those
+passes, so it is not probed or fanned out every second; selecting a genuinely
+different pivot clears that process-local set. A
 local database failure is the fail-closed control and still escapes the
 coordinator. The pivot tests also prove that an empty RocksDB node requests only
 the 65-block pivot tail,

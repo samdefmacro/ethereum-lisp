@@ -1900,20 +1900,6 @@ really reopens the directory instead of observing the first handle's memory."
                         target-hash
                         (ethereum-lisp.cli::devnet-node-active-snap-target
                          node newer-target-hash)))
-                   ;; If the selected root ages out after its cheap probe, a
-                   ;; process-local hint overrides the ordinary stale window
-                   ;; exactly once. The next pass can derive latest-target-64
-                   ;; instead of trying the poorly served target parent.
-                   (setf
-                    (ethereum-lisp.cli::devnet-node-snap-target-refresh-p node)
-                    t)
-                   (is (hash32=
-                        newer-target-hash
-                        (ethereum-lisp.cli::devnet-node-active-snap-target
-                         node newer-target-hash)))
-                   (is (not
-                        (ethereum-lisp.cli::devnet-node-snap-target-refresh-p
-                         node)))
                    ;; This test invokes the lower-level target routine
                    ;; directly. Production consumes the one restart pin in
                    ;; DEVNET-NODE-MULTI-SYNC-PASS immediately before doing so.
@@ -2248,16 +2234,29 @@ really reopens the directory instead of observing the first handle's memory."
      (lambda ()
        (signals ethereum-lisp.eth-sync:eth-sync-multi-peer-error
          (ethereum-lisp.cli::devnet-node-select-snap-pivot
-          node entry (list old parent target)))))
-    (is (= 1 (length probes)))
-    (is (hash32= old-root (first probes)))
-    (is (notany (lambda (root) (hash32= parent-root root)) probes))
+          node entry (list old parent target)))
+       ;; A finite coordinator retry of the same pivot must not send the same
+       ;; unavailable peer another probe one second later.
+       (signals ethereum-lisp.eth-sync:eth-sync-multi-peer-error
+         (ethereum-lisp.cli::devnet-node-select-snap-pivot
+          node entry (list old parent target)))
+       ;; A genuinely different pivot clears only the process-local rejection
+       ;; set and gives the same peer a fresh, successful opportunity.
+       (multiple-value-bind (selected-entry selected-header selected-tail)
+           (ethereum-lisp.cli::devnet-node-select-snap-pivot
+            node entry (list parent target))
+         (is (eq entry selected-entry))
+         (is (eq parent selected-header))
+         (is (equal (list parent target) selected-tail)))))
+    (is (= 2 (length probes)))
+    (is (some (lambda (root) (hash32= old-root root)) probes))
+    (is (some (lambda (root) (hash32= parent-root root)) probes))
     (is (= 1 (length logs)))
     (is (string= "peer.snap.pivot_unavailable" (caar logs)))
     (is (= 0 (ethereum-lisp.cli::devnet-peer-score
               (ethereum-lisp.cli::devnet-node-peer-table node) peer-id)))))
 
-(deftest devnet-snap-full-import-pruning-requests-a-new-target
+(deftest devnet-snap-full-import-pruning-waits-for-a-new-source
   (:layer :integration :module :p2p)
   (let* ((node
            (ethereum-lisp.cli:make-devnet-node
@@ -2282,11 +2281,10 @@ really reopens the directory instead of observing the first handle's memory."
          (is (eq node seen-node))
          (push (cons name fields) logs))))
      (lambda ()
-       (is (eq :stale-target
+       (is (eq :waiting-for-source
                (ethereum-lisp.cli::devnet-node-snap-sync-target node target)))
        (is (equal '(:conventional) (nreverse attempts)))
-       (is (ethereum-lisp.cli::devnet-node-snap-target-refresh-p node))
-       (is (= 1 (count "peer.snap.pivot_refresh" logs
+       (is (= 1 (count "peer.snap.pivot_wait" logs
                        :test #'string= :key #'car)))))))
 
 (deftest devnet-sync-coordinator-refreshes-after-snap-source-exhaustion
@@ -3663,6 +3661,82 @@ loop cannot block on a message that never comes."
                 :third "storage ranges")))
        (is (= 2 failed-calls))
        (is (= 3 healthy-calls)))))
+  #-sbcl
+  (is t))
+
+(deftest devnet-snap-source-pool-does-not-readmit-state-unavailable-peer
+  (:layer :unit :module :p2p)
+  #+sbcl
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (entry-one
+           (ethereum-lisp.cli::make-devnet-peer-entry
+            :id-hex "pruned-dependency-peer"
+            :request-queue
+            (ethereum-lisp.cli::make-devnet-peer-request-queue)))
+         (entry-two
+           (ethereum-lisp.cli::make-devnet-peer-entry
+            :id-hex "stateful-dependency-peer"
+            :request-queue
+            (ethereum-lisp.cli::make-devnet-peer-request-queue)))
+         (pool (ethereum-lisp.cli::make-devnet-snap-source-pool node))
+         (pruned-calls 0)
+         (stateful-calls 0)
+         (pruned-source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :account-range (lambda (request) request)
+            :storage-ranges
+            (lambda (request)
+              (declare (ignore request))
+              (incf pruned-calls)
+              (ethereum-lisp.snap-sync:snap-sync-state-unavailable
+               "storage-range"))
+            :bytecodes (lambda (request) request)
+            :trie-nodes (lambda (request) request)))
+         (stateful-source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :account-range (lambda (request) request)
+            :storage-ranges
+            (lambda (request)
+              (incf stateful-calls)
+              request)
+            :bytecodes (lambda (request) request)
+            :trie-nodes (lambda (request) request))))
+    (ethereum-lisp.cli::devnet-snap-source-pool-register
+     pool entry-one pruned-source)
+    (ethereum-lisp.cli::devnet-snap-source-pool-register
+     pool entry-two stateful-source)
+    (devnet-peer-sync-call-with-function-overrides
+     (list
+      (cons 'ethereum-lisp.cli::devnet-node-live-sync-entries
+            (lambda (seen-node &key snap-only-p)
+              (is (eq node seen-node))
+              (is snap-only-p)
+              (list entry-one entry-two))))
+     (lambda ()
+       (is (eq :first
+               (ethereum-lisp.cli::devnet-snap-source-pool-call
+                pool ethereum-lisp.snap:+snap-message-storage-ranges+
+                #'ethereum-lisp.snap-sync:snap-sync-source-storage-ranges
+                :first "storage ranges")))
+       (is (= 1 pruned-calls))
+       (is (= 1 stateful-calls))
+       ;; Expiring ordinary cooldown state cannot readmit an explicit pruning
+       ;; rejection during the same pivot import.
+       (setf
+        (gethash
+         entry-one
+         (ethereum-lisp.cli::devnet-snap-source-pool-failed-entries pool))
+        0)
+       (is (eq :second
+               (ethereum-lisp.cli::devnet-snap-source-pool-call
+                pool ethereum-lisp.snap:+snap-message-storage-ranges+
+                #'ethereum-lisp.snap-sync:snap-sync-source-storage-ranges
+                :second "storage ranges")))
+       (is (= 1 pruned-calls))
+       (is (= 2 stateful-calls)))))
   #-sbcl
   (is t))
 

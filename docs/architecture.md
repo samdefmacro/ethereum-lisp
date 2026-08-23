@@ -167,14 +167,19 @@ them by their physical location instead reintroduces dependency cycles:
   bytecode dependencies are scheduled independently of the peer that returned
   their account page. Each response type considers only idle sessions, chooses
   the largest learned delivery capacity, and uses measured RTT to break ties,
-  matching geth's capacity-sorted assignment. A dependency transport enters a
-  thirty-second cooldown and the
+  matching geth's capacity-sorted assignment. An ordinary dependency transport
+  failure enters a thirty-second cooldown and the
   already authenticated account page's remaining work retries elsewhere
-  instead of being discarded. A failed account peer releases only
-  its claimed range for another worker. If every peer in
-  that finite source snapshot fails, the importer reports a typed remote-source exhaustion result;
-  the CLI keeps the node and Engine API alive, takes a fresh live-peer snapshot
-  on its next bounded pass, and resumes from the durable per-range cursors.
+  instead of being discarded. A peer which explicitly rejects the pivot state
+  is excluded for that import, while its stable node id is remembered across
+  finite coordinator passes for the lifetime of the same pivot. A failed
+  account peer releases only its claimed range for another worker. If every
+  peer in that finite source snapshot fails, the CLI keeps the node and Engine
+  API alive and waits for genuinely new sources at the same durable per-range
+  cursors; it does not re-probe the rejected sessions or churn to a new root
+  every second. The process-local rejection set clears when the geth-style
+  stale window selects a genuinely new pivot and is never a peer score or
+  permanent ban.
   Local persistence and trie-merge failures remain fatal and are not converted
   into retries. Account and storage ranges carry compact boundary proofs, trie
   nodes are served by path set, and every page is verified before its dependency

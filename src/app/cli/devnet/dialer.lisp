@@ -240,8 +240,6 @@ and must agree."
                    (t
                     (let* ((restart-pin-p
                              (devnet-node-snap-session-resume-p node))
-                           (refresh-p
-                             (devnet-node-snap-target-refresh-p node))
                            (target
                              (node-store-snap-skeleton-progress-target-hash
                               skeleton))
@@ -263,15 +261,10 @@ and must agree."
                                       (node-store-snap-skeleton-progress-target-number
                                        skeleton)
                                       +devnet-snap-stale-target-distance+)))))
-                      (cond
-                        ((and refresh-p latest-target
-                              (not (hash32= latest-target target)))
-                         (setf (devnet-node-snap-target-refresh-p node) nil)
-                         latest-target)
-                        ((or stale-p
-                             (chain-store-state-available-p store target))
-                         latest-target)
-                        (t target)))))))))))))
+                      (if (or stale-p
+                              (chain-store-state-available-p store target))
+                          latest-target
+                          target))))))))))))
 
 (defun devnet-peer-entry-sync-source (node entry)
   "Wrap ENTRY's writer queue as one production multi-peer source."
@@ -476,6 +469,31 @@ into a permanent peer ban."))
              queue ethereum-lisp.snap:+snap-message-storage-ranges+)))))
   packet)
 
+(defun devnet-node-activate-snap-pivot-peer-set (node pivot-hash)
+  "Retain explicit peer rejections only while PIVOT-HASH remains active."
+  (let ((active (devnet-node-snap-unavailable-pivot-hash node)))
+    (unless (and active (hash32= active pivot-hash))
+      (setf (devnet-node-snap-unavailable-pivot-hash node)
+            (make-hash32 (hash32-bytes pivot-hash)))
+      (clrhash (devnet-node-snap-unavailable-peer-ids node))))
+  node)
+
+(defun devnet-node-note-snap-pivot-unavailable (node pivot-hash entry)
+  "Remember that ENTRY explicitly rejected PIVOT-HASH's state."
+  (devnet-node-activate-snap-pivot-peer-set node pivot-hash)
+  (setf (gethash (devnet-peer-entry-id-hex entry)
+                 (devnet-node-snap-unavailable-peer-ids node))
+        t)
+  entry)
+
+(defun devnet-node-snap-pivot-peer-unavailable-p (node pivot-hash entry)
+  "Whether ENTRY already rejected the currently active PIVOT-HASH."
+  (let ((active (devnet-node-snap-unavailable-pivot-hash node)))
+    (and active
+         (hash32= active pivot-hash)
+         (gethash (devnet-peer-entry-id-hex entry)
+                  (devnet-node-snap-unavailable-peer-ids node)))))
+
 (defun devnet-peer-queued-snap-source (entry)
   "Build a per-type-pipelined, rate-adaptive SNAP source for ENTRY."
   (let ((peer (devnet-peer-entry-peer entry))
@@ -508,6 +526,10 @@ into a permanent peer ban."))
   (changed-by-response (make-hash-table))
   (fixed-sources (make-hash-table :test #'eq))
   (reservations (make-hash-table :test #'eq))
+  ;; A peer which explicitly lacks this import's state must not be retried when
+  ;; the ordinary transport cooldown expires. The pool is pivot/import scoped,
+  ;; so this is neither a permanent node ban nor a peer score.
+  (unavailable-entries (make-hash-table :test #'eq))
   (failed-entries (make-hash-table :test #'eq)))
 
 (defconstant +devnet-snap-source-pool-failure-cooldown-seconds+ 30
@@ -564,6 +586,10 @@ capacity wins and RTT breaks ties, matching geth's capacity-sorted assignment."
                   (gethash entry
                            (devnet-snap-source-pool-fixed-sources pool))))
             (when (and source
+                       (not
+                        (gethash
+                         entry
+                         (devnet-snap-source-pool-unavailable-entries pool)))
                        (<=
                         (gethash
                          entry (devnet-snap-source-pool-failed-entries pool) 0)
@@ -628,13 +654,17 @@ capacity wins and RTT breaks ties, matching geth's capacity-sorted assignment."
 
 #+sbcl
 (defun devnet-snap-source-pool-fail-and-release
-    (pool entry response-id)
-  "Cool down ENTRY and release its slot before waking global waiters."
+    (pool entry response-id &key state-unavailable-p)
+  "Retire ENTRY for this import or cool it down, then wake global waiters."
   (sb-thread:with-mutex ((devnet-snap-source-pool-lock pool))
-    (setf
-     (gethash entry (devnet-snap-source-pool-failed-entries pool))
-     (+ (get-universal-time)
-        +devnet-snap-source-pool-failure-cooldown-seconds+))
+    (if state-unavailable-p
+        (setf (gethash
+               entry (devnet-snap-source-pool-unavailable-entries pool))
+              t)
+        (setf
+         (gethash entry (devnet-snap-source-pool-failed-entries pool))
+         (+ (get-universal-time)
+            +devnet-snap-source-pool-failure-cooldown-seconds+)))
     (devnet-snap-source-pool-release-locked pool entry response-id)
     (sb-thread:condition-notify
      (devnet-snap-source-pool-waitqueue pool response-id)))
@@ -671,7 +701,11 @@ capacity wins and RTT breaks ties, matching geth's capacity-sorted assignment."
             ;; reacquired in the release/failure race.
             (if transport-condition
                 (devnet-snap-source-pool-fail-and-release
-                 pool entry response-id)
+                 pool entry response-id
+                 :state-unavailable-p
+                 (typep
+                  transport-condition
+                  'ethereum-lisp.snap-sync:snap-sync-state-unavailable))
                 (devnet-snap-source-pool-release pool entry response-id)))
           (when succeeded-p
             (return result))
@@ -745,11 +779,6 @@ unavailability is an availability fact, never a peer penalty."
   (unless tail-headers
     (error "Snap pivot selection requires a non-empty target tail"))
   (let* ((live (devnet-node-live-sync-entries node :snap-only-p t))
-         (entries
-           (if (and preferred-entry (member preferred-entry live :test #'eq))
-               (cons preferred-entry
-                     (remove preferred-entry live :test #'eq))
-               live))
          (durable-pivot-number (devnet-node-durable-snap-pivot-number node))
          (candidates
            (remove-if
@@ -762,30 +791,47 @@ unavailability is an availability fact, never a peer penalty."
               "no snap peer could serve an authorized pivot for target ~A"
               (hash32-to-hex
                (block-header-hash (car (last tail-headers))))))
-      (dolist (entry entries)
-        (handler-case
-            (progn
-              (ethereum-lisp.snap-sync:snap-sync-probe-state-root
-               (devnet-peer-queued-snap-source entry)
-               (block-header-state-root header))
-              (return-from devnet-node-select-snap-pivot
-                (values entry header (member header tail-headers :test #'eq))))
-          (ethereum-lisp.snap-sync:snap-sync-state-unavailable (condition)
-            (devnet-peer-manager-log
-             node "peer.snap.pivot_unavailable"
-             "peer" (devnet-peer-entry-id-hex entry)
-             "pivot" (block-header-number header)
-             "error" condition))
-          (storage-error (condition) (error condition))
-          (serious-condition (condition)
-            ;; A closed transport is already handled by the session
-            ;; supervisor.  Do not double-charge it here; a subsequent pass
-            ;; will retry with a fresh live-entry snapshot.
-            (devnet-peer-manager-log
-             node "peer.snap.pivot_probe_failed"
-             "peer" (devnet-peer-entry-id-hex entry)
-             "pivot" (block-header-number header)
-             "error" condition)))))))
+      (let ((pivot-hash (block-header-hash header)))
+        (devnet-node-activate-snap-pivot-peer-set node pivot-hash)
+        (let* ((available
+                 (remove-if
+                  (lambda (entry)
+                    (devnet-node-snap-pivot-peer-unavailable-p
+                     node pivot-hash entry))
+                  live))
+               (entries
+                 (if (and preferred-entry
+                          (member preferred-entry available :test #'eq))
+                     (cons preferred-entry
+                           (remove preferred-entry available :test #'eq))
+                     available)))
+          (dolist (entry entries)
+            (handler-case
+                (progn
+                  (ethereum-lisp.snap-sync:snap-sync-probe-state-root
+                   (devnet-peer-queued-snap-source entry)
+                   (block-header-state-root header))
+                  (return-from devnet-node-select-snap-pivot
+                    (values
+                     entry header (member header tail-headers :test #'eq))))
+              (ethereum-lisp.snap-sync:snap-sync-state-unavailable (condition)
+                (devnet-node-note-snap-pivot-unavailable
+                 node pivot-hash entry)
+                (devnet-peer-manager-log
+                 node "peer.snap.pivot_unavailable"
+                 "peer" (devnet-peer-entry-id-hex entry)
+                 "pivot" (block-header-number header)
+                 "error" condition))
+              (storage-error (condition) (error condition))
+              (serious-condition (condition)
+                ;; A closed transport is already handled by the session
+                ;; supervisor. Do not double-charge it here; a subsequent pass
+                ;; will retry with a fresh live-entry snapshot.
+                (devnet-peer-manager-log
+                 node "peer.snap.pivot_probe_failed"
+                 "peer" (devnet-peer-entry-id-hex entry)
+                 "pivot" (block-header-number header)
+                 "error" condition)))))))))
 
 (defun devnet-node-snap-session-matches-p
     (progress target-hash pivot-hash target-accessor pivot-accessor)
@@ -885,10 +931,15 @@ must prove the new state root before either record can authorize publication."
          (last-heal-progress-at (unix-time))
          (last-range-target-check-at nil)
          (last-heal-target-check-at (unix-time)))
+    (devnet-node-activate-snap-pivot-peer-set node pivot-hash)
     (labels
         ((ordered-live-entries ()
            (let ((current
-                   (devnet-node-live-sync-entries node :snap-only-p t)))
+                   (remove-if
+                    (lambda (entry)
+                      (devnet-node-snap-pivot-peer-unavailable-p
+                       node pivot-hash entry))
+                    (devnet-node-live-sync-entries node :snap-only-p t))))
              (if (and preferred-entry
                       (member preferred-entry current :test #'eq))
                  (cons preferred-entry
@@ -1093,6 +1144,8 @@ must prove the new state root before either record can authorize publication."
            (cond
              ((typep condition
                      'ethereum-lisp.snap-sync:snap-sync-state-unavailable)
+              (devnet-node-note-snap-pivot-unavailable
+               node pivot-hash entry)
               (devnet-peer-manager-log
                node "peer.snap.pivot_unavailable"
                "peer" (devnet-peer-entry-id-hex entry)
@@ -1259,20 +1312,20 @@ must prove the new state root before either record can authorize publication."
 (defun devnet-node-snap-sync-target (node target-hash)
   "Download a bounded skeleton, state-sync, and execute one CL target.
 
-The conventional 64-block pivot is attempted once. A full multi-source import
-can discover storage pruning after the cheap account-root probe succeeded. In
-that case request a move to the newest CL-authorized target; the next coordinator
-pass derives another target-64 pivot instead of falling forward to target-1."
+The conventional 64-block pivot remains pinned while replacement peers arrive.
+Peers that explicitly rejected that pivot are skipped on later coordinator
+passes. Ordinary target staleness may still move the pivot at geth's bounded
+window; finite source exhaustion alone must not churn roots and discard useful
+in-flight capacity every second."
   (handler-case
       (handler-case
           (devnet-node-snap-sync-pivot-attempt node target-hash)
         (ethereum-lisp.snap-sync:snap-sync-state-unavailable (condition)
-          (setf (devnet-node-snap-target-refresh-p node) t)
           (devnet-peer-manager-log
-           node "peer.snap.pivot_refresh"
+           node "peer.snap.pivot_wait"
            "target" (hash32-to-hex target-hash)
            "error" condition)
-          :stale-target))
+          :waiting-for-source))
     (ethereum-lisp.snap-sync:snap-sync-heal-yielded ()
       ;; A truthy scheduling result prevents this pass from falling into the
       ;; unbounded forward-gap path. The next pass re-evaluates the newest FCU
