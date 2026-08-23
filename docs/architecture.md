@@ -439,7 +439,11 @@ them by their physical location instead reintroduces dependency cycles:
   verified-candidate capacity is full, verifies the root secp256k1 signature and
   monotonic sequence, verifies every abbreviated Keccak Merkle label, then
   reuses EIP-778 signature verification and the eth fork-id filter before a
-  candidate reaches the dial registry. The accepted sequence is atomically
+  candidate reaches the dial registry. If SNAP persistence owns the store guard
+  before discovery's first head snapshot, the known genesis hash, timestamp,
+  and fork schedule supply the initial EIP-2124 context; state download can
+  therefore never turn a fresh process's shared-DHT crawl into an unfiltered
+  cross-chain dial storm. The accepted sequence is atomically
   persisted by signing-authority URL before candidates are published, so a
   restart cannot replay an older signed root. DNS runs before the cross-chain
   discv4 crawl and refreshes every five minutes, preserving registry capacity

@@ -174,9 +174,11 @@ fork id, which changes when the head crosses a fork -- so a context minutes old
 still answers correctly, and a fresh one is no better. NIL until the first
 refresh succeeds, which turns filtering off rather than rejecting everybody."
   (let* ((store (devnet-node-store node))
+         (genesis-block (devnet-node-genesis-block node))
+         (genesis-hash (hash32-bytes (block-hash genesis-block)))
          (genesis-timestamp
            (block-header-timestamp
-            (block-header (devnet-node-genesis-block node)))))
+            (block-header genesis-block))))
     (multiple-value-bind (head ran-p)
         (call-with-devnet-node-store-guard-if-free
          node
@@ -192,7 +194,18 @@ refresh succeeds, which turns filtering off rather than rejecting everybody."
               (make-eth-chain-context (devnet-node-config node)
                                       (third head) (first head) (second head)
                                       genesis-timestamp)))
-      (devnet-node-chain-context-cache node))))
+      (or
+       (devnet-node-chain-context-cache node)
+       ;; SNAP import deliberately holds the store guard across its durable
+       ;; state transition. Discovery can race that import on a fresh process,
+       ;; before any head snapshot has populated the cache. The chain is still
+       ;; unambiguous at genesis: publish and enforce its EIP-2124 fork id now
+       ;; instead of admitting an unfiltered shared-DHT candidate set for the
+       ;; entire state download.
+       (setf (devnet-node-chain-context-cache node)
+             (make-eth-chain-context
+              (devnet-node-config node) genesis-hash 0 genesis-timestamp
+              genesis-timestamp))))))
 
 (defun devnet-node-record-pairs (node)
   "The endpoint and chain-specific ENR entries this node advertises.

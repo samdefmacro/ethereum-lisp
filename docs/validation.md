@@ -171,6 +171,8 @@ cl-workbench validation run cold-unit --match ETH-GOSSIP-NOTIFIES
 cl-workbench validation run cold-unit --match DEVNET-BROADCAST
 cl-workbench validation run cold-unit --match DEVNET-SNAP-HEAL-PROGRESS
 cl-workbench validation run cold-unit --match DEVNET-CLI-PUBLIC-PRESETS
+cl-workbench validation run cold-unit \
+  --match DEVNET-DISCOVERY-HAS-A-GENESIS-FORK-FILTER
 cl-workbench validation run cold-unit --match EIP1459
 cl-workbench validation run cold-unit --match DNS-TXT-DECODER
 
@@ -421,6 +423,10 @@ content-hash-matched response is decoded once and consumed from the bounded
 response cache, with no per-node point Get and no write-then-reread MultiGet.
 Restoring either redundant production read
 makes `SNAP-STATE-HEALER-PROCESSES-FETCHED-NODES-WITHOUT-REREADING-THEM` fail.
+The discovery genesis-filter control forces the store's nonblocking guard probe
+to fail, then proves the node still caches an EIP-2124 context identical to its
+known genesis and enables its ENR record predicate. This keeps a fresh SNAP
+import from disabling cross-chain filtering while it owns persistence.
 
 These selectors do not prove public reachability. Section 5 also requires an
 ephemeral Hoodi run from an empty datadir, using the reviewed container runtime,

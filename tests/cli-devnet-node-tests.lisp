@@ -3032,6 +3032,38 @@ loop cannot block on a message that never comes."
     (is (getf reenabled :discovery-enabled-p))
     (is (null (getf dns-disabled :discovery-dns)))))
 
+(deftest devnet-discovery-has-a-genesis-fork-filter-while-store-is-busy
+  (:layer :unit :module :p2p)
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (genesis (ethereum-lisp.cli::devnet-node-genesis-block node))
+         (timestamp (block-header-timestamp (block-header genesis)))
+         (expected
+           (make-eth-chain-context
+            (ethereum-lisp.cli::devnet-node-config node)
+            (hash32-bytes (block-hash genesis)) 0 timestamp timestamp)))
+    (devnet-peer-sync-call-with-function-overrides
+     (list
+      (cons 'ethereum-lisp.cli::call-with-devnet-node-store-guard-if-free
+            (lambda (seen-node thunk)
+              (declare (ignore thunk))
+              (is (eq node seen-node))
+              (values nil nil))))
+     (lambda ()
+       (let ((context (ethereum-lisp.cli::devnet-node-chain-context node)))
+         (is context)
+         (is (eq context
+                 (ethereum-lisp.cli::devnet-node-chain-context-cache node)))
+         (is
+          (equalp (eth-chain-context-record-pairs expected)
+                  (eth-chain-context-record-pairs context)))
+         ;; A fresh SNAP import can hold the store guard before discovery's
+         ;; first pass, but the shared DHT must still be chain filtered.
+         (is (functionp
+              (ethereum-lisp.cli::devnet-discovery-record-filter node))))))))
+
 (deftest devnet-nodiscover-starts-neither-discovery-direction
   (:layer :integration :module :p2p)
   (let* ((bootnode
