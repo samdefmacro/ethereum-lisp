@@ -1,5 +1,26 @@
 (in-package #:ethereum-lisp.test)
 
+(deftest devnet-discovery-next-crawl-seeds-is-bounded-and-prioritized
+  (let ((merged
+          (ethereum-lisp.cli::devnet-discovery-next-crawl-seeds
+           '("boot-a" "boot-b")
+           '("old-a" "new-a" "old-b")
+           '("new-a" "new-b" "boot-a"))))
+    (is (equal '("boot-a" "boot-b" "new-a" "new-b" "old-a" "old-b")
+               merged)))
+  (let* ((limit ethereum-lisp.cli::+devnet-discovery-crawl-seed-limit+)
+         (discovered
+           (loop for index below (+ limit 10)
+                 collect (format nil "route-~D" index)))
+         (merged
+           (ethereum-lisp.cli::devnet-discovery-next-crawl-seeds
+            '("boot") nil discovered)))
+    (is (= limit (length merged)))
+    (is (string= "boot" (first merged)))
+    (is (string= "route-0" (second merged)))
+    (is (not (member (format nil "route-~D" limit)
+                     merged :test #'string=)))))
+
 (deftest devnet-node-loads-genesis-summary
   (let* ((node (ethereum-lisp.cli:make-devnet-node
                 :genesis-path +devnet-cli-genesis-fixture+

@@ -1,5 +1,40 @@
 (in-package #:ethereum-lisp.test)
 
+(deftest discv4-bonded-public-enodes-retains-only-endpoint-proven-routes
+  (:layer :unit :module :p2p)
+  (let* ((public-id
+           (node-id-from-private-key (secp256k1-random-private-key)))
+         (private-id
+           (node-id-from-private-key (secp256k1-random-private-key)))
+         (unbonded-id
+           (node-id-from-private-key (secp256k1-random-private-key)))
+         (public-node
+           (ethereum-lisp.p2p:make-discv4-node
+            (hex-to-bytes "0x08080808") 30304 30303 public-id))
+         (private-node
+           (ethereum-lisp.p2p:make-discv4-node
+            (hex-to-bytes "0x0a000001") 30305 30305 private-id))
+         (unbonded-node
+           (ethereum-lisp.p2p:make-discv4-node
+            (hex-to-bytes "0x09090909") 30306 30306 unbonded-id))
+         (seen (make-hash-table :test #'equal))
+         (bonded (make-hash-table :test #'equal)))
+    (setf (gethash (node-id-to-hex public-id) seen) public-node
+          (gethash (node-id-to-hex private-id) seen) private-node
+          (gethash (node-id-to-hex unbonded-id) seen) unbonded-node
+          (gethash (node-id-to-hex public-id) bonded) t
+          (gethash (node-id-to-hex private-id) bonded) t)
+    (let ((routes
+            (ethereum-lisp.p2p::discv4-bonded-public-enodes seen bonded)))
+      (is (= 1 (length routes)))
+      (multiple-value-bind (node-id host tcp-port discovery-port)
+          (parse-enode-url (first routes))
+        (is (bytes= public-id node-id))
+        (is (string= "8.8.8.8" host))
+        (is (= 30303 tcp-port))
+        ;; The endpoint proof applies to UDP, which may differ from TCP.
+        (is (= 30304 discovery-port))))))
+
 (deftest nat-pmp-and-upnp-scripted-gateways-map-both-protocols
   (:layer :unit :module :p2p)
   (let ((calls '()))

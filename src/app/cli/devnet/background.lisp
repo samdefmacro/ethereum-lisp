@@ -144,11 +144,30 @@
              (devnet-shutdown-request shutdown-controller))))
        :name "ethereum-lisp-devnet-dev-period"))))
 
-(defconstant +devnet-discovery-crawl-seconds+ 8
+(defconstant +devnet-discovery-crawl-seconds+ 12
   "Budget for one crawl. Longer than the bare bond-and-ask crawl needed, because
 a filtered crawl adds a request/response round trip per bonded node -- and a
 node whose record has not arrived by the deadline is a node the crawl cannot
 return. Our policy.")
+
+(defconstant +devnet-discovery-crawl-alpha+ 6
+  "Concurrent bond/query fan-out for the bounded public discovery crawl.")
+
+(defconstant +devnet-discovery-crawl-max-queries+ 48
+  "Maximum FindNode queries in one crawl while SNAP needs scarce public peers.")
+
+(defconstant +devnet-discovery-crawl-seed-limit+ 256
+  "Maximum endpoint-proven DHT routing hops retained process-locally.")
+
+(defun devnet-discovery-next-crawl-seeds (bootnodes previous discovered)
+  "Keep BOOTNODES plus recent endpoint-proven routing hops within one bound."
+  (let* ((ordered
+           (remove-duplicates
+            (append bootnodes discovered previous)
+            :test #'string= :from-end t))
+         (count (min (length ordered)
+                     +devnet-discovery-crawl-seed-limit+)))
+    (subseq ordered 0 count)))
 
 (defconstant +devnet-dns-discovery-refresh-seconds+ 300
   "How often to refresh an authenticated EIP-1459 tree after success. The root
@@ -280,7 +299,8 @@ escaping serious condition is fail-stop."
              (let ((private-key (devnet-node-node-key node))
                    (previous-dns-sequence
                      (devnet-node-discovery-dns-sequence node))
-                   (next-dns-refresh-at 0))
+                   (next-dns-refresh-at 0)
+                   (crawl-seeds (copy-list bootnodes)))
                (labels ((offer (found)
                           (call-with-devnet-peer-table
                            node
@@ -344,14 +364,20 @@ escaping serious condition is fail-stop."
                             :sink (devnet-node-telemetry-sink node)))))
                      (when bootnodes
                        (handler-case
-                           (multiple-value-bind (found stats)
+                           (multiple-value-bind (found stats bonded-enodes)
                                (discv4-lookup
-                                bootnodes private-key
+                                crawl-seeds private-key
+                                :alpha +devnet-discovery-crawl-alpha+
+                                :max-queries
+                                +devnet-discovery-crawl-max-queries+
                                 :timeout-seconds +devnet-discovery-crawl-seconds+
                                 :local-tcp-port (or (devnet-node-p2p-port node) 0)
                                 :advertised-host
                                 (devnet-node-advertised-host node)
                                 :record-filter record-filter)
+                             (setf crawl-seeds
+                                   (devnet-discovery-next-crawl-seeds
+                                    bootnodes crawl-seeds bonded-enodes))
                              (telemetry-log
                               :info "peer.discovery.crawl"
                               :fields
@@ -362,7 +388,10 @@ escaping serious condition is fail-stop."
                                 (cons "filtered"
                                       (if record-filter "true" "false"))
                                 (cons "offered"
-                                      (princ-to-string (length found)))))
+                                      (princ-to-string (length found)))
+                                (cons "routingSeeds"
+                                      (princ-to-string
+                                       (length crawl-seeds)))))
                               :sink (devnet-node-telemetry-sink node))
                              (offer found))
                          (error (condition)

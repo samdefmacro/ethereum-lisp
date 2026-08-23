@@ -228,6 +228,35 @@ retry costs one small datagram; not retrying costs the node.")
   "Gap between record requests to the same node, and the grace period after the
 last one before the crawl is willing to conclude. Our policy.")
 
+(defun discv4-public-ip-p (ip)
+  "Whether IP is a relayable public IPv4 address for a later crawl."
+  (let ((ip (ensure-byte-vector ip)))
+    (and (= (length ip) 4)
+         (let ((a (aref ip 0))
+               (b (aref ip 1)))
+           (not
+            (or (= a 0)
+                (= a 10)
+                (= a 127)
+                (and (= a 169) (= b 254))
+                (and (= a 172) (<= 16 b 31))
+                (and (= a 192) (= b 168))
+                (>= a 224)))))))
+
+(defun discv4-bonded-public-enodes (seen bonded)
+  "Return only public endpoint-proven nodes from a bounded crawl table."
+  (loop for node being the hash-values of seen
+        for key = (node-id-to-hex (discv4-node-node-id node))
+        for host = (discv4-ip-string (discv4-node-ip node))
+        when (and host
+                  (gethash key bonded)
+                  (discv4-public-ip-p (discv4-node-ip node)))
+          collect
+          (enode-url
+           (discv4-node-node-id node) host
+           (discv4-node-tcp-port node)
+           :discovery-port (discv4-node-udp-port node))))
+
 (defun discv4-lookup (bootnode-enodes private-key
                       &key (alpha 3) (max-queries 16) (timeout-seconds 8)
                            (local-host "0.0.0.0") (local-port 0)
@@ -237,10 +266,11 @@ last one before the crawl is willing to conclude. Our policy.")
   "Crawl outward from BOOTNODE-ENODES to discover peers over one persistent UDP
 socket. Bonds with known nodes, sends FindNode toward random targets, and folds
 the returned nodes back into the search, up to MAX-QUERIES FindNode requests or
-TIMEOUT-SECONDS. Returns (VALUES ENODE-URLS STATS) -- the discovered enode URLs
-excluding ourselves and the seed bootnodes, and an alist of crawl counts. This
-is a bounded crawl; a full Kademlia routing table with k-buckets and
-closest-node termination is left for later.
+TIMEOUT-SECONDS. Returns (VALUES ENODE-URLS STATS BONDED-ENODES): chain-filtered
+dial candidates excluding the seed bootnodes, an alist of crawl counts, and the
+public endpoint-proven nodes which may seed a later bounded crawl. The third
+value never bypasses RECORD-FILTER for TCP admission; cross-chain nodes are
+useful only as Kademlia routing hops.
 
 RECORD-FILTER, when supplied, is a predicate on a decoded ENR, and ONLY the
 nodes it accepts are returned. discv4 is a single DHT shared by every chain
@@ -511,7 +541,11 @@ simply re-tried by the next crawl."
                                   count (eq v :match)))
                       (cons "mismatched"
                             (loop for v being the hash-values of enr-verdict
-                                  count (eq v :mismatch)))))))
+                                  count (eq v :mismatch))))
+                ;; A later crawl may traverse endpoint-proven cross-chain nodes
+                ;; without ever dialing them over TCP. Persist neither private
+                ;; addresses nor unbonded neighbor-table claims.
+                (discv4-bonded-public-enodes seen bonded))))
         (ignore-errors (sb-bsd-sockets:socket-close socket))))))
 
 

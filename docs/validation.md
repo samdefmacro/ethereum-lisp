@@ -386,6 +386,10 @@ storage load, an ordinary failed dependency peer enters cooldown while the same
 request succeeds elsewhere, and an explicit state-unavailable response cannot
 be readmitted by expiring that cooldown or be misattributed to the unrelated
 account-page source. Concurrent rejection writers retain every stable peer id.
+The discv4 unit controls retain only UDP-bonded public routing seeds, the CLI
+seed merge always retains configured bootnodes while bounding process-local
+Kademlia hops at 256, and the socket integration controls keep fork-ID
+mismatches excluded from TCP.
 Completed
 ranges are not replayed after restart, thirty-two-range cursors expand without
 replay, and a failed source's claimed range is reassigned. SNAP demand raises

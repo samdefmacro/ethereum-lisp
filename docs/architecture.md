@@ -183,6 +183,12 @@ them by their physical location instead reintroduces dependency cycles:
   permanent ban. Its dedicated process-local lock permits dependency workers
   to record exact rejections concurrently with coordinator callbacks without
   entering the peer-table or database lock orders.
+- Public discv4 discovery retains a bounded process-local set of at most 256
+  endpoint-proven public routing hops between crawls. Cross-chain ENRs may help
+  traverse the shared Kademlia graph but still cannot become TCP candidates;
+  the chain fork-ID filter remains the only admission path. This follows the
+  persistent-routing-table shape used by production clients without making
+  discovery state durable or unbounded.
   Local persistence and trie-merge failures remain fatal and are not converted
   into retries. Account and storage ranges carry compact boundary proofs, trie
   nodes are served by path set, and every page is verified before its dependency
