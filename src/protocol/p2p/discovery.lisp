@@ -263,6 +263,8 @@ last one before the crawl is willing to conclude. Our policy.")
                            (local-tcp-port local-port)
                            (advertised-host "127.0.0.1")
                            advertised-udp-port
+                           shared-socket
+                           packet-handler
                            record-filter)
   "Crawl outward from BOOTNODE-ENODES to discover peers over one persistent UDP
 socket. Bonds with known nodes, sends FindNode toward random targets, and folds
@@ -283,10 +285,20 @@ and ECIES handshake needed to learn the same thing from the peer directly.
 Filtering necessarily returns far FEWER nodes, and that is the intent: a node
 must be bonded and must answer ENRRequest to survive it, where an unfiltered
 crawl returns every address anyone ever mentioned. Nodes that stay silent are
-simply re-tried by the next crawl."
-  (let ((our-node-id (node-id-from-private-key private-key)))
+simply re-tried by the next crawl.
+
+SHARED-SOCKET, when supplied, is caller-owned and remains open after lookup.
+PACKET-HANDLER receives any datagram consumed during the crawl plus its observed
+HOST and PORT, and may return reply packets for unrelated responder traffic."
+  (let ((our-node-id (node-id-from-private-key private-key))
+        (owns-socket-p (null shared-socket)))
     (multiple-value-bind (socket local-udp)
-        (discv4-make-socket :host local-host :port local-port)
+        (if shared-socket
+            (multiple-value-bind (address bound-port)
+                (sb-bsd-sockets:socket-name shared-socket)
+              (declare (ignore address))
+              (values shared-socket bound-port))
+            (discv4-make-socket :host local-host :port local-port))
       (unwind-protect
            (let ((from (discv4-endpoint-for-host
                         advertised-host
@@ -452,26 +464,42 @@ simply re-tried by the next crawl."
                                                (enr-due-p key now))))
                      (enr-request-node node)
                      (setf last-enr-at now)))
-                 (let ((packet (discv4-receive socket 1)))
+                 (multiple-value-bind (packet packet-host packet-port)
+                     (discv4-receive socket 1)
                    (when packet
+                     ;; A shared socket is also the node's responder. Service
+                     ;; traffic the crawl happened to receive before applying
+                     ;; the crawl-local response bookkeeping below.
+                     (when packet-handler
+                       (ignore-errors
+                        (dolist (reply
+                                  (funcall packet-handler
+                                           packet packet-host packet-port))
+                          (discv4-send-to
+                           socket reply packet-host packet-port))))
                      (handler-case
                          (multiple-value-bind (type data sender) (decode-discv4-packet packet)
                            (cond
                              ((= type +discv4-packet-ping+)
-                              (let ((their (decode-discv4-ping data)))
-                                (unless (discv4-expired-p (discv4-ping-expiration their))
-                                  (send-node
-                                   (make-discv4-node
-                                    (discv4-endpoint-ip (discv4-ping-from their))
-                                    (discv4-endpoint-udp-port (discv4-ping-from their))
-                                    (discv4-endpoint-tcp-port (discv4-ping-from their))
-                                    sender)
-                                   (encode-discv4-packet
-                                    private-key +discv4-packet-pong+
-                                    (encode-discv4-pong
-                                     (make-discv4-pong :to (discv4-ping-from their)
-                                                       :ping-hash (subseq packet 0 32)
-                                                       :expiration (discv4-expiration))))))))
+                              ;; Without a responder callback the lookup still
+                              ;; completes the mutual bootnode bond itself.
+                              (unless packet-handler
+                                (let ((their (decode-discv4-ping data)))
+                                  (unless (discv4-expired-p
+                                           (discv4-ping-expiration their))
+                                    (send-node
+                                     (make-discv4-node
+                                      (discv4-endpoint-ip (discv4-ping-from their))
+                                      (discv4-endpoint-udp-port (discv4-ping-from their))
+                                      (discv4-endpoint-tcp-port (discv4-ping-from their))
+                                      sender)
+                                     (encode-discv4-packet
+                                      private-key +discv4-packet-pong+
+                                      (encode-discv4-pong
+                                       (make-discv4-pong
+                                        :to (discv4-ping-from their)
+                                        :ping-hash (subseq packet 0 32)
+                                        :expiration (discv4-expiration)))))))))
                              ((= type +discv4-packet-pong+)
                               (let* ((pong (decode-discv4-pong data))
                                      (key (bytes-to-hex (discv4-pong-ping-hash pong)))
@@ -549,7 +577,8 @@ simply re-tried by the next crawl."
                 ;; without ever dialing them over TCP. Persist neither private
                 ;; addresses nor unbonded neighbor-table claims.
                 (discv4-bonded-public-enodes seen bonded))))
-        (ignore-errors (sb-bsd-sockets:socket-close socket))))))
+        (when owns-socket-p
+          (ignore-errors (sb-bsd-sockets:socket-close socket)))))))
 
 
 ;;;; Answering discovery, rather than only performing it.

@@ -188,10 +188,11 @@ them by their physical location instead reintroduces dependency cycles:
   traverse the shared Kademlia graph but still cannot become TCP candidates;
   the chain fork-ID filter remains the only admission path. This follows the
   persistent-routing-table shape used by production clients without making
-  discovery state durable or unbounded. Crawl Pings advertise the node's stable
-  public UDP P2P port rather than the crawler's short-lived local socket, so a
-  remote endpoint proof and routing-table entry point back to the long-lived
-  responder just as they do for a production client's unified discovery socket.
+  discovery state durable or unbounded. The responder owns one long-lived UDP
+  socket for both outbound crawls and inbound service, matching geth's unified
+  discv4 endpoint. The Ping's claimed UDP port and its observed source port are
+  therefore the same stable P2P port, and the socket continues to answer after
+  each bounded crawl completes.
   Local persistence and trie-merge failures remain fatal and are not converted
   into retries. Account and storage ranges carry compact boundary proofs, trie
   nodes are served by path set, and every page is verified before its dependency
@@ -489,10 +490,6 @@ them by their physical location instead reintroduces dependency cycles:
   anything, because they share one NON-recursive mutex with each other and a
   caller composes them inside a single acquisition. A lock appearing in either
   file would turn a composed decision into a signalled error rather than a wait.
-  Dynamic discovery candidates are one-shot dial-stream items: the first failed
-  dial releases their bounded registry slot, while a later endpoint proof may
-  offer the identity again. Static peers and bootnodes instead retain their
-  exponential retry history because configuration, not discovery, owns them.
 - **persistence adapters** live physically under
   `src/storage/node-store/persistence/` but depend on application services:
   `staged-import` calls the common candidate-import service before

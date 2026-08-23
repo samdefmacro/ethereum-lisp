@@ -276,14 +276,61 @@ chain it is on has no basis to refuse anyone else's."
         (eth-chain-context-record-compatible-p
          chain-context (enr-value record "eth"))))))
 
+(defun devnet-discovery-offer-candidates (node found)
+  "Offer chain-filtered discovery results to the bounded dial registry."
+  (call-with-devnet-peer-table
+   node
+   (lambda ()
+     (dolist (enode found)
+       (ignore-errors
+        (devnet-dial-registry-offer-dynamic
+         (devnet-node-dial-registry node)
+         (node-id-to-hex (nth-value 0 (parse-enode-url enode)))
+         enode)))))
+  found)
+
+(defun devnet-discovery-crawl-once
+    (node crawl-seeds private-key &key shared-socket packet-handler)
+  "Run one bounded discv4 crawl and return the next endpoint-proven seed set."
+  (let* ((bootnodes (devnet-node-bootnodes node))
+         (record-filter (devnet-discovery-record-filter node)))
+    (multiple-value-bind (found stats bonded-enodes)
+        (discv4-lookup
+         crawl-seeds private-key
+         :alpha +devnet-discovery-crawl-alpha+
+         :max-queries +devnet-discovery-crawl-max-queries+
+         :timeout-seconds +devnet-discovery-crawl-seconds+
+         :local-tcp-port (or (devnet-node-p2p-port node) 0)
+         :advertised-udp-port (devnet-node-p2p-port node)
+         :advertised-host (devnet-node-advertised-host node)
+         :shared-socket shared-socket
+         :packet-handler packet-handler
+         :record-filter record-filter)
+      (let ((next
+              (devnet-discovery-next-crawl-seeds
+               bootnodes crawl-seeds bonded-enodes)))
+        (telemetry-log
+         :info "peer.discovery.crawl"
+         :fields
+         (append
+          (loop for (name . count) in stats
+                collect (cons name (princ-to-string count)))
+          (list
+           (cons "filtered" (if record-filter "true" "false"))
+           (cons "offered" (princ-to-string (length found)))
+           (cons "routingSeeds" (princ-to-string (length next)))))
+         :sink (devnet-node-telemetry-sink node))
+        (devnet-discovery-offer-candidates node found)
+        next))))
+
 (defun devnet-start-discovery-thread
     (node shutdown-controller error-callback)
-  "Start authenticated DNS and discv4 discovery, or NIL when neither is set.
+  "Start authenticated DNS and fallback discv4 discovery, or NIL when absent.
 
-Both transports only offer candidates to the dial scheduler. EIP-1459 runs
-first so its chain-filtered, signed records cannot be crowded out by the noisy
-cross-chain discv4 DHT. Transport failures are logged and retried; only an
-escaping serious condition is fail-stop."
+The long-lived responder owns normal discv4 crawling whenever a P2P port is
+configured. This worker retains EIP-1459 DNS and the ephemeral-socket fallback
+used by portless tests/tools. Transport failures are logged and retried; only
+an escaping serious condition is fail-stop."
   #-sbcl
   (declare (ignore node shutdown-controller error-callback))
   #-sbcl
@@ -302,16 +349,7 @@ escaping serious condition is fail-stop."
                    (next-dns-refresh-at 0)
                    (crawl-seeds (copy-list bootnodes)))
                (labels ((offer (found)
-                          (call-with-devnet-peer-table
-                           node
-                           (lambda ()
-                             (dolist (enode found)
-                               (ignore-errors
-                                (devnet-dial-registry-offer-dynamic
-                                 (devnet-node-dial-registry node)
-                                 (node-id-to-hex
-                                  (nth-value 0 (parse-enode-url enode)))
-                                 enode)))))))
+                          (devnet-discovery-offer-candidates node found)))
                  (loop until (devnet-shutdown-requested-p shutdown-controller) do
                    (let ((record-filter (devnet-discovery-record-filter node))
                          (now (get-universal-time)))
@@ -362,40 +400,14 @@ escaping serious condition is fail-stop."
                             :fields
                             (list (cons "error" (princ-to-string condition)))
                             :sink (devnet-node-telemetry-sink node)))))
-                     (when bootnodes
+                     ;; A configured node crawls on the responder's stable
+                     ;; socket below. Preserve an ephemeral fallback only when
+                     ;; there is no P2P listener/UDP endpoint to share.
+                     (when (and bootnodes (null (devnet-node-p2p-port node)))
                        (handler-case
-                           (multiple-value-bind (found stats bonded-enodes)
-                               (discv4-lookup
-                                crawl-seeds private-key
-                                :alpha +devnet-discovery-crawl-alpha+
-                                :max-queries
-                                +devnet-discovery-crawl-max-queries+
-                                :timeout-seconds +devnet-discovery-crawl-seconds+
-                                :local-tcp-port (or (devnet-node-p2p-port node) 0)
-                                :advertised-udp-port
-                                (devnet-node-p2p-port node)
-                                :advertised-host
-                                (devnet-node-advertised-host node)
-                                :record-filter record-filter)
-                             (setf crawl-seeds
-                                   (devnet-discovery-next-crawl-seeds
-                                    bootnodes crawl-seeds bonded-enodes))
-                             (telemetry-log
-                              :info "peer.discovery.crawl"
-                              :fields
-                              (append
-                               (loop for (name . count) in stats
-                                     collect (cons name (princ-to-string count)))
-                               (list
-                                (cons "filtered"
-                                      (if record-filter "true" "false"))
-                                (cons "offered"
-                                      (princ-to-string (length found)))
-                                (cons "routingSeeds"
-                                      (princ-to-string
-                                       (length crawl-seeds)))))
-                              :sink (devnet-node-telemetry-sink node))
-                             (offer found))
+                           (setf crawl-seeds
+                                 (devnet-discovery-crawl-once
+                                  node crawl-seeds private-key))
                          (error (condition)
                            (telemetry-log
                             :warning "peer.discovery.crawl_failed"
@@ -411,12 +423,11 @@ escaping serious condition is fail-stop."
        :name "ethereum-lisp-devnet-discovery"))))
 
 
-;;;; Answering discovery.
+;;;; Unified discovery I/O.
 ;;;;
-;;;; The crawl above asks questions. This thread answers them, which is what
-;;;; makes the node findable by anyone who did not already have its enode.
-;;;; It owns one long-lived UDP socket for the node's lifetime, unlike the
-;;;; crawl, whose socket exists only while it runs.
+;;;; The service below both asks and answers on one long-lived UDP socket. This
+;;;; is what makes the endpoint observed by a bootnode remain reachable after
+;;;; a bounded crawl and makes the node findable to later DHT participants.
 
 (defconstant +devnet-discovery-tick-seconds+ 1
   "How long one receive waits before the loop re-checks for shutdown. Our
@@ -510,10 +521,12 @@ so a Pong cannot race ahead of PENDING-PING-HASH."
 
 (defun devnet-start-discovery-server-thread
     (node shutdown-controller error-callback)
-  "Start the discv4 responder, or return NIL when the node has no p2p port.
+  "Start the unified discv4 service, or NIL when the node has no p2p port.
 
 Bound to the same port number as the TCP listener, which is the convention an
 enode URL assumes: one number identifies both a node's TCP and UDP endpoints.
+Outbound crawls use this same long-lived socket, so remote routing tables see
+the endpoint which will still answer after a bounded crawl completes.
 A malformed or hostile packet is logged and the loop CONTINUES -- a public UDP
 port receives junk as a matter of course, and taking discovery down for it would
 be a liveness bug."
@@ -538,19 +551,45 @@ be a liveness bug."
          (lambda ()
            (handler-case
                (unwind-protect
-                    (loop until (devnet-shutdown-requested-p shutdown-controller)
-                          do (handler-case
+                    (let ((crawl-seeds
+                            (copy-list (devnet-node-bootnodes node)))
+                          (next-crawl-at 0))
+                      (labels
+                          ((handle-packet (packet host packet-port)
+                             (call-with-devnet-peer-table
+                              node
+                              (lambda ()
+                                (devnet-discovery-handle-packet
+                                 node private-key table packet
+                                 host packet-port)))))
+                        (loop
+                          until (devnet-shutdown-requested-p shutdown-controller)
+                          do
+                          (when (and crawl-seeds
+                                     (>= (get-universal-time) next-crawl-at))
+                            (handler-case
+                                (setf crawl-seeds
+                                      (devnet-discovery-crawl-once
+                                       node crawl-seeds private-key
+                                       :shared-socket socket
+                                       :packet-handler #'handle-packet))
+                              (error (condition)
+                                (telemetry-log
+                                 :warning "peer.discovery.crawl_failed"
+                                 :fields
+                                 (list
+                                  (cons "error" (princ-to-string condition)))
+                                 :sink (devnet-node-telemetry-sink node))))
+                            (setf next-crawl-at
+                                  (+ (get-universal-time) 30)))
+                          (handler-case
                                  (multiple-value-bind (packet host packet-port)
                                      (discv4-receive socket
                                                      +devnet-discovery-tick-seconds+)
                                    (when packet
                                      (dolist (reply
-                                              (call-with-devnet-peer-table
-                                               node
-                                               (lambda ()
-                                                 (devnet-discovery-handle-packet
-                                                  node private-key table packet
-                                                  host packet-port))))
+                                              (handle-packet
+                                               packet host packet-port))
                                        (ignore-errors
                                         (discv4-send-to socket reply host
                                                         packet-port))))
@@ -567,7 +606,7 @@ be a liveness bug."
                                (error (condition)
                                  (devnet-peer-manager-log
                                   node "p2p.discovery.packet_failed"
-                                  "error" condition))))
+                                  "error" condition))))))
                  (ignore-errors (sb-bsd-sockets:socket-close socket)))
              (serious-condition (condition)
                (funcall error-callback condition)

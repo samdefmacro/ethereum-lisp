@@ -169,8 +169,6 @@ cl-workbench validation run cold-unit --match RLPX-MESSAGE-CODES
 cl-workbench validation run cold-unit --match ETH-72
 cl-workbench validation run cold-unit --match ETH-GOSSIP-NOTIFIES
 cl-workbench validation run cold-unit --match DEVNET-BROADCAST
-cl-workbench validation run cold-unit \
-  --match DEVNET-DIAL-REGISTRY-FORGETS-DEAD-DISCOVERED-PEERS-ONLY
 cl-workbench validation run cold-unit --match DEVNET-SNAP-HEAL-PROGRESS
 cl-workbench validation run cold-unit --match DEVNET-CLI-PUBLIC-PRESETS
 cl-workbench validation run cold-unit \
@@ -182,6 +180,10 @@ cl-workbench validation run cold-unit --match DNS-TXT-DECODER
 # pivot progress, bounded multi-peer failover, sole-writer request queues, and
 # eth+snap multiplexing over one RLPx socket.
 cl-workbench validation run cold-integration --match DEVNET-DATADIR-PERSISTS
+cl-workbench validation run cold-integration \
+  --match DISCV4-LOOKUP-CRAWLS-A-BOOTNODE-AND-DISCOVERS-A-PEER
+cl-workbench validation run cold-integration \
+  --match DEVNET-DISCOVERY-SERVER-ANSWERS-A-REAL-CLIENT
 cl-workbench validation run cold-integration --match DEVNET-CLI-WIRES-AUTHENTICATED-DNS
 cl-workbench validation run cold-integration --match SNAP-
 cl-workbench validation run cold-integration --match NODE-STORE-SNAP-SKELETON

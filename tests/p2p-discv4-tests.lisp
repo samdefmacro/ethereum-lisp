@@ -331,11 +331,14 @@
          (discovered-id (node-id-from-private-key
                          #x0102030405060708090a0b0c0d0e0f101112131415161718))
          (observed-advertised-udp nil)
+         (observed-source-udp nil)
          (server-error nil))
     (multiple-value-bind (boot-socket boot-port)
         (ethereum-lisp.p2p:discv4-make-socket :host "127.0.0.1" :port 0)
-      (unwind-protect
-           (let ((server-thread
+      (multiple-value-bind (shared-socket shared-port)
+          (ethereum-lisp.p2p:discv4-make-socket :host "127.0.0.1" :port 0)
+        (unwind-protect
+             (let ((server-thread
                    (sb-thread:make-thread
                     (lambda ()
                       (handler-case
@@ -362,7 +365,8 @@
                                                  ping)))
                                          (setf observed-advertised-udp
                                                (ethereum-lisp.p2p:discv4-endpoint-udp-port
-                                                from))
+                                                from)
+                                               observed-source-udp peer-port)
                                          (reply
                                           (ethereum-lisp.p2p:encode-discv4-packet
                                            boot-priv
@@ -386,11 +390,14 @@
                                        (return-from serve))))))))
                         (error (condition) (setf server-error condition))))
                     :name "discv4-lookup-test-bootnode")))
-             (let* ((enode (enode-url boot-id "127.0.0.1" boot-port))
-                    (enodes (ethereum-lisp.p2p:discv4-lookup
-                             (list enode) client-priv :timeout-seconds 3
-                             :advertised-udp-port 40404))
-                    (ids (mapcar (lambda (e) (nth-value 0 (parse-enode-url e))) enodes)))
+               (let* ((enode (enode-url boot-id "127.0.0.1" boot-port))
+                      (enodes (ethereum-lisp.p2p:discv4-lookup
+                               (list enode) client-priv :timeout-seconds 3
+                               :shared-socket shared-socket
+                               :advertised-udp-port shared-port))
+                      (ids (mapcar (lambda (e)
+                                     (nth-value 0 (parse-enode-url e)))
+                                   enodes)))
                (sb-thread:join-thread server-thread)
                (when server-error
                  (error "discv4-lookup bootnode side failed: ~A" server-error))
@@ -398,10 +405,16 @@
                (is (find discovered-id ids :test #'bytes=))
                ;; The seed bootnode itself is excluded from the discovered set.
                (is (not (find boot-id ids :test #'bytes=)))
-               ;; The short-lived crawl socket remains private, while the Ping
-               ;; advertises the long-lived responder's public UDP endpoint.
-               (is (= 40404 observed-advertised-udp))))
-        (ignore-errors (sb-bsd-sockets:socket-close boot-socket))))))
+                 ;; A shared crawl both advertises and actually sends from the
+                 ;; long-lived responder endpoint, and lookup does not close it.
+                 (is (= shared-port observed-advertised-udp))
+                 (is (= shared-port observed-source-udp))
+                 (is (= shared-port
+                        (nth-value 1
+                                   (sb-bsd-sockets:socket-name
+                                    shared-socket))))))
+          (ignore-errors (sb-bsd-sockets:socket-close shared-socket))
+          (ignore-errors (sb-bsd-sockets:socket-close boot-socket)))))))
 
 (defun discv4-test-receive-datagram (socket timeout-seconds)
   "Receive one datagram within TIMEOUT-SECONDS, or NIL. (VALUES PACKET ADDRESS PORT).

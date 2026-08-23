@@ -107,7 +107,8 @@ the only one a stranger can use to kill the process.
    beacon header chain, no pivot, no state healing, no parallel body fetch, and no
    receipt download at all. At 192 headers plus 192 bodies per round trip against
    a single peer, mainnet is out of reach by orders of magnitude.
-4. **Nothing we advertise through discovery is dialable** (NET-05). The crawl
+4. **Nothing we advertised through discovery was dialable** (NET-05, remediated
+   2026-08-23). The original crawl
    pings bootnodes from an ephemeral UDP socket and hardcodes its `from` endpoint
    to `127.0.0.1`; geth learns a peer's TCP port from exactly that claimed field
    (`p2p/discover/v4_udp.go:701`). Every node we bond with therefore records a
@@ -328,6 +329,15 @@ listener and a UDP port that dies with the crawl. We are outbound-only in
 practice: dialing works, being dialed through discovery cannot. Note that this is
 not the same defect as advertising a private IP — geth ignores the claimed IP —
 but the claimed TCP port is load-bearing and ours is wrong.
+
+**Remediated (verified by container integration, 2026-08-23).** The normal
+crawl now runs on the responder's caller-owned long-lived socket. Incoming
+Ping, Pong, Neighbors, FindNode, and ENR traffic consumed during a crawl is
+dispatched through the same endpoint-proofing responder, and lookup never
+closes the shared socket. The loopback integration control asserts both the
+claimed Ping UDP port and the datagram's observed source port equal the bound
+responder port, then verifies the socket remains open. Portless test/tool nodes
+retain the former ephemeral fallback.
 
 ### NET-06 — A Ping alone marks a node bonded, and bonded nodes are relayed
 
@@ -629,9 +639,9 @@ misbehaved. Of the twelve devp2p disconnect reasons defined
 `src/app/cli/devnet/peer-sync.lisp:220`. `+devp2p-disconnect-subprotocol-error+`
 and `useless-peer` are never used. The only memory is the dial registry's failure
 backoff (`+devnet-dial-backoff-ceiling-seconds+` 300 with at most four doublings
-and one-shot eviction for failed dynamic discovery candidates,
+and `+devnet-dial-dynamic-forget-failures+` 3,
 `src/app/cli/devnet/dial-schedule.lisp`), which applies to dials we initiate,
-not to peers that dial us. Static peers and bootnodes retain their backoff.
+not to peers that dial us.
 
 **Reference.** geth drops peers on protocol violations with a typed
 `p2p.DiscProtocolError` and the downloader/fetcher call `dropPeer` on bad
@@ -920,7 +930,7 @@ item that is exploitable today.
 3. **Add item-count caps to the transaction decoders.** (S, depends on 2 for the
    limit constants to sit alongside.) 5000 announcements, and a bound on
    `decode-eth-transactions`. *Verification:* `tests/eth-gossip-tests.lisp`.
-4. **Fix the discovery endpoint.** (S, no dependencies.) Run the crawl on the
+4. **Fix the discovery endpoint. (Completed 2026-08-23.)** Run the crawl on the
    same socket as the responder, or at minimum set the `from` endpoint's TCP port
    to the real p2p port. Add `ip`/`tcp`/`udp` to the served ENR and derive the
    sequence number from something that changes. *Verification:* a loopback
