@@ -158,22 +158,24 @@ first, so a long backfill does not starve a short one."
       (>= (- now last-log-at)
           +devnet-snap-heal-progress-log-interval-seconds+)))
 
-(defconstant +devnet-snap-stale-target-distance+
+(defconstant +devnet-snap-stale-pivot-distance+
   (- (* 2 +devnet-snap-pivot-distance+) 8)
-  "How far a newer CL target may advance before an unfinished pivot is moved.
+  "How far the CL head may advance beyond an unfinished pivot before it moves.
 
-This is the same 2*64-8 stale-pivot window used by the pinned geth reference.
-It prevents slot-by-slot restarts while still escaping a state root that every
-live peer has pruned.")
+This is geth's pivot-relative 2*64-8 window.  With the conventional target-64
+pivot, it is equivalent to moving after the target advances 64-8 blocks.  The
+pivot-relative comparison prevents slot-by-slot restarts without retaining the
+old root an extra 64 blocks after public peers have pruned it.")
 
 (defun devnet-node-stale-snap-successor
-    (node target-hash target-number)
+    (node target-hash pivot-number)
   "Return the newer CL-authorized target hash and number when TARGET is stale.
 
 Peer-advertised heads are deliberately excluded. Forkchoice has one current
 sync target; the Engine store retains its known header even while state is
-unavailable. The same 2*64-8 distance as DEVNET-NODE-ACTIVE-SNAP-TARGET avoids
-slot-by-slot healer churn."
+unavailable. Like geth, staleness is measured from the active pivot rather than
+its target, avoiding slot-by-slot healer churn without adding another 64-block
+retention interval."
   (let ((latest-target (first (devnet-node-forkchoice-sync-targets node))))
     (when (and latest-target (not (hash32= latest-target target-hash)))
       (let ((latest-block
@@ -188,7 +190,7 @@ slot-by-slot healer churn."
           (let ((latest-number
                   (block-header-number (block-header latest-block))))
             (when (> latest-number
-                     (+ target-number +devnet-snap-stale-target-distance+))
+                     (+ pivot-number +devnet-snap-stale-pivot-distance+))
               (values latest-target latest-number))))))))
 
 (defun devnet-node-active-snap-target (node latest-target)
@@ -269,9 +271,9 @@ and must agree."
                                   latest-number
                                   (> latest-number
                                      (+
-                                      (node-store-snap-skeleton-progress-target-number
+                                      (node-store-snap-skeleton-progress-pivot-number
                                        skeleton)
-                                      +devnet-snap-stale-target-distance+)))))
+                                      +devnet-snap-stale-pivot-distance+)))))
                       (if (or stale-p
                               (chain-store-state-available-p store target))
                           latest-target
@@ -1102,7 +1104,7 @@ must prove the new state root before either record can authorize publication."
          (stale-target-p ()
            (multiple-value-bind (successor successor-number)
                (devnet-node-stale-snap-successor
-                node target-hash target-number)
+                node target-hash pivot-number)
              (when successor
                (devnet-peer-manager-log
                 node "peer.snap.target_stale"

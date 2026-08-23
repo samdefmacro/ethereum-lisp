@@ -1546,7 +1546,7 @@ really reopens the directory instead of observing the first handle's memory."
               (is (eq node seen-node))
               (list latest))))
      (lambda ()
-       ;; Exactly 2*64-8 blocks is still inside the pinned target window.
+       ;; Exactly 2*64-8 blocks is still inside geth's pivot-relative window.
        (is (null
             (ethereum-lisp.cli::devnet-node-stale-snap-successor
              node old-target 0)))
@@ -1600,7 +1600,7 @@ really reopens the directory instead of observing the first handle's memory."
             (lambda (seen-node seen-target seen-number)
               (is (eq node seen-node))
               (is (hash32= target-hash seen-target))
-              (is (= 64 seen-number))
+              (is (= 0 seen-number))
               (values successor-hash 185)))
       (cons 'ethereum-lisp.snap-sync:snap-sync-import-state-multi
             (lambda (seen-database sources &rest arguments)
@@ -1929,8 +1929,8 @@ really reopens the directory instead of observing the first handle's memory."
                     nil)
                    ;; Match geth's stale-pivot rule: committed progress is
                    ;; protected across ordinary slots, but a known CL target
-                   ;; more than 2*64-8 blocks ahead may move the uninstalled
-                   ;; pivot instead of waiting forever for a pruned root.
+                   ;; more than 2*64-8 blocks ahead of the old pivot may move
+                   ;; it instead of waiting forever for a pruned root.
                    (ethereum-lisp.cli::call-with-devnet-node-store-guard
                     node
                     (lambda ()
@@ -2066,10 +2066,10 @@ really reopens the directory instead of observing the first handle's memory."
                       (ethereum-lisp.chain-store:engine-payload-store-put-remote-block
                        store (make-block :header new-target))))
                    ;; Even without a healer checkpoint, a matching durable
-                   ;; range session overrides the ordinary 120-block staleness
-                   ;; timer for one real recovery attempt. Releasing it before
-                   ;; a peer is tried made every routine deploy change pivot
-                   ;; and repeat the root scan.
+                   ;; range session overrides the ordinary pivot-relative
+                   ;; staleness timer for one real recovery attempt. Releasing
+                   ;; it before a peer is tried made every routine deploy
+                   ;; change pivot and repeat the root scan.
                    (is (hash32=
                         (block-header-hash old-target)
                         (ethereum-lisp.cli::devnet-node-active-snap-target

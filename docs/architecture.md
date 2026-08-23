@@ -154,7 +154,8 @@ them by their physical location instead reintroduces dependency cycles:
   seeks SNAP-capable outbound sessions up to half of `--maxpeers`, returning to
   the ordinary one-third target afterwards. At each durable page seam,
   a rate-limited consensus-head check moves a pivot that has fallen outside
-  geth's `2*64-8` window; the atomic rebase retains completed ranges and makes
+  geth's pivot-relative `2*64-8` window (56 blocks after the conventional
+  target); the atomic rebase retains completed ranges and makes
   the fresher state root serviceable by the full live peer set. Account and
   storage requests start at geth's 64 KiB lower cap. Each peer and response
   type learns an EWMA of delivered capacity and round-trip time, grows or
@@ -394,7 +395,7 @@ them by their physical location instead reintroduces dependency cycles:
   the pivot, target, chain, genesis, and database authority, and is ignored if
   corrupt or stale. After process restart, any identity-matched unfinished Snap
   session pins that exact CL target for one actual attempt even after the
-  ordinary 120-block stale-pivot window. An exact checkpoint resumes its
+  ordinary pivot-relative 120-block stale window. An exact checkpoint resumes its
   frontier; without one, the retained range cursors and completed-subtree proofs
   still prevent a routine deploy from changing pivot before a peer is tried.
   Waiting for a Snap peer does not consume that process-local opportunity. Once
@@ -404,7 +405,8 @@ them by their physical location instead reintroduces dependency cycles:
   request worker or uncommitted database batch, it checks the current Engine
   forkchoice target at most every 30 seconds. A typed scheduling condition
   yields to the coordinator only when that CL-authorized target is more than
-  120 blocks beyond the active target and no healer progress snapshot has
+  120 blocks beyond the active pivot (56 blocks beyond its conventional target)
+  and no healer progress snapshot has
   arrived for five minutes. Productive local reuse and accepted partial
   responses therefore retain their exact DFS frontier instead of repeatedly
   restarting as the live head advances. Peer-advertised heads never enter this

@@ -395,11 +395,11 @@ waiting without a Snap peer does not consume that opportunity, and that
 starting an attempt restores the rebase escape for the next pass. Removing the
 production pin makes the focused restart decision regression fail, while an
 explicit rebase still deletes the frontier. Three stale-heal controls require
-the successor to be a known Engine forkchoice target beyond the exact
-120-block window, pass a 30-second-throttled yield predicate through the
-production multi-source importer, and turn its typed safe-boundary condition
-into a truthy scheduling result so the same pass cannot fall into unbounded
-forward gap filling. The call-site control also advances a real healing
+the successor to be a known Engine forkchoice target beyond geth's exact
+pivot-relative 120-block window, pass a 30-second-throttled yield predicate
+through the production multi-source importer, and turn its typed safe-boundary
+condition into a truthy scheduling result so the same pass cannot fall into
+unbounded forward gap filling. The call-site control also advances a real healing
 snapshot immediately before the five-minute silence boundary and proves that
 productive local or peer progress keeps the exact frontier; only five full
 minutes without a later snapshot permits the stale yield. Removing the
