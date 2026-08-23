@@ -240,6 +240,35 @@
              (bytes= (car entry) (keccak-256 (cdr entry))))
            fetched)))))
 
+#+sbcl
+(deftest snap-bytecode-batches-use-bounded-concurrent-workers
+  (:layer :unit :module :p2p)
+  (let ((real
+          (fdefinition
+           'ethereum-lisp.snap-sync::snap-sync-fetch-code-hash-batch)))
+    (unwind-protect
+         (progn
+           (setf
+            (fdefinition
+             'ethereum-lisp.snap-sync::snap-sync-fetch-code-hash-batch)
+            (lambda (source hashes byte-limit)
+              (declare (ignore source byte-limit))
+              (sleep 0.2)
+              (copy-list hashes)))
+           (let* ((started-at (get-internal-real-time))
+                  (result
+                    (ethereum-lisp.snap-sync::snap-sync-fetch-code-batches-concurrently
+                     nil '((:first) (:second)) 1))
+                  (elapsed
+                    (ethereum-lisp.snap-sync::snap-sync-elapsed-milliseconds
+                     started-at (get-internal-real-time))))
+             (is (equal '(:first :second) result))
+             (is (< elapsed 380))))
+      (setf
+       (fdefinition
+        'ethereum-lisp.snap-sync::snap-sync-fetch-code-hash-batch)
+       real))))
+
 (deftest snap-account-page-overlaps-storage-and-bytecode-dependencies
   (:layer :integration :module :p2p)
   (let* ((source-state (make-state-db))

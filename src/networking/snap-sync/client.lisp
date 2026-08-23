@@ -21,6 +21,8 @@ Deployed EVM code is capped at 24 KiB. Geth requests four times the number of
 maximum-sized blobs that fit in a 512 KiB response: enough small contracts to
 fill the response without repeatedly retransmitting a page's entire remaining
 hash set after the peer reaches its soft byte cap.")
+(defconstant +snap-sync-code-batch-workers+ 4
+  "Maximum geth-sized ByteCodes batches advanced for one account page.")
 (defconstant +snap-sync-legacy-account-task-count+ 16
   "Account partition count written by progress versions before oversubscription.")
 (defconstant +snap-sync-previous-account-task-count+ 32
@@ -831,7 +833,17 @@ and increases timeout pressure without creating another on-wire slot."
         unless (hash32= root +empty-trie-hash+)
           collect (cons (car entry) root)))
 
-(defun snap-sync-fetch-codes (source hashes byte-limit)
+(defun snap-sync-code-hash-batches (hashes)
+  "Partition HASHES into geth-sized ByteCodes request batches."
+  (loop with remaining = hashes
+        while remaining
+        for count = (min +snap-sync-code-hashes-per-request+
+                         (length remaining))
+        collect (subseq remaining 0 count)
+        do (setf remaining (nthcdr count remaining))))
+
+(defun snap-sync-fetch-code-hash-batch (source hashes byte-limit)
+  "Fetch one bounded hash batch, continuing only if the soft cap truncates it."
   (let ((remaining (mapcar #'copy-seq hashes))
         (pending (make-hash-table :test #'equalp))
         (codes '()))
@@ -869,6 +881,82 @@ and increases timeout pressure without creating another on-wire slot."
                         (nth-value 1 (gethash hash pending)))
                       remaining))))
     (nreverse codes)))
+
+#+sbcl
+(defun snap-sync-fetch-code-batches-concurrently
+    (source batches byte-limit)
+  "Fetch BATCHES with a bounded worker pool and retain batch result order."
+  (let* ((count (length batches))
+         (worker-count (min count +snap-sync-code-batch-workers+))
+         (results (make-array count :initial-element nil))
+         (threads (make-array (1- worker-count) :initial-element nil))
+         (next-index 0)
+         (condition nil)
+         (lock (sb-thread:make-mutex :name "snap-sync-code-batches")))
+    (labels ((claim ()
+               (sb-thread:with-mutex (lock)
+                 (if (or condition (>= next-index count))
+                     (values nil nil)
+                     (let ((index next-index))
+                       (incf next-index)
+                       (values index t)))))
+             (worker ()
+               (loop
+                 (multiple-value-bind (index present-p) (claim)
+                   (unless present-p (return))
+                   (handler-case
+                       (setf
+                        (aref results index)
+                        (snap-sync-fetch-code-hash-batch
+                         source (nth index batches) byte-limit))
+                     (serious-condition (error)
+                       (sb-thread:with-mutex (lock)
+                         (unless condition (setf condition error)))
+                       (return)))))))
+      (unwind-protect
+           (progn
+             (dotimes (index (length threads))
+               (setf
+                (aref threads index)
+                (sb-thread:make-thread
+                 #'worker :name "snap-sync-code-batch-worker")))
+             ;; The account worker is one member of the bound rather than an
+             ;; idle coordinator thread.
+             (worker)
+             (loop for index below (length threads)
+                   for thread = (aref threads index)
+                   do (sb-thread:join-thread thread)
+                      (setf (aref threads index) nil)))
+        ;; Thread creation can fail after some helpers started. Their network
+        ;; exchanges retain the ordinary request deadline, so join all of them
+        ;; before the importer releases its source and database lifetime.
+        (loop for thread across threads
+              when thread
+                do (ignore-errors (sb-thread:join-thread thread)))))
+    (when condition (error condition))
+    (loop for result across results append result)))
+
+(defun snap-sync-fetch-codes (source hashes byte-limit &key parallel-p)
+  "Fetch HASHES in bounded geth-sized batches.
+
+Range import may advance four independent batches because its SOURCE is the
+global peer pool. Healing leaves PARALLEL-P false: a healing candidate is one
+fixed peer whose single ByteCodes slot would only serialize those calls."
+  (let ((batches (snap-sync-code-hash-batches hashes)))
+    (cond
+      ((null batches) '())
+      ((or (null (rest batches)) (not parallel-p))
+       (loop for batch in batches
+             append (snap-sync-fetch-code-hash-batch
+                     source batch byte-limit)))
+      (t
+       #+sbcl
+       (snap-sync-fetch-code-batches-concurrently
+        source batches byte-limit)
+       #-sbcl
+       (loop for batch in batches
+             append (snap-sync-fetch-code-hash-batch
+                     source batch byte-limit))))))
 
 (defun snap-sync-populate-code-batch (database batch codes)
   "Add hash-verified bytecodes to BATCH without prereading durable storage."
@@ -927,7 +1015,7 @@ and increases timeout pressure without creating another on-wire slot."
   (let ((missing
           (snap-sync-heal-missing-code-hashes database code-hashes)))
     (if missing
-        (snap-sync-fetch-codes source missing byte-limit)
+        (snap-sync-fetch-codes source missing byte-limit :parallel-p t)
         '())))
 
 #+sbcl
