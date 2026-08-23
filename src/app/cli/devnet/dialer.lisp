@@ -492,6 +492,151 @@ into a permanent peer ban."))
        (lambda (packet)
          (request ethereum-lisp.snap:+snap-message-get-trie-nodes+ packet))))))
 
+#+sbcl
+(defstruct (devnet-snap-source-pool
+            (:constructor make-devnet-snap-source-pool (node)))
+  "Independent storage/bytecode scheduler over the node's live SNAP peers."
+  node
+  (lock (sb-thread:make-mutex :name "ethereum-lisp-snap-source-pool"))
+  (fixed-sources (make-hash-table :test #'eq))
+  (reservations (make-hash-table :test #'eq))
+  (failed-entries (make-hash-table :test #'eq)))
+
+#+sbcl
+(defun devnet-snap-source-pool-reservation-table (pool entry)
+  "Return ENTRY's per-response reservation table while POOL is locked."
+  (or (gethash entry (devnet-snap-source-pool-reservations pool))
+      (setf (gethash entry (devnet-snap-source-pool-reservations pool))
+            (make-hash-table))))
+
+#+sbcl
+(defun devnet-snap-source-pool-register (pool entry source)
+  "Register ENTRY's fixed transport SOURCE for pooled dependency requests."
+  (sb-thread:with-mutex ((devnet-snap-source-pool-lock pool))
+    (setf (gethash entry (devnet-snap-source-pool-fixed-sources pool)) source))
+  source)
+
+#+sbcl
+(defun devnet-snap-source-pool-acquire (pool response-id)
+  "Reserve the least-loaded live peer for RESPONSE-ID.
+
+Ties prefer the peer with the largest learned capacity, matching geth's
+message-type-specific capacity ordering.  Reservations are recorded before the
+caller submits to a peer queue, so concurrent account workers spread across
+idle storage and bytecode slots instead of racing onto the same peer."
+  (sb-thread:with-mutex ((devnet-snap-source-pool-lock pool))
+    (let ((best nil)
+          (best-load nil)
+          (best-capacity nil))
+      (dolist (entry
+                (devnet-node-live-sync-entries
+                 (devnet-snap-source-pool-node pool) :snap-only-p t))
+        (let ((source
+                (gethash entry
+                         (devnet-snap-source-pool-fixed-sources pool))))
+          (when (and source
+                     (not
+                      (gethash entry
+                               (devnet-snap-source-pool-failed-entries pool))))
+            (let* ((reservations
+                     (devnet-snap-source-pool-reservation-table pool entry))
+                   (load (gethash response-id reservations 0))
+                   (queue (devnet-peer-entry-request-queue entry))
+                   (capacity
+                     (if queue
+                         (devnet-peer-request-queue-snap-capacity
+                          queue response-id)
+                         0)))
+              (when (or (null best)
+                        (< load best-load)
+                        (and (= load best-load)
+                             (> capacity best-capacity)))
+                (setf best entry
+                      best-load load
+                      best-capacity capacity))))))
+      (when best
+        (let ((reservations
+                (devnet-snap-source-pool-reservation-table pool best)))
+          (incf (gethash response-id reservations 0)))
+        (values
+         best
+         (gethash best (devnet-snap-source-pool-fixed-sources pool)))))))
+
+#+sbcl
+(defun devnet-snap-source-pool-release
+    (pool entry response-id &key failed-p)
+  "Release one dependency reservation and optionally retire ENTRY from POOL."
+  (sb-thread:with-mutex ((devnet-snap-source-pool-lock pool))
+    (let* ((reservations
+             (devnet-snap-source-pool-reservation-table pool entry))
+           (count (gethash response-id reservations 0)))
+      (unless (plusp count)
+        (error "SNAP source pool reservation underflow"))
+      (if (= count 1)
+          (remhash response-id reservations)
+          (setf (gethash response-id reservations) (1- count))))
+    (when failed-p
+      (setf (gethash entry (devnet-snap-source-pool-failed-entries pool)) t)))
+  t)
+
+#+sbcl
+(defun devnet-snap-source-pool-call
+    (pool response-id source-function request label)
+  "Run one dependency REQUEST on the best live peer of its response type."
+  (let ((last-condition nil))
+    (loop
+      (multiple-value-bind (entry source)
+          (devnet-snap-source-pool-acquire pool response-id)
+        (unless entry
+          (if last-condition
+              (error last-condition)
+              (error "no live SNAP peer can serve ~A" label)))
+        (handler-case
+            (return
+              (unwind-protect
+                   (funcall (funcall source-function source) request)
+                (devnet-snap-source-pool-release pool entry response-id)))
+          (ethereum-lisp.validation:storage-error (condition)
+            ;; Database faults are local and must never be retried as a peer
+            ;; selection problem.
+            (error condition))
+          (serious-condition (condition)
+            ;; The reservation was released by UNWIND-PROTECT. Retire only the
+            ;; failing dependency transport and retry the already verified
+            ;; account page on another peer, rather than blaming its account
+            ;; source and throwing away that work.
+            (sb-thread:with-mutex ((devnet-snap-source-pool-lock pool))
+              (setf
+               (gethash entry
+                        (devnet-snap-source-pool-failed-entries pool))
+               t))
+            (setf last-condition condition)))))))
+
+#+sbcl
+(defun devnet-snap-source-pool-source (pool entry)
+  "Build an account-pinned source whose dependencies use POOL globally."
+  (let ((fixed (devnet-peer-queued-snap-source entry)))
+    (devnet-snap-source-pool-register pool entry fixed)
+    (ethereum-lisp.snap-sync:make-snap-sync-source
+     :account-range
+     (ethereum-lisp.snap-sync:snap-sync-source-account-range fixed)
+     :storage-ranges
+     (lambda (packet)
+       (devnet-snap-source-pool-call
+        pool ethereum-lisp.snap:+snap-message-storage-ranges+
+        #'ethereum-lisp.snap-sync:snap-sync-source-storage-ranges
+        packet "storage ranges"))
+     :bytecodes
+     (lambda (packet)
+       (devnet-snap-source-pool-call
+        pool ethereum-lisp.snap:+snap-message-bytecodes+
+        #'ethereum-lisp.snap-sync:snap-sync-source-bytecodes
+        packet "bytecodes"))
+     ;; Trie healing already has its own cross-source scheduler and request
+     ;; grouping, so retain the fixed source identity for that phase.
+     :trie-nodes
+     (ethereum-lisp.snap-sync:snap-sync-source-trie-nodes fixed))))
+
 (defun devnet-node-durable-snap-pivot-number (node)
   "Return the highest pivot whose range/skeleton work is already durable."
   (let ((store (devnet-node-store node)))
@@ -672,6 +817,7 @@ must prove the new state root before either record can authorize publication."
          (state-root (block-header-state-root pivot-header))
          (sources nil)
          (source-entries '())
+         (source-pool (make-devnet-snap-source-pool node))
          (last-heal-log-at nil)
          (last-heal-progress-at (unix-time))
          (last-range-target-check-at nil)
@@ -694,7 +840,9 @@ must prove the new state root before either record can authorize publication."
                        (nconc
                         source-entries
                         (list
-                         (cons (devnet-peer-queued-snap-source entry) entry))))
+                         (cons
+                          (devnet-snap-source-pool-source source-pool entry)
+                          entry))))
                  (incf added)))
              (when (plusp added)
                (devnet-peer-manager-log

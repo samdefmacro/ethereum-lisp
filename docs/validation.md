@@ -190,6 +190,7 @@ cl-workbench validation run cold-integration --match ETH-SYNC-THREE-SCRIPTED
 cl-workbench validation run cold-integration --match DEVNET-PEER-REQUEST-QUEUE
 cl-workbench validation run cold-unit --match DEVNET-SNAP-REQUEST-CAPACITY
 cl-workbench validation run cold-unit --match DEVNET-SNAP-SOURCE-APPLIES
+cl-workbench validation run cold-unit --match DEVNET-SNAP-SOURCE-POOL
 cl-workbench validation run cold-integration \
   --match DEVNET-RANGE-ANNOUNCEMENT-WAKES
 cl-workbench validation run cold-integration \
@@ -377,6 +378,10 @@ production predicate wiring makes the exact call-site test fail. The range
 tests prove that sixty-four durable account ranges are fetched with three
 bounded workers per source, including nine simultaneous workers through three
 sole-writer request queues, with geth's adaptive 64--512 KiB snap byte limits.
+The source-pool controls prove that concurrent storage reservations fill
+independent peer slots, learned capacity wins an idle tie, bytecode reservations
+remain independent of storage load, and a failed dependency peer is retired
+while the same request succeeds on another live peer.
 Completed
 ranges are not replayed after restart, thirty-two-range cursors expand without
 replay, and a failed source's claimed range is reassigned. SNAP demand raises

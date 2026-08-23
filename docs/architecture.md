@@ -161,8 +161,13 @@ them by their physical location instead reintroduces dependency cycles:
   the session's wall-clock deadline while allowing fast peers to refill the
   full page in bounded steps. Fetch workers construct and atomically append
   verified content batches in parallel, while one coordinator serializes only
-  the small successor-cursor and final-plan publication batches. A failed
-  peer releases only its claimed range for another worker. If every peer in
+  the small successor-cursor and final-plan publication batches. Storage and
+  bytecode dependencies are scheduled independently of the peer that returned
+  their account page: reservations spread each response type across its idle
+  live peers, with learned capacity breaking equal-load ties. A dependency
+  transport failure retries the already authenticated account page's remaining
+  work elsewhere instead of discarding it. A failed account peer releases only
+  its claimed range for another worker. If every peer in
   that finite source snapshot fails, the importer reports a typed remote-source exhaustion result;
   the CLI keeps the node and Engine API alive, takes a fresh live-peer snapshot
   on its next bounded pass, and resumes from the durable per-range cursors.

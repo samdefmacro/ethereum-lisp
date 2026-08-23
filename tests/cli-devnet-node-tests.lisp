@@ -1584,7 +1584,21 @@ really reopens the directory instead of observing the first handle's memory."
       (cons 'ethereum-lisp.snap-sync:snap-sync-import-state-multi
             (lambda (seen-database sources &rest arguments)
               (is (eq database seen-database))
-              (is (equal (list source) sources))
+              (is (= 1 (length sources)))
+              (let ((pooled (first sources)))
+                ;; Account ranges and trie healing retain the source identity;
+                ;; storage and bytecode are intentionally wrapped by the
+                ;; independent live-peer pool.
+                (is (eq
+                     (ethereum-lisp.snap-sync:snap-sync-source-account-range
+                      source)
+                     (ethereum-lisp.snap-sync:snap-sync-source-account-range
+                      pooled)))
+                (is (eq
+                     (ethereum-lisp.snap-sync:snap-sync-source-trie-nodes
+                      source)
+                     (ethereum-lisp.snap-sync:snap-sync-source-trie-nodes
+                      pooled))))
               (let ((range-yield-p (getf arguments :range-yield-p))
                     (yield-p (getf arguments :heal-yield-p))
                     (progress-callback (getf arguments :on-heal-progress)))
@@ -3433,6 +3447,152 @@ loop cannot block on a message that never comes."
        queue ethereum-lisp.snap:+snap-message-get-account-range+ next)
       (is (= (* 2 ethereum-lisp.cli::+devnet-snap-min-request-bytes+)
              (ethereum-lisp.snap:snap-get-account-range-bytes next)))))
+  #-sbcl
+  (is t))
+
+(deftest devnet-snap-source-pool-prefers-capacity-and-independent-type-slots
+  (:layer :unit :module :p2p)
+  #+sbcl
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (queue-one (ethereum-lisp.cli::make-devnet-peer-request-queue))
+         (queue-two (ethereum-lisp.cli::make-devnet-peer-request-queue))
+         (entry-one
+           (ethereum-lisp.cli::make-devnet-peer-entry
+            :id-hex "pool-peer-1" :request-queue queue-one))
+         (entry-two
+           (ethereum-lisp.cli::make-devnet-peer-entry
+            :id-hex "pool-peer-2" :request-queue queue-two))
+         (pool (ethereum-lisp.cli::make-devnet-snap-source-pool node))
+         (source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :account-range (lambda (request) request)
+            :storage-ranges (lambda (request) request)
+            :bytecodes (lambda (request) request)
+            :trie-nodes (lambda (request) request)))
+         (storage-id ethereum-lisp.snap:+snap-message-storage-ranges+)
+         (bytecode-id ethereum-lisp.snap:+snap-message-bytecodes+))
+    (ethereum-lisp.cli::devnet-snap-source-pool-register
+     pool entry-one source)
+    (ethereum-lisp.cli::devnet-snap-source-pool-register
+     pool entry-two source)
+    ;; Peer two has proved twice the storage delivery capacity.
+    (ethereum-lisp.cli::devnet-peer-request-queue-record-snap-delivery
+     queue-two storage-id
+     ethereum-lisp.cli::+devnet-snap-min-request-bytes+ 0.05d0)
+    (devnet-peer-sync-call-with-function-overrides
+     (list
+      (cons 'ethereum-lisp.cli::devnet-node-live-sync-entries
+            (lambda (seen-node &key snap-only-p)
+              (is (eq node seen-node))
+              (is snap-only-p)
+              (list entry-one entry-two))))
+     (lambda ()
+       (multiple-value-bind (first first-source)
+           (ethereum-lisp.cli::devnet-snap-source-pool-acquire
+            pool storage-id)
+         (is (eq entry-two first))
+         (is (eq source first-source))
+         ;; Its storage slot is now reserved, so another storage request uses
+         ;; the otherwise idle peer despite peer two's higher capacity.
+         (multiple-value-bind (second second-source)
+             (ethereum-lisp.cli::devnet-snap-source-pool-acquire
+              pool storage-id)
+           (is (eq entry-one second))
+           (is (eq source second-source))
+           ;; Response types have independent reservations: bytecode can use
+           ;; an idle type slot while both storage slots are occupied.
+           (multiple-value-bind (code-entry code-source)
+               (ethereum-lisp.cli::devnet-snap-source-pool-acquire
+                pool bytecode-id)
+             (is (eq entry-one code-entry))
+             (is (eq source code-source))
+             (ethereum-lisp.cli::devnet-snap-source-pool-release
+              pool code-entry bytecode-id))
+           (ethereum-lisp.cli::devnet-snap-source-pool-release
+            pool second storage-id))
+         (ethereum-lisp.cli::devnet-snap-source-pool-release
+          pool first storage-id))
+       ;; Once idle again, learned capacity wins the storage tie.
+       (multiple-value-bind (selected selected-source)
+           (ethereum-lisp.cli::devnet-snap-source-pool-acquire
+            pool storage-id)
+         (is (eq entry-two selected))
+         (is (eq source selected-source))
+         (ethereum-lisp.cli::devnet-snap-source-pool-release
+          pool selected storage-id)))))
+  #-sbcl
+  (is t))
+
+(deftest devnet-snap-source-pool-retries-a-dependency-on-another-peer
+  (:layer :unit :module :p2p)
+  #+sbcl
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (entry-one
+           (ethereum-lisp.cli::make-devnet-peer-entry
+            :id-hex "failing-dependency-peer"
+            :request-queue
+            (ethereum-lisp.cli::make-devnet-peer-request-queue)))
+         (entry-two
+           (ethereum-lisp.cli::make-devnet-peer-entry
+            :id-hex "healthy-dependency-peer"
+            :request-queue
+            (ethereum-lisp.cli::make-devnet-peer-request-queue)))
+         (pool (ethereum-lisp.cli::make-devnet-snap-source-pool node))
+         (failed-calls 0)
+         (healthy-calls 0)
+         (failed-source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :account-range (lambda (request) request)
+            :storage-ranges
+            (lambda (request)
+              (declare (ignore request))
+              (incf failed-calls)
+              (error "dependency peer retired"))
+            :bytecodes (lambda (request) request)
+            :trie-nodes (lambda (request) request)))
+         (healthy-source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :account-range (lambda (request) request)
+            :storage-ranges
+            (lambda (request)
+              (incf healthy-calls)
+              request)
+            :bytecodes (lambda (request) request)
+            :trie-nodes (lambda (request) request))))
+    (ethereum-lisp.cli::devnet-snap-source-pool-register
+     pool entry-one failed-source)
+    (ethereum-lisp.cli::devnet-snap-source-pool-register
+     pool entry-two healthy-source)
+    (devnet-peer-sync-call-with-function-overrides
+     (list
+      (cons 'ethereum-lisp.cli::devnet-node-live-sync-entries
+            (lambda (seen-node &key snap-only-p)
+              (is (eq node seen-node))
+              (is snap-only-p)
+              (list entry-one entry-two))))
+     (lambda ()
+       (is (eq :request
+               (ethereum-lisp.cli::devnet-snap-source-pool-call
+                pool ethereum-lisp.snap:+snap-message-storage-ranges+
+                #'ethereum-lisp.snap-sync:snap-sync-source-storage-ranges
+                :request "storage ranges")))
+       (is (= 1 failed-calls))
+       (is (= 1 healthy-calls))
+       ;; The failed transport stays retired, so subsequent dependency work
+       ;; does not throw away another already verified account response.
+       (is (eq :second
+               (ethereum-lisp.cli::devnet-snap-source-pool-call
+                pool ethereum-lisp.snap:+snap-message-storage-ranges+
+                #'ethereum-lisp.snap-sync:snap-sync-source-storage-ranges
+                :second "storage ranges")))
+       (is (= 1 failed-calls))
+       (is (= 2 healthy-calls)))))
   #-sbcl
   (is t))
 
