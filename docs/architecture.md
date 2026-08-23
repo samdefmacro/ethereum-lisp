@@ -180,7 +180,9 @@ them by their physical location instead reintroduces dependency cycles:
   cursors; it does not re-probe the rejected sessions or churn to a new root
   every second. The process-local rejection set clears when the geth-style
   stale window selects a genuinely new pivot and is never a peer score or
-  permanent ban.
+  permanent ban. Its dedicated process-local lock permits dependency workers
+  to record exact rejections concurrently with coordinator callbacks without
+  entering the peer-table or database lock orders.
   Local persistence and trie-merge failures remain fatal and are not converted
   into retries. Account and storage ranges carry compact boundary proofs, trie
   nodes are served by path set, and every page is verified before its dependency

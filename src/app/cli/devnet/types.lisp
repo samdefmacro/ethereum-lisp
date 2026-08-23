@@ -219,6 +219,13 @@ most one follow-up pass, so peer traffic cannot allocate unbounded wakeup work."
   ;; pivot clears the set; restart also deliberately gives peers a fresh chance.
   snap-unavailable-pivot-hash
   (snap-unavailable-peer-ids (make-hash-table :test #'equal))
+  ;; Dependency workers can discover pruning concurrently with coordinator
+  ;; callbacks. This lock protects only the two process-local fields above and
+  ;; is never held across peer, store, or source-pool I/O.
+  (snap-unavailable-peer-lock
+    #+sbcl (sb-thread:make-mutex
+            :name "ethereum-lisp-snap-unavailable-peers")
+    #-sbcl nil)
   ;; A bounded condition-variable notification from peer session threads to the
   ;; node-wide coordinator.  It is independent of both the peer-table mutex and
   ;; the store guard, so an announcement can never enter either lock order.

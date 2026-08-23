@@ -3762,6 +3762,43 @@ loop cannot block on a message that never comes."
   #-sbcl
   (is t))
 
+(deftest devnet-snap-pivot-unavailable-cache-retains-concurrent-writers
+  (:layer :unit :module :p2p)
+  #+sbcl
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (pivot
+           (make-hash32 (make-byte-vector 32 :initial-element 74)))
+         (entries
+           (loop for index below 32
+                 collect
+                 (ethereum-lisp.cli::make-devnet-peer-entry
+                  :id-hex (format nil "concurrent-pruned-peer-~D" index))))
+         (threads '()))
+    (dolist (entry entries)
+      (let ((entry entry))
+        (push
+         (sb-thread:make-thread
+          (lambda ()
+            (dotimes (attempt 64)
+              (declare (ignore attempt))
+              (ethereum-lisp.cli::devnet-node-note-snap-pivot-unavailable
+               node pivot entry)))
+          :name "snap-unavailable-cache-test-writer")
+         threads)))
+    (dolist (thread threads)
+      (sb-thread:join-thread thread))
+    (is
+     (every
+      (lambda (entry)
+        (ethereum-lisp.cli::devnet-node-snap-pivot-peer-unavailable-p
+         node pivot entry))
+      entries)))
+  #-sbcl
+  (is t))
+
 (deftest devnet-cli-nodekeyhex-yields-a-stable-identity
   (let* ((hex "0000000000000000000000000000000000000000000000000000000000000001")
          (options-a (ethereum-lisp.cli::devnet-cli-options

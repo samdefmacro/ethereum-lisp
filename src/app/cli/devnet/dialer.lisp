@@ -469,8 +469,8 @@ into a permanent peer ban."))
              queue ethereum-lisp.snap:+snap-message-storage-ranges+)))))
   packet)
 
-(defun devnet-node-activate-snap-pivot-peer-set (node pivot-hash)
-  "Retain explicit peer rejections only while PIVOT-HASH remains active."
+(defun devnet-node-activate-snap-pivot-peer-set-locked (node pivot-hash)
+  "Activate PIVOT-HASH while NODE's unavailable-peer lock is held."
   (let ((active (devnet-node-snap-unavailable-pivot-hash node)))
     (unless (and active (hash32= active pivot-hash))
       (setf (devnet-node-snap-unavailable-pivot-hash node)
@@ -478,21 +478,34 @@ into a permanent peer ban."))
       (clrhash (devnet-node-snap-unavailable-peer-ids node))))
   node)
 
+(defun devnet-node-activate-snap-pivot-peer-set (node pivot-hash)
+  "Retain explicit peer rejections only while PIVOT-HASH remains active."
+  (call-with-devnet-mutex
+   (devnet-node-snap-unavailable-peer-lock node)
+   (lambda ()
+     (devnet-node-activate-snap-pivot-peer-set-locked node pivot-hash))))
+
 (defun devnet-node-note-snap-pivot-unavailable (node pivot-hash entry)
   "Remember that ENTRY explicitly rejected PIVOT-HASH's state."
-  (devnet-node-activate-snap-pivot-peer-set node pivot-hash)
-  (setf (gethash (devnet-peer-entry-id-hex entry)
-                 (devnet-node-snap-unavailable-peer-ids node))
-        t)
+  (call-with-devnet-mutex
+   (devnet-node-snap-unavailable-peer-lock node)
+   (lambda ()
+     (devnet-node-activate-snap-pivot-peer-set-locked node pivot-hash)
+     (setf (gethash (devnet-peer-entry-id-hex entry)
+                    (devnet-node-snap-unavailable-peer-ids node))
+           t)))
   entry)
 
 (defun devnet-node-snap-pivot-peer-unavailable-p (node pivot-hash entry)
   "Whether ENTRY already rejected the currently active PIVOT-HASH."
-  (let ((active (devnet-node-snap-unavailable-pivot-hash node)))
-    (and active
-         (hash32= active pivot-hash)
-         (gethash (devnet-peer-entry-id-hex entry)
-                  (devnet-node-snap-unavailable-peer-ids node)))))
+  (call-with-devnet-mutex
+   (devnet-node-snap-unavailable-peer-lock node)
+   (lambda ()
+     (let ((active (devnet-node-snap-unavailable-pivot-hash node)))
+       (and active
+            (hash32= active pivot-hash)
+            (gethash (devnet-peer-entry-id-hex entry)
+                     (devnet-node-snap-unavailable-peer-ids node)))))))
 
 (defun devnet-peer-queued-snap-source (entry)
   "Build a per-type-pipelined, rate-adaptive SNAP source for ENTRY."
