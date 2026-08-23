@@ -384,7 +384,8 @@ adaptive 64--512 KiB snap byte limits. The source-pool controls prove that
 learned capacity wins an idle tie, bytecode reservations remain independent of
 storage load, an ordinary failed dependency peer enters cooldown while the same
 request succeeds elsewhere, and an explicit state-unavailable response cannot
-be readmitted by expiring that cooldown.
+be readmitted by expiring that cooldown or be misattributed to the unrelated
+account-page source.
 Completed
 ranges are not replayed after restart, thirty-two-range cursors expand without
 replay, and a failed source's claimed range is reassigned. SNAP demand raises

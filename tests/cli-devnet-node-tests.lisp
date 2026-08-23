@@ -3681,7 +3681,12 @@ loop cannot block on a message that never comes."
             :id-hex "stateful-dependency-peer"
             :request-queue
             (ethereum-lisp.cli::make-devnet-peer-request-queue)))
-         (pool (ethereum-lisp.cli::make-devnet-snap-source-pool node))
+         (pivot
+           (make-hash32 (make-byte-vector 32 :initial-element 73)))
+         (pool
+           (ethereum-lisp.cli::make-devnet-snap-source-pool node pivot))
+         (exhausted-pool
+           (ethereum-lisp.cli::make-devnet-snap-source-pool node pivot))
          (pruned-calls 0)
          (stateful-calls 0)
          (pruned-source
@@ -3708,6 +3713,8 @@ loop cannot block on a message that never comes."
      pool entry-one pruned-source)
     (ethereum-lisp.cli::devnet-snap-source-pool-register
      pool entry-two stateful-source)
+    (ethereum-lisp.cli::devnet-snap-source-pool-register
+     exhausted-pool entry-one pruned-source)
     (devnet-peer-sync-call-with-function-overrides
      (list
       (cons 'ethereum-lisp.cli::devnet-node-live-sync-entries
@@ -3723,6 +3730,12 @@ loop cannot block on a message that never comes."
                 :first "storage ranges")))
        (is (= 1 pruned-calls))
        (is (= 1 stateful-calls))
+       (is
+        (ethereum-lisp.cli::devnet-node-snap-pivot-peer-unavailable-p
+         node pivot entry-one))
+       (is (not
+            (ethereum-lisp.cli::devnet-node-snap-pivot-peer-unavailable-p
+             node pivot entry-two)))
        ;; Expiring ordinary cooldown state cannot readmit an explicit pruning
        ;; rejection during the same pivot import.
        (setf
@@ -3736,7 +3749,16 @@ loop cannot block on a message that never comes."
                 #'ethereum-lisp.snap-sync:snap-sync-source-storage-ranges
                 :second "storage ranges")))
        (is (= 1 pruned-calls))
-       (is (= 2 stateful-calls)))))
+       (is (= 2 stateful-calls))
+       ;; Aggregate dependency exhaustion is a distinct subtype, so the
+       ;; account worker which happened to own this page is not blamed for the
+       ;; dependency transports' exact pruning responses.
+       (signals ethereum-lisp.cli::devnet-snap-pooled-state-unavailable
+         (ethereum-lisp.cli::devnet-snap-source-pool-call
+          exhausted-pool ethereum-lisp.snap:+snap-message-storage-ranges+
+          #'ethereum-lisp.snap-sync:snap-sync-source-storage-ranges
+          :exhausted "storage ranges"))
+       (is (= 2 pruned-calls)))))
   #-sbcl
   (is t))
 

@@ -171,8 +171,9 @@ them by their physical location instead reintroduces dependency cycles:
   failure enters a thirty-second cooldown and the
   already authenticated account page's remaining work retries elsewhere
   instead of being discarded. A peer which explicitly rejects the pivot state
-  is excluded for that import, while its stable node id is remembered across
-  finite coordinator passes for the lifetime of the same pivot. A failed
+  is excluded for that import, while its exact stable node id (including when
+  it served a pooled dependency rather than the account page) is remembered
+  across finite coordinator passes for the lifetime of the same pivot. A failed
   account peer releases only its claimed range for another worker. If every
   peer in that finite source snapshot fails, the CLI keeps the node and Engine
   API alive and waits for genuinely new sources at the same durable per-range

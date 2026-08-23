@@ -519,9 +519,14 @@ into a permanent peer ban."))
 
 #+sbcl
 (defstruct (devnet-snap-source-pool
-            (:constructor make-devnet-snap-source-pool (node)))
+            (:constructor make-devnet-snap-source-pool
+                (node &optional pivot-hash)))
   "Independent storage/bytecode scheduler over the node's live SNAP peers."
   node
+  ;; Present for production imports and absent in isolated scheduler tests.
+  ;; It lets a pooled dependency failure retire the transport that actually
+  ;; rejected the state instead of blaming the account-page source.
+  pivot-hash
   (lock (sb-thread:make-mutex :name "ethereum-lisp-snap-source-pool"))
   (changed-by-response (make-hash-table))
   (fixed-sources (make-hash-table :test #'eq))
@@ -534,6 +539,12 @@ into a permanent peer ban."))
 
 (defconstant +devnet-snap-source-pool-failure-cooldown-seconds+ 30
   "How long one failed dependency transport is excluded from pooled work.")
+
+(define-condition devnet-snap-pooled-state-unavailable
+    (ethereum-lisp.snap-sync:snap-sync-state-unavailable)
+  ()
+  (:documentation
+   "All pooled dependency candidates are unavailable for the active pivot."))
 
 #+sbcl
 (defun devnet-snap-source-pool-reservation-table (pool entry)
@@ -658,9 +669,15 @@ capacity wins and RTT breaks ties, matching geth's capacity-sorted assignment."
   "Retire ENTRY for this import or cool it down, then wake global waiters."
   (sb-thread:with-mutex ((devnet-snap-source-pool-lock pool))
     (if state-unavailable-p
-        (setf (gethash
-               entry (devnet-snap-source-pool-unavailable-entries pool))
-              t)
+        (progn
+          (setf (gethash
+                 entry (devnet-snap-source-pool-unavailable-entries pool))
+                t)
+          (when (devnet-snap-source-pool-pivot-hash pool)
+            (devnet-node-note-snap-pivot-unavailable
+             (devnet-snap-source-pool-node pool)
+             (devnet-snap-source-pool-pivot-hash pool)
+             entry)))
         (setf
          (gethash entry (devnet-snap-source-pool-failed-entries pool))
          (+ (get-universal-time)
@@ -679,9 +696,20 @@ capacity wins and RTT breaks ties, matching geth's capacity-sorted assignment."
       (multiple-value-bind (entry source)
           (devnet-snap-source-pool-acquire pool response-id)
         (unless entry
-          (if last-condition
-              (error last-condition)
-              (error "no live SNAP peer can serve ~A" label)))
+          (cond
+            ((typep
+              last-condition
+              'ethereum-lisp.snap-sync:snap-sync-state-unavailable)
+             ;; The pool already recorded every exact transport that rejected
+             ;; the dependency. Do not let the multi-source importer attribute
+             ;; the aggregate failure to the unrelated account-page source.
+             (error
+              'devnet-snap-pooled-state-unavailable
+              :request-kind
+              (ethereum-lisp.snap-sync:snap-sync-state-unavailable-request-kind
+               last-condition)))
+            (last-condition (error last-condition))
+            (t (error "no live SNAP peer can serve ~A" label))))
         (let ((result nil)
               (succeeded-p nil)
               (transport-condition nil))
@@ -926,7 +954,7 @@ must prove the new state root before either record can authorize publication."
          (state-root (block-header-state-root pivot-header))
          (sources nil)
          (source-entries '())
-         (source-pool (make-devnet-snap-source-pool node))
+         (source-pool (make-devnet-snap-source-pool node pivot-hash))
          (last-heal-log-at nil)
          (last-heal-progress-at (unix-time))
          (last-range-target-check-at nil)
@@ -1142,6 +1170,14 @@ must prove the new state root before either record can authorize publication."
        (lambda (source condition)
          (let ((entry (entry-for-source source)))
            (cond
+             ((typep condition 'devnet-snap-pooled-state-unavailable)
+              ;; The dependency pool recorded the exact rejecting entries at
+              ;; failure time. SOURCE identifies only the account page whose
+              ;; dependency job observed aggregate exhaustion.
+              (devnet-peer-manager-log
+               node "peer.snap.dependencies_unavailable"
+               "peer" (devnet-peer-entry-id-hex entry)
+               "pivot" pivot-number "error" condition))
              ((typep condition
                      'ethereum-lisp.snap-sync:snap-sync-state-unavailable)
               (devnet-node-note-snap-pivot-unavailable
