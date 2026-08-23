@@ -207,46 +207,38 @@
      (snap-test-call-backend
       backend ethereum-lisp.snap:+snap-message-get-trie-nodes+ request))))
 
-(deftest snap-storage-commitments-use-geth-sized-independent-chunks
+(deftest snap-bytecode-requests-use-geth-sized-hash-batches
   (:layer :unit :module :p2p)
-  (let* ((commitments (loop for index below 1025 collect index))
-         (chunks
-           (ethereum-lisp.snap-sync::snap-sync-storage-commitment-chunks
-            commitments)))
-    (is (equal '(512 512 1) (mapcar #'length chunks)))
-    (is (equal commitments (apply #'append chunks)))))
-
-#+sbcl
-(deftest snap-storage-chunks-use-bounded-concurrent-workers
-  (:layer :unit :module :p2p)
-  (let ((real
-          (fdefinition
-           'ethereum-lisp.snap-sync::snap-sync-fetch-storage-commitments-serial)))
-    (unwind-protect
-         (progn
-           (setf
-            (fdefinition
-             'ethereum-lisp.snap-sync::snap-sync-fetch-storage-commitments-serial)
-            (lambda (database source state-root commitments byte-limit)
-              (declare
-               (ignore database source state-root byte-limit))
-              (sleep 0.2)
-              (copy-list commitments)))
-           (let* ((started-at (get-internal-real-time))
-                  (result
-                    (ethereum-lisp.snap-sync::snap-sync-fetch-storage-chunks-concurrently
-                     nil nil nil '((:first) (:second)) 1))
-                  (elapsed
-                    (ethereum-lisp.snap-sync::snap-sync-elapsed-milliseconds
-                     started-at (get-internal-real-time))))
-             (is (equal '(:first :second) result))
-             ;; Two serial sleeps need at least 400ms; the bounded two-worker
-             ;; pool should complete near one sleep even on a loaded runner.
-             (is (< elapsed 380))))
-      (setf
-       (fdefinition
-        'ethereum-lisp.snap-sync::snap-sync-fetch-storage-commitments-serial)
-       real))))
+  (let* ((codes
+           (loop for index below 170
+                 collect (snap-test-index-hash index)))
+         (hashes (mapcar #'keccak-256 codes))
+         (codes-by-hash (make-hash-table :test #'equalp))
+         (request-sizes '())
+         (source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :bytecodes
+            (lambda (request)
+              (let ((requested
+                      (ethereum-lisp.snap:snap-get-bytecodes-hashes request)))
+                (push (length requested) request-sizes)
+                (ethereum-lisp.snap:make-snap-bytecodes
+                 1
+                 (mapcar
+                  (lambda (hash) (copy-seq (gethash hash codes-by-hash)))
+                  requested)))))))
+    (loop for code in codes
+          for hash in hashes
+          do (setf (gethash hash codes-by-hash) code))
+    (let ((fetched
+            (ethereum-lisp.snap-sync::snap-sync-fetch-codes
+             source hashes (* 512 1024))))
+      (is (equal '(84 84 2) (nreverse request-sizes)))
+      (is (= 170 (length fetched)))
+      (is (every
+           (lambda (entry)
+             (bytes= (car entry) (keccak-256 (cdr entry))))
+           fetched)))))
 
 (deftest snap-account-page-overlaps-storage-and-bytecode-dependencies
   (:layer :integration :module :p2p)

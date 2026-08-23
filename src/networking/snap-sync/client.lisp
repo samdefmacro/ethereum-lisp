@@ -13,6 +13,14 @@
 (defconstant +snap-sync-pivot-probe-bytes+ (* 4 1024))
 (defconstant +snap-sync-storage-accounts-per-request+ 512
   "Maximum small storage tries in a 512 KiB geth-style request.")
+(defconstant +snap-sync-code-hashes-per-request+
+  (* (floor +snap-sync-request-bytes+ (* 24 1024)) 4)
+  "Maximum bytecode hashes in one geth-sized request.
+
+Deployed EVM code is capped at 24 KiB. Geth requests four times the number of
+maximum-sized blobs that fit in a 512 KiB response: enough small contracts to
+fill the response without repeatedly retransmitting a page's entire remaining
+hash set after the peer reaches its soft byte cap.")
 (defconstant +snap-sync-legacy-account-task-count+ 16
   "Account partition count written by progress versions before oversubscription.")
 (defconstant +snap-sync-previous-account-task-count+ 32
@@ -793,85 +801,16 @@ the exact authorized state root before completion."
                  (setf remaining (nthcdr received remaining))))
     (nreverse deferred)))
 
-(defconstant +snap-sync-storage-chunk-workers+ 2
-  "Maximum independent multi-account StorageRanges chunks per account page.")
-
-(defun snap-sync-storage-commitment-chunks (commitments)
-  "Partition COMMITMENTS into geth-aligned multi-account request chunks."
-  (loop with remaining = commitments
-        while remaining
-        for count = (min +snap-sync-storage-accounts-per-request+
-                         (length remaining))
-        collect (subseq remaining 0 count)
-        do (setf remaining (nthcdr count remaining))))
-
-#+sbcl
-(defun snap-sync-fetch-storage-chunks-concurrently
-    (database source state-root chunks byte-limit)
-  "Fetch CHUNKS through a bounded worker pool and retain input result order."
-  (let* ((count (length chunks))
-         (results (make-array count :initial-element nil))
-         (next-index 0)
-         (condition nil)
-         (lock (sb-thread:make-mutex :name "snap-sync-storage-chunks"))
-         (threads '()))
-    (labels ((claim ()
-               (sb-thread:with-mutex (lock)
-                 (if (or condition (>= next-index count))
-                     (values nil nil)
-                     (let ((index next-index))
-                       (incf next-index)
-                       (values index t)))))
-             (worker ()
-               (loop
-                 (multiple-value-bind (index present-p) (claim)
-                   (unless present-p (return))
-                   (handler-case
-                       (setf
-                        (aref results index)
-                        (snap-sync-fetch-storage-commitments-serial
-                         database source state-root (nth index chunks)
-                         byte-limit))
-                     (serious-condition (error)
-                       (sb-thread:with-mutex (lock)
-                         (unless condition (setf condition error)))
-                       (return)))))))
-      ;; The account worker is already available: use it as one bounded
-      ;; storage worker and create only the remaining helpers.
-      (loop repeat (1- (min count +snap-sync-storage-chunk-workers+))
-            do (push
-                (sb-thread:make-thread
-                 #'worker :name "snap-sync-storage-chunk-worker")
-                threads))
-      (worker)
-      (dolist (thread threads)
-        (sb-thread:join-thread thread))
-      (when condition (error condition))
-      (loop for result across results append result))))
-
 (defun snap-sync-fetch-storage-commitments
     (database source state-root commitments byte-limit)
-  "Fetch non-empty storage tries with bounded parallel multi-account chunks.
+  "Fetch non-empty storage tries in geth-sized multi-account requests.
 
-Each chunk retains the serial continuation required when a byte-capped response
-returns only a prefix. Independent chunks use separate StorageRanges requests,
-matching geth's storage-task concurrency while preserving the account cursor's
-single durable publication seam."
-  (let ((chunks (snap-sync-storage-commitment-chunks commitments)))
-    (cond
-      ((null chunks) '())
-      ((null (rest chunks))
-       (snap-sync-fetch-storage-commitments-serial
-        database source state-root (first chunks) byte-limit))
-      (t
-       #+sbcl
-       (snap-sync-fetch-storage-chunks-concurrently
-        database source state-root chunks byte-limit)
-       #-sbcl
-       (loop for chunk in chunks
-             append
-             (snap-sync-fetch-storage-commitments-serial
-              database source state-root chunk byte-limit))))))
+The importer already has many account pages in flight and the peer pool permits
+only one StorageRanges request per peer. Keep each page serial within that
+global scheduler: adding child workers only lengthens the typed request queues
+and increases timeout pressure without creating another on-wire slot."
+  (snap-sync-fetch-storage-commitments-serial
+   database source state-root commitments byte-limit))
 
 (defun snap-sync-page-code-hashes (entries)
   (let ((seen (make-hash-table :test #'equalp))
@@ -899,22 +838,30 @@ single durable publication seam."
     (dolist (hash remaining)
       (setf (gethash hash pending) t))
     (loop while remaining
-          do (let* ((request
-                      (make-snap-get-bytecodes 1 remaining byte-limit))
+          do (let* ((count
+                      (min +snap-sync-code-hashes-per-request+
+                           (length remaining)))
+                    (requested (subseq remaining 0 count))
+                    (requested-pending (make-hash-table :test #'equalp))
+                    (request
+                      (make-snap-get-bytecodes 1 requested byte-limit))
                     (response
                       (snap-sync-source-call
                        (snap-sync-source-bytecodes source)
                        request "bytecodes"))
                     (received (snap-bytecodes-codes response)))
+               (dolist (hash requested)
+                 (setf (gethash hash requested-pending) t))
                (unless (= 1 (snap-bytecodes-id response))
                  (error "Snap bytecode response id mismatch"))
                (when (null received)
                  (error "Snap peer omitted requested bytecode"))
                (dolist (code received)
                  (let ((hash (keccak-256 code)))
-                   (unless (nth-value 1 (gethash hash pending))
+                   (unless (nth-value 1 (gethash hash requested-pending))
                      (error "Snap peer returned unrequested bytecode"))
                    (push (cons hash (copy-seq code)) codes)
+                   (remhash hash requested-pending)
                    (remhash hash pending)))
                (setf remaining
                      (delete-if-not
