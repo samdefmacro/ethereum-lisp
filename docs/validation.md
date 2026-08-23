@@ -188,6 +188,8 @@ cl-workbench validation run cold-integration --match BOUNDED-PIVOT
 cl-workbench validation run cold-integration --match ETH-SYNC-MULTI-PEER
 cl-workbench validation run cold-integration --match ETH-SYNC-THREE-SCRIPTED
 cl-workbench validation run cold-integration --match DEVNET-PEER-REQUEST-QUEUE
+cl-workbench validation run cold-unit --match DEVNET-SNAP-REQUEST-CAPACITY
+cl-workbench validation run cold-unit --match DEVNET-SNAP-SOURCE-APPLIES
 cl-workbench validation run cold-integration \
   --match DEVNET-RANGE-ANNOUNCEMENT-WAKES
 cl-workbench validation run cold-integration \
@@ -260,7 +262,11 @@ for a global wave. The production peer-queue regression puts two account jobs
 ahead of a storage job and proves the storage request bypasses the occupied
 account response slot, then routes out-of-order typed replies to the correct
 workers. A pump regression separately proves that a SNAP response reaches that
-router instead of being rejected as unsolicited. A changed-root rebase installs
+router instead of being rejected as unsolicited. Rate controls prove a new
+peer starts account and storage ranges at 64 KiB, a fast sequence grows at most
+twofold per response toward 512 KiB, a slow sequence falls back without
+crossing the lower bound, and the production source applies the learned
+per-type cap to its outgoing packet. A changed-root rebase installs
 a non-empty, non-root range witness; legacy, rebased, oversized, or incomplete
 dependency plans retain the fail-closed full-root traversal. The tests also
 inject a failed database batch to prove progress never outruns verified account
@@ -370,7 +376,8 @@ minutes without a later snapshot permits the stale yield. Removing the
 production predicate wiring makes the exact call-site test fail. The range
 tests prove that sixty-four durable account ranges are fetched with three
 bounded workers per source, including nine simultaneous workers through three
-sole-writer request queues, with geth's 512 KiB snap byte limit. Completed
+sole-writer request queues, with geth's adaptive 64--512 KiB snap byte limits.
+Completed
 ranges are not replayed after restart, thirty-two-range cursors expand without
 replay, and a failed source's claimed range is reassigned. SNAP demand raises
 the default outbound target from sixteen to twenty-five capable sessions while

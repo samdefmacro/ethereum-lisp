@@ -3366,6 +3366,76 @@ loop cannot block on a message that never comes."
   #-sbcl
   (is t))
 
+(deftest devnet-snap-request-capacity-adapts-with-bounded-steps
+  (:layer :unit :module :p2p)
+  #+sbcl
+  (let* ((queue (ethereum-lisp.cli::make-devnet-peer-request-queue))
+         (response-id ethereum-lisp.snap:+snap-message-account-range+)
+         (minimum ethereum-lisp.cli::+devnet-snap-min-request-bytes+)
+         (maximum ethereum-lisp.cli::+devnet-snap-max-request-bytes+))
+    (is (= minimum
+           (ethereum-lisp.cli::devnet-peer-request-queue-snap-capacity
+            queue response-id)))
+    ;; A very fast first response may grow only one step, not jump to max.
+    (is (= (* 2 minimum)
+           (ethereum-lisp.cli::devnet-peer-request-queue-record-snap-delivery
+            queue response-id minimum 0.05d0)))
+    (is (= (* 4 minimum)
+           (ethereum-lisp.cli::devnet-peer-request-queue-record-snap-delivery
+            queue response-id (* 2 minimum) 0.05d0)))
+    (is (= maximum
+           (ethereum-lisp.cli::devnet-peer-request-queue-record-snap-delivery
+            queue response-id (* 4 minimum) 0.05d0)))
+    ;; Repeated slow measurements reduce capacity but never below 64 KiB.
+    (loop repeat 64
+          do (ethereum-lisp.cli::devnet-peer-request-queue-record-snap-delivery
+              queue response-id minimum 30d0))
+    (is (= minimum
+           (ethereum-lisp.cli::devnet-peer-request-queue-snap-capacity
+            queue response-id)))
+    (multiple-value-bind (capacity rtt samples)
+        (ethereum-lisp.cli::devnet-peer-request-queue-snap-statistics
+         queue response-id)
+      (is (= minimum capacity))
+      (is (plusp rtt))
+      (is (= 67 samples))))
+  #-sbcl
+  (is t))
+
+(deftest devnet-snap-source-applies-learned-range-byte-caps
+  (:layer :unit :module :p2p)
+  #+sbcl
+  (let* ((queue (ethereum-lisp.cli::make-devnet-peer-request-queue))
+         (limit (* 512 1024))
+         (root (make-byte-vector 32))
+         (account
+           (ethereum-lisp.snap:make-snap-get-account-range
+            1 root root root limit))
+         (storage
+           (ethereum-lisp.snap:make-snap-get-storage-ranges
+            1 root (list root) (make-byte-vector 0) (make-byte-vector 0)
+            limit)))
+    (ethereum-lisp.cli::devnet-peer-apply-adaptive-snap-byte-cap
+     queue ethereum-lisp.snap:+snap-message-get-account-range+ account)
+    (ethereum-lisp.cli::devnet-peer-apply-adaptive-snap-byte-cap
+     queue ethereum-lisp.snap:+snap-message-get-storage-ranges+ storage)
+    (is (= ethereum-lisp.cli::+devnet-snap-min-request-bytes+
+           (ethereum-lisp.snap:snap-get-account-range-bytes account)))
+    (is (= ethereum-lisp.cli::+devnet-snap-min-request-bytes+
+           (ethereum-lisp.snap:snap-get-storage-ranges-bytes storage)))
+    (ethereum-lisp.cli::devnet-peer-request-queue-record-snap-delivery
+     queue ethereum-lisp.snap:+snap-message-account-range+
+     ethereum-lisp.cli::+devnet-snap-min-request-bytes+ 0.05d0)
+    (let ((next
+            (ethereum-lisp.snap:make-snap-get-account-range
+             2 root root root limit)))
+      (ethereum-lisp.cli::devnet-peer-apply-adaptive-snap-byte-cap
+       queue ethereum-lisp.snap:+snap-message-get-account-range+ next)
+      (is (= (* 2 ethereum-lisp.cli::+devnet-snap-min-request-bytes+)
+             (ethereum-lisp.snap:snap-get-account-range-bytes next)))))
+  #-sbcl
+  (is t))
+
 (deftest devnet-cli-nodekeyhex-yields-a-stable-identity
   (let* ((hex "0000000000000000000000000000000000000000000000000000000000000001")
          (options-a (ethereum-lisp.cli::devnet-cli-options

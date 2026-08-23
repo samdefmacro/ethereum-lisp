@@ -452,13 +452,32 @@ into a permanent peer ban."))
          "peer" (devnet-peer-entry-id-hex entry)
          "error" condition)))))
 
+(defun devnet-peer-apply-adaptive-snap-byte-cap (queue message-id packet)
+  "Apply QUEUE's learned account/storage byte cap to one request PACKET."
+  (case message-id
+    (#.ethereum-lisp.snap:+snap-message-get-account-range+
+     (setf (ethereum-lisp.snap:snap-get-account-range-bytes packet)
+           (min
+            (ethereum-lisp.snap:snap-get-account-range-bytes packet)
+            (devnet-peer-request-queue-snap-capacity
+             queue ethereum-lisp.snap:+snap-message-account-range+))))
+    (#.ethereum-lisp.snap:+snap-message-get-storage-ranges+
+     (setf (ethereum-lisp.snap:snap-get-storage-ranges-bytes packet)
+           (min
+            (ethereum-lisp.snap:snap-get-storage-ranges-bytes packet)
+            (devnet-peer-request-queue-snap-capacity
+             queue ethereum-lisp.snap:+snap-message-storage-ranges+)))))
+  packet)
+
 (defun devnet-peer-queued-snap-source (entry)
-  "Build a per-type-pipelined snap source on ENTRY's sole session writer."
+  "Build a per-type-pipelined, rate-adaptive SNAP source for ENTRY."
   (let ((peer (devnet-peer-entry-peer entry))
         (queue (devnet-peer-entry-request-queue entry)))
     (flet ((request (message-id packet)
              (devnet-peer-request-queue-submit-snap
-              queue peer message-id packet)))
+              queue peer message-id
+              (devnet-peer-apply-adaptive-snap-byte-cap
+               queue message-id packet))))
       (ethereum-lisp.snap-sync:make-snap-sync-source
        :account-range
        (lambda (packet)
@@ -751,6 +770,7 @@ must prove the new state root before either record can authorize publication."
        :on-progress
        (lambda (progress source task-index)
          (let* ((entry (entry-for-source source))
+                (queue (devnet-peer-entry-request-queue entry))
                 (next
                   (ethereum-lisp.snap-sync:snap-sync-progress-next-origin
                    progress))
@@ -758,21 +778,38 @@ must prove the new state root before either record can authorize publication."
                   (nth task-index
                        (ethereum-lisp.snap-sync:snap-sync-progress-tasks
                         progress))))
-           (devnet-peer-manager-log
-            node "peer.snap.progress"
-            "peer" (devnet-peer-entry-id-hex entry)
-            "pivot" pivot-number
-            "task" task-index
-            "taskOrigin"
-            (and task
-                 (ethereum-lisp.snap-sync:snap-sync-account-task-next-origin
-                  task)
-                 (bytes-to-hex
-                  (ethereum-lisp.snap-sync:snap-sync-account-task-next-origin
-                   task)))
-            "nextOrigin" (and next (bytes-to-hex next))
-            "completed"
-            (ethereum-lisp.snap-sync:snap-sync-progress-completed-p progress))))
+           (multiple-value-bind (account-capacity account-rtt account-samples)
+               (if queue
+                   (devnet-peer-request-queue-snap-statistics
+                    queue ethereum-lisp.snap:+snap-message-account-range+)
+                   (values nil nil 0))
+             (multiple-value-bind (storage-capacity storage-rtt storage-samples)
+                 (if queue
+                     (devnet-peer-request-queue-snap-statistics
+                      queue ethereum-lisp.snap:+snap-message-storage-ranges+)
+                     (values nil nil 0))
+               (devnet-peer-manager-log
+                node "peer.snap.progress"
+                "peer" (devnet-peer-entry-id-hex entry)
+                "pivot" pivot-number
+                "task" task-index
+                "taskOrigin"
+                (and task
+                     (ethereum-lisp.snap-sync:snap-sync-account-task-next-origin
+                      task)
+                     (bytes-to-hex
+                      (ethereum-lisp.snap-sync:snap-sync-account-task-next-origin
+                       task)))
+                "nextOrigin" (and next (bytes-to-hex next))
+                "accountCap" account-capacity
+                "accountRttMs" (and account-rtt (round (* account-rtt 1000)))
+                "accountSamples" account-samples
+                "storageCap" storage-capacity
+                "storageRttMs" (and storage-rtt (round (* storage-rtt 1000)))
+                "storageSamples" storage-samples
+                "completed"
+                (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
+                 progress))))))
        :on-heal-progress
        (lambda (heal-progress)
          (let* ((now (unix-time))

@@ -28,6 +28,26 @@ nothing would hold a thread and a descriptor indefinitely.")
 (defconstant +devnet-peer-accept-tick-seconds+ 1
   "How long one accept waits before returning to check for shutdown. Our policy.")
 
+(defconstant +devnet-snap-min-request-bytes+ (* 64 1024)
+  "Smallest adaptive account/storage request, matching geth's lower cap.")
+
+(defconstant +devnet-snap-max-request-bytes+ (* 512 1024)
+  "Largest adaptive account/storage request, matching geth's upper cap.")
+
+(defconstant +devnet-snap-request-target-seconds+ 2d0
+  "Target wall time used to turn observed SNAP throughput into a request cap.")
+
+(defconstant +devnet-snap-rate-measurement-impact+ 0.2d0
+  "EWMA weight of one SNAP response throughput and latency measurement.")
+
+#+sbcl
+(defstruct (devnet-peer-snap-rate
+            (:constructor make-devnet-peer-snap-rate ()))
+  (capacity +devnet-snap-min-request-bytes+)
+  throughput
+  round-trip
+  (samples 0))
+
 #+sbcl
 (defstruct (devnet-peer-request-job
             (:constructor make-devnet-peer-request-job
@@ -38,6 +58,7 @@ nothing would hold a thread and a descriptor indefinitely.")
   ;; snap response type without ever giving up the session's sole writer.
   snap-response-id
   snap-request-id
+  started-at
   deadline
   (lock (sb-thread:make-mutex :name "ethereum-lisp-peer-request-job"))
   (changed (sb-thread:make-waitqueue :name "ethereum-lisp-peer-request-job"))
@@ -51,7 +72,86 @@ nothing would hold a thread and a descriptor indefinitely.")
   (lock (sb-thread:make-mutex :name "ethereum-lisp-peer-request-queue"))
   (pending '())
   (active '())
+  (snap-rates (make-hash-table))
   closed-p)
+
+#+sbcl
+(defun devnet-peer-snap-clamp-request-bytes (bytes)
+  (max +devnet-snap-min-request-bytes+
+       (min +devnet-snap-max-request-bytes+ bytes)))
+
+#+sbcl
+(defun devnet-peer-request-queue-snap-rate (queue response-id)
+  "Return RESPONSE-ID's mutable rate record while QUEUE's lock is held."
+  (or (gethash response-id
+               (devnet-peer-request-queue-snap-rates queue))
+      (setf (gethash response-id
+                     (devnet-peer-request-queue-snap-rates queue))
+            (make-devnet-peer-snap-rate))))
+
+#+sbcl
+(defun devnet-peer-request-queue-snap-capacity (queue response-id)
+  "Return this peer's learned byte cap for one SNAP response type."
+  (sb-thread:with-mutex ((devnet-peer-request-queue-lock queue))
+    (devnet-peer-snap-rate-capacity
+     (devnet-peer-request-queue-snap-rate queue response-id))))
+
+#+sbcl
+(defun devnet-peer-request-queue-snap-statistics (queue response-id)
+  "Return learned capacity, RTT seconds, and sample count for RESPONSE-ID."
+  (sb-thread:with-mutex ((devnet-peer-request-queue-lock queue))
+    (let ((rate
+            (devnet-peer-request-queue-snap-rate queue response-id)))
+      (values (devnet-peer-snap-rate-capacity rate)
+              (devnet-peer-snap-rate-round-trip rate)
+              (devnet-peer-snap-rate-samples rate)))))
+
+#+sbcl
+(defun devnet-peer-request-queue-record-snap-delivery
+    (queue response-id bytes elapsed)
+  "Update RESPONSE-ID's capacity from one decoded SNAP payload delivery.
+
+The bounded EWMA follows geth's message-rate strategy: slow peers remain useful
+with small requests, while peers that repeatedly fill them quickly grow toward
+512 KiB.  One sample may at most double or halve the current cap, preventing a
+short tail response or a single fast cache hit from causing an unstable jump."
+  (unless (and (integerp bytes) (not (minusp bytes))
+               (realp elapsed) (plusp elapsed))
+    (error "Invalid SNAP delivery measurement"))
+  (sb-thread:with-mutex ((devnet-peer-request-queue-lock queue))
+    (let* ((rate
+             (devnet-peer-request-queue-snap-rate queue response-id))
+           (sample-throughput (/ bytes (float elapsed 1d0)))
+           (impact +devnet-snap-rate-measurement-impact+)
+           (throughput
+             (if (devnet-peer-snap-rate-throughput rate)
+                 (+ (* (- 1d0 impact)
+                       (devnet-peer-snap-rate-throughput rate))
+                    (* impact sample-throughput))
+                 sample-throughput))
+           (round-trip
+             (if (devnet-peer-snap-rate-round-trip rate)
+                 (+ (* (- 1d0 impact)
+                       (devnet-peer-snap-rate-round-trip rate))
+                    (* impact elapsed))
+                 (float elapsed 1d0)))
+           (old-capacity (devnet-peer-snap-rate-capacity rate))
+           ;; Slightly overfill the target to avoid locking into a capacity
+           ;; below what the peer can actually deliver in the same RTT.
+           (desired
+             (devnet-peer-snap-clamp-request-bytes
+              (round (* throughput
+                        +devnet-snap-request-target-seconds+
+                        1.05d0))))
+           (capacity
+             (devnet-peer-snap-clamp-request-bytes
+              (max (floor old-capacity 2)
+                   (min (* old-capacity 2) desired)))))
+      (setf (devnet-peer-snap-rate-throughput rate) throughput
+            (devnet-peer-snap-rate-round-trip rate) round-trip
+            (devnet-peer-snap-rate-capacity rate) capacity)
+      (incf (devnet-peer-snap-rate-samples rate))
+      capacity)))
 
 #+sbcl
 (defun devnet-peer-request-job-finish (job values condition)
@@ -134,7 +234,16 @@ routed back to their waiting worker by message type plus request id."
 
 #+sbcl
 (defun devnet-peer-request-queue-complete-snap
-    (queue job response)
+    (queue job response payload-bytes)
+  (let ((started-at (devnet-peer-request-job-started-at job)))
+    (when started-at
+      (devnet-peer-request-queue-record-snap-delivery
+       queue (devnet-peer-request-job-snap-response-id job) payload-bytes
+       ;; The in-memory integration source can answer within one timer tick.
+       ;; One microsecond is still far below a network RTT and avoids a
+       ;; division overflow without affecting production measurements.
+       (max 1d-6
+            (- (devnet-peer-request-monotonic-seconds) started-at)))))
   (sb-thread:with-mutex ((devnet-peer-request-queue-lock queue))
     (setf (devnet-peer-request-queue-active queue)
           (delete job (devnet-peer-request-queue-active queue)
@@ -156,7 +265,8 @@ routed back to their waiting worker by message type plus request id."
                      (ethereum-lisp.snap:snap-response-id
                       message-id response))
             (error "Snap response id does not match its in-flight request"))
-          (devnet-peer-request-queue-complete-snap queue job response)
+          (devnet-peer-request-queue-complete-snap
+           queue job response (length payload))
           t)))))
 
 #+sbcl
@@ -195,7 +305,8 @@ routed back to their waiting worker by message type plus request id."
                 (delete job (devnet-peer-request-queue-pending queue)
                         :test #'eq :count 1))
           (when (devnet-peer-request-job-snap-response-id job)
-            (setf (devnet-peer-request-job-deadline job) (+ now 30d0))
+            (setf (devnet-peer-request-job-started-at job) now
+                  (devnet-peer-request-job-deadline job) (+ now 30d0))
             (push job (devnet-peer-request-queue-active queue)))
           job)))))
 

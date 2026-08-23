@@ -4104,8 +4104,9 @@ plans retain the content-addressed healer as the fail-closed path."
           heal-source-provider range-yield-p heal-yield-p max-pages)
   "Download, verify, and atomically install a CL-authorized pivot state.
 
-Every account-range cursor is committed in the same batch as the partial trie
-nodes and bytecodes it names.  Complete small storage tries are batched eagerly;
+Every account-range cursor is committed only after the worker has buffered the
+partial trie nodes and bytecodes it names.  Complete small storage tries are
+batched eagerly;
 byte-capped large tries are deferred so a peer's pivot-retention window cannot
 starve the account cursor.  A final content-addressed traversal reuses durable
 nodes and proves every storage/code dependency before installing the completion
@@ -4338,8 +4339,8 @@ account/storage schedulers so peer I/O overlaps proof verification and
 persistence. At most three workers share each source. Its session remains the
 sole RLPx writer while one request per snap response type may be in flight,
 matching replies by both type and request id. Workers verify and heal
-independent pages concurrently; the caller thread serializes MPT merge,
-the progress batch, and callbacks.  ON-PROGRESS receives PROGRESS, SOURCE, and
+independent pages concurrently; the caller thread serializes only the progress
+batch and callbacks.  ON-PROGRESS receives PROGRESS, SOURCE, and
 TASK-INDEX after that task page is durable.  ON-SOURCE-ERROR receives SOURCE and
 the condition after its task has been made retryable by another source.
 HEAL-SOURCE-PROVIDER refreshes both the account worker pool and the final

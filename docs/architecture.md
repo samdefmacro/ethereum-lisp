@@ -153,8 +153,13 @@ them by their physical location instead reintroduces dependency cycles:
   the ordinary one-third target afterwards. At each durable page seam,
   a rate-limited consensus-head check moves a pivot that has fallen outside
   geth's `2*64-8` window; the atomic rebase retains completed ranges and makes
-  the fresher state root serviceable by the full live peer set. Each request
-  keeps geth's 512 KiB soft limit. Fetch workers construct and atomically append
+  the fresher state root serviceable by the full live peer set. Account and
+  storage requests start at geth's 64 KiB lower cap. Each peer and response
+  type learns an EWMA of delivered bytes and round-trip time, grows or shrinks
+  toward a two-second request target, and remains within geth's 512 KiB upper
+  cap. This prevents a slow peer from holding a fixed maximum response until
+  the session's wall-clock deadline while allowing fast peers to refill the
+  full page in bounded steps. Fetch workers construct and atomically append
   verified content batches in parallel, while one coordinator serializes only
   the small successor-cursor and final-plan publication batches. A failed
   peer releases only its claimed range for another worker. If every peer in
