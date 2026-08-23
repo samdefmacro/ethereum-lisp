@@ -3527,13 +3527,12 @@ loop cannot block on a message that never comes."
             pool storage-id)
          (is (eq entry-two first))
          (is (eq source first-source))
-         ;; Even with one queued reservation, measured peer two is expected to
-         ;; finish another response before an unsampled peer's two-second
-         ;; estimate. A shortest-queue policy would incorrectly pick peer one.
          (multiple-value-bind (second second-source)
              (ethereum-lisp.cli::devnet-snap-source-pool-acquire
               pool storage-id)
-           (is (eq entry-two second))
+           ;; A response type has one slot per peer. The second storage request
+           ;; uses the other idle peer instead of prequeueing behind peer two.
+           (is (eq entry-one second))
            (is (eq source second-source))
            ;; Response types have independent reservations: bytecode can use
            ;; an idle type slot while both storage slots are occupied.
@@ -3544,10 +3543,33 @@ loop cannot block on a message that never comes."
              (is (eq source code-source))
              (ethereum-lisp.cli::devnet-snap-source-pool-release
               pool code-entry bytecode-id))
+           ;; Once all storage slots are occupied, new work stays in the
+           ;; global scheduler until an actual peer becomes idle.
+           (let* ((attempted (sb-thread:make-semaphore :count 0))
+                  (waiter
+                    (sb-thread:make-thread
+                     (lambda ()
+                       (sb-thread:signal-semaphore attempted)
+                       (multiple-value-list
+                        (ethereum-lisp.cli::devnet-snap-source-pool-acquire
+                         pool storage-id)))
+                     :name "snap-source-pool-idle-wait")))
+             (sb-thread:wait-on-semaphore attempted :timeout 5)
+             (is (eq :blocked
+                     (sb-thread:join-thread
+                      waiter :timeout 0.1 :default :blocked)))
+             (ethereum-lisp.cli::devnet-snap-source-pool-release
+              pool first storage-id)
+             (let ((selection
+                     (sb-thread:join-thread
+                      waiter :timeout 5 :default :timeout)))
+               (is (not (eq :timeout selection)))
+               (is (eq entry-two (first selection)))
+               (is (eq source (second selection)))
+               (ethereum-lisp.cli::devnet-snap-source-pool-release
+                pool (first selection) storage-id)))
            (ethereum-lisp.cli::devnet-snap-source-pool-release
             pool second storage-id))
-         (ethereum-lisp.cli::devnet-snap-source-pool-release
-          pool first storage-id))
        ;; Once idle again, learned capacity wins the storage tie.
        (multiple-value-bind (selected selected-source)
            (ethereum-lisp.cli::devnet-snap-source-pool-acquire
@@ -3555,7 +3577,7 @@ loop cannot block on a message that never comes."
          (is (eq entry-two selected))
          (is (eq source selected-source))
          (ethereum-lisp.cli::devnet-snap-source-pool-release
-          pool selected storage-id)))))
+          pool selected storage-id))))))
   #-sbcl
   (is t))
 
