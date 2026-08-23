@@ -3513,7 +3513,7 @@ loop cannot block on a message that never comes."
     ;; Peer two has proved twice the storage delivery capacity.
     (ethereum-lisp.cli::devnet-peer-request-queue-record-snap-delivery
      queue-two storage-id
-     ethereum-lisp.cli::+devnet-snap-min-request-bytes+ 0.05d0)
+     ethereum-lisp.cli::+devnet-snap-min-request-bytes+ 0.25d0)
     (devnet-peer-sync-call-with-function-overrides
      (list
       (cons 'ethereum-lisp.cli::devnet-node-live-sync-entries
@@ -3527,12 +3527,13 @@ loop cannot block on a message that never comes."
             pool storage-id)
          (is (eq entry-two first))
          (is (eq source first-source))
-         ;; Its storage slot is now reserved, so another storage request uses
-         ;; the otherwise idle peer despite peer two's higher capacity.
+         ;; Even with one queued reservation, measured peer two is expected to
+         ;; finish another response before an unsampled peer's two-second
+         ;; estimate. A shortest-queue policy would incorrectly pick peer one.
          (multiple-value-bind (second second-source)
              (ethereum-lisp.cli::devnet-snap-source-pool-acquire
               pool storage-id)
-           (is (eq entry-one second))
+           (is (eq entry-two second))
            (is (eq source second-source))
            ;; Response types have independent reservations: bytecode can use
            ;; an idle type slot while both storage slots are occupied.
@@ -3624,7 +3625,22 @@ loop cannot block on a message that never comes."
                 #'ethereum-lisp.snap-sync:snap-sync-source-storage-ranges
                 :second "storage ranges")))
        (is (= 1 failed-calls))
-       (is (= 2 healthy-calls)))))
+       (is (= 2 healthy-calls))
+       ;; Expiring the bounded cooldown admits the transport again; a Boolean
+       ;; permanent ban would either keep skipping it or break timestamp
+       ;; comparison in the selector.
+       (setf
+        (gethash
+         entry-one
+         (ethereum-lisp.cli::devnet-snap-source-pool-failed-entries pool))
+        0)
+       (is (eq :third
+               (ethereum-lisp.cli::devnet-snap-source-pool-call
+                pool ethereum-lisp.snap:+snap-message-storage-ranges+
+                #'ethereum-lisp.snap-sync:snap-sync-source-storage-ranges
+                :third "storage ranges")))
+       (is (= 2 failed-calls))
+       (is (= 3 healthy-calls)))))
   #-sbcl
   (is t))
 

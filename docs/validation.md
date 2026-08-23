@@ -380,10 +380,10 @@ production predicate wiring makes the exact call-site test fail. The range
 tests prove that sixty-four durable account ranges are fetched with three
 bounded workers per source, including nine simultaneous workers through three
 sole-writer request queues, with geth's adaptive 64--512 KiB snap byte limits.
-The source-pool controls prove that concurrent storage reservations fill
-independent peer slots, learned capacity wins an idle tie, bytecode reservations
-remain independent of storage load, and a failed dependency peer is retired
-while the same request succeeds on another live peer.
+The source-pool controls prove that measured completion time can prefer a fast
+peer despite one outstanding reservation, learned capacity wins an idle tie,
+bytecode reservations remain independent of storage load, and a failed
+dependency peer enters cooldown while the same request succeeds elsewhere.
 Completed
 ranges are not replayed after restart, thirty-two-range cursors expand without
 replay, and a failed source's claimed range is reassigned. SNAP demand raises

@@ -163,10 +163,12 @@ them by their physical location instead reintroduces dependency cycles:
   verified content batches in parallel, while one coordinator serializes only
   the small successor-cursor and final-plan publication batches. Storage and
   bytecode dependencies are scheduled independently of the peer that returned
-  their account page: reservations spread each response type across its idle
-  live peers, with learned capacity breaking equal-load ties. A dependency
-  transport failure retries the already authenticated account page's remaining
-  work elsewhere instead of discarding it. A failed account peer releases only
+  their account page. Each response type chooses the shortest estimated finish
+  from measured RTT and outstanding reservations, with learned capacity
+  breaking ties, so an unmeasured or slow idle peer cannot drag a fast page's
+  dependencies. A dependency transport enters a thirty-second cooldown and the
+  already authenticated account page's remaining work retries elsewhere
+  instead of being discarded. A failed account peer releases only
   its claimed range for another worker. If every peer in
   that finite source snapshot fails, the importer reports a typed remote-source exhaustion result;
   the CLI keeps the node and Engine API alive, takes a fresh live-peer snapshot

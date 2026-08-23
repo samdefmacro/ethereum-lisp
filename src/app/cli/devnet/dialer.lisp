@@ -502,6 +502,9 @@ into a permanent peer ban."))
   (reservations (make-hash-table :test #'eq))
   (failed-entries (make-hash-table :test #'eq)))
 
+(defconstant +devnet-snap-source-pool-failure-cooldown-seconds+ 30
+  "How long one failed dependency transport is excluded from pooled work.")
+
 #+sbcl
 (defun devnet-snap-source-pool-reservation-table (pool entry)
   "Return ENTRY's per-response reservation table while POOL is locked."
@@ -518,15 +521,16 @@ into a permanent peer ban."))
 
 #+sbcl
 (defun devnet-snap-source-pool-acquire (pool response-id)
-  "Reserve the least-loaded live peer for RESPONSE-ID.
+  "Reserve the live peer with the shortest estimated completion time.
 
-Ties prefer the peer with the largest learned capacity, matching geth's
-message-type-specific capacity ordering.  Reservations are recorded before the
-caller submits to a peer queue, so concurrent account workers spread across
-idle storage and bytecode slots instead of racing onto the same peer."
+The estimate multiplies measured response RTT by the peer's existing
+reservations plus this request. This retains independent message-type slots but
+does not force work onto a slow idle peer when a fast peer can finish a short
+queue first. Ties prefer the largest learned capacity, matching geth's
+message-type-specific capacity ordering."
   (sb-thread:with-mutex ((devnet-snap-source-pool-lock pool))
     (let ((best nil)
-          (best-load nil)
+          (best-finish nil)
           (best-capacity nil))
       (dolist (entry
                 (devnet-node-live-sync-entries
@@ -535,25 +539,31 @@ idle storage and bytecode slots instead of racing onto the same peer."
                 (gethash entry
                          (devnet-snap-source-pool-fixed-sources pool))))
           (when (and source
-                     (not
-                      (gethash entry
-                               (devnet-snap-source-pool-failed-entries pool))))
+                     (<=
+                      (gethash
+                       entry (devnet-snap-source-pool-failed-entries pool) 0)
+                      (get-universal-time)))
             (let* ((reservations
                      (devnet-snap-source-pool-reservation-table pool entry))
                    (load (gethash response-id reservations 0))
-                   (queue (devnet-peer-entry-request-queue entry))
-                   (capacity
-                     (if queue
-                         (devnet-peer-request-queue-snap-capacity
-                          queue response-id)
-                         0)))
-              (when (or (null best)
-                        (< load best-load)
-                        (and (= load best-load)
-                             (> capacity best-capacity)))
-                (setf best entry
-                      best-load load
-                      best-capacity capacity))))))
+                   (queue (devnet-peer-entry-request-queue entry)))
+              (multiple-value-bind (capacity rtt samples)
+                  (if queue
+                      (devnet-peer-request-queue-snap-statistics
+                       queue response-id)
+                      (values 0 nil 0))
+                (let ((finish
+                        (* (1+ load)
+                           (if (and (plusp samples) rtt)
+                               rtt
+                               +devnet-snap-request-target-seconds+))))
+                  (when (or (null best)
+                            (< finish best-finish)
+                            (and (= finish best-finish)
+                                 (> capacity best-capacity)))
+                    (setf best entry
+                          best-finish finish
+                          best-capacity capacity))))))))
       (when best
         (let ((reservations
                 (devnet-snap-source-pool-reservation-table pool best)))
@@ -563,9 +573,8 @@ idle storage and bytecode slots instead of racing onto the same peer."
          (gethash best (devnet-snap-source-pool-fixed-sources pool)))))))
 
 #+sbcl
-(defun devnet-snap-source-pool-release
-    (pool entry response-id &key failed-p)
-  "Release one dependency reservation and optionally retire ENTRY from POOL."
+(defun devnet-snap-source-pool-release (pool entry response-id)
+  "Release one dependency reservation for ENTRY and RESPONSE-ID."
   (sb-thread:with-mutex ((devnet-snap-source-pool-lock pool))
     (let* ((reservations
              (devnet-snap-source-pool-reservation-table pool entry))
@@ -574,9 +583,7 @@ idle storage and bytecode slots instead of racing onto the same peer."
         (error "SNAP source pool reservation underflow"))
       (if (= count 1)
           (remhash response-id reservations)
-          (setf (gethash response-id reservations) (1- count))))
-    (when failed-p
-      (setf (gethash entry (devnet-snap-source-pool-failed-entries pool)) t)))
+          (setf (gethash response-id reservations) (1- count)))))
   t)
 
 #+sbcl
@@ -609,7 +616,14 @@ idle storage and bytecode slots instead of racing onto the same peer."
               (setf
                (gethash entry
                         (devnet-snap-source-pool-failed-entries pool))
-               t))
+               (+ (get-universal-time)
+                  +devnet-snap-source-pool-failure-cooldown-seconds+)))
+            (devnet-peer-manager-log
+             (devnet-snap-source-pool-node pool)
+             "peer.snap.dependency_failed"
+             "peer" (devnet-peer-entry-id-hex entry)
+             "type" label
+             "error" condition)
             (setf last-condition condition)))))))
 
 #+sbcl
