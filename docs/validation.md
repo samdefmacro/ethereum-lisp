@@ -324,11 +324,15 @@ injected worker failure. Switching the production dispatch back to serial makes
 its eight-call and eight-decoder-thread witnesses fail. Generic controls
 enforce the 4,096-key
 and 4 MiB key-byte bounds. The RocksDB construction regressions witness the
-exact 2 GiB block-cache budget, ten-bit full Bloom policy, production
+exact 1 GiB block-cache budget for the shared 16 GiB EL/CL profile, ten-bit
+full Bloom policy, production
 table-factory call site, and an enabled `ReadOptions.async_io` on the live
 adapter handle. Removing that setter or changing its value to zero makes the
 native readback witness fail; this witnesses asynchronous read configuration,
 not the separate coroutine build needed for cross-level MultiGet scheduling.
+The bounded healer-code regression places one duplicate code hash on opposite
+sides of a two-item flush: it requires a second durable MultiGet lookup but no
+second peer fetch, proving traversal-wide code-hash heap is released safely.
 The native-transfer regression intercepts a real RocksDB write and requires its
 key/value pointers to name the exact pinned Lisp vectors, then requires one-key
 MultiGet to use exactly two native bulk copies: one into the contiguous key

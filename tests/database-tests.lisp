@@ -332,6 +332,7 @@
         (uiop:delete-directory-tree path :validate t)))
     (is (= ethereum-lisp.database::+rocksdb-block-cache-bytes+
            cache-capacity))
+    (is (= (* 1024 1024 1024) cache-capacity))
     (is (= ethereum-lisp.database::+rocksdb-bloom-bits-per-key+
            bloom-bits))
     (is (= 1 factory-calls))))

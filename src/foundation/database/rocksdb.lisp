@@ -147,8 +147,8 @@
   "Bounded flush/compaction parallelism for the supported public-node profile.")
 (defconstant +rocksdb-background-bytes-per-sync+ (* 1024 1024)
   "Incremental background-file sync width; WAL cursor batches remain synced.")
-(defconstant +rocksdb-block-cache-bytes+ (* 2 1024 1024 1024)
-  "Block-cache budget for the supported 16-GiB public-node profile.")
+(defconstant +rocksdb-block-cache-bytes+ (* 1024 1024 1024)
+  "Block-cache budget for the supported shared 16-GiB EL/CL node profile.")
 (defconstant +rocksdb-bloom-bits-per-key+ 10.0d0
   "Full-filter budget for random content-addressed state lookups.")
 

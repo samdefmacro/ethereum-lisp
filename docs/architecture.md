@@ -330,8 +330,12 @@ them by their physical location instead reintroduces dependency cycles:
   into a fatal node exit. On SBCL, production RocksDB batches of at least 128
   keys are divided into at most eight contiguous native multi-get slices on the
   supported eight-core public-node profile. This
-  path uses a 2 GiB sharded block cache on the supported 16 GiB public-node
-  profile instead of RocksDB 11's 32 MiB fallback. Ten-bit full Bloom filters
+  path uses a 1 GiB sharded block cache on the supported shared 16 GiB EL/CL
+  public-node profile instead of RocksDB 11's 32 MiB fallback. At the
+  flat-range-to-healer boundary, joined range-worker garbage is collected once;
+  healer code-hash deduplication is exact within each 2,048-item batch and then
+  released because the next batch rechecks durable code with MultiGet. Ten-bit
+  full Bloom filters
   keep absent whole-key probes out of newly written SST data blocks, while
   index/filter blocks receive high cache priority and L0 pinning. These table
   settings alter neither verified values nor synchronous cursor batches. The

@@ -4332,7 +4332,13 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
               database active-sources (nreverse pending-codes) byte-limit
               on-source-error)
              (setf pending-codes nil
-                   pending-code-count 0)))
+                   pending-code-count 0)
+             ;; The durable MultiGet inside SNAP-SYNC-HEAL-FETCH-CODES makes
+             ;; it safe to forget this exact in-memory set after each bounded
+             ;; batch. A repeated hash in a later part of a large account trie
+             ;; is rechecked locally and never fetched again, while the healer
+             ;; no longer retains millions of code-hash vectors until exit.
+             (clrhash seen-code-hashes)))
          (flush-healed-subtrees ()
            ;; Every dependency encountered before a completion sentinel must
            ;; be durable before its reusable proof becomes visible.  Publish
@@ -4401,9 +4407,9 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                        remote-work-count)
                     +snap-sync-heal-checkpoint-max-works+)))
          (queue-code-hash (hash)
-           ;; Keep one content hash for the whole traversal.  Flushing bounds
-           ;; wire work and the pending list without repeating database reads
-           ;; for bytecode shared by many accounts.
+           ;; Keep an exact set for one bounded batch. FLUSH-CODES clears it
+           ;; after the durable MultiGet/fetch/write seam; later duplicates
+           ;; pay one local bulk lookup without retaining traversal-wide heap.
            (unless (nth-value 1 (gethash hash seen-code-hashes))
              (setf (gethash hash seen-code-hashes) t)
              (push hash pending-codes)
@@ -5095,6 +5101,11 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
        request-count response-bytes promoted-subtrees skipped-subtrees t)
       completed))))))
 
+(defun snap-sync-release-range-phase-memory ()
+  "Reclaim transient flat-range heap before the local healing walk."
+  #+sbcl (sb-ext:gc :full t)
+  #-sbcl nil)
+
 (defun snap-sync-fill-storage-then-heal
     (database sources progress byte-limit
      &key source-provider on-source-error on-heal-progress heal-yield-p)
@@ -5130,6 +5141,11 @@ plans retain the content-addressed healer as the fail-closed path."
         (snap-sync-report-heal-progress
          on-heal-progress 0 0 0 0 0 0 0 t)
         (return-from snap-sync-fill-storage-then-heal completed))))
+  ;; Range workers and their page/dependency graphs have all joined. A full
+  ;; collection at this one phase boundary returns their old-generation pages
+  ;; before RocksDB's cache and the local healer compete with the colocated
+  ;; consensus client on the supported 16-GiB profile.
+  (snap-sync-release-range-phase-memory)
   (snap-sync-heal-state
    database sources progress byte-limit
    :source-provider source-provider

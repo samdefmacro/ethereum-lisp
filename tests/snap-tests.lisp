@@ -5220,11 +5220,13 @@
       (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p completed))
       (is (equal '(2 1) (nreverse request-sizes)))
       ;; One bounded MultiGet per two-code flush discovers missing hashes.
-      ;; Verified content-addressed writes need no collision point reads, and
-      ;; the repeated account code does not add a database lookup.
+      ;; Verified content-addressed writes need no collision point reads. The
+      ;; repeated account code crosses a flush, proving traversal-wide hashes
+      ;; are released: its second bounded MultiGet finds the durable code and
+      ;; therefore does not add another peer request.
       (is (zerop target-code-point-lookups))
       (is (= 2 target-code-lookup-batches))
-      (is (= 3 target-code-lookup-items))
+      (is (= 4 target-code-lookup-items))
       (dolist (code (list code-a code-b code-c))
         (multiple-value-bind (persisted present-p)
             (kv-get-chain-record target-database :code (keccak-256 code))
