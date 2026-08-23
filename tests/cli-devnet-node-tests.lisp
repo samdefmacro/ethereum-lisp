@@ -3494,6 +3494,40 @@ loop cannot block on a message that never comes."
   #-sbcl
   (is t))
 
+(deftest devnet-snap-bytecode-assignment-learns-item-capacity
+  (:layer :unit :module :p2p)
+  #+sbcl
+  (let* ((queue (ethereum-lisp.cli::make-devnet-peer-request-queue))
+         (hashes
+           (loop for index below 100 collect (snap-test-index-hash index)))
+         (response-id ethereum-lisp.snap:+snap-message-bytecodes+))
+    (multiple-value-bind (packet requested)
+        (ethereum-lisp.cli::devnet-peer-bytecode-request
+         queue hashes (* 512 1024))
+      (is (= 1 (length requested)))
+      (is (= 1
+             (length
+              (ethereum-lisp.snap:snap-get-bytecodes-hashes packet)))))
+    ;; ByteCodes capacity is measured in delivered code items. Repeated fast
+    ;; samples grow 1 -> 2 -> 4 ... -> 84 without treating payload bytes as a
+    ;; nonsensical hash count.
+    (dotimes (index 7)
+      (declare (ignore index))
+      (ethereum-lisp.cli::devnet-peer-request-queue-record-snap-delivery
+       queue response-id 84 0.05d0))
+    (is (= ethereum-lisp.cli::+devnet-snap-max-bytecode-hashes+
+           (ethereum-lisp.cli::devnet-peer-request-queue-snap-capacity
+            queue response-id)))
+    (multiple-value-bind (packet requested)
+        (ethereum-lisp.cli::devnet-peer-bytecode-request
+         queue hashes (* 512 1024))
+      (is (= 84 (length requested)))
+      (is (= 84
+             (length
+              (ethereum-lisp.snap:snap-get-bytecodes-hashes packet))))))
+  #-sbcl
+  (is t))
+
 (deftest devnet-snap-source-pool-prefers-capacity-and-independent-type-slots
   (:layer :unit :module :p2p)
   #+sbcl

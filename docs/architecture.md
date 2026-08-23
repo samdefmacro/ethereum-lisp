@@ -157,17 +157,22 @@ them by their physical location instead reintroduces dependency cycles:
   geth's `2*64-8` window; the atomic rebase retains completed ranges and makes
   the fresher state root serviceable by the full live peer set. Account and
   storage requests start at geth's 64 KiB lower cap. Each peer and response
-  type learns an EWMA of delivered bytes and round-trip time, grows or shrinks
-  toward a two-second request target, and remains within geth's 512 KiB upper
-  cap. This prevents a slow peer from holding a fixed maximum response until
-  the session's wall-clock deadline while allowing fast peers to refill the
-  full page in bounded steps. Fetch workers construct and atomically append
-  verified content batches in parallel, while one coordinator serializes only
-  the small successor-cursor and final-plan publication batches. Storage and
-  bytecode dependencies are scheduled independently of the peer that returned
-  their account page. Each response type considers only idle sessions, chooses
-  the largest learned delivery capacity, and uses measured RTT to break ties,
-  matching geth's capacity-sorted assignment. An ordinary dependency transport
+  type learns an EWMA of delivered capacity and round-trip time, grows or
+  shrinks toward a two-second request target, and stays within the protocol's
+  native units: 64--512 KiB for ranges, 1--84 returned code items for
+  ByteCodes, and 1--1,024 returned nodes for TrieNodes. This prevents a slow
+  peer from holding a fixed maximum response until the session's wall-clock
+  deadline while allowing fast peers to refill the full page in bounded steps.
+  Fetch workers construct and atomically append verified content batches in
+  parallel. One coordinator folds up to sixteen ready successor cursors into
+  one synchronous publication batch, so a visible cursor still flushes the
+  complete preceding WAL prefix without a per-page fsync. Storage and bytecode
+  dependencies are scheduled independently of the peer that returned their
+  account page. ByteCodes jobs from every page share four import-wide workers;
+  each assignment considers only idle sessions, chooses the largest learned
+  item capacity, and uses measured RTT to break ties. This matches geth's
+  central capacity-sorted assignment without multiplying worker count by the
+  number of account pages. An ordinary dependency transport
   failure enters a thirty-second cooldown and the
   already authenticated account page's remaining work retries elsewhere
   instead of being discarded. A peer which explicitly rejects the pivot state
@@ -180,7 +185,12 @@ them by their physical location instead reintroduces dependency cycles:
   cursors; it does not re-probe the rejected sessions or churn to a new root
   every second. The process-local rejection set clears when the geth-style
   stale window selects a genuinely new pivot and is never a peer score or
-  permanent ban. Its dedicated process-local lock permits dependency workers
+  permanent ban. While an import is active, the dialer retains at least sixteen
+  live non-degraded SNAP sessions when the configured peer limit permits it.
+  A failed capability is recorded by response type; success in unrelated SNAP
+  traffic cannot hide it, and the still-useful ETH transport no longer counts
+  toward the SNAP target while discovery seeks a replacement. Its dedicated
+  process-local lock permits dependency workers
   to record exact rejections concurrently with coordinator callbacks without
   entering the peer-table or database lock orders.
 - Public discv4 discovery retains a bounded process-local set of at most 256
@@ -218,8 +228,13 @@ them by their physical location instead reintroduces dependency cycles:
   proof verification, so blind puts are idempotent for healthy state and repair
   a corrupt same-key local value without a RocksDB read for every reconstructed
   node. This matches geth's hash-scheme range ingestion and removes the former
-  second global MPT rebuild and its per-node RocksDB point reads. Ordinary state
-  transitions retain checked `mpt-put`. Complete coarse buckets strictly inside
+  second global MPT rebuild and its per-node RocksDB point reads. Inside proof
+  verification, the strictly ordered flat key/value range is consumed once by
+  a canonical sequential trie builder and merged with the trimmed boundary
+  graph. This transient flat staging is deliberately not retained as a second
+  on-disk state copy: it removes repeated copy-on-write ancestor construction
+  while keeping the content-addressed trie as the sole durable authority.
+  Ordinary state transitions retain checked `mpt-put`. Complete coarse buckets strictly inside
   each authenticated range contain only newly reconstructed nodes. After that
   page's small storage and code become buffered prerequisites, their root
   hashes share the same WAL prefix as the pivot-independent subtree proofs used by the
@@ -264,10 +279,15 @@ them by their physical location instead reintroduces dependency cycles:
   deferred frontier so final healing can verify or skip their storage roots
   through the durable subtree proofs
   before it can publish completion. Work sets above the 8,192-item checkpoint
-  bound also fall back to that path. Each bounded TrieNodes frontier is split
-  into approximately 512-path chunks, always below the pinned geth limit of
-  1,024 paths and with at least one initial chunk per source. Each request slice
-  is sorted by account and compact path, then all storage paths for the same
+  bound also fall back to that path. Each bounded TrieNodes frontier is shared
+  by every live source and capped by its aggregate request capacity. The
+  existing 8,192-item frontier bound permits a 512-path throughput start; a
+  geth-style per-node processing-rate EWMA compares delivered-but-unprocessed
+  nodes with twice the local processing rate once per second. The 1.33/1.25
+  feedback divisor contracts or expands each request between 1 and 512 target
+  paths, always below the pinned geth limit of 1,024, so network delivery cannot
+  grow the global missing queue faster than local integration. Each request
+  slice is sorted by account and compact path, then all storage paths for the same
   account share one wire path set, matching geth's grouping and avoiding a
   repeated remote account-trie lookup per storage node. A response-order index
   maps partial replies back to the exact durable DFS continuation. This avoids the

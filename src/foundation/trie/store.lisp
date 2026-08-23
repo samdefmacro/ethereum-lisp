@@ -105,6 +105,136 @@
            (make-branch-node :children children
                              :value (branch-node-value node)))))))
 
+(defun trie-strip-short-node-prefix (node count)
+  "Return NODE after consuming COUNT nibbles from its compact leading path."
+  (etypecase node
+    (leaf-node
+     (make-leaf-node :path (subseq (leaf-node-path node) count)
+                     :value (leaf-node-value node)))
+    (extension-node
+     (let* ((path (extension-node-path node))
+            (remaining (subseq path count)))
+       (if (zerop (length remaining))
+           (extension-node-child node)
+           (make-extension-node :path remaining
+                                :child (extension-node-child node)))))))
+
+(defun trie-short-node-path (node)
+  (etypecase node
+    (leaf-node (leaf-node-path node))
+    (extension-node (extension-node-path node))))
+
+(defun trie-merge-disjoint-nodes (left right)
+  "Merge two canonical node graphs whose leaf key sets are disjoint.
+
+This is the bulk counterpart of repeated TRIE-PUT-NODE calls. SNAP trims the
+proved interval out of its edge trie, builds the ordered flat interval once,
+then joins the two graphs here. Encountering a hash node on both sides would
+mean the proof failed to expose a boundary and is rejected rather than guessed."
+  (cond
+    ((null left) right)
+    ((null right) left)
+    ((or (hash-node-p left) (hash-node-p right))
+     (error "Disjoint MPT bulk merge reached an unresolved overlapping subtree"))
+    ((branch-node-p left)
+     (trie-merge-disjoint-branch left right))
+    ((branch-node-p right)
+     (trie-merge-disjoint-branch right left))
+    (t
+     (trie-merge-disjoint-short-nodes left right))))
+
+(defun trie-merge-disjoint-branch (branch other)
+  "Merge OTHER into a copied BRANCH without mutating either input graph."
+  (let ((children (trie-copy-branch-children branch))
+        (value (branch-node-value branch)))
+    (if (branch-node-p other)
+        (progn
+          (when (and (plusp (length value))
+                     (plusp (length (branch-node-value other))))
+            (error "Disjoint MPT bulk merge contains a duplicate branch value"))
+          (when (zerop (length value))
+            (setf value (branch-node-value other)))
+          (dotimes (index 16)
+            (setf (aref children index)
+                  (trie-merge-disjoint-nodes
+                   (aref children index)
+                   (aref (branch-node-children other) index)))))
+        (let* ((path (trie-short-node-path other))
+               (nibble (aref path 0)))
+          (if (= nibble +terminator-nibble+)
+              (progn
+                (unless (and (leaf-node-p other)
+                             (= 1 (length path))
+                             (zerop (length value)))
+                  (error "Disjoint MPT bulk merge contains a duplicate value"))
+                (setf value (leaf-node-value other)))
+              (setf (aref children nibble)
+                    (trie-merge-disjoint-nodes
+                     (aref children nibble)
+                     (trie-strip-short-node-prefix other 1))))))
+    (make-branch-node :children children :value value)))
+
+(defun trie-merge-disjoint-short-nodes (left right)
+  "Merge two leaf/extension nodes at the same trie depth."
+  (let* ((left-path (trie-short-node-path left))
+         (right-path (trie-short-node-path right))
+         (common (common-prefix-length left-path right-path)))
+    (cond
+      ((and (= common (length left-path))
+            (= common (length right-path)))
+       (unless (and (extension-node-p left) (extension-node-p right))
+         (error "Disjoint MPT bulk merge contains a duplicate leaf"))
+       (trie-normalize-extension
+        left-path
+        (trie-merge-disjoint-nodes
+         (extension-node-child left) (extension-node-child right))))
+      ((= common (length left-path))
+       (unless (extension-node-p left)
+         (error "Disjoint MPT bulk merge overlaps a terminal leaf"))
+       (trie-normalize-extension
+        left-path
+        (trie-merge-disjoint-nodes
+         (extension-node-child left)
+         (trie-strip-short-node-prefix right common))))
+      ((= common (length right-path))
+       (unless (extension-node-p right)
+         (error "Disjoint MPT bulk merge overlaps a terminal leaf"))
+       (trie-normalize-extension
+        right-path
+        (trie-merge-disjoint-nodes
+         (extension-node-child right)
+         (trie-strip-short-node-prefix left common))))
+      (t
+       (let* ((children (make-array 16 :initial-element nil))
+              (value (make-byte-vector 0))
+              (left-index (aref left-path common))
+              (right-index (aref right-path common)))
+         (when (= left-index right-index)
+           (error "Disjoint MPT bulk merge failed to split compact paths"))
+         (labels ((place (node index)
+                    (if (= index +terminator-nibble+)
+                        (progn
+                          (unless (and (leaf-node-p node)
+                                       (= (1+ common)
+                                          (length
+                                           (trie-short-node-path node)))
+                                       (zerop (length value)))
+                            (error
+                             "Disjoint MPT bulk merge has a malformed terminal"))
+                          (setf value (leaf-node-value node)))
+                        (setf (aref children index)
+                              (trie-strip-short-node-prefix
+                               node (1+ common))))))
+           (place left left-index)
+           (place right right-index))
+         (let ((branch
+                 (make-branch-node
+                  :children children :value value)))
+           (if (plusp common)
+               (make-extension-node
+                :path (subseq left-path 0 common) :child branch)
+               branch)))))))
+
 (defun trie-prepend-path (nibble node)
   (when (hash-node-p node)
     (setf node (trie-resolve-node node)))

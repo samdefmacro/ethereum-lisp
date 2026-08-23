@@ -69,6 +69,78 @@
                    (setf (aref children index) (build-node group)))))
              (make-branch-node :children children :value value)))))))
 
+(defun ordered-entries-common-prefix-length (entries)
+  "Return the common prefix of already ordered nibble ENTRIES.
+
+For a lexicographically ordered set the first and last key bound every key in
+between, so comparing only those two paths avoids the repeated prefix scans of
+BUILD-NODE."
+  (if (endp entries)
+      0
+      (let ((last-entry (first entries)))
+        (dolist (entry (rest entries))
+          (setf last-entry entry))
+        (common-prefix-length (caar entries) (car last-entry)))))
+
+(defun ordered-entries-by-first-nibble (entries)
+  "Group non-terminal ordered ENTRIES in one forward pass.
+
+The returned list contains `(NIBBLE . ENTRIES)` groups in ascending nibble
+order. Every grouped path has its leading nibble removed."
+  (let ((groups '())
+        (current-nibble nil)
+        (current '()))
+    (labels ((flush ()
+               (when current
+                 (push (cons current-nibble (nreverse current)) groups)
+                 (setf current nil))))
+      (dolist (entry entries)
+        (let ((path (car entry)))
+          (unless (zerop (length path))
+            (let ((nibble (aref path 0)))
+              (unless (eql nibble current-nibble)
+                (flush)
+                (setf current-nibble nibble))
+              (push (cons (subseq path 1) (cdr entry)) current)))))
+      (flush)
+      (nreverse groups))))
+
+(defun build-node-ordered (entries)
+  "Build a canonical node from lexicographically ordered nibble ENTRIES.
+
+Unlike BUILD-NODE this path never scans the same level sixteen times and never
+performs copy-on-write insertion for every leaf. It is the flat-range/stack
+builder used after SNAP has already proved strict key ordering."
+  (cond
+    ((endp entries) nil)
+    ((endp (rest entries))
+     (let ((entry (first entries)))
+       (make-leaf-node
+        :path (concatenate 'vector (car entry)
+                           (vector +terminator-nibble+))
+        :value (cdr entry))))
+    (t
+     (let ((prefix-length
+             (ordered-entries-common-prefix-length entries)))
+       (if (plusp prefix-length)
+           (make-extension-node
+            :path (subseq (caar entries) 0 prefix-length)
+            :child
+            (build-node-ordered
+             (mapcar
+              (lambda (entry)
+                (cons (subseq (car entry) prefix-length) (cdr entry)))
+              entries)))
+           (let ((children (make-array 16 :initial-element nil))
+                 (value (make-byte-vector 0)))
+             (dolist (entry entries)
+               (when (zerop (length (car entry)))
+                 (setf value (cdr entry))))
+             (dolist (group (ordered-entries-by-first-nibble entries))
+               (setf (aref children (car group))
+                     (build-node-ordered (cdr group))))
+             (make-branch-node :children children :value value)))))))
+
 (defvar *node-encoding-count* nil
   "When bound to a number, increment it for every trie node encoded on a cache
 miss. Tests use this to guard the dirty-path complexity contract.")

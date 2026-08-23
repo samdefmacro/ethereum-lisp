@@ -197,6 +197,16 @@ cl-workbench validation run cold-integration --match DEVNET-PEER-REQUEST-QUEUE
 cl-workbench validation run cold-unit --match DEVNET-SNAP-REQUEST-CAPACITY
 cl-workbench validation run cold-unit --match DEVNET-SNAP-SOURCE-APPLIES
 cl-workbench validation run cold-unit --match DEVNET-SNAP-SOURCE-POOL
+cl-workbench validation run cold-unit \
+  --match DEVNET-SNAP-BYTECODE-ASSIGNMENT-LEARNS-ITEM-CAPACITY
+cl-workbench validation run cold-unit \
+  --match DEVNET-DIAL-SNAP-DEMAND-REPLACES-DEGRADED-CAPACITY
+cl-workbench validation run cold-unit \
+  --match SNAP-MULTI-BYTECODES-USE-ONE-FIXED-GLOBAL-WORKER-POOL
+cl-workbench validation run cold-unit \
+  --match SNAP-ACCOUNT-CURSORS-SHARE-ONE-DURABLE-PUBLICATION-BATCH
+cl-workbench validation run cold-unit \
+  --match SNAP-STATE-HEALER-FEEDBACK-BOUNDS-THE-GLOBAL-MISSING-QUEUE
 cl-workbench validation run cold-integration \
   --match DEVNET-RANGE-ANNOUNCEMENT-WAKES
 cl-workbench validation run cold-integration \
@@ -270,19 +280,26 @@ ahead of a storage job and proves the storage request bypasses the occupied
 account response slot, then routes out-of-order typed replies to the correct
 workers. A pump regression separately proves that a SNAP response reaches that
 router instead of being rejected as unsolicited. Rate controls prove a new
-peer starts account and storage ranges at 64 KiB, a fast sequence grows at most
-twofold per response toward 512 KiB, a slow sequence falls back without
+peer starts account and storage ranges at 64 KiB, a fast sequence grows at
+most twofold per response toward 512 KiB, a slow sequence falls back without
 crossing the lower bound, and the production source applies the learned
-per-type cap to its outgoing packet. A changed-root rebase installs
+per-type cap to its outgoing packet. ByteCodes learns in returned-code units
+from 1 through the 84-hash protocol cap; two concurrent pages prove that
+their six batches never exceed the fixed import-wide worker count. Ready
+account results prove sixteen successor cursors share one durable publication
+write, while the existing injected-failure controls keep all of those cursors
+behind an unsuccessful seam. A changed-root rebase installs
 a non-empty, non-root range witness; legacy, rebased, oversized, or incomplete
 dependency plans retain the fail-closed full-root traversal. The tests also
 inject a failed database batch to prove progress never outruns verified account
 state. Only the complete same-root range/dependency proof set or the final
 traversal can install the completion marker. The final
 healer tests partition one missing frontier, prove every request remains
-within geth's 1,024-path cap, target approximately 512 paths per request, sort
-the whole request slice and group all storage paths for one account into a
-shared wire path set while mapping partial replies back to exact DFS order, and block one source until a
+within geth's 1,024-path cap, and verify the processing-rate feedback divisor
+bounds the aggregate missing queue while adapting the target between 1 and
+512 paths per source. They sort the whole request slice and group all storage
+paths for one account into a shared wire path set while mapping partial replies
+back to exact DFS order, and block one source until a
 faster source has
 claimed multiple chunks. They also prove a second source actually serves
 TrieNodes and consecutive rounds rotate the first source so retained work is
@@ -397,8 +414,11 @@ mismatches excluded from TCP while advertising the stable responder UDP port.
 Completed
 ranges are not replayed after restart, thirty-two-range cursors expand without
 replay, and a failed source's claimed range is reassigned. SNAP demand raises
-the default outbound target from sixteen to twenty-five capable sessions while
-retaining the absolute fifty-peer bound. A
+the default outbound target from sixteen to twenty-five capable sessions
+while retaining the absolute fifty-peer bound. Sixteen non-degraded SNAP
+sessions are maintained when capacity permits; a per-response-type failure
+removes one from that quality count and opens a replacement slot, while
+success in another type cannot conceal the failure. A
 finite source generation may exhaust without stopping the node: the coordinator logs
 that typed availability result, refreshes live sessions on its next pass, and
 resumes without replaying the page committed by the retired generation. A peer

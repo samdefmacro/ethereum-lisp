@@ -34,6 +34,12 @@ nothing would hold a thread and a descriptor indefinitely.")
 (defconstant +devnet-snap-max-request-bytes+ (* 512 1024)
   "Largest adaptive account/storage request, matching geth's upper cap.")
 
+(defconstant +devnet-snap-max-bytecode-hashes+ 84
+  "Geth's 512 KiB ByteCodes assignment cap in code items, not wire bytes.")
+
+(defconstant +devnet-snap-max-trie-node-paths+ 1024
+  "Maximum TrieNodes lookups assigned to one peer request.")
+
 (defconstant +devnet-snap-request-target-seconds+ 2d0
   "Target wall time used to turn observed SNAP throughput into a request cap.")
 
@@ -42,8 +48,8 @@ nothing would hold a thread and a descriptor indefinitely.")
 
 #+sbcl
 (defstruct (devnet-peer-snap-rate
-            (:constructor make-devnet-peer-snap-rate ()))
-  (capacity +devnet-snap-min-request-bytes+)
+            (:constructor make-devnet-peer-snap-rate (capacity)))
+  capacity
   throughput
   round-trip
   (samples 0))
@@ -76,9 +82,22 @@ nothing would hold a thread and a descriptor indefinitely.")
   closed-p)
 
 #+sbcl
-(defun devnet-peer-snap-clamp-request-bytes (bytes)
-  (max +devnet-snap-min-request-bytes+
-       (min +devnet-snap-max-request-bytes+ bytes)))
+(defun devnet-peer-snap-capacity-bounds (response-id)
+  "Return geth-compatible capacity units for one SNAP response type."
+  (case response-id
+    (#.ethereum-lisp.snap:+snap-message-bytecodes+
+     (values 1 +devnet-snap-max-bytecode-hashes+))
+    (#.ethereum-lisp.snap:+snap-message-trie-nodes+
+     (values 1 +devnet-snap-max-trie-node-paths+))
+    (otherwise
+     (values +devnet-snap-min-request-bytes+
+             +devnet-snap-max-request-bytes+))))
+
+#+sbcl
+(defun devnet-peer-snap-clamp-capacity (response-id capacity)
+  (multiple-value-bind (minimum maximum)
+      (devnet-peer-snap-capacity-bounds response-id)
+    (max minimum (min maximum capacity))))
 
 #+sbcl
 (defun devnet-peer-request-queue-snap-rate (queue response-id)
@@ -87,7 +106,9 @@ nothing would hold a thread and a descriptor indefinitely.")
                (devnet-peer-request-queue-snap-rates queue))
       (setf (gethash response-id
                      (devnet-peer-request-queue-snap-rates queue))
-            (make-devnet-peer-snap-rate))))
+            (make-devnet-peer-snap-rate
+             (nth-value
+              0 (devnet-peer-snap-capacity-bounds response-id))))))
 
 #+sbcl
 (defun devnet-peer-request-queue-snap-capacity (queue response-id)
@@ -108,20 +129,22 @@ nothing would hold a thread and a descriptor indefinitely.")
 
 #+sbcl
 (defun devnet-peer-request-queue-record-snap-delivery
-    (queue response-id bytes elapsed)
-  "Update RESPONSE-ID's capacity from one decoded SNAP payload delivery.
+    (queue response-id delivered-units elapsed)
+  "Update RESPONSE-ID's capacity from one decoded SNAP delivery.
 
 The bounded EWMA follows geth's message-rate strategy: slow peers remain useful
 with small requests, while peers that repeatedly fill them quickly grow toward
-512 KiB.  One sample may at most double or halve the current cap, preventing a
-short tail response or a single fast cache hit from causing an unstable jump."
-  (unless (and (integerp bytes) (not (minusp bytes))
+the response type's cap. DELIVERED-UNITS is bytes for ranges, code count for
+ByteCodes, and node count for TrieNodes. One sample may at most double or halve
+the current cap, preventing a short tail response or a single fast cache hit
+from causing an unstable jump."
+  (unless (and (integerp delivered-units) (not (minusp delivered-units))
                (realp elapsed) (plusp elapsed))
     (error "Invalid SNAP delivery measurement"))
   (sb-thread:with-mutex ((devnet-peer-request-queue-lock queue))
     (let* ((rate
              (devnet-peer-request-queue-snap-rate queue response-id))
-           (sample-throughput (/ bytes (float elapsed 1d0)))
+           (sample-throughput (/ delivered-units (float elapsed 1d0)))
            (impact +devnet-snap-rate-measurement-impact+)
            (throughput
              (if (devnet-peer-snap-rate-throughput rate)
@@ -139,12 +162,14 @@ short tail response or a single fast cache hit from causing an unstable jump."
            ;; Slightly overfill the target to avoid locking into a capacity
            ;; below what the peer can actually deliver in the same RTT.
            (desired
-             (devnet-peer-snap-clamp-request-bytes
+             (devnet-peer-snap-clamp-capacity
+              response-id
               (round (* throughput
                         +devnet-snap-request-target-seconds+
                         1.05d0))))
            (capacity
-             (devnet-peer-snap-clamp-request-bytes
+             (devnet-peer-snap-clamp-capacity
+              response-id
               (max (floor old-capacity 2)
                    (min (* old-capacity 2) desired)))))
       (setf (devnet-peer-snap-rate-throughput rate) throughput
@@ -238,7 +263,13 @@ routed back to their waiting worker by message type plus request id."
   (let ((started-at (devnet-peer-request-job-started-at job)))
     (when started-at
       (devnet-peer-request-queue-record-snap-delivery
-       queue (devnet-peer-request-job-snap-response-id job) payload-bytes
+       queue (devnet-peer-request-job-snap-response-id job)
+       (case (devnet-peer-request-job-snap-response-id job)
+         (#.ethereum-lisp.snap:+snap-message-bytecodes+
+          (length (ethereum-lisp.snap:snap-bytecodes-codes response)))
+         (#.ethereum-lisp.snap:+snap-message-trie-nodes+
+          (length (ethereum-lisp.snap:snap-trie-nodes-nodes response)))
+         (otherwise payload-bytes))
        ;; The in-memory integration source can answer within one timer tick.
        ;; One microsecond is still far below a network RTT and avoids a
        ;; division overflow without affecting production measurements.

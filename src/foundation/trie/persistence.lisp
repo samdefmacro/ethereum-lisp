@@ -5,6 +5,25 @@
 (defstruct mpt-range-proof
   nodes)
 
+(defun mpt-put-ordered-proven-range (trie entries)
+  "Bulk insert ordered, non-empty, proven-absent ENTRIES into TRIE."
+  (when entries
+    (let ((nibble-entries
+            (mapcar
+             (lambda (entry)
+               (let ((value (ensure-byte-vector (cdr entry))))
+                 (when (zerop (length value))
+                   (error "An ordered proven MPT range contains an empty value"))
+                 (cons
+                  (keybytes-to-nibbles
+                   (ensure-byte-vector (car entry)) :terminator nil)
+                  value)))
+             entries)))
+      (setf (mpt-root trie)
+            (trie-merge-disjoint-nodes
+             (mpt-root trie) (build-node-ordered nibble-entries)))))
+  trie)
+
 (defun trie-node-children (node)
   (etypecase node
     (hash-node nil)
@@ -601,8 +620,8 @@ persisted without rebuilding the same page."
     (cond
       ((null nodes)
         (let ((trie (make-mpt)))
-          (dolist (entry entries)
-            (mpt-put-proven-absent trie (car entry) (cdr entry)))
+          (setf (mpt-lazy-p trie) t)
+          (mpt-put-ordered-proven-range trie entries)
           (let ((reconstructed-root (mpt-root-hash trie)))
             (unless (bytes= root-hash reconstructed-root)
               (error
@@ -644,11 +663,11 @@ persisted without rebuilding the same page."
                    (mpt-trim-range-node
                     (mpt-root trie) (make-byte-vector 0)
                     first last (length first)))
-             (dolist (entry entries)
-               ;; Trimming removed this verified, gap-free interval. Its
-               ;; entries are therefore proven absent from the retained edge
-               ;; trie; avoid a redundant point traversal per leaf.
-               (mpt-put-proven-absent trie (car entry) (cdr entry)))
+             ;; Trimming removed this verified, gap-free interval. Build its
+             ;; flat ordered leaves once and merge the completed graph into
+             ;; the exposed edge proof instead of copy-on-write inserting
+             ;; every key through the same ancestors.
+             (mpt-put-ordered-proven-range trie entries)
              (unless (bytes= root-hash (mpt-root-hash trie))
                (error "MPT compact range proof root hash mismatch"))
              (values t trie))))))))

@@ -25,6 +25,8 @@ hash set after the peer reaches its soft byte cap.")
   "Maximum geth-sized ByteCodes batches advanced for one account page.")
 (defconstant +snap-sync-dependency-workers+ 32
   "Global account-page dependency jobs advanced independently of range peers.")
+(defconstant +snap-sync-cursor-batch-pages+ 16
+  "Maximum ready account cursors published by one synchronous WAL batch.")
 (defconstant +snap-sync-legacy-account-task-count+ 16
   "Account partition count written by progress versions before oversubscription.")
 (defconstant +snap-sync-previous-account-task-count+ 32
@@ -49,6 +51,13 @@ dispatcher can claim another partition without waiting for storage or code.")
   "Maximum healing paths assigned to one source in a concurrent round.")
 (defparameter *snap-sync-heal-request-target-paths* 512
   "Target TrieNodes path width while retaining a tail for fast-peer stealing.")
+(defconstant +snap-sync-heal-rate-measurement-impact+ 0.005d0
+  "Per-node EWMA impact used by geth's TrieNodes processing-rate tracker.")
+(defconstant +snap-sync-heal-throttle-increase+ 1.33d0)
+(defconstant +snap-sync-heal-throttle-decrease+ 1.25d0)
+(defconstant +snap-sync-heal-min-throttle+ 1d0)
+(defconstant +snap-sync-heal-max-throttle+
+  +snap-sync-trie-node-lookups-per-request+)
 (defconstant +snap-sync-heal-local-reads-per-batch+ 512
   "Maximum local read width before frontier-aware shrinking.")
 (defparameter *snap-sync-heal-local-read-workers* 8
@@ -188,10 +197,16 @@ state completion.")
 
 (defstruct (snap-sync-source
             (:constructor make-snap-sync-source
-                (&key account-range storage-ranges bytecodes trie-nodes)))
+                (&key account-range storage-ranges bytecodes bytecodes-batch
+                      trie-nodes)))
   account-range
   storage-ranges
   bytecodes
+  ;; Optional geth-style assignment callback. It receives the still-missing
+  ;; hashes and the response byte ceiling, then returns RESPONSE and the exact
+  ;; hash subset selected after reserving an idle peer. Fixed/test sources keep
+  ;; using BYTECODES and the protocol-level fallback below.
+  bytecodes-batch
   trie-nodes)
 
 (defstruct (snap-sync-account-task
@@ -851,18 +866,33 @@ and increases timeout pressure without creating another on-wire slot."
     (dolist (hash remaining)
       (setf (gethash hash pending) t))
     (loop while remaining
-          do (let* ((count
-                      (min +snap-sync-code-hashes-per-request+
-                           (length remaining)))
-                    (requested (subseq remaining 0 count))
-                    (requested-pending (make-hash-table :test #'equalp))
-                    (request
-                      (make-snap-get-bytecodes 1 requested byte-limit))
-                    (response
-                      (snap-sync-source-call
-                       (snap-sync-source-bytecodes source)
-                       request "bytecodes"))
-                    (received (snap-bytecodes-codes response)))
+          do (multiple-value-bind (response requested)
+                 (if (functionp (snap-sync-source-bytecodes-batch source))
+                     (funcall
+                      (snap-sync-source-bytecodes-batch source)
+                      remaining byte-limit)
+                     (let* ((count
+                              (min +snap-sync-code-hashes-per-request+
+                                   (length remaining)))
+                            (requested (subseq remaining 0 count))
+                            (request
+                              (make-snap-get-bytecodes
+                               1 requested byte-limit)))
+                       (values
+                        (snap-sync-source-call
+                         (snap-sync-source-bytecodes source)
+                         request "bytecodes")
+                        requested)))
+               (unless (and requested
+                            (<= (length requested)
+                                +snap-sync-code-hashes-per-request+)
+                            (every
+                             (lambda (hash)
+                               (member hash remaining :test #'bytes=))
+                             requested))
+                 (error "Snap bytecode scheduler selected an invalid hash batch"))
+               (let ((requested-pending (make-hash-table :test #'equalp))
+                     (received (snap-bytecodes-codes response)))
                (dolist (hash requested)
                  (setf (gethash hash requested-pending) t))
                (unless (= 1 (snap-bytecodes-id response))
@@ -880,7 +910,7 @@ and increases timeout pressure without creating another on-wire slot."
                      (delete-if-not
                       (lambda (hash)
                         (nth-value 1 (gethash hash pending)))
-                      remaining))))
+                      remaining)))))
     (nreverse codes)))
 
 #+sbcl
@@ -1732,8 +1762,8 @@ again."
                     replacement
                     (snap-sync-copy-account-task task))))
 
-(defun snap-sync-commit-account-page (database progress result)
-  "Publish RESULT's task cursor after its buffered content is complete."
+(defun snap-sync-account-page-next-progress (progress result)
+  "Return PROGRESS advanced by one already buffered account-page RESULT."
   (let* ((task-index (snap-sync-page-result-task-index result))
          (task (nth task-index (snap-sync-progress-tasks progress))))
     (unless task
@@ -1742,8 +1772,7 @@ again."
                  (bytes= (snap-sync-account-task-next-origin task)
                          (snap-sync-page-result-origin result)))
       (error "Snap account result no longer matches its durable task cursor"))
-    (let* ((batch (make-kv-write-batch))
-           (previous-root (snap-sync-progress-partial-root progress))
+    (let* ((previous-root (snap-sync-progress-partial-root progress))
            ;; EMPTY means this is the first page of a fresh import. Once a
            ;; page has independently reconstructed STATE-ROOT, retain that
            ;; value as the same-root range-set witness. Rebase installs a
@@ -1779,20 +1808,39 @@ again."
               ;; Only the final content-addressed traversal may install the
               ;; completion/state-history marker.
               :completed-p nil :tasks tasks)))
-      (when (and (snap-sync-tasks-completed-p tasks)
-                 (hash32= partial-root
-                          (snap-sync-progress-state-root progress)))
+      next)))
+
+(defun snap-sync-commit-account-pages (database progress results)
+  "Publish several ready task cursors through one synchronous WAL seam.
+
+Every RESULT's authenticated content was buffered first. Folding the results
+in event order retains the same durable cursor checks, while one final progress
+record flushes all of those worker prefixes and removes per-page fsync stalls."
+  (unless results
+    (error "Snap account cursor batch must contain at least one result"))
+  (let ((next progress)
+        (snapshots '()))
+    (dolist (result results)
+      (setf next (snap-sync-account-page-next-progress next result))
+      (push next snapshots))
+    (let ((batch (make-kv-write-batch)))
+      (when (and
+             (snap-sync-tasks-completed-p (snap-sync-progress-tasks next))
+             (hash32= (snap-sync-progress-partial-root next)
+                      (snap-sync-progress-state-root next)))
         ;; Every buffered range independently reconstructed the same authorized
         ;; root. Publishing this marker with the last cursor makes the
         ;; deferred storage set complete: after restart, absence of a queue
         ;; record means there was no such work.
         (snap-sync-populate-deferred-storage-plan-batch
-         batch (snap-sync-progress-state-root progress)))
-      ;; This deliberately tiny synchronous batch is the publication seam. It
-      ;; flushes all preceding worker WAL writes before exposing the cursor.
+         batch (snap-sync-progress-state-root next)))
       (snap-sync-populate-progress-batch batch next)
-      (kv-apply-batch database batch)
-      next)))
+      (kv-apply-batch database batch))
+    (values next (nreverse snapshots))))
+
+(defun snap-sync-commit-account-page (database progress result)
+  "Publish RESULT's task cursor after its buffered content is complete."
+  (snap-sync-commit-account-pages database progress (list result)))
 
 (defun snap-sync-next-unfinished-task (progress &optional claimed)
   (loop for task in (snap-sync-progress-tasks progress)
@@ -2010,7 +2058,44 @@ to MISSING, so partial responses retain the caller's durable continuation."
       (flush-storage)
       (values (nreverse path-sets) order))))
 
-(defun snap-sync-heal-missing-limit (stack-count source-count)
+(defun snap-sync-heal-request-capacity (throttle)
+  "Return the feedback-limited path count assigned to one TrieNodes request."
+  (unless (and (realp throttle) (plusp throttle))
+    (error "Snap heal throttle must be positive"))
+  (max 1
+       (min +snap-sync-heal-paths-per-source+
+            (floor *snap-sync-heal-request-target-paths* throttle))))
+
+(defun snap-sync-heal-next-throttle (throttle pending processing-rate)
+  "Adjust THROTTLE from geth's pending-vs-processing feedback rule."
+  (unless (and (realp throttle) (plusp throttle)
+               (integerp pending) (not (minusp pending))
+               (realp processing-rate) (not (minusp processing-rate)))
+    (error "Invalid snap heal throttle feedback"))
+  (let ((next
+          (if (> pending (* 2 processing-rate))
+              (* throttle +snap-sync-heal-throttle-increase+)
+              (/ throttle +snap-sync-heal-throttle-decrease+))))
+    (max +snap-sync-heal-min-throttle+
+         (min +snap-sync-heal-max-throttle+ next))))
+
+(defun snap-sync-heal-processing-rate (old-rate fills elapsed-seconds)
+  "Fold FILLS uniformly into the per-node healer processing-rate EWMA."
+  (unless (and (realp old-rate) (not (minusp old-rate))
+               (integerp fills) (not (minusp fills))
+               (realp elapsed-seconds) (plusp elapsed-seconds))
+    (error "Invalid snap heal processing-rate sample"))
+  (if (zerop fills)
+      (float old-rate 1d0)
+      (let* ((sample (/ fills (float elapsed-seconds 1d0)))
+             (retained
+               (expt (- 1d0 +snap-sync-heal-rate-measurement-impact+)
+                     fills)))
+        (+ (* retained (- old-rate sample)) sample))))
+
+(defun snap-sync-heal-missing-limit
+    (stack-count source-count
+     &optional (paths-per-source +snap-sync-heal-paths-per-source+))
   "Bound one remote missing-path batch by its concurrent source capacity.
 
 Missing work is popped out of the exact DFS frontier only until the response is
@@ -2024,9 +2109,13 @@ frontier concurrently."
     (error "Snap heal frontier count must be a non-negative integer"))
   (unless (and (integerp source-count) (plusp source-count))
     (error "Snap heal source count must be a positive integer"))
+  (unless (and (integerp paths-per-source)
+               (<= 1 paths-per-source
+                   +snap-sync-heal-paths-per-source+))
+    (error "Snap heal per-source path capacity is invalid"))
   (min +snap-sync-heal-checkpoint-max-works+
        (* #+sbcl source-count #-sbcl 1
-          +snap-sync-heal-paths-per-source+)))
+          paths-per-source)))
 
 (defun snap-sync-heal-local-read-limit
     (stack-count missing-count missing-limit checkpoint-room)
@@ -2460,7 +2549,8 @@ the returned record in the same batch as its new skeleton metadata."
 
 #+sbcl
 (defun snap-sync-heal-request-round
-    (sources missing root-bytes byte-limit)
+    (sources missing root-bytes byte-limit
+     &key (target-paths *snap-sync-heal-request-target-paths*))
   "Drain one bounded missing frontier through continuously busy sources.
 
 Each source still owns at most one TrieNodes exchange at a time.  The frontier
@@ -2468,8 +2558,8 @@ is deliberately over-partitioned, however, so a source that answers promptly
 claims another disjoint chunk instead of waiting at a global slowest-peer
 barrier.  Failed sources stop claiming; their unrequested remainder stays
 absent in the caller's exact continuation and is retried after source rotation."
-  (unless (and (integerp *snap-sync-heal-request-target-paths*)
-               (<= 1 *snap-sync-heal-request-target-paths*
+  (unless (and (integerp target-paths)
+               (<= 1 target-paths
                    +snap-sync-heal-paths-per-source+))
     (error "Snap healing request target must be between 1 and ~D paths"
            +snap-sync-heal-paths-per-source+))
@@ -2483,7 +2573,7 @@ absent in the caller's exact continuation and is retried after source rotation."
               worker-count
               (ceiling
                (length missing)
-               *snap-sync-heal-request-target-paths*)))))
+               target-paths)))))
          (chunk-size (ceiling (length missing) chunk-count))
          (next-start (min (length missing) (* worker-count chunk-size)))
          (results '())
@@ -2553,7 +2643,8 @@ absent in the caller's exact continuation and is retried after source rotation."
 
 #-sbcl
 (defun snap-sync-heal-request-round
-    (sources missing root-bytes byte-limit)
+    (sources missing root-bytes byte-limit &key target-paths)
+  (declare (ignore target-paths))
   (let ((source (first sources)))
     (unless source
       (error "Snap healing requires a live source"))
@@ -3721,7 +3812,18 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                  0))
            (skipped-subtrees 0)
            (source-round 0)
-           (last-checkpoint-processed-nodes processed-nodes))
+           (last-checkpoint-processed-nodes processed-nodes)
+           ;; Geth-style feedback state. PENDING counts delivered top-level
+           ;; nodes not yet integrated by PROCESS-OBJECT; RATE is nodes/second.
+           (healer-pending 0)
+           (healer-processing-rate 0d0)
+           ;; Our synchronous frontier is already hard-bounded at 8,192 work
+           ;; items, unlike geth's asynchronously growing scheduler. Start at
+           ;; the established 512-path target for throughput; the same
+           ;; processing-rate feedback contracts it as soon as pending work
+           ;; outruns local integration.
+           (healer-throttle +snap-sync-heal-min-throttle+)
+           (last-throttle-adjusted-at (get-internal-real-time)))
     (labels
         ((prefer-peer-nodes-p ()
            (and
@@ -3754,6 +3856,26 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
               on-heal-progress processed-nodes reused-nodes fetched-nodes
               request-count response-bytes promoted-subtrees
               skipped-subtrees nil)))
+         (record-processing-rate (started-at processed-before)
+           (let ((fills (- processed-nodes processed-before)))
+             (when (plusp fills)
+               (setf healer-processing-rate
+                     (snap-sync-heal-processing-rate
+                      healer-processing-rate fills
+                      (max
+                       1d-6
+                       (/ (- (get-internal-real-time) started-at)
+                          (float internal-time-units-per-second 1d0))))))))
+         (adjust-healer-throttle ()
+           (let ((now (get-internal-real-time)))
+             (when (>= (- now last-throttle-adjusted-at)
+                       internal-time-units-per-second)
+               (setf healer-throttle
+                     (snap-sync-heal-next-throttle
+                      healer-throttle healer-pending healer-processing-rate)
+                     last-throttle-adjusted-at now))))
+         (current-request-paths ()
+           (snap-sync-heal-request-capacity healer-throttle))
          (read-local-nodes (references &key decoder (disk-p t))
            ;; Preserve the ordered batch contract while satisfying freshly
            ;; fetched hashes from the bounded response cache.  DISK-P may
@@ -3929,6 +4051,9 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
            (when (eq :account (snap-sync-heal-work-kind work))
              (queue-account-value path value)))
          (process-object (work object)
+           (when (snap-sync-heal-work-fetched-p work)
+             (when (plusp healer-pending)
+               (decf healer-pending)))
            (incf processed-nodes)
            (report-local-checkpoint)
            (unless (rlp-list-p object)
@@ -4006,8 +4131,10 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                     (snap-sync-heal-round-sources
                      active-sources source-round))
                   (results
-                    (snap-sync-heal-request-round
-                     round-sources missing root-bytes byte-limit))
+                    (let ((*snap-sync-heal-request-target-paths*
+                            (current-request-paths)))
+                      (snap-sync-heal-request-round
+                       round-sources missing root-bytes byte-limit)))
                   (matched
                     (make-array (length missing) :initial-element nil))
                   (batch (make-kv-write-batch))
@@ -4116,6 +4243,8 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                               (aref missing index) encoded nil)))))
                  (incf fetched-nodes fills)
                  (incf response-bytes fetched-bytes)
+                 (incf healer-pending fills)
+                 (adjust-healer-throttle)
                  ;; The same batch that makes response nodes durable publishes
                  ;; a frontier whose FETCHED-P bits keep restart telemetry and
                  ;; completion-sentinel ordering exact.
@@ -4147,15 +4276,19 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
         ;; addressed nodes and completed-subtree proofs remain reusable.
         (when (and heal-yield-p (funcall heal-yield-p))
           (error 'snap-sync-heal-yielded))
-        (let* ((missing '())
+        (let* ((pass-started-at (get-internal-real-time))
+               (processed-before processed-nodes)
+               (missing '())
                (missing-count 0)
+               (request-paths (current-request-paths))
                (missing-limit
                  (snap-sync-heal-missing-limit
                   (+ (length stack) deferred-storage-count)
                   ;; One local fallback batch remains useful after every peer
                   ;; in a pruned-pivot generation has been retired. A truly
                   ;; absent node reaches FETCH-MISSING and reports exhaustion.
-                  (max 1 (length active-sources)))))
+                  (max 1 (length active-sources))
+                  request-paths)))
           (loop while (and stack
                            (< missing-count missing-limit)
                            (< deferred-storage-count
@@ -4340,6 +4473,8 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                                     (progn
                                       (push work missing)
                                       (incf missing-count))))))))))))
+          (record-processing-rate pass-started-at processed-before)
+          (adjust-healer-throttle)
           (drain-deferred-storage)
           (flush-healed-subtrees)
           (cond
@@ -4479,12 +4614,33 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
   (claims (make-hash-table))
   (failed-sources (make-hash-table :test #'eq))
   (code-inflight (make-hash-table :test #'equalp))
+  (code-write-lock
+    (sb-thread:make-mutex :name "snap-sync-code-publish"))
+  (code-jobs '())
+  (code-worker-count 0)
   (dependency-jobs '())
   (events '())
   source-count
   max-pages
   (pages 0)
   stopped-p)
+
+#+sbcl
+(defstruct (snap-sync-code-task
+            (:constructor make-snap-sync-code-task
+                (owner source byte-limit pending)))
+  "One page's owned hashes scheduled through the global ByteCodes queue."
+  owner
+  source
+  byte-limit
+  pending
+  condition)
+
+#+sbcl
+(defstruct (snap-sync-code-job
+            (:constructor make-snap-sync-code-job (task hashes)))
+  task
+  hashes)
 
 #+sbcl
 (defstruct (snap-sync-multi-event
@@ -4608,6 +4764,13 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
     (runtime owner hashes)
   "Release OWNER's HASHES and wake pages that can now recheck durable code."
   (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
+    (snap-sync-multi-release-code-flight-locked runtime owner hashes)
+    (snap-sync-multi-notify runtime)))
+
+#+sbcl
+(defun snap-sync-multi-release-code-flight-locked
+    (runtime owner hashes)
+  "Release OWNER's HASHES while RUNTIME's lock is already held."
     (dolist (hash hashes)
       ;; A completed batch is published before this release. The owner token
       ;; prevents a late cleanup from removing a flight that another page took
@@ -4615,8 +4778,91 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
       (when (eq owner
                 (gethash hash
                          (snap-sync-multi-runtime-code-inflight runtime)))
-        (remhash hash (snap-sync-multi-runtime-code-inflight runtime))))
-    (snap-sync-multi-notify runtime)))
+        (remhash hash (snap-sync-multi-runtime-code-inflight runtime)))))
+
+#+sbcl
+(defun snap-sync-multi-claim-code-job (runtime)
+  "Claim one globally bounded ByteCodes job, or stop with RUNTIME."
+  (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
+    (loop
+      (when (snap-sync-multi-runtime-stopped-p runtime)
+        (return nil))
+      (when (snap-sync-multi-runtime-code-jobs runtime)
+        (return (pop (snap-sync-multi-runtime-code-jobs runtime))))
+      (sb-thread:condition-wait
+       (snap-sync-multi-runtime-changed runtime)
+       (snap-sync-multi-runtime-lock runtime)))))
+
+#+sbcl
+(defun snap-sync-multi-finish-code-job
+    (runtime job &optional condition)
+  "Publish JOB completion, releasing its hash flights before waking waiters."
+  (let ((task (snap-sync-code-job-task job)))
+    (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
+      (when (and condition (null (snap-sync-code-task-condition task)))
+        (setf (snap-sync-code-task-condition task) condition))
+      (snap-sync-multi-release-code-flight-locked
+       runtime (snap-sync-code-task-owner task)
+       (snap-sync-code-job-hashes job))
+      (decf (snap-sync-code-task-pending task))
+      (when (minusp (snap-sync-code-task-pending task))
+        (error "Snap global ByteCodes task underflow"))
+      (snap-sync-multi-notify runtime))))
+
+#+sbcl
+(defun snap-sync-multi-code-worker (runtime database)
+  "Drain the import-wide ByteCodes queue with one request at a time."
+  (loop
+    (let ((job (snap-sync-multi-claim-code-job runtime)))
+      (unless job (return))
+      (let ((task (snap-sync-code-job-task job)))
+        (handler-case
+            (if (sb-thread:with-mutex
+                    ((snap-sync-multi-runtime-lock runtime))
+                  (not (null (snap-sync-code-task-condition task))))
+                (snap-sync-multi-finish-code-job runtime job)
+                (let ((codes
+                        (snap-sync-fetch-code-hash-batch
+                         (snap-sync-code-task-source task)
+                         (snap-sync-code-job-hashes job)
+                         (snap-sync-code-task-byte-limit task))))
+                  (when codes
+                    (let ((batch (make-kv-write-batch)))
+                      (snap-sync-populate-code-batch database batch codes)
+                      ;; RocksDB already serializes writers internally. Keep an
+                      ;; explicit publication seam too so the atomic memory
+                      ;; backend used as the crash oracle cannot lose a sibling
+                      ;; worker's batch while copying its shadow table.
+                      (sb-thread:with-mutex
+                          ((snap-sync-multi-runtime-code-write-lock runtime))
+                        (kv-apply-batch-buffered database batch))))
+                  (snap-sync-multi-finish-code-job runtime job)))
+          (serious-condition (condition)
+            (snap-sync-multi-finish-code-job runtime job condition)))))))
+
+#+sbcl
+(defun snap-sync-multi-schedule-code-batches
+    (runtime source owner hashes byte-limit)
+  "Queue OWNER's hashes once and wait for the fixed global workers."
+  (let* ((batches (snap-sync-code-hash-batches hashes))
+         (task
+           (make-snap-sync-code-task
+            owner source byte-limit (length batches))))
+    (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
+      (dolist (batch batches)
+        (setf (snap-sync-multi-runtime-code-jobs runtime)
+              (nconc
+               (snap-sync-multi-runtime-code-jobs runtime)
+               (list (make-snap-sync-code-job task batch)))))
+      (snap-sync-multi-notify runtime)
+      (loop while (and (plusp (snap-sync-code-task-pending task))
+                       (not (snap-sync-multi-runtime-stopped-p runtime)))
+            do (sb-thread:condition-wait
+                (snap-sync-multi-runtime-changed runtime)
+                (snap-sync-multi-runtime-lock runtime))))
+    (when (snap-sync-code-task-condition task)
+      (error (snap-sync-code-task-condition task)))
+    owner))
 
 #+sbcl
 (defun snap-sync-multi-buffer-code-batches
@@ -4714,8 +4960,14 @@ Waiters recheck RocksDB after each wake and take over hashes whose owner failed.
              (snap-sync-multi-runtime-lock runtime))))
         (when owned
           (setf owned (nreverse owned))
-          (snap-sync-multi-buffer-code-batches
-           runtime database source owner owned byte-limit))))))
+          (if (plusp (snap-sync-multi-runtime-code-worker-count runtime))
+              (snap-sync-multi-schedule-code-batches
+               runtime source owner owned byte-limit)
+              ;; Isolated callers and the portable test harness have no import
+              ;; worker lifetime. Retain the old bounded helper only there;
+              ;; production always enters the fixed global queue above.
+              (snap-sync-multi-buffer-code-batches
+               runtime database source owner owned byte-limit)))))))
 
 #+sbcl
 (defun snap-sync-multi-dependency-worker
@@ -4780,6 +5032,23 @@ Waiters recheck RocksDB after each wake and take over hashes whose owner failed.
        (snap-sync-multi-runtime-lock runtime)))))
 
 #+sbcl
+(defun snap-sync-multi-result-event-batch (runtime first)
+  "Take FIRST plus the currently queued contiguous result prefix."
+  (let ((events (list first)))
+    (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
+      (loop while
+              (and
+               (< (length events) +snap-sync-cursor-batch-pages+)
+               (let ((next (first (snap-sync-multi-runtime-events runtime))))
+                 (and next
+                      (eq :result (snap-sync-multi-event-kind next)))))
+            do (setf events
+                     (nconc
+                      events
+                      (list (pop (snap-sync-multi-runtime-events runtime)))))))
+    events))
+
+#+sbcl
 (defun snap-sync-multi-release-claim (runtime task-index source)
   (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
     (when (eq source
@@ -4838,6 +5107,7 @@ those cursors. HEAL-YIELD-P is forwarded to final healing."
            (make-snap-sync-multi-runtime progress 0 max-pages))
          (threads '())
          (dependency-threads '())
+         (code-threads '())
          (errors '()))
     (when (snap-sync-progress-completed-p progress)
       (return-from snap-sync-import-state-multi progress))
@@ -4851,7 +5121,18 @@ those cursors. HEAL-YIELD-P is forwarded to final healing."
          :on-source-error on-source-error
          :on-heal-progress on-heal-progress)))
     (labels
-        ((start-dependency-workers ()
+        ((start-code-workers ()
+           (setf (snap-sync-multi-runtime-code-worker-count runtime)
+                 +snap-sync-code-batch-workers+)
+           (dotimes (index +snap-sync-code-batch-workers+)
+             (declare (ignore index))
+             (push
+              (sb-thread:make-thread
+               (lambda ()
+                 (snap-sync-multi-code-worker runtime database))
+               :name "snap-sync-global-bytecode-worker")
+              code-threads)))
+         (start-dependency-workers ()
            (dotimes (index +snap-sync-dependency-workers+)
              (declare (ignore index))
              (push
@@ -4919,6 +5200,7 @@ those cursors. HEAL-YIELD-P is forwarded to final healing."
              added)))
       (unwind-protect
            (progn
+             (start-code-workers)
              (start-dependency-workers)
              (dolist (source sources)
                (start-source-workers source))
@@ -4973,37 +5255,57 @@ those cursors. HEAL-YIELD-P is forwarded to final healing."
                            (error condition))))
                       (:result
                        (handler-case
-                           (let* ((result
-                                    (snap-sync-multi-event-result event))
-                                  (next
-                                   (snap-sync-commit-account-page
-                                    database
-                                    (snap-sync-multi-runtime-progress runtime)
-                                    result)))
+                           (let* ((result-events
+                                    (snap-sync-multi-result-event-batch
+                                     runtime event))
+                                  (results
+                                    (mapcar
+                                     #'snap-sync-multi-event-result
+                                     result-events)))
+                             (multiple-value-bind (next snapshots)
+                                 (snap-sync-commit-account-pages
+                                  database
+                                  (snap-sync-multi-runtime-progress runtime)
+                                  results)
                              (sb-thread:with-mutex
                                  ((snap-sync-multi-runtime-lock runtime))
                                (setf (snap-sync-multi-runtime-progress runtime)
                                      next)
-                               (incf (snap-sync-multi-runtime-pages runtime))
-                               (remhash
-                                task-index
-                                (snap-sync-multi-runtime-claims runtime))
+                               (incf
+                                (snap-sync-multi-runtime-pages runtime)
+                                (length result-events))
+                               (dolist (result-event result-events)
+                                 (remhash
+                                  (snap-sync-multi-event-task-index result-event)
+                                  (snap-sync-multi-runtime-claims runtime)))
                                (snap-sync-multi-notify runtime))
-                             (when on-progress
-                               (funcall on-progress next source task-index))
-                             (when on-page-profile
-                               (funcall
-                                on-page-profile
-                                (snap-sync-page-result-profile result)
-                                source task-index))
+                             (loop for result-event in result-events
+                                   for result in results
+                                   for snapshot in snapshots
+                                   do
+                                   (when on-progress
+                                     (funcall
+                                      on-progress snapshot
+                                      (snap-sync-multi-event-source result-event)
+                                      (snap-sync-multi-event-task-index
+                                       result-event)))
+                                   (when on-page-profile
+                                     (funcall
+                                      on-page-profile
+                                      (snap-sync-page-result-profile result)
+                                      (snap-sync-multi-event-source result-event)
+                                      (snap-sync-multi-event-task-index
+                                       result-event))))
                              ;; Match geth's moving-pivot behavior at a durable
-                             ;; page boundary. Other workers may still own
-                             ;; bounded in-flight pages; unwind stops them and
-                             ;; their uncommitted results remain retryable.
-                             (when (and range-yield-p
-                                        (funcall range-yield-p))
+                             ;; cursor batch boundary. Other workers may still
+                             ;; own bounded in-flight pages; unwind stops them
+                             ;; and their uncommitted results remain retryable.
+                             (when (and
+                                    range-yield-p
+                                    (loop repeat (length result-events)
+                                          thereis (funcall range-yield-p)))
                                (error 'snap-sync-heal-yielded))
-                             (refresh-range-sources))
+                             (refresh-range-sources)))
                          (serious-condition (condition)
                            ;; A database or merge failure is local and fatal;
                            ;; it must never be misclassified as a bad peer.
@@ -5014,6 +5316,8 @@ those cursors. HEAL-YIELD-P is forwarded to final healing."
         (dolist (thread threads)
           (sb-thread:join-thread thread))
         (dolist (thread dependency-threads)
+          (sb-thread:join-thread thread))
+        (dolist (thread code-threads)
           (sb-thread:join-thread thread))))))
 
 #-sbcl

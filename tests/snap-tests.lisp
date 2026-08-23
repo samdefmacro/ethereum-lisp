@@ -304,6 +304,89 @@
   (is t))
 
 #+sbcl
+(deftest snap-multi-bytecodes-use-one-fixed-global-worker-pool
+  (:layer :unit :module :p2p)
+  (let* ((database (make-memory-key-value-database))
+         (runtime
+           (ethereum-lisp.snap-sync::make-snap-sync-multi-runtime nil 0 nil))
+         (codes
+           (loop for index below 340
+                 collect (snap-test-index-hash (+ 4000 index))))
+         (hashes (mapcar #'keccak-256 codes))
+         (codes-by-hash (make-hash-table :test #'equalp))
+         (lock (sb-thread:make-mutex :name "snap-global-code-test"))
+         (active 0)
+         (maximum-active 0)
+         (calls 0)
+         (workers '())
+         (page-threads '())
+         (source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :bytecodes
+            (lambda (request)
+              (sb-thread:with-mutex (lock)
+                (incf calls)
+                (incf active)
+                (setf maximum-active (max maximum-active active)))
+              (sleep 0.05)
+              (prog1
+                  (ethereum-lisp.snap:make-snap-bytecodes
+                   (ethereum-lisp.snap:snap-get-bytecodes-id request)
+                   (mapcar
+                    (lambda (hash) (copy-seq (gethash hash codes-by-hash)))
+                    (ethereum-lisp.snap:snap-get-bytecodes-hashes request)))
+                (sb-thread:with-mutex (lock) (decf active)))))))
+    (loop for code in codes
+          for hash in hashes
+          do (setf (gethash hash codes-by-hash) code))
+    (setf (ethereum-lisp.snap-sync::snap-sync-multi-runtime-code-worker-count
+           runtime)
+          2)
+    (unwind-protect
+         (progn
+           (dotimes (index 2)
+             (declare (ignore index))
+             (push
+              (sb-thread:make-thread
+               (lambda ()
+                 (ethereum-lisp.snap-sync::snap-sync-multi-code-worker
+                  runtime database))
+               :name "snap-test-global-code-worker")
+              workers))
+           (dolist (slice (list (subseq hashes 0 170)
+                                (subseq hashes 170)))
+             (let ((requested slice))
+               (push
+                (sb-thread:make-thread
+                 (lambda ()
+                   (ethereum-lisp.snap-sync::snap-sync-multi-fetch-page-codes
+                    runtime database source requested (* 512 1024)))
+                 :name "snap-test-global-code-page")
+                page-threads)))
+           (dolist (thread page-threads)
+             (is (not (eq :timeout
+                          (sb-thread:join-thread
+                           thread :timeout 10 :default :timeout)))))
+           (setf page-threads nil)
+           (is (= 6 calls))
+           (is (= 2 maximum-active))
+           (dolist (hash (list (first hashes) (car (last hashes))))
+             (is (nth-value
+                  1 (kv-get-chain-record database :code hash)))))
+      (sb-thread:with-mutex
+          ((ethereum-lisp.snap-sync::snap-sync-multi-runtime-lock runtime))
+        (setf
+         (ethereum-lisp.snap-sync::snap-sync-multi-runtime-stopped-p runtime)
+         t)
+        (ethereum-lisp.snap-sync::snap-sync-multi-notify runtime))
+      (dolist (thread page-threads)
+        (ignore-errors
+          (sb-thread:join-thread thread :timeout 5 :default nil)))
+      (dolist (thread workers)
+        (ignore-errors
+          (sb-thread:join-thread thread :timeout 5 :default nil))))))
+
+#+sbcl
 (deftest snap-multi-code-flight-publishes-each-finished-batch
   (:layer :unit :module :p2p)
   (let* ((database (make-memory-key-value-database))
@@ -1441,6 +1524,48 @@
            (length
             (ethereum-lisp.snap-sync:snap-sync-progress-tasks
              round-tripped))))))
+
+(deftest snap-account-cursors-share-one-durable-publication-batch
+  (:layer :unit :module :p2p)
+  (let* ((database (make-instance 'snap-counting-test-database))
+         (tasks
+           (ethereum-lisp.snap-sync::snap-sync-make-account-tasks :count 16))
+         (state-root (make-hash32 (snap-test-hash 151)))
+         (progress
+           (ethereum-lisp.snap-sync::snap-sync-make-progress
+            :pivot-hash (make-hash32 (snap-test-hash 150))
+            :pivot-number 77 :state-root state-root
+            :partial-root +empty-trie-hash+
+            :target-hash (make-hash32 (snap-test-hash 152))
+            :chain-id 560048
+            :genesis-hash (make-hash32 (snap-test-hash 153))
+            :authority-id (make-hash32 (snap-test-hash 154))
+            :completed-p nil :tasks tasks))
+         (results
+           (loop for task in tasks
+                 for index from 0
+                 collect
+                 (ethereum-lisp.snap-sync::make-snap-sync-page-result
+                  :task-index index
+                  :origin
+                  (copy-seq
+                   (ethereum-lisp.snap-sync:snap-sync-account-task-next-origin
+                    task))
+                  :completed-p t))))
+    (multiple-value-bind (next snapshots)
+        (ethereum-lisp.snap-sync::snap-sync-commit-account-pages
+         database progress results)
+      (is (= 1 (snap-counting-test-database-apply-count database)))
+      (is (= 16 (length snapshots)))
+      (is
+       (every #'ethereum-lisp.snap-sync:snap-sync-account-task-completed-p
+              (ethereum-lisp.snap-sync:snap-sync-progress-tasks next)))
+      (multiple-value-bind (durable present-p)
+          (ethereum-lisp.snap-sync:snap-sync-read-progress database)
+        (is present-p)
+        (is
+         (every #'ethereum-lisp.snap-sync:snap-sync-account-task-completed-p
+                (ethereum-lisp.snap-sync:snap-sync-progress-tasks durable)))))))
 
 #+sbcl
 (deftest snap-state-import-multi-keeps-three-account-peers-busy-across-sixty-four-ranges
@@ -3329,6 +3454,27 @@
           do (is (null
                   (ethereum-lisp.snap-sync::snap-sync-heal-fetch-result-condition
                    result))))))
+
+(deftest snap-state-healer-feedback-bounds-the-global-missing-queue
+  (:layer :unit :module :p2p)
+  (let* ((capacity
+           (ethereum-lisp.snap-sync::snap-sync-heal-request-capacity 2d0))
+         (overloaded
+           (ethereum-lisp.snap-sync::snap-sync-heal-next-throttle
+            2d0 100 10d0))
+         (caught-up
+           (ethereum-lisp.snap-sync::snap-sync-heal-next-throttle
+            2d0 0 100d0))
+         (rate
+           (ethereum-lisp.snap-sync::snap-sync-heal-processing-rate
+            0d0 100 0.5d0)))
+    (is (= 256 capacity))
+    (is (= (* 3 capacity)
+           (ethereum-lisp.snap-sync::snap-sync-heal-missing-limit
+            8192 3 capacity)))
+    (is (> overloaded 2d0))
+    (is (< caught-up 2d0))
+    (is (plusp rate))))
 
 (deftest snap-state-healer-sorts-and-groups-storage-paths-by-account
   (:layer :unit :module :p2p)

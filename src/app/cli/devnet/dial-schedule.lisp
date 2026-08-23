@@ -66,6 +66,9 @@ Geth reserves roughly half of its peer capacity for SNAP-capable sessions while
 state download is active. The ordinary one-third outbound target is restored
 as soon as SNAP demand ends, preserving inbound capacity in steady operation.")
 
+(defconstant +devnet-snap-quality-peer-floor+ 16
+  "Minimum non-degraded SNAP sessions retained while state import is active.")
+
 (defconstant +devnet-dial-dynamic-candidate-limit+ 256
   "How many discovered candidates we remember. Our policy — the bound that the
 old dial registry, a table only ever added to, did not have.")
@@ -105,7 +108,12 @@ of sleeping thirty-five seconds."
   max-active-dials
   ;; While a pivot import is active, non-SNAP outbound sessions remain useful
   ;; for headers and bodies but must not consume every state-download slot.
-  snap-demand-p)
+  snap-demand-p
+  ;; Import-scoped peer ids mapped to the SNAP response types that currently
+  ;; fail. They may remain useful ETH sessions, but must not satisfy the SNAP
+  ;; dial target and suppress replacement discovery. A success only repairs
+  ;; its own response type; unrelated traffic cannot mask a broken capability.
+  (snap-degraded-peer-ids (make-hash-table :test #'equal)))
 
 (defun make-devnet-dial-registry
     (&key (base-cooldown +devnet-dial-cooldown-seconds+)
@@ -204,6 +212,19 @@ the peer table's to answer."
              (floor max-peers +devnet-snap-dial-ratio+))
         (devnet-dial-max-peers table))))
 
+(defun devnet-snap-peer-degraded-p (registry entry)
+  "Whether ENTRY has any unresolved SNAP capability failure."
+  (let ((failures
+          (gethash
+           (devnet-peer-entry-id-hex entry)
+           (devnet-dial-registry-snap-degraded-peer-ids registry))))
+    (and failures
+         ;; T remains accepted for progress records/tests produced by the
+         ;; original boolean form of this import-scoped registry.
+         (or (eq failures t)
+             (and (hash-table-p failures)
+                  (plusp (hash-table-count failures)))))))
+
 (defun devnet-dial-established-count (registry table)
   "How many established outbound sessions satisfy the current dial target.
 
@@ -215,9 +236,24 @@ otherwise missing state-download slots."
       (count-if
        (lambda (entry)
          (and (eq :outbound (devnet-peer-entry-direction entry))
-              (devnet-peer-entry-snap-version entry)))
+              (devnet-peer-entry-snap-version entry)
+              (not (devnet-snap-peer-degraded-p registry entry))))
        (devnet-peer-table-entries table))
       (devnet-peer-table-count-by-direction table :outbound)))
+
+(defun devnet-snap-quality-peer-count (registry table)
+  "Count live SNAP sessions that are still useful to the active import."
+  (count-if
+   (lambda (entry)
+     (and (devnet-peer-entry-snap-version entry)
+          (not (devnet-snap-peer-degraded-p registry entry))))
+   (devnet-peer-table-entries table)))
+
+(defun devnet-snap-quality-shortfall-p (registry table)
+  (and (devnet-dial-registry-snap-demand-p registry)
+       (< (devnet-snap-quality-peer-count registry table)
+          (min +devnet-snap-quality-peer-floor+
+               (devnet-peer-table-max-peers table)))))
 
 (defun devnet-dial-free-slots (registry table)
   "How many new dials may start right now."

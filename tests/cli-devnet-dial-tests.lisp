@@ -166,6 +166,50 @@
     ;; is still short of its target.
     (is (= 0 (ethereum-lisp.cli:devnet-dial-free-slots registry table)))))
 
+(deftest devnet-dial-snap-demand-replaces-degraded-capacity
+  (:layer :unit :module :devnet)
+  (multiple-value-bind (registry table)
+      (dial-test-registry :max-peers 50 :max-active 50)
+    (loop for index below 16
+          do (dial-test-connect
+              table (format nil "quality-~D" index) :outbound 0
+              :snap-version 1))
+    (setf (ethereum-lisp.cli::devnet-dial-registry-snap-demand-p registry) t)
+    (is (= 16
+           (ethereum-lisp.cli::devnet-snap-quality-peer-count registry table)))
+    (is (not
+         (ethereum-lisp.cli::devnet-snap-quality-shortfall-p registry table)))
+    (let* ((degraded
+             (ethereum-lisp.cli::devnet-peer-entry-id-hex
+              (first (ethereum-lisp.cli::devnet-peer-table-entries table))))
+           (failures (make-hash-table :test #'eql)))
+      (setf
+       (gethash ethereum-lisp.snap:+snap-message-bytecodes+ failures) t
+       (gethash ethereum-lisp.snap:+snap-message-storage-ranges+ failures) t
+       (gethash
+        degraded
+        (ethereum-lisp.cli::devnet-dial-registry-snap-degraded-peer-ids
+         registry))
+       failures)
+      (is (= 15
+             (ethereum-lisp.cli::devnet-snap-quality-peer-count
+              registry table)))
+      (is
+       (ethereum-lisp.cli::devnet-snap-quality-shortfall-p registry table))
+      ;; A degraded transport remains an ETH connection, but no longer
+      ;; satisfies the SNAP target, so discovery opens one replacement slot.
+      (is (= 10
+             (ethereum-lisp.cli:devnet-dial-free-slots registry table)))
+      ;; Success in one capability must not conceal another type's failure.
+      (remhash ethereum-lisp.snap:+snap-message-bytecodes+ failures)
+      (is (= 15
+             (ethereum-lisp.cli::devnet-snap-quality-peer-count
+              registry table)))
+      (remhash ethereum-lisp.snap:+snap-message-storage-ranges+ failures)
+      (is (= 16
+             (ethereum-lisp.cli::devnet-snap-quality-peer-count
+              registry table))))))
+
 (deftest devnet-dial-plan-is-deterministic-and-bounded
   (:layer :unit :module :devnet)
   (multiple-value-bind (registry table) (dial-test-registry :max-peers 9)

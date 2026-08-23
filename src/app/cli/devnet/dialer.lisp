@@ -62,6 +62,17 @@ produce frames that authenticate."
                node
                (lambda ()
                  (let ((verdict (devnet-peer-table-inbound-verdict table id-hex)))
+                   ;; While fewer than sixteen useful SNAP sessions exist, an
+                   ;; outbound ETH-only handshake must not consume a slot that
+                   ;; discovery can turn into a state source. The peer learns
+                   ;; the ordinary :USELESS-PEER refusal and may be retried once
+                   ;; the state workload ends.
+                   (when (and
+                          (eq verdict :accept)
+                          (null
+                           (ethereum-lisp.eth-sync:eth-peer-snap-version peer))
+                          (devnet-snap-quality-shortfall-p registry table))
+                     (setf verdict :useless-peer))
                    (when (eq verdict :accept)
                      (setf entry
                            (devnet-peer-table-admit
@@ -371,10 +382,36 @@ into a permanent peer ban."))
   (call-with-devnet-peer-table
    node
    (lambda ()
-     (setf
-      (devnet-dial-registry-snap-demand-p
-       (devnet-node-dial-registry node))
-      (not (null enabled-p))))))
+     (let* ((registry (devnet-node-dial-registry node))
+            (enabled-p (not (null enabled-p))))
+       (unless (eql enabled-p
+                    (devnet-dial-registry-snap-demand-p registry))
+         (clrhash
+          (devnet-dial-registry-snap-degraded-peer-ids registry)))
+       (setf (devnet-dial-registry-snap-demand-p registry) enabled-p)))))
+
+(defun devnet-node-set-snap-peer-degraded
+    (node entry response-id degraded-p)
+  "Set ENTRY's failure state for one SNAP RESPONSE-ID capability."
+  (call-with-devnet-peer-table
+   node
+   (lambda ()
+     (let* ((table
+             (devnet-dial-registry-snap-degraded-peer-ids
+              (devnet-node-dial-registry node)))
+            (id (devnet-peer-entry-id-hex entry))
+            (failures (gethash id table)))
+       (if degraded-p
+           (progn
+             (unless (hash-table-p failures)
+               (setf failures (make-hash-table :test #'eql)
+                     (gethash id table) failures))
+             (setf (gethash response-id failures) t))
+           (when (hash-table-p failures)
+             (remhash response-id failures)
+             (when (zerop (hash-table-count failures))
+               (remhash id table)))))))
+  entry)
 
 (defun devnet-peer-resolve-snap-target (entry target-hash)
   "Resolve TARGET-HASH and its 64-block pivot on ENTRY's session writer."
@@ -469,6 +506,21 @@ into a permanent peer ban."))
              queue ethereum-lisp.snap:+snap-message-storage-ranges+)))))
   packet)
 
+(defun devnet-peer-bytecode-request (queue hashes byte-limit)
+  "Build one ByteCodes request sized in code items for QUEUE's learned rate."
+  (let* ((capacity
+           (devnet-peer-request-queue-snap-capacity
+            queue ethereum-lisp.snap:+snap-message-bytecodes+))
+         (count
+           (min (length hashes)
+                +devnet-snap-max-bytecode-hashes+
+                (max 1 capacity)))
+         (requested (subseq hashes 0 count)))
+    (values
+     (ethereum-lisp.snap:make-snap-get-bytecodes
+      1 requested (min byte-limit +devnet-snap-max-request-bytes+))
+     requested)))
+
 (defun devnet-node-activate-snap-pivot-peer-set-locked (node pivot-hash)
   "Activate PIVOT-HASH while NODE's unavailable-peer lock is held."
   (let ((active (devnet-node-snap-unavailable-pivot-hash node)))
@@ -526,6 +578,13 @@ into a permanent peer ban."))
        :bytecodes
        (lambda (packet)
          (request ethereum-lisp.snap:+snap-message-get-bytecodes+ packet))
+       :bytecodes-batch
+       (lambda (hashes byte-limit)
+         (multiple-value-bind (packet requested)
+             (devnet-peer-bytecode-request queue hashes byte-limit)
+           (values
+            (request ethereum-lisp.snap:+snap-message-get-bytecodes+ packet)
+            requested)))
        :trie-nodes
        (lambda (packet)
          (request ethereum-lisp.snap:+snap-message-get-trie-nodes+ packet))))))
@@ -698,12 +757,19 @@ capacity wins and RTT breaks ties, matching geth's capacity-sorted assignment."
     (devnet-snap-source-pool-release-locked pool entry response-id)
     (sb-thread:condition-notify
      (devnet-snap-source-pool-waitqueue pool response-id)))
+  (devnet-node-set-snap-peer-degraded
+   (devnet-snap-source-pool-node pool) entry response-id t)
   t)
 
 #+sbcl
 (defun devnet-snap-source-pool-call
     (pool response-id source-function request label)
-  "Run one dependency REQUEST on the best live peer of its response type."
+  "Run one dependency REQUEST on the best live peer of its response type.
+
+REQUEST may be a packet or a factory called with the reserved peer entry. A
+factory may return an assignment token as a second value; it is returned after
+the response so ByteCodes can size its hash set from that exact peer's learned
+item capacity without racing a second reservation."
   (let ((last-condition nil))
     (loop
       (multiple-value-bind (entry source)
@@ -724,14 +790,22 @@ capacity wins and RTT breaks ties, matching geth's capacity-sorted assignment."
             (last-condition (error last-condition))
             (t (error "no live SNAP peer can serve ~A" label))))
         (let ((result nil)
+              (request-values nil)
               (succeeded-p nil)
               (transport-condition nil))
           (unwind-protect
                (handler-case
-                   (setf result
-                         (funcall
-                          (funcall source-function source) request)
-                         succeeded-p t)
+                   (progn
+                     (setf request-values
+                           (multiple-value-list
+                            (if (functionp request)
+                                (funcall request entry)
+                                (values request))))
+                     (setf result
+                           (funcall
+                            (funcall source-function source)
+                            (first request-values))
+                           succeeded-p t))
                  (ethereum-lisp.validation:storage-error (condition)
                    ;; Database faults are local and must never be retried as a
                    ;; peer selection problem.
@@ -747,9 +821,15 @@ capacity wins and RTT breaks ties, matching geth's capacity-sorted assignment."
                  (typep
                   transport-condition
                   'ethereum-lisp.snap-sync:snap-sync-state-unavailable))
-                (devnet-snap-source-pool-release pool entry response-id)))
+                (progn
+                  (devnet-snap-source-pool-release pool entry response-id)
+                  (devnet-node-set-snap-peer-degraded
+                   (devnet-snap-source-pool-node pool)
+                   entry response-id nil))))
           (when succeeded-p
-            (return result))
+            (return
+              (values-list
+               (cons result (rest request-values)))))
           (devnet-peer-manager-log
            (devnet-snap-source-pool-node pool)
            "peer.snap.dependency_failed"
@@ -778,6 +858,15 @@ capacity wins and RTT breaks ties, matching geth's capacity-sorted assignment."
         pool ethereum-lisp.snap:+snap-message-bytecodes+
         #'ethereum-lisp.snap-sync:snap-sync-source-bytecodes
         packet "bytecodes"))
+     :bytecodes-batch
+     (lambda (hashes byte-limit)
+       (devnet-snap-source-pool-call
+        pool ethereum-lisp.snap:+snap-message-bytecodes+
+        #'ethereum-lisp.snap-sync:snap-sync-source-bytecodes
+        (lambda (entry)
+          (devnet-peer-bytecode-request
+           (devnet-peer-entry-request-queue entry) hashes byte-limit))
+        "bytecodes"))
      ;; Trie healing already has its own cross-source scheduler and request
      ;; grouping, so retain the fixed source identity for that phase.
      :trie-nodes
