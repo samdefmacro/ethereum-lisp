@@ -434,6 +434,17 @@
    #:snap-sync-progress-authority-id
    #:snap-sync-progress-completed-p
    #:snap-sync-progress-tasks
+   #:snap-sync-page-profile
+   #:snap-sync-page-profile-account-count
+   #:snap-sync-page-profile-storage-account-count
+   #:snap-sync-page-profile-code-count
+   #:snap-sync-page-profile-account-request-ms
+   #:snap-sync-page-profile-proof-ms
+   #:snap-sync-page-profile-storage-ms
+   #:snap-sync-page-profile-code-ms
+   #:snap-sync-page-profile-metadata-ms
+   #:snap-sync-page-profile-buffer-ms
+   #:snap-sync-page-profile-total-ms
    #:snap-sync-heal-progress
    #:snap-sync-heal-progress-processed-nodes
    #:snap-sync-heal-progress-reused-nodes

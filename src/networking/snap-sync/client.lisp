@@ -1025,11 +1025,28 @@ the exact authorized state root before completion."
 (defun snap-sync-key-at-most-p (key limit)
   (not (ethereum-lisp.validation:byte-vector-lexicographic< limit key)))
 
+(defstruct (snap-sync-page-profile
+            (:constructor make-snap-sync-page-profile
+                (&key account-count storage-account-count code-count
+                      account-request-ms proof-ms storage-ms code-ms metadata-ms
+                      buffer-ms total-ms)))
+  "Observational wall-clock breakdown for one verified SNAP account page."
+  (account-count 0)
+  (storage-account-count 0)
+  (code-count 0)
+  (account-request-ms 0)
+  (proof-ms 0)
+  (storage-ms 0)
+  (code-ms 0)
+  (metadata-ms 0)
+  (buffer-ms 0)
+  (total-ms 0))
+
 (defstruct (snap-sync-page-result
             (:constructor make-snap-sync-page-result
                 (&key task-index origin account-records codes deferred-storage
                       healed-subtrees dependency-subtrees next-origin
-                      completed-p)))
+                      completed-p profile)))
   task-index
   origin
   account-records
@@ -1038,7 +1055,8 @@ the exact authorized state root before completion."
   healed-subtrees
   dependency-subtrees
   next-origin
-  completed-p)
+  completed-p
+  profile)
 
 (defstruct (snap-sync-storage-page-result
             (:constructor make-snap-sync-storage-page-result
@@ -1050,6 +1068,13 @@ the exact authorized state root before completion."
   healed-subtrees
   next-origin
   completed-p)
+
+(defun snap-sync-elapsed-milliseconds (start end)
+  "Return non-negative monotonic milliseconds between internal clock ticks."
+  (max 0
+       (round
+        (* 1000 (- end start))
+        internal-time-units-per-second)))
 
 (defun snap-sync-verified-account-records (trie proof)
   "Collect one verified account page's reconstructed and boundary nodes."
@@ -1337,7 +1362,8 @@ again."
 (defun snap-sync-prepare-account-page
     (database source state-root task-index task byte-limit)
   "Fetch and verify one page without advancing authoritative progress."
-  (let* ((origin (snap-sync-account-task-next-origin task))
+  (let* ((started-at (get-internal-real-time))
+         (origin (snap-sync-account-task-next-origin task))
          (limit (snap-sync-account-task-limit task))
          (request
            (make-snap-get-account-range
@@ -1346,6 +1372,7 @@ again."
            (snap-sync-source-call
             (snap-sync-source-account-range source)
             request "account ranges"))
+         (account-response-at (get-internal-real-time))
          (wire-entries (snap-sync-account-entries response))
          (proof (snap-account-range-proof response)))
     (unless (= 1 (snap-account-range-id response))
@@ -1379,45 +1406,79 @@ again."
            (last-entry (and entries (caar (last entries))))
            (next-origin
              (and (not complete-p) last-entry
-                  (snap-sync-increment-hash last-entry))))
+                  (snap-sync-increment-hash last-entry)))
+           (proof-finished-at (get-internal-real-time))
+           (storage-commitments
+             (snap-sync-page-storage-commitments entries))
+           (deferred-storage
+             (snap-sync-fetch-storage-commitments
+              database source state-root storage-commitments
+              (min byte-limit +snap-sync-storage-request-bytes+)))
+           (storage-finished-at (get-internal-real-time))
+           (code-hashes (snap-sync-page-code-hashes entries))
+           (missing-code-hashes
+             (snap-sync-heal-missing-code-hashes database code-hashes))
+           (codes
+             (if missing-code-hashes
+                 (snap-sync-fetch-codes source missing-code-hashes byte-limit)
+                 '()))
+           (code-finished-at (get-internal-real-time))
+           (proved-end (if complete-p limit last-entry))
+           (candidates
+             (if (and account-trie proved-end)
+                 (mpt-proved-range-subtrees
+                  account-trie origin proved-end
+                  *snap-sync-range-subtree-prefix-nibbles*)
+                 '())))
       (when (and (not complete-p) (null next-origin))
         (error "Snap account page did not advance its assigned task"))
-      (let ((deferred-storage
-              (snap-sync-fetch-storage-commitments
-               database source state-root
-               (snap-sync-page-storage-commitments entries)
-               (min byte-limit +snap-sync-storage-request-bytes+)))
-            (code-hashes (snap-sync-page-code-hashes entries)))
-        (let* ((missing-code-hashes
-                 (snap-sync-heal-missing-code-hashes database code-hashes))
-               (proved-end (if complete-p limit last-entry))
-               (candidates
-                 (if (and account-trie proved-end)
-                     (mpt-proved-range-subtrees
-                      account-trie origin proved-end
-                      *snap-sync-range-subtree-prefix-nibbles*)
-                     '())))
-          (multiple-value-bind (safe-subtrees dependency-subtrees)
-              (snap-sync-classify-account-range-subtrees
-               candidates deferred-storage)
-            (snap-sync-buffer-account-page-content
-             database state-root
-             (make-snap-sync-page-result
-              :task-index task-index
-              :origin (copy-seq origin)
-              :account-records account-records
-              :codes (if missing-code-hashes
-                         (snap-sync-fetch-codes
-                          source missing-code-hashes byte-limit)
-                         '())
-              :deferred-storage deferred-storage
-              :healed-subtrees safe-subtrees
-              ;; Keep the exact storage gaps beside the authenticated subtree
-              ;; hash so a later pivot can skip the account walk without
-              ;; skipping external dependencies.
-              :dependency-subtrees dependency-subtrees
-              :next-origin next-origin
-              :completed-p complete-p)))))))))
+      (multiple-value-bind (safe-subtrees dependency-subtrees)
+          (snap-sync-classify-account-range-subtrees
+           candidates deferred-storage)
+        (let* ((metadata-finished-at (get-internal-real-time))
+               (profile
+                 (make-snap-sync-page-profile
+                  :account-count (length entries)
+                  :storage-account-count (length storage-commitments)
+                  :code-count (length codes)
+                  :account-request-ms
+                  (snap-sync-elapsed-milliseconds
+                   started-at account-response-at)
+                  :proof-ms
+                  (snap-sync-elapsed-milliseconds
+                   account-response-at proof-finished-at)
+                  :storage-ms
+                  (snap-sync-elapsed-milliseconds
+                   proof-finished-at storage-finished-at)
+                  :code-ms
+                  (snap-sync-elapsed-milliseconds
+                   storage-finished-at code-finished-at)
+                  :metadata-ms
+                  (snap-sync-elapsed-milliseconds
+                   code-finished-at metadata-finished-at)))
+               (result
+                 (make-snap-sync-page-result
+                  :task-index task-index
+                  :origin (copy-seq origin)
+                  :account-records account-records
+                  :codes codes
+                  :deferred-storage deferred-storage
+                  :healed-subtrees safe-subtrees
+                  ;; Keep the exact storage gaps beside the authenticated
+                  ;; subtree hash so a later pivot can skip the account walk
+                  ;; without skipping external dependencies.
+                  :dependency-subtrees dependency-subtrees
+                  :next-origin next-origin
+                  :completed-p complete-p
+                  :profile profile)))
+          (snap-sync-buffer-account-page-content database state-root result)
+          (let ((finished-at (get-internal-real-time)))
+            (setf
+             (snap-sync-page-profile-buffer-ms profile)
+             (snap-sync-elapsed-milliseconds metadata-finished-at finished-at)
+             (snap-sync-page-profile-total-ms profile)
+             (snap-sync-elapsed-milliseconds started-at finished-at)))
+          result))))))
 
 (defun snap-sync-replace-task (tasks index replacement)
   (loop for task in tasks
@@ -4330,8 +4391,8 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
     (database sources
      &key pivot-hash pivot-number state-root chain-id genesis-hash authority-id
           target-hash (byte-limit +snap-sync-request-bytes+)
-          on-progress on-source-error on-heal-progress heal-source-provider
-          range-yield-p heal-yield-p max-pages)
+          on-progress on-page-profile on-source-error on-heal-progress
+          heal-source-provider range-yield-p heal-yield-p max-pages)
   "Import one pivot through disjoint durable ranges shared across SOURCES.
 
 Sixty-four logical account tasks oversubscribe pinned geth's independent
@@ -4340,9 +4401,10 @@ persistence. At most three workers share each source. Its session remains the
 sole RLPx writer while one request per snap response type may be in flight,
 matching replies by both type and request id. Workers verify and heal
 independent pages concurrently; the caller thread serializes only the progress
-batch and callbacks.  ON-PROGRESS receives PROGRESS, SOURCE, and
-TASK-INDEX after that task page is durable.  ON-SOURCE-ERROR receives SOURCE and
-the condition after its task has been made retryable by another source.
+batch and callbacks.  ON-PROGRESS receives PROGRESS, SOURCE, and TASK-INDEX
+after that task page is durable. ON-PAGE-PROFILE then receives its observational
+timing profile, SOURCE, and TASK-INDEX. ON-SOURCE-ERROR receives SOURCE and the
+condition after its task has been made retryable by another source.
 HEAL-SOURCE-PROVIDER refreshes both the account worker pool and the final
 content-addressed traversal. Newly connected sources join the range phase up to
 the task concurrency bound; a failed source identity is never started twice in
@@ -4359,6 +4421,8 @@ those cursors. HEAL-YIELD-P is forwarded to final healing."
       (error "Multi-source snap import source is incomplete")))
   (when (and heal-source-provider (not (functionp heal-source-provider)))
     (error "Multi-source snap import source provider must be a function"))
+  (when (and on-page-profile (not (functionp on-page-profile)))
+    (error "Multi-source snap page profile callback must be a function"))
   (when (and range-yield-p (not (functionp range-yield-p)))
     (error "Multi-source snap import range yield predicate must be a function"))
   (setf target-hash (or target-hash pivot-hash))
@@ -4495,11 +4559,13 @@ those cursors. HEAL-YIELD-P is forwarded to final healing."
                            (error condition))))
                       (:result
                        (handler-case
-                           (let ((next
+                           (let* ((result
+                                    (snap-sync-multi-event-result event))
+                                  (next
                                    (snap-sync-commit-account-page
                                     database
                                     (snap-sync-multi-runtime-progress runtime)
-                                    (snap-sync-multi-event-result event))))
+                                    result)))
                              (sb-thread:with-mutex
                                  ((snap-sync-multi-runtime-lock runtime))
                                (setf (snap-sync-multi-runtime-progress runtime)
@@ -4511,6 +4577,11 @@ those cursors. HEAL-YIELD-P is forwarded to final healing."
                                (snap-sync-multi-notify runtime))
                              (when on-progress
                                (funcall on-progress next source task-index))
+                             (when on-page-profile
+                               (funcall
+                                on-page-profile
+                                (snap-sync-page-result-profile result)
+                                source task-index))
                              ;; Match geth's moving-pivot behavior at a durable
                              ;; page boundary. Other workers may still own
                              ;; bounded in-flight pages; unwind stops them and

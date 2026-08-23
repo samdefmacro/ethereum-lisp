@@ -972,6 +972,37 @@ must prove the new state root before either record can authorize publication."
                 "completed"
                 (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
                  progress))))))
+       :on-page-profile
+       (lambda (profile source task-index)
+         (let ((entry (entry-for-source source)))
+           (devnet-peer-manager-log
+            node "peer.snap.page_profile"
+            "peer" (devnet-peer-entry-id-hex entry)
+            "pivot" pivot-number
+            "task" task-index
+            "accounts"
+            (ethereum-lisp.snap-sync:snap-sync-page-profile-account-count
+             profile)
+            "storageAccounts"
+            (ethereum-lisp.snap-sync:snap-sync-page-profile-storage-account-count
+             profile)
+            "codes"
+            (ethereum-lisp.snap-sync:snap-sync-page-profile-code-count profile)
+            "accountRequestMs"
+            (ethereum-lisp.snap-sync:snap-sync-page-profile-account-request-ms
+             profile)
+            "proofMs"
+            (ethereum-lisp.snap-sync:snap-sync-page-profile-proof-ms profile)
+            "storageMs"
+            (ethereum-lisp.snap-sync:snap-sync-page-profile-storage-ms profile)
+            "codeMs"
+            (ethereum-lisp.snap-sync:snap-sync-page-profile-code-ms profile)
+            "metadataMs"
+            (ethereum-lisp.snap-sync:snap-sync-page-profile-metadata-ms profile)
+            "bufferMs"
+            (ethereum-lisp.snap-sync:snap-sync-page-profile-buffer-ms profile)
+            "totalMs"
+            (ethereum-lisp.snap-sync:snap-sync-page-profile-total-ms profile))))
        :on-heal-progress
        (lambda (heal-progress)
          (let* ((now (unix-time))

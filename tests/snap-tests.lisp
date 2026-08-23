@@ -1383,6 +1383,7 @@
            (lock (sb-thread:make-mutex :name "snap-test-source-refresh"))
            (first-generation-requests 0)
            (first-generation-progress 0)
+           (first-generation-profiles '())
            (first-generation-errors 0)
            (retired-source
              (snap-test-source-with-account-callback
@@ -1415,6 +1416,10 @@
                     (lambda (progress source task-index)
                       (declare (ignore progress source task-index))
                       (incf first-generation-progress))
+                    :on-page-profile
+                    (lambda (profile source task-index)
+                      (declare (ignore source task-index))
+                      (push profile first-generation-profiles))
                     :on-source-error
                     (lambda (source condition)
                       (declare (ignore source condition))
@@ -1437,6 +1442,23 @@
       ;; really failed on its next claim and reached the aggregate boundary.
       (is (= 2 first-generation-requests))
       (is (= 1 first-generation-progress))
+      (is (= 1 (length first-generation-profiles)))
+      (when first-generation-profiles
+        (let ((profile (first first-generation-profiles)))
+          (is (typep profile
+                     'ethereum-lisp.snap-sync:snap-sync-page-profile))
+          (is (plusp
+               (ethereum-lisp.snap-sync:snap-sync-page-profile-account-count
+                profile)))
+          (is (>=
+               (ethereum-lisp.snap-sync:snap-sync-page-profile-total-ms
+                profile)
+               (ethereum-lisp.snap-sync:snap-sync-page-profile-account-request-ms
+                profile)))
+          (is (not
+               (minusp
+                (ethereum-lisp.snap-sync:snap-sync-page-profile-buffer-ms
+                 profile))))))
       (is (= 1 first-generation-errors))
       (multiple-value-bind (persisted present-p)
           (ethereum-lisp.snap-sync:snap-sync-read-progress target-database)
