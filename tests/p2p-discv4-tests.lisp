@@ -330,6 +330,7 @@
           #x49a7b37aa6f6645917e7b807e9d1c00d4fa71f18343b0d4122a4d2df64dd6fee)
          (discovered-id (node-id-from-private-key
                          #x0102030405060708090a0b0c0d0e0f101112131415161718))
+         (observed-advertised-udp nil)
          (server-error nil))
     (multiple-value-bind (boot-socket boot-port)
         (ethereum-lisp.p2p:discv4-make-socket :host "127.0.0.1" :port 0)
@@ -353,15 +354,25 @@
                                             :address (list peer-addr peer-port))))
                                     (cond
                                       ((= type ethereum-lisp.p2p:+discv4-packet-ping+)
-                                       (reply
-                                        (ethereum-lisp.p2p:encode-discv4-packet
-                                         boot-priv ethereum-lisp.p2p:+discv4-packet-pong+
-                                         (ethereum-lisp.p2p:encode-discv4-pong
-                                          (ethereum-lisp.p2p:make-discv4-pong
-                                           :to (ethereum-lisp.p2p:discv4-ping-from
-                                                (ethereum-lisp.p2p:decode-discv4-ping data))
-                                           :ping-hash (subseq buffer 0 32)
-                                           :expiration (ethereum-lisp.p2p:discv4-expiration))))))
+                                       (let* ((ping
+                                                (ethereum-lisp.p2p:decode-discv4-ping
+                                                 data))
+                                              (from
+                                                (ethereum-lisp.p2p:discv4-ping-from
+                                                 ping)))
+                                         (setf observed-advertised-udp
+                                               (ethereum-lisp.p2p:discv4-endpoint-udp-port
+                                                from))
+                                         (reply
+                                          (ethereum-lisp.p2p:encode-discv4-packet
+                                           boot-priv
+                                           ethereum-lisp.p2p:+discv4-packet-pong+
+                                           (ethereum-lisp.p2p:encode-discv4-pong
+                                            (ethereum-lisp.p2p:make-discv4-pong
+                                             :to from
+                                             :ping-hash (subseq buffer 0 32)
+                                             :expiration
+                                             (ethereum-lisp.p2p:discv4-expiration)))))))
                                       ((= type ethereum-lisp.p2p:+discv4-packet-find-node+)
                                        (reply
                                         (ethereum-lisp.p2p:encode-discv4-packet
@@ -377,7 +388,8 @@
                     :name "discv4-lookup-test-bootnode")))
              (let* ((enode (enode-url boot-id "127.0.0.1" boot-port))
                     (enodes (ethereum-lisp.p2p:discv4-lookup
-                             (list enode) client-priv :timeout-seconds 3))
+                             (list enode) client-priv :timeout-seconds 3
+                             :advertised-udp-port 40404))
                     (ids (mapcar (lambda (e) (nth-value 0 (parse-enode-url e))) enodes)))
                (sb-thread:join-thread server-thread)
                (when server-error
@@ -385,7 +397,10 @@
                ;; The peer beyond the bootnode was discovered and returned.
                (is (find discovered-id ids :test #'bytes=))
                ;; The seed bootnode itself is excluded from the discovered set.
-               (is (not (find boot-id ids :test #'bytes=)))))
+               (is (not (find boot-id ids :test #'bytes=)))
+               ;; The short-lived crawl socket remains private, while the Ping
+               ;; advertises the long-lived responder's public UDP endpoint.
+               (is (= 40404 observed-advertised-udp))))
         (ignore-errors (sb-bsd-sockets:socket-close boot-socket))))))
 
 (defun discv4-test-receive-datagram (socket timeout-seconds)

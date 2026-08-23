@@ -262,6 +262,7 @@ last one before the crawl is willing to conclude. Our policy.")
                            (local-host "0.0.0.0") (local-port 0)
                            (local-tcp-port local-port)
                            (advertised-host "127.0.0.1")
+                           advertised-udp-port
                            record-filter)
   "Crawl outward from BOOTNODE-ENODES to discover peers over one persistent UDP
 socket. Bonds with known nodes, sends FindNode toward random targets, and folds
@@ -288,7 +289,9 @@ simply re-tried by the next crawl."
         (discv4-make-socket :host local-host :port local-port)
       (unwind-protect
            (let ((from (discv4-endpoint-for-host
-                        advertised-host local-udp local-tcp-port))
+                        advertised-host
+                        (or advertised-udp-port local-udp)
+                        local-tcp-port))
                  (seen (make-hash-table :test 'equal))    ; id-hex -> discv4-node
                  (bonded (make-hash-table :test 'equal))  ; id-hex -> t
                  (pinged (make-hash-table :test 'equal))  ; id-hex -> t

@@ -188,7 +188,10 @@ them by their physical location instead reintroduces dependency cycles:
   traverse the shared Kademlia graph but still cannot become TCP candidates;
   the chain fork-ID filter remains the only admission path. This follows the
   persistent-routing-table shape used by production clients without making
-  discovery state durable or unbounded.
+  discovery state durable or unbounded. Crawl Pings advertise the node's stable
+  public UDP P2P port rather than the crawler's short-lived local socket, so a
+  remote endpoint proof and routing-table entry point back to the long-lived
+  responder just as they do for a production client's unified discovery socket.
   Local persistence and trie-merge failures remain fatal and are not converted
   into retries. Account and storage ranges carry compact boundary proofs, trie
   nodes are served by path set, and every page is verified before its dependency

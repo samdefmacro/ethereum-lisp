@@ -372,6 +372,8 @@ escaping serious condition is fail-stop."
                                 +devnet-discovery-crawl-max-queries+
                                 :timeout-seconds +devnet-discovery-crawl-seconds+
                                 :local-tcp-port (or (devnet-node-p2p-port node) 0)
+                                :advertised-udp-port
+                                (devnet-node-p2p-port node)
                                 :advertised-host
                                 (devnet-node-advertised-host node)
                                 :record-filter record-filter)
