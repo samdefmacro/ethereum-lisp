@@ -1660,10 +1660,9 @@ really reopens the directory instead of observing the first handle's memory."
     (devnet-peer-sync-call-with-function-overrides
      (list
       (cons 'ethereum-lisp.cli::devnet-node-snap-sync-pivot-attempt
-            (lambda (seen-node seen-target fallback-only-p)
+            (lambda (seen-node seen-target)
               (is (eq node seen-node))
               (is (hash32= target seen-target))
-              (is (not fallback-only-p))
               (incf attempts)
               (error 'ethereum-lisp.snap-sync:snap-sync-heal-yielded))))
      (lambda ()
@@ -1901,6 +1900,20 @@ really reopens the directory instead of observing the first handle's memory."
                         target-hash
                         (ethereum-lisp.cli::devnet-node-active-snap-target
                          node newer-target-hash)))
+                   ;; If the selected root ages out after its cheap probe, a
+                   ;; process-local hint overrides the ordinary stale window
+                   ;; exactly once. The next pass can derive latest-target-64
+                   ;; instead of trying the poorly served target parent.
+                   (setf
+                    (ethereum-lisp.cli::devnet-node-snap-target-refresh-p node)
+                    t)
+                   (is (hash32=
+                        newer-target-hash
+                        (ethereum-lisp.cli::devnet-node-active-snap-target
+                         node newer-target-hash)))
+                   (is (not
+                        (ethereum-lisp.cli::devnet-node-snap-target-refresh-p
+                         node)))
                    ;; This test invokes the lower-level target routine
                    ;; directly. Production consumes the one restart pin in
                    ;; DEVNET-NODE-MULTI-SYNC-PASS immediately before doing so.
@@ -2165,7 +2178,7 @@ really reopens the directory instead of observing the first handle's memory."
                        :format-arguments nil))
       (is (= -50 (ethereum-lisp.cli::devnet-peer-score table peer-id))))))
 
-(deftest devnet-snap-pivot-falls-forward-without-penalizing-pruned-state
+(deftest devnet-snap-pivot-does-not-fall-forward-to-an-unstable-root
   (:layer :integration :module :p2p)
   (let* ((node
            (ethereum-lisp.cli:make-devnet-node
@@ -2233,25 +2246,18 @@ really reopens the directory instead of observing the first handle's memory."
               (is (eq node callback-node))
               (push (cons name fields) logs))))
      (lambda ()
-       (handler-case
-           (multiple-value-bind (selected-entry pivot selected-tail)
-               (ethereum-lisp.cli::devnet-node-select-snap-pivot
-                node entry (list old parent target))
-             (is (eq entry selected-entry))
-             (is (eq parent pivot))
-             (is (equal (list parent target) selected-tail)))
-         (serious-condition (condition)
-           (error "Snap pivot selection failed after probes ~S and logs ~S: ~A"
-                  probes logs condition)))))
-    (is (= 2 (length probes)))
-    (is (hash32= old-root (second probes)))
-    (is (hash32= parent-root (first probes)))
+       (signals ethereum-lisp.eth-sync:eth-sync-multi-peer-error
+         (ethereum-lisp.cli::devnet-node-select-snap-pivot
+          node entry (list old parent target)))))
+    (is (= 1 (length probes)))
+    (is (hash32= old-root (first probes)))
+    (is (notany (lambda (root) (hash32= parent-root root)) probes))
     (is (= 1 (length logs)))
     (is (string= "peer.snap.pivot_unavailable" (caar logs)))
     (is (= 0 (ethereum-lisp.cli::devnet-peer-score
               (ethereum-lisp.cli::devnet-node-peer-table node) peer-id)))))
 
-(deftest devnet-snap-full-import-pruning-falls-forward-once-without-exit
+(deftest devnet-snap-full-import-pruning-requests-a-new-target
   (:layer :integration :module :p2p)
   (let* ((node
            (ethereum-lisp.cli:make-devnet-node
@@ -2259,41 +2265,28 @@ really reopens the directory instead of observing the first handle's memory."
             :port 0 :public-port 0))
          (target (make-hash32 (make-byte-vector 32 :initial-element 91)))
          (attempts '())
-         (logs '())
-         (fallback-succeeds-p t))
+         (logs '()))
     (devnet-peer-sync-call-with-function-overrides
      (list
       (cons
        'ethereum-lisp.cli::devnet-node-snap-sync-pivot-attempt
-       (lambda (seen-node seen-target fallback-only-p)
+       (lambda (seen-node seen-target)
          (is (eq node seen-node))
          (is (hash32= target seen-target))
-         (push fallback-only-p attempts)
-         (if (and fallback-only-p fallback-succeeds-p)
-             1
-             (ethereum-lisp.snap-sync:snap-sync-state-unavailable
-              "storage-range"))))
+         (push :conventional attempts)
+         (ethereum-lisp.snap-sync:snap-sync-state-unavailable
+          "storage-range")))
       (cons
        'ethereum-lisp.cli::devnet-peer-manager-log
        (lambda (seen-node name &rest fields)
          (is (eq node seen-node))
          (push (cons name fields) logs))))
      (lambda ()
-       (is (= 1
-              (ethereum-lisp.cli::devnet-node-snap-sync-target node target)))
-       (is (equal '(nil t) (nreverse attempts)))
-       (is (= 1 (count "peer.snap.pivot_fallback" logs
-                       :test #'string= :key #'car)))
-       ;; If the target-parent state is unavailable too, the same two bounded
-       ;; attempts become a coordinator-retry condition, never a fatal worker
-       ;; error. This is the live Hoodi failure mode that used to stop the node.
-       (setf fallback-succeeds-p nil
-             attempts nil
-             logs nil)
-       (signals ethereum-lisp.eth-sync:eth-sync-multi-peer-error
-         (ethereum-lisp.cli::devnet-node-snap-sync-target node target))
-       (is (equal '(nil t) (nreverse attempts)))
-       (is (= 1 (count "peer.snap.pivot_fallback" logs
+       (is (eq :stale-target
+               (ethereum-lisp.cli::devnet-node-snap-sync-target node target)))
+       (is (equal '(:conventional) (nreverse attempts)))
+       (is (ethereum-lisp.cli::devnet-node-snap-target-refresh-p node))
+       (is (= 1 (count "peer.snap.pivot_refresh" logs
                        :test #'string= :key #'car)))))))
 
 (deftest devnet-sync-coordinator-refreshes-after-snap-source-exhaustion
@@ -3510,10 +3503,17 @@ loop cannot block on a message that never comes."
      pool entry-one source)
     (ethereum-lisp.cli::devnet-snap-source-pool-register
      pool entry-two source)
-    ;; Peer two has proved twice the storage delivery capacity.
+    ;; Peer one has the lower latency. Peer two has proved twice its storage
+    ;; delivery capacity, so geth-style capacity ordering must still choose it.
+    (ethereum-lisp.cli::devnet-peer-request-queue-record-snap-delivery
+     queue-one storage-id
+     ethereum-lisp.cli::+devnet-snap-min-request-bytes+ 0.05d0)
     (ethereum-lisp.cli::devnet-peer-request-queue-record-snap-delivery
      queue-two storage-id
      ethereum-lisp.cli::+devnet-snap-min-request-bytes+ 0.25d0)
+    (ethereum-lisp.cli::devnet-peer-request-queue-record-snap-delivery
+     queue-two storage-id
+     (* 2 ethereum-lisp.cli::+devnet-snap-min-request-bytes+) 0.25d0)
     (devnet-peer-sync-call-with-function-overrides
      (list
       (cons 'ethereum-lisp.cli::devnet-node-live-sync-entries

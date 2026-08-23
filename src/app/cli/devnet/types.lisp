@@ -212,6 +212,11 @@ most one follow-up pass, so peer traffic cannot allocate unbounded wakeup work."
   ;; replace their pivot before a live source gets one real attempt.  The chance
   ;; is consumed only when that attempt starts, so waiting for peers is free.
   (snap-session-resume-p t)
+  ;; A full range import can discover that its historical snapshot aged out
+  ;; after the cheap pivot probe succeeded. Request one move to the newest
+  ;; CL-authorized target instead of falling forward to target-1, a root public
+  ;; snapshot servers are even less likely to have generated.
+  (snap-target-refresh-p nil)
   ;; A bounded condition-variable notification from peer session threads to the
   ;; node-wide coordinator.  It is independent of both the peer-table mutex and
   ;; the store guard, so an announcement can never enter either lock order.

@@ -240,6 +240,8 @@ and must agree."
                    (t
                     (let* ((restart-pin-p
                              (devnet-node-snap-session-resume-p node))
+                           (refresh-p
+                             (devnet-node-snap-target-refresh-p node))
                            (target
                              (node-store-snap-skeleton-progress-target-hash
                               skeleton))
@@ -261,10 +263,15 @@ and must agree."
                                       (node-store-snap-skeleton-progress-target-number
                                        skeleton)
                                       +devnet-snap-stale-target-distance+)))))
-                      (if (or stale-p
-                              (chain-store-state-available-p store target))
-                          latest-target
-                          target))))))))))))
+                      (cond
+                        ((and refresh-p latest-target
+                              (not (hash32= latest-target target)))
+                         (setf (devnet-node-snap-target-refresh-p node) nil)
+                         latest-target)
+                        ((or stale-p
+                             (chain-store-state-available-p store target))
+                         latest-target)
+                        (t target)))))))))))))
 
 (defun devnet-peer-entry-sync-source (node entry)
   "Wrap ENTRY's writer queue as one production multi-peer source."
@@ -542,8 +549,8 @@ into a permanent peer ban."))
 
 Each peer has one independent slot per response type, matching geth's idle-peer
 dispatch. Work waits in the global pool instead of becoming a stale request in
-one peer's private queue. Among idle peers, measured response RTT wins and ties
-prefer the largest learned capacity."
+one peer's private queue. Among idle peers, the largest learned delivery
+capacity wins and RTT breaks ties, matching geth's capacity-sorted assignment."
   (sb-thread:with-mutex ((devnet-snap-source-pool-lock pool))
     (loop
       (let ((best nil)
@@ -577,9 +584,9 @@ prefer the largest learned capacity."
                                 rtt
                                 +devnet-snap-request-target-seconds+)))
                       (when (or (null best)
-                                (< finish best-finish)
-                                (and (= finish best-finish)
-                                     (> capacity best-capacity)))
+                                (> capacity best-capacity)
+                                (and (= capacity best-capacity)
+                                     (< finish best-finish)))
                         (setf best entry
                               best-finish finish
                               best-capacity capacity)))))))))
@@ -729,14 +736,12 @@ prefer the largest learned capacity."
     (node preferred-entry tail-headers)
   "Select a serviceable strict-ancestor pivot from a bounded Engine tail.
 
-The conventional candidate is 64 blocks behind the CL target.  A healthy
-hash-scheme peer can nevertheless prune that historical snapshot across a
-restart while retaining the target and its immediate parent.  Probe the
-conventional root first, then fall forward to the target's parent.  Both are
-already committed by the same Engine target header; retaining one executable
-tail block also keeps the target noncanonical until ordinary forkchoiceUpdated
-publishes it.  State unavailability is an availability fact, never a peer
-penalty."
+The candidate is 64 blocks behind the CL target, matching geth. Falling
+forward to the target's parent looks newer but is counterproductive on public
+snapshot servers: they generate stable historical layers and frequently cannot
+serve target-1. If this root aged out, the caller moves to the newest
+CL-authorized target and derives a fresh target-64 pivot instead. State
+unavailability is an availability fact, never a peer penalty."
   (unless tail-headers
     (error "Snap pivot selection requires a non-empty target tail"))
   (let* ((live (devnet-node-live-sync-entries node :snap-only-p t))
@@ -745,19 +750,13 @@ penalty."
                (cons preferred-entry
                      (remove preferred-entry live :test #'eq))
                live))
-         (target-parent
-           (if (cdr tail-headers)
-               (nth (- (length tail-headers) 2) tail-headers)
-               (first tail-headers)))
          (durable-pivot-number (devnet-node-durable-snap-pivot-number node))
          (candidates
            (remove-if
             (lambda (header)
               (and durable-pivot-number
                    (< (block-header-number header) durable-pivot-number)))
-            (if (eq (first tail-headers) target-parent)
-                (list target-parent)
-                (list (first tail-headers) target-parent)))))
+            (list (first tail-headers)))))
     (dolist (header candidates
              (eth-sync-multi-peer-fail
               "no snap peer could serve an authorized pivot for target ~A"
@@ -1117,13 +1116,8 @@ must prove the new state root before either record can authorize publication."
                   (devnet-node-peer-table node)
                   (devnet-peer-entry-id-hex entry) -50)))))))))))
 
-(defun devnet-node-snap-sync-pivot-attempt
-    (node target-hash fallback-only-p)
-  "Download and execute one selected pivot for TARGET-HASH.
-
-When FALLBACK-ONLY-P is true, selection is restricted to the target parent.
-This is the bounded recovery path for a conventional pivot whose account probe
-succeeded but whose storage ranges were pruned before the full import."
+(defun devnet-node-snap-sync-pivot-attempt (node target-hash)
+  "Download and execute the conventional target-64 pivot for TARGET-HASH."
   (let ((store (devnet-node-store node)))
     (unless (database-engine-payload-store-p store)
       (return-from devnet-node-snap-sync-pivot-attempt nil))
@@ -1132,8 +1126,7 @@ succeeded but whose storage ranges were pruned before the full import."
       (declare (ignore initial-pivot))
       (multiple-value-bind (entry pivot-header selected-tail-headers)
           (devnet-node-select-snap-pivot
-           node resolved-entry
-           (if fallback-only-p (last tail-headers 2) tail-headers))
+           node resolved-entry tail-headers)
         (let* ((tail-headers selected-tail-headers)
                (database (database-engine-payload-store-database store))
              (persistence (devnet-node-persistence-state node))
@@ -1266,26 +1259,20 @@ succeeded but whose storage ranges were pruned before the full import."
 (defun devnet-node-snap-sync-target (node target-hash)
   "Download a bounded skeleton, state-sync, and execute one CL target.
 
-The conventional 64-block pivot is attempted first.  A full multi-source
-import can discover storage pruning that the cheap account-root probe could not
-observe.  In that case retry exactly once at the target parent; if every source
-lacks that state too, report a typed peer-availability failure to the continuous
-coordinator instead of terminating the node."
+The conventional 64-block pivot is attempted once. A full multi-source import
+can discover storage pruning after the cheap account-root probe succeeded. In
+that case request a move to the newest CL-authorized target; the next coordinator
+pass derives another target-64 pivot instead of falling forward to target-1."
   (handler-case
       (handler-case
-          (devnet-node-snap-sync-pivot-attempt node target-hash nil)
-        (ethereum-lisp.snap-sync:snap-sync-state-unavailable (first-condition)
+          (devnet-node-snap-sync-pivot-attempt node target-hash)
+        (ethereum-lisp.snap-sync:snap-sync-state-unavailable (condition)
+          (setf (devnet-node-snap-target-refresh-p node) t)
           (devnet-peer-manager-log
-           node "peer.snap.pivot_fallback"
+           node "peer.snap.pivot_refresh"
            "target" (hash32-to-hex target-hash)
-           "error" first-condition)
-          (handler-case
-              (devnet-node-snap-sync-pivot-attempt node target-hash t)
-            (ethereum-lisp.snap-sync:snap-sync-state-unavailable
-                (second-condition)
-              (eth-sync-multi-peer-fail
-               "all snap peers lack both authorized pivot states for target ~A: ~A"
-               (hash32-to-hex target-hash) second-condition)))))
+           "error" condition)
+          :stale-target))
     (ethereum-lisp.snap-sync:snap-sync-heal-yielded ()
       ;; A truthy scheduling result prevents this pass from falling into the
       ;; unbounded forward-gap path. The next pass re-evaluates the newest FCU
