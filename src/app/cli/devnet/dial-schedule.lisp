@@ -70,9 +70,14 @@ as soon as SNAP demand ends, preserving inbound capacity in steady operation.")
   "How many discovered candidates we remember. Our policy — the bound that the
 old dial registry, a table only ever added to, did not have.")
 
-(defconstant +devnet-dial-dynamic-forget-failures+ 3
-  "After this many failures a DISCOVERED candidate is forgotten. A configured
---peer is never forgotten, however often it fails: the operator asked for it.")
+(defconstant +devnet-dial-dynamic-forget-failures+ 1
+  "After this many failures a DISCOVERED candidate is forgotten.
+
+Dynamic discovery is the durable owner of these endpoints and may offer one
+again after a later endpoint proof.  Keeping failed dynamic nodes in the dial
+registry through exponential retries pins the bounded candidate window behind
+stale public endpoints.  Static peers and bootnodes remain persistent because
+they are explicit configuration and bootstrap fallbacks, respectively.")
 
 (defstruct (devnet-dial-candidate
             (:constructor make-devnet-dial-candidate
@@ -348,18 +353,21 @@ wanted. Idempotent for a candidate already idle."
       candidate)))
 
 (defun devnet-dial-registry-expire (registry now)
-  "Forget discovered candidates that have failed too often, and return how many.
+  "Forget failed discovered candidates, and return how many.
 
-Configured peers are never forgotten. This is what bounds the registry against
-a discovery stream that is mostly unreachable hosts."
+Configured peers and bootnodes are never forgotten.  A dynamic candidate is a
+one-shot item from discovery's continuously refreshed stream, like geth's
+RandomNodes iterator: after one failed dial, retaining it for its backoff would
+only crowd fresh endpoint-proven candidates out of the bounded registry.  NOW
+is retained in the pure scheduler interface even though failed dynamic entries
+no longer wait for their transport cooldown before eviction."
+  (declare (ignore now))
   (let ((doomed '()))
     (maphash (lambda (id candidate)
                (when (and (eq :dynamic (devnet-dial-candidate-kind candidate))
                           (eq :idle (devnet-dial-candidate-state candidate))
                           (>= (devnet-dial-candidate-failures candidate)
-                              +devnet-dial-dynamic-forget-failures+)
-                          (>= now (devnet-dial-candidate-next-eligible-at
-                                   candidate)))
+                              +devnet-dial-dynamic-forget-failures+))
                  (push id doomed)))
              (devnet-dial-registry-candidates registry))
     (dolist (id doomed (length doomed))

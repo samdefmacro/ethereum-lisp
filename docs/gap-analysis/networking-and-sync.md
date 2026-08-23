@@ -629,9 +629,9 @@ misbehaved. Of the twelve devp2p disconnect reasons defined
 `src/app/cli/devnet/peer-sync.lisp:220`. `+devp2p-disconnect-subprotocol-error+`
 and `useless-peer` are never used. The only memory is the dial registry's failure
 backoff (`+devnet-dial-backoff-ceiling-seconds+` 300 with at most four doublings
-and `+devnet-dial-dynamic-forget-failures+` 3,
-`src/app/cli/devnet/dial-schedule.lisp:41,45,61`), which applies to dials we
-initiate, not to peers that dial us.
+and one-shot eviction for failed dynamic discovery candidates,
+`src/app/cli/devnet/dial-schedule.lisp`), which applies to dials we initiate,
+not to peers that dial us. Static peers and bootnodes retain their backoff.
 
 **Reference.** geth drops peers on protocol violations with a typed
 `p2p.DiscProtocolError` and the downloader/fetcher call `dropPeer` on bad

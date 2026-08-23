@@ -190,29 +190,29 @@
 (deftest devnet-dial-registry-forgets-dead-discovered-peers-only
   (:layer :unit :module :devnet)
   ;; Discovery returns every node it has SEEN, not only the ones that answered,
-  ;; so the candidate set has to be bounded or it grows forever.
+  ;; so one failed dynamic item must release bounded registry capacity. A later
+  ;; endpoint proof may offer the same identity as a fresh stream item.
   (multiple-value-bind (registry table) (dial-test-registry :base 10)
     (declare (ignore table))
     (ethereum-lisp.cli:devnet-dial-registry-offer-dynamic registry "d1" "enode://d1@127.0.0.1:1")
     (ethereum-lisp.cli:devnet-dial-registry-put-bootstrap registry "b1" "enode://b1@127.0.0.1:1")
     (ethereum-lisp.cli:devnet-dial-registry-put-static registry "s1" "enode://s1@127.0.0.1:1")
-    ;; Fail both past the forget threshold.
-    (dotimes (i (1+ ethereum-lisp.cli:+devnet-dial-dynamic-forget-failures+))
-      (dolist (id '("d1" "b1" "s1"))
-        (ethereum-lisp.cli:devnet-dial-registry-mark-dialing registry id (* i 1000))
-        (ethereum-lisp.cli:devnet-dial-registry-mark-done registry id (* i 1000) :outcome :failed)))
-    (is (= 1 (ethereum-lisp.cli:devnet-dial-registry-expire registry 100000)))
-    ;; The discovered one is gone; the operator's stays, however often it fails.
+    ;; One ordinary failure is enough for a dynamic stream item. Its cooldown
+    ;; must not pin the candidate window until the exponential deadline.
+    (dolist (id '("d1" "b1" "s1"))
+      (ethereum-lisp.cli:devnet-dial-registry-mark-dialing registry id 1000)
+      (ethereum-lisp.cli:devnet-dial-registry-mark-done registry id 1001
+                                                        :outcome :failed))
+    (is (= 1 (ethereum-lisp.cli:devnet-dial-registry-expire registry 1001)))
+    ;; The discovered one is gone; configured fallbacks stay and back off.
     (is (null (ethereum-lisp.cli:devnet-dial-registry-candidate registry "d1")))
     (is (eq :bootstrap
             (ethereum-lisp.cli:devnet-dial-candidate-kind
              (ethereum-lisp.cli:devnet-dial-registry-candidate registry "b1"))))
     (is (ethereum-lisp.cli:devnet-dial-registry-candidate registry "s1"))
-    ;; A candidate still cooling down is not expired even if it has failed a lot.
+    ;; An in-flight dynamic dial is not evicted underneath its session thread.
     (ethereum-lisp.cli:devnet-dial-registry-offer-dynamic registry "d2" "enode://d2@127.0.0.1:1")
-    (dotimes (i (1+ ethereum-lisp.cli:+devnet-dial-dynamic-forget-failures+))
-      (ethereum-lisp.cli:devnet-dial-registry-mark-dialing registry "d2" 200000)
-      (ethereum-lisp.cli:devnet-dial-registry-mark-done registry "d2" 200000 :outcome :failed))
+    (ethereum-lisp.cli:devnet-dial-registry-mark-dialing registry "d2" 200000)
     (is (= 0 (ethereum-lisp.cli:devnet-dial-registry-expire registry 200000)))
     (is (ethereum-lisp.cli:devnet-dial-registry-candidate registry "d2")))
   ;; Re-offering never disturbs an existing candidate's cooldown, and promoting

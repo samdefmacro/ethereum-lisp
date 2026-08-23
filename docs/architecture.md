@@ -489,6 +489,10 @@ them by their physical location instead reintroduces dependency cycles:
   anything, because they share one NON-recursive mutex with each other and a
   caller composes them inside a single acquisition. A lock appearing in either
   file would turn a composed decision into a signalled error rather than a wait.
+  Dynamic discovery candidates are one-shot dial-stream items: the first failed
+  dial releases their bounded registry slot, while a later endpoint proof may
+  offer the identity again. Static peers and bootnodes instead retain their
+  exponential retry history because configuration, not discovery, owns them.
 - **persistence adapters** live physically under
   `src/storage/node-store/persistence/` but depend on application services:
   `staged-import` calls the common candidate-import service before
