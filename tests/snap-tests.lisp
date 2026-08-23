@@ -3309,17 +3309,17 @@
         'ethereum-lisp.snap-sync::snap-sync-populate-heal-checkpoint-batch)
        real-populate))
     (is forced-checkpoint-done-p)
-    (is (equal
-         (list
-          ethereum-lisp.snap-sync::+snap-sync-heal-checkpoint-max-works+)
-         checkpoint-frontiers))
+    (is (= 1 (length checkpoint-frontiers)))
+    (is
+     (<= 1 (first checkpoint-frontiers)
+         ethereum-lisp.snap-sync::+snap-sync-heal-checkpoint-max-works+))
     ;; The live failure shape used to emit one TrieNodes request per node once
     ;; the frontier reached its hard cap. These works were already counted in
-    ;; the frontier, so one full logical round remains safe; its 512-path
-    ;; physical chunks amortize RTT without weakening the frontier bound.
+    ;; the frontier, so full peer-local assignments remain safe. A fresh peer
+    ;; starts at geth's 1,024-lookup cap and then learns from delivered width.
     (is
-     (= ethereum-lisp.snap-sync::*snap-sync-heal-request-target-paths*
-        (reduce #'max request-widths)))
+     (<= 1 (reduce #'max request-widths)
+         ethereum-lisp.snap-sync::+snap-sync-heal-paths-per-source+))
     (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p completed))))
 
 (deftest snap-state-healer-uses-multiple-trie-node-sources
@@ -3330,7 +3330,6 @@
     (let* ((root (state-db-root source-state))
            (target-database (make-memory-key-value-database))
            (calls (make-array 2 :initial-element 0))
-           (round-first-sources '())
            (sources
              (loop for index below 2
                    for source-database = (make-memory-key-value-database)
@@ -3369,39 +3368,16 @@
               :tasks
               (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
                :count 1 :completed-p t)))
-           (real-round
-             (fdefinition
-              'ethereum-lisp.snap-sync::snap-sync-heal-request-round))
            (completed nil))
-      (unwind-protect
-           (progn
-             (setf
-              (fdefinition
-               'ethereum-lisp.snap-sync::snap-sync-heal-request-round)
-              (lambda (round-sources missing root-bytes byte-limit)
-                (push (first round-sources) round-first-sources)
-                (funcall
-                 real-round round-sources missing root-bytes byte-limit)))
-             (setf
-              completed
-              (ethereum-lisp.snap-sync::snap-sync-heal-state
-               target-database sources progress 350)))
-        (setf
-         (fdefinition
-          'ethereum-lisp.snap-sync::snap-sync-heal-request-round)
-         real-round))
+      (setf
+       completed
+       (ethereum-lisp.snap-sync::snap-sync-heal-state
+        target-database sources progress 350))
       (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p completed))
       (is (plusp (aref calls 0)))
       ;; Positive wiring witness: the old serial failover loop never called the
       ;; second healthy source while the first continued to answer.
-      (is (plusp (aref calls 1)))
-      (let ((round-first-sources (nreverse round-first-sources)))
-        (is (> (length round-first-sources) 1))
-        ;; A partially pruned peer may answer only part of its disjoint slice.
-        ;; Rotate the next round so retained work is not pinned to that peer.
-        (loop for (left right) on round-first-sources
-              while right
-              do (is (not (eq left right))))))))
+      (is (plusp (aref calls 1))))))
 
 (deftest snap-state-healer-keeps-sources-busy-within-geth-lookup-cap
   (:layer :unit :module :p2p)
@@ -3576,11 +3552,197 @@
     ;; could not release this source before its bounded wait elapsed.
     (is fast-reused-before-slow-release-p)))
 
+(deftest snap-state-healer-event-loop-refills-before-slow-peer-returns
+  (:layer :unit :module :p2p)
+  (let* ((lock (sb-thread:make-mutex :name "snap-heal-event-loop"))
+         (changed (sb-thread:make-waitqueue :name "snap-heal-event-loop"))
+         (fast-calls 0)
+         (refill-enabled-p nil)
+         (refilled-p nil)
+         (fast-refilled-before-slow-release-p nil)
+         (slow-source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :account-range (lambda (request) (declare (ignore request)))
+            :storage-ranges (lambda (request) (declare (ignore request)))
+            :bytecodes (lambda (request) (declare (ignore request)))
+            :trie-nodes
+            (lambda (request)
+              (declare (ignore request))
+              (sb-thread:with-mutex (lock)
+                (loop repeat 4
+                      while (< fast-calls 2)
+                      do (sb-thread:condition-wait
+                          changed lock :timeout 1/4))
+                (setf fast-refilled-before-slow-release-p
+                      (>= fast-calls 2)))
+              (ethereum-lisp.snap:make-snap-trie-nodes 1 '(#(128))))))
+         (fast-source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :account-range (lambda (request) (declare (ignore request)))
+            :storage-ranges (lambda (request) (declare (ignore request)))
+            :bytecodes (lambda (request) (declare (ignore request)))
+            :trie-nodes
+            (lambda (request)
+              (declare (ignore request))
+              (sb-thread:with-mutex (lock)
+                (incf fast-calls)
+                (sb-thread:condition-broadcast changed))
+              (ethereum-lisp.snap:make-snap-trie-nodes 1 '(#(128))))))
+         (work
+           (ethereum-lisp.snap-sync::snap-sync-make-heal-work
+            :account nil #(1) (snap-test-hash 197)))
+         (initial (vector work work))
+         (capacities (make-hash-table :test #'eq))
+         (rtts (make-hash-table :test #'eq)))
+    ;; Force one initial job per peer. The third work exists only after the
+    ;; fast peer's first response is integrated by the coordinator.
+    (setf (gethash slow-source capacities) 1
+          (gethash fast-source capacities) 1)
+    (multiple-value-bind (remaining errors)
+        (ethereum-lisp.snap-sync::snap-sync-heal-run-pipeline
+         (list slow-source fast-source) initial (snap-test-hash 198)
+         (* 2 1024 1024) capacities rtts
+         (lambda (result works)
+           (declare (ignore works))
+           (is (null
+                (ethereum-lisp.snap-sync::snap-sync-heal-fetch-result-condition
+                 result)))
+           (when (eq
+                  fast-source
+                  (ethereum-lisp.snap-sync::snap-sync-heal-fetch-result-source
+                   result))
+             (setf refill-enabled-p t))
+           (values nil nil 1))
+         (lambda (room outstanding)
+           (declare (ignore room outstanding))
+           (when (and refill-enabled-p (not refilled-p))
+             (setf refilled-p t)
+             (list work)))
+         nil)
+      (is (null remaining))
+      (is (null errors)))
+    (is refilled-p)
+    (is (>= fast-calls 2))
+    ;; A request-round join cannot discover or assign the third-generation
+    ;; work until the synthetic slow peer returns. The event loop can.
+    (is fast-refilled-before-slow-release-p)))
+
+(deftest snap-state-healer-learns-and-orders-peer-capacity
+  (:layer :unit :module :p2p)
+  (let* ((source-a
+           (ethereum-lisp.snap-sync:make-snap-sync-source))
+         (source-b
+           (ethereum-lisp.snap-sync:make-snap-sync-source))
+         (slow-partial
+           (ethereum-lisp.snap-sync::snap-sync-heal-learn-peer-capacity
+            1024 1024 128 2d0))
+         (slow-full
+           (ethereum-lisp.snap-sync::snap-sync-heal-learn-peer-capacity
+            1024 1024 1024 4d0))
+         (fast-full
+           (ethereum-lisp.snap-sync::snap-sync-heal-learn-peer-capacity
+            1024 1024 1024 1d0))
+         (peer-a
+           (ethereum-lisp.snap-sync::make-snap-sync-heal-pipeline-peer
+            source-a slow-full 1d0))
+         (peer-b
+           (ethereum-lisp.snap-sync::make-snap-sync-heal-pipeline-peer
+            source-b fast-full 2d0)))
+    (is (< slow-partial slow-full))
+    (is (< slow-full fast-full))
+    (is (= 1024 fast-full))
+    (is
+     (eq peer-b
+         (first
+          (stable-sort
+           (list peer-a peer-b)
+           #'ethereum-lisp.snap-sync::snap-sync-heal-pipeline-peer<))))
+    (is
+     (< 1d0
+        (ethereum-lisp.snap-sync::snap-sync-heal-learn-peer-rtt 1d0 3d0)
+        3d0))))
+
+(deftest snap-state-healer-counts-inflight-work-not-requests
+  (:layer :unit :module :p2p)
+  (let* ((runtime
+           (ethereum-lisp.snap-sync::make-snap-sync-heal-pipeline-runtime))
+         (source-a (ethereum-lisp.snap-sync:make-snap-sync-source))
+         (source-b (ethereum-lisp.snap-sync:make-snap-sync-source))
+         (peer-a
+           (ethereum-lisp.snap-sync::make-snap-sync-heal-pipeline-peer
+            source-a 1024 1d0))
+         (peer-b
+           (ethereum-lisp.snap-sync::make-snap-sync-heal-pipeline-peer
+            source-b 1024 1d0))
+         (work
+           (ethereum-lisp.snap-sync::snap-sync-make-heal-work
+            :account nil #(1) (snap-test-hash 198))))
+    (setf
+     (ethereum-lisp.snap-sync::snap-sync-heal-pipeline-runtime-peers runtime)
+     (list peer-a peer-b)
+     (ethereum-lisp.snap-sync::snap-sync-heal-pipeline-runtime-pending runtime)
+     (make-list 2048 :initial-element work))
+    (ethereum-lisp.snap-sync::snap-sync-heal-pipeline-dispatch runtime)
+    (is (= 2048
+           (ethereum-lisp.snap-sync::snap-sync-heal-pipeline-outstanding
+            runtime)))
+    (is (= 1024
+           (length
+            (ethereum-lisp.snap-sync::snap-sync-heal-pipeline-peer-job
+             peer-a))))
+    (is (= 1024
+           (length
+            (ethereum-lisp.snap-sync::snap-sync-heal-pipeline-peer-job
+             peer-b))))))
+
+(deftest snap-state-healer-pipeline-returns-failed-work
+  (:layer :unit :module :p2p)
+  (let* ((source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :trie-nodes
+            (lambda (request)
+              (declare (ignore request))
+              (error
+               'ethereum-lisp.snap-sync:snap-sync-state-unavailable
+               :request-kind "trie-nodes"))))
+         (work
+           (ethereum-lisp.snap-sync::snap-sync-make-heal-work
+            :account nil #(1) (snap-test-hash 198)))
+         (capacities (make-hash-table :test #'eq))
+         (rtts (make-hash-table :test #'eq))
+         (handled 0)
+         (condition-seen-p nil))
+    (multiple-value-bind (remaining errors paused-p)
+        (ethereum-lisp.snap-sync::snap-sync-heal-run-pipeline
+         (list source) (vector work) (snap-test-hash 199) 350
+         capacities rtts
+         (lambda (result works)
+           (incf handled)
+           (setf condition-seen-p
+                 (not
+                  (null
+                   (ethereum-lisp.snap-sync::snap-sync-heal-fetch-result-condition
+                    result))))
+           (values
+            (coerce works 'list)
+            (ethereum-lisp.snap-sync::snap-sync-heal-fetch-result-condition
+             result)
+            0))
+         (lambda (room outstanding)
+           (declare (ignore room outstanding))
+           nil)
+         nil)
+      (is (= 1 handled))
+      (is condition-seen-p)
+      (is (= 1 (length remaining)))
+      (is (= 1 (length errors)))
+      (is (not paused-p)))))
+
 (deftest snap-state-healer-processes-fetched-nodes-without-rereading-them
   (:layer :unit :module :p2p)
   (let* ((source-state (make-state-db))
          (source-database (make-memory-key-value-database))
-         (target-database (make-memory-key-value-database))
+         (target-database (make-instance 'snap-counting-test-database))
          (address
            (address-from-hex
             "0x0000000000000000000000000000000000000051"))
@@ -3665,7 +3827,15 @@
       ;; once and consumed from the bounded response cache, causing neither the
       ;; former per-node Get nor a second MultiGet of the node just written.
       (is (= 0 point-reads))
-      (is (= 1 batch-reads)))))
+      (is (= 1 batch-reads))
+      ;; Remote trie nodes use the buffered prefix; the later completion seam
+      ;; supplies the synchronous durability boundary.
+      (is (= 1
+             (snap-counting-test-database-buffered-apply-count
+              target-database)))
+      (is (every #'plusp
+                 (snap-counting-test-database-buffered-batch-sizes
+                  target-database))))))
 
 (deftest snap-state-healer-adds-sources-that-arrive-after-healing-starts
   (:layer :integration :module :p2p)
@@ -4717,86 +4887,92 @@
 
 (deftest snap-state-healer-resumes-the-durable-frontier-after-source-loss
   (:layer :integration :module :p2p)
-  (multiple-value-bind (source-state addresses)
-      (snap-test-partitioned-state)
-    (declare (ignore addresses))
-    (let* ((source-database (make-memory-key-value-database))
-           (target-database (make-memory-key-value-database))
-           (root (state-db-root source-state))
-           (root-bytes (hash32-bytes root))
-           (backend
-             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
-              source-database source-state))
-           (base (snap-test-source backend))
-           (trie-calls 0)
-           (failing-source
-             (ethereum-lisp.snap-sync:make-snap-sync-source
-              :account-range
-              (ethereum-lisp.snap-sync:snap-sync-source-account-range base)
-              :storage-ranges
-              (ethereum-lisp.snap-sync:snap-sync-source-storage-ranges base)
-              :bytecodes
-              (ethereum-lisp.snap-sync:snap-sync-source-bytecodes base)
-              :trie-nodes
-              (lambda (request)
-                (incf trie-calls)
-                (if (= trie-calls 2)
-                    (error
-                     'ethereum-lisp.snap-sync:snap-sync-state-unavailable
-                     :request-kind "trie-nodes")
-                    (funcall
-                     (ethereum-lisp.snap-sync:snap-sync-source-trie-nodes base)
-                     request)))))
-           (progress
-             (ethereum-lisp.snap-sync::snap-sync-make-progress
-              :pivot-hash (make-hash32 (snap-test-hash 193))
-              :pivot-number 3002 :state-root root
-              :partial-root +empty-trie-hash+
-              :target-hash (make-hash32 (snap-test-hash 194))
-              :chain-id 560048
-              :genesis-hash (make-hash32 (snap-test-hash 195))
-              :authority-id (make-hash32 (snap-test-hash 196))
-              :completed-p nil
-              :tasks
-              (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
-               :count 1 :completed-p t))))
-      (signals ethereum-lisp.snap-sync:snap-sync-state-unavailable
-        (ethereum-lisp.snap-sync::snap-sync-heal-state
-         target-database (list failing-source) progress 350))
-      (multiple-value-bind (checkpoint present-p)
-          (ethereum-lisp.snap-sync::snap-sync-read-heal-checkpoint
-           target-database progress)
-        (is present-p)
-        (is (plusp
+  (let* ((database (make-memory-key-value-database))
+         (account-hash (snap-test-hash 193))
+         (leaf-object
+           (make-rlp-list
+            (ethereum-lisp.trie.encoding:hex-prefix-encode
+             #(0) :terminator t)
+            (make-byte-vector 1 :initial-element 1)))
+         (leaf-encoded (rlp-encode leaf-object))
+         (leaf-reference (keccak-256 leaf-encoded))
+         (work
+           (ethereum-lisp.snap-sync::snap-sync-make-heal-work
+            :storage account-hash (make-byte-vector 0) leaf-reference))
+         (progress
+           (ethereum-lisp.snap-sync::snap-sync-make-progress
+            :pivot-hash (make-hash32 (snap-test-hash 194))
+            :pivot-number 3002
+            :state-root (make-hash32 leaf-reference)
+            :partial-root +empty-trie-hash+
+            :target-hash (make-hash32 (snap-test-hash 195))
+            :chain-id 560048
+            :genesis-hash (make-hash32 (snap-test-hash 196))
+            :authority-id (make-hash32 (snap-test-hash 197))
+            :completed-p nil
+            :tasks
+            (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+             :count 1 :completed-p t)))
+         (trie-calls 0)
+         (failing-source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :account-range (lambda (request) (declare (ignore request)))
+            :storage-ranges (lambda (request) (declare (ignore request)))
+            :bytecodes (lambda (request) (declare (ignore request)))
+            :trie-nodes
+            (lambda (request)
+              (declare (ignore request))
+              (incf trie-calls)
+              (error
+               'ethereum-lisp.snap-sync:snap-sync-state-unavailable
+               :request-kind "trie-nodes"))))
+         (healthy-source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :account-range (lambda (request) (declare (ignore request)))
+            :storage-ranges (lambda (request) (declare (ignore request)))
+            :bytecodes (lambda (request) (declare (ignore request)))
+            :trie-nodes
+            (lambda (request)
+              (declare (ignore request))
+              (ethereum-lisp.snap:make-snap-trie-nodes
+               1 (list leaf-encoded))))))
+    ;; The checkpoint is the trusted crash seam. A failed source must preserve
+    ;; its exact work and counters so a new source resumes without restarting
+    ;; the authorized root traversal.
+    (let ((batch (make-kv-write-batch)))
+      (ethereum-lisp.snap-sync::snap-sync-populate-heal-checkpoint-batch
+       batch progress (list work) 7 3 4 2 99)
+      (kv-apply-batch database batch))
+    (let ((unavailable-p nil))
+      (handler-case
+          (ethereum-lisp.snap-sync::snap-sync-heal-state
+           database (list failing-source) progress 350)
+        (ethereum-lisp.snap-sync:snap-sync-state-unavailable ()
+          (setf unavailable-p t)))
+      (unless unavailable-p
+        (error "Healer did not surface source loss after ~D trie requests"
+               trie-calls)))
+    (multiple-value-bind (checkpoint present-p)
+        (ethereum-lisp.snap-sync::snap-sync-read-heal-checkpoint
+         database progress)
+      (is present-p)
+      (is (= 7
              (ethereum-lisp.snap-sync::snap-sync-heal-checkpoint-processed-nodes
-              checkpoint))))
-      (let ((root-reads 0)
-            (real-get
-              (fdefinition 'ethereum-lisp.trie:trie-node-store-get)))
-        (unwind-protect
-             (progn
-               (setf
-                (fdefinition 'ethereum-lisp.trie:trie-node-store-get)
-                (lambda (database identifier)
-                  (when (and (eq database target-database)
-                             (bytes= identifier root-bytes))
-                    (incf root-reads))
-                  (funcall real-get database identifier)))
-               (let ((completed
-                       (ethereum-lisp.snap-sync::snap-sync-heal-state
-                        target-database (list base) progress 350)))
-                 (is
-                  (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
-                   completed)))
-               (is (= 0 root-reads)))
-          (setf (fdefinition 'ethereum-lisp.trie:trie-node-store-get)
-                real-get)))
-      (multiple-value-bind (record present-p)
-          (kv-get-chain-record
-           target-database :metadata
-           ethereum-lisp.snap-sync::+snap-sync-heal-checkpoint-identifier+)
-        (declare (ignore record))
-        (is (not present-p))))))
+              checkpoint)))
+      (is (= 1
+             (length
+              (ethereum-lisp.snap-sync::snap-sync-heal-checkpoint-stack
+               checkpoint)))))
+    (let ((completed
+            (ethereum-lisp.snap-sync::snap-sync-heal-state
+             database (list healthy-source) progress 350)))
+      (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p completed)))
+    (multiple-value-bind (record present-p)
+        (kv-get-chain-record
+         database :metadata
+         ethereum-lisp.snap-sync::+snap-sync-heal-checkpoint-identifier+)
+      (declare (ignore record))
+      (is (not present-p)))))
 
 (deftest snap-state-healer-fetches-missing-account-storage-and-code-nodes
   (:layer :integration :module :p2p)

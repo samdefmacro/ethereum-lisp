@@ -294,19 +294,22 @@ dependency plans retain the fail-closed full-root traversal. The tests also
 inject a failed database batch to prove progress never outruns verified account
 state. Only the complete same-root range/dependency proof set or the final
 traversal can install the completion marker. The final
-healer tests partition one missing frontier, prove every request remains
-within geth's 1,024-path cap, and verify the processing-rate feedback divisor
-bounds the aggregate missing queue while adapting the target between 1 and
-512 paths per source. They sort the whole request slice and group all storage
-paths for one account into a shared wire path set while mapping partial replies
-back to exact DFS order, and block one source until a
-faster source has
-claimed multiple chunks. They also prove a second source actually serves
-TrieNodes and consecutive rounds rotate the first source so retained work is
-not pinned to one partially pruned peer. A late-admission control starts
-healing with one source, exposes a second
-source through the live provider only after the first request round, and proves
-that the new source serves TrieNodes before completion. A boundary regression
+healer tests prove every request remains within geth's 1,024-path cap and the
+processing-rate feedback bounds the aggregate missing queue. Event-loop
+controls block one source, integrate a faster source's response independently,
+discover child work from it, and require that same fast source to receive the
+child before the slow response returns. A direct shared-queue control retires a
+failed source and requires its exact work and condition to return to the
+coordinator. Another dispatches two 1,024-work requests and requires frontier
+accounting to report 2,048 in-flight works rather than two requests. Capacity
+controls contract partial or slow peers, retain the 1,024 ceiling for a fast
+full peer, and order idle peers by learned capacity and RTT. They also prove a
+second source actually serves TrieNodes. A late-admission control starts healing
+with one source, exposes a second source through the live provider after work
+has begun, and proves that the new source serves TrieNodes before completion.
+The request encoder still sorts the whole slice, groups every storage path for
+one account into a shared wire path set, and maps partial replies back to exact
+DFS order. A boundary regression
 pins the production completion-proof depth at four nibbles and proves work on
 either side of that threshold is classified correctly, keeping rebases granular
 without expanding toward a six-nibble proof index. Local traversal proves
@@ -332,7 +335,10 @@ MultiGet to use exactly two native bulk copies: one into the contiguous key
 buffer and one out of the returned value. It also covers the zero-length pinned
 field case. Falling back to per-record foreign allocation or per-octet CFFI
 access makes those witnesses fail while all synchronous durability checks stay
-unchanged. A separate adapter regression observes the buffered write-options
+unchanged. The fetched-node cache control additionally requires remote trie
+nodes to use a buffered healer batch, then consumes them without a redundant
+point read or second MultiGet before the synchronous completion seam. A
+separate adapter regression observes the buffered write-options
 followed by the ordinary synchronous options. Its SIGKILL child writes an
 unsynced content-addressed prerequisite batch, then a synced cursor batch; the
 parent kills it without closing RocksDB and requires both batches after reopen.
@@ -342,9 +348,9 @@ The reviewed image builds additionally fail
 unless the pinned native library links `liburing.so.2`, and the runtime layer
 checks that the dependency resolves before its client smoke. The vendored
 compatibility patch is applied with fuzz disabled so source drift fails the
-image build. They
-persist a bounded checksummed work frontier in the
-same batch as newly accepted nodes. Abrupt source loss then resumes without
+image build. They persist a bounded checksummed work frontier only after the
+buffered node prefix is flushed and every in-flight response has been
+integrated. Abrupt source loss then resumes the exact queued work without
 rereading the root; corrupt, stale, empty, or oversized checkpoints fail
 closed, and
 rebase/completion failure injection proves that checkpoint invalidation remains
@@ -353,11 +359,11 @@ proves that its bounded record stays below the byte cap. A live-shape control
 resumes an 8,192-work frontier, expands its first branch to 8,207 at an overdue
 checkpoint, and proves that single-work traversal drains it back to the hard
 cap before the next record is published. The same control keeps pending missing
-work in the exact frontier accounting while coalescing 1,024 paths into one
-single-source request; restoring the old frontier-dependent one-path limit
+work in the exact frontier accounting while assigning up to 1,024 paths to one
+fresh source; restoring the old frontier-dependent one-path limit
 makes the request-width witness fail. A separate count regression proves that
-three sources raise total round capacity to 3,072 while every request remains
-at the pinned geth 1,024-lookup cap. The serving regression sends 1,041 valid
+three sources raise total concurrent capacity to 3,072 while every request
+remains at the pinned geth 1,024-lookup cap. The serving regression sends 1,041 valid
 root paths and proves only 1,024 disk lookups are returned; raising the
 production cap makes it fail. Restoring the old immediate checkpoint stop
 makes the live-shape control fail with the observed public-node error. Separate

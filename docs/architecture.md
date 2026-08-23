@@ -279,40 +279,37 @@ them by their physical location instead reintroduces dependency cycles:
   deferred frontier so final healing can verify or skip their storage roots
   through the durable subtree proofs
   before it can publish completion. Work sets above the 8,192-item checkpoint
-  bound also fall back to that path. Each bounded TrieNodes frontier is shared
-  by every live source and capped by its aggregate request capacity. The
-  existing 8,192-item frontier bound permits a 512-path throughput start; a
-  geth-style per-node processing-rate EWMA compares delivered-but-unprocessed
-  nodes with twice the local processing rate once per second. The 1.33/1.25
-  feedback divisor contracts or expands each request between 1 and 512 target
-  paths, always below the pinned geth limit of 1,024, so network delivery cannot
-  grow the global missing queue faster than local integration. Each request
-  slice is sorted by account and compact path, then all storage paths for the same
-  account share one wire path set, matching geth's grouping and avoiding a
-  repeated remote account-trie lookup per storage node. A response-order index
-  maps partial replies back to the exact durable DFS continuation. This avoids the
-  roughly 186-path requests observed with eleven live peers under fixed four-
-  way over-partitioning. Every source retains at most one outstanding request,
-  but a fast source immediately claims another disjoint tail chunk instead of
-  waiting at a global slowest-peer wave barrier. Initial chunks are assigned
-  deterministically across all sources so one fast peer cannot erase peer
-  diversity; only the shared tail is work-stealing. The total frontier
-  still scales with the source count up to the durable 8,192-work cap. The
-  serving side applies the same 1,024-lookup cap even when the structurally
-  bounded wire list is larger. A failed source stops claiming new chunks while
-  successful results remain durable and unrequested work stays in the exact
-  continuation. The public-node peer default is 50, matching geth
+  bound also fall back to that path. TrieNodes healing follows the response-
+  driven event loop in geth `38271784c2b31926563806da9a2e023b88f5e7a8`:
+  every live source owns at most one request, all sources draw from one exact
+  retry queue, and the coordinator validates and integrates each individual
+  response as soon as it arrives. A fast source can therefore receive child
+  work discovered from its prior response while an unrelated slow source is
+  still in flight; there is no global request-round join barrier. Every new
+  source starts at the protocol maximum of 1,024 paths. A source-local EWMA
+  learns the useful delivered width against a two-second request target and a
+  second EWMA learns RTT; idle sources are assigned in descending learned
+  capacity and then ascending RTT order. Partial responses requeue only their
+  unmatched exact paths, while a failed source is retired and all of its exact
+  assigned paths return to the same queue. Late handshake completions join the
+  running event loop without restarting it, and a retired identity cannot
+  re-enter the same healing attempt.
+
+  Each request slice is sorted by account and compact path, then all storage
+  paths for the same account share one wire path set, matching geth's grouping
+  and avoiding a repeated remote account-trie lookup per storage node. A
+  response-order index maps partial replies back to the exact DFS continuation.
+  Pending, in-flight, locally exposed, and deferred work are counted in work
+  units rather than request units under the existing 8,192-item frontier cap;
+  the serving side independently applies the same 1,024-lookup ceiling. The
+  local processing-rate feedback still bounds how quickly traversal exposes
+  new remote work, but no global rate setting truncates an individual peer's
+  learned capacity. The public-node peer default is 50, matching geth
   `38271784c2b31926563806da9a2e023b88f5e7a8` and Nethermind
   `e52dc19a56a46f58170a730822580774d403c838`; the one-request-per-source rule
   remains stricter than either implementation's process-wide worker pool and
-  preserves this client's sole-writer session boundary.
-  Before each remote healing round the CLI refreshes its live session snapshot,
-  reuses the existing sole-writer source wrappers, and incrementally admits new
-  snap peers that completed their handshake after the long traversal began.
-  Retired source identities are not re-admitted during the same attempt.
-  Source order rotates between rounds, so a retained path from a partially
-  pruned peer reaches another source without duplicating any request inside one
-  round. Account traversal defers up to 2,048 discovered storage roots instead
+  preserves this client's sole-writer session boundary. Account traversal
+  defers up to 2,048 discovered storage roots instead
   of descending into each contract immediately. The deferred roots become part
   of the bounded work frontier before any checkpoint or remote request, so one
   authenticated TrieNodes round can fill many contracts without weakening
@@ -371,23 +368,29 @@ them by their physical location instead reintroduces dependency cycles:
   value/presence/decoded order, and propagates the earliest worker-slice failure
   before mutating the DFS frontier; small batches and memory/file stores retain
   the same ordered generic fallback. A content-hash- and path-matched remote
-  response is decoded once before its node batch becomes visible, then retained
-  in a bounded in-memory response cache after that batch and the exact fetched
-  frontier become durable. The normal coordinator traversal consumes the
-  cached object without either a per-node point Get or a write-then-reread
-  MultiGet, preserving checkpoint and completion-sentinel ordering across
-  crashes. This adopts geth's `ProcessNode` response locality without weakening
-  the stronger per-round restart batch; Nethermind's `TreeSync` likewise routes
-  responses directly into its processing/store pipeline rather than rediscovering
-  them as pending disk reads. A restart merely loses the cache and reads the
-  already-durable content-addressed node normally. Proof values are version-checked after the
+  response is decoded in full before any of its entries are staged, then its
+  decoded nodes are retained in a bounded in-memory response cache alongside
+  the pending write batch. The normal coordinator traversal consumes the cached
+  object without either a per-node point Get or a write-then-reread MultiGet.
+  This adopts geth's `ProcessNode` response locality; Nethermind's `TreeSync`
+  likewise routes responses directly into its processing/store pipeline rather
+  than rediscovering them as pending disk reads. A restart after the next
+  durable seam reads already-written content-addressed nodes normally; a crash
+  before that seam resumes the older exact checkpoint and may safely request
+  the same hashes again. Proof values are version-checked after the
   ordered join, so an unknown value remains local storage corruption rather
   than a cache miss. This bounded read/decode concurrency uses otherwise idle
   CPU and I/O capacity without making frontier mutation or checkpoint
   publication concurrent. The
   database API rejects more than 4,096 keys or 4 MiB of key bytes before native
-  allocation. The fetched nodes and the exact remaining work frontier
-  are committed in one batch. That bounded, checksummed checkpoint is tied to
+  allocation. Validated fetched nodes accumulate in a geth-sized 100 KiB write
+  batch and remain available from their decoded response cache while that batch
+  is pending. No completion proof or durable frontier may cross that prefix:
+  crossing the threshold, publishing a proof, checkpointing, yielding, or
+  completing first flushes the node batch. When a checkpoint becomes due, the
+  event loop stops new assignment, integrates every in-flight response, and
+  reconstitutes the exact shared queue into one bounded checkpoint. That
+  checksummed checkpoint is tied to
   the pivot, target, chain, genesis, and database authority, and is ignored if
   corrupt or stale. After process restart, any identity-matched unfinished Snap
   session pins that exact CL target for one actual attempt even after the

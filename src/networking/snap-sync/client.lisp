@@ -53,6 +53,14 @@ dispatcher can claim another partition without waiting for storage or code.")
   "Maximum healing paths assigned to one source in a concurrent round.")
 (defparameter *snap-sync-heal-request-target-paths* 512
   "Target TrieNodes path width while retaining a tail for fast-peer stealing.")
+(defconstant +snap-sync-heal-write-batch-bytes+ (* 100 1024)
+  "Geth's IdealBatchSize threshold for buffered healer trie-node writes.")
+(defconstant +snap-sync-heal-request-target-seconds+ 2d0
+  "Target wall time used to learn one peer's TrieNodes request capacity.")
+(defconstant +snap-sync-heal-peer-capacity-impact+ 0.2d0
+  "EWMA impact for one peer's delivered TrieNodes capacity sample.")
+(defconstant +snap-sync-heal-peer-rtt-impact+ 0.1d0
+  "EWMA impact for one peer's TrieNodes round-trip sample.")
 (defconstant +snap-sync-heal-rate-measurement-impact+ 0.005d0
   "Per-node EWMA impact used by geth's TrieNodes processing-rate tracker.")
 (defconstant +snap-sync-heal-throttle-increase+ 1.33d0)
@@ -1921,6 +1929,39 @@ its bounded pivot tail will anchor the resumable import."
   response
   condition)
 
+#+sbcl
+(defstruct (snap-sync-heal-pipeline-peer
+            (:constructor make-snap-sync-heal-pipeline-peer
+                (source capacity rtt)))
+  "One independently scheduled TrieNodes source in the healer event loop."
+  source
+  capacity
+  rtt
+  job
+  thread
+  inflight-p
+  retired-p)
+
+#+sbcl
+(defstruct (snap-sync-heal-pipeline-event
+            (:constructor make-snap-sync-heal-pipeline-event
+                (peer works result elapsed-seconds)))
+  peer
+  works
+  result
+  elapsed-seconds)
+
+#+sbcl
+(defstruct (snap-sync-heal-pipeline-runtime
+            (:constructor make-snap-sync-heal-pipeline-runtime ()))
+  (lock (sb-thread:make-mutex :name "snap-sync-heal-pipeline"))
+  (changed (sb-thread:make-waitqueue :name "snap-sync-heal-pipeline-changed"))
+  (peers '())
+  (pending '())
+  (events '())
+  (inflight-works 0)
+  stopped-p)
+
 (defun snap-sync-heal-reference-p (reference)
   (or (rlp-list-p reference)
       (and (byte-vector-p reference)
@@ -2653,6 +2694,318 @@ absent in the caller's exact continuation and is retried after source rotation."
     (vector
      (snap-sync-heal-request-chunk
       source missing 0 (length missing) root-bytes byte-limit))))
+
+(defun snap-sync-heal-learn-peer-capacity
+    (old-capacity assigned delivered elapsed-seconds)
+  "Learn a peer-local TrieNodes path capacity from one completed exchange.
+
+A response which did not fill its assigned path set contracts to the useful
+delivered width. A full response scales toward the number the peer could return
+inside geth's two-second target. The EWMA avoids request-size oscillation while
+the protocol's 1,024-lookup ceiling remains absolute."
+  (unless (and (integerp old-capacity)
+               (<= 1 old-capacity +snap-sync-heal-paths-per-source+)
+               (integerp assigned) (plusp assigned)
+               (integerp delivered) (<= 0 delivered assigned)
+               (realp elapsed-seconds) (plusp elapsed-seconds))
+    (error "Invalid snap healer peer-capacity sample"))
+  (let* ((sample
+           (if (< delivered assigned)
+               (max 1 delivered)
+               (max
+                1
+                (min
+                 +snap-sync-heal-paths-per-source+
+                 (round
+                  (* delivered
+                     (/ +snap-sync-heal-request-target-seconds+
+                        (float elapsed-seconds 1d0))))))))
+         (next
+           (round
+            (+ (* (- 1d0 +snap-sync-heal-peer-capacity-impact+)
+                  old-capacity)
+               (* +snap-sync-heal-peer-capacity-impact+ sample)))))
+    (max 1 (min +snap-sync-heal-paths-per-source+ next))))
+
+(defun snap-sync-heal-learn-peer-rtt (old-rtt elapsed-seconds)
+  "Fold one completed TrieNodes round trip into a peer-local RTT EWMA."
+  (unless (and (realp old-rtt) (plusp old-rtt)
+               (realp elapsed-seconds) (plusp elapsed-seconds))
+    (error "Invalid snap healer peer RTT sample"))
+  (+ (* (- 1d0 +snap-sync-heal-peer-rtt-impact+) old-rtt)
+     (* +snap-sync-heal-peer-rtt-impact+ elapsed-seconds)))
+
+#+sbcl
+(defun snap-sync-heal-pipeline-peer< (left right)
+  "Order idle peers by learned capacity, then by learned RTT."
+  (let ((left-capacity (snap-sync-heal-pipeline-peer-capacity left))
+        (right-capacity (snap-sync-heal-pipeline-peer-capacity right)))
+    (if (= left-capacity right-capacity)
+        (< (snap-sync-heal-pipeline-peer-rtt left)
+           (snap-sync-heal-pipeline-peer-rtt right))
+        (> left-capacity right-capacity))))
+
+#+sbcl
+(defun snap-sync-heal-pipeline-worker
+    (runtime peer root-bytes byte-limit)
+  "Execute at most one synchronous exchange for PEER at a time.
+
+Only the coordinator assigns jobs and integrates events. The worker owns the
+source call, so a fast peer can accept its next job as soon as its individual
+response has been validated instead of waiting for an unrelated slow peer."
+  (loop
+    (let ((works
+            (sb-thread:with-mutex
+                ((snap-sync-heal-pipeline-runtime-lock runtime))
+              (loop while (and
+                           (null (snap-sync-heal-pipeline-peer-job peer))
+                           (not
+                            (snap-sync-heal-pipeline-runtime-stopped-p runtime)))
+                    do (sb-thread:condition-wait
+                        (snap-sync-heal-pipeline-runtime-changed runtime)
+                        (snap-sync-heal-pipeline-runtime-lock runtime)))
+              (when (snap-sync-heal-pipeline-runtime-stopped-p runtime)
+                (return-from snap-sync-heal-pipeline-worker nil))
+              (prog1
+                  (snap-sync-heal-pipeline-peer-job peer)
+                (setf (snap-sync-heal-pipeline-peer-job peer) nil)))))
+      (let* ((started-at (get-internal-real-time))
+             (result
+               (snap-sync-heal-request-chunk
+                (snap-sync-heal-pipeline-peer-source peer)
+                works 0 (length works) root-bytes byte-limit))
+             (elapsed
+               (max
+                1d-6
+                (/ (- (get-internal-real-time) started-at)
+                   (float internal-time-units-per-second 1d0)))))
+        (sb-thread:with-mutex
+            ((snap-sync-heal-pipeline-runtime-lock runtime))
+          (setf (snap-sync-heal-pipeline-runtime-events runtime)
+                (nconc
+                 (snap-sync-heal-pipeline-runtime-events runtime)
+                 (list
+                  (make-snap-sync-heal-pipeline-event
+                   peer works result elapsed))))
+          (sb-thread:condition-broadcast
+           (snap-sync-heal-pipeline-runtime-changed runtime)))))))
+
+#+sbcl
+(defun snap-sync-heal-pipeline-add-source
+    (runtime source root-bytes byte-limit capacity-table rtt-table)
+  "Add SOURCE once and start its long-lived request worker."
+  (sb-thread:with-mutex ((snap-sync-heal-pipeline-runtime-lock runtime))
+    (unless
+        (find source (snap-sync-heal-pipeline-runtime-peers runtime)
+              :key #'snap-sync-heal-pipeline-peer-source :test #'eq)
+      (let ((peer
+              (make-snap-sync-heal-pipeline-peer
+               source
+               (gethash
+                source capacity-table +snap-sync-heal-paths-per-source+)
+               (gethash
+                source rtt-table +snap-sync-heal-request-target-seconds+))))
+        (setf (snap-sync-heal-pipeline-runtime-peers runtime)
+              (nconc
+               (snap-sync-heal-pipeline-runtime-peers runtime) (list peer))
+              (snap-sync-heal-pipeline-peer-thread peer)
+              (sb-thread:make-thread
+               (lambda ()
+                 (snap-sync-heal-pipeline-worker
+                  runtime peer root-bytes byte-limit))
+               :name "snap-sync-heal-source-worker"))
+        (sb-thread:condition-broadcast
+         (snap-sync-heal-pipeline-runtime-changed runtime))
+        peer))))
+
+#+sbcl
+(defun snap-sync-heal-pipeline-enqueue (runtime works)
+  "Append exact unprocessed WORKS to the coordinator-owned shared queue."
+  (when works
+    (sb-thread:with-mutex ((snap-sync-heal-pipeline-runtime-lock runtime))
+      (setf (snap-sync-heal-pipeline-runtime-pending runtime)
+            (nconc
+             (snap-sync-heal-pipeline-runtime-pending runtime)
+             (copy-list works)))
+      (sb-thread:condition-broadcast
+       (snap-sync-heal-pipeline-runtime-changed runtime)))))
+
+#+sbcl
+(defun snap-sync-heal-pipeline-outstanding (runtime)
+  (sb-thread:with-mutex ((snap-sync-heal-pipeline-runtime-lock runtime))
+    (+ (length (snap-sync-heal-pipeline-runtime-pending runtime))
+       (snap-sync-heal-pipeline-runtime-inflight-works runtime))))
+
+#+sbcl
+(defun snap-sync-heal-pipeline-dispatch (runtime)
+  "Assign shared work to every idle peer without a round barrier."
+  (sb-thread:with-mutex ((snap-sync-heal-pipeline-runtime-lock runtime))
+    (let ((idle
+            (stable-sort
+             (remove-if
+              (lambda (peer)
+                (or (snap-sync-heal-pipeline-peer-retired-p peer)
+                    (snap-sync-heal-pipeline-peer-inflight-p peer)))
+              (copy-list (snap-sync-heal-pipeline-runtime-peers runtime)))
+             #'snap-sync-heal-pipeline-peer<)))
+      (dolist (peer idle)
+        (unless (snap-sync-heal-pipeline-runtime-pending runtime)
+          (return))
+        (let ((works '()))
+          (loop repeat (snap-sync-heal-pipeline-peer-capacity peer)
+                while (snap-sync-heal-pipeline-runtime-pending runtime)
+                do (push
+                    (pop (snap-sync-heal-pipeline-runtime-pending runtime))
+                    works))
+          (let ((job (coerce (nreverse works) 'vector)))
+            (setf (snap-sync-heal-pipeline-peer-job peer) job
+                  (snap-sync-heal-pipeline-peer-inflight-p peer) t)
+            (incf (snap-sync-heal-pipeline-runtime-inflight-works runtime)
+                  (length job)))))
+      (sb-thread:condition-broadcast
+       (snap-sync-heal-pipeline-runtime-changed runtime)))))
+
+#+sbcl
+(defun snap-sync-heal-pipeline-next-event (runtime)
+  "Wait for one peer response, returning NIL only at a quiescent scheduler."
+  (sb-thread:with-mutex ((snap-sync-heal-pipeline-runtime-lock runtime))
+    (loop
+      (when (snap-sync-heal-pipeline-runtime-events runtime)
+        (return (pop (snap-sync-heal-pipeline-runtime-events runtime))))
+      (when (zerop
+             (snap-sync-heal-pipeline-runtime-inflight-works runtime))
+        (return nil))
+      (sb-thread:condition-wait
+       (snap-sync-heal-pipeline-runtime-changed runtime)
+       (snap-sync-heal-pipeline-runtime-lock runtime)))))
+
+#+sbcl
+(defun snap-sync-heal-run-pipeline
+    (sources initial-works root-bytes byte-limit capacity-table rtt-table
+     handle-result refill refresh-sources &optional pause-p)
+  "Run a geth-shaped TrieNodes event loop over a bounded shared frontier.
+
+HANDLE-RESULT receives an individual result and its exact work vector, and
+returns retry works, an optional source-retiring condition, and the accepted
+node count. REFILL receives remaining frontier room and the current outstanding
+work count, and may expose newly discovered missing work immediately. New
+sources from REFRESH-SOURCES join without restarting the pipeline. PAUSE-P
+receives the exact outstanding work count; when it becomes true, assignment
+stops, in-flight responses are integrated, and the exact pending queue is
+returned for a durable checkpoint. The return values are any unprocessed works,
+the finite generation's source errors, and whether a pause requested the return."
+  (let ((runtime (make-snap-sync-heal-pipeline-runtime))
+        (errors '()))
+    (labels ((add-sources (candidates)
+               (dolist (source candidates)
+                 (snap-sync-heal-pipeline-add-source
+                  runtime source root-bytes byte-limit
+                  capacity-table rtt-table)))
+             (healthy-peer-count ()
+               (sb-thread:with-mutex
+                   ((snap-sync-heal-pipeline-runtime-lock runtime))
+                 (count-if-not
+                  #'snap-sync-heal-pipeline-peer-retired-p
+                  (snap-sync-heal-pipeline-runtime-peers runtime))))
+             (pending-copy ()
+               (sb-thread:with-mutex
+                   ((snap-sync-heal-pipeline-runtime-lock runtime))
+                 (copy-list
+                  (snap-sync-heal-pipeline-runtime-pending runtime))))
+             (finish-event (event retry condition delivered)
+               (let* ((peer (snap-sync-heal-pipeline-event-peer event))
+                      (works (snap-sync-heal-pipeline-event-works event))
+                      (elapsed
+                        (snap-sync-heal-pipeline-event-elapsed-seconds event)))
+                 (sb-thread:with-mutex
+                     ((snap-sync-heal-pipeline-runtime-lock runtime))
+                   (decf
+                    (snap-sync-heal-pipeline-runtime-inflight-works runtime)
+                    (length works))
+                   (setf (snap-sync-heal-pipeline-peer-inflight-p peer) nil)
+                   (when condition
+                     (setf (snap-sync-heal-pipeline-peer-retired-p peer) t)
+                     (push condition errors))
+                   (unless condition
+                     (setf
+                      (snap-sync-heal-pipeline-peer-capacity peer)
+                      (snap-sync-heal-learn-peer-capacity
+                       (snap-sync-heal-pipeline-peer-capacity peer)
+                       (length works) delivered elapsed)
+                      (snap-sync-heal-pipeline-peer-rtt peer)
+                      (snap-sync-heal-learn-peer-rtt
+                       (snap-sync-heal-pipeline-peer-rtt peer) elapsed)
+                      (gethash
+                       (snap-sync-heal-pipeline-peer-source peer)
+                       capacity-table)
+                      (snap-sync-heal-pipeline-peer-capacity peer)
+                      (gethash
+                       (snap-sync-heal-pipeline-peer-source peer)
+                       rtt-table)
+                      (snap-sync-heal-pipeline-peer-rtt peer)))
+                   (when retry
+                     (setf (snap-sync-heal-pipeline-runtime-pending runtime)
+                           (nconc
+                            (snap-sync-heal-pipeline-runtime-pending runtime)
+                            (copy-list retry))))
+                   (sb-thread:condition-broadcast
+                    (snap-sync-heal-pipeline-runtime-changed runtime))))))
+      (unwind-protect
+           (progn
+             (add-sources sources)
+             (snap-sync-heal-pipeline-enqueue
+              runtime (coerce initial-works 'list))
+             (loop
+               (let* ((outstanding
+                        (snap-sync-heal-pipeline-outstanding runtime))
+                      (pausing-p
+                        (and pause-p (funcall pause-p outstanding))))
+                 (unless pausing-p
+                   (when refresh-sources
+                     (add-sources (funcall refresh-sources)))
+                   (let* ((room
+                            (max
+                             0
+                             (- +snap-sync-heal-checkpoint-max-works+
+                                outstanding))))
+                     (when (plusp room)
+                       (snap-sync-heal-pipeline-enqueue
+                        runtime (funcall refill room outstanding))))
+                   (snap-sync-heal-pipeline-dispatch runtime))
+                 (let ((event (snap-sync-heal-pipeline-next-event runtime)))
+                   (cond
+                     (event
+                      (multiple-value-bind (retry condition delivered)
+                          (funcall
+                           handle-result
+                           (snap-sync-heal-pipeline-event-result event)
+                           (snap-sync-heal-pipeline-event-works event))
+                        (finish-event
+                         event retry condition (or delivered 0))))
+                     (pausing-p
+                      (return
+                        (values
+                         (pending-copy) (nreverse errors) t)))
+                     ((null (pending-copy))
+                      (return (values nil (nreverse errors) nil)))
+                     (t
+                      ;; Refresh once more at the exact exhaustion seam. If no
+                      ;; genuinely new source joins, hand the complete shared
+                      ;; queue back to the durable frontier.
+                      (when refresh-sources
+                        (add-sources (funcall refresh-sources)))
+                      (when (zerop (healthy-peer-count))
+                        (return
+                          (values
+                           (pending-copy) (nreverse errors) nil)))))))))
+        (sb-thread:with-mutex ((snap-sync-heal-pipeline-runtime-lock runtime))
+          (setf (snap-sync-heal-pipeline-runtime-stopped-p runtime) t)
+          (sb-thread:condition-broadcast
+           (snap-sync-heal-pipeline-runtime-changed runtime)))
+        (dolist (peer (snap-sync-heal-pipeline-runtime-peers runtime))
+          (let ((thread (snap-sync-heal-pipeline-peer-thread peer)))
+            (when thread
+              (ignore-errors (sb-thread:join-thread thread)))))))))
 
 (defun snap-sync-heal-round-sources (sources round)
   "Rotate SOURCES so a retained missing slice reaches another peer next ROUND."
@@ -3787,11 +4140,22 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
            (deferred-storage '())
            (deferred-storage-count 0)
            (seen-code-hashes (make-hash-table :test #'equalp))
-           ;; A fetched node is made durable before its work re-enters STACK.
-           ;; Keep its verified decoded object until that exact continuation
-           ;; consumes it, avoiding an immediate RocksDB reread without
-           ;; changing durable frontier or subtree-sentinel ordering.
+           ;; Response nodes remain in this bounded decoded cache while their
+           ;; writes accumulate to geth's 100-KiB batch threshold. No durable
+           ;; frontier or subtree proof crosses that pending write prefix.
            (fetched-node-cache (make-hash-table :test #'equalp))
+           (pending-fetched-batch (make-kv-write-batch))
+           (pending-fetched-bytes 0)
+           (pending-fetched-count 0)
+           ;; Peer-local capacity and RTT survive safe checkpoint boundaries;
+           ;; a newly admitted source starts at the protocol maximum.
+           (source-capacities (make-hash-table :test #'eq))
+           (source-rtts (make-hash-table :test #'eq))
+           ;; While the event loop owns work outside STACK, the older durable
+           ;; checkpoint stays authoritative. These counters keep the combined
+           ;; in-memory frontier inside the same 8,192-work bound.
+           (remote-pipeline-active-p nil)
+           (remote-work-count 0)
            (processed-nodes
              (if checkpoint-present-p
                  (snap-sync-heal-checkpoint-processed-nodes checkpoint)
@@ -3813,17 +4177,14 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                  (snap-sync-heal-checkpoint-response-bytes checkpoint)
                  0))
            (skipped-subtrees 0)
-           (source-round 0)
            (last-checkpoint-processed-nodes processed-nodes)
            ;; Geth-style feedback state. PENDING counts delivered top-level
            ;; nodes not yet integrated by PROCESS-OBJECT; RATE is nodes/second.
            (healer-pending 0)
            (healer-processing-rate 0d0)
-           ;; Our synchronous frontier is already hard-bounded at 8,192 work
-           ;; items, unlike geth's asynchronously growing scheduler. Start at
-           ;; the established 512-path target for throughput; the same
-           ;; processing-rate feedback contracts it as soon as pending work
-           ;; outruns local integration.
+           ;; Retained for aggregate processing telemetry and compatibility
+           ;; with checkpoint tests. Request width is learned per peer by the
+           ;; event loop, starting from geth's 1,024-path maximum.
            (healer-throttle +snap-sync-heal-min-throttle+)
            (last-throttle-adjusted-at (get-internal-real-time)))
     (labels
@@ -3847,7 +4208,8 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                    ;; sessions admitted after a long heal began to join its
                    ;; next bounded request round.
                    (setf active-sources
-                         (nconc active-sources (list source))))))))
+                         (nconc active-sources (list source)))))))
+           (copy-list active-sources))
          (report-local-checkpoint ()
            (when (and on-heal-progress
                       (plusp *snap-sync-heal-progress-node-interval*)
@@ -3949,8 +4311,20 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
              (push work stack))
            (setf deferred-storage nil
                  deferred-storage-count 0))
+         (flush-fetched-nodes (&optional synchronous-p)
+           ;; A buffered RocksDB batch is recoverably ordered before the next
+           ;; synchronous checkpoint/proof/completion batch. Memory and file
+           ;; test oracles keep their stronger all-or-none apply semantics.
+           (when (plusp pending-fetched-count)
+             (if synchronous-p
+                 (kv-apply-batch database pending-fetched-batch)
+                 (kv-apply-batch-buffered database pending-fetched-batch))
+             (setf pending-fetched-batch (make-kv-write-batch)
+                   pending-fetched-bytes 0
+                   pending-fetched-count 0)))
          (flush-codes ()
            (when pending-codes
+             (flush-fetched-nodes)
              (unless active-sources
                (snap-sync-heal-signal-source-errors
                 (nreverse retired-source-errors)))
@@ -3964,6 +4338,7 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
            ;; be durable before its reusable proof becomes visible.  Publish
            ;; many independent content-addressed proofs with one WAL sync;
            ;; losing an unflushed cache hint can only repeat safe traversal.
+           (flush-fetched-nodes)
            (flush-codes)
            (when pending-healed-subtrees
              (setf pending-healed-subtrees
@@ -4022,7 +4397,8 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
            ;; excess; stopping here would make the node fail at the first
            ;; checkpoint boundary without producing a resumable record.
            (and (checkpoint-due-p)
-                (<= (+ (length stack) deferred-storage-count pending-count)
+                (<= (+ (length stack) deferred-storage-count pending-count
+                       remote-work-count)
                     +snap-sync-heal-checkpoint-max-works+)))
          (queue-code-hash (hash)
            ;; Keep one content hash for the whole traversal.  Flushing bounds
@@ -4124,153 +4500,375 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                    (ethereum-lisp.validation:storage-fail
                     "Persisted snap trie node is malformed: ~A" condition)
                    (error condition)))))
+         (collect-missing (maximum)
+           "Advance local trie work and return at most MAXIMUM missing hashes."
+           (when (zerop maximum)
+             (return-from collect-missing nil))
+           (let* ((pass-started-at (get-internal-real-time))
+                  (processed-before processed-nodes)
+                  (missing '())
+                  (missing-count 0)
+                  (missing-limit
+                    (min
+                     maximum
+                     (snap-sync-heal-missing-limit
+                      (+ (length stack) deferred-storage-count
+                         remote-work-count)
+                      ;; A local fallback remains useful after every peer in a
+                      ;; pruned-pivot generation has been retired.
+                      (max 1 (length active-sources))
+                      +snap-sync-heal-paths-per-source+))))
+             (loop while (and stack
+                              (< missing-count missing-limit)
+                              (< deferred-storage-count
+                                 +snap-sync-heal-deferred-storage-target+)
+                              (not
+                               (checkpoint-blocks-traversal-p missing-count)))
+                   do
+                   (let* ((checkpoint-room
+                            (max
+                             1
+                             (- +snap-sync-heal-checkpoint-node-interval+
+                                (- processed-nodes
+                                   last-checkpoint-processed-nodes))))
+                          (read-limit
+                            (snap-sync-heal-local-read-limit
+                             (+ (length stack) deferred-storage-count
+                                remote-work-count missing-count)
+                             missing-count missing-limit checkpoint-room))
+                          (lookups '())
+                          (lookup-count 0))
+                     ;; Inline references are already local values. Once a
+                     ;; hash batch begins, preserve its exact ordering until
+                     ;; the batched local read resolves every popped work.
+                     (loop while (and stack
+                                      (< lookup-count read-limit)
+                                      (not
+                                       (checkpoint-blocks-traversal-p
+                                        missing-count)))
+                           for work = (pop stack)
+                           for reference =
+                             (snap-sync-heal-work-reference work)
+                           do
+                           (cond
+                             ((eq :complete
+                                  (snap-sync-heal-work-marker-state work))
+                              (if (or lookups deferred-storage)
+                                  (progn
+                                    (push work stack)
+                                    (unless lookups
+                                      (drain-deferred-storage))
+                                    (return))
+                                  (persist-healed-subtree work)))
+                             ((snap-sync-healed-subtree-candidate-p work)
+                              (push work lookups)
+                              (incf lookup-count))
+                             ((or (rlp-list-p reference)
+                                  (zerop (length reference)))
+                              (if lookups
+                                  (push work stack)
+                                  (when (rlp-list-p reference)
+                                    (process-object work reference)))
+                              (return))
+                             (t
+                              (push work lookups)
+                              (incf lookup-count))))
+                     (when lookups
+                       (let* ((ordered (coerce (nreverse lookups) 'vector))
+                              (candidate-works
+                                (loop for work across ordered
+                                      when
+                                        (snap-sync-healed-subtree-candidate-p
+                                         work)
+                                        collect work))
+                              (candidate-references
+                                (map 'vector
+                                     #'snap-sync-heal-work-reference
+                                     candidate-works))
+                              (candidate-kinds
+                                (map 'vector
+                                     #'snap-sync-heal-work-kind
+                                     candidate-works))
+                              (candidate-presence
+                                (if candidate-works
+                                    (snap-sync-filtered-healed-subtrees-present
+                                     database candidate-references
+                                     candidate-kinds healed-subtree-bloom)
+                                    #()))
+                              (candidate-dependencies
+                                (if candidate-works
+                                    (snap-sync-filtered-account-subtree-dependencies
+                                     database candidate-references
+                                     candidate-kinds candidate-presence
+                                     healed-subtree-bloom)
+                                    #()))
+                              (candidate-index 0)
+                              (actual-lookups '()))
+                         (loop for work across ordered
+                               do
+                               (if
+                                (snap-sync-healed-subtree-candidate-p work)
+                                (let ((dependencies
+                                        (aref candidate-dependencies
+                                              candidate-index)))
+                                  (cond
+                                    ((= 1
+                                        (aref candidate-presence
+                                              candidate-index))
+                                     (incf skipped-subtrees))
+                                    ((and
+                                      dependencies
+                                      (<= (+ deferred-storage-count
+                                             (length dependencies))
+                                          +snap-sync-heal-deferred-storage-target+)
+                                      (<= (+ (length stack) missing-count
+                                             deferred-storage-count
+                                             remote-work-count
+                                             (length dependencies))
+                                          +snap-sync-heal-checkpoint-max-works+))
+                                     (dolist (commitment dependencies)
+                                       (defer-storage-reference
+                                        (car commitment)
+                                        (hash32-bytes (cdr commitment))))
+                                     (incf skipped-subtrees))
+                                    (t
+                                     (push
+                                      (snap-sync-make-heal-work
+                                       (snap-sync-heal-work-kind work)
+                                       (snap-sync-heal-work-account-hash work)
+                                       (snap-sync-heal-work-path work)
+                                       (snap-sync-heal-work-reference work)
+                                       :fetched-p
+                                       (snap-sync-heal-work-fetched-p work)
+                                       :marker-state
+                                       (and
+                                        (snap-sync-healed-subtree-publication-candidate-p
+                                         work)
+                                        :armed))
+                                      actual-lookups)))
+                                  (incf candidate-index))
+                                (push work actual-lookups)))
+                         (setf ordered
+                               (coerce (nreverse actual-lookups) 'vector))
+                         (when (plusp (length ordered))
+                           (let ((references
+                                   (map 'vector
+                                        #'snap-sync-heal-work-reference
+                                        ordered)))
+                             (multiple-value-bind (encoded present decoded)
+                                 (read-local-nodes
+                                  references
+                                  :disk-p
+                                  (not
+                                   (and active-sources
+                                        (prefer-peer-nodes-p)))
+                                  :decoder
+                                  (lambda (index bytes)
+                                    (let ((work (aref ordered index)))
+                                      (decode-encoded
+                                       work bytes
+                                       (not
+                                        (snap-sync-heal-work-fetched-p
+                                         work))))))
+                               (declare (ignore encoded))
+                               (dotimes (index (length ordered))
+                                 (let ((work (aref ordered index)))
+                                   (if (= 1 (aref present index))
+                                       (progn
+                                         (unless
+                                             (snap-sync-heal-work-fetched-p
+                                              work)
+                                           (incf reused-nodes))
+                                         (when
+                                             (eq
+                                              :armed
+                                              (snap-sync-heal-work-marker-state
+                                               work))
+                                           (push
+                                            (snap-sync-make-heal-work
+                                             (snap-sync-heal-work-kind work)
+                                             (snap-sync-heal-work-account-hash
+                                              work)
+                                             (snap-sync-heal-work-path work)
+                                             (snap-sync-heal-work-reference
+                                              work)
+                                             :marker-state :complete)
+                                            stack))
+                                         (process-object
+                                          work (aref decoded index)))
+                                       (progn
+                                         (push work missing)
+                                         (incf missing-count))))))))))))
+             (record-processing-rate pass-started-at processed-before)
+             (adjust-healer-throttle)
+             (drain-deferred-storage)
+             (unless remote-pipeline-active-p
+               (flush-healed-subtrees))
+             (nreverse missing)))
          (fetch-missing (missing)
            (refresh-active-sources)
            (unless active-sources
              (snap-sync-heal-signal-source-errors
               (reverse retired-source-errors)))
-           (let* ((round-sources
-                    (snap-sync-heal-round-sources
-                     active-sources source-round))
-                  (results
-                    (let ((*snap-sync-heal-request-target-paths*
-                            (current-request-paths)))
-                      (snap-sync-heal-request-round
-                       round-sources missing root-bytes byte-limit)))
-                  (matched
-                    (make-array (length missing) :initial-element nil))
-                  (batch (make-kv-write-batch))
-                  (fills 0)
-                  (fetched-bytes 0)
-                  (successful-results 0)
-                  (round-errors '()))
-             (incf source-round)
-             (incf request-count (length results))
-             (loop for result across results
-                   for condition =
-                     (snap-sync-heal-fetch-result-condition result)
-                   do
-                   (if condition
-                       (progn
-                         (when (typep
-                                condition
-                                'ethereum-lisp.validation:storage-error)
-                           (error condition))
-                         (push condition round-errors)
-                         (push condition retired-source-errors)
-                         (pushnew
-                          (snap-sync-heal-fetch-result-source result)
-                          retired-sources :test #'eq)
-                         (setf active-sources
-                               (remove
-                                (snap-sync-heal-fetch-result-source result)
-                                active-sources :test #'eq))
-                         (when on-source-error
-                           (funcall
-                            on-source-error
-                            (snap-sync-heal-fetch-result-source result)
-                            condition)))
-                       (let ((cursor 0)
-                             (order
-                               (snap-sync-heal-fetch-result-order result)))
-                         (incf successful-results)
-                         (dolist
-                             (encoded
-                              (snap-trie-nodes-nodes
-                               (snap-sync-heal-fetch-result-response result)))
-                           (let ((hash (keccak-256 encoded))
-                                 (found nil))
-                             (loop while (< cursor (length order))
-                                   for index = (aref order cursor)
-                                   for work = (aref missing index)
-                                   for expected =
-                                     (snap-sync-heal-work-reference work)
-                                   do (incf cursor)
-                                      (when (bytes= hash expected)
-                                        (setf found index)
-                                        (return)))
-                             (unless found
-                               (error
-                                "Snap peer returned an unrequested healing node"))
-                           (setf (aref matched found) encoded)
-                           (incf fills)
-                           (incf fetched-bytes (length encoded))
-                           ;; MISSING was produced by the immediately preceding
-                           ;; ordered local lookup, so another point read here
-                           ;; can only rediscover absence (or the same content-
-                           ;; addressed value written by another disjoint
-                           ;; slice).  The response hash is the collision and
-                           ;; identity check.  Stage it directly, as geth's
-                           ;; healer does, instead of turning every fetched
-                           ;; node into an extra random RocksDB Get.
-                           (kv-batch-put-chain-record
-                            batch :trie-node hash encoded))))))
-             (labels ((continuation-stack ()
-                        (let ((continuation stack))
-                          (loop for index downfrom (1- (length missing)) to 0
-                                for work = (aref missing index)
-                                do (push
-                                    (snap-sync-copy-heal-work
-                                     work :fetched-p
-                                     (not (null (aref matched index))))
-                                    continuation))
-                          continuation)))
-               (when (zerop successful-results)
-                 ;; Preserve the exact unprocessed frontier before handing the
-                 ;; finite source-generation failure back to the coordinator.
-                 ;; A remote-first round may have skipped durable nodes, so
-                 ;; first retire that peer generation and let the next loop
-                 ;; perform the ordinary RocksDB batch reads. If those reads
-                 ;; also find a genuinely missing node, FETCH-MISSING observes
-                 ;; no remaining source and reports the original exhaustion.
-                 (setf stack (continuation-stack))
-                 (when (snap-sync-heal-checkpoint-frontier-p stack)
-                   (persist-checkpoint stack))
-                 (when (prefer-peer-nodes-p)
-                   (return-from fetch-missing nil))
-                 (snap-sync-heal-signal-source-errors
-                  (nreverse round-errors)))
-               ;; Decode every delivered node before publishing any of them.
-               ;; A malformed peer response therefore cannot leave an invalid
-               ;; trie blob behind.  Keep the verified objects in a bounded
-               ;; cache after the durable write so the continuation can retain
-               ;; its exact DFS/checkpoint semantics without rereading them.
-               (let ((decoded
-                       (make-array (length missing) :initial-element nil)))
-                 (dotimes (index (length missing))
-                   (let ((encoded (aref matched index)))
-                     (when encoded
-                       (setf (aref decoded index)
-                             (decode-encoded
-                              (aref missing index) encoded nil)))))
-                 (incf fetched-nodes fills)
-                 (incf response-bytes fetched-bytes)
-                 (incf healer-pending fills)
-                 (adjust-healer-throttle)
-                 ;; The same batch that makes response nodes durable publishes
-                 ;; a frontier whose FETCHED-P bits keep restart telemetry and
-                 ;; completion-sentinel ordering exact.
-                 (setf stack (continuation-stack))
-                 (let ((checkpointable-p
-                         (snap-sync-heal-checkpoint-frontier-p stack)))
-                   (when checkpointable-p
-                     (populate-checkpoint batch stack))
-                   (kv-apply-batch database batch)
-                   (when checkpointable-p
-                     (setf last-checkpoint-processed-nodes processed-nodes)))
-                 ;; Cache only after the durable write succeeds.  A crash or
-                 ;; restart simply reads these content-addressed nodes normally.
-                 (dotimes (index (length missing))
-                   (when (aref matched index)
-                     (setf
-                      (gethash
-                       (snap-sync-heal-work-reference (aref missing index))
-                       fetched-node-cache)
-                      (aref decoded index)))))
-               (snap-sync-report-heal-progress
-                on-heal-progress processed-nodes reused-nodes fetched-nodes
-                request-count response-bytes promoted-subtrees
-                skipped-subtrees nil)))))
+           #+sbcl
+           (progn
+             (setf remote-pipeline-active-p t
+                   remote-work-count (length missing))
+             (unwind-protect
+                  (labels
+                 ((pipeline-checkpoint-due-p (outstanding)
+                    (setf remote-work-count outstanding)
+                    (and
+                     (checkpoint-due-p)
+                     (<= (+ (length stack) deferred-storage-count
+                            remote-work-count)
+                         +snap-sync-heal-checkpoint-max-works+)))
+                  (retire-source (source condition)
+                    (when (typep
+                           condition
+                           'ethereum-lisp.validation:storage-error)
+                      (error condition))
+                    (push condition retired-source-errors)
+                    (pushnew source retired-sources :test #'eq)
+                    (setf active-sources
+                          (remove source active-sources :test #'eq))
+                    (when on-source-error
+                      (funcall on-source-error source condition)))
+                  (handle-result (result works)
+                    (incf request-count)
+                    (let ((condition
+                            (snap-sync-heal-fetch-result-condition result)))
+                      (when condition
+                        (retire-source
+                         (snap-sync-heal-fetch-result-source result)
+                         condition)
+                        (return-from handle-result
+                          (values (coerce works 'list) condition 0))))
+                    (handler-case
+                        (let* ((matched
+                                 (make-array (length works)
+                                             :initial-element nil))
+                               (decoded
+                                 (make-array (length works)
+                                             :initial-element nil))
+                               (order
+                                 (snap-sync-heal-fetch-result-order result))
+                               (cursor 0)
+                               (fills 0)
+                               (fetched-bytes 0)
+                               (unmatched '()))
+                          ;; Validate and decode the entire individual response
+                          ;; before any of its content becomes visible.
+                          (dolist
+                              (encoded
+                               (snap-trie-nodes-nodes
+                                (snap-sync-heal-fetch-result-response result)))
+                            (let ((hash (keccak-256 encoded))
+                                  (found nil))
+                              (loop while (< cursor (length order))
+                                    for index = (aref order cursor)
+                                    for work = (aref works index)
+                                    for expected =
+                                      (snap-sync-heal-work-reference work)
+                                    do (incf cursor)
+                                       (when (bytes= hash expected)
+                                         (setf found index)
+                                         (return)))
+                              (unless found
+                                (error
+                                 "Snap peer returned an unrequested healing node"))
+                              (setf (aref matched found) encoded
+                                    (aref decoded found)
+                                    (decode-encoded
+                                     (aref works found) encoded nil))
+                              (incf fills)
+                              (incf fetched-bytes (length encoded))))
+                          (dotimes (index (length works))
+                            (let ((work (aref works index))
+                                  (encoded (aref matched index)))
+                              (if encoded
+                                  (let ((hash
+                                          (snap-sync-heal-work-reference work)))
+                                    (kv-batch-put-chain-record
+                                     pending-fetched-batch
+                                     :trie-node hash encoded)
+                                    (incf pending-fetched-count)
+                                    (incf pending-fetched-bytes
+                                          (+ (length hash) (length encoded)))
+                                    (setf
+                                     (gethash hash fetched-node-cache)
+                                     (aref decoded index)))
+                                  (push work unmatched))))
+                          ;; Reinsert only delivered work as fetched. The local
+                          ;; frontier limiter processes it from the decoded
+                          ;; cache and exposes children while slow peers remain
+                          ;; independently in flight.
+                          (loop for index downfrom (1- (length works)) to 0
+                                when (aref matched index)
+                                  do (push
+                                      (snap-sync-copy-heal-work
+                                       (aref works index) :fetched-p t)
+                                      stack))
+                          (incf fetched-nodes fills)
+                          (incf response-bytes fetched-bytes)
+                          (incf healer-pending fills)
+                          (when (>= pending-fetched-bytes
+                                    +snap-sync-heal-write-batch-bytes+)
+                            (flush-fetched-nodes))
+                          (snap-sync-report-heal-progress
+                           on-heal-progress processed-nodes reused-nodes
+                           fetched-nodes request-count response-bytes
+                           promoted-subtrees skipped-subtrees nil)
+                          (values (nreverse unmatched) nil fills))
+                      (ethereum-lisp.validation:storage-error (condition)
+                        (error condition))
+                      (serious-condition (condition)
+                        (retire-source
+                         (snap-sync-heal-fetch-result-source result)
+                         condition)
+                        (values (coerce works 'list) condition 0))))
+                  (refill (room outstanding)
+                    (let ((available
+                            (min
+                             room
+                             (max
+                              (if stack 1 0)
+                              (- +snap-sync-heal-checkpoint-max-works+
+                                 outstanding
+                                 (length stack)
+                                 deferred-storage-count)))))
+                      (if (plusp available)
+                          (let ((new-missing (collect-missing available)))
+                            (setf remote-work-count
+                                  (+ outstanding (length new-missing)))
+                            new-missing)
+                          (progn
+                            (setf remote-work-count outstanding)
+                            nil)))))
+               (multiple-value-bind (remaining errors paused-p)
+                   (snap-sync-heal-run-pipeline
+                    active-sources missing root-bytes byte-limit
+                    source-capacities source-rtts
+                    #'handle-result #'refill #'refresh-active-sources
+                    #'pipeline-checkpoint-due-p)
+                 (setf remote-work-count 0)
+                 (flush-fetched-nodes)
+                 (flush-healed-subtrees)
+                 (when (or remaining paused-p)
+                   (dolist (work (reverse remaining))
+                     (push work stack))
+                   (when (snap-sync-heal-checkpoint-frontier-p stack)
+                     (persist-checkpoint stack))
+                   (when paused-p
+                     (return-from fetch-missing nil))
+                   (when (prefer-peer-nodes-p)
+                     (return-from fetch-missing nil))
+                   (snap-sync-heal-signal-source-errors
+                    (or errors (reverse retired-source-errors))))))
+               (setf remote-pipeline-active-p nil
+                     remote-work-count 0)))
+           #-sbcl
+           (error "Snap asynchronous healer requires SBCL threads")))
       (loop
         ;; No request worker or uncommitted database batch crosses this seam.
         ;; A coordinator may therefore yield a stale, CL-authorized target and
