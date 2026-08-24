@@ -746,13 +746,14 @@
       (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p progress))
       (is (= 1 storage-calls))
       (is (= (length addresses) largest-request))
-      ;; One buffered WAL batch installs every verified storage trie. Each
+      ;; One initial synchronous batch installs the complete-node scheme, and
+      ;; one buffered WAL batch installs every verified storage trie. Each
       ;; account page also buffers its content before a separate small cursor
       ;; batch publishes it; the final traversal alone writes completion.
       (let ((apply-count
               (snap-counting-test-database-apply-count target-database)))
-        (unless (= 6 apply-count)
-          (error "Expected six content/cursor/completion batches, got ~D (~S)"
+        (unless (= 7 apply-count)
+          (error "Expected seven scheme/content/cursor/completion batches, got ~D (~S)"
                  apply-count
                  (list
                   (nreverse
@@ -760,7 +761,7 @@
                   (nreverse
                    (snap-counting-test-database-batch-prefixes
                     target-database)))))
-        (is (= 6 apply-count)))
+        (is (= 7 apply-count)))
       (is (= 3
              (snap-counting-test-database-buffered-apply-count
               target-database)))
@@ -832,7 +833,19 @@
             'ethereum-lisp.snap-sync::snap-sync-populate-healed-subtree-batch)
            real-populate)))
       (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p progress))
+      (is
+       (ethereum-lisp.snap-sync::snap-sync-progress-complete-node-scheme-p
+        progress))
       (is (plusp published))
+      ;; The root and page-edge proof nodes are authenticated content, but
+      ;; they do not by themselves prove descendant closure. Fresh imports
+      ;; record that distinction so a later moving pivot cannot mistake mere
+      ;; hash presence for geth's complete-subtree invariant.
+      (is
+       (plusp
+        (hash-table-count
+         (ethereum-lisp.snap-sync::snap-sync-load-incomplete-nodes
+          target-database))))
       (let ((ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
               1)
             (ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*
@@ -1365,7 +1378,7 @@
       (is (= 2 max-active))
       (is fast-reused-before-slow-release-p))))
 
-(deftest snap-sync-progress-v3-round-trips-and-migrates-v2
+(deftest snap-sync-progress-v5-round-trips-and-migrates-v2-v4
   (:layer :unit :module :p2p)
   (let* ((pivot (make-hash32 (snap-test-hash 131)))
          (state-root (make-hash32 (snap-test-hash 132)))
@@ -1380,7 +1393,7 @@
             :pivot-hash pivot :pivot-number 42 :state-root state-root
             :partial-root +empty-trie-hash+ :target-hash target
             :chain-id 560048 :genesis-hash genesis :authority-id authority
-            :completed-p nil :tasks tasks))
+            :completed-p nil :complete-node-scheme-p t :tasks tasks))
          (record
            (ethereum-lisp.snap-sync::snap-sync-progress-record progress))
          (round-tripped
@@ -1390,7 +1403,7 @@
             :pivot-hash pivot :pivot-number 43 :state-root state-root
             :partial-root +empty-trie-hash+ :target-hash target
             :chain-id 560048 :genesis-hash genesis :authority-id authority
-            :completed-p nil
+            :completed-p nil :complete-node-scheme-p t
             :tasks
             (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
              :count 16 :completed-p t)))
@@ -1412,6 +1425,18 @@
          (legacy
            (ethereum-lisp.snap-sync::snap-sync-progress-from-record
             legacy-record))
+         (v4-record
+           (let* ((fields
+                    (copy-list
+                     (rlp-list-items (rlp-decode-one record))))
+                  (v4-fields
+                    (append (subseq fields 0 11)
+                            (list (nth 12 fields)))))
+             (setf (first v4-fields) 4)
+             (rlp-encode (apply #'make-rlp-list v4-fields))))
+         (v4
+           (ethereum-lisp.snap-sync::snap-sync-progress-from-record
+            v4-record))
          (migrated
            (ethereum-lisp.snap-sync::snap-sync-progress-with-task-count
             legacy
@@ -1420,6 +1445,20 @@
            (length
             (ethereum-lisp.snap-sync:snap-sync-progress-tasks
              round-tripped))))
+    (is
+     (ethereum-lisp.snap-sync::snap-sync-progress-complete-node-scheme-p
+      round-tripped))
+    (is
+     (not
+      (ethereum-lisp.snap-sync::snap-sync-progress-complete-node-scheme-p
+       legacy)))
+    (is (= 16
+           (length
+            (ethereum-lisp.snap-sync:snap-sync-progress-tasks v4))))
+    (is
+     (not
+      (ethereum-lisp.snap-sync::snap-sync-progress-complete-node-scheme-p
+       v4)))
     (is (eq round-tripped
             (ethereum-lisp.snap-sync::snap-sync-progress-with-task-count
              round-tripped
@@ -1458,15 +1497,53 @@
              (copy-list
               (rlp-list-items (rlp-decode-one record))))
            (task-objects
-             (copy-list (rlp-list-items (nth 11 fields))))
+             (copy-list (rlp-list-items (nth 12 fields))))
            (second-fields
              (copy-list (rlp-list-items (second task-objects)))))
       (setf (first second-fields) (make-byte-vector 32)
             (second task-objects) (apply #'make-rlp-list second-fields)
-            (nth 11 fields) (apply #'make-rlp-list task-objects))
+            (nth 12 fields) (apply #'make-rlp-list task-objects))
       (signals error
         (ethereum-lisp.snap-sync::snap-sync-progress-from-record
          (rlp-encode (apply #'make-rlp-list fields)))))))
+
+(deftest snap-complete-node-scheme-never-trusts-a-legacy-trie-store
+  (:layer :unit :module :p2p)
+  (let ((fresh (make-memory-key-value-database))
+        (legacy (make-memory-key-value-database))
+        (malformed (make-memory-key-value-database)))
+    (is
+     (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p
+      fresh))
+    (is
+     (ethereum-lisp.snap-sync::snap-sync-complete-node-scheme-present-p
+      fresh))
+    (let ((batch (make-kv-write-batch)))
+      (ethereum-lisp.database:kv-batch-put-chain-record
+       batch :trie-node (snap-test-hash 136) #(1 2 3))
+      (kv-apply-batch legacy batch))
+    (is
+     (not
+      (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p
+       legacy)))
+    (is
+     (not
+      (ethereum-lisp.snap-sync::snap-sync-complete-node-scheme-present-p
+       legacy)))
+    (let ((batch (make-kv-write-batch)))
+      (ethereum-lisp.database:kv-batch-put-chain-record
+       batch :metadata
+       ethereum-lisp.snap-sync::+snap-sync-complete-node-scheme-identifier+
+       #(2))
+      (kv-apply-batch malformed batch))
+    (signals ethereum-lisp.validation:storage-error
+      (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p
+       malformed))
+    (ethereum-lisp.snap-sync::snap-sync-disable-complete-node-scheme fresh)
+    (is
+     (not
+      (ethereum-lisp.snap-sync::snap-sync-complete-node-scheme-present-p
+       fresh)))))
 
 (deftest snap-sync-progress-expands-thirty-two-durable-cursors-to-sixty-four
   (:layer :unit :module :p2p)
@@ -1926,6 +2003,9 @@
               :chain-id 560048
               :genesis-hash (make-hash32 (snap-test-hash 146))
               :authority-id (make-hash32 (snap-test-hash 147)))))
+      (is
+       (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p
+        target-database))
       (setf (snap-failing-test-database-fail-next-apply-p target-database) t)
       (let ((failure
               (handler-case
@@ -2995,11 +3075,15 @@
            (ethereum-lisp.snap-sync::snap-sync-make-heal-work
             :storage (snap-test-hash 186) #(1 2 3) (snap-test-hash 187)
             :fetched-p t :marker-state :armed))
+         (node-complete-work
+           (ethereum-lisp.snap-sync::snap-sync-make-heal-work
+            :account nil #(4 5 6) (snap-test-hash 190)
+            :fetched-p t :marker-state :node-complete))
          (checkpoint
            (ethereum-lisp.snap-sync::make-snap-sync-heal-checkpoint
             :pivot-hash pivot :pivot-number 3000 :state-root root
             :target-hash target :chain-id 560048 :genesis-hash genesis
-            :authority-id authority :stack (list work)
+            :authority-id authority :stack (list work node-complete-work)
             :processed-nodes 11 :reused-nodes 7 :fetched-nodes 4
             :request-count 2 :response-bytes 999))
          (record
@@ -3030,7 +3114,13 @@
       (is (bytes= #(1 2 3)
                   (ethereum-lisp.snap-sync::snap-sync-heal-work-path
                    decoded-work))))
-    ;; Version two adds durable marker sentinels, but an upgrade must still
+    (is
+     (eq :node-complete
+         (ethereum-lisp.snap-sync::snap-sync-heal-work-marker-state
+          (second
+           (ethereum-lisp.snap-sync::snap-sync-heal-checkpoint-stack
+            decoded)))))
+    ;; Version three adds complete-node sentinels, but an upgrade must still
     ;; resume the version-one checkpoint shape deployed before this cache.
     (let* ((legacy-payload
              (rlp-encode
@@ -3111,7 +3201,18 @@
       (kv-apply-batch database batch)
       (signals ethereum-lisp.validation:storage-error
         (ethereum-lisp.snap-sync::snap-sync-healed-subtree-present-p
-         database subtree)))))
+         database subtree)))
+    (let ((batch (make-kv-write-batch))
+          (reference (snap-test-hash 191)))
+      (ethereum-lisp.database:kv-batch-put-chain-record
+       batch :metadata
+       (ethereum-lisp.snap-sync::snap-sync-incomplete-node-identifier
+        reference)
+       #(2))
+      (kv-apply-batch database batch)
+      (signals ethereum-lisp.validation:storage-error
+        (ethereum-lisp.snap-sync::snap-sync-load-incomplete-nodes
+         database)))))
 
 (deftest snap-state-healer-yields-at-a-safe-batch-boundary
   (:layer :unit :module :p2p)
@@ -4505,6 +4606,99 @@
           (is present-p)
           (is (bytes= persisted-root (hash32-bytes second-root))))))))
 
+(deftest snap-state-healer-uses-geth-complete-node-difference-frontier
+  (:layer :integration :module :p2p)
+  ;; Geth's hash scheme stops at any locally present node because its writers
+  ;; publish a parent only after every descendant is complete. Reproduce that
+  ;; contract independently of coarse subtree proofs and compare it with the
+  ;; legacy conservative walk over the exact same stored trie.
+  (let ((state (make-state-db))
+        (addresses '()))
+    (loop for index from 1 to 2048
+          for address = (snap-test-address-from-integer index)
+          do (push address addresses)
+             (state-db-set-account
+              state address
+              (make-state-account :nonce index :balance (+ 100000 index))))
+    (let* ((first-state (state-db-copy state))
+           (first-root (state-db-root first-state))
+           (changed-address (first addresses))
+           (second-root
+             (progn
+               (state-db-set-account
+                state changed-address
+                (make-state-account :nonce 999999 :balance 777777))
+               (state-db-root state)))
+           (source-database (make-memory-key-value-database))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              source-database state))
+           (source (snap-test-source backend))
+           (exact-database (make-memory-key-value-database))
+           (legacy-database (make-memory-key-value-database))
+           (records
+             (mpt-dirty-node-records
+              (first (state-db-persistence-tries first-state))))
+           (genesis (make-hash32 (snap-test-hash 227)))
+           (authority (make-hash32 (snap-test-hash 228))))
+      (declare (ignore first-root))
+      (dolist (database (list exact-database legacy-database))
+        (let ((batch (make-kv-write-batch)))
+          (ethereum-lisp.snap-sync::snap-sync-populate-verified-trie-records-batch
+           database batch records)
+          (kv-apply-batch database batch)))
+      (labels ((progress (seed complete-node-scheme-p)
+                 (ethereum-lisp.snap-sync::snap-sync-make-progress
+                  :pivot-hash (make-hash32 (snap-test-hash seed))
+                  :pivot-number 6100 :state-root second-root
+                  :partial-root +empty-trie-hash+
+                  :target-hash (make-hash32 (snap-test-hash (1+ seed)))
+                  :chain-id 560048 :genesis-hash genesis
+                  :authority-id authority :completed-p nil
+                  :complete-node-scheme-p complete-node-scheme-p
+                  :tasks
+                  (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+                   :count 1 :completed-p t)))
+               (run (database seed complete-node-scheme-p)
+                 (let ((processed nil) (fetched nil) (skipped nil))
+                   (ethereum-lisp.snap-sync::snap-sync-heal-state
+                    database (list source)
+                    (progress seed complete-node-scheme-p) 350
+                    :on-heal-progress
+                    (lambda (snapshot)
+                      (when
+                          (ethereum-lisp.snap-sync::snap-sync-heal-progress-completed-p
+                           snapshot)
+                        (setf
+                         processed
+                         (ethereum-lisp.snap-sync::snap-sync-heal-progress-processed-nodes
+                          snapshot)
+                         fetched
+                         (ethereum-lisp.snap-sync::snap-sync-heal-progress-fetched-nodes
+                          snapshot)
+                         skipped
+                         (ethereum-lisp.snap-sync::snap-sync-heal-progress-skipped-subtrees
+                          snapshot)))))
+                   (values processed fetched skipped))))
+        (multiple-value-bind (exact-processed exact-fetched exact-skipped)
+            (run exact-database 229 t)
+          (multiple-value-bind
+                (legacy-processed legacy-fetched legacy-skipped)
+              (run legacy-database 231 nil)
+            (declare (ignore legacy-skipped))
+            (is (plusp exact-fetched))
+            (is (plusp exact-skipped))
+            (is (= exact-fetched legacy-fetched))
+            (is (< exact-processed legacy-processed))
+            (is
+             (zerop
+              (hash-table-count
+               (ethereum-lisp.snap-sync::snap-sync-load-incomplete-nodes
+                exact-database))))
+            ;; The mutation control is quantitative: removing the complete-
+            ;; node branch makes both runs decode the same full local trie.
+            (is (< (* 8 exact-processed) legacy-processed))))))))
+
 (deftest snap-state-healer-batches-deferred-storage-roots
   (:layer :integration :module :p2p)
   (let* ((source-state (make-state-db))
@@ -5274,6 +5468,9 @@
            (pivot-hash (make-hash32 (snap-test-hash 101)))
            (genesis-hash (make-hash32 (snap-test-hash 102)))
            (authority-id (make-hash32 (snap-test-hash 103))))
+      (is
+       (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p
+        target-database))
       (setf (snap-failing-test-database-fail-next-apply-p target-database) t)
       (signals error
         (ethereum-lisp.snap-sync:snap-sync-import-state

@@ -88,7 +88,9 @@ lies inside the verified interval.  Clean or unresolved proof-edge nodes are
 never returned: every descendant of a result must be newly reconstructed and
 therefore present in `MPT-DIRTY-NODE-RECORDS`.  Callers may durably publish the
 hash as a reusable completion proof only after the range's external account
-dependencies are durable too."
+dependencies are durable too. The secondary value mirrors each result as
+`(PREFIX HASH REFERENCES)`, where REFERENCES contains every concrete hash in
+that closed subtree without duplicating its encoded node values."
   (let ((start (ensure-byte-vector start))
         (end (ensure-byte-vector end)))
     (unless (and (= 32 (length start)) (= 32 (length end)))
@@ -98,7 +100,8 @@ dependencies are durable too."
       (error "MPT proved range prefix depth must be between one and 64"))
     (let ((first (keybytes-to-nibbles start :terminator nil))
           (last (keybytes-to-nibbles end :terminator nil))
-          (results '()))
+          (results '())
+          (reference-groups '()))
       (when (plusp (mpt-nibbles-compare first last))
         (error "MPT proved range bounds are reversed"))
       (labels
@@ -114,6 +117,17 @@ dependencies are durable too."
                      (loop for child across (branch-node-children node)
                            always (or (null child)
                                       (dirty-subtree-p child)))))))
+           (dirty-subtree-references (node)
+             (let ((references '()))
+               (labels ((collect (current)
+                          (when (and current
+                                     (not (hash-node-p current))
+                                     (trie-concrete-node-dirty-p current))
+                            (dolist (child (trie-node-children current))
+                              (collect child))
+                            (push (node-hash current) references))))
+                 (collect node))
+               (nreverse references)))
            (coverage-prefix (node pointer-path)
              (etypecase node
                (leaf-node
@@ -147,7 +161,19 @@ dependencies are durable too."
                           (>= (length pointer-path) minimum-prefix-nibbles)
                           (node-reference-hashed-p node)
                           (dirty-subtree-p node))
-                     (push (cons (copy-seq bucket) (node-hash node)) results)
+                     (let ((prefix (copy-seq bucket))
+                           (reference (node-hash node)))
+                       (push (cons prefix reference) results)
+                       ;; The second value lets SNAP preserve geth's hash-store
+                       ;; invariant without one metadata record per good node:
+                       ;; every hash below this maximal proved root has all
+                       ;; descendants locally reconstructed. Callers may still
+                       ;; withhold the group when account code/storage is not
+                       ;; durable yet.
+                       (push
+                        (list prefix reference
+                              (dirty-subtree-references node))
+                        reference-groups))
                      (etypecase node
                        (leaf-node nil)
                        (extension-node
@@ -165,7 +191,7 @@ dependencies are durable too."
                                (concatenate
                                 'vector pointer-path (vector index)))))))))))))
         (visit (mpt-root-node trie) (make-byte-vector 0)))
-      (nreverse results))))
+      (values (nreverse results) (nreverse reference-groups)))))
 
 (defun mpt-hashed-subtrees-with-prefix-at-depth
     (trie minimum-prefix-nibbles)

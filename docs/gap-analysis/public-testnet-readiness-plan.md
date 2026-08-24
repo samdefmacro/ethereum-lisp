@@ -284,7 +284,7 @@ The implementation boundary is split deliberately:
 - `src/networking/snap-sync/backend.lisp` and `client.lisp` provide the verified
   server/importer. Compact account/storage proofs, path-set trie responses,
   bytecode/storage healing, target/authority-bound progress, and skeleton
-  block/cursor batches all fail closed. Sixteen durable account ranges match the
+  block/cursor batches all fail closed. Sixty-four durable account ranges match the
   pinned geth scheduler: one worker per live source verifies 512 KiB-soft-limited
   pages concurrently, while the coordinator alone merges state and commits each
   range cursor. A failed source releases its range for another peer. Exhausting
@@ -296,7 +296,11 @@ The implementation boundary is split deliberately:
   StorageRanges partitions. Each page publishes reusable coarse storage
   subtree proofs with its durable cursor; legacy completed partitions receive
   the same proofs from a shallow spine walk before final healing.
-  advertises snap only when both sides are operational and only serves
+  Fresh stores also use geth's exact hash-presence frontier: open range or
+  fetched nodes carry durable negative markers, and healer DFS removes each
+  marker only after its descendants and external dependencies are complete.
+  Legacy progress stays conservative, so an upgrade cannot trust unclassified
+  nodes. The CLI advertises snap only when both sides are operational and serves
   production state through the direct RocksDB provider.
 - `src/networking/eth-sync/sync.lisp` supplies the bounded downloader, while
   `src/app/cli/devnet/dialer.lisp` owns the continuous coordinator. Work is

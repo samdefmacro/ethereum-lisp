@@ -249,6 +249,23 @@ them by their physical location instead reintroduces dependency cycles:
   unchanged account trie and its already durable code while placing every
   listed storage root into the ordinary checkpointed healer frontier. A wider
   dependency set remains unproved and takes the fail-closed account walk.
+  Fresh empty stores additionally adopt geth's exact hash-scheme completion
+  invariant from commit `38271784c2b31926563806da9a2e023b88f5e7a8`, specifically
+  `trie/sync.go` `AddSubTrie`, `children`, `hasNode`, and `commitNodeRequest`:
+  presence of a hash means its descendant trie nodes and leaf-triggered code or
+  storage dependencies were durable before its parent became complete. Range
+  proof-edge nodes and other authenticated-but-open records are written with a
+  hash-keyed negative `incomplete` marker in the same batch. Fully reconstructed
+  interior groups need no per-node positive metadata. A fetched TrieNodes record
+  is likewise written with its negative marker; a depth-first completion
+  sentinel deletes that marker only after descendants, bytecode, and deferred
+  storage are durable. Marker deletion is buffered in batches of 2,048 and is
+  flushed before a checkpoint, subtree proof, yield, or final completion. A
+  crash before the delete merely repeats safe traversal. Progress version five
+  records whether this contract is active, while versions two through four
+  remain conservative. A database-level scheme marker is created only when the
+  trie-node namespace is empty, so an upgraded or rolled-back legacy datadir can
+  never turn old unclassified hash presence into a completeness proof.
   StorageRanges pages apply the complete-proof rule directly
   to their reconstructed storage trie, publishing coarse storage-subtree proofs
   atomically with their node records and successor cursor. Pre-optimization
@@ -386,7 +403,11 @@ them by their physical location instead reintroduces dependency cycles:
   present slice. The coordinator joins every reader, restores the original
   value/presence/decoded order, and propagates the earliest worker-slice failure
   before mutating the DFS frontier; small batches and memory/file stores retain
-  the same ordered generic fallback. A content-hash- and path-matched remote
+  the same ordered generic fallback. Under the version-five complete-node
+  contract, a locally present hash without an `incomplete` marker is hash-
+  checked and closes that exact DFS branch without RLP decoding; marked and
+  legacy nodes retain the ordered decode and descendant walk. A content-hash-
+  and path-matched remote
   response is decoded in full before any of its entries are staged, then its
   decoded nodes are retained in a bounded in-memory response cache alongside
   the pending write batch. The normal coordinator traversal consumes the cached
@@ -434,8 +455,9 @@ them by their physical location instead reintroduces dependency cycles:
   Missing, corrupt, or identity-mismatched checkpoints never suppress rebase,
   and an explicit authority-driven rebase still invalidates the frontier in
   the same batch as both progress records.
-  Checkpoint version two records armed, descendant, and completion-sentinel
-  work while continuing to decode version-one restart records. At a four-nibble
+  Checkpoint version three records armed, descendant, subtree-completion, and
+  node-completion sentinel work while continuing to decode version-one and
+  version-two restart records. At a four-nibble
   account or storage prefix, a sentinel publishes a trie-kind-domain-separated
   metadata proof keyed by the subtree's content hash. This yields at most
   65,536 boundary regions per secure trie: fine enough that a newer pivot can

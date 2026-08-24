@@ -2,7 +2,8 @@
 
 ;;;; Verified, resumable snap/1 state import.
 
-(defconstant +snap-sync-progress-version+ 4)
+(defconstant +snap-sync-progress-version+ 5)
+(defconstant +snap-sync-previous-progress-version+ 4)
 (defconstant +snap-sync-partitioned-progress-version+ 3)
 (defconstant +snap-sync-legacy-progress-version+ 2)
 (defparameter +snap-sync-progress-identifier+ "snap-state-import")
@@ -88,7 +89,7 @@ remains disabled unless a controlled deployment binds it explicitly.")
 (defconstant +snap-sync-heal-deferred-storage-target+ 2048
   "Collect this many account storage roots before descending into them.")
 (defconstant +snap-sync-heal-codes-per-request+ 2048)
-(defconstant +snap-sync-heal-checkpoint-version+ 2)
+(defconstant +snap-sync-heal-checkpoint-version+ 3)
 (defparameter +snap-sync-heal-checkpoint-identifier+
   "snap-state-heal-checkpoint")
 (defparameter +snap-sync-healed-subtree-identifier-prefix+
@@ -102,6 +103,16 @@ remains disabled unless a controlled deployment binds it explicitly.")
   "Account-trie completion proofs carrying deferred storage dependencies.")
 (defparameter +snap-sync-healed-subtree-value+ #(1)
   "Versioned value for a completely verified content-addressed subtree.")
+(defparameter +snap-sync-incomplete-node-identifier-prefix+
+  (ascii-to-bytes "snap-incomplete-trie-node-v1:")
+  "Hash-keyed markers for nodes whose descendant closure is not yet durable.")
+(defparameter +snap-sync-incomplete-node-value+ #(1)
+  "Versioned value for an incomplete content-addressed trie node.")
+(defparameter +snap-sync-complete-node-scheme-identifier+
+  "snap-complete-trie-node-scheme")
+(defparameter +snap-sync-complete-node-scheme-value+ #(1)
+  "Marks a trie store whose every incomplete SNAP node has a negative marker.")
+(defconstant +snap-sync-node-completions-per-batch+ 2048)
 (defconstant +snap-sync-account-subtree-dependencies-version+ 1)
 (defconstant +snap-sync-account-subtree-dependencies-max+ 64
   "Maximum deferred storage roots carried by one account-subtree proof.")
@@ -239,7 +250,7 @@ state completion.")
             (:constructor %make-snap-sync-progress
                 (&key pivot-hash pivot-number state-root next-origin
                       partial-root target-hash chain-id genesis-hash authority-id
-                      completed-p tasks)))
+                      completed-p complete-node-scheme-p tasks)))
   pivot-hash
   pivot-number
   state-root
@@ -250,6 +261,7 @@ state completion.")
   genesis-hash
   authority-id
   completed-p
+  complete-node-scheme-p
   tasks)
 
 (defstruct (snap-sync-heal-progress
@@ -412,7 +424,8 @@ consensus-visible."
 
 (defun snap-sync-make-progress
     (&key pivot-hash pivot-number state-root next-origin partial-root
-          target-hash chain-id genesis-hash authority-id completed-p tasks)
+          target-hash chain-id genesis-hash authority-id completed-p
+          complete-node-scheme-p tasks)
   (snap-sync-require-hash32 pivot-hash "Snap pivot hash")
   (unless (and (integerp pivot-number) (not (minusp pivot-number)))
     (error "Snap pivot number must be non-negative"))
@@ -456,6 +469,7 @@ consensus-visible."
      :genesis-hash genesis-hash
      :authority-id authority-id
      :completed-p completed-p
+     :complete-node-scheme-p (not (null complete-node-scheme-p))
      :tasks tasks)))
 
 (defun snap-sync-account-task-object (task)
@@ -479,6 +493,7 @@ consensus-visible."
     (hash32-bytes (snap-sync-progress-genesis-hash progress))
     (hash32-bytes (snap-sync-progress-authority-id progress))
     (if (snap-sync-progress-completed-p progress) 1 0)
+    (if (snap-sync-progress-complete-node-scheme-p progress) 1 0)
     (apply #'make-rlp-list
            (mapcar #'snap-sync-account-task-object
                    (snap-sync-progress-tasks progress))))))
@@ -593,6 +608,37 @@ consensus-visible."
               pivot-hash pivot-number state-root partial-root target-hash
               chain-id genesis-hash authority-id)))))
 
+(defun snap-sync-progress-from-v5-items (items)
+  (destructuring-bind
+      (version pivot-hash pivot-number state-root next-origin partial-root
+       target-hash chain-id genesis-hash authority-id completed
+       complete-node-scheme task-list)
+      items
+    (declare (ignore version))
+    (let* ((completed-p
+             (snap-sync-completion-flag
+              completed "Snap completion flag"))
+           (complete-node-scheme-p
+             (snap-sync-completion-flag
+              complete-node-scheme "Snap complete-node scheme flag"))
+           (stored-next
+             (snap-sync-rlp-bytes
+              next-origin 32 "Snap next origin" :empty-p t))
+           (task-items
+             (progn
+               (unless (rlp-list-p task-list)
+                 (error "Snap account tasks must be an RLP list"))
+               (rlp-list-items task-list)))
+           (tasks (mapcar #'snap-sync-account-task-from-object task-items)))
+      (apply #'snap-sync-make-progress
+             :next-origin (and (plusp (length stored-next)) stored-next)
+             :completed-p completed-p
+             :complete-node-scheme-p complete-node-scheme-p
+             :tasks tasks
+             (snap-sync-progress-common-fields
+              pivot-hash pivot-number state-root partial-root target-hash
+              chain-id genesis-hash authority-id)))))
+
 (defun snap-sync-progress-from-record (record)
   (handler-case
       (let* ((value (rlp-decode-one record :max-list-items 128))
@@ -612,10 +658,14 @@ consensus-visible."
            (snap-sync-progress-from-v2-items items))
           ((member version
                    (list +snap-sync-partitioned-progress-version+
-                         +snap-sync-progress-version+))
+                         +snap-sync-previous-progress-version+))
            (unless (= 12 (length items))
              (error "Snap sync progress must contain 12 fields"))
            (snap-sync-progress-from-v3-items items))
+          ((= version +snap-sync-progress-version+)
+           (unless (= 13 (length items))
+             (error "Snap sync progress must contain 13 fields"))
+           (snap-sync-progress-from-v5-items items))
           (t
            (error "Unsupported snap sync progress version"))))
     (rlp-error (condition)
@@ -627,6 +677,47 @@ consensus-visible."
     (if present-p
         (values (snap-sync-progress-from-record record) t)
         (values nil nil))))
+
+(defun snap-sync-complete-node-scheme-present-p (database)
+  (multiple-value-bind (value present-p)
+      (kv-get-chain-record
+       database :metadata +snap-sync-complete-node-scheme-identifier+)
+    (when (and present-p
+               (not (bytes= value +snap-sync-complete-node-scheme-value+)))
+      (ethereum-lisp.validation:storage-fail
+       "Persisted snap complete-node scheme marker is malformed"))
+    present-p))
+
+(defun snap-sync-trie-node-store-empty-p (database)
+  (multiple-value-bind (iterator close-iterator)
+      (kv-iterator
+       database
+       :start (kv-chain-record-key :trie-node (make-byte-vector 0))
+       :end (kv-chain-record-key :code (make-byte-vector 0)))
+    (unwind-protect
+         (not (nth-value 2 (funcall iterator)))
+      (when close-iterator (funcall close-iterator)))))
+
+(defun snap-sync-enable-complete-node-scheme-p (database)
+  "Enable geth-like hash presence only for a store born under this contract."
+  (cond
+    ((snap-sync-complete-node-scheme-present-p database) t)
+    ((not (snap-sync-trie-node-store-empty-p database)) nil)
+    (t
+     (let ((batch (make-kv-write-batch)))
+       (kv-batch-put-chain-record
+        batch :metadata +snap-sync-complete-node-scheme-identifier+
+        +snap-sync-complete-node-scheme-value+)
+       (kv-apply-batch database batch))
+     t)))
+
+(defun snap-sync-disable-complete-node-scheme (database)
+  "Revoke the store contract when resuming progress written by older code."
+  (when (snap-sync-complete-node-scheme-present-p database)
+    (let ((batch (make-kv-write-batch)))
+      (kv-batch-delete-chain-record
+       batch :metadata +snap-sync-complete-node-scheme-identifier+)
+      (kv-apply-batch database batch))))
 
 (defun snap-sync-delete-progress (database)
   "Atomically discard a cursor abandoned by a newer CL-authorized target."
@@ -758,8 +849,21 @@ reuse this work instead of downloading the same prefix again."
       (declare (ignore verified-p))
       (unless trie
         (error "Byte-capped snap storage group did not reconstruct its range"))
-      (snap-sync-populate-verified-trie-records-batch
-       database batch (snap-sync-verified-account-records trie proof)))))
+      (let* ((records (snap-sync-verified-account-records trie proof))
+             (groups
+               (nth-value
+                1
+                (mpt-proved-range-subtrees
+                 trie (make-byte-vector 32) (caar (last entries))
+                 *snap-sync-range-subtree-prefix-nibbles*)))
+             (complete-references
+               (loop for group in groups append (third group)))
+             (incomplete
+               (snap-sync-incomplete-record-hashes
+                records complete-references)))
+        (snap-sync-populate-verified-trie-records-batch
+         database batch records)
+        (snap-sync-populate-incomplete-records-batch batch incomplete)))))
 
 (defun snap-sync-fetch-storage-commitments-serial
     (database source state-root commitments byte-limit)
@@ -1161,6 +1265,8 @@ publishes the account cursor."
    :chain-id (snap-sync-progress-chain-id progress)
    :genesis-hash (snap-sync-progress-genesis-hash progress)
    :authority-id (snap-sync-progress-authority-id progress)
+   :complete-node-scheme-p
+   (snap-sync-progress-complete-node-scheme-p progress)
    :completed-p t :tasks (snap-sync-progress-tasks progress)))
 
 (defun snap-sync-expand-account-tasks (tasks count)
@@ -1241,6 +1347,8 @@ publishes the account cursor."
          :chain-id (snap-sync-progress-chain-id progress)
          :genesis-hash (snap-sync-progress-genesis-hash progress)
          :authority-id (snap-sync-progress-authority-id progress)
+         :complete-node-scheme-p
+         (snap-sync-progress-complete-node-scheme-p progress)
          :completed-p (snap-sync-progress-completed-p progress)
          :tasks replacement))))
 
@@ -1257,12 +1365,17 @@ publishes the account cursor."
                            target-hash chain-id genesis-hash authority-id)
                     (error
                      "Persisted snap sync progress belongs to another pivot or authority"))
+                  (unless
+                      (snap-sync-progress-complete-node-scheme-p existing)
+                    (snap-sync-disable-complete-node-scheme database))
                   existing)
                 (snap-sync-make-progress
                  :pivot-hash pivot-hash :pivot-number pivot-number
                  :state-root state-root :partial-root +empty-trie-hash+
                  :target-hash target-hash :chain-id chain-id
                  :genesis-hash genesis-hash :authority-id authority-id
+                 :complete-node-scheme-p
+                 (snap-sync-enable-complete-node-scheme-p database)
                  :completed-p nil
                  :tasks (snap-sync-make-account-tasks :count task-count)))))
       (snap-sync-progress-with-task-count progress task-count))))
@@ -1298,7 +1411,8 @@ publishes the account cursor."
 (defstruct (snap-sync-page-result
             (:constructor make-snap-sync-page-result
                 (&key task-index origin account-records codes deferred-storage
-                      healed-subtrees dependency-subtrees next-origin
+                      healed-subtrees dependency-subtrees incomplete-node-hashes
+                      next-origin
                       completed-p profile)))
   task-index
   origin
@@ -1307,6 +1421,7 @@ publishes the account cursor."
   deferred-storage
   healed-subtrees
   dependency-subtrees
+  incomplete-node-hashes
   next-origin
   completed-p
   profile)
@@ -1333,12 +1448,13 @@ publishes the account cursor."
 
 (defstruct (snap-sync-storage-page-result
             (:constructor make-snap-sync-storage-page-result
-                (&key task-index origin records healed-subtrees next-origin
-                      completed-p)))
+                (&key task-index origin records healed-subtrees
+                      incomplete-node-hashes next-origin completed-p)))
   task-index
   origin
   records
   healed-subtrees
+  incomplete-node-hashes
   next-origin
   completed-p)
 
@@ -1387,6 +1503,25 @@ uniform persistence interface."
     (kv-batch-put-chain-record
      batch :trie-node (car record) (cdr record)))
   batch)
+
+(defun snap-sync-incomplete-record-hashes (records complete-references)
+  "Return unique RECORD hashes not covered by a proved complete subtree."
+  (let ((complete (make-hash-table :test #'equalp))
+        (incomplete (make-hash-table :test #'equalp))
+        (result '()))
+    (dolist (reference complete-references)
+      (setf (gethash reference complete) t))
+    (dolist (record records (nreverse result))
+      (let ((reference (car record)))
+        (unless (or (nth-value 1 (gethash reference complete))
+                    (nth-value 1 (gethash reference incomplete)))
+          (setf (gethash reference incomplete) t)
+          (push reference result))))))
+
+(defun snap-sync-populate-incomplete-records-batch (batch references)
+  "Mark authenticated nodes whose full descendant closure is not yet proved."
+  (dolist (reference references batch)
+    (snap-sync-populate-incomplete-node-batch batch reference)))
 
 (defun snap-sync-byte-prefix-end (prefix)
   "Return the exclusive lexicographic end key for non-empty byte PREFIX."
@@ -1573,24 +1708,34 @@ frontier also falls back safely instead of creating an uncheckpointable run."
   "Split proved account subtrees by their unresolved storage dependencies."
   (let ((dependencies-by-prefix (make-hash-table :test #'equalp))
         (safe-subtrees '())
-        (dependency-subtrees '()))
+        (dependency-subtrees '())
+        (complete-references '()))
     (dolist (commitment deferred-storage)
       (push commitment
             (gethash
              (snap-sync-account-prefix-bucket (car commitment))
              dependencies-by-prefix)))
     (dolist (candidate candidates)
-      (let* ((prefix (car candidate))
-             (reference (cdr candidate))
+      (let* ((group-p
+               (and (consp candidate)
+                    (consp (cdr candidate))
+                    (consp (cddr candidate))
+                    (null (cdddr candidate))))
+             (prefix (if group-p (first candidate) (car candidate)))
+             (reference (if group-p (second candidate) (cdr candidate)))
+             (references (and group-p (third candidate)))
              (dependencies
                (nreverse (gethash prefix dependencies-by-prefix))))
         (cond
           ((null dependencies)
-           (push reference safe-subtrees))
+           (push reference safe-subtrees)
+           (setf complete-references
+                 (nconc complete-references references)))
           ((<= (length dependencies)
                +snap-sync-account-subtree-dependencies-max+)
            (push (cons reference dependencies) dependency-subtrees)))))
-    (values (nreverse safe-subtrees) (nreverse dependency-subtrees))))
+    (values (nreverse safe-subtrees) (nreverse dependency-subtrees)
+            complete-references)))
 
 (defun snap-sync-buffer-account-page-content
     (database state-root result)
@@ -1605,6 +1750,8 @@ again."
   (let ((batch (make-kv-write-batch)))
     (snap-sync-populate-verified-trie-records-batch
      database batch (snap-sync-page-result-account-records result))
+    (snap-sync-populate-incomplete-records-batch
+     batch (snap-sync-page-result-incomplete-node-hashes result))
     (snap-sync-populate-code-batch
      database batch (snap-sync-page-result-codes result))
     (dolist (commitment (snap-sync-page-result-deferred-storage result))
@@ -1622,7 +1769,8 @@ again."
           (snap-sync-page-result-codes result) '()
           (snap-sync-page-result-deferred-storage result) '()
           (snap-sync-page-result-healed-subtrees result) '()
-          (snap-sync-page-result-dependency-subtrees result) '())
+          (snap-sync-page-result-dependency-subtrees result) '()
+          (snap-sync-page-result-incomplete-node-hashes result) '())
     result))
 
 (defun snap-sync-prepare-account-page-range
@@ -1682,9 +1830,11 @@ again."
       (let* ((proved-end (if complete-p limit last-entry))
              (candidates
                (if (and account-trie proved-end)
-                   (mpt-proved-range-subtrees
-                    account-trie origin proved-end
-                    *snap-sync-range-subtree-prefix-nibbles*)
+                   (nth-value
+                    1
+                    (mpt-proved-range-subtrees
+                     account-trie origin proved-end
+                     *snap-sync-range-subtree-prefix-nibbles*))
                    '())))
         (make-snap-sync-account-page-work
          :task-index task-index
@@ -1710,7 +1860,8 @@ again."
        (snap-sync-account-page-work-code-hashes work)
        byte-limit :code-fetch-function code-fetch-function)
     (let ((dependencies-finished-at (get-internal-real-time)))
-      (multiple-value-bind (safe-subtrees dependency-subtrees)
+      (multiple-value-bind
+            (safe-subtrees dependency-subtrees complete-references)
           (snap-sync-classify-account-range-subtrees
            (snap-sync-account-page-work-candidates work) deferred-storage)
         (let* ((metadata-finished-at (get-internal-real-time))
@@ -1750,6 +1901,10 @@ again."
                   ;; subtree hash so a later pivot can skip the account walk
                   ;; without skipping external dependencies.
                   :dependency-subtrees dependency-subtrees
+                  :incomplete-node-hashes
+                  (snap-sync-incomplete-record-hashes
+                   (snap-sync-account-page-work-account-records work)
+                   complete-references)
                   :next-origin (snap-sync-account-page-work-next-origin work)
                   :completed-p
                   (snap-sync-account-page-work-completed-p work)
@@ -1821,6 +1976,8 @@ again."
               :chain-id (snap-sync-progress-chain-id progress)
               :genesis-hash (snap-sync-progress-genesis-hash progress)
               :authority-id (snap-sync-progress-authority-id progress)
+              :complete-node-scheme-p
+              (snap-sync-progress-complete-node-scheme-p progress)
               ;; Even an equal account-trie root cannot prove that deferred
               ;; byte-capped storage and code dependencies exist locally.
               ;; Only the final content-addressed traversal may install the
@@ -1979,7 +2136,7 @@ its bounded pivot tail will anchor the resumable import."
     (kind account-hash path reference &key fetched-p marker-state)
   (unless (member kind '(:account :storage))
     (error "Snap heal work has an unknown trie kind"))
-  (unless (member marker-state '(nil :armed :inside :complete))
+  (unless (member marker-state '(nil :armed :inside :complete :node-complete))
     (error "Snap heal work has an unknown subtree-marker state"))
   (unless (snap-sync-heal-reference-p reference)
     (error "Snap heal work has a malformed child reference"))
@@ -1993,7 +2150,7 @@ its bounded pivot tail will anchor the resumable import."
     (unless (every (lambda (nibble) (<= 0 nibble 15)) path)
       (error "Snap trie heal path contains a non-nibble value"))
     (when (and
-           (member marker-state '(:armed :complete))
+           (member marker-state '(:armed :complete :node-complete))
            (not
             (and
              (byte-vector-p reference)
@@ -2036,8 +2193,9 @@ its bounded pivot tail will anchor the resumable import."
    :storage account-hash (make-byte-vector 0) reference))
 
 (defun snap-sync-heal-work-path-set (work)
-  (when (eq :complete (snap-sync-heal-work-marker-state work))
-    (error "A healed-subtree completion marker is not wire work"))
+  (when (member (snap-sync-heal-work-marker-state work)
+                '(:complete :node-complete))
+    (error "A snap completion marker is not wire work"))
   (let ((compact
           (ethereum-lisp.trie.encoding:hex-prefix-encode
            (snap-sync-heal-work-path work) :terminator nil)))
@@ -2227,7 +2385,8 @@ larger resumed frontier so remote batching does not collapse at 8,192 works."
      ((nil) 0)
      (:armed 1)
      (:complete 2)
-     (:inside 3))))
+     (:inside 3)
+     (:node-complete 4))))
 
 (defun snap-sync-heal-work-from-object (value version)
   (destructuring-bind (kind account-hash path reference fetched &optional marker)
@@ -2264,8 +2423,9 @@ larger resumed frontier so remote batching does not collapse at 8,192 works."
            (1 :armed)
            (2 :complete)
            (3 :inside)
+           (4 :node-complete)
            (otherwise
-            (error "Snap heal work subtree-marker state exceeds three"))))))))
+            (error "Snap heal work subtree-marker state exceeds four"))))))))
 
 (defun snap-sync-heal-checkpoint-payload (checkpoint)
   (rlp-encode
@@ -2314,7 +2474,7 @@ larger resumed frontier so remote batching does not collapse at 8,192 works."
       (let ((version
               (snap-sync-heal-checkpoint-uint
                version "Snap heal checkpoint version")))
-        (unless (member version '(1 2))
+        (unless (member version '(1 2 3))
           (error "Unsupported snap heal checkpoint version"))
       (unless (rlp-list-p stack-object)
         (error "Snap heal checkpoint stack must be an RLP list"))
@@ -2494,6 +2654,8 @@ mark the rebased progress complete."
      :chain-id (snap-sync-progress-chain-id progress)
      :genesis-hash (snap-sync-progress-genesis-hash progress)
      :authority-id (snap-sync-progress-authority-id progress)
+     :complete-node-scheme-p
+     (snap-sync-progress-complete-node-scheme-p progress)
      :completed-p nil
      :tasks (snap-sync-progress-tasks progress))))
 
@@ -3135,6 +3297,49 @@ the returned encoded, presence, and decoded vectors retain input order."
   (snap-sync-heal-chain-record-batch
    database :trie-node references :decoder decoder))
 
+(defun snap-sync-incomplete-node-identifier (reference)
+  (unless (and (byte-vector-p reference) (= 32 (length reference)))
+    (error "Snap incomplete-node identifier requires a 32-byte node hash"))
+  (concatenate
+   'vector +snap-sync-incomplete-node-identifier-prefix+ reference))
+
+(defun snap-sync-populate-incomplete-node-batch (batch reference)
+  (kv-batch-put-chain-record
+   batch :metadata (snap-sync-incomplete-node-identifier reference)
+   +snap-sync-incomplete-node-value+)
+  batch)
+
+(defun snap-sync-delete-incomplete-node-batch (batch reference)
+  (kv-batch-delete-chain-record
+   batch :metadata (snap-sync-incomplete-node-identifier reference))
+  batch)
+
+(defun snap-sync-load-incomplete-nodes (database)
+  "Load the bounded-by-written-content set that disables complete-node reuse."
+  (let* ((prefix +snap-sync-incomplete-node-identifier-prefix+)
+         (start (kv-chain-record-key :metadata prefix))
+         (end
+           (kv-chain-record-key
+            :metadata (snap-sync-byte-prefix-end prefix)))
+         (expected-length (+ (length prefix) 32))
+         (nodes (make-hash-table :test #'equalp)))
+    (multiple-value-bind (iterator close-iterator)
+        (kv-iterator database :start start :end end)
+      (unwind-protect
+           (loop
+             (multiple-value-bind (key value present-p) (funcall iterator)
+               (unless present-p (return))
+               (let ((identifier
+                       (kv-chain-record-key-identifier :metadata key)))
+                 (unless (and (= (length identifier) expected-length)
+                              (bytes= value +snap-sync-incomplete-node-value+))
+                   (ethereum-lisp.validation:storage-fail
+                    "Persisted snap incomplete-node marker is malformed"))
+                 (setf
+                  (gethash (subseq identifier (length prefix)) nodes) t))))
+        (when close-iterator (funcall close-iterator))))
+    nodes))
+
 (defun snap-sync-healed-subtree-identifier
     (reference &optional (kind :account))
   (unless (and (byte-vector-p reference) (= 32 (length reference)))
@@ -3678,20 +3883,27 @@ never read or revalidated."
                  (and (not completed-p) last-wire
                       (snap-sync-increment-hash last-wire)))
                (proved-end (if completed-p limit last-wire))
-               (healed-subtrees
+               (records (snap-sync-verified-account-records trie proof))
+               (subtree-values
                  (if (and trie proved-end)
-                     (mapcar
-                      #'cdr
+                     (multiple-value-list
                       (mpt-proved-range-subtrees
                        trie origin proved-end
                        *snap-sync-range-subtree-prefix-nibbles*))
-                     '())))
+                     (list nil nil)))
+               (healed-subtrees
+                 (mapcar #'cdr (first subtree-values)))
+               (complete-references
+                 (loop for group in (second subtree-values)
+                       append (third group))))
           (when (and (not completed-p) (null next-origin))
             (error "Snap storage range page did not advance its task"))
           (make-snap-sync-storage-page-result
            :task-index task-index :origin (copy-seq origin)
-           :records (snap-sync-verified-account-records trie proof)
+           :records records
            :healed-subtrees healed-subtrees
+           :incomplete-node-hashes
+           (snap-sync-incomplete-record-hashes records complete-references)
            :next-origin next-origin :completed-p completed-p))))))
 
 (defun snap-sync-commit-storage-page
@@ -3717,6 +3929,8 @@ never read or revalidated."
            (batch (make-kv-write-batch)))
       (snap-sync-populate-verified-trie-records-batch
        database batch (snap-sync-storage-page-result-records result))
+      (snap-sync-populate-incomplete-records-batch
+       batch (snap-sync-storage-page-result-incomplete-node-hashes result))
       (snap-sync-populate-storage-task-batch
        batch state-root account-hash storage-root task-index replacement)
       ;; Storage leaves have no external state dependencies. Publish these
@@ -4130,6 +4344,12 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
              database (snap-sync-progress-state-root progress)))
       (let* ((state-root (snap-sync-progress-state-root progress))
            (root-bytes (hash32-bytes state-root))
+           (complete-node-scheme-p
+             (snap-sync-progress-complete-node-scheme-p progress))
+           (incomplete-nodes
+             (if complete-node-scheme-p
+                 (snap-sync-load-incomplete-nodes database)
+                 (make-hash-table :test #'equalp)))
            (stack
              (cond
                (checkpoint-present-p
@@ -4162,6 +4382,8 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
            (pending-fetched-batch (make-kv-write-batch))
            (pending-fetched-bytes 0)
            (pending-fetched-count 0)
+           (pending-node-completion-batch (make-kv-write-batch))
+           (pending-node-completion-count 0)
            ;; Peer-local capacity and RTT survive safe checkpoint boundaries;
            ;; a newly admitted source starts at the protocol maximum.
            (source-capacities (make-hash-table :test #'eq))
@@ -4358,6 +4580,33 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
              ;; is rechecked locally and never fetched again, while the healer
              ;; no longer retains millions of code-hash vectors until exit.
              (clrhash seen-code-hashes)))
+         (flush-node-completions (&optional synchronous-p)
+           (when (plusp pending-node-completion-count)
+             (if synchronous-p
+                 (kv-apply-batch database pending-node-completion-batch)
+                 (kv-apply-batch-buffered
+                  database pending-node-completion-batch))
+             (setf pending-node-completion-batch (make-kv-write-batch)
+                   pending-node-completion-count 0)))
+         (persist-complete-node (work)
+           ;; The parent marker is removed only after every child, account
+           ;; code, and storage dependency encountered before this DFS
+           ;; sentinel is durable. A crash before the buffered delete leaves
+           ;; the marker behind and conservatively repeats the walk.
+           (let ((reference (snap-sync-heal-work-reference work)))
+             (unless (and complete-node-scheme-p
+                          (byte-vector-p reference)
+                          (= 32 (length reference)))
+               (error "Snap node-completion work is not a complete-node hash"))
+             (flush-fetched-nodes)
+             (flush-codes)
+             (snap-sync-delete-incomplete-node-batch
+              pending-node-completion-batch reference)
+             (remhash reference incomplete-nodes)
+             (incf pending-node-completion-count)
+             (when (= pending-node-completion-count
+                      +snap-sync-node-completions-per-batch+)
+               (flush-node-completions))))
          (flush-healed-subtrees ()
            ;; Every dependency encountered before a completion sentinel must
            ;; be durable before its reusable proof becomes visible.  Publish
@@ -4365,6 +4614,7 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
            ;; losing an unflushed cache hint can only repeat safe traversal.
            (flush-fetched-nodes)
            (flush-codes)
+           (flush-node-completions)
            (when pending-healed-subtrees
              (setf pending-healed-subtrees
                    (nreverse pending-healed-subtrees))
@@ -4525,6 +4775,54 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                    (ethereum-lisp.validation:storage-fail
                     "Persisted snap trie node is malformed: ~A" condition)
                    (error condition)))))
+         (complete-local-node-p (work)
+           (let ((reference (snap-sync-heal-work-reference work)))
+             (and complete-node-scheme-p
+                  (byte-vector-p reference)
+                  (= 32 (length reference))
+                  (not (nth-value 1 (gethash reference incomplete-nodes))))))
+         (decode-local-node (work encoded)
+           (if (complete-local-node-p work)
+               (let ((reference (snap-sync-heal-work-reference work)))
+                 ;; Preserve the existing corrupt-value fail-closed boundary
+                 ;; while avoiding RLP decode and descendant expansion.
+                 (unless (bytes= reference (keccak-256 encoded))
+                   (ethereum-lisp.validation:storage-fail
+                    "Persisted complete snap trie node does not match its hash"))
+                 :complete-node-reused)
+               (decode-encoded
+                work encoded
+                (not (snap-sync-heal-work-fetched-p work)))))
+         (integrate-present-work (work object)
+           (unless (snap-sync-heal-work-fetched-p work)
+             (incf reused-nodes))
+           (if (eq object :complete-node-reused)
+               (incf skipped-subtrees)
+               (progn
+                 (when
+                     (eq :armed (snap-sync-heal-work-marker-state work))
+                   (push
+                    (snap-sync-make-heal-work
+                     (snap-sync-heal-work-kind work)
+                     (snap-sync-heal-work-account-hash work)
+                     (snap-sync-heal-work-path work)
+                     (snap-sync-heal-work-reference work)
+                     :marker-state :complete)
+                    stack))
+                 (let ((reference (snap-sync-heal-work-reference work)))
+                   (when (and complete-node-scheme-p
+                              (byte-vector-p reference)
+                              (= 32 (length reference))
+                              (nth-value
+                               1 (gethash reference incomplete-nodes)))
+                     (push
+                      (snap-sync-make-heal-work
+                       (snap-sync-heal-work-kind work)
+                       (snap-sync-heal-work-account-hash work)
+                       (snap-sync-heal-work-path work)
+                       reference :marker-state :node-complete)
+                      stack)))
+                 (process-object work object))))
          (collect-missing (maximum)
            "Advance local trie work and return at most MAXIMUM missing hashes."
            (when (zerop maximum)
@@ -4576,6 +4874,15 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                              (snap-sync-heal-work-reference work)
                            do
                            (cond
+                             ((eq :node-complete
+                                  (snap-sync-heal-work-marker-state work))
+                              (if (or lookups deferred-storage)
+                                  (progn
+                                    (push work stack)
+                                    (unless lookups
+                                      (drain-deferred-storage))
+                                    (return))
+                                  (persist-complete-node work)))
                              ((eq :complete
                                   (snap-sync-heal-work-marker-state work))
                               (if (or lookups deferred-storage)
@@ -4689,38 +4996,14 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                                         (prefer-peer-nodes-p)))
                                   :decoder
                                   (lambda (index bytes)
-                                    (let ((work (aref ordered index)))
-                                      (decode-encoded
-                                       work bytes
-                                       (not
-                                        (snap-sync-heal-work-fetched-p
-                                         work))))))
+                                    (decode-local-node
+                                     (aref ordered index) bytes)))
                                (declare (ignore encoded))
                                (dotimes (index (length ordered))
                                  (let ((work (aref ordered index)))
                                    (if (= 1 (aref present index))
-                                       (progn
-                                         (unless
-                                             (snap-sync-heal-work-fetched-p
-                                              work)
-                                           (incf reused-nodes))
-                                         (when
-                                             (eq
-                                              :armed
-                                              (snap-sync-heal-work-marker-state
-                                               work))
-                                           (push
-                                            (snap-sync-make-heal-work
-                                             (snap-sync-heal-work-kind work)
-                                             (snap-sync-heal-work-account-hash
-                                              work)
-                                             (snap-sync-heal-work-path work)
-                                             (snap-sync-heal-work-reference
-                                              work)
-                                             :marker-state :complete)
-                                            stack))
-                                         (process-object
-                                          work (aref decoded index)))
+                                       (integrate-present-work
+                                        work (aref decoded index))
                                        (progn
                                          (push work missing)
                                          (incf missing-count))))))))))))
@@ -4817,6 +5100,10 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                                     (kv-batch-put-chain-record
                                      pending-fetched-batch
                                      :trie-node hash encoded)
+                                    (when complete-node-scheme-p
+                                      (snap-sync-populate-incomplete-node-batch
+                                       pending-fetched-batch hash)
+                                      (setf (gethash hash incomplete-nodes) t))
                                     (incf pending-fetched-count)
                                     (incf pending-fetched-bytes
                                           (+ (length hash) (length encoded)))
@@ -4947,6 +5234,15 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                         for reference =
                           (snap-sync-heal-work-reference work)
                         do (cond
+                             ((eq :node-complete
+                                  (snap-sync-heal-work-marker-state work))
+                              (if (or lookups deferred-storage)
+                                  (progn
+                                    (push work stack)
+                                    (unless lookups
+                                      (drain-deferred-storage))
+                                    (return))
+                                  (persist-complete-node work)))
                              ((eq :complete
                                   (snap-sync-heal-work-marker-state work))
                               (if (or lookups deferred-storage)
@@ -5067,34 +5363,14 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                                  active-sources (prefer-peer-nodes-p)))
                                :decoder
                                (lambda (index bytes)
-                                 (let ((work (aref ordered index)))
-                                   (decode-encoded
-                                    work bytes
-                                    (not
-                                     (snap-sync-heal-work-fetched-p work))))))
+                                 (decode-local-node
+                                  (aref ordered index) bytes)))
                             (declare (ignore encoded))
                             (dotimes (index (length ordered))
                               (let ((work (aref ordered index)))
                                 (if (= 1 (aref present index))
-                                    (progn
-                                      (unless
-                                          (snap-sync-heal-work-fetched-p work)
-                                        (incf reused-nodes))
-                                      (when
-                                          (eq
-                                           :armed
-                                           (snap-sync-heal-work-marker-state
-                                            work))
-                                        (push
-                                         (snap-sync-make-heal-work
-                                          (snap-sync-heal-work-kind work)
-                                          (snap-sync-heal-work-account-hash work)
-                                          (snap-sync-heal-work-path work)
-                                          (snap-sync-heal-work-reference work)
-                                          :marker-state :complete)
-                                         stack))
-                                      (process-object
-                                       work (aref decoded index)))
+                                    (integrate-present-work
+                                     work (aref decoded index))
                                     (progn
                                       (push work missing)
                                       (incf missing-count))))))))))))

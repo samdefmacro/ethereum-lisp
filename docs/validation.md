@@ -219,6 +219,10 @@ cl-workbench validation run cold-integration \
 cl-workbench validation run cold-integration \
   --match SNAP-STATE-HEALER-REUSES-PROVED-SUBTREES
 cl-workbench validation run cold-integration \
+  --match SNAP-STATE-HEALER-USES-GETH-COMPLETE-NODE-DIFFERENCE-FRONTIER
+cl-workbench validation run cold-unit \
+  --match SNAP-COMPLETE-NODE-SCHEME-NEVER-TRUSTS-A-LEGACY-TRIE-STORE
+cl-workbench validation run cold-integration \
   --match SNAP-STATE-HEALER-BATCHES-DEFERRED-STORAGE-ROOTS
 cl-workbench validation run cold-integration \
   --match SNAP-HEALED-SUBTREE-PUBLICATION-FAILS-CLOSED
@@ -251,7 +255,13 @@ proof-edge nodes, and buffer the subtree hash with its account content and
 external dependencies before a separate synchronous cursor batch publishes the
 whole WAL prefix. The failure regression permits that idempotent content to
 survive while proving the cursor stays behind a failed seam and a retry
-completes. StorageRanges pages publish equivalent
+completes. Fresh empty stores also classify every reconstructed record under a
+version-five geth-style complete-node contract: proof-edge or otherwise open
+nodes carry a negative marker in the same content batch, while fully closed
+interior groups require no positive record per node. The migration control
+plants a legacy trie node before scheme initialization and proves hash presence
+remains conservative; malformed scheme and incomplete markers fail closed.
+StorageRanges pages publish equivalent
 storage-subtree proofs with their node and cursor batch. The integration
 regressions observe both kinds before final TrieNodes traversal, then promote
 legacy account and completed-storage plans through shallow trie walks. An
@@ -376,11 +386,13 @@ root paths and proves only 1,024 disk lookups are returned; raising the
 production cap makes it fail. Restoring the old immediate checkpoint stop
 makes the live-shape control fail with the observed public-node error. Separate
 controls prove that account traversal defers storage roots into multi-path
-requests, that the version-two completion sentinel is backward compatible with
-version-one checkpoints, and that content-addressed account and contract-storage
+requests, that the version-three node-completion sentinel is backward compatible
+with version-one and version-two checkpoints, and that content-addressed
+account and contract-storage
 subtrees
 proved under one pivot reduce the decoded work under the next pivot. The
-checkpoint codec round-trips an armed storage-subtree sentinel, and a namespace
+checkpoint codec round-trips armed storage-subtree and node-completion sentinels,
+and a namespace
 control proves that identical account and storage node hashes cannot share one
 proof key. The same regression counts proof batch
 identity: more than one independent proof must share a durable batch and no
@@ -394,8 +406,13 @@ An empty-target first-heal control also requires proof publication while
 observing zero exact metadata reads: restoring the unfiltered production batch
 call makes that witness fail. Positive filter results remain covered by the
 cross-pivot exact-version and storage-namespace checks.
-Restoring immediate storage descent or removing the subtree cache-hit branch
-makes the corresponding focused test fail.
+The exact-difference-frontier control places the same complete old trie under a
+new root in two databases. The version-five run skips locally complete hashes,
+fetches the same changed nodes as the legacy run, clears every negative marker,
+and processes less than one eighth as many nodes. Removing the hash-presence
+branch or prematurely trusting a marked node makes the focused test fail.
+Restoring immediate storage descent or removing the coarse subtree cache-hit
+branch makes its corresponding focused test fail.
 A coordinator control proves that
 a valid identity-matched healer checkpoint pins its CL target for the first
 actual post-restart Snap attempt across the ordinary stale-pivot window, that
