@@ -601,7 +601,9 @@ profile, stops only the exact owned live-gate source, and starts the candidate
 with the same Lighthouse alias, JWT, networks, public P2P port, and 50-peer
 limit. A failed cutover restarts the source. `restore` verifies both ownership
 chains before reversing the cutover, and neither action removes a container,
-image, or datadir:
+image, or datadir. Because `restore` never starts the historical candidate
+image, it also accepts an exact older benchmark revision after runtime code has
+advanced; candidate-starting actions retain the runtime-drift refusal:
 
 ```sh
 HOODI_LISP_BENCH_RUNTIME_REVISION=0123456789abcdef0123456789abcdef01234567 \
