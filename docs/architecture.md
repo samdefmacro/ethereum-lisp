@@ -193,8 +193,11 @@ them by their physical location instead reintroduces dependency cycles:
   set clears when that successor selects a genuinely new pivot and is never a
   peer score or permanent ban. During final healing, a pool that reached at
   least eight live sources also yields a CL-stale target when more than half
-  that observed capacity remains unavailable for five minutes, even if the few residual
-  sources still return small productive batches. A numerically stable pool has
+  that observed capacity remains unavailable for five minutes, even if the few
+  residual sources still return small productive batches. A collapsed pool
+  must recover for thirty continuous seconds before it clears that window, so
+  short-lived public-session churn cannot pin an obsolete root. A numerically
+  stable pool has
   an independent bounded-yield check: after one healthy response window, at
   least sixty-four later TrieNodes requests averaging fewer than eight fetched
   nodes each start the same five-minute stale-target escape. Productive local

@@ -156,6 +156,9 @@ first, so a long backfill does not starve a short one."
 (defconstant +devnet-snap-heal-source-collapse-interval-seconds+ 300
   "How long a collapsed healer source pool may retain a stale pivot.")
 
+(defconstant +devnet-snap-heal-source-recovery-interval-seconds+ 30
+  "How long source capacity must remain healthy before collapse recovery.")
+
 (defconstant +devnet-snap-heal-source-high-water-minimum+ 8
   "Minimum observed healer source count before relative collapse applies.")
 
@@ -1138,6 +1141,8 @@ must prove the new state root before either record can authorize publication."
          (heal-source-count 0)
          (heal-source-high-water 0)
          (last-heal-source-healthy-at (unix-time))
+         (heal-source-collapse-window-p nil)
+         (heal-source-recovered-at nil)
          (last-heal-efficient-response-at (unix-time))
          (heal-efficiency-fetched nil)
          (heal-efficiency-requests nil)
@@ -1178,9 +1183,26 @@ must prove the new state root before either record can authorize publication."
                (setf heal-source-count (length current)
                      heal-source-high-water
                      (max heal-source-high-water heal-source-count))
-               (unless (devnet-snap-heal-source-pool-collapsed-p
-                        heal-source-count heal-source-high-water)
-                 (setf last-heal-source-healthy-at now)))
+               (if (devnet-snap-heal-source-pool-collapsed-p
+                    heal-source-count heal-source-high-water)
+                   (setf heal-source-collapse-window-p t
+                         heal-source-recovered-at nil)
+                   (if heal-source-collapse-window-p
+                       ;; Public sessions churn around a pruning boundary. A
+                       ;; one-tick recovery must not erase five minutes of
+                       ;; observed capacity loss; require one sustained healthy
+                       ;; interval before the old root becomes pinned again.
+                       (progn
+                         (unless heal-source-recovered-at
+                           (setf heal-source-recovered-at now))
+                         (when (and
+                                (>= now heal-source-recovered-at)
+                                (>= (- now heal-source-recovered-at)
+                                    +devnet-snap-heal-source-recovery-interval-seconds+))
+                           (setf heal-source-collapse-window-p nil
+                                 heal-source-recovered-at nil
+                                 last-heal-source-healthy-at now)))
+                       (setf last-heal-source-healthy-at now))))
              (mapcar
               (lambda (entry)
                 (car (find entry source-entries :key #'cdr :test #'eq)))
@@ -1223,8 +1245,7 @@ must prove the new state root before either record can authorize publication."
                              +devnet-snap-heal-stall-interval-seconds+))
                         "progress-stalled")
                        ((and
-                         (devnet-snap-heal-source-pool-collapsed-p
-                          heal-source-count heal-source-high-water)
+                         heal-source-collapse-window-p
                          (>= now last-heal-source-healthy-at)
                          (>= (- now last-heal-source-healthy-at)
                              +devnet-snap-heal-source-collapse-interval-seconds+))

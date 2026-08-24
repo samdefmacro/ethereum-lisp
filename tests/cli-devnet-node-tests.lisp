@@ -1749,11 +1749,29 @@ really reopens the directory instead of observing the first handle's memory."
                 (setf live-entries (subseq entries 0 3)
                       now 110)
                 (is (= 3 (length (funcall source-provider))))
+                ;; A stable recovery clears the collapse window only after
+                ;; thirty seconds, then a new collapse begins from that seam.
+                (setf live-entries entries
+                      now 120)
+                (is (= 8 (length (funcall source-provider))))
+                (setf now 150)
+                (is (= 8 (length (funcall source-provider))))
+                (setf live-entries (subseq entries 0 3)
+                      now 160)
+                (is (= 3 (length (funcall source-provider))))
+                ;; A later twenty-second recovery is transient and must not
+                ;; erase the already-running collapse interval.
+                (setf live-entries entries
+                      now 300)
+                (is (= 8 (length (funcall source-provider))))
+                (setf live-entries (subseq entries 0 3)
+                      now 320)
+                (is (= 3 (length (funcall source-provider))))
                 ;; Keep both cumulative work counters productive immediately
                 ;; before the five-minute source-collapse boundary. The yield
                 ;; must therefore come from lost serving capacity, not the
                 ;; independent progress-stall policy.
-                (setf now 399)
+                (setf now 449)
                 (funcall
                  progress-callback
                  (ethereum-lisp.snap-sync::%make-snap-sync-heal-progress
@@ -1761,7 +1779,7 @@ really reopens the directory instead of observing the first handle's memory."
                   :fetched-nodes 1000 :request-count 10
                   :response-bytes 100000 :completed-p nil))
                 (is (not (funcall yield-p)))
-                (setf now 400)
+                (setf now 450)
                 (funcall
                  progress-callback
                  (ethereum-lisp.snap-sync::%make-snap-sync-heal-progress
