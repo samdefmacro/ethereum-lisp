@@ -471,11 +471,12 @@ them by their physical location instead reintroduces dependency cycles:
   new work, integrates every response already in flight, flushes the
   fetched-node and subtree batches, and then reaches the ordinary coordinator
   yield seam. Predicate throttling between those responses cannot re-open
-  assignment. Sparse responses therefore cannot keep the pipeline non-quiescent
-  and postpone the decision. Peer-advertised heads never
-  enter this decision. The next pass atomically rebases the skeleton and state cursor,
-  while already durable content-addressed nodes and completed-subtree proofs
-  remain reusable.
+  assignment, and the positive edge is carried through that durable seam
+  without re-evaluating the throttled predicate. Sparse responses therefore
+  cannot keep the pipeline non-quiescent and postpone the decision.
+  Peer-advertised heads never enter this decision. The next pass atomically
+  rebases the skeleton and state cursor, while already durable
+  content-addressed nodes and completed-subtree proofs remain reusable.
   Missing, corrupt, or identity-mismatched checkpoints never suppress rebase,
   and an explicit authority-driven rebase still invalidates the frontier in
   the same batch as both progress records.

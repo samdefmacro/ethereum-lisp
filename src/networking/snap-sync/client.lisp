@@ -4407,6 +4407,7 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
            ;; in-memory frontier inside the same 8,192-work bound.
            (remote-pipeline-active-p nil)
            (remote-work-count 0)
+           (remote-pipeline-yield-requested-p nil)
            (processed-nodes
              (if checkpoint-present-p
                  (snap-sync-heal-checkpoint-processed-nodes checkpoint)
@@ -5035,26 +5036,35 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
            #+sbcl
            (progn
              (setf remote-pipeline-active-p t
-                   remote-work-count (length missing))
+                   remote-work-count (length missing)
+                   remote-pipeline-yield-requested-p nil)
              (unwind-protect
                   (labels
                  ((pipeline-checkpoint-due-p (outstanding)
                     (setf remote-work-count outstanding)
-                    (or
-                     ;; A stale-root decision is independent from the normal
-                     ;; checkpoint cadence.  Stop assigning new work now;
-                     ;; SNAP-SYNC-HEAL-RUN-PIPELINE still drains every
-                     ;; in-flight response before returning the pending queue,
-                     ;; so the caller reaches the ordinary durable batch seam.
-                     ;; Without this check, one-node responses can refill the
-                     ;; pipeline forever and postpone HEAL-YIELD-P until the
-                     ;; entire remote frontier happens to become quiescent.
-                     (and heal-yield-p (funcall heal-yield-p))
-                     (and
-                      (checkpoint-due-p)
-                      (<= (+ (length stack) deferred-storage-count
-                             remote-work-count)
-                          +snap-sync-heal-checkpoint-max-works+))))
+                    (let ((stale-p
+                            (and heal-yield-p (funcall heal-yield-p))))
+                      ;; Carry the edge-triggered stale decision through the
+                      ;; durable seam. Re-evaluating a throttled predicate
+                      ;; after the pipeline returns can turn the same decision
+                      ;; back into NIL and start another remote generation.
+                      (when stale-p
+                        (setf remote-pipeline-yield-requested-p t))
+                      (or
+                       ;; A stale-root decision is independent from the normal
+                       ;; checkpoint cadence.  Stop assigning new work now;
+                       ;; SNAP-SYNC-HEAL-RUN-PIPELINE still drains every
+                       ;; in-flight response before returning the pending queue,
+                       ;; so the caller reaches the ordinary durable batch seam.
+                       ;; Without this check, one-node responses can refill the
+                       ;; pipeline forever and postpone HEAL-YIELD-P until the
+                       ;; entire remote frontier happens to become quiescent.
+                       stale-p
+                       (and
+                        (checkpoint-due-p)
+                        (<= (+ (length stack) deferred-storage-count
+                               remote-work-count)
+                            +snap-sync-heal-checkpoint-max-works+)))))
                   (retire-source (source condition)
                     (when (typep
                            condition
@@ -5196,13 +5206,16 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                    (when (snap-sync-heal-checkpoint-frontier-p stack)
                      (persist-checkpoint stack))
                    (when paused-p
+                     (when remote-pipeline-yield-requested-p
+                       (error 'snap-sync-heal-yielded))
                      (return-from fetch-missing nil))
                    (when (prefer-peer-nodes-p)
                      (return-from fetch-missing nil))
                    (snap-sync-heal-signal-source-errors
                     (or errors (reverse retired-source-errors))))))
                (setf remote-pipeline-active-p nil
-                     remote-work-count 0)))
+                     remote-work-count 0
+                     remote-pipeline-yield-requested-p nil)))
            #-sbcl
            (error "Snap asynchronous healer requires SBCL threads")))
       (loop

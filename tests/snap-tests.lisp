@@ -3334,7 +3334,9 @@
                 (incf yield-calls)
                 (> yield-calls 1))))
            (is pipeline-pause-seen-p)
-           (is (>= yield-calls 3)))
+           ;; The positive edge is carried across the durable pipeline seam;
+           ;; the throttled predicate must not be called again to rediscover it.
+           (is (= 2 yield-calls)))
       (setf (fdefinition pipeline-name) real-pipeline))))
 
 (deftest snap-heal-checkpoint-bounds-large-live-frontiers
