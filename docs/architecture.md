@@ -462,11 +462,15 @@ them by their physical location instead reintroduces dependency cycles:
   forkchoice target at most every 30 seconds. A typed scheduling condition
   yields to the coordinator only when that CL-authorized target is more than
   120 blocks beyond the active pivot (56 blocks beyond its conventional target)
-  and fewer than 2,048 cumulative processed/fetched nodes have arrived for five
-  minutes. This matches the healer's durable checkpoint/reporting granularity:
-  productive local reuse and remote batches retain their exact DFS frontier,
-  while a trickle of tiny partial responses cannot keep a publicly pruned root
-  alive indefinitely. The same stale decision is evaluated while the remote
+  and either fewer than 2,048 cumulative processed/fetched nodes have arrived
+  for five minutes or bounded 64-request windows have averaged fewer than eight
+  fetched nodes per request for five minutes. Losing over half of a formerly
+  useful source pool corroborates that inefficient-response decision but never
+  discards a root by peer count alone. This matches the healer's durable
+  checkpoint/reporting granularity: productive local reuse and efficient remote
+  batches retain their exact DFS frontier, while a trickle of tiny partial
+  responses cannot keep a publicly pruned root alive indefinitely. The same
+  stale decision is evaluated while the remote
   event loop is live: the first positive decision is latched, stops assigning
   new work, integrates every response already in flight, flushes the
   fetched-node and subtree batches, and then reaches the ordinary coordinator

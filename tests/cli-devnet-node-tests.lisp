@@ -1678,7 +1678,7 @@ really reopens the directory instead of observing the first handle's memory."
         (is (string= (hash32-to-hex successor-hash)
                      (field "successorHash")))))))
 
-(deftest devnet-snap-productive-heal-yields-after-source-pool-collapse
+(deftest devnet-snap-efficient-heal-retains-a-collapsed-source-pool
   (:layer :unit :module :p2p)
   (let* ((node
            (ethereum-lisp.cli:make-devnet-node
@@ -1767,10 +1767,8 @@ really reopens the directory instead of observing the first handle's memory."
                 (setf live-entries (subseq entries 0 3)
                       now 320)
                 (is (= 3 (length (funcall source-provider))))
-                ;; Keep both cumulative work counters productive immediately
-                ;; before the five-minute source-collapse boundary. The yield
-                ;; must therefore come from lost serving capacity, not the
-                ;; independent progress-stall policy.
+                ;; A collapsed source count alone cannot discard a root while
+                ;; the surviving peers still deliver efficient responses.
                 (setf now 449)
                 (funcall
                  progress-callback
@@ -1783,8 +1781,20 @@ really reopens the directory instead of observing the first handle's memory."
                 (funcall
                  progress-callback
                  (ethereum-lisp.snap-sync::%make-snap-sync-heal-progress
-                  :processed-nodes 12048 :reused-nodes 11048
+                 :processed-nodes 12048 :reused-nodes 11048
                   :fetched-nodes 1000 :request-count 11
+                  :response-bytes 101000 :completed-p nil))
+                (is (not (funcall yield-p)))
+                ;; After a full request window delivers no additional nodes
+                ;; for five minutes, collapse corroborates the inefficient
+                ;; serving edge. Productive local work still excludes the
+                ;; independent progress-stalled reason.
+                (setf now 749)
+                (funcall
+                 progress-callback
+                 (ethereum-lisp.snap-sync::%make-snap-sync-heal-progress
+                  :processed-nodes 14096 :reused-nodes 13096
+                  :fetched-nodes 1000 :request-count 75
                   :response-bytes 101000 :completed-p nil))
                 (is (funcall yield-p))
                 (error 'ethereum-lisp.snap-sync:snap-sync-heal-yielded))))

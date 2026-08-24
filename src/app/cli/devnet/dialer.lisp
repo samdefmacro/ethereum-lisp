@@ -1246,8 +1246,12 @@ must prove the new state root before either record can authorize publication."
                         "progress-stalled")
                        ((and
                          heal-source-collapse-window-p
+                         heal-underfilled-response-window-p
                          (>= now last-heal-source-healthy-at)
                          (>= (- now last-heal-source-healthy-at)
+                             +devnet-snap-heal-source-collapse-interval-seconds+)
+                         (>= now last-heal-efficient-response-at)
+                         (>= (- now last-heal-efficient-response-at)
                              +devnet-snap-heal-source-collapse-interval-seconds+))
                         "source-collapse")
                        ((and
