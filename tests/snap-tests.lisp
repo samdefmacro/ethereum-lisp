@@ -1346,7 +1346,14 @@
                     (incf active)
                     (setf max-active (max max-active active))
                     (when (and wait-p (< fast-calls 2))
-                      (sb-thread:condition-wait changed lock :timeout 5))
+                      ;; The fast source broadcasts after every call.  Its
+                      ;; first call is not the witness: re-check the predicate
+                      ;; after every wakeup so suite load cannot let a valid
+                      ;; early broadcast release this synthetic slow peer.
+                      (loop repeat 20
+                            while (< fast-calls 2)
+                            do (sb-thread:condition-wait
+                                changed lock :timeout 1/4)))
                     (when wait-p
                       (setf fast-reused-before-slow-release-p
                             (>= fast-calls 2))))

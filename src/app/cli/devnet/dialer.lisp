@@ -148,7 +148,30 @@ first, so a long backfill does not starve a short one."
   "Minimum interval between CL-target staleness checks during one heal.")
 
 (defconstant +devnet-snap-heal-stall-interval-seconds+ 300
-  "Minimum time without a healer progress snapshot before stale-target yield.")
+  "Minimum time without meaningful healer work before stale-target yield.")
+
+(defconstant +devnet-snap-heal-productive-node-interval+ 2048
+  "Minimum cumulative processed/fetched work that keeps an old pivot active.")
+
+(defun devnet-snap-heal-progress-work (progress)
+  "Return the monotonic work units relevant to stale-pivot scheduling."
+  (+
+   (ethereum-lisp.snap-sync:snap-sync-heal-progress-processed-nodes progress)
+   (ethereum-lisp.snap-sync:snap-sync-heal-progress-fetched-nodes progress)))
+
+(defun devnet-snap-heal-productive-progress-p (previous-work progress)
+  "Whether PROGRESS justifies retaining a stale authorized pivot.
+
+Small partial TrieNodes responses remain useful and durable, but cannot keep a
+root which public peers have pruned alive indefinitely.  The threshold matches
+the healer's durable node/checkpoint reporting granularity."
+  (let ((work (devnet-snap-heal-progress-work progress)))
+    (or (null previous-work)
+        (< work previous-work)
+        (>= (- work previous-work)
+            +devnet-snap-heal-productive-node-interval+)
+        (ethereum-lisp.snap-sync:snap-sync-heal-progress-completed-p
+         progress))))
 
 (defun devnet-snap-heal-progress-log-due-p (last-log-at now completed-p)
   "Whether one cumulative healing snapshot should reach operator telemetry."
@@ -1061,6 +1084,7 @@ must prove the new state root before either record can authorize publication."
          (source-pool (make-devnet-snap-source-pool node pivot-hash))
          (last-heal-log-at nil)
          (last-heal-progress-at (unix-time))
+         (last-heal-progress-work nil)
          (last-heal-target-check-at (unix-time)))
     (devnet-node-activate-snap-pivot-peer-set node pivot-hash)
     (labels
@@ -1114,12 +1138,13 @@ must prove the new state root before either record can authorize publication."
                t)))
          (yield-for-stale-target-p ()
            (let ((now (unix-time)))
-             ;; Advancing either through durable local reuse or accepted peer
-             ;; nodes is productive work on a consensus-authorized pivot. Do
-             ;; not repeatedly discard its exact DFS frontier merely because
-             ;; the live head advances. The yield is an escape hatch only for
-             ;; a genuinely silent healer; ordinary empty responses already
-             ;; retire their source as SNAP-SYNC-STATE-UNAVAILABLE.
+             ;; Advancing through a durable local/remote batch is productive
+             ;; work on a consensus-authorized pivot. Do not repeatedly
+             ;; discard its exact DFS frontier merely because the live head
+             ;; advances. Tiny partial responses remain durable, but do not
+             ;; postpone this escape hatch after public peers have pruned the
+             ;; old root; empty responses already retire their source as
+             ;; SNAP-SYNC-STATE-UNAVAILABLE.
              (when (and
                     (>= now last-heal-progress-at)
                     (>= (- now last-heal-progress-at)
@@ -1234,8 +1259,12 @@ must prove the new state root before either record can authorize publication."
          (let* ((now (unix-time))
                 (completed-p
                   (ethereum-lisp.snap-sync:snap-sync-heal-progress-completed-p
-                   heal-progress)))
-           (setf last-heal-progress-at now)
+                   heal-progress))
+                (work (devnet-snap-heal-progress-work heal-progress)))
+           (when (devnet-snap-heal-productive-progress-p
+                  last-heal-progress-work heal-progress)
+             (setf last-heal-progress-at now
+                   last-heal-progress-work work))
            (when (devnet-snap-heal-progress-log-due-p
                   last-heal-log-at now completed-p)
              (setf last-heal-log-at now)

@@ -445,11 +445,12 @@ them by their physical location instead reintroduces dependency cycles:
   forkchoice target at most every 30 seconds. A typed scheduling condition
   yields to the coordinator only when that CL-authorized target is more than
   120 blocks beyond the active pivot (56 blocks beyond its conventional target)
-  and no healer progress snapshot has
-  arrived for five minutes. Productive local reuse and accepted partial
-  responses therefore retain their exact DFS frontier instead of repeatedly
-  restarting as the live head advances. Peer-advertised heads never enter this
-  decision. The next pass atomically rebases the skeleton and state cursor,
+  and fewer than 2,048 cumulative processed/fetched nodes have arrived for five
+  minutes. This matches the healer's durable checkpoint/reporting granularity:
+  productive local reuse and remote batches retain their exact DFS frontier,
+  while a trickle of tiny partial responses cannot keep a publicly pruned root
+  alive indefinitely. Peer-advertised heads never enter this decision. The
+  next pass atomically rebases the skeleton and state cursor,
   while already durable content-addressed nodes and completed-subtree proofs
   remain reusable.
   Missing, corrupt, or identity-mismatched checkpoints never suppress rebase,

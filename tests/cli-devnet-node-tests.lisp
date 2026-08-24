@@ -1642,8 +1642,17 @@ really reopens the directory instead of observing the first handle's memory."
                   :response-bytes 4096 :completed-p nil))
                 (setf now 698)
                 (is (not (funcall yield-p)))
-                ;; The same stale target becomes yieldable only after five
-                ;; full minutes without another observational snapshot.
+                ;; A tiny partial response is durable progress, but it cannot
+                ;; indefinitely retain a stale pivot that public peers have
+                ;; pruned.  It stays below the 2,048-node productive interval.
+                (funcall
+                 progress-callback
+                 (ethereum-lisp.snap-sync::%make-snap-sync-heal-progress
+                  :processed-nodes 90001 :reused-nodes 89990
+                  :fetched-nodes 10 :request-count 5
+                  :response-bytes 4128 :completed-p nil))
+                ;; The same stale target becomes yieldable after five full
+                ;; minutes without one meaningful local/remote batch.
                 (setf now 699)
                 (is (funcall yield-p))
                 (error 'ethereum-lisp.snap-sync:snap-sync-heal-yielded))))
