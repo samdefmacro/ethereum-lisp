@@ -3939,6 +3939,64 @@
       (is (= 1 (length errors)))
       (is (not paused-p)))))
 
+(deftest snap-state-healer-pipeline-latches-pause-while-draining
+  (:layer :unit :module :p2p)
+  (let* ((lock (sb-thread:make-mutex :name "snap-pipeline-pause-test"))
+         (changed
+           (sb-thread:make-waitqueue :name "snap-pipeline-pause-changed"))
+         (release-slow-p nil)
+         (slow-source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :trie-nodes
+            (lambda (request)
+              (declare (ignore request))
+              (sb-thread:with-mutex (lock)
+                (loop until release-slow-p
+                      do (sb-thread:condition-wait changed lock)))
+              (ethereum-lisp.snap:make-snap-trie-nodes 1 '(#(128))))))
+         (fast-source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :trie-nodes
+            (lambda (request)
+              (declare (ignore request))
+              (ethereum-lisp.snap:make-snap-trie-nodes 1 '(#(128))))))
+         (work
+           (ethereum-lisp.snap-sync::snap-sync-make-heal-work
+            :account nil #(1) (snap-test-hash 200)))
+         (capacities (make-hash-table :test #'eq))
+         (rtts (make-hash-table :test #'eq))
+         (handled 0)
+         (pause-calls 0))
+    (setf (gethash slow-source capacities) 1
+          (gethash fast-source capacities) 1)
+    (multiple-value-bind (remaining errors paused-p)
+        (ethereum-lisp.snap-sync::snap-sync-heal-run-pipeline
+         (list slow-source fast-source) (vector work work work)
+         (snap-test-hash 201) 350 capacities rtts
+         (lambda (result works)
+           (declare (ignore result works))
+           (incf handled)
+           (values nil nil 1))
+         (lambda (room outstanding)
+           (declare (ignore room outstanding))
+           nil)
+         nil
+         (lambda (outstanding)
+           (declare (ignore outstanding))
+           (incf pause-calls)
+           (when (= pause-calls 2)
+             (sb-thread:with-mutex (lock)
+               (setf release-slow-p t)
+               (sb-thread:condition-broadcast changed))
+             t)))
+      (is paused-p)
+      (is (null errors))
+      (is (= 1 (length remaining)))
+      (is (= 2 handled))
+      ;; The predicate is edge-triggered.  A latched pause does not call it
+      ;; again after the slow in-flight response reaches the coordinator.
+      (is (= 2 pause-calls)))))
+
 (deftest snap-state-healer-processes-fetched-nodes-without-rereading-them
   (:layer :unit :module :p2p)
   (let* ((source-state (make-state-db))

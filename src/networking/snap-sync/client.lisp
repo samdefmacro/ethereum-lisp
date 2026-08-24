@@ -3076,7 +3076,8 @@ stops, in-flight responses are integrated, and the exact pending queue is
 returned for a durable checkpoint. The return values are any unprocessed works,
 the finite generation's source errors, and whether a pause requested the return."
   (let ((runtime (make-snap-sync-heal-pipeline-runtime))
-        (errors '()))
+        (errors '())
+        (pause-requested-p nil))
     (labels ((add-sources (candidates)
                (dolist (source candidates)
                  (snap-sync-heal-pipeline-add-source
@@ -3140,7 +3141,16 @@ the finite generation's source errors, and whether a pause requested the return.
                (let* ((outstanding
                         (snap-sync-heal-pipeline-outstanding runtime))
                       (pausing-p
-                        (and pause-p (funcall pause-p outstanding))))
+                        (or
+                         pause-requested-p
+                         (and pause-p (funcall pause-p outstanding)))))
+                 ;; PAUSE-P is an edge-triggered coordinator decision.  Once
+                 ;; observed, keep assignment stopped while the responses
+                 ;; which were already in flight drain.  Re-evaluating a
+                 ;; throttled stale-target predicate after each response can
+                 ;; otherwise return NIL transiently and refill the queue.
+                 (when pausing-p
+                   (setf pause-requested-p t))
                  (unless pausing-p
                    (when refresh-sources
                      (add-sources (funcall refresh-sources)))

@@ -467,10 +467,12 @@ them by their physical location instead reintroduces dependency cycles:
   productive local reuse and remote batches retain their exact DFS frontier,
   while a trickle of tiny partial responses cannot keep a publicly pruned root
   alive indefinitely. The same stale decision is evaluated while the remote
-  event loop is live: it stops assigning new work, integrates every in-flight
-  response, flushes the fetched-node and subtree batches, and then reaches the
-  ordinary coordinator yield seam. Sparse responses therefore cannot keep the
-  pipeline non-quiescent and postpone the decision. Peer-advertised heads never
+  event loop is live: the first positive decision is latched, stops assigning
+  new work, integrates every response already in flight, flushes the
+  fetched-node and subtree batches, and then reaches the ordinary coordinator
+  yield seam. Predicate throttling between those responses cannot re-open
+  assignment. Sparse responses therefore cannot keep the pipeline non-quiescent
+  and postpone the decision. Peer-advertised heads never
   enter this decision. The next pass atomically rebases the skeleton and state cursor,
   while already durable content-addressed nodes and completed-subtree proofs
   remain reusable.
