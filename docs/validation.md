@@ -620,8 +620,18 @@ scripts/hoodi-lisp-benchmark-gate.sh start
 HOODI_LISP_BENCH_ALLOW_MUTATION=1 \
 HOODI_LISP_BENCH_RUNTIME_REVISION=0123456789abcdef0123456789abcdef01234567 \
 HOODI_LISP_BENCH_SOURCE_CONTAINER=hoodi-el-sec5-01234567 \
+scripts/hoodi-lisp-benchmark-gate.sh restart
+
+HOODI_LISP_BENCH_ALLOW_MUTATION=1 \
+HOODI_LISP_BENCH_RUNTIME_REVISION=0123456789abcdef0123456789abcdef01234567 \
+HOODI_LISP_BENCH_SOURCE_CONTAINER=hoodi-el-sec5-01234567 \
 scripts/hoodi-lisp-benchmark-gate.sh restore
 ```
+
+`restart` verifies the exact benchmark ownership, runtime image id, revision,
+and `/data` mount before stopping anything. It keeps the source EL stopped,
+restarts the same candidate container, waits for its loopback-only RPC, and
+prints before/after block, syncing, start-time, and datadir-byte evidence.
 
 The reviewed runtime image must also pass
 `cl-workbench validation run runtime-smoke IMAGE`: this delegates to the

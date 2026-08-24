@@ -351,6 +351,93 @@ exit 1
 REMOTE
 }
 
+restart() {
+    require_mutation
+    ssh "$host" bash -s -- "$revision" "$image" "$container" "$datadir" \
+        "$source" "$ready_timeout" <<'REMOTE'
+set -eu
+revision="$1"; image="$2"; container="$3"; datadir="$4"; source="$5"
+ready_timeout="$6"
+
+[ "$(docker container inspect --format '{{ index .Config.Labels "agent" }}' "$container")" = \
+   codex-ethereum-lisp-same-host-benchmark ] || {
+    echo "benchmark ownership mismatch" >&2; exit 1
+}
+[ "$(docker container inspect --format '{{ index .Config.Labels "io.ethereum-lisp.gate-revision" }}' "$container")" = "$revision" ] || {
+    echo "benchmark revision mismatch" >&2; exit 1
+}
+[ "$(docker container inspect --format '{{.Config.Image}}' "$container")" = "$image" ] || {
+    echo "benchmark image mismatch" >&2; exit 1
+}
+[ "$(docker container inspect --format '{{.Image}}' "$container")" = \
+   "$(docker image inspect --format '{{.Id}}' "$image")" ] || {
+    echo "benchmark image id mismatch" >&2; exit 1
+}
+actual_datadir="$(docker container inspect --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Source}}{{end}}{{end}}' "$container")"
+[ "$actual_datadir" = "$datadir" ] || {
+    echo "benchmark datadir mismatch" >&2; exit 1
+}
+[ "$(docker container inspect --format '{{.State.Running}}' "$container")" = true ] || {
+    echo "benchmark is not running" >&2; exit 1
+}
+[ "$(docker container inspect --format '{{.State.Running}}' "$source")" = false ] || {
+    echo "source EL must remain stopped while the benchmark owns the endpoint" >&2
+    exit 1
+}
+
+resolve_rpc_port() {
+    docker port "$container" 8545/tcp |
+        awk -F: '/127[.]0[.]0[.]1/ {print $NF; exit}'
+}
+rpc() {
+    method="$1"; max_time="${2:-10}"
+    rpc_port="$(resolve_rpc_port)"
+    [ -n "$rpc_port" ] || return 1
+    curl --silent --show-error --max-time "$max_time" \
+        --header 'Content-Type: application/json' \
+        --data "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$method\",\"params\":[]}" \
+        "http://127.0.0.1:$rpc_port"
+}
+
+date -u +before-timestamp=%Y-%m-%dT%H:%M:%SZ
+printf 'before-started='; docker container inspect --format '{{.State.StartedAt}}' "$container"
+printf 'before-datadir-bytes='; du -sb "$datadir" | awk '{print $1}'
+printf 'before-block='; rpc eth_blockNumber; printf '\n'
+printf 'before-syncing='; rpc eth_syncing; printf '\n'
+
+docker stop --time 30 "$container" >/dev/null
+rollback() { docker start "$container" >/dev/null 2>&1 || true; }
+trap rollback EXIT HUP INT TERM
+docker start "$container" >/dev/null
+
+ready=false
+deadline="$(( $(date +%s) + ready_timeout ))"
+while [ "$(date +%s)" -lt "$deadline" ]; do
+    if rpc eth_chainId 10 >/dev/null 2>&1; then
+        ready=true
+        break
+    fi
+    [ "$(docker container inspect --format '{{.State.Running}}' "$container")" = true ] ||
+        break
+    sleep 1
+done
+[ "$ready" = true ] || {
+    docker logs --tail 80 "$container" >&2 || true
+    echo "benchmark public RPC did not return after restart" >&2
+    exit 1
+}
+trap - EXIT HUP INT TERM
+
+date -u +after-timestamp=%Y-%m-%dT%H:%M:%SZ
+printf 'after-started='; docker container inspect --format '{{.State.StartedAt}}' "$container"
+printf 'after-datadir-bytes='; du -sb "$datadir" | awk '{print $1}'
+printf 'after-block='; rpc eth_blockNumber; printf '\n'
+printf 'after-syncing='; rpc eth_syncing; printf '\n'
+printf 'source=%s running=false benchmark=%s running=true benchmark-datadir=%s preserved=true\n' \
+    "$source" "$container" "$datadir"
+REMOTE
+}
+
 restore() {
     require_mutation
     ssh "$host" bash -s -- "$revision" "$image" "$container" "$datadir" \
@@ -399,6 +486,7 @@ case "$action" in
     status) status ;;
     start) start ;;
     resume) resume ;;
+    restart) restart ;;
     restore) restore ;;
-    *) fail "usage: scripts/hoodi-lisp-benchmark-gate.sh status|start|resume|restore" ;;
+    *) fail "usage: scripts/hoodi-lisp-benchmark-gate.sh status|start|resume|restart|restore" ;;
 esac
