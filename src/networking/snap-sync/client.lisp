@@ -5724,6 +5724,7 @@ those cursors. HEAL-YIELD-P is forwarded to final healing."
          (threads '())
          (dependency-threads '())
          (code-threads '())
+         (range-yielded-p nil)
          (errors '()))
     (when (snap-sync-progress-completed-p progress)
       (return-from snap-sync-import-state-multi progress))
@@ -5920,6 +5921,7 @@ those cursors. HEAL-YIELD-P is forwarded to final healing."
                                     range-yield-p
                                     (loop repeat (length result-events)
                                           thereis (funcall range-yield-p)))
+                               (setf range-yielded-p t)
                                (error 'snap-sync-heal-yielded))
                              (refresh-range-sources)))
                          (serious-condition (condition)
@@ -5934,7 +5936,23 @@ those cursors. HEAL-YIELD-P is forwarded to final healing."
         (dolist (thread dependency-threads)
           (sb-thread:join-thread thread))
         (dolist (thread code-threads)
-          (sb-thread:join-thread thread))))))
+          (sb-thread:join-thread thread))
+        ;; A moving-pivot yield is a safe phase boundary: every committed page
+        ;; is durable and every worker has joined. Discard any uncommitted page
+        ;; graphs left in the stopped scheduler before collecting, otherwise
+        ;; successive 12-minute Hoodi pivot windows retain enough old-generation
+        ;; data to exhaust a shared 16-GiB EL/CL host before the final healer.
+        (when range-yielded-p
+          (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
+            (setf (snap-sync-multi-runtime-events runtime) nil
+                  (snap-sync-multi-runtime-dependency-jobs runtime) nil
+                  (snap-sync-multi-runtime-code-jobs runtime) nil)
+            (clrhash (snap-sync-multi-runtime-claims runtime))
+            (clrhash (snap-sync-multi-runtime-code-inflight runtime)))
+          (setf threads nil
+                dependency-threads nil
+                code-threads nil)
+          (snap-sync-release-range-phase-memory))))))
 
 #-sbcl
 (defun snap-sync-import-state-multi (database sources &rest arguments)

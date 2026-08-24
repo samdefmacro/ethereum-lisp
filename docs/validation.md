@@ -466,6 +466,10 @@ content-hash-matched response is decoded once and consumed from the bounded
 response cache, with no per-node point Get and no write-then-reread MultiGet.
 Restoring either redundant production read
 makes `SNAP-STATE-HEALER-PROCESSES-FETCHED-NODES-WITHOUT-REREADING-THEM` fail.
+`SNAP-STATE-IMPORT-MULTI-YIELDS-A-STALE-RANGE-PIVOT-AFTER-DURABILITY`
+also replaces the collection hook with a positive witness and proves that a
+durable moving-pivot yield releases the joined range scheduler exactly once
+before the stale-pivot condition escapes to the coordinator.
 The discovery genesis-filter control forces the store's nonblocking guard probe
 to fail, then proves the node still caches an EIP-2124 context identical to its
 known genesis and enables its ENR record predicate. This keeps a fresh SNAP

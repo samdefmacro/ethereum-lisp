@@ -2074,30 +2074,41 @@
              (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
               source-database source-state))
            (source (snap-test-source backend))
-           (yield-calls 0))
-      (signals ethereum-lisp.snap-sync:snap-sync-heal-yielded
-        (ethereum-lisp.snap-sync:snap-sync-import-state-multi
-         target-database (list source)
-         :pivot-hash (make-hash32 (snap-test-hash 233))
-         :pivot-number 907 :state-root root
-         :target-hash (make-hash32 (snap-test-hash 234))
-         :chain-id 560048
-         :genesis-hash (make-hash32 (snap-test-hash 235))
-         :authority-id (make-hash32 (snap-test-hash 236))
-         :range-yield-p (lambda () (incf yield-calls) t)))
-      (is (= 1 yield-calls))
-      (multiple-value-bind (progress present-p)
-          (ethereum-lisp.snap-sync:snap-sync-read-progress target-database)
-        (is present-p)
-        (when present-p
-          (is (not
-               (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
-                progress)))
-          (is (= 1
-                 (count-if
-                  #'ethereum-lisp.snap-sync:snap-sync-account-task-completed-p
-                  (ethereum-lisp.snap-sync:snap-sync-progress-tasks
-                   progress)))))))))
+           (yield-calls 0)
+           (release-calls 0)
+           (release-name
+             'ethereum-lisp.snap-sync::snap-sync-release-range-phase-memory)
+           (real-release (fdefinition release-name)))
+      (unwind-protect
+           (progn
+             (setf (fdefinition release-name)
+                   (lambda () (incf release-calls)))
+             (signals ethereum-lisp.snap-sync:snap-sync-heal-yielded
+               (ethereum-lisp.snap-sync:snap-sync-import-state-multi
+                target-database (list source)
+                :pivot-hash (make-hash32 (snap-test-hash 233))
+                :pivot-number 907 :state-root root
+                :target-hash (make-hash32 (snap-test-hash 234))
+                :chain-id 560048
+                :genesis-hash (make-hash32 (snap-test-hash 235))
+                :authority-id (make-hash32 (snap-test-hash 236))
+                :range-yield-p (lambda () (incf yield-calls) t)))
+             (is (= 1 yield-calls))
+             (is (= 1 release-calls))
+             (multiple-value-bind (progress present-p)
+                 (ethereum-lisp.snap-sync:snap-sync-read-progress
+                  target-database)
+               (is present-p)
+               (when present-p
+                 (is (not
+                      (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
+                       progress)))
+                 (is (= 1
+                        (count-if
+                         #'ethereum-lisp.snap-sync:snap-sync-account-task-completed-p
+                         (ethereum-lisp.snap-sync:snap-sync-progress-tasks
+                          progress)))))))
+        (setf (fdefinition release-name) real-release)))))
 
 (deftest snap-state-healing-reports-a-typed-source-generation-exhaustion
   (:layer :integration :module :p2p)

@@ -332,7 +332,11 @@ them by their physical location instead reintroduces dependency cycles:
   supported eight-core public-node profile. This
   path uses a 1 GiB sharded block cache on the supported shared 16 GiB EL/CL
   public-node profile instead of RocksDB 11's 32 MiB fallback. At the
-  flat-range-to-healer boundary, joined range-worker garbage is collected once;
+  flat-range-to-healer boundary, joined range-worker garbage is collected once.
+  A moving-pivot yield first joins every worker, drops the stopped scheduler's
+  uncommitted page queues, and performs the same collection before rebasing;
+  successive live-head windows therefore cannot retain old page graphs until
+  the final healer on the shared host. At either boundary,
   healer code-hash deduplication is exact within each 2,048-item batch and then
   released because the next batch rechecks durable code with MultiGet. Ten-bit
   full Bloom filters
