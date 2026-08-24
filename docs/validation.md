@@ -238,6 +238,8 @@ cl-workbench validation run cold-unit \
   --match DEVNET-SNAP-PRODUCTIVE-HEAL-YIELDS-AFTER-SOURCE-POOL-COLLAPSE
 cl-workbench validation run cold-unit \
   --match DEVNET-SNAP-PRODUCTIVE-HEAL-YIELDS-AFTER-UNDERFILLED-RESPONSES
+cl-workbench validation run cold-unit \
+  --match DEVNET-SNAP-EXHAUSTED-SOURCE-GENERATION-YIELDS-TO-A-STALE-CONSENSUS-TARGET
 cl-workbench validation run cold-integration \
   --match SNAP-STATE-IMPORT-MULTI-YIELDS-A-STALE-RANGE-PIVOT-AFTER-DURABILITY
 cl-workbench validation run cold-integration \

@@ -184,13 +184,16 @@ them by their physical location instead reintroduces dependency cycles:
   across finite coordinator passes for the lifetime of the same pivot. A failed
   account peer releases only its claimed range for another worker. If every
   peer in that finite source snapshot fails, the CLI keeps the node and Engine
-  API alive and waits for genuinely new sources at the same durable per-range
-  cursors; it does not re-probe the rejected sessions or churn to a new root
-  every second. The process-local rejection set clears when the geth-style
-  stale window selects a genuinely new pivot and is never a peer score or
-  permanent ban. During final healing, a pool that reached at least eight live
-  sources also yields a CL-stale target when more than half that observed
-  capacity remains unavailable for five minutes, even if the few residual
+  API alive at the same durable per-range cursors. Inside geth's pivot-retention
+  window it waits for genuinely new sources and does not re-probe rejected
+  sessions or churn roots every second. Outside that window, aggregate explicit
+  state-unavailable from the whole generation yields immediately when a newer
+  CL-authorized target is known, even for an intrinsically small pool; peer
+  heads still cannot authorize the replacement. The process-local rejection
+  set clears when that successor selects a genuinely new pivot and is never a
+  peer score or permanent ban. During final healing, a pool that reached at
+  least eight live sources also yields a CL-stale target when more than half
+  that observed capacity remains unavailable for five minutes, even if the few residual
   sources still return small productive batches. A numerically stable pool has
   an independent bounded-yield check: after one healthy response window, at
   least sixty-four later TrieNodes requests averaging fewer than eight fetched

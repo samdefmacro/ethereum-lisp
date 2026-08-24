@@ -1246,11 +1246,24 @@ must prove the new state root before either record can authorize publication."
       (unless sources
         (eth-sync-multi-peer-fail
          "no live snap peer can import pivot ~A" (hash32-to-hex pivot-hash)))
-      (ethereum-lisp.snap-sync:snap-sync-import-state-multi
-       database sources
-       :pivot-hash pivot-hash :pivot-number pivot-number
-       :state-root state-root :target-hash target-hash
-       :chain-id (chain-config-chain-id (devnet-node-config node))
+      (handler-bind
+          ((ethereum-lisp.snap-sync:snap-sync-state-unavailable
+             (lambda (condition)
+               (declare (ignore condition))
+               ;; Aggregate exhaustion means that every source in this finite
+               ;; generation explicitly refused the authorized state root.
+               ;; Keep waiting inside geth's pivot-retention window, but when
+               ;; the CL has already authorized a sufficiently newer target,
+               ;; yield immediately instead of restarting counters on the same
+               ;; publicly pruned root.  Inner per-source handlers run first;
+               ;; this sees only the final unhandled availability result.
+               (when (stale-target-p "sources-unavailable")
+                 (error 'ethereum-lisp.snap-sync:snap-sync-heal-yielded)))))
+        (ethereum-lisp.snap-sync:snap-sync-import-state-multi
+         database sources
+         :pivot-hash pivot-hash :pivot-number pivot-number
+         :state-root state-root :target-hash target-hash
+         :chain-id (chain-config-chain-id (devnet-node-config node))
        :genesis-hash (block-hash (devnet-node-genesis-block node))
        :authority-id (devnet-persistence-state-authority-id persistence)
        :heal-source-provider #'refresh-sources
@@ -1442,7 +1455,7 @@ must prove the new state root before either record can authorize publication."
                (lambda ()
                  (devnet-peer-note-score
                   (devnet-node-peer-table node)
-                  (devnet-peer-entry-id-hex entry) -50)))))))))))
+                  (devnet-peer-entry-id-hex entry) -50))))))))))))
 
 (defun devnet-node-snap-sync-pivot-attempt (node target-hash)
   "Download and execute the conventional target-64 pivot for TARGET-HASH."

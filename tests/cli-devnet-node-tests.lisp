@@ -1789,6 +1789,88 @@ really reopens the directory instead of observing the first handle's memory."
         (is (= 205 (field "successor")))
         (is (string= "source-collapse" (field "reason")))))))
 
+(deftest devnet-snap-exhausted-source-generation-yields-to-a-stale-consensus-target
+  (:layer :unit :module :p2p)
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (database (make-memory-key-value-database))
+         (pivot-header (block-header
+                        (ethereum-lisp.cli::devnet-node-genesis-block node)))
+         (target-hash
+           (make-hash32 (make-byte-vector 32 :initial-element 95)))
+         (successor-hash
+           (make-hash32 (make-byte-vector 32 :initial-element 96)))
+         (source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :account-range (lambda (request) (declare (ignore request)))
+            :storage-ranges (lambda (request) (declare (ignore request)))
+            :bytecodes (lambda (request) (declare (ignore request)))
+            :trie-nodes (lambda (request) (declare (ignore request)))))
+         (entry
+           (ethereum-lisp.cli::make-devnet-peer-entry :id-hex "peer-1"))
+         (stale-successor-p nil)
+         (attempts 0)
+         (logs '()))
+    (devnet-peer-sync-call-with-function-overrides
+     (list
+      (cons 'ethereum-lisp.cli::devnet-node-live-sync-entries
+            (lambda (seen-node &key snap-only-p)
+              (is (eq node seen-node))
+              (is snap-only-p)
+              (list entry)))
+      (cons 'ethereum-lisp.cli::devnet-peer-queued-snap-source
+            (lambda (seen-entry)
+              (is (eq entry seen-entry))
+              source))
+      (cons 'ethereum-lisp.cli::devnet-node-stale-snap-successor
+            (lambda (seen-node seen-target seen-number)
+              (is (eq node seen-node))
+              (is (hash32= target-hash seen-target))
+              (is (= 0 seen-number))
+              (if stale-successor-p
+                  (values successor-hash 225)
+                  (values nil nil))))
+      (cons 'ethereum-lisp.snap-sync:snap-sync-import-state-multi
+            (lambda (seen-database sources &rest arguments)
+              (declare (ignore arguments))
+              (is (eq database seen-database))
+              (is (= 1 (length sources)))
+              (incf attempts)
+              (ethereum-lisp.snap-sync:snap-sync-state-unavailable
+               "bytecodes")))
+      (cons 'ethereum-lisp.cli::devnet-peer-manager-log
+            (lambda (seen-node name &rest fields)
+              (is (eq node seen-node))
+              (push (cons name fields) logs))))
+     (lambda ()
+       ;; Finite source exhaustion inside the retention window preserves the
+       ;; exact pivot and lets the ordinary coordinator wait for a new source.
+       (signals ethereum-lisp.snap-sync:snap-sync-state-unavailable
+         (ethereum-lisp.cli::devnet-node-snap-import-with-failover
+          node database pivot-header target-hash :target-number 64))
+       ;; The same explicit exhaustion must yield once a newer CL-authorized
+       ;; target lies beyond the pinned geth stale-pivot window.
+       (setf stale-successor-p t)
+       (signals ethereum-lisp.snap-sync:snap-sync-heal-yielded
+         (ethereum-lisp.cli::devnet-node-snap-import-with-failover
+          node database pivot-header target-hash :target-number 64))))
+    (is (= 2 attempts))
+    (let ((record
+            (find "peer.snap.target_stale" logs
+                  :key #'first :test #'string=)))
+      (is record)
+      (flet ((field (name)
+               (loop for (key value) on (cdr record) by #'cddr
+                     when (string= key name) return value)))
+        (is (= 64 (field "target")))
+        (is (= 225 (field "successor")))
+        (is (string= "sources-unavailable" (field "reason")))
+        (is (string= (hash32-to-hex target-hash) (field "targetHash")))
+        (is (string= (hash32-to-hex successor-hash)
+                     (field "successorHash")))))))
+
 (deftest devnet-snap-productive-heal-yields-after-underfilled-responses
   (:layer :unit :module :p2p)
   (let* ((node
