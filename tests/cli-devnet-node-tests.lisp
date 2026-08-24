@@ -1899,6 +1899,95 @@ really reopens the directory instead of observing the first handle's memory."
         (is (string= (hash32-to-hex successor-hash)
                      (field "successorHash")))))))
 
+(deftest devnet-snap-recent-efficient-heal-retains-exhausted-source-generation
+  (:layer :unit :module :p2p)
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (database (make-memory-key-value-database))
+         (pivot-header (block-header
+                        (ethereum-lisp.cli::devnet-node-genesis-block node)))
+         (target-hash
+           (make-hash32 (make-byte-vector 32 :initial-element 97)))
+         (successor-hash
+           (make-hash32 (make-byte-vector 32 :initial-element 98)))
+         (source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :account-range (lambda (request) (declare (ignore request)))
+            :storage-ranges (lambda (request) (declare (ignore request)))
+            :bytecodes (lambda (request) (declare (ignore request)))
+            :trie-nodes (lambda (request) (declare (ignore request)))))
+         (entry
+           (ethereum-lisp.cli::make-devnet-peer-entry :id-hex "peer-1"))
+         (now 100)
+         (attempts 0)
+         (logs '()))
+    (devnet-peer-sync-call-with-function-overrides
+     (list
+      (cons 'ethereum-lisp.cli::unix-time (lambda () now))
+      (cons 'ethereum-lisp.cli::devnet-node-live-sync-entries
+            (lambda (seen-node &key snap-only-p)
+              (is (eq node seen-node))
+              (is snap-only-p)
+              (list entry)))
+      (cons 'ethereum-lisp.cli::devnet-peer-queued-snap-source
+            (lambda (seen-entry)
+              (is (eq entry seen-entry))
+              source))
+      (cons 'ethereum-lisp.cli::devnet-node-stale-snap-successor
+            (lambda (seen-node seen-target seen-number)
+              (is (eq node seen-node))
+              (is (hash32= target-hash seen-target))
+              (is (= 0 seen-number))
+              (values successor-hash 225)))
+      (cons 'ethereum-lisp.snap-sync:snap-sync-import-state-multi
+            (lambda (seen-database sources &rest arguments)
+              (is (eq database seen-database))
+              (is (= 1 (length sources)))
+              (incf attempts)
+              (let ((progress-callback (getf arguments :on-heal-progress)))
+                (is (functionp progress-callback))
+                (case attempts
+                  (1
+                   (funcall
+                    progress-callback
+                    (ethereum-lisp.snap-sync::%make-snap-sync-heal-progress
+                     :processed-nodes 0 :reused-nodes 0 :fetched-nodes 0
+                     :request-count 0 :response-bytes 0 :completed-p nil))
+                   (setf now 110)
+                   (funcall
+                    progress-callback
+                    (ethereum-lisp.snap-sync::%make-snap-sync-heal-progress
+                     :processed-nodes 1024 :reused-nodes 0
+                     :fetched-nodes 1024 :request-count 64
+                     :response-bytes 262144 :completed-p nil))
+                   (setf now 111))
+                  (2 (setf now 409))
+                  (3 (setf now 410))))
+              (ethereum-lisp.snap-sync:snap-sync-state-unavailable
+               "trie-nodes")))
+      (cons 'ethereum-lisp.cli::devnet-peer-manager-log
+            (lambda (seen-node name &rest fields)
+              (is (eq node seen-node))
+              (push (cons name fields) logs))))
+     (lambda ()
+       ;; A generation which just returned a full useful response window is
+       ;; retained across more than one finite coordinator attempt.
+       (signals ethereum-lisp.snap-sync:snap-sync-state-unavailable
+         (ethereum-lisp.cli::devnet-node-snap-import-with-failover
+          node database pivot-header target-hash :target-number 64))
+       (signals ethereum-lisp.snap-sync:snap-sync-state-unavailable
+         (ethereum-lisp.cli::devnet-node-snap-import-with-failover
+          node database pivot-header target-hash :target-number 64))
+       ;; The exact five-minute boundary restores the stale-target escape.
+       (signals ethereum-lisp.snap-sync:snap-sync-heal-yielded
+         (ethereum-lisp.cli::devnet-node-snap-import-with-failover
+          node database pivot-header target-hash :target-number 64))))
+    (is (= 3 attempts))
+    (is (= 1 (count "peer.snap.target_stale" logs
+                    :key #'first :test #'string=)))))
+
 (deftest devnet-snap-productive-heal-yields-after-underfilled-responses
   (:layer :unit :module :p2p)
   (let* ((node
@@ -2598,6 +2687,77 @@ really reopens the directory instead of observing the first handle's memory."
     (is (string= "peer.snap.pivot_unavailable" (caar logs)))
     (is (= 0 (ethereum-lisp.cli::devnet-peer-score
               (ethereum-lisp.cli::devnet-node-peer-table node) peer-id)))))
+
+(deftest devnet-snap-exhausted-selection-retains-recent-efficient-pivot
+  (:layer :integration :module :p2p)
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (entry
+           (ethereum-lisp.cli::make-devnet-peer-entry
+            :id-hex "recent-efficient-peer"))
+         (pivot
+           (make-block-header
+            :number 100 :gas-limit 30000000
+            :state-root
+            (make-hash32 (make-byte-vector 32 :initial-element 31))))
+         (target
+           (make-block-header
+            :number 164 :gas-limit 30000000
+            :state-root
+            (make-hash32 (make-byte-vector 32 :initial-element 32))))
+         (pivot-hash (block-header-hash pivot))
+         (target-hash (block-header-hash target))
+         (successor-hash
+           (make-hash32 (make-byte-vector 32 :initial-element 33)))
+         (now 110)
+         (logs '()))
+    (ethereum-lisp.cli::devnet-node-note-snap-pivot-unavailable
+     node pivot-hash entry)
+    (ethereum-lisp.cli::devnet-node-note-snap-pivot-efficient-response
+     node pivot-hash now)
+    (devnet-peer-sync-call-with-function-overrides
+     (list
+      (cons 'ethereum-lisp.cli::unix-time (lambda () now))
+      (cons 'ethereum-lisp.cli::devnet-node-live-sync-entries
+            (lambda (seen-node &key snap-only-p)
+              (is (eq node seen-node))
+              (is snap-only-p)
+              (list entry)))
+      (cons 'ethereum-lisp.cli::devnet-node-stale-snap-successor
+            (lambda (seen-node seen-target seen-number)
+              (is (eq node seen-node))
+              (is (hash32= target-hash seen-target))
+              (is (= 100 seen-number))
+              (values successor-hash 225)))
+      (cons 'ethereum-lisp.cli::devnet-peer-manager-log
+            (lambda (seen-node name &rest fields)
+              (is (eq node seen-node))
+              (push (cons name fields) logs))))
+     (lambda ()
+       ;; The rejection set filters the whole old generation, but recent
+       ;; serving evidence still pins the exact root on the next pass.
+       (setf now 409)
+       (signals ethereum-lisp.eth-sync:eth-sync-multi-peer-error
+         (ethereum-lisp.cli::devnet-node-select-snap-pivot
+          node entry (list pivot target)))
+       ;; Selection itself performs the eventual escape: no importer remains
+       ;; available to raise another aggregate state-unavailable condition.
+       (setf now 410)
+       (signals ethereum-lisp.snap-sync:snap-sync-heal-yielded
+         (ethereum-lisp.cli::devnet-node-select-snap-pivot
+          node entry (list pivot target)))))
+    (let ((record
+            (find "peer.snap.target_stale" logs
+                  :key #'first :test #'string=)))
+      (is record)
+      (flet ((field (name)
+               (loop for (key value) on (cdr record) by #'cddr
+                     when (string= key name) return value)))
+        (is (= 164 (field "target")))
+        (is (= 225 (field "successor")))
+        (is (string= "sources-unavailable" (field "reason")))))))
 
 (deftest devnet-snap-full-import-pruning-waits-for-a-new-source
   (:layer :integration :module :p2p)

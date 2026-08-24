@@ -219,8 +219,13 @@ most one follow-up pass, so peer traffic cannot allocate unbounded wakeup work."
   ;; pivot clears the set; restart also deliberately gives peers a fresh chance.
   snap-unavailable-pivot-hash
   (snap-unavailable-peer-ids (make-hash-table :test #'equal))
+  ;; The last useful bounded TrieNodes response window for the active pivot.
+  ;; Keep this beside the rejection set so a finite coordinator retry cannot
+  ;; forget that the supposedly exhausted generation was serving efficiently
+  ;; only seconds earlier. A genuinely new pivot clears both observations.
+  snap-heal-last-efficient-response-at
   ;; Dependency workers can discover pruning concurrently with coordinator
-  ;; callbacks. This lock protects only the two process-local fields above and
+  ;; callbacks. This lock protects only the process-local fields above and
   ;; is never held across peer, store, or source-pool I/O.
   (snap-unavailable-peer-lock
     #+sbcl (sb-thread:make-mutex

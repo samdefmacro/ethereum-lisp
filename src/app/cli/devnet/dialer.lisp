@@ -603,7 +603,8 @@ into a permanent peer ban."))
   (let ((active (devnet-node-snap-unavailable-pivot-hash node)))
     (unless (and active (hash32= active pivot-hash))
       (setf (devnet-node-snap-unavailable-pivot-hash node)
-            (make-hash32 (hash32-bytes pivot-hash)))
+            (make-hash32 (hash32-bytes pivot-hash))
+            (devnet-node-snap-heal-last-efficient-response-at node) nil)
       (clrhash (devnet-node-snap-unavailable-peer-ids node))))
   node)
 
@@ -635,6 +636,46 @@ into a permanent peer ban."))
             (hash32= active pivot-hash)
             (gethash (devnet-peer-entry-id-hex entry)
                      (devnet-node-snap-unavailable-peer-ids node)))))))
+
+(defun devnet-node-note-snap-pivot-efficient-response
+    (node pivot-hash now)
+  "Remember useful remote healer capacity across finite coordinator passes."
+  (call-with-devnet-mutex
+   (devnet-node-snap-unavailable-peer-lock node)
+   (lambda ()
+     (devnet-node-activate-snap-pivot-peer-set-locked node pivot-hash)
+     (setf (devnet-node-snap-heal-last-efficient-response-at node) now)))
+  now)
+
+(defun devnet-node-snap-pivot-recent-efficient-response-p
+    (node pivot-hash now)
+  "Whether PIVOT-HASH proved useful remote capacity in the retention window."
+  (call-with-devnet-mutex
+   (devnet-node-snap-unavailable-peer-lock node)
+   (lambda ()
+     (let ((active (devnet-node-snap-unavailable-pivot-hash node))
+           (last (devnet-node-snap-heal-last-efficient-response-at node)))
+       (and active last
+            (hash32= active pivot-hash)
+            (or (< now last)
+                (< (- now last)
+                   +devnet-snap-heal-source-collapse-interval-seconds+)))))))
+
+(defun devnet-node-snap-pivot-source-generation-exhausted-p
+    (node pivot-hash live-entries)
+  "Whether a non-empty rejected generation covers every currently live peer."
+  (call-with-devnet-mutex
+   (devnet-node-snap-unavailable-peer-lock node)
+   (lambda ()
+     (let ((active (devnet-node-snap-unavailable-pivot-hash node))
+           (unavailable (devnet-node-snap-unavailable-peer-ids node)))
+       (and active
+            (hash32= active pivot-hash)
+            (plusp (hash-table-count unavailable))
+            (every
+             (lambda (entry)
+               (gethash (devnet-peer-entry-id-hex entry) unavailable))
+             live-entries))))))
 
 (defun devnet-peer-queued-snap-source (entry)
   "Build a per-type-pipelined, rate-adaptive SNAP source for ENTRY."
@@ -993,6 +1034,41 @@ unavailability is an availability fact, never a peer penalty."
               (and durable-pivot-number
                    (< (block-header-number header) durable-pivot-number)))
             (list (first tail-headers)))))
+    ;; Aggregate state-unavailable marks every member of one finite source
+    ;; generation. A coordinator retry may therefore have nothing left to
+    ;; probe. Retain the pivot while its last bounded TrieNodes window was
+    ;; efficient, then perform the same CL-authorized stale-root escape here
+    ;; once that evidence ages out. Without this cross-pass check, suppressing
+    ;; one transient exhaustion would pin the root forever after its rejection
+    ;; set filtered the next pass.
+    (when candidates
+      (let* ((pivot-header (first candidates))
+             (pivot-hash (block-header-hash pivot-header))
+             (pivot-number (block-header-number pivot-header))
+             (target-header (car (last tail-headers)))
+             (target-hash (block-header-hash target-header))
+             (target-number (block-header-number target-header))
+             (now (unix-time)))
+        (devnet-node-activate-snap-pivot-peer-set node pivot-hash)
+        (when (and
+               (devnet-node-snap-pivot-source-generation-exhausted-p
+                node pivot-hash live)
+               (not
+                (devnet-node-snap-pivot-recent-efficient-response-p
+                 node pivot-hash now)))
+          (multiple-value-bind (successor successor-number)
+              (devnet-node-stale-snap-successor
+               node target-hash pivot-number)
+            (when successor
+              (devnet-peer-manager-log
+               node "peer.snap.target_stale"
+               "target" target-number
+               "targetHash" (hash32-to-hex target-hash)
+               "successor" successor-number
+               "successorHash" (hash32-to-hex successor)
+               "reason" "sources-unavailable")
+              (error
+               'ethereum-lisp.snap-sync:snap-sync-heal-yielded))))))
     (dolist (header candidates
              (eth-sync-multi-peer-fail
               "no snap peer could serve an authorized pivot for target ~A"
@@ -1277,12 +1353,19 @@ must prove the new state root before either record can authorize publication."
                (declare (ignore condition))
                ;; Aggregate exhaustion means that every source in this finite
                ;; generation explicitly refused the authorized state root.
-               ;; Keep waiting inside geth's pivot-retention window, but when
-               ;; the CL has already authorized a sufficiently newer target,
-               ;; yield immediately instead of restarting counters on the same
-               ;; publicly pruned root.  Inner per-source handlers run first;
-               ;; this sees only the final unhandled availability result.
-               (when (stale-target-p "sources-unavailable")
+               ;; Inner per-source handlers run first; this sees only the final
+               ;; unhandled availability result. A public generation can still
+               ;; disappear transiently immediately after serving a full
+               ;; response window. Preserve that evidence across coordinator
+               ;; passes and wait for replacements for the same bounded five-
+               ;; minute window. The selection path performs the eventual
+               ;; stale-root escape even when every rejected peer is filtered
+               ;; before another importer can start.
+               (when (and
+                      (not
+                       (devnet-node-snap-pivot-recent-efficient-response-p
+                        node pivot-hash (unix-time)))
+                      (stale-target-p "sources-unavailable"))
                  (error 'ethereum-lisp.snap-sync:snap-sync-heal-yielded)))))
         (ethereum-lisp.snap-sync:snap-sync-import-state-multi
          database sources
@@ -1410,8 +1493,11 @@ must prove the new state root before either record can authorize publication."
              (if (devnet-snap-heal-response-window-efficient-p
                   heal-efficiency-fetched heal-efficiency-requests
                   heal-progress)
-                 (setf last-heal-efficient-response-at now
-                       heal-underfilled-response-window-p nil)
+                 (progn
+                   (setf last-heal-efficient-response-at now
+                         heal-underfilled-response-window-p nil)
+                   (devnet-node-note-snap-pivot-efficient-response
+                    node pivot-hash now))
                  (setf heal-underfilled-response-window-p t))
              (setf heal-efficiency-fetched fetched
                    heal-efficiency-requests requests))

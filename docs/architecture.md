@@ -186,12 +186,18 @@ them by their physical location instead reintroduces dependency cycles:
   peer in that finite source snapshot fails, the CLI keeps the node and Engine
   API alive at the same durable per-range cursors. Inside geth's pivot-retention
   window it waits for genuinely new sources and does not re-probe rejected
-  sessions or churn roots every second. Outside that window, aggregate explicit
-  state-unavailable from the whole generation yields immediately when a newer
-  CL-authorized target is known, even for an intrinsically small pool; peer
-  heads still cannot authorize the replacement. The process-local rejection
-  set clears when that successor selects a genuinely new pivot and is never a
-  peer score or permanent ban. During final healing, a pool that reached at
+  sessions or churn roots every second. Aggregate explicit state-unavailable
+  from the whole generation normally yields when a newer CL-authorized target
+  is known, even for an intrinsically small pool; peer heads still cannot
+  authorize the replacement. If that generation produced an efficient bounded
+  TrieNodes response window during the preceding five minutes, however, its
+  exhaustion is treated as transient churn and the exact pivot waits for a new
+  source. This evidence survives finite coordinator passes. Once it expires,
+  pivot selection performs the same stale-target yield even when the rejection
+  set filters every source before another importer can start. The process-local
+  rejection set and response evidence clear when that successor selects a
+  genuinely new pivot and are never a peer score or permanent ban. During final
+  healing, a pool that reached at
   least eight live sources also yields a CL-stale target when more than half
   that observed capacity remains unavailable for five minutes, even if the few
   residual sources still return small productive batches. A collapsed pool
