@@ -153,6 +153,12 @@ first, so a long backfill does not starve a short one."
 (defconstant +devnet-snap-heal-productive-node-interval+ 2048
   "Minimum cumulative processed/fetched work that keeps an old pivot active.")
 
+(defconstant +devnet-snap-heal-source-collapse-interval-seconds+ 300
+  "How long a collapsed healer source pool may retain a stale pivot.")
+
+(defconstant +devnet-snap-heal-source-high-water-minimum+ 8
+  "Minimum observed healer source count before relative collapse applies.")
+
 (defun devnet-snap-heal-progress-work (progress)
   "Return the monotonic work units relevant to stale-pivot scheduling."
   (+
@@ -172,6 +178,18 @@ the healer's durable node/checkpoint reporting granularity."
             +devnet-snap-heal-productive-node-interval+)
         (ethereum-lisp.snap-sync:snap-sync-heal-progress-completed-p
          progress))))
+
+(defun devnet-snap-heal-source-pool-collapsed-p (current high-water)
+  "Whether a formerly useful healer source pool has lost over half its peers.
+
+The relative test avoids churning a stable, intrinsically small public peer
+set.  Once a heal has demonstrated enough capacity, however, retaining a root
+after most of those peers prune it converts a finite rebase into a slow tail on
+one or two exceptional sources."
+  (and (integerp current) (not (minusp current))
+       (integerp high-water)
+       (>= high-water +devnet-snap-heal-source-high-water-minimum+)
+       (< (* 2 current) high-water)))
 
 (defun devnet-snap-heal-progress-log-due-p (last-log-at now completed-p)
   "Whether one cumulative healing snapshot should reach operator telemetry."
@@ -1085,7 +1103,10 @@ must prove the new state root before either record can authorize publication."
          (last-heal-log-at nil)
          (last-heal-progress-at (unix-time))
          (last-heal-progress-work nil)
-         (last-heal-target-check-at (unix-time)))
+         (last-heal-target-check-at (unix-time))
+         (heal-source-count 0)
+         (heal-source-high-water 0)
+         (last-heal-source-healthy-at (unix-time)))
     (devnet-node-activate-snap-pivot-peer-set node pivot-hash)
     (labels
         ((ordered-live-entries ()
@@ -1118,13 +1139,20 @@ must prove the new state root before either record can authorize publication."
                 node "peer.snap.sources_refreshed"
                 "pivot" pivot-number "added" added
                 "sources" (length current)))
+             (let ((now (unix-time)))
+               (setf heal-source-count (length current)
+                     heal-source-high-water
+                     (max heal-source-high-water heal-source-count))
+               (unless (devnet-snap-heal-source-pool-collapsed-p
+                        heal-source-count heal-source-high-water)
+                 (setf last-heal-source-healthy-at now)))
              (mapcar
               (lambda (entry)
                 (car (find entry source-entries :key #'cdr :test #'eq)))
               current)))
          (entry-for-source (source)
            (cdr (assoc source source-entries :test #'eq)))
-         (stale-target-p ()
+         (stale-target-p (reason)
            (multiple-value-bind (successor successor-number)
                (devnet-node-stale-snap-successor
                 node target-hash pivot-number)
@@ -1134,7 +1162,8 @@ must prove the new state root before either record can authorize publication."
                 "target" target-number
                 "targetHash" (hash32-to-hex target-hash)
                 "successor" successor-number
-                "successorHash" (hash32-to-hex successor))
+                "successorHash" (hash32-to-hex successor)
+                "reason" reason)
                t)))
          (yield-for-stale-target-p ()
            (let ((now (unix-time)))
@@ -1144,16 +1173,31 @@ must prove the new state root before either record can authorize publication."
              ;; advances. Tiny partial responses remain durable, but do not
              ;; postpone this escape hatch after public peers have pruned the
              ;; old root; empty responses already retire their source as
-             ;; SNAP-SYNC-STATE-UNAVAILABLE.
-             (when (and
-                    (>= now last-heal-progress-at)
-                    (>= (- now last-heal-progress-at)
-                        +devnet-snap-heal-stall-interval-seconds+)
+             ;; SNAP-SYNC-STATE-UNAVAILABLE. A pool which once demonstrated
+             ;; useful width may also yield after over half its sources remain
+             ;; absent for the same bounded interval: sparse residual traffic
+             ;; must not pin a root after the public serving window collapses.
+             (let ((reason
+                     (cond
+                       ((and
+                         (>= now last-heal-progress-at)
+                         (>= (- now last-heal-progress-at)
+                             +devnet-snap-heal-stall-interval-seconds+))
+                        "progress-stalled")
+                       ((and
+                         (devnet-snap-heal-source-pool-collapsed-p
+                          heal-source-count heal-source-high-water)
+                         (>= now last-heal-source-healthy-at)
+                         (>= (- now last-heal-source-healthy-at)
+                             +devnet-snap-heal-source-collapse-interval-seconds+))
+                        "source-collapse"))))
+               (when (and
+                    reason
                     (or (< now last-heal-target-check-at)
                         (>= (- now last-heal-target-check-at)
                             +devnet-snap-heal-target-check-interval-seconds+)))
-               (setf last-heal-target-check-at now)
-               (stale-target-p)))))
+                 (setf last-heal-target-check-at now)
+                 (stale-target-p reason))))))
       (setf sources (refresh-sources))
       (unless sources
         (eth-sync-multi-peer-fail

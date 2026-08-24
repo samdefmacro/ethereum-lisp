@@ -188,8 +188,15 @@ them by their physical location instead reintroduces dependency cycles:
   cursors; it does not re-probe the rejected sessions or churn to a new root
   every second. The process-local rejection set clears when the geth-style
   stale window selects a genuinely new pivot and is never a peer score or
-  permanent ban. While an import is active, the dialer retains at least sixteen
-  live non-degraded SNAP sessions when the configured peer limit permits it.
+  permanent ban. During final healing, a pool that reached at least eight live
+  sources also yields a CL-stale target when more than half that observed
+  capacity remains unavailable for five minutes, even if the few residual
+  sources still return small productive batches. A stable intrinsically small
+  pool does not satisfy that relative-collapse policy. This keeps content-
+  addressed progress moving across public state-retention windows instead of
+  pinning a doomed old root. While an import is active, the dialer retains at
+  least sixteen live non-degraded SNAP sessions when the configured peer limit
+  permits it.
   A failed capability is recorded by response type; success in unrelated SNAP
   traffic cannot hide it, and the still-useful ETH transport no longer counts
   toward the SNAP target while discovery seeks a replacement. Its dedicated
