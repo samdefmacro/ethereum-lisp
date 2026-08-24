@@ -3281,6 +3281,62 @@
       (is (null root))
       (is (not present-p)))))
 
+#+sbcl
+(deftest snap-state-healer-pauses-a-live-pipeline-for-stale-yield
+  (:layer :unit :module :p2p)
+  (let* ((database (make-memory-key-value-database))
+         (pivot-bytes (snap-test-hash 237))
+         (source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :account-range (lambda (request) (declare (ignore request)))
+            :storage-ranges (lambda (request) (declare (ignore request)))
+            :bytecodes (lambda (request) (declare (ignore request)))
+            :trie-nodes
+            (lambda (request)
+              (declare (ignore request))
+              (error "The synthetic pipeline must not issue a peer request"))))
+         (progress
+           (ethereum-lisp.snap-sync::snap-sync-make-progress
+            :pivot-hash (make-hash32 pivot-bytes)
+            :pivot-number 7001
+            :state-root (make-hash32 (snap-test-hash 238))
+            :partial-root +empty-trie-hash+
+            :target-hash (make-hash32 (snap-test-hash 239))
+            :chain-id 560048
+            :genesis-hash (make-hash32 (snap-test-hash 240))
+            :authority-id (make-hash32 (snap-test-hash 241))
+            :completed-p nil
+            :tasks
+            (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+             :count 1 :completed-p t)))
+         (pipeline-name
+           'ethereum-lisp.snap-sync::snap-sync-heal-run-pipeline)
+         (real-pipeline (fdefinition pipeline-name))
+         (yield-calls 0)
+         (pipeline-pause-seen-p nil))
+    (unwind-protect
+         (progn
+           (setf
+            (fdefinition pipeline-name)
+            (lambda (&rest arguments)
+              (let ((pause-p (nth 9 arguments)))
+                (is (functionp pause-p))
+                ;; The first coordinator seam retained the pivot.  A stale
+                ;; decision reached while the remote pipeline was live must
+                ;; request a pause before another response/refill cycle.
+                (setf pipeline-pause-seen-p (funcall pause-p 1))
+                (values nil nil pipeline-pause-seen-p))))
+           (signals ethereum-lisp.snap-sync:snap-sync-heal-yielded
+             (ethereum-lisp.snap-sync::snap-sync-heal-state
+              database (list source) progress (* 2 1024 1024)
+              :heal-yield-p
+              (lambda ()
+                (incf yield-calls)
+                (> yield-calls 1))))
+           (is pipeline-pause-seen-p)
+           (is (>= yield-calls 3)))
+      (setf (fdefinition pipeline-name) real-pipeline))))
+
 (deftest snap-heal-checkpoint-bounds-large-live-frontiers
   (:layer :unit :module :p2p)
   ;; A real Hoodi soft-limit left an older fetched batch below the subtree being

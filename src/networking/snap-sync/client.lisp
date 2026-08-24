@@ -5030,11 +5030,21 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                   (labels
                  ((pipeline-checkpoint-due-p (outstanding)
                     (setf remote-work-count outstanding)
-                    (and
-                     (checkpoint-due-p)
-                     (<= (+ (length stack) deferred-storage-count
-                            remote-work-count)
-                         +snap-sync-heal-checkpoint-max-works+)))
+                    (or
+                     ;; A stale-root decision is independent from the normal
+                     ;; checkpoint cadence.  Stop assigning new work now;
+                     ;; SNAP-SYNC-HEAL-RUN-PIPELINE still drains every
+                     ;; in-flight response before returning the pending queue,
+                     ;; so the caller reaches the ordinary durable batch seam.
+                     ;; Without this check, one-node responses can refill the
+                     ;; pipeline forever and postpone HEAL-YIELD-P until the
+                     ;; entire remote frontier happens to become quiescent.
+                     (and heal-yield-p (funcall heal-yield-p))
+                     (and
+                      (checkpoint-due-p)
+                      (<= (+ (length stack) deferred-storage-count
+                             remote-work-count)
+                          +snap-sync-heal-checkpoint-max-works+))))
                   (retire-source (source condition)
                     (when (typep
                            condition
