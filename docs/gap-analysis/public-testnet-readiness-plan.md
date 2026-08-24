@@ -301,7 +301,12 @@ The implementation boundary is split deliberately:
   marker only after its descendants and external dependencies are complete.
   Legacy progress stays conservative, so an upgrade cannot trust unclassified
   nodes. The CLI advertises snap only when both sides are operational and serves
-  production state through the direct RocksDB provider.
+  production state through the direct RocksDB provider. A stale pivot remains
+  pinned while a wide source pool or a collapsed pool with bounded aggregate
+  throughput is still useful. Once a formerly wide public pool has collapsed
+  and five minutes of processed-plus-fetched work falls below the live minimum,
+  the coordinator yields to a newer consensus-authorized target while retaining
+  all content-addressed state and verified subtree proofs for cross-pivot reuse.
 - `src/networking/eth-sync/sync.lisp` supplies the bounded downloader, while
   `src/app/cli/devnet/dialer.lisp` owns the continuous coordinator. Work is
   authorized by an Engine target hash, delivered through each session's sole

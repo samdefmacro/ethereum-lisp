@@ -425,7 +425,7 @@ actual post-restart Snap attempt across the ordinary stale-pivot window, that
 waiting without a Snap peer does not consume that opportunity, and that
 starting an attempt restores the rebase escape for the next pass. Removing the
 production pin makes the focused restart decision regression fail, while an
-explicit rebase still deletes the frontier. Three stale-heal controls require
+explicit rebase still deletes the frontier. Four stale-heal controls require
 the successor to be a known Engine forkchoice target beyond geth's exact
 pivot-relative 120-block window, pass a 30-second-throttled yield predicate
 through the production multi-source importer, and turn its typed safe-boundary
@@ -434,8 +434,12 @@ unbounded forward gap filling. The call-site control also advances a real healin
 snapshot immediately before the five-minute silence boundary and proves that
 productive local or peer progress keeps the exact frontier; only five full
 minutes without a later snapshot permits the stale yield. Removing the
-production predicate wiring makes the exact call-site test fail. The range
-tests prove that sixty-four durable account ranges feed one AccountRange
+production predicate wiring makes the exact call-site test fail. A collapsed
+pool additionally measures processed-plus-fetched work over a five-minute
+wall-clock window: useful individual responses cannot pin an old root when the
+surviving pool's aggregate throughput falls below 131,072 work units, while a
+high-throughput collapsed pool remains on its exact authenticated frontier.
+The range tests prove that sixty-four durable account ranges feed one AccountRange
 dispatcher per source and a bounded global dependency scheduler, while three
 sole-writer request queues overlap independent response types with geth's
 adaptive 64--512 KiB snap byte limits. The source-pool controls prove that

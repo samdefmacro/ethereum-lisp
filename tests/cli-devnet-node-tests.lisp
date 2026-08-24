@@ -1793,7 +1793,7 @@ really reopens the directory instead of observing the first handle's memory."
                 (funcall
                  progress-callback
                  (ethereum-lisp.snap-sync::%make-snap-sync-heal-progress
-                  :processed-nodes 14096 :reused-nodes 13096
+                  :processed-nodes 160000 :reused-nodes 159000
                   :fetched-nodes 1000 :request-count 75
                   :response-bytes 101000 :completed-p nil))
                 (is (funcall yield-p))
@@ -1816,6 +1816,106 @@ really reopens the directory instead of observing the first handle's memory."
         (is (= 64 (field "target")))
         (is (= 205 (field "successor")))
         (is (string= "source-collapse" (field "reason")))))))
+
+(deftest devnet-snap-collapsed-source-pool-yields-after-low-total-throughput
+  (:layer :unit :module :p2p)
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (database (make-memory-key-value-database))
+         (pivot-header
+           (block-header (ethereum-lisp.cli::devnet-node-genesis-block node)))
+         (target-hash
+           (make-hash32 (make-byte-vector 32 :initial-element 97)))
+         (successor-hash
+           (make-hash32 (make-byte-vector 32 :initial-element 98)))
+         (entries
+           (loop for index below 8
+                 collect
+                 (ethereum-lisp.cli::make-devnet-peer-entry
+                  :id-hex (format nil "peer-~D" index))))
+         (sources
+           (loop repeat 8
+                 collect
+                 (ethereum-lisp.snap-sync:make-snap-sync-source
+                  :account-range (lambda (request) (declare (ignore request)))
+                  :storage-ranges (lambda (request) (declare (ignore request)))
+                  :bytecodes (lambda (request) (declare (ignore request)))
+                  :trie-nodes (lambda (request) (declare (ignore request))))))
+         (entry-sources (mapcar #'cons entries sources))
+         (live-entries (copy-list entries))
+         (now 100)
+         (logs '()))
+    (devnet-peer-sync-call-with-function-overrides
+     (list
+      (cons 'ethereum-lisp.cli::unix-time (lambda () now))
+      (cons 'ethereum-lisp.cli::devnet-node-live-sync-entries
+            (lambda (seen-node &key snap-only-p)
+              (is (eq node seen-node))
+              (is snap-only-p)
+              (copy-list live-entries)))
+      (cons 'ethereum-lisp.cli::devnet-peer-queued-snap-source
+            (lambda (entry)
+              (or (cdr (assoc entry entry-sources :test #'eq))
+                  (error "Missing test source"))))
+      (cons 'ethereum-lisp.cli::devnet-node-stale-snap-successor
+            (lambda (seen-node seen-target seen-number)
+              (is (eq node seen-node))
+              (is (hash32= target-hash seen-target))
+              (is (= 0 seen-number))
+              (values successor-hash 245)))
+      (cons 'ethereum-lisp.snap-sync:snap-sync-import-state-multi
+            (lambda (seen-database initial-sources &rest arguments)
+              (is (eq database seen-database))
+              (is (= 8 (length initial-sources)))
+              (let ((source-provider (getf arguments :heal-source-provider))
+                    (yield-p (getf arguments :heal-yield-p))
+                    (progress-callback (getf arguments :on-heal-progress)))
+                (is (functionp source-provider))
+                (is (functionp yield-p))
+                (is (functionp progress-callback))
+                (setf live-entries (subseq entries 0 3)
+                      now 110)
+                (is (= 3 (length (funcall source-provider))))
+                (funcall
+                 progress-callback
+                 (ethereum-lisp.snap-sync::%make-snap-sync-heal-progress
+                  :processed-nodes 1024 :reused-nodes 0
+                  :fetched-nodes 1024 :request-count 64
+                  :response-bytes 262144 :completed-p nil))
+                ;; This full request window returns 48 nodes per request, well
+                ;; above the per-response floor, and refreshes ordinary
+                ;; productive progress at the exact five-minute boundary.
+                ;; Aggregate work is nevertheless too small for the collapsed
+                ;; pool to finish before public peers move their state window.
+                (setf now 410)
+                (funcall
+                 progress-callback
+                 (ethereum-lisp.snap-sync::%make-snap-sync-heal-progress
+                  :processed-nodes 30000 :reused-nodes 25904
+                  :fetched-nodes 4096 :request-count 128
+                  :response-bytes 524288 :completed-p nil))
+                (is (funcall yield-p))
+                (error 'ethereum-lisp.snap-sync:snap-sync-heal-yielded))))
+      (cons 'ethereum-lisp.cli::devnet-peer-manager-log
+            (lambda (seen-node name &rest fields)
+              (is (eq node seen-node))
+              (push (cons name fields) logs))))
+     (lambda ()
+       (signals ethereum-lisp.snap-sync:snap-sync-heal-yielded
+         (ethereum-lisp.cli::devnet-node-snap-import-with-failover
+          node database pivot-header target-hash :target-number 64))))
+    (let ((record
+            (find "peer.snap.target_stale" logs
+                  :key #'first :test #'string=)))
+      (is record)
+      (flet ((field (name)
+               (loop for (key value) on (cdr record) by #'cddr
+                     when (string= key name) return value)))
+        (is (= 64 (field "target")))
+        (is (= 245 (field "successor")))
+        (is (string= "source-throughput-low" (field "reason")))))))
 
 (deftest devnet-snap-exhausted-source-generation-yields-to-a-stale-consensus-target
   (:layer :unit :module :p2p)

@@ -168,6 +168,12 @@ first, so a long backfill does not starve a short one."
 (defconstant +devnet-snap-heal-minimum-fetched-nodes-per-request+ 8
   "Minimum useful average TrieNodes fill before a stale pivot may be yielded.")
 
+(defconstant +devnet-snap-heal-throughput-window-seconds+ 300
+  "Bounded interval used to classify aggregate healer throughput.")
+
+(defconstant +devnet-snap-heal-minimum-throughput-work+ 131072
+  "Minimum processed-plus-fetched work required per collapsed-pool window.")
+
 (defun devnet-snap-heal-progress-work (progress)
   "Return the monotonic work units relevant to stale-pivot scheduling."
   (+
@@ -224,6 +230,26 @@ progress.  Locally processed/reused nodes are intentionally excluded."
          (>= (- fetched previous-fetched)
              (* +devnet-snap-heal-minimum-fetched-nodes-per-request+
                 (- requests previous-requests))))))
+
+(defun devnet-snap-heal-throughput-window-low-p
+    (previous-work previous-at progress now)
+  "Whether one complete wall-clock window made too little aggregate progress.
+
+This complements per-request fill: a few surviving peers may each return useful
+TrieNodes packets while their aggregate throughput is still too small to finish
+before the public state-serving window moves again.  The caller applies this
+only after a formerly wide source pool has collapsed and a newer CL-authorized
+target exists."
+  (let ((work (devnet-snap-heal-progress-work progress)))
+    (and (integerp previous-work) (not (minusp previous-work))
+         (integerp previous-at) (not (minusp previous-at))
+         (integerp now) (not (minusp now))
+         (>= now previous-at)
+         (>= (- now previous-at)
+             +devnet-snap-heal-throughput-window-seconds+)
+         (>= work previous-work)
+         (< (- work previous-work)
+            +devnet-snap-heal-minimum-throughput-work+))))
 
 (defun devnet-snap-heal-progress-log-due-p (last-log-at now completed-p)
   "Whether one cumulative healing snapshot should reach operator telemetry."
@@ -1222,7 +1248,10 @@ must prove the new state root before either record can authorize publication."
          (last-heal-efficient-response-at (unix-time))
          (heal-efficiency-fetched nil)
          (heal-efficiency-requests nil)
-         (heal-underfilled-response-window-p nil))
+         (heal-underfilled-response-window-p nil)
+         (heal-throughput-window-at (unix-time))
+         (heal-throughput-window-work nil)
+         (heal-low-throughput-window-p nil))
     (devnet-node-activate-snap-pivot-peer-set node pivot-hash)
     (labels
         ((ordered-live-entries ()
@@ -1261,8 +1290,14 @@ must prove the new state root before either record can authorize publication."
                      (max heal-source-high-water heal-source-count))
                (if (devnet-snap-heal-source-pool-collapsed-p
                     heal-source-count heal-source-high-water)
-                   (setf heal-source-collapse-window-p t
-                         heal-source-recovered-at nil)
+                   (progn
+                     (unless heal-source-collapse-window-p
+                       (setf heal-throughput-window-at now
+                             heal-throughput-window-work
+                             last-heal-progress-work
+                             heal-low-throughput-window-p nil))
+                     (setf heal-source-collapse-window-p t
+                           heal-source-recovered-at nil))
                    (if heal-source-collapse-window-p
                        ;; Public sessions churn around a pruning boundary. A
                        ;; one-tick recovery must not erase five minutes of
@@ -1277,7 +1312,11 @@ must prove the new state root before either record can authorize publication."
                                     +devnet-snap-heal-source-recovery-interval-seconds+))
                            (setf heal-source-collapse-window-p nil
                                  heal-source-recovered-at nil
-                                 last-heal-source-healthy-at now)))
+                                 last-heal-source-healthy-at now
+                                 heal-throughput-window-at now
+                                 heal-throughput-window-work
+                                 last-heal-progress-work
+                                 heal-low-throughput-window-p nil)))
                        (setf last-heal-source-healthy-at now))))
              (mapcar
               (lambda (entry)
@@ -1313,6 +1352,9 @@ must prove the new state root before either record can authorize publication."
              ;; A numerically stable pool can fail the same way by returning
              ;; only the disappearing edge of a pruned root.  Classify that
              ;; independently from peer count using bounded request windows.
+             ;; Finally, useful individual packets from a collapsed pool must
+             ;; still achieve bounded aggregate wall-clock throughput: two or
+             ;; three slow survivors cannot pin a stale root indefinitely.
              (let ((reason
                      (cond
                        ((and
@@ -1320,6 +1362,13 @@ must prove the new state root before either record can authorize publication."
                          (>= (- now last-heal-progress-at)
                              +devnet-snap-heal-stall-interval-seconds+))
                         "progress-stalled")
+                       ((and
+                         heal-source-collapse-window-p
+                         heal-low-throughput-window-p
+                         (>= now last-heal-source-healthy-at)
+                         (>= (- now last-heal-source-healthy-at)
+                             +devnet-snap-heal-throughput-window-seconds+))
+                        "source-throughput-low")
                        ((and
                          heal-source-collapse-window-p
                          heal-underfilled-response-window-p
@@ -1480,6 +1529,24 @@ must prove the new state root before either record can authorize publication."
                   last-heal-progress-work heal-progress)
              (setf last-heal-progress-at now
                    last-heal-progress-work work))
+           (cond
+             ((or (null heal-throughput-window-work)
+                  (< now heal-throughput-window-at)
+                  (< work heal-throughput-window-work))
+              (setf heal-throughput-window-at now
+                    heal-throughput-window-work work
+                    heal-low-throughput-window-p nil))
+             ((>= (- now heal-throughput-window-at)
+                  +devnet-snap-heal-throughput-window-seconds+)
+              (setf heal-low-throughput-window-p
+                    (and
+                     (not completed-p)
+                     (devnet-snap-heal-throughput-window-low-p
+                      heal-throughput-window-work
+                      heal-throughput-window-at
+                      heal-progress now))
+                    heal-throughput-window-at now
+                    heal-throughput-window-work work)))
            (when (or (null heal-efficiency-fetched)
                      (null heal-efficiency-requests)
                      (< fetched heal-efficiency-fetched)
