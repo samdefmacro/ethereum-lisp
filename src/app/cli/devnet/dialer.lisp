@@ -159,6 +159,12 @@ first, so a long backfill does not starve a short one."
 (defconstant +devnet-snap-heal-source-high-water-minimum+ 8
   "Minimum observed healer source count before relative collapse applies.")
 
+(defconstant +devnet-snap-heal-response-window-requests+ 64
+  "Minimum request delta used to classify sustained TrieNodes response yield.")
+
+(defconstant +devnet-snap-heal-minimum-fetched-nodes-per-request+ 8
+  "Minimum useful average TrieNodes fill before a stale pivot may be yielded.")
+
 (defun devnet-snap-heal-progress-work (progress)
   "Return the monotonic work units relevant to stale-pivot scheduling."
   (+
@@ -190,6 +196,31 @@ one or two exceptional sources."
        (integerp high-water)
        (>= high-water +devnet-snap-heal-source-high-water-minimum+)
        (< (* 2 current) high-water)))
+
+(defun devnet-snap-heal-response-window-efficient-p
+    (previous-fetched previous-requests progress)
+  "Whether one bounded remote-heal window retained useful serving capacity.
+
+The caller first waits for at least
+`+DEVNET-SNAP-HEAL-RESPONSE-WINDOW-REQUESTS+` new requests.  A public peer set
+which returns one or two nodes per nominal 1,024-path TrieNodes request is
+usually serving the disappearing edge of a pruned root, not useful sustained
+progress.  Locally processed/reused nodes are intentionally excluded."
+  (let ((fetched
+          (ethereum-lisp.snap-sync:snap-sync-heal-progress-fetched-nodes
+           progress))
+        (requests
+          (ethereum-lisp.snap-sync:snap-sync-heal-progress-request-count
+           progress)))
+    (and (integerp previous-fetched) (not (minusp previous-fetched))
+         (integerp previous-requests) (not (minusp previous-requests))
+         (>= fetched previous-fetched)
+         (>= requests previous-requests)
+         (>= (- requests previous-requests)
+             +devnet-snap-heal-response-window-requests+)
+         (>= (- fetched previous-fetched)
+             (* +devnet-snap-heal-minimum-fetched-nodes-per-request+
+                (- requests previous-requests))))))
 
 (defun devnet-snap-heal-progress-log-due-p (last-log-at now completed-p)
   "Whether one cumulative healing snapshot should reach operator telemetry."
@@ -1106,7 +1137,11 @@ must prove the new state root before either record can authorize publication."
          (last-heal-target-check-at (unix-time))
          (heal-source-count 0)
          (heal-source-high-water 0)
-         (last-heal-source-healthy-at (unix-time)))
+         (last-heal-source-healthy-at (unix-time))
+         (last-heal-efficient-response-at (unix-time))
+         (heal-efficiency-fetched nil)
+         (heal-efficiency-requests nil)
+         (heal-underfilled-response-window-p nil))
     (devnet-node-activate-snap-pivot-peer-set node pivot-hash)
     (labels
         ((ordered-live-entries ()
@@ -1177,6 +1212,9 @@ must prove the new state root before either record can authorize publication."
              ;; useful width may also yield after over half its sources remain
              ;; absent for the same bounded interval: sparse residual traffic
              ;; must not pin a root after the public serving window collapses.
+             ;; A numerically stable pool can fail the same way by returning
+             ;; only the disappearing edge of a pruned root.  Classify that
+             ;; independently from peer count using bounded request windows.
              (let ((reason
                      (cond
                        ((and
@@ -1190,7 +1228,13 @@ must prove the new state root before either record can authorize publication."
                          (>= now last-heal-source-healthy-at)
                          (>= (- now last-heal-source-healthy-at)
                              +devnet-snap-heal-source-collapse-interval-seconds+))
-                        "source-collapse"))))
+                        "source-collapse")
+                       ((and
+                         heal-underfilled-response-window-p
+                         (>= now last-heal-efficient-response-at)
+                         (>= (- now last-heal-efficient-response-at)
+                             +devnet-snap-heal-source-collapse-interval-seconds+))
+                        "response-underfilled"))))
                (when (and
                     reason
                     (or (< now last-heal-target-check-at)
@@ -1304,11 +1348,35 @@ must prove the new state root before either record can authorize publication."
                 (completed-p
                   (ethereum-lisp.snap-sync:snap-sync-heal-progress-completed-p
                    heal-progress))
-                (work (devnet-snap-heal-progress-work heal-progress)))
+                (work (devnet-snap-heal-progress-work heal-progress))
+                (fetched
+                  (ethereum-lisp.snap-sync:snap-sync-heal-progress-fetched-nodes
+                   heal-progress))
+                (requests
+                  (ethereum-lisp.snap-sync:snap-sync-heal-progress-request-count
+                   heal-progress)))
            (when (devnet-snap-heal-productive-progress-p
                   last-heal-progress-work heal-progress)
              (setf last-heal-progress-at now
                    last-heal-progress-work work))
+           (when (or (null heal-efficiency-fetched)
+                     (null heal-efficiency-requests)
+                     (< fetched heal-efficiency-fetched)
+                     (< requests heal-efficiency-requests))
+             (setf heal-efficiency-fetched fetched
+                   heal-efficiency-requests requests
+                   last-heal-efficient-response-at now
+                   heal-underfilled-response-window-p nil))
+           (when (>= (- requests heal-efficiency-requests)
+                     +devnet-snap-heal-response-window-requests+)
+             (if (devnet-snap-heal-response-window-efficient-p
+                  heal-efficiency-fetched heal-efficiency-requests
+                  heal-progress)
+                 (setf last-heal-efficient-response-at now
+                       heal-underfilled-response-window-p nil)
+                 (setf heal-underfilled-response-window-p t))
+             (setf heal-efficiency-fetched fetched
+                   heal-efficiency-requests requests))
            (when (devnet-snap-heal-progress-log-due-p
                   last-heal-log-at now completed-p)
              (setf last-heal-log-at now)

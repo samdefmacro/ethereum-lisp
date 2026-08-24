@@ -1789,6 +1789,99 @@ really reopens the directory instead of observing the first handle's memory."
         (is (= 205 (field "successor")))
         (is (string= "source-collapse" (field "reason")))))))
 
+(deftest devnet-snap-productive-heal-yields-after-underfilled-responses
+  (:layer :unit :module :p2p)
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (database (make-memory-key-value-database))
+         (pivot-header (block-header
+                        (ethereum-lisp.cli::devnet-node-genesis-block node)))
+         (target-hash
+           (make-hash32 (make-byte-vector 32 :initial-element 93)))
+         (successor-hash
+           (make-hash32 (make-byte-vector 32 :initial-element 94)))
+         (source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :account-range (lambda (request) (declare (ignore request)))
+            :storage-ranges (lambda (request) (declare (ignore request)))
+            :bytecodes (lambda (request) (declare (ignore request)))
+            :trie-nodes (lambda (request) (declare (ignore request)))))
+         (entry
+           (ethereum-lisp.cli::make-devnet-peer-entry :id-hex "peer-1"))
+         (now 100)
+         (logs '()))
+    (devnet-peer-sync-call-with-function-overrides
+     (list
+      (cons 'ethereum-lisp.cli::unix-time (lambda () now))
+      (cons 'ethereum-lisp.cli::devnet-node-live-sync-entries
+            (lambda (seen-node &key snap-only-p)
+              (is (eq node seen-node))
+              (is snap-only-p)
+              (list entry)))
+      (cons 'ethereum-lisp.cli::devnet-peer-queued-snap-source
+            (lambda (seen-entry)
+              (is (eq entry seen-entry))
+              source))
+      (cons 'ethereum-lisp.cli::devnet-node-stale-snap-successor
+            (lambda (seen-node seen-target seen-number)
+              (is (eq node seen-node))
+              (is (hash32= target-hash seen-target))
+              (is (= 0 seen-number))
+              (values successor-hash 225)))
+      (cons 'ethereum-lisp.snap-sync:snap-sync-import-state-multi
+            (lambda (seen-database sources &rest arguments)
+              (is (eq database seen-database))
+              (is (= 1 (length sources)))
+              (let ((yield-p (getf arguments :heal-yield-p))
+                    (progress-callback (getf arguments :on-heal-progress)))
+                (is (functionp yield-p))
+                (is (functionp progress-callback))
+                ;; Establish a healthy 64-request window at sixteen fetched
+                ;; nodes per request.
+                (setf now 110)
+                (funcall
+                 progress-callback
+                 (ethereum-lisp.snap-sync::%make-snap-sync-heal-progress
+                  :processed-nodes 4096 :reused-nodes 3072
+                  :fetched-nodes 1024 :request-count 64
+                  :response-bytes 262144 :completed-p nil))
+                ;; A second complete request window returns only one node per
+                ;; request. Local work remains productive, so the ordinary
+                ;; progress-stall policy must stay fresh.
+                (setf now 409)
+                (funcall
+                 progress-callback
+                 (ethereum-lisp.snap-sync::%make-snap-sync-heal-progress
+                  :processed-nodes 6144 :reused-nodes 5056
+                  :fetched-nodes 1088 :request-count 128
+                  :response-bytes 266240 :completed-p nil))
+                (is (not (funcall yield-p)))
+                ;; Five minutes after the last efficient response window, the
+                ;; CL-stale pivot yields despite continuing tiny responses.
+                (setf now 410)
+                (is (funcall yield-p))
+                (error 'ethereum-lisp.snap-sync:snap-sync-heal-yielded))))
+      (cons 'ethereum-lisp.cli::devnet-peer-manager-log
+            (lambda (seen-node name &rest fields)
+              (is (eq node seen-node))
+              (push (cons name fields) logs))))
+     (lambda ()
+       (signals ethereum-lisp.snap-sync:snap-sync-heal-yielded
+         (ethereum-lisp.cli::devnet-node-snap-import-with-failover
+          node database pivot-header target-hash :target-number 64))))
+    (let ((record
+            (find "peer.snap.target_stale" logs
+                  :key #'first :test #'string=)))
+      (is record)
+      (flet ((field (name)
+               (loop for (key value) on (cdr record) by #'cddr
+                     when (string= key name) return value)))
+        (is (= 64 (field "target")))
+        (is (= 225 (field "successor")))
+        (is (string= "response-underfilled" (field "reason")))))))
+
 (deftest devnet-snap-heal-yield-skips-the-forward-gap-fallback
   (:layer :unit :module :p2p)
   (let ((node

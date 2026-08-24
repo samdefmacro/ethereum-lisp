@@ -191,8 +191,12 @@ them by their physical location instead reintroduces dependency cycles:
   permanent ban. During final healing, a pool that reached at least eight live
   sources also yields a CL-stale target when more than half that observed
   capacity remains unavailable for five minutes, even if the few residual
-  sources still return small productive batches. A stable intrinsically small
-  pool does not satisfy that relative-collapse policy. This keeps content-
+  sources still return small productive batches. A numerically stable pool has
+  an independent bounded-yield check: after one healthy response window, at
+  least sixty-four later TrieNodes requests averaging fewer than eight fetched
+  nodes each start the same five-minute stale-target escape. Productive local
+  work cannot conceal that remote serving collapse. A stable intrinsically
+  small but efficient pool does not satisfy either policy. This keeps content-
   addressed progress moving across public state-retention windows instead of
   pinning a doomed old root. While an import is active, the dialer retains at
   least sixteen live non-degraded SNAP sessions when the configured peer limit
