@@ -240,6 +240,22 @@
              (bytes= (car entry) (keccak-256 (cdr entry))))
            fetched)))))
 
+(deftest snap-empty-bytecode-response-is-state-unavailable
+  (:layer :unit :module :p2p)
+  (let* ((code #(96 0 96 0))
+         (hash (keccak-256 code))
+         (source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :bytecodes
+            (lambda (request)
+              (ethereum-lisp.snap:make-snap-bytecodes
+               (ethereum-lisp.snap:snap-get-bytecodes-id request) '())))))
+    ;; An empty response is geth's stateless-peer signal, not an ordinary
+    ;; transport failure that may re-enter the dependency pool after cooldown.
+    (signals ethereum-lisp.snap-sync:snap-sync-state-unavailable
+      (ethereum-lisp.snap-sync::snap-sync-fetch-codes
+       source (list hash) (* 512 1024)))))
+
 (deftest snap-multi-code-flight-deduplicates-pending-pages
   (:layer :unit :module :p2p)
   #+sbcl

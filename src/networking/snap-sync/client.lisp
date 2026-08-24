@@ -1020,7 +1020,11 @@ and increases timeout pressure without creating another on-wire slot."
                (unless (= 1 (snap-bytecodes-id response))
                  (error "Snap bytecode response id mismatch"))
                (when (null received)
-                 (error "Snap peer omitted requested bytecode"))
+                 ;; Match geth's stateless-peer classification.  An empty
+                 ;; response means this source cannot serve the requested
+                 ;; state, whereas a non-empty soft-limited response remains
+                 ;; valid and the loop below requests its missing hashes.
+                 (snap-sync-state-unavailable "bytecodes"))
                (dolist (code received)
                  (let ((hash (keccak-256 code)))
                    (unless (nth-value 1 (gethash hash requested-pending))
