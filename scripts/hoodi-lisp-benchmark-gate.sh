@@ -17,6 +17,10 @@ image="${HOODI_LISP_BENCH_IMAGE:-ethereum-lisp-runtime:sec5-${short_revision}-am
 container="${HOODI_LISP_BENCH_CONTAINER:-hoodi-lisp-bench-${short_revision}-fresh1}"
 datadir="${HOODI_LISP_BENCH_DATADIR:-$remote_root/lisp-${short_revision}-fresh1}"
 source="${HOODI_LISP_BENCH_SOURCE_CONTAINER:-hoodi-el-sec5-${short_revision}}"
+previous_revision="${HOODI_LISP_BENCH_PREVIOUS_REVISION:-$revision}"
+previous_short_revision="${previous_revision:0:8}"
+previous_image="${HOODI_LISP_BENCH_PREVIOUS_IMAGE:-ethereum-lisp-runtime:sec5-${previous_short_revision}-amd64}"
+previous_container="${HOODI_LISP_BENCH_PREVIOUS_CONTAINER:-hoodi-lisp-bench-${previous_short_revision}-fresh1}"
 lighthouse="${HOODI_LISP_BENCH_LIGHTHOUSE_CONTAINER:-hoodi-lighthouse-public}"
 cl_network="${HOODI_LISP_BENCH_CL_NETWORK:-hoodi-frozen}"
 egress_network="${HOODI_LISP_BENCH_EGRESS_NETWORK:-hoodi-net}"
@@ -41,6 +45,8 @@ require_mutation() {
 
 case "$revision" in *[!0-9a-f]*|'') fail "unsafe runtime revision" ;; esac
 [ "${#revision}" -eq 40 ] || fail "runtime revision must be a full Git id"
+case "$previous_revision" in *[!0-9a-f]*|'') fail "unsafe previous runtime revision" ;; esac
+[ "${#previous_revision}" -eq 40 ] || fail "previous runtime revision must be a full Git id"
 if [ "$actual_head" != "$revision" ]; then
     git -C "$repo_root" merge-base --is-ancestor "$revision" "$actual_head" ||
         fail "runtime revision is not an ancestor of checkout HEAD"
@@ -55,8 +61,10 @@ fi
 case "$host" in *[!A-Za-z0-9_.@-]*|'') fail "unsafe SSH host" ;; esac
 case "$remote_root" in /data/hoodi-sec5-*) ;; *) fail "unsafe remote root" ;; esac
 case "$datadir" in "$remote_root"/lisp-*) ;; *) fail "unsafe benchmark datadir" ;; esac
-case "$image" in *[!A-Za-z0-9_.:/+-]*|'') fail "unsafe image" ;; esac
-for name in "$container" "$source" "$lighthouse" "$cl_network" "$egress_network" "$cl_alias"; do
+for candidate_image in "$image" "$previous_image"; do
+    case "$candidate_image" in *[!A-Za-z0-9_.:/+-]*|'') fail "unsafe image" ;; esac
+done
+for name in "$container" "$previous_container" "$source" "$lighthouse" "$cl_network" "$egress_network" "$cl_alias"; do
     case "$name" in *[!A-Za-z0-9_.-]*|'') fail "unsafe Docker name: $name" ;; esac
 done
 case "$public_ip" in *[!0-9.]*|'') fail "public IP must be an IPv4 literal" ;; esac
@@ -205,6 +213,141 @@ exit 1
 REMOTE
 }
 
+resume() {
+    require_mutation
+    [ "$container" != "$previous_container" ] ||
+        fail "resume requires a new benchmark container name"
+    ssh "$host" bash -s -- "$revision" "$image" "$container" "$datadir" \
+        "$source" "$lighthouse" "$cl_network" "$egress_network" "$cl_alias" \
+        "$jwt_dir" "$public_ip" "$p2p_port" "$ready_timeout" "$seccomp_profile" \
+        "$expected_seccomp_sha256" "$previous_revision" "$previous_image" \
+        "$previous_container" <<'REMOTE'
+set -eu
+revision="$1"; image="$2"; container="$3"; datadir="$4"; source="$5"
+lighthouse="$6"; cl_network="$7"; egress_network="$8"; cl_alias="$9"
+jwt_dir="${10}"; public_ip="${11}"; p2p_port="${12}"; ready_timeout="${13}"
+seccomp_profile="${14}"; expected_seccomp="${15}"; previous_revision="${16}"
+previous_image="${17}"; previous_container="${18}"
+
+[ "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image")" = "$revision" ] || {
+    echo "runtime image revision mismatch" >&2; exit 1;
+}
+[ "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image")" = linux/amd64 ] || {
+    echo "runtime image platform mismatch" >&2; exit 1;
+}
+[ "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$previous_image")" = "$previous_revision" ] || {
+    echo "previous runtime image revision mismatch" >&2; exit 1;
+}
+[ "$(docker container inspect --format '{{.Config.Image}}' "$previous_container")" = "$previous_image" ] || {
+    echo "previous benchmark image mismatch" >&2; exit 1;
+}
+[ "$(docker container inspect --format '{{.Image}}' "$previous_container")" = \
+   "$(docker image inspect --format '{{.Id}}' "$previous_image")" ] || {
+    echo "previous benchmark image id mismatch" >&2; exit 1;
+}
+[ "$(docker container inspect --format '{{ index .Config.Labels "agent" }}' "$previous_container")" = \
+   codex-ethereum-lisp-same-host-benchmark ] || {
+    echo "previous benchmark ownership mismatch" >&2; exit 1;
+}
+[ "$(docker container inspect --format '{{ index .Config.Labels "io.ethereum-lisp.gate-revision" }}' "$previous_container")" = "$previous_revision" ] || {
+    echo "previous benchmark revision mismatch" >&2; exit 1;
+}
+[ "$(docker container inspect --format '{{.State.Running}}' "$previous_container")" = false ] || {
+    echo "previous benchmark must be stopped" >&2; exit 1;
+}
+[ "$(docker container inspect --format '{{.HostConfig.ReadonlyRootfs}}' "$previous_container")" = true ] || {
+    echo "previous benchmark root filesystem is not read-only" >&2; exit 1;
+}
+previous_datadir="$(docker container inspect --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Source}}{{end}}{{end}}' "$previous_container")"
+[ "$previous_datadir" = "$datadir" ] || { echo "previous benchmark datadir mismatch" >&2; exit 1; }
+[ -d "$datadir" ] && [ -n "$(find "$datadir" -mindepth 1 -maxdepth 1 -print -quit)" ] || {
+    echo "previous benchmark datadir is absent or empty" >&2; exit 1;
+}
+[ "$(docker version --format '{{.Server.Version}}')" = 26.1.4 ] || {
+    echo "pinned seccomp profile requires Docker server 26.1.4" >&2; exit 1;
+}
+[ "$(sha256sum "$seccomp_profile" | awk '{print $1}')" = "$expected_seccomp" ] || {
+    echo "seccomp profile checksum mismatch" >&2; exit 1;
+}
+[ "$(docker container inspect --format '{{.State.Running}}' "$source")" = true ] || {
+    echo "source EL is not running: $source" >&2; exit 1;
+}
+[ "$(docker container inspect --format '{{.State.Running}}' "$lighthouse")" = true ] || {
+    echo "Lighthouse is not running: $lighthouse" >&2; exit 1;
+}
+[ "$(docker container inspect --format '{{ index .Config.Labels "agent" }}' "$source")" = codex-sec5-live-gate ] || {
+    echo "source EL ownership mismatch" >&2; exit 1;
+}
+[ "$(docker container inspect --format '{{ index .Config.Labels "io.ethereum-lisp.gate-revision" }}' "$source")" = "$revision" ] || {
+    echo "source EL revision mismatch" >&2; exit 1;
+}
+source_user="$(docker container inspect --format '{{.Config.User}}' "$source")"
+case "$source_user" in 0|0:*|*:0|'') echo "source EL user is not explicitly non-root" >&2; exit 1 ;; esac
+docker network inspect "$cl_network" >/dev/null
+docker network inspect "$egress_network" >/dev/null
+[ -r "$jwt_dir/jwt.hex" ] || { echo "JWT secret is not readable" >&2; exit 1; }
+if docker container inspect "$container" >/dev/null 2>&1; then
+    echo "refusing existing resume container: $container" >&2; exit 1
+fi
+
+docker run --rm --pull never --user "$source_user" --read-only --cap-drop ALL \
+    --security-opt no-new-privileges --security-opt "seccomp=$seccomp_profile" \
+    --network none --entrypoint /usr/local/libexec/ethereum-lisp-io-uring-probe \
+    "$image" >/dev/null
+
+docker stop --time 30 "$source" >/dev/null
+rollback() {
+    docker stop --time 10 "$container" >/dev/null 2>&1 || true
+    docker start "$source" >/dev/null 2>&1 || true
+}
+trap rollback EXIT HUP INT TERM
+docker run --detach --pull never \
+    --name "$container" \
+    --label agent=codex-ethereum-lisp-same-host-benchmark \
+    --label "io.ethereum-lisp.benchmark-source=$source" \
+    --label "io.ethereum-lisp.gate-revision=$revision" \
+    --label "io.ethereum-lisp.resumed-from-container=$previous_container" \
+    --label "io.ethereum-lisp.resumed-from-revision=$previous_revision" \
+    --user "$source_user" --read-only --cap-drop ALL \
+    --security-opt no-new-privileges --security-opt "seccomp=$seccomp_profile" \
+    --mount "type=bind,source=$datadir,target=/data" \
+    --mount "type=bind,source=$jwt_dir,target=/jwt,readonly" \
+    --network "$cl_network" --network-alias "$cl_alias" \
+    --publish "$p2p_port:$p2p_port/tcp" --publish "$p2p_port:$p2p_port/udp" \
+    --publish 127.0.0.1::8545 \
+    "$image" \
+    --hoodi --datadir /data --port "$p2p_port" --nat "extip:$public_ip" \
+    --maxpeers 50 \
+    --http --http.addr 0.0.0.0 --http.port 8545 \
+    --http.api eth,net,web3,txpool,admin --http.vhosts '*' \
+    --authrpc.addr 0.0.0.0 --authrpc.port 8551 \
+    --authrpc.jwtsecret /jwt/jwt.hex --authrpc.vhosts '*' >/dev/null
+docker network connect "$egress_network" "$container"
+
+rpc_port="$(docker port "$container" 8545/tcp | awk -F: '/127[.]0[.]0[.]1/ {print $NF; exit}')"
+deadline="$(( $(date +%s) + ready_timeout ))"
+while [ "$(date +%s)" -lt "$deadline" ]; do
+    if curl -fsS --max-time 5 --header 'Content-Type: application/json' \
+        --data '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}' \
+        "http://127.0.0.1:$rpc_port" >/dev/null 2>&1; then
+        trap - EXIT HUP INT TERM
+        date -u +resumed=%Y-%m-%dT%H:%M:%SZ
+        docker container inspect --format \
+            'container={{.Name}} running={{.State.Running}} image={{.Image}} user={{.Config.User}} read-only={{.HostConfig.ReadonlyRootfs}} caps={{json .HostConfig.CapDrop}} security={{json .HostConfig.SecurityOpt}} networks={{json .NetworkSettings.Networks}} labels={{json .Config.Labels}}' \
+            "$container"
+        printf 'rpc-port=%s datadir=%s previous-container=%s preserved=true source-running=false\n' \
+            "$rpc_port" "$datadir" "$previous_container"
+        exit 0
+    fi
+    [ "$(docker container inspect --format '{{.State.Running}}' "$container")" = true ] || break
+    sleep 1
+done
+docker logs --tail 80 "$container" >&2 || true
+echo "ethereum-lisp resumed benchmark RPC did not become ready" >&2
+exit 1
+REMOTE
+}
+
 restore() {
     require_mutation
     ssh "$host" bash -s -- "$revision" "$image" "$container" "$datadir" \
@@ -252,6 +395,7 @@ REMOTE
 case "$action" in
     status) status ;;
     start) start ;;
+    resume) resume ;;
     restore) restore ;;
-    *) fail "usage: scripts/hoodi-lisp-benchmark-gate.sh status|start|restore" ;;
+    *) fail "usage: scripts/hoodi-lisp-benchmark-gate.sh status|start|resume|restore" ;;
 esac
