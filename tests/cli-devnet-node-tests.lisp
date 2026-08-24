@@ -1623,14 +1623,12 @@ really reopens the directory instead of observing the first handle's memory."
               (let ((range-yield-p (getf arguments :range-yield-p))
                     (yield-p (getf arguments :heal-yield-p))
                     (progress-callback (getf arguments :on-heal-progress)))
-                (is (functionp range-yield-p))
+                (is (null range-yield-p))
                 (is (functionp yield-p))
                 (is (functionp progress-callback))
-                ;; Account-range work follows geth's moving pivot as soon as
-                ;; one verified page is durable, then rate-limits checks.
-                (is (funcall range-yield-p))
-                (setf now 101)
-                (is (not (funcall range-yield-p)))
+                ;; Productive account-range work pins its authenticated root.
+                ;; A clock-driven pivot move would discard the complete range
+                ;; plan's zero-TrieNodes completion proof.
                 (setf now 129)
                 (is (not (funcall yield-p)))
                 ;; Productive local reuse immediately before the old

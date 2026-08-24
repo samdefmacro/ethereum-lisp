@@ -152,11 +152,13 @@ them by their physical location instead reintroduces dependency cycles:
   sixteen-range progress remains resumable and thirty-two-range progress is
   expanded at its exact durable cursors. During range import the dial scheduler
   seeks SNAP-capable outbound sessions up to half of `--maxpeers`, returning to
-  the ordinary one-third target afterwards. At each durable page seam,
-  a rate-limited consensus-head check moves a pivot that has fallen outside
-  geth's pivot-relative `2*64-8` window (56 blocks after the conventional
-  target); the atomic rebase retains completed ranges and makes
-  the fresher state root serviceable by the full live peer set. Account and
+  the ordinary one-third target afterwards. A productive account-range import
+  stays on its exact authenticated pivot even when the live consensus head
+  advances. Moving that root on a wall-clock window would invalidate the
+  complete same-root range witness and force a redundant full state-tree walk.
+  If every live source explicitly rejects the retained state, the importer
+  preserves its durable cursors and the next coordinator pass atomically
+  rebases them to a serviceable newer pivot. Account and
   storage requests start at geth's 64 KiB lower cap. Each peer and response
   type learns an EWMA of delivered capacity and round-trip time, grows or
   shrinks toward a two-second request target, and stays within the protocol's

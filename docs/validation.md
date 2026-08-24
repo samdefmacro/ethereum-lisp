@@ -240,11 +240,13 @@ The snap tests reconstruct and verify account/storage roots, return the
 authenticated reconstructed page for direct content-addressed persistence,
 reject altered compact proofs, and prove that verified trie records and
 hash-matched bytecodes perform no database reads while authenticated puts
-repair planted corrupt local values. They also stop a moving range pivot only
-after its latest verified page is durable, preserving that exact cursor for the
-atomic rebase onto a fresher consensus root. They derive complete coarse subtrees from
-the verified range, batch code-existence probes before requesting a page's
-missing bytecodes, reject
+repair planted corrupt local values. Productive range imports retain their
+exact authenticated pivot so the complete same-root proof set can use the
+zero-TrieNodes completion path. If every live source explicitly rejects that
+state, its last verified cursor remains durable for the next coordinator pass
+to rebase onto a serviceable fresher root. They derive complete coarse
+subtrees from the verified range, batch code-existence probes before requesting
+a page's missing bytecodes, reject
 proof-edge nodes, and buffer the subtree hash with its account content and
 external dependencies before a separate synchronous cursor batch publishes the
 whole WAL prefix. The failure regression permits that idempotent content to

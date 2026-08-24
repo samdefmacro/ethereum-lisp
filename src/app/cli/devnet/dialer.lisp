@@ -1061,7 +1061,6 @@ must prove the new state root before either record can authorize publication."
          (source-pool (make-devnet-snap-source-pool node pivot-hash))
          (last-heal-log-at nil)
          (last-heal-progress-at (unix-time))
-         (last-range-target-check-at nil)
          (last-heal-target-check-at (unix-time)))
     (devnet-node-activate-snap-pivot-peer-set node pivot-hash)
     (labels
@@ -1113,17 +1112,6 @@ must prove the new state root before either record can authorize publication."
                 "successor" successor-number
                 "successorHash" (hash32-to-hex successor))
                t)))
-         (yield-for-stale-range-target-p ()
-           ;; Geth moves an uncommitted pivot once the live head advances past
-           ;; its 2*64-block window. Check at most twice per minute, and only
-           ;; after the importer has made a page durable.
-           (let ((now (unix-time)))
-             (when (or (null last-range-target-check-at)
-                       (< now last-range-target-check-at)
-                       (>= (- now last-range-target-check-at)
-                           +devnet-snap-heal-target-check-interval-seconds+))
-               (setf last-range-target-check-at now)
-               (stale-target-p))))
          (yield-for-stale-target-p ()
            (let ((now (unix-time)))
              ;; Advancing either through durable local reuse or accepted peer
@@ -1153,7 +1141,13 @@ must prove the new state root before either record can authorize publication."
        :genesis-hash (block-hash (devnet-node-genesis-block node))
        :authority-id (devnet-persistence-state-authority-id persistence)
        :heal-source-provider #'refresh-sources
-       :range-yield-p #'yield-for-stale-range-target-p
+       ;; Keep a productive range import on its exact authenticated root.  A
+       ;; time-driven rebase poisons the same-root range witness and turns the
+       ;; otherwise zero-TrieNodes completion path into a full state-tree walk.
+       ;; If every live source actually prunes the root, the import reports
+       ;; SNAP-SYNC-STATE-UNAVAILABLE and the next coordinator pass retains the
+       ;; durable cursors while selecting a serviceable newer pivot.
+       :range-yield-p nil
        :heal-yield-p #'yield-for-stale-target-p
        ;; The multi-source importer invokes this on the coordinator thread only
        ;; after the task's account nodes, code, complete small storage tries,
