@@ -3172,8 +3172,14 @@
          (ethereum-lisp.snap-sync::snap-sync-heal-missing-limit 4096 3)))
   (is (= 8192
          (ethereum-lisp.snap-sync::snap-sync-heal-missing-limit 8192 8)))
-  (is (= 8192
+  (is (= 9216
          (ethereum-lisp.snap-sync::snap-sync-heal-missing-limit 8192 9)))
+  ;; A checkpoint restored at its durable cap must still fill a peer request.
+  ;; Reusing the durable cap as the transient expansion limit returns one here
+  ;; and recreates the public-node one-path-per-request failure.
+  (is (= 512
+         (ethereum-lisp.snap-sync::snap-sync-heal-local-read-limit
+          8192 0 1024 2048)))
   (signals error
     (ethereum-lisp.snap-sync::snap-sync-heal-missing-limit -1 1))
   (signals error
@@ -3325,12 +3331,16 @@
      (<= 1 (first checkpoint-frontiers)
          ethereum-lisp.snap-sync::+snap-sync-heal-checkpoint-max-works+))
     ;; The live failure shape used to emit one TrieNodes request per node once
-    ;; the frontier reached its hard cap. These works were already counted in
-    ;; the frontier, so full peer-local assignments remain safe. A fresh peer
-    ;; starts at geth's 1,024-lookup cap and then learns from delivered width.
-    (is
-     (<= 1 (reduce #'max request-widths)
-         ethereum-lisp.snap-sync::+snap-sync-heal-paths-per-source+))
+    ;; the frontier reached the durable cap. These works are already counted in
+    ;; the frontier, so the independently bounded live frontier must let a
+    ;; fresh peer start at geth's complete 1,024-lookup width.
+    (is (= ethereum-lisp.snap-sync::+snap-sync-heal-paths-per-source+
+           (reduce #'max request-widths)))
+    ;; A max-width-only assertion is insufficient: the broken production
+    ;; refill sent one initial full batch and then thousands of one-path
+    ;; requests. This whole 8,207-leaf continuation needs only a small number
+    ;; of full/soft-byte-limited flights before the duplicate becomes local.
+    (is (<= (length request-widths) 10))
     (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p completed))))
 
 (deftest snap-state-healer-uses-multiple-trie-node-sources

@@ -361,11 +361,13 @@ rebase/completion failure injection proves that checkpoint invalidation remains
 atomic. A large-frontier control round-trips a 5,000-item live checkpoint and
 proves that its bounded record stays below the byte cap. A live-shape control
 resumes an 8,192-work frontier, expands its first branch to 8,207 at an overdue
-checkpoint, and proves that single-work traversal drains it back to the hard
-cap before the next record is published. The same control keeps pending missing
-work in the exact frontier accounting while assigning up to 1,024 paths to one
-fresh source; restoring the old frontier-dependent one-path limit
-makes the request-width witness fail. A separate count regression proves that
+checkpoint, and proves that the independently bounded live frontier sends a
+full 1,024-path request while the prior durable record remains authoritative;
+the next checkpoint is published only after work drains back to 8,192. The same
+control keeps pending missing work in the exact frontier accounting. Restoring
+the old checkpoint-dependent refill produces thousands of requests and makes
+the full-width plus total-request witnesses fail. A separate count regression
+proves that
 three sources raise total concurrent capacity to 3,072 while every request
 remains at the pinned geth 1,024-lookup cap. The serving regression sends 1,041 valid
 root paths and proves only 1,024 disk lookups are returned; raising the

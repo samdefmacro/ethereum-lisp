@@ -301,8 +301,13 @@ them by their physical location instead reintroduces dependency cycles:
   and avoiding a repeated remote account-trie lookup per storage node. A
   response-order index maps partial replies back to the exact DFS continuation.
   Pending, in-flight, locally exposed, and deferred work are counted in work
-  units rather than request units under the existing 8,192-item frontier cap;
+  units rather than request units under a fixed 131,072-work live frontier;
   the serving side independently applies the same 1,024-lookup ceiling. The
+  smaller 8,192-work durable checkpoint remains the restart contract. A legal
+  checkpoint restored at that exact cap can therefore fill every idle peer
+  instead of shrinking to one path merely to reserve worst-case branch room;
+  checkpoint publication waits until the transient frontier drains back into
+  its separately bounded record. The
   local processing-rate feedback still bounds how quickly traversal exposes
   new remote work, but no global rate setting truncates an individual peer's
   learned capacity. The public-node peer default is 50, matching geth
@@ -318,15 +323,18 @@ them by their physical location instead reintroduces dependency cycles:
   before it can publish proof of completion.
 
   Local content-addressed references are read in batches of at most 512 keys.
-  The width shrinks with the live frontier so worst-case 16-way expansion
-  remains below the 8,192-work checkpoint cap throughout its soft-target
-  region. A restart may begin at the legal hard cap, where its next branch can
-  transiently expand the exact DFS frontier above one checkpoint record. If a
+  Below the ordinary 4,096-work checkpoint target, width still shrinks so a
+  worst-case 16-way expansion remains immediately encodable in the 8,192-work
+  record. Larger transient frontiers instead shrink against the independent
+  131,072-work in-memory cap. A restart may begin at the
+  legal 8,192-work durable cap, where its next branch can transiently expand
+  the exact DFS frontier above one checkpoint record. If a
   checkpoint becomes due in that state, the prior durable record remains
-  authoritative while one-work reads drain the excess; fetched nodes may still
-  be committed by content hash, but no partial frontier is published. The next
+  authoritative while batched local reads and full peer flights drain the
+  excess; fetched nodes may still be committed by content hash, but no partial
+  frontier is published. The next
   checkpoint is written only after the complete frontier is back within 8,192,
-  so the allocation bound remains unchanged without turning a temporary shape
+  so allocation remains explicitly bounded without turning a temporary shape
   into a fatal node exit. On SBCL, production RocksDB batches of at least 128
   keys are divided into at most eight contiguous native multi-get slices on the
   supported eight-core public-node profile. This

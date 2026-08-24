@@ -143,6 +143,14 @@ first four levels of concrete nodes to discover the content-addressed roots.")
   "Maximum direct storage frontier loaded into one resumable heal checkpoint.")
 (defconstant +snap-sync-heal-checkpoint-frontier-target+ 4096)
 (defconstant +snap-sync-heal-checkpoint-max-works+ 8192)
+(defconstant +snap-sync-heal-live-frontier-max-works+ (* 128 1024)
+  "Maximum in-memory healer work across DFS, deferred, queued, and in-flight work.
+
+The durable checkpoint deliberately remains much smaller. A resumed legal
+8,192-work checkpoint must nevertheless have enough transient room to fill the
+same 1,024-path per-peer requests as geth instead of degenerating to one remote
+round trip per node. This fixed live cap covers all fifty 1,024-path peer
+flights plus bounded trie expansion without making peer input unbounded.")
 (defconstant +snap-sync-heal-checkpoint-max-bytes+ (* 4 1024 1024))
 (defconstant +snap-sync-heal-checkpoint-max-items+ (* 128 1024))
 (defconstant +snap-sync-heal-checkpoint-node-interval+ (* 128 2048)
@@ -2156,7 +2164,7 @@ frontier concurrently."
                (<= 1 paths-per-source
                    +snap-sync-heal-paths-per-source+))
     (error "Snap heal per-source path capacity is invalid"))
-  (min +snap-sync-heal-checkpoint-max-works+
+  (min +snap-sync-heal-live-frontier-max-works+
        (* #+sbcl source-count #-sbcl 1
           paths-per-source)))
 
@@ -2165,19 +2173,26 @@ frontier concurrently."
   "Bound one local read batch by progress and worst-case trie expansion.
 
 Each popped external reference can expose at most sixteen children, increasing
-the frontier by fifteen works.  Stay within the hard checkpoint bound
-throughout the normal soft-target region while retaining a one-item escape for
-an already hard-sized frontier whose next node may reduce it."
+the frontier by fifteen works. Stay within the durable checkpoint bound
+throughout its normal soft-target region, and use the separate live bound for a
+larger resumed frontier so remote batching does not collapse at 8,192 works."
   (unless (and (integerp stack-count) (not (minusp stack-count))
                (integerp missing-count) (not (minusp missing-count))
                (integerp missing-limit) (> missing-limit missing-count)
                (integerp checkpoint-room) (plusp checkpoint-room))
     (error "Invalid snap heal local read limits"))
-  (let ((expansion-room
-          (floor
-           (max 0
-                (- +snap-sync-heal-checkpoint-max-works+ stack-count))
-           15)))
+  (let* ((frontier-limit
+           ;; Below the ordinary checkpoint target, retain enough room for the
+           ;; next batch's worst-case expansion to stay immediately durable.
+           ;; A restored or transiently larger frontier instead drains under
+           ;; the separately bounded live limit; applying the checkpoint cap
+           ;; there is the one-path/request failure this split prevents.
+           (if (<= stack-count
+                   +snap-sync-heal-checkpoint-frontier-target+)
+               +snap-sync-heal-checkpoint-max-works+
+               +snap-sync-heal-live-frontier-max-works+))
+         (expansion-room
+           (floor (max 0 (- frontier-limit stack-count)) 15)))
     (min +snap-sync-heal-local-reads-per-batch+
          (- missing-limit missing-count)
          checkpoint-room
@@ -2966,7 +2981,7 @@ the finite generation's source errors, and whether a pause requested the return.
                    (let* ((room
                             (max
                              0
-                             (- +snap-sync-heal-checkpoint-max-works+
+                             (- +snap-sync-heal-live-frontier-max-works+
                                 outstanding))))
                      (when (plusp room)
                        (snap-sync-heal-pipeline-enqueue
@@ -4239,7 +4254,11 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                       healer-throttle healer-pending healer-processing-rate)
                      last-throttle-adjusted-at now))))
          (current-request-paths ()
-           (snap-sync-heal-request-capacity healer-throttle))
+           ;; The event loop starts every new source at geth's full lookup
+           ;; capacity and contracts it from actual delivery/RTT feedback.
+           ;; The aggregate throttle remains telemetry; applying it here makes
+           ;; the first cold request narrower than the peer-specific policy.
+           +snap-sync-heal-paths-per-source+)
          (read-local-nodes (references &key decoder (disk-p t))
            ;; Preserve the ordered batch contract while satisfying freshly
            ;; fetched hashes from the bounded response cache.  DISK-P may
@@ -4631,7 +4650,7 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                                              deferred-storage-count
                                              remote-work-count
                                              (length dependencies))
-                                          +snap-sync-heal-checkpoint-max-works+))
+                                          +snap-sync-heal-live-frontier-max-works+))
                                      (dolist (commitment dependencies)
                                        (defer-storage-reference
                                         (car commitment)
@@ -4839,7 +4858,7 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                              room
                              (max
                               (if stack 1 0)
-                              (- +snap-sync-heal-checkpoint-max-works+
+                              (- +snap-sync-heal-live-frontier-max-works+
                                  outstanding
                                  (length stack)
                                  deferred-storage-count)))))
@@ -5005,7 +5024,7 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                                       (<= (+ (length stack) missing-count
                                              deferred-storage-count
                                              (length dependencies))
-                                          +snap-sync-heal-checkpoint-max-works+))
+                                          +snap-sync-heal-live-frontier-max-works+))
                                      ;; The account trie and its code are
                                      ;; complete. Keep the explicitly listed
                                      ;; storage roots in the ordinary bounded
