@@ -343,8 +343,13 @@ them by their physical location instead reintroduces dependency cycles:
   and avoiding a repeated remote account-trie lookup per storage node. A
   response-order index maps partial replies back to the exact DFS continuation.
   Pending, in-flight, locally exposed, and deferred work are counted in work
-  units rather than request units under a fixed 131,072-work live frontier;
-  the serving side independently applies the same 1,024-lookup ceiling. The
+  units rather than request units against a 131,072-work remote-admission
+  target; the serving side independently applies the same 1,024-lookup
+  ceiling. A local depth-first step is still allowed to expose the immediate
+  children of the work it popped, so the observed frontier can briefly cross
+  that target by a bounded branch continuation. While it is above the target,
+  the coordinator admits no net-new remote work and the DFS drains back below
+  it. The
   observational healer snapshot exposes that currently discovered frontier as
   `frontierWorks`, with `deferredStorageWorks` and `remoteWorks` as subsets.
   These values are queue pressure, not a completion denominator: decoding one
