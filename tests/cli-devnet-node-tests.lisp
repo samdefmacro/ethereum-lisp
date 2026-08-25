@@ -4328,6 +4328,82 @@ loop cannot block on a message that never comes."
   #-sbcl
   (is t))
 
+(deftest devnet-snap-source-pool-waits-for-a-cooled-transport
+  (:layer :unit :module :p2p)
+  #+sbcl
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (entry
+           (ethereum-lisp.cli::make-devnet-peer-entry
+            :id-hex "cooled-dependency-peer"
+            :request-queue
+            (ethereum-lisp.cli::make-devnet-peer-request-queue)))
+         (pool (ethereum-lisp.cli::make-devnet-snap-source-pool node))
+         (empty-pool (ethereum-lisp.cli::make-devnet-snap-source-pool node))
+         (source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :account-range (lambda (request) request)
+            :storage-ranges (lambda (request) request)
+            :bytecodes (lambda (request) request)
+            :trie-nodes (lambda (request) request)))
+         (response-id ethereum-lisp.snap:+snap-message-bytecodes+))
+    (ethereum-lisp.cli::devnet-snap-source-pool-register pool entry source)
+    (setf
+     (gethash
+      entry (ethereum-lisp.cli::devnet-snap-source-pool-failed-entries pool))
+     (+ (get-universal-time) 3600))
+    (devnet-peer-sync-call-with-function-overrides
+     (list
+      (cons 'ethereum-lisp.cli::devnet-node-live-sync-entries
+            (lambda (seen-node &key snap-only-p)
+              (is (eq node seen-node))
+              (is snap-only-p)
+              (list entry))))
+     (lambda ()
+       ;; A genuinely empty pool remains an immediate availability result.
+       (multiple-value-bind (selected selected-source)
+           (ethereum-lisp.cli::devnet-snap-source-pool-acquire
+            empty-pool response-id)
+         (is (null selected))
+         (is (null selected-source)))
+       (let* ((attempted (sb-thread:make-semaphore :count 0))
+              (waiter
+                (sb-thread:make-thread
+                 (lambda ()
+                   (sb-thread:signal-semaphore attempted)
+                   (multiple-value-list
+                    (ethereum-lisp.cli::devnet-snap-source-pool-acquire
+                     pool response-id)))
+                 :name "snap-source-pool-cooldown-wait")))
+         (sb-thread:wait-on-semaphore attempted :timeout 5)
+         ;; The pre-fix implementation returned (NIL NIL) immediately here,
+         ;; misclassifying a bounded cooldown as total source exhaustion.
+         (is (eq :blocked
+                 (sb-thread:join-thread
+                  waiter :timeout 0.1 :default :blocked)))
+         (sb-thread:with-mutex
+             ((ethereum-lisp.cli::devnet-snap-source-pool-lock pool))
+           (setf
+            (gethash
+             entry
+             (ethereum-lisp.cli::devnet-snap-source-pool-failed-entries pool))
+            0)
+           (sb-thread:condition-broadcast
+            (ethereum-lisp.cli::devnet-snap-source-pool-waitqueue
+             pool response-id)))
+         (let ((selection
+                 (sb-thread:join-thread
+                  waiter :timeout 5 :default :timeout)))
+           (is (not (eq :timeout selection)))
+           (is (eq entry (first selection)))
+           (is (eq source (second selection)))
+           (ethereum-lisp.cli::devnet-snap-source-pool-release
+            pool entry response-id))))))
+  #-sbcl
+  (is t))
+
 (deftest devnet-snap-source-pool-does-not-readmit-state-unavailable-peer
   (:layer :unit :module :p2p)
   #+sbcl

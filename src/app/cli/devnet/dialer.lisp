@@ -802,10 +802,12 @@ one peer's private queue. Among idle peers, the largest learned delivery
 capacity wins and RTT breaks ties, matching geth's capacity-sorted assignment."
   (sb-thread:with-mutex ((devnet-snap-source-pool-lock pool))
     (loop
-      (let ((best nil)
+      (let ((now (get-universal-time))
+            (best nil)
             (best-finish nil)
             (best-capacity nil)
-            (eligible-p nil))
+            (eligible-p nil)
+            (cooldown-until nil))
         (dolist (entry
                   (devnet-node-live-sync-entries
                    (devnet-snap-source-pool-node pool) :snap-only-p t))
@@ -816,33 +818,41 @@ capacity wins and RTT breaks ties, matching geth's capacity-sorted assignment."
                        (not
                         (gethash
                          entry
-                         (devnet-snap-source-pool-unavailable-entries pool)))
-                       (<=
-                        (gethash
-                         entry (devnet-snap-source-pool-failed-entries pool) 0)
-                        (get-universal-time)))
-              (setf eligible-p t)
-              (let* ((reservations
-                       (devnet-snap-source-pool-reservation-table pool entry))
-                     (load (gethash response-id reservations 0))
-                     (queue (devnet-peer-entry-request-queue entry)))
-                (when (zerop load)
-                  (multiple-value-bind (capacity rtt samples)
-                      (if queue
-                          (devnet-peer-request-queue-snap-statistics
-                           queue response-id)
-                          (values 0 nil 0))
-                    (let ((finish
-                            (if (and (plusp samples) rtt)
-                                rtt
-                                +devnet-snap-request-target-seconds+)))
-                      (when (or (null best)
-                                (> capacity best-capacity)
-                                (and (= capacity best-capacity)
-                                     (< finish best-finish)))
-                        (setf best entry
-                              best-finish finish
-                              best-capacity capacity)))))))))
+                         (devnet-snap-source-pool-unavailable-entries pool))))
+              (let ((failed-until
+                      (gethash
+                       entry
+                       (devnet-snap-source-pool-failed-entries pool)
+                       0)))
+                (if (> failed-until now)
+                    (setf cooldown-until
+                          (if cooldown-until
+                              (min cooldown-until failed-until)
+                              failed-until))
+                    (progn
+                      (setf eligible-p t)
+                      (let* ((reservations
+                               (devnet-snap-source-pool-reservation-table
+                                pool entry))
+                             (load (gethash response-id reservations 0))
+                             (queue (devnet-peer-entry-request-queue entry)))
+                        (when (zerop load)
+                          (multiple-value-bind (capacity rtt samples)
+                              (if queue
+                                  (devnet-peer-request-queue-snap-statistics
+                                   queue response-id)
+                                  (values 0 nil 0))
+                            (let ((finish
+                                    (if (and (plusp samples) rtt)
+                                        rtt
+                                        +devnet-snap-request-target-seconds+)))
+                              (when (or (null best)
+                                        (> capacity best-capacity)
+                                        (and (= capacity best-capacity)
+                                             (< finish best-finish)))
+                                (setf best entry
+                                      best-finish finish
+                                      best-capacity capacity))))))))))))
         (when best
           (let ((reservations
                   (devnet-snap-source-pool-reservation-table pool best)))
@@ -852,11 +862,24 @@ capacity wins and RTT breaks ties, matching geth's capacity-sorted assignment."
              best
              (gethash best
                       (devnet-snap-source-pool-fixed-sources pool)))))
-        (unless eligible-p
-          (return (values nil nil)))
-        (sb-thread:condition-wait
-         (devnet-snap-source-pool-waitqueue pool response-id)
-         (devnet-snap-source-pool-lock pool))))))
+        (cond
+          (eligible-p
+           ;; Every eligible type slot is busy. A release wakes this waiter.
+           (sb-thread:condition-wait
+            (devnet-snap-source-pool-waitqueue pool response-id)
+            (devnet-snap-source-pool-lock pool)))
+          (cooldown-until
+           ;; A transient transport failure is not aggregate source
+           ;; exhaustion. Wait for its bounded cooldown, or wake earlier when
+           ;; a source is registered or another scheduler event changes the
+           ;; pool. Returning NIL here tears down every account worker and can
+           ;; needlessly rebase a productive pivot.
+           (sb-thread:condition-wait
+            (devnet-snap-source-pool-waitqueue pool response-id)
+            (devnet-snap-source-pool-lock pool)
+            :timeout (max 1 (- cooldown-until now))))
+          (t
+           (return (values nil nil))))))))
 
 #+sbcl
 (defun devnet-snap-source-pool-release-locked (pool entry response-id)

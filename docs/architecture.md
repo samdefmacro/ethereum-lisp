@@ -186,7 +186,11 @@ them by their physical location instead reintroduces dependency cycles:
   of the unrelated AccountRange peer whose page discovered the dependency. An
   ordinary dependency transport failure enters a thirty-second cooldown and the
   already authenticated account page's remaining work retries elsewhere
-  instead of being discarded. A peer which explicitly rejects the pivot state
+  instead of being discarded. If every otherwise-live transport is in that
+  bounded cooldown, the global type scheduler waits for the earliest expiry or
+  a peer-change notification; it does not misclassify temporary backoff as
+  aggregate source exhaustion and tear down the productive pivot. A peer which
+  explicitly rejects the pivot state
   is excluded for that import, while its exact stable node id (including when
   it served a pooled dependency rather than the account page) is remembered
   across finite coordinator passes for the lifetime of the same pivot. A failed

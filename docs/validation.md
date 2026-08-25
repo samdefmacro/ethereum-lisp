@@ -480,7 +480,10 @@ sole-writer request queues overlap independent response types with geth's
 adaptive 64--512 KiB snap byte limits. The source-pool controls prove that
 learned capacity wins an idle tie, bytecode reservations remain independent of
 storage load, an ordinary failed dependency peer enters cooldown while the same
-request succeeds elsewhere, and an explicit state-unavailable response cannot
+request succeeds elsewhere, and a generation with only cooled but otherwise
+live transports waits until one is eligible instead of returning an empty
+source set. The positive empty-pool control still returns immediately. An
+explicit state-unavailable response cannot
 be readmitted by expiring that cooldown or be misattributed to the unrelated
 account-page source. ByteCodes and StorageRanges integration controls return an
 invalid but transport-successful response from the first peer, require client
