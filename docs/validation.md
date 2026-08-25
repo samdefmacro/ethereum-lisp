@@ -544,7 +544,10 @@ one fixed pivot is a useful running estimate, but none of these fields is an
 authoritative final-work denominator or completion percentage. The
 production call-site control moves a returned node from in-flight work to the
 local stack without double-counting it and requires every live-frontier field
-to reach zero on completion. Its focused controls are
+to reach zero on completion. Source-pool controls also prove that dependency
+work adopts a newly connected live SNAP transport immediately when every
+previously registered transport is cooling, without waiting for an account
+page to finish and refresh the pool. Its focused controls are
 `SNAP-STATE-HEALER` and `SNAP-HEAL-CHECKPOINT`; both are also included by the
 broader `SNAP-` selectors above. The fetched-node hot-path control plants
 positive witnesses for both single-key and batch trie reads, then proves that a

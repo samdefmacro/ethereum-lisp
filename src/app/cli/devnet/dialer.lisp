@@ -811,14 +811,21 @@ capacity wins and RTT breaks ties, matching geth's capacity-sorted assignment."
         (dolist (entry
                   (devnet-node-live-sync-entries
                    (devnet-snap-source-pool-node pool) :snap-only-p t))
-          (let ((source
-                  (gethash entry
-                           (devnet-snap-source-pool-fixed-sources pool))))
-            (when (and source
-                       (not
-                        (gethash
-                         entry
-                         (devnet-snap-source-pool-unavailable-entries pool))))
+          (unless
+              (gethash
+               entry (devnet-snap-source-pool-unavailable-entries pool))
+            (let* ((fixed-sources
+                     (devnet-snap-source-pool-fixed-sources pool))
+                   ;; The account-range coordinator normally registers each
+                   ;; transport while refreshing range workers. Dependency
+                   ;; workers can all be waiting here, however, so a newly
+                   ;; connected SNAP peer must become usable without waiting
+                   ;; for an unrelated account-page result to refresh them.
+                   (source
+                     (or (gethash entry fixed-sources)
+                         (setf (gethash entry fixed-sources)
+                               (devnet-peer-queued-snap-source entry)))))
+              (when source
               (let ((failed-until
                       (gethash
                        entry
@@ -852,7 +859,7 @@ capacity wins and RTT breaks ties, matching geth's capacity-sorted assignment."
                                              (< finish best-finish)))
                                 (setf best entry
                                       best-finish finish
-                                      best-capacity capacity))))))))))))
+                                      best-capacity capacity)))))))))))))
         (when best
           (let ((reservations
                   (devnet-snap-source-pool-reservation-table pool best)))

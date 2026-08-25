@@ -402,6 +402,9 @@ them by their physical location instead reintroduces dependency cycles:
   useful running workload estimate, but discovery, deduplication, stale markers,
   and rebases can change that denominator. It is not a terminal completion
   percentage; `completed=T` remains the only terminal authority.
+  Dependency scheduling also adopts newly connected live SNAP transports
+  lazily. Thus a storage/code backlog waiting behind cooled transports does not
+  depend on an unrelated account-page result to refresh the source pool.
   The smaller 8,192-work durable checkpoint remains the restart contract.
   Range pages and completed current-epoch plans publish closure proofs at the
   healer's first four-nibble lookup boundary and at its five-nibble children.

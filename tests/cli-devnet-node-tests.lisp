@@ -4335,13 +4335,18 @@ loop cannot block on a message that never comes."
            (ethereum-lisp.cli:make-devnet-node
             :genesis-json *eth-sync-paris-genesis-json*
             :port 0 :public-port 0))
+         (empty-node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
          (entry
            (ethereum-lisp.cli::make-devnet-peer-entry
             :id-hex "cooled-dependency-peer"
             :request-queue
             (ethereum-lisp.cli::make-devnet-peer-request-queue)))
          (pool (ethereum-lisp.cli::make-devnet-snap-source-pool node))
-         (empty-pool (ethereum-lisp.cli::make-devnet-snap-source-pool node))
+         (empty-pool
+           (ethereum-lisp.cli::make-devnet-snap-source-pool empty-node))
          (source
            (ethereum-lisp.snap-sync:make-snap-sync-source
             :account-range (lambda (request) request)
@@ -4358,9 +4363,11 @@ loop cannot block on a message that never comes."
      (list
       (cons 'ethereum-lisp.cli::devnet-node-live-sync-entries
             (lambda (seen-node &key snap-only-p)
-              (is (eq node seen-node))
               (is snap-only-p)
-              (list entry))))
+              (cond
+                ((eq node seen-node) (list entry))
+                ((eq empty-node seen-node) nil)
+                (t (error "Unexpected source-pool node"))))))
      (lambda ()
        ;; A genuinely empty pool remains an immediate availability result.
        (multiple-value-bind (selected selected-source)
@@ -4404,10 +4411,86 @@ loop cannot block on a message that never comes."
   #-sbcl
   (is t))
 
+(deftest devnet-snap-source-pool-adopts-a-new-live-dependency-peer
+  (:layer :unit :module :p2p)
+  #+sbcl
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (old-entry
+           (ethereum-lisp.cli::make-devnet-peer-entry
+            :id-hex "cooled-registered-dependency-peer"
+            :request-queue
+            (ethereum-lisp.cli::make-devnet-peer-request-queue)))
+         (new-entry
+           (ethereum-lisp.cli::make-devnet-peer-entry
+            :id-hex "new-live-dependency-peer"
+            :request-queue
+            (ethereum-lisp.cli::make-devnet-peer-request-queue)))
+         (pool (ethereum-lisp.cli::make-devnet-snap-source-pool node))
+         (old-source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :account-range (lambda (request) request)
+            :storage-ranges (lambda (request) request)
+            :bytecodes (lambda (request) request)
+            :trie-nodes (lambda (request) request)))
+         (new-source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :account-range (lambda (request) request)
+            :storage-ranges (lambda (request) request)
+            :bytecodes (lambda (request) request)
+            :trie-nodes (lambda (request) request)))
+         (response-id ethereum-lisp.snap:+snap-message-storage-ranges+)
+         (built 0))
+    (ethereum-lisp.cli::devnet-snap-source-pool-register
+     pool old-entry old-source)
+    (setf
+     (gethash
+      old-entry
+      (ethereum-lisp.cli::devnet-snap-source-pool-failed-entries pool))
+     (+ (get-universal-time) 3600))
+    (devnet-peer-sync-call-with-function-overrides
+     (list
+      (cons 'ethereum-lisp.cli::devnet-node-live-sync-entries
+            (lambda (seen-node &key snap-only-p)
+              (is (eq node seen-node))
+              (is snap-only-p)
+              (list old-entry new-entry)))
+      (cons 'ethereum-lisp.cli::devnet-peer-queued-snap-source
+            (lambda (entry)
+              (is (eq new-entry entry))
+              (incf built)
+              new-source)))
+     (lambda ()
+       ;; No account-page result has registered NEW-ENTRY. The dependency
+       ;; selector must adopt it immediately instead of sleeping until the old
+       ;; transport's one-hour cooldown expires.
+       (multiple-value-bind (selected selected-source)
+           (ethereum-lisp.cli::devnet-snap-source-pool-acquire
+            pool response-id)
+         (is (eq new-entry selected))
+         (is (eq new-source selected-source))
+         (is (= 1 built))
+         (is
+          (eq new-source
+              (gethash
+               new-entry
+               (ethereum-lisp.cli::devnet-snap-source-pool-fixed-sources
+                pool))))
+         (ethereum-lisp.cli::devnet-snap-source-pool-release
+          pool selected response-id)))))
+  #-sbcl
+  (is t))
+
 (deftest devnet-snap-source-pool-does-not-readmit-state-unavailable-peer
   (:layer :unit :module :p2p)
   #+sbcl
   (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (exhausted-node
            (ethereum-lisp.cli:make-devnet-node
             :genesis-json *eth-sync-paris-genesis-json*
             :port 0 :public-port 0))
@@ -4426,7 +4509,8 @@ loop cannot block on a message that never comes."
          (pool
            (ethereum-lisp.cli::make-devnet-snap-source-pool node pivot))
          (exhausted-pool
-           (ethereum-lisp.cli::make-devnet-snap-source-pool node pivot))
+           (ethereum-lisp.cli::make-devnet-snap-source-pool
+            exhausted-node pivot))
          (pruned-calls 0)
          (stateful-calls 0)
          (pruned-source
@@ -4459,9 +4543,11 @@ loop cannot block on a message that never comes."
      (list
       (cons 'ethereum-lisp.cli::devnet-node-live-sync-entries
             (lambda (seen-node &key snap-only-p)
-              (is (eq node seen-node))
               (is snap-only-p)
-              (list entry-one entry-two))))
+              (cond
+                ((eq node seen-node) (list entry-one entry-two))
+                ((eq exhausted-node seen-node) (list entry-one))
+                (t (error "Unexpected source-pool node"))))))
      (lambda ()
        (is (eq :first
                (ethereum-lisp.cli::devnet-snap-source-pool-call
