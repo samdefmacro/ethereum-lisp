@@ -1042,6 +1042,61 @@
        (ethereum-lisp.snap-sync::snap-sync-account-subtree-dependencies-from-value
         oversized)))))
 
+(deftest snap-range-proofs-clear-stale-incomplete-markers
+  (:layer :unit :module :p2p)
+  ;; A node can first appear on an open page boundary and later fall inside a
+  ;; proved-complete subtree.  The later durable page must revoke the earlier
+  ;; negative marker; merely declining to write a duplicate leaves millions of
+  ;; already-proved nodes for the final healer to revisit.
+  (let* ((database (make-memory-key-value-database))
+         (account-complete (snap-test-index-hash 1800))
+         (account-open (snap-test-index-hash 1801))
+         (storage-complete (snap-test-index-hash 1802))
+         (storage-open (snap-test-index-hash 1803))
+         (initial (make-kv-write-batch)))
+    (dolist (reference
+             (list account-complete account-open storage-complete storage-open))
+      (ethereum-lisp.snap-sync::snap-sync-populate-incomplete-node-batch
+       initial reference))
+    (kv-apply-batch database initial)
+    (ethereum-lisp.snap-sync::snap-sync-buffer-account-page-content
+     database (make-hash32 (snap-test-index-hash 1804))
+     (ethereum-lisp.snap-sync::make-snap-sync-page-result
+      :account-records
+      (list
+       (cons account-complete (make-byte-vector 1 :initial-element 1))
+       (cons account-open (make-byte-vector 1 :initial-element 2)))
+      :complete-node-hashes (list account-complete)
+      :incomplete-node-hashes (list account-open)))
+    (let* ((origin (make-byte-vector 32))
+           (limit (make-byte-vector 32 :initial-element #xff))
+           (task
+             (ethereum-lisp.snap-sync::snap-sync-account-task
+              :start origin :limit limit :next-origin origin
+              :completed-p nil)))
+      (ethereum-lisp.snap-sync::snap-sync-commit-storage-page
+       database (make-hash32 (snap-test-index-hash 1805))
+       (snap-test-index-hash 1806)
+       (make-hash32 (snap-test-index-hash 1807))
+       (list task)
+       (ethereum-lisp.snap-sync::make-snap-sync-storage-page-result
+        :task-index 0 :origin origin
+        :records
+        (list
+         (cons storage-complete (make-byte-vector 1 :initial-element 3))
+         (cons storage-open (make-byte-vector 1 :initial-element 4)))
+        :complete-node-hashes (list storage-complete)
+        :incomplete-node-hashes (list storage-open)
+        :completed-p t)))
+    (let ((markers
+            (ethereum-lisp.snap-sync::snap-sync-load-incomplete-nodes
+             database)))
+      (is (= 2 (hash-table-count markers)))
+      (is (not (nth-value 1 (gethash account-complete markers))))
+      (is (nth-value 1 (gethash account-open markers)))
+      (is (not (nth-value 1 (gethash storage-complete markers))))
+      (is (nth-value 1 (gethash storage-open markers))))))
+
 (deftest snap-state-import-defers-byte-capped-storage-to-resumable-healing
   (:layer :integration :module :p2p)
   ;; A large storage trie can outlive a public peer's retained pivot while the

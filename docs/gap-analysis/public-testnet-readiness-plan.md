@@ -299,6 +299,10 @@ The implementation boundary is split deliberately:
   Fresh stores also use geth's exact hash-presence frontier: open range or
   fetched nodes carry durable negative markers, and healer DFS removes each
   marker only after its descendants and external dependencies are complete.
+  When a later account or partitioned StorageRanges page proves closure for a
+  node first observed on an open boundary, its atomic proof/record/cursor batch
+  removes that superseded negative instead of leaving the final healer to scan
+  already-proved state.
   Legacy progress stays conservative, so an upgrade cannot trust unclassified
   nodes. The CLI advertises snap only when both sides are operational and serves
   production state through the direct RocksDB provider. A stale pivot remains

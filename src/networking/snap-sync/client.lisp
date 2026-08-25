@@ -843,8 +843,13 @@ observational and not consensus-visible."
       (declare (ignore verified-p))
       (unless trie
         (error "Complete snap storage group did not reconstruct its trie"))
-      (snap-sync-populate-verified-trie-records-batch
-       database batch (mpt-dirty-node-records trie)))))
+      (let ((records (mpt-dirty-node-records trie)))
+        (snap-sync-populate-verified-trie-records-batch
+         database batch records)
+        ;; A previous byte-capped attempt may have marked the same content as
+        ;; open.  This complete root proof supersedes those durable negatives.
+        (snap-sync-delete-incomplete-records-batch
+         batch (mapcar #'car records))))))
 
 (defun snap-sync-populate-partial-storage-group
     (database batch storage-root slots proof)
@@ -878,6 +883,8 @@ reuse this work instead of downloading the same prefix again."
                 records complete-references)))
         (snap-sync-populate-verified-trie-records-batch
          database batch records)
+        (snap-sync-delete-incomplete-records-batch
+         batch complete-references)
         (snap-sync-populate-incomplete-records-batch batch incomplete)))))
 
 (defun snap-sync-fetch-storage-commitments-serial
@@ -1436,8 +1443,8 @@ publishes the account cursor."
 (defstruct (snap-sync-page-result
             (:constructor make-snap-sync-page-result
                 (&key task-index origin account-records codes deferred-storage
-                      healed-subtrees dependency-subtrees incomplete-node-hashes
-                      next-origin
+                      healed-subtrees dependency-subtrees complete-node-hashes
+                      incomplete-node-hashes next-origin
                       completed-p profile)))
   task-index
   origin
@@ -1446,6 +1453,7 @@ publishes the account cursor."
   deferred-storage
   healed-subtrees
   dependency-subtrees
+  complete-node-hashes
   incomplete-node-hashes
   next-origin
   completed-p
@@ -1474,11 +1482,13 @@ publishes the account cursor."
 (defstruct (snap-sync-storage-page-result
             (:constructor make-snap-sync-storage-page-result
                 (&key task-index origin records healed-subtrees
-                      incomplete-node-hashes next-origin completed-p)))
+                      complete-node-hashes incomplete-node-hashes next-origin
+                      completed-p)))
   task-index
   origin
   records
   healed-subtrees
+  complete-node-hashes
   incomplete-node-hashes
   next-origin
   completed-p)
@@ -1547,6 +1557,11 @@ uniform persistence interface."
   "Mark authenticated nodes whose full descendant closure is not yet proved."
   (dolist (reference references batch)
     (snap-sync-populate-incomplete-node-batch batch reference)))
+
+(defun snap-sync-delete-incomplete-records-batch (batch references)
+  "Clear stale negative markers for newly proved complete node closures."
+  (dolist (reference references batch)
+    (snap-sync-delete-incomplete-node-batch batch reference)))
 
 (defun snap-sync-byte-prefix-end (prefix)
   "Return the exclusive lexicographic end key for non-empty byte PREFIX."
@@ -1788,6 +1803,10 @@ again."
   (let ((batch (make-kv-write-batch)))
     (snap-sync-populate-verified-trie-records-batch
      database batch (snap-sync-page-result-account-records result))
+    ;; Range pages overlap at proof boundaries.  A later authenticated page can
+    ;; close a node that an earlier page conservatively marked incomplete.
+    (snap-sync-delete-incomplete-records-batch
+     batch (snap-sync-page-result-complete-node-hashes result))
     (snap-sync-populate-incomplete-records-batch
      batch (snap-sync-page-result-incomplete-node-hashes result))
     (snap-sync-populate-code-batch
@@ -1947,6 +1966,7 @@ again."
                   ;; subtree hash so a later pivot can skip the account walk
                   ;; without skipping external dependencies.
                   :dependency-subtrees dependency-subtrees
+                  :complete-node-hashes complete-references
                   :incomplete-node-hashes incomplete-node-hashes
                   :next-origin (snap-sync-account-page-work-next-origin work)
                   :completed-p
@@ -3955,6 +3975,7 @@ never read or revalidated."
            :task-index task-index :origin (copy-seq origin)
            :records records
            :healed-subtrees healed-subtrees
+           :complete-node-hashes complete-references
            :incomplete-node-hashes
            (snap-sync-incomplete-record-hashes records complete-references)
            :next-origin next-origin :completed-p completed-p))))))
@@ -3982,6 +4003,11 @@ never read or revalidated."
            (batch (make-kv-write-batch)))
       (snap-sync-populate-verified-trie-records-batch
        database batch (snap-sync-storage-page-result-records result))
+      ;; A partition page may prove closure for nodes retained by an earlier
+      ;; byte-capped prefix or an adjacent page.  Remove those old negatives in
+      ;; the same atomic batch as the proof, records, and cursor.
+      (snap-sync-delete-incomplete-records-batch
+       batch (snap-sync-storage-page-result-complete-node-hashes result))
       (snap-sync-populate-incomplete-records-batch
        batch (snap-sync-storage-page-result-incomplete-node-hashes result))
       (snap-sync-populate-storage-task-batch

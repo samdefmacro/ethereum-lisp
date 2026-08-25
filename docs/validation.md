@@ -207,6 +207,8 @@ cl-workbench validation run cold-unit \
 cl-workbench validation run cold-unit \
   --match SNAP-ACCOUNT-CURSORS-SHARE-ONE-DURABLE-PUBLICATION-BATCH
 cl-workbench validation run cold-unit \
+  --match SNAP-RANGE-PROOFS-CLEAR-STALE-INCOMPLETE-MARKERS
+cl-workbench validation run cold-unit \
   --match SNAP-STATE-HEALER-FEEDBACK-BOUNDS-THE-GLOBAL-MISSING-QUEUE
 cl-workbench validation run cold-integration \
   --match DEVNET-RANGE-ANNOUNCEMENT-WAKES
@@ -269,7 +271,12 @@ version-five geth-style complete-node contract: proof-edge or otherwise open
 nodes carry a negative marker in the same content batch, while fully closed
 interior groups require no positive record per node. The migration control
 plants a legacy trie node before scheme initialization and proves hash presence
-remains conservative; malformed scheme and incomplete markers fail closed.
+remains conservative; malformed scheme and incomplete markers fail closed. If
+a later account or StorageRanges page proves closure for a node that an earlier
+partial page marked open, the proof/record/cursor batch deletes that exact stale
+negative. The focused marker-lifecycle regression plants both account and
+storage negatives, proves only the closed nodes, and requires the open markers
+to remain while the superseded markers disappear.
 StorageRanges pages publish equivalent
 storage-subtree proofs with their node and cursor batch. The integration
 regressions observe both kinds before final TrieNodes traversal, then promote
