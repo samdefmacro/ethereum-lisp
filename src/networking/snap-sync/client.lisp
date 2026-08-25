@@ -227,6 +227,7 @@ state completion.")
 (defstruct (snap-sync-source
             (:constructor make-snap-sync-source
                 (&key account-range storage-ranges bytecodes bytecodes-batch
+                      storage-ranges-verified bytecodes-batch-verified
                       trie-nodes)))
   account-range
   storage-ranges
@@ -236,6 +237,12 @@ state completion.")
   ;; hash subset selected after reserving an idle peer. Fixed/test sources keep
   ;; using BYTECODES and the protocol-level fallback below.
   bytecodes-batch
+  ;; Production pool callbacks execute the supplied response verifier before
+  ;; releasing the actual peer reservation. This keeps malformed/pruned peer
+  ;; attribution at the transport that answered, rather than the unrelated
+  ;; AccountRange source whose page discovered the dependency.
+  storage-ranges-verified
+  bytecodes-batch-verified
   trie-nodes)
 
 (defstruct (snap-sync-account-task
@@ -887,6 +894,65 @@ reuse this work instead of downloading the same prefix again."
          batch complete-references)
         (snap-sync-populate-incomplete-records-batch batch incomplete)))))
 
+(defun snap-sync-fetch-storage-commitment-request
+    (database source state-root requested byte-limit)
+  "Fetch, verify, and buffer one bounded StorageRanges request.
+
+Return the number of commitments covered and the byte-capped commitment, if
+the final returned group remains open. Keeping response validation inside this
+call lets the multi-peer scheduler retire the exact peer that supplied a bad
+response before retrying the same immutable request elsewhere."
+  (let ((request
+          (make-snap-get-storage-ranges
+           1 (hash32-bytes state-root)
+           (mapcar #'car requested)
+           (make-byte-vector 0) (make-byte-vector 0) byte-limit)))
+    (labels
+        ((verify (response)
+           (let* ((groups (snap-storage-ranges-slots response))
+                  (proof (snap-storage-ranges-proof response))
+                  (received (length groups)))
+             (unless (= 1 (snap-storage-ranges-id response))
+               (error "Snap storage response id mismatch"))
+             (when (and (null groups) (null proof))
+               (snap-sync-state-unavailable "storage-range"))
+             (when (or (zerop received) (> received (length requested)))
+               (error "Snap peer returned an invalid storage group count"))
+             (let ((complete-count (if proof (1- received) received))
+                   (batch (make-kv-write-batch))
+                   (populated-p nil))
+               (loop for commitment in requested
+                     for slots in groups
+                     repeat complete-count
+                     do (snap-sync-populate-complete-storage-group
+                         database batch (cdr commitment) slots)
+                        (setf populated-p t))
+               (when proof
+                 (snap-sync-populate-partial-storage-group
+                  database batch
+                  (cdr (nth (1- received) requested))
+                  (nth (1- received) groups)
+                  proof)
+                 (setf populated-p t))
+             (values received
+                     (and proof (nth (1- received) requested))
+                     batch populated-p)))))
+      (multiple-value-bind (received open-commitment batch populated-p)
+          (if (functionp (snap-sync-source-storage-ranges-verified source))
+              (funcall
+               (snap-sync-source-storage-ranges-verified source)
+               request #'verify)
+              (verify
+               (snap-sync-source-call
+                (snap-sync-source-storage-ranges source)
+                request "storage ranges")))
+        (when populated-p
+          ;; Release the peer after proof verification but before the local WAL
+          ;; write. The later synchronous cursor batch still durably flushes
+          ;; this buffered prefix before exposing its account page.
+          (kv-apply-batch-buffered database batch))
+        (values received open-commitment)))))
+
 (defun snap-sync-fetch-storage-commitments-serial
     (database source state-root commitments byte-limit)
   "Fetch one storage commitment chunk in bounded snap/1 requests.
@@ -905,62 +971,16 @@ the exact authorized state root before completion."
           do (let* ((count
                       (min +snap-sync-storage-accounts-per-request+
                            (length remaining)))
-                    (requested (subseq remaining 0 count))
-                    (request
-                      (make-snap-get-storage-ranges
-                       1 (hash32-bytes state-root)
-                       (mapcar #'car requested)
-                       (make-byte-vector 0) (make-byte-vector 0) byte-limit))
-                    (response
-                      (snap-sync-source-call
-                       (snap-sync-source-storage-ranges source)
-                       request "storage ranges"))
-                    (groups (snap-storage-ranges-slots response))
-                    (proof (snap-storage-ranges-proof response))
-                    (received (length groups)))
-               (unless (= 1 (snap-storage-ranges-id response))
-                 (error "Snap storage response id mismatch"))
-               (when (and (null groups) (null proof))
-                 (snap-sync-state-unavailable "storage-range"))
-               (when (or (zerop received) (> received count))
-                 (error "Snap peer returned an invalid storage group count"))
-               (let ((complete-count (if proof (1- received) received))
-                     (batch (make-kv-write-batch))
-                     (populated-p nil))
-                 (loop for commitment in requested
-                       for slots in groups
-                       repeat complete-count
-                       do (snap-sync-populate-complete-storage-group
-                           database batch (cdr commitment) slots)
-                          (setf populated-p t))
-                 (when proof
-                   (snap-sync-populate-partial-storage-group
-                    database batch
-                    (cdr (nth (1- received) requested))
-                    (nth (1- received) groups)
-                    proof)
-                   (setf populated-p t))
-                 (when populated-p
-                   ;; These authenticated, content-addressed nodes do not
-                   ;; publish the account cursor. Buffer their atomic WAL
-                   ;; records; SNAP-SYNC-COMMIT-ACCOUNT-PAGE follows only after
-                   ;; every dependency is verified, and its synchronous batch
-                   ;; durably flushes this complete prefix before exposing the
-                   ;; cursor. A crash before that seam simply retries the page.
-                   (kv-apply-batch-buffered database batch)))
-                 ;; A proof marks the last returned group as byte-capped.  Its
-                 ;; verified prefix is durable, but do not fully paginate that
-                 ;; potentially enormous storage trie inside the account-page
-                 ;; transaction. Its root remains in the verified account value
-                 ;; and therefore becomes mandatory work for
-                 ;; SNAP-SYNC-HEAL-STATE.
-                 ;; Preserve that exact dependency with the verified account
-                 ;; page.  Once every account range is durable, final healing
-                 ;; can start from this bounded set instead of rediscovering it
-                 ;; by traversing the already reconstructed account trie.
-                 (when proof
-                   (push (nth (1- received) requested) deferred))
-                 (setf remaining (nthcdr received remaining))))
+                    (requested (subseq remaining 0 count)))
+               (multiple-value-bind (received open-commitment)
+                   (snap-sync-fetch-storage-commitment-request
+                    database source state-root requested byte-limit)
+                 ;; A proof marks the last returned group as byte-capped. Its
+                 ;; verified prefix is durable, while final healing completes
+                 ;; the exact root after every account range is published.
+                 (when open-commitment
+                   (push open-commitment deferred))
+                 (setf remaining (nthcdr received remaining)))))
     (nreverse deferred)))
 
 (defun snap-sync-fetch-storage-commitments
@@ -1002,63 +1022,71 @@ and increases timeout pressure without creating another on-wire slot."
         collect (subseq remaining 0 count)
         do (setf remaining (nthcdr count remaining))))
 
+(defun snap-sync-fetch-code-request (source hashes byte-limit)
+  "Fetch and validate one peer-selected ByteCodes request from HASHES."
+  (labels
+      ((verify (response requested)
+         (unless (and requested
+                      (<= (length requested)
+                          +snap-sync-code-hashes-per-request+)
+                      (every
+                       (lambda (hash) (member hash hashes :test #'bytes=))
+                       requested))
+           (error "Snap bytecode scheduler selected an invalid hash batch"))
+         (unless (= 1 (snap-bytecodes-id response))
+           (error "Snap bytecode response id mismatch"))
+         (let ((requested-pending (make-hash-table :test #'equalp))
+               (received (snap-bytecodes-codes response))
+               (codes '()))
+           (when (null received)
+             (snap-sync-state-unavailable "bytecodes"))
+           (dolist (hash requested)
+             (setf (gethash hash requested-pending) t))
+           (dolist (code received)
+             (let ((hash (keccak-256 code)))
+               (unless (nth-value 1 (gethash hash requested-pending))
+                 (error "Snap peer returned unrequested bytecode"))
+               (push (cons hash (copy-seq code)) codes)
+               (remhash hash requested-pending)))
+           (values (nreverse codes) requested))))
+    (cond
+      ((functionp (snap-sync-source-bytecodes-batch-verified source))
+       (funcall
+        (snap-sync-source-bytecodes-batch-verified source)
+        hashes byte-limit #'verify))
+      ((functionp (snap-sync-source-bytecodes-batch source))
+       (multiple-value-call #'verify
+         (funcall
+          (snap-sync-source-bytecodes-batch source) hashes byte-limit)))
+      (t
+       (let* ((count
+                (min +snap-sync-code-hashes-per-request+ (length hashes)))
+              (requested (subseq hashes 0 count))
+              (request (make-snap-get-bytecodes 1 requested byte-limit)))
+         (verify
+          (snap-sync-source-call
+           (snap-sync-source-bytecodes source) request "bytecodes")
+          requested))))))
+
 (defun snap-sync-fetch-code-hash-batch (source hashes byte-limit)
-  "Fetch one bounded hash batch, continuing only if the soft cap truncates it."
+  "Fetch one bounded hash batch, rescheduling each soft-cap tail request."
   (let ((remaining (mapcar #'copy-seq hashes))
         (pending (make-hash-table :test #'equalp))
         (codes '()))
     (dolist (hash remaining)
       (setf (gethash hash pending) t))
     (loop while remaining
-          do (multiple-value-bind (response requested)
-                 (if (functionp (snap-sync-source-bytecodes-batch source))
-                     (funcall
-                      (snap-sync-source-bytecodes-batch source)
-                      remaining byte-limit)
-                     (let* ((count
-                              (min +snap-sync-code-hashes-per-request+
-                                   (length remaining)))
-                            (requested (subseq remaining 0 count))
-                            (request
-                              (make-snap-get-bytecodes
-                               1 requested byte-limit)))
-                       (values
-                        (snap-sync-source-call
-                         (snap-sync-source-bytecodes source)
-                         request "bytecodes")
-                        requested)))
-               (unless (and requested
-                            (<= (length requested)
-                                +snap-sync-code-hashes-per-request+)
-                            (every
-                             (lambda (hash)
-                               (member hash remaining :test #'bytes=))
-                             requested))
-                 (error "Snap bytecode scheduler selected an invalid hash batch"))
-               (let ((requested-pending (make-hash-table :test #'equalp))
-                     (received (snap-bytecodes-codes response)))
-               (dolist (hash requested)
-                 (setf (gethash hash requested-pending) t))
-               (unless (= 1 (snap-bytecodes-id response))
-                 (error "Snap bytecode response id mismatch"))
-               (when (null received)
-                 ;; Match geth's stateless-peer classification.  An empty
-                 ;; response means this source cannot serve the requested
-                 ;; state, whereas a non-empty soft-limited response remains
-                 ;; valid and the loop below requests its missing hashes.
-                 (snap-sync-state-unavailable "bytecodes"))
-               (dolist (code received)
-                 (let ((hash (keccak-256 code)))
-                   (unless (nth-value 1 (gethash hash requested-pending))
-                     (error "Snap peer returned unrequested bytecode"))
-                   (push (cons hash (copy-seq code)) codes)
-                   (remhash hash requested-pending)
-                   (remhash hash pending)))
+          do (multiple-value-bind (received requested)
+                 (snap-sync-fetch-code-request source remaining byte-limit)
+               (declare (ignore requested))
+               (dolist (entry received)
+                 (push entry codes)
+                 (remhash (car entry) pending))
                (setf remaining
                      (delete-if-not
                       (lambda (hash)
                         (nth-value 1 (gethash hash pending)))
-                      remaining)))))
+                      remaining))))
     (nreverse codes)))
 
 #+sbcl

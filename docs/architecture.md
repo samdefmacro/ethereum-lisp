@@ -175,8 +175,12 @@ them by their physical location instead reintroduces dependency cycles:
   each assignment considers only idle sessions, chooses the largest learned
   item capacity, and uses measured RTT to break ties. This matches geth's
   central capacity-sorted assignment without multiplying worker count by the
-  number of account pages. An ordinary dependency transport
-  failure enters a thirty-second cooldown and the
+  number of account pages. The response verifier runs while the actual
+  storage/bytecode peer reservation is still held, then releases that peer
+  before any local WAL write. Empty, unrequested, malformed, or invalid-proof
+  responses are therefore charged to the transport that supplied them instead
+  of the unrelated AccountRange peer whose page discovered the dependency. An
+  ordinary dependency transport failure enters a thirty-second cooldown and the
   already authenticated account page's remaining work retries elsewhere
   instead of being discarded. A peer which explicitly rejects the pivot state
   is excluded for that import, while its exact stable node id (including when

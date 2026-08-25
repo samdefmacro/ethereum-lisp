@@ -198,6 +198,8 @@ cl-workbench validation run cold-integration --match DEVNET-PEER-REQUEST-QUEUE
 cl-workbench validation run cold-unit --match DEVNET-SNAP-REQUEST-CAPACITY
 cl-workbench validation run cold-unit --match DEVNET-SNAP-SOURCE-APPLIES
 cl-workbench validation run cold-unit --match DEVNET-SNAP-SOURCE-POOL
+cl-workbench validation run cold-integration \
+  --match DEVNET-SNAP-SOURCE-POOL-VALIDATES-STORAGE-BEFORE-PEER-RELEASE
 cl-workbench validation run cold-unit \
   --match DEVNET-SNAP-BYTECODE-ASSIGNMENT-LEARNS-ITEM-CAPACITY
 cl-workbench validation run cold-unit \
@@ -457,7 +459,11 @@ learned capacity wins an idle tie, bytecode reservations remain independent of
 storage load, an ordinary failed dependency peer enters cooldown while the same
 request succeeds elsewhere, and an explicit state-unavailable response cannot
 be readmitted by expiring that cooldown or be misattributed to the unrelated
-account-page source. Concurrent rejection writers retain every stable peer id.
+account-page source. ByteCodes and StorageRanges integration controls return an
+invalid but transport-successful response from the first peer, require client
+verification to retire that exact peer before its reservation is released, and
+then complete the unchanged dependency request through a second peer. Concurrent
+rejection writers retain every stable peer id.
 The discv4 unit controls retain only UDP-bonded public routing seeds, the CLI
 seed merge always retains configured bootnodes while bounding process-local
 Kademlia hops at 256, and the socket integration controls keep fork-ID

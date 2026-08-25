@@ -907,13 +907,16 @@ capacity wins and RTT breaks ties, matching geth's capacity-sorted assignment."
 
 #+sbcl
 (defun devnet-snap-source-pool-call
-    (pool response-id source-function request label)
+    (pool response-id source-function request label &key result-function)
   "Run one dependency REQUEST on the best live peer of its response type.
 
 REQUEST may be a packet or a factory called with the reserved peer entry. A
 factory may return an assignment token as a second value; it is returned after
 the response so ByteCodes can size its hash set from that exact peer's learned
-item capacity without racing a second reservation."
+item capacity without racing a second reservation. RESULT-FUNCTION, when
+present, verifies the response and those assignment values before the actual
+peer reservation is released, so invalid state is attributed and retried at
+the transport which supplied it."
   (let ((last-condition nil))
     (loop
       (multiple-value-bind (entry source)
@@ -933,7 +936,7 @@ item capacity without racing a second reservation."
                last-condition)))
             (last-condition (error last-condition))
             (t (error "no live SNAP peer can serve ~A" label))))
-        (let ((result nil)
+        (let ((result-values nil)
               (request-values nil)
               (succeeded-p nil)
               (transport-condition nil))
@@ -945,11 +948,20 @@ item capacity without racing a second reservation."
                             (if (functionp request)
                                 (funcall request entry)
                                 (values request))))
-                     (setf result
-                           (funcall
-                            (funcall source-function source)
-                            (first request-values))
-                           succeeded-p t))
+                     (let ((response
+                             (funcall
+                              (funcall source-function source)
+                              (first request-values))))
+                       (setf result-values
+                             (multiple-value-list
+                              (if result-function
+                                  (apply
+                                   result-function response
+                                   (rest request-values))
+                                  (values-list
+                                   (cons response
+                                         (rest request-values))))))
+                       (setf succeeded-p t)))
                  (ethereum-lisp.validation:storage-error (condition)
                    ;; Database faults are local and must never be retried as a
                    ;; peer selection problem.
@@ -971,9 +983,7 @@ item capacity without racing a second reservation."
                    (devnet-snap-source-pool-node pool)
                    entry response-id nil))))
           (when succeeded-p
-            (return
-              (values-list
-               (cons result (rest request-values)))))
+            (return (values-list result-values)))
           (devnet-peer-manager-log
            (devnet-snap-source-pool-node pool)
            "peer.snap.dependency_failed"
@@ -996,6 +1006,12 @@ item capacity without racing a second reservation."
         pool ethereum-lisp.snap:+snap-message-storage-ranges+
         #'ethereum-lisp.snap-sync:snap-sync-source-storage-ranges
         packet "storage ranges"))
+     :storage-ranges-verified
+     (lambda (packet verifier)
+       (devnet-snap-source-pool-call
+        pool ethereum-lisp.snap:+snap-message-storage-ranges+
+        #'ethereum-lisp.snap-sync:snap-sync-source-storage-ranges
+        packet "storage ranges" :result-function verifier))
      :bytecodes
      (lambda (packet)
        (devnet-snap-source-pool-call
@@ -1007,10 +1023,19 @@ item capacity without racing a second reservation."
        (devnet-snap-source-pool-call
         pool ethereum-lisp.snap:+snap-message-bytecodes+
         #'ethereum-lisp.snap-sync:snap-sync-source-bytecodes
+         (lambda (entry)
+           (devnet-peer-bytecode-request
+            (devnet-peer-entry-request-queue entry) hashes byte-limit))
+         "bytecodes"))
+     :bytecodes-batch-verified
+     (lambda (hashes byte-limit verifier)
+       (devnet-snap-source-pool-call
+        pool ethereum-lisp.snap:+snap-message-bytecodes+
+        #'ethereum-lisp.snap-sync:snap-sync-source-bytecodes
         (lambda (entry)
           (devnet-peer-bytecode-request
            (devnet-peer-entry-request-queue entry) hashes byte-limit))
-        "bytecodes"))
+        "bytecodes" :result-function verifier))
      ;; Trie healing already has its own cross-source scheduler and request
      ;; grouping, so retain the fixed source identity for that phase.
      :trie-nodes

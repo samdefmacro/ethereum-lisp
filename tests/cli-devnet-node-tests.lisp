@@ -4399,6 +4399,201 @@ loop cannot block on a message that never comes."
   #-sbcl
   (is t))
 
+(deftest devnet-snap-source-pool-validates-bytecodes-before-peer-release
+  (:layer :unit :module :p2p)
+  #+sbcl
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (entry-one
+           (ethereum-lisp.cli::make-devnet-peer-entry
+            :id-hex "invalid-bytecode-peer"
+            :request-queue
+            (ethereum-lisp.cli::make-devnet-peer-request-queue)))
+         (entry-two
+           (ethereum-lisp.cli::make-devnet-peer-entry
+            :id-hex "valid-bytecode-peer"
+            :request-queue
+            (ethereum-lisp.cli::make-devnet-peer-request-queue)))
+         (pivot (make-hash32 (make-byte-vector 32 :initial-element 75)))
+         (pool (ethereum-lisp.cli::make-devnet-snap-source-pool node pivot))
+         (code (hex-to-bytes "60006000f3"))
+         (hash (keccak-256 code))
+         (invalid-calls 0)
+         (valid-calls 0)
+         (invalid-source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :account-range (lambda (request) request)
+            :storage-ranges (lambda (request) request)
+            :bytecodes
+            (lambda (request)
+              (incf invalid-calls)
+              ;; Returning the response is transport success. Only the
+              ;; client's hash/state verifier can classify it as unusable.
+              (ethereum-lisp.snap:make-snap-bytecodes
+               (ethereum-lisp.snap:snap-get-bytecodes-id request) '()))
+            :trie-nodes (lambda (request) request)))
+         (valid-source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :account-range (lambda (request) request)
+            :storage-ranges (lambda (request) request)
+            :bytecodes
+            (lambda (request)
+              (incf valid-calls)
+              (ethereum-lisp.snap:make-snap-bytecodes
+               (ethereum-lisp.snap:snap-get-bytecodes-id request)
+               (list code)))
+            :trie-nodes (lambda (request) request)))
+         (pooled-source nil))
+    (devnet-peer-sync-call-with-function-overrides
+     (list
+      (cons 'ethereum-lisp.cli::devnet-node-live-sync-entries
+            (lambda (seen-node &key snap-only-p)
+              (is (eq node seen-node))
+              (is snap-only-p)
+              (list entry-one entry-two)))
+      (cons 'ethereum-lisp.cli::devnet-peer-queued-snap-source
+            (lambda (entry)
+              (cond
+                ((eq entry entry-one) invalid-source)
+                ((eq entry entry-two) valid-source)
+                (t (error "Unexpected source-pool entry"))))))
+     (lambda ()
+       (setf pooled-source
+             (ethereum-lisp.cli::devnet-snap-source-pool-source
+              pool entry-one))
+       ;; Registration is separate from range ownership. The verified
+       ;; ByteCodes callback below may select this second transport even
+       ;; though POOLED-SOURCE belongs to ENTRY-ONE's account worker.
+       (ethereum-lisp.cli::devnet-snap-source-pool-source pool entry-two)
+       (multiple-value-bind (codes requested)
+           (ethereum-lisp.snap-sync::snap-sync-fetch-code-request
+            pooled-source (list hash) (* 512 1024))
+         (is (= 1 (length codes)))
+         (is (= 1 (length requested)))
+         (is (bytes= hash (caar codes)))
+         (is (bytes= code (cdar codes))))
+       (is (= 1 invalid-calls))
+       (is (= 1 valid-calls))
+       (is
+        (gethash
+         entry-one
+         (ethereum-lisp.cli::devnet-snap-source-pool-unavailable-entries
+          pool)))
+       (is (not
+            (gethash
+             entry-two
+             (ethereum-lisp.cli::devnet-snap-source-pool-unavailable-entries
+              pool)))))))
+  #-sbcl
+  (is t))
+
+(deftest devnet-snap-source-pool-validates-storage-before-peer-release
+  (:layer :integration :module :p2p)
+  #+sbcl
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (entry-one
+           (ethereum-lisp.cli::make-devnet-peer-entry
+            :id-hex "invalid-storage-peer"
+            :request-queue
+            (ethereum-lisp.cli::make-devnet-peer-request-queue)))
+         (entry-two
+           (ethereum-lisp.cli::make-devnet-peer-entry
+            :id-hex "valid-storage-peer"
+            :request-queue
+            (ethereum-lisp.cli::make-devnet-peer-request-queue)))
+         (pivot (make-hash32 (make-byte-vector 32 :initial-element 76)))
+         (pool (ethereum-lisp.cli::make-devnet-snap-source-pool node pivot))
+         (source-state (make-state-db))
+         (source-database (make-memory-key-value-database))
+         (target-database (make-memory-key-value-database))
+         (address
+           (address-from-hex
+            "0x0000000000000000000000000000000000000042"))
+         (slot (make-hash32 (make-byte-vector 32 :initial-element 41)))
+         (invalid-calls 0)
+         (valid-calls 0))
+    (state-db-set-storage source-state address slot 256)
+    (let* ((state-root (state-db-root source-state))
+           (storage-root (state-db-get-storage-root source-state address))
+           (commitment
+             (cons (keccak-256 (address-bytes address)) storage-root))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              source-database source-state))
+           (invalid-source
+             (ethereum-lisp.snap-sync:make-snap-sync-source
+              :account-range (lambda (request) request)
+              :storage-ranges
+              (lambda (request)
+                (incf invalid-calls)
+                (ethereum-lisp.snap:make-snap-storage-ranges
+                 (ethereum-lisp.snap:snap-get-storage-ranges-id request)
+                 '() '()))
+              :bytecodes (lambda (request) request)
+              :trie-nodes (lambda (request) request)))
+           (valid-source
+             (ethereum-lisp.snap-sync:make-snap-sync-source
+              :account-range (lambda (request) request)
+              :storage-ranges
+              (lambda (request)
+                (incf valid-calls)
+                (multiple-value-bind (response-id encoded)
+                    (ethereum-lisp.snap:snap-serve-request
+                     backend
+                     ethereum-lisp.snap:+snap-message-get-storage-ranges+
+                     (ethereum-lisp.snap:encode-snap-message
+                      ethereum-lisp.snap:+snap-message-get-storage-ranges+
+                      request))
+                  (ethereum-lisp.snap:decode-snap-message
+                   response-id encoded)))
+              :bytecodes (lambda (request) request)
+              :trie-nodes (lambda (request) request)))
+           (pooled-source nil))
+      (devnet-peer-sync-call-with-function-overrides
+       (list
+        (cons 'ethereum-lisp.cli::devnet-node-live-sync-entries
+              (lambda (seen-node &key snap-only-p)
+                (is (eq node seen-node))
+                (is snap-only-p)
+                (list entry-one entry-two)))
+        (cons 'ethereum-lisp.cli::devnet-peer-queued-snap-source
+              (lambda (entry)
+                (cond
+                  ((eq entry entry-one) invalid-source)
+                  ((eq entry entry-two) valid-source)
+                  (t (error "Unexpected source-pool entry"))))))
+       (lambda ()
+         (setf pooled-source
+               (ethereum-lisp.cli::devnet-snap-source-pool-source
+                pool entry-one))
+         (ethereum-lisp.cli::devnet-snap-source-pool-source pool entry-two)
+         (multiple-value-bind (received open-commitment)
+             (ethereum-lisp.snap-sync::
+              snap-sync-fetch-storage-commitment-request
+              target-database pooled-source state-root (list commitment)
+              (* 512 1024))
+           (is (= 1 received))
+           (is (null open-commitment)))
+         (is (= 1 invalid-calls))
+         (is (= 1 valid-calls))
+         (is
+          (gethash
+           entry-one
+           (ethereum-lisp.cli::devnet-snap-source-pool-unavailable-entries
+            pool)))
+         (multiple-value-bind (node-record present-p)
+             (ethereum-lisp.trie:trie-node-store-get
+              target-database storage-root)
+           (is present-p)
+           (is (plusp (length node-record))))))))
+  #-sbcl
+  (is t))
+
 (deftest devnet-snap-pivot-unavailable-cache-retains-concurrent-writers
   (:layer :unit :module :p2p)
   #+sbcl
