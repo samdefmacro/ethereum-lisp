@@ -3955,6 +3955,117 @@
     (is (< caught-up 2d0))
     (is (plusp rate))))
 
+(deftest snap-state-healer-bounds-local-refill-before-peer-events
+  (:layer :unit :module :p2p)
+  (let ((ethereum-lisp.snap-sync::*snap-sync-heal-pipeline-refill-work-quantum*
+          4096))
+    (is (= 4096
+           (ethereum-lisp.snap-sync::snap-sync-heal-pipeline-refill-work-room
+            0)))
+    (is (= 1
+           (ethereum-lisp.snap-sync::snap-sync-heal-pipeline-refill-work-room
+            4095)))
+    (is (zerop
+         (ethereum-lisp.snap-sync::snap-sync-heal-pipeline-refill-work-room
+          4096)))
+    (is (zerop
+         (ethereum-lisp.snap-sync::snap-sync-heal-pipeline-refill-work-room
+          8192)))))
+
+#+sbcl
+(deftest snap-state-healer-bounds-local-refill-at-production-call-site
+  (:layer :unit :module :p2p)
+  ;; Model the public-node stall precisely: the missing root arrives from one
+  ;; peer while the large descendant trie is already reusable locally.  The
+  ;; production REFILL closure must return to the peer event loop after one
+  ;; configured work quantum instead of traversing the whole local trie.
+  (multiple-value-bind (state addresses)
+      (snap-test-partitioned-state)
+    (declare (ignore addresses))
+    (let* ((database (make-memory-key-value-database))
+           (root
+             (progn
+               (state-db-root state)
+               (mpt-persist
+                database (ethereum-lisp.state::state-db-state-trie state))))
+           (source
+             (ethereum-lisp.snap-sync:make-snap-sync-source
+              :account-range (lambda (request) (declare (ignore request)))
+              :storage-ranges (lambda (request) (declare (ignore request)))
+              :bytecodes (lambda (request) (declare (ignore request)))
+              :trie-nodes
+              (lambda (request)
+                (declare (ignore request))
+                (error "The intercepted pipeline must own the root reply"))))
+           (progress
+             (ethereum-lisp.snap-sync::snap-sync-make-progress
+              :pivot-hash (make-hash32 (snap-test-hash 242))
+              :pivot-number 7002 :state-root root
+              :partial-root +empty-trie-hash+
+              :target-hash (make-hash32 (snap-test-hash 243))
+              :chain-id 560048
+              :genesis-hash (make-hash32 (snap-test-hash 244))
+              :authority-id (make-hash32 (snap-test-hash 245))
+              :completed-p nil
+              :tasks
+              (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+               :count 1 :completed-p t)))
+           (pipeline-name
+             'ethereum-lisp.snap-sync::snap-sync-heal-run-pipeline)
+           (real-pipeline (fdefinition pipeline-name))
+           (snapshots '())
+           (first-refill-processed nil)
+           (second-refill-processed nil))
+      (multiple-value-bind (encoded-root present-p)
+          (ethereum-lisp.trie:trie-node-store-get database root)
+        (is present-p)
+        (ethereum-lisp.database:kv-delete-chain-record
+         database :trie-node (hash32-bytes root))
+        (unwind-protect
+             (progn
+               (setf
+                (fdefinition pipeline-name)
+                (lambda (&rest arguments)
+                  (let* ((initial (nth 1 arguments))
+                         (handle-result (nth 6 arguments))
+                         (refill (nth 7 arguments))
+                         (result
+                           (ethereum-lisp.snap-sync::make-snap-sync-heal-fetch-result
+                            :source source :start 0 :end 1 :order #(0)
+                            :response
+                            (ethereum-lisp.snap:make-snap-trie-nodes
+                             1 (list encoded-root)))))
+                    (is (= 1 (length initial)))
+                    (multiple-value-bind (retry condition delivered)
+                        (funcall handle-result result initial)
+                      (is (null retry))
+                      (is (null condition))
+                      (is (= 1 delivered)))
+                    (is (null (funcall refill most-positive-fixnum 0)))
+                    (setf first-refill-processed
+                          (ethereum-lisp.snap-sync:snap-sync-heal-progress-processed-nodes
+                           (first snapshots)))
+                    (is (null (funcall refill most-positive-fixnum 0)))
+                    (setf second-refill-processed
+                          (ethereum-lisp.snap-sync:snap-sync-heal-progress-processed-nodes
+                           (first snapshots)))
+                    (values nil nil nil))))
+               (let ((ethereum-lisp.snap-sync::*snap-sync-heal-pipeline-refill-work-quantum*
+                       1)
+                     (ethereum-lisp.snap-sync::*snap-sync-heal-progress-node-interval*
+                       1))
+                 (let ((completed
+                         (ethereum-lisp.snap-sync::snap-sync-heal-state
+                          database (list source) progress (* 2 1024 1024)
+                          :on-heal-progress
+                          (lambda (snapshot) (push snapshot snapshots)))))
+                   (is
+                    (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
+                     completed))))
+               (is (= 1 first-refill-processed))
+               (is (= 2 second-refill-processed)))
+          (setf (fdefinition pipeline-name) real-pipeline))))))
+
 (deftest snap-heal-progress-reports-discovered-work-without-a-denominator
   (:layer :unit :module :p2p)
   (let ((snapshot nil))

@@ -177,6 +177,13 @@ The durable checkpoint deliberately remains much smaller. A resumed legal
 same 1,024-path per-peer requests as geth instead of degenerating to one remote
 round trip per node. This fixed live cap covers all fifty 1,024-path peer
 flights plus bounded trie expansion without making peer input unbounded.")
+(defparameter *snap-sync-heal-pipeline-refill-work-quantum* 4096
+  "Maximum local works examined by one live-pipeline refill.
+
+The remote event loop must return to completed peer responses even when a
+mostly local trie would otherwise scan millions of reusable nodes while trying
+to fill every vacant remote slot. Four geth-sized request widths retain large
+ordered MultiGets without letting local discovery monopolize the coordinator.")
 (defconstant +snap-sync-heal-checkpoint-max-bytes+ (* 4 1024 1024))
 (defconstant +snap-sync-heal-checkpoint-max-items+ (* 128 1024))
 (defconstant +snap-sync-heal-checkpoint-node-interval+ (* 128 2048)
@@ -2518,6 +2525,14 @@ larger resumed frontier so remote batching does not collapse at 8,192 works."
          (- missing-limit missing-count)
          checkpoint-room
          (max 1 expansion-room))))
+
+(defun snap-sync-heal-pipeline-refill-work-room (examined)
+  "Return the remaining deterministic local-work quantum after EXAMINED."
+  (unless (and (integerp examined) (not (minusp examined))
+               (integerp *snap-sync-heal-pipeline-refill-work-quantum*)
+               (plusp *snap-sync-heal-pipeline-refill-work-quantum*))
+    (error "Invalid snap heal pipeline refill work quantum"))
+  (max 0 (- *snap-sync-heal-pipeline-refill-work-quantum* examined)))
 
 (defun snap-sync-heal-checkpoint-uint (value label)
   (let ((integer (snap-sync-rlp-uint value label)))
@@ -5091,12 +5106,17 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                        reference :marker-state :node-complete)
                       stack)))
                  (process-object work object))))
-         (collect-missing (maximum)
-           "Advance local trie work and return at most MAXIMUM missing hashes."
+         (collect-missing (maximum &optional bounded-refill-p)
+           "Advance local trie work and return at most MAXIMUM missing hashes.
+
+When BOUNDED-REFILL-P is true, yield after one deterministic local-work quantum
+so the live remote pipeline can integrate completed responses before looking
+for more missing hashes."
            (when (zerop maximum)
              (return-from collect-missing nil))
            (let* ((pass-started-at (get-internal-real-time))
                   (processed-before processed-nodes)
+                  (examined-count 0)
                   (missing '())
                   (missing-count 0)
                   (missing-limit
@@ -5111,6 +5131,11 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                       +snap-sync-heal-paths-per-source+))))
              (loop while (and stack
                               (< missing-count missing-limit)
+                              (or
+                               (not bounded-refill-p)
+                               (plusp
+                                (snap-sync-heal-pipeline-refill-work-room
+                                 examined-count)))
                               (< deferred-storage-count
                                  +snap-sync-heal-deferred-storage-target+)
                               (not
@@ -5123,10 +5148,17 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                                 (- processed-nodes
                                    last-checkpoint-processed-nodes))))
                           (read-limit
-                            (snap-sync-heal-local-read-limit
-                             (+ (length stack) deferred-storage-count
-                                remote-work-count missing-count)
-                             missing-count missing-limit checkpoint-room))
+                            (min
+                             (snap-sync-heal-local-read-limit
+                              (+ (length stack) deferred-storage-count
+                                 remote-work-count missing-count)
+                              missing-count missing-limit checkpoint-room)
+                             (if bounded-refill-p
+                                 (max
+                                  1
+                                  (snap-sync-heal-pipeline-refill-work-room
+                                   examined-count))
+                                 +snap-sync-heal-local-reads-per-batch+)))
                           (lookups '())
                           (lookup-count 0))
                      ;; Inline references are already local values. Once a
@@ -5140,7 +5172,7 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                            for work = (pop stack)
                            for reference =
                              (snap-sync-heal-work-reference work)
-                           do
+                           do (incf examined-count)
                            (cond
                              ((eq :node-complete
                                   (snap-sync-heal-work-marker-state work))
@@ -5451,7 +5483,8 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                                  (length stack)
                                  deferred-storage-count)))))
                       (if (plusp available)
-                          (let ((new-missing (collect-missing available)))
+                          (let ((new-missing
+                                  (collect-missing available t)))
                             (setf remote-work-count
                                   (+ outstanding (length new-missing)))
                             new-missing)

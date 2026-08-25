@@ -529,9 +529,12 @@ completion. The event also reports `frontierWorks`, `deferredStorageWorks`, and
 frontier can grow when a decoded parent reveals children, including a small
 bounded DFS overshoot above the 131,072-work remote-admission target, and
 markers may belong to retained content unreachable from the active pivot. A
-stable `processedNodes + knownIncompleteNodes` series at one fixed pivot is a
-useful running estimate, but none of these fields is an authoritative final-work
-denominator or completion percentage. The
+live pipeline examines at most 4,096 local works in one refill before returning
+to completed peer events, so a mostly reusable trie cannot leave remote slots
+idle while the coordinator tries to discover enough misses to fill the entire
+admission window. A stable `processedNodes + knownIncompleteNodes` series at
+one fixed pivot is a useful running estimate, but none of these fields is an
+authoritative final-work denominator or completion percentage. The
 production call-site control moves a returned node from in-flight work to the
 local stack without double-counting it and requires every live-frontier field
 to reach zero on completion. Its focused controls are
