@@ -293,9 +293,10 @@ The implementation boundary is split deliberately:
   set, and retries while local persistence/merge faults remain fatal. The CLI
   persists the authenticated prefix of a byte-capped storage response, then
   finishes that large trie through sixteen restart-safe, 512 KiB-capped
-  StorageRanges partitions. Each page publishes reusable coarse storage
-  subtree proofs with its durable cursor; legacy completed partitions receive
-  the same proofs from a shallow spine walk before final healing.
+  StorageRanges partitions. Each page publishes reusable four-nibble coarse
+  and five-nibble nested storage-subtree proofs with its durable cursor; legacy
+  completed partitions receive the same layered proofs from a shallow spine
+  walk before final healing.
   Fresh stores also use geth's exact hash-presence frontier: open range or
   fetched nodes carry durable negative markers, and healer DFS removes each
   marker only after its descendants and external dependencies are complete.

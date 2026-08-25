@@ -314,10 +314,12 @@ them by their physical location instead reintroduces dependency cycles:
   an incomplete large-storage cursor set remain excluded while every other
   bucket is immediately reusable; completed storage plans receive finer
   reusable proofs while fully healed roots receive the whole-root proof. New
-  proofs use four-nibble
-  buckets, matching the healer's first lookup boundary, while the healer keeps
-  consuming older finer proofs inside a changed coarse bucket for migration
-  compatibility. The records
+  proofs use a layered four/five-nibble index. The four-nibble records match the
+  healer's first lookup boundary, so a fully unchanged bucket costs one
+  metadata decision. The bounded five-nibble child layer lets a later pivot
+  reuse up to fifteen unchanged children when that coarse bucket changes,
+  without restoring a full descendant walk. The healer also keeps consuming
+  older finer proofs for migration compatibility. The records
   are written in 2,048-record batches and versioned idempotency markers follow
   them, so a crash can only repeat safe work.
   The authenticated prefix of byte-capped
@@ -383,15 +385,17 @@ them by their physical location instead reintroduces dependency cycles:
   These values are queue pressure, not a completion denominator: decoding one
   trie node may discover more child or storage work. `knownIncompleteNodes`
   separately counts conservative durable negative markers, including retained
-  content that an older pivot wrote but the current root may never reach.
-  Completion percentage is therefore unavailable until the authorized root has
-  actually been traversed; `completed=T` remains the only terminal authority.
+  content that an older pivot wrote but the current root may never reach. For
+  one fixed pivot, a stable `processedNodes + knownIncompleteNodes` series is a
+  useful running workload estimate, but discovery, deduplication, stale markers,
+  and rebases can change that denominator. It is not a terminal completion
+  percentage; `completed=T` remains the only terminal authority.
   The smaller 8,192-work durable checkpoint remains the restart contract.
   Range pages and completed legacy plans publish closure proofs at the
-  healer's first four-nibble lookup boundary, so an unchanged bucket costs one
-  Bloom-filtered metadata decision instead of up to sixteen finer proof
-  decisions. Proofs written below that boundary remain valid and preserve
-  reuse inside a coarse bucket changed by a later pivot. A legal
+  healer's first four-nibble lookup boundary and at its five-nibble children.
+  An unchanged coarse bucket still costs one Bloom-filtered metadata decision;
+  after a coarse miss, the nested layer preserves reuse inside the changed
+  bucket. Older proofs written below either boundary remain valid. A legal
   checkpoint restored at that exact cap can therefore fill every idle peer
   instead of shrinking to one path merely to reserve worst-case branch room;
   checkpoint publication waits until the transient frontier drains back into

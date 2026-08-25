@@ -129,6 +129,14 @@ healer consumes. This mirrors geth's complete-hash shortcut: an unchanged
 bucket is rejected by the in-memory Bloom filter or accepted by one metadata
 lookup before any descendant node is read. Older finer proofs remain valid and
 are still consumed below a changed coarse bucket.")
+(defparameter *snap-sync-range-nested-subtree-prefix-nibbles* 5
+  "Nested range-proof depth retained below the public four-nibble boundary.
+
+Publishing both depths keeps the one-lookup fast path for an unchanged coarse
+bucket while allowing a later pivot that changes that bucket to reuse its
+unchanged children.  A depth-five layer bounds proof metadata to at most sixteen
+children per coarse bucket and avoids turning one touched prefix into a full
+descendant scan.")
 (defconstant +snap-sync-healed-subtrees-per-batch+ 2048
   "Maximum completed subtree proofs published by one durable write batch.")
 (defconstant +snap-sync-healed-subtree-bloom-bits+ (ash 1 27)
@@ -144,9 +152,9 @@ are still consumed below a changed coarse bucket.")
 (defparameter +snap-sync-deferred-storage-value+ #(1)
   "Versioned value shared by deferred storage work and plan markers.")
 (defparameter +snap-sync-range-plan-promotion-prefix+
-  (ascii-to-bytes "snap-range-plan-promoted-v3:"))
+  (ascii-to-bytes "snap-range-plan-promoted-v4:"))
 (defparameter +snap-sync-storage-plan-promotion-prefix+
-  (ascii-to-bytes "snap-storage-plan-promoted-v5:"))
+  (ascii-to-bytes "snap-storage-plan-promoted-v6:"))
 (defconstant +snap-sync-range-plan-promotion-max-roots+ 64)
 (defparameter +snap-sync-storage-task-identifier-prefix+
   (ascii-to-bytes "snap-storage-range-task-v1:")
@@ -843,6 +851,31 @@ observational and not consensus-visible."
     (error "Snap source does not implement ~A" label))
   (funcall function request))
 
+(defun snap-sync-range-subtree-depths ()
+  "Return validated coarse and nested range-proof publication depths."
+  (unless (and
+           (integerp *snap-sync-range-subtree-prefix-nibbles*)
+           (<= 1 *snap-sync-range-subtree-prefix-nibbles* 64)
+           (integerp *snap-sync-range-nested-subtree-prefix-nibbles*)
+           (<= *snap-sync-range-subtree-prefix-nibbles*
+               *snap-sync-range-nested-subtree-prefix-nibbles*
+               64))
+    (error "Snap range subtree depths must be ordered integers from one to 64"))
+  (remove-duplicates
+   (list *snap-sync-range-subtree-prefix-nibbles*
+         *snap-sync-range-nested-subtree-prefix-nibbles*)))
+
+(defun snap-sync-proved-range-subtrees (trie start end)
+  "Return authenticated coarse and nested subtree groups for one proved range."
+  (let ((subtrees '())
+        (groups '()))
+    (dolist (depth (snap-sync-range-subtree-depths))
+      (multiple-value-bind (depth-subtrees depth-groups)
+          (mpt-proved-range-subtrees trie start end depth)
+        (setf subtrees (nconc subtrees depth-subtrees)
+              groups (nconc groups depth-groups))))
+    (values subtrees groups)))
+
 (defun snap-sync-populate-complete-storage-group
     (database batch storage-root slots)
   "Verify one complete storage group and add its trie nodes to BATCH."
@@ -892,9 +925,8 @@ reuse this work instead of downloading the same prefix again."
              (groups
                (nth-value
                 1
-                (mpt-proved-range-subtrees
-                 trie (make-byte-vector 32) (caar (last entries))
-                 *snap-sync-range-subtree-prefix-nibbles*)))
+                (snap-sync-proved-range-subtrees
+                 trie (make-byte-vector 32) (caar (last entries)))))
              (complete-references
                (loop for group in groups append (third group)))
              (incomplete
@@ -1791,44 +1823,66 @@ The third value contains every concrete trie-node hash whose descendant trie
 closure is proved by the range.  A subtree with a bounded dependency list is
 included: its durable dependency proof makes the healer schedule those exact
 storage roots before skipping the account walk, so its account-trie records do
-not need millions of per-node negative markers.  A subtree whose dependency
-list is too wide remains conservative and contributes no complete references."
+not need millions of per-node negative markers. Coarse and nested candidates
+are classified independently, so a dependency-heavy coarse bucket can still
+publish safe finer children. A subtree whose dependency list is too wide
+remains conservative and contributes no complete references."
   (let ((dependencies-by-prefix (make-hash-table :test #'equalp))
+        (candidate-depths
+          (remove-duplicates
+           (mapcar
+            (lambda (candidate)
+              (length
+               (if (and (consp candidate)
+                        (consp (cdr candidate))
+                        (consp (cddr candidate))
+                        (null (cdddr candidate)))
+                   (first candidate)
+                   (car candidate))))
+            candidates)))
         (safe-subtrees '())
         (dependency-subtrees '())
-        (complete-references '()))
+        (complete-references '())
+        (complete-reference-set (make-hash-table :test #'equalp)))
     (dolist (commitment deferred-storage)
-      (push commitment
-            (gethash
-             (snap-sync-account-prefix-bucket (car commitment))
-             dependencies-by-prefix)))
-    (dolist (candidate candidates)
-      (let* ((group-p
-               (and (consp candidate)
-                    (consp (cdr candidate))
-                    (consp (cddr candidate))
-                    (null (cdddr candidate))))
-             (prefix (if group-p (first candidate) (car candidate)))
-             (reference (if group-p (second candidate) (cdr candidate)))
-             (references (and group-p (third candidate)))
-             (dependencies
-               (nreverse (gethash prefix dependencies-by-prefix))))
-        (cond
-          ((null dependencies)
-           (push reference safe-subtrees)
-           (setf complete-references
-                 (nconc complete-references references)))
-          ((<= (length dependencies)
-               +snap-sync-account-subtree-dependencies-max+)
-           (push (cons reference dependencies) dependency-subtrees)
-           ;; The dependency proof is published in the same buffered batch as
-           ;; these records.  SNAP-SYNC-HEAL-STATE checks that proof before the
-           ;; complete-node fast path and schedules every listed storage root,
-           ;; preserving external closure without walking this account trie.
-           (setf complete-references
-                 (nconc complete-references references))))))
+      (dolist (depth candidate-depths)
+        (push commitment
+              (gethash
+               (snap-sync-account-prefix-bucket (car commitment) depth)
+               dependencies-by-prefix))))
+    (labels ((record-complete-references (references)
+               (dolist (reference references)
+                 (unless
+                     (nth-value
+                      1 (gethash reference complete-reference-set))
+                   (setf (gethash reference complete-reference-set) t)
+                   (push reference complete-references)))))
+      (dolist (candidate candidates)
+        (let* ((group-p
+                 (and (consp candidate)
+                      (consp (cdr candidate))
+                      (consp (cddr candidate))
+                      (null (cdddr candidate))))
+               (prefix (if group-p (first candidate) (car candidate)))
+               (reference (if group-p (second candidate) (cdr candidate)))
+               (references (and group-p (third candidate)))
+               (dependencies
+                 (nreverse (gethash prefix dependencies-by-prefix))))
+          (cond
+            ((null dependencies)
+             (push reference safe-subtrees)
+             (record-complete-references references))
+            ((<= (length dependencies)
+                 +snap-sync-account-subtree-dependencies-max+)
+             (push (cons reference dependencies) dependency-subtrees)
+             ;; The dependency proof is published in the same buffered batch
+             ;; as these records. SNAP-SYNC-HEAL-STATE checks that proof before
+             ;; the complete-node fast path and schedules every listed storage
+             ;; root, preserving external closure without walking this account
+             ;; trie.
+             (record-complete-references references))))))
     (values (nreverse safe-subtrees) (nreverse dependency-subtrees)
-            complete-references)))
+            (nreverse complete-references))))
 
 (defun snap-sync-buffer-account-page-content
     (database state-root result)
@@ -1929,9 +1983,8 @@ again."
                (if (and account-trie proved-end)
                    (nth-value
                     1
-                    (mpt-proved-range-subtrees
-                     account-trie origin proved-end
-                     *snap-sync-range-subtree-prefix-nibbles*))
+                    (snap-sync-proved-range-subtrees
+                     account-trie origin proved-end))
                    '())))
         (make-snap-sync-account-page-work
          :task-index task-index
@@ -3890,21 +3943,29 @@ values are decoded only after one ordered, bounded metadata MultiGet."
     (let ((references
             (if (hash32= storage-root +empty-trie-hash+)
                 '()
-                (mpt-hashed-subtrees-at-prefix-depth
-                 (make-persisted-mpt
-                  storage-root
-                  (lambda (hash) (trie-node-store-get database hash)))
-                 *snap-sync-range-subtree-prefix-nibbles*))))
+                (remove-duplicates
+                 (loop for depth in (snap-sync-range-subtree-depths)
+                       append
+                       (mpt-hashed-subtrees-at-prefix-depth
+                        (make-persisted-mpt
+                         storage-root
+                         (lambda (hash)
+                           (trie-node-store-get database hash)))
+                        depth))
+                 :test #'equalp))))
       (snap-sync-persist-promoted-subtrees
        database references :storage
        (snap-sync-storage-plan-promotion-identifier storage-root)))))
 
-(defun snap-sync-account-prefix-bucket (account-hash)
+(defun snap-sync-account-prefix-bucket
+    (account-hash &optional
+                    (depth *snap-sync-range-subtree-prefix-nibbles*))
+  (unless (and (integerp depth) (<= 1 depth 64))
+    (error "Snap account prefix depth must be between one and 64"))
   (let ((nibbles
           (ethereum-lisp.trie.encoding:keybytes-to-nibbles
            account-hash :terminator nil)))
-    (copy-seq
-     (subseq nibbles 0 *snap-sync-range-subtree-prefix-nibbles*))))
+    (copy-seq (subseq nibbles 0 depth))))
 
 (defun snap-sync-promote-complete-range-plan (database state-root)
   "Turn one trusted range plan into shallow reusable subtree proofs.
@@ -3933,34 +3994,37 @@ never read or revalidated."
               (snap-sync-promote-complete-storage-plan
                database state-root work t)))
       (unless (snap-sync-range-plan-promoted-p database state-root)
-        (let* ((unsafe-buckets (make-hash-table :test #'equalp))
-               (prefixed-references
-                 (if (hash32= state-root +empty-trie-hash+)
-                     '()
-                     (mpt-hashed-subtrees-with-prefix-at-depth
-                      (make-persisted-mpt
-                       state-root
-                       (lambda (hash) (trie-node-store-get database hash)))
-                      *snap-sync-range-subtree-prefix-nibbles*))))
-          (dolist (work incomplete-works)
-            (setf
-             (gethash
-              (snap-sync-account-prefix-bucket
-               (snap-sync-heal-work-account-hash work))
-              unsafe-buckets)
-             t))
-          (let ((safe-references
-                  (loop for (prefix . reference) in prefixed-references
-                        unless (gethash prefix unsafe-buckets)
-                          collect reference)))
-            (incf
-             promoted
-             (snap-sync-persist-promoted-subtrees
-              database safe-references :account
-              ;; Incomplete buckets are retried after their StorageRanges
-              ;; cursors finish; do not freeze a partial promotion as final.
-              (and (null incomplete-works)
-                   (snap-sync-range-plan-promotion-identifier state-root)))))))
+        (let ((safe-references '()))
+          (unless (hash32= state-root +empty-trie-hash+)
+            (let ((trie
+                    (make-persisted-mpt
+                     state-root
+                     (lambda (hash)
+                       (trie-node-store-get database hash)))))
+              (dolist (depth (snap-sync-range-subtree-depths))
+                (let ((unsafe-buckets (make-hash-table :test #'equalp)))
+                  (dolist (work incomplete-works)
+                    (setf
+                     (gethash
+                      (snap-sync-account-prefix-bucket
+                       (snap-sync-heal-work-account-hash work) depth)
+                      unsafe-buckets)
+                     t))
+                  (dolist
+                      (entry
+                       (mpt-hashed-subtrees-with-prefix-at-depth trie depth))
+                    (unless (gethash (car entry) unsafe-buckets)
+                      (push (cdr entry) safe-references)))))))
+          (setf safe-references
+                (remove-duplicates safe-references :test #'equalp))
+          (incf
+           promoted
+           (snap-sync-persist-promoted-subtrees
+            database safe-references :account
+            ;; Incomplete buckets are retried after their StorageRanges
+            ;; cursors finish; do not freeze a partial promotion as final.
+            (and (null incomplete-works)
+                 (snap-sync-range-plan-promotion-identifier state-root))))))
       promoted)))
 
 (defun snap-sync-promote-complete-range-plans (database)
@@ -4017,9 +4081,8 @@ never read or revalidated."
                (subtree-values
                  (if (and trie proved-end)
                      (multiple-value-list
-                      (mpt-proved-range-subtrees
-                       trie origin proved-end
-                       *snap-sync-range-subtree-prefix-nibbles*))
+                      (snap-sync-proved-range-subtrees
+                       trie origin proved-end))
                      (list nil nil)))
                (healed-subtrees
                  (mapcar #'cdr (first subtree-values)))

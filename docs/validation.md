@@ -300,9 +300,11 @@ bounded dependency proof for such a bucket. A healer regression rejects a
 direct read of that account-subtree node, observes the proof skip, and still
 requests the listed storage paths; malformed, duplicate, empty-root, or
 over-limit dependency values fail closed. The public depth regression fixes the
-legacy proof lookup and range-publication boundary at four nibbles, while retaining
-consumption of older finer proofs below a changed coarse bucket. Restoring the
-former depth-five publication default makes that regression fail.
+first lookup and coarse range-publication boundary at four nibbles and the
+bounded nested publication layer at five. The layered changed-bucket regression
+changes one of sixteen children across pivots, requires the other fifteen to be
+skipped, and requires fewer than half as many processed nodes as a coarse-only
+index. Older still-finer proofs remain consumable below a changed bucket.
 They batch complete small storage tries with each account cursor and
 prove that the range-only proven-absent insertion produces the
 same root as the ordinary checked insertion and rejects empty values,
@@ -520,8 +522,10 @@ completion. The event also reports `frontierWorks`, `deferredStorageWorks`, and
 `knownIncompleteNodes` for conservative durable negative markers. The
 frontier can grow when a decoded parent reveals children, including a small
 bounded DFS overshoot above the 131,072-work remote-admission target, and
-markers may belong to retained content unreachable from the active pivot, so
-none of these fields is a final-work denominator or completion percentage. The
+markers may belong to retained content unreachable from the active pivot. A
+stable `processedNodes + knownIncompleteNodes` series at one fixed pivot is a
+useful running estimate, but none of these fields is an authoritative final-work
+denominator or completion percentage. The
 production call-site control moves a returned node from in-flight work to the
 local stack without double-counting it and requires every live-frontier field
 to reach zero on completion. Its focused controls are

@@ -825,6 +825,8 @@
       (let ((ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
               1)
             (ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*
+              1)
+            (ethereum-lisp.snap-sync::*snap-sync-range-nested-subtree-prefix-nibbles*
               1))
         (unwind-protect
              (progn
@@ -865,6 +867,8 @@
       (let ((ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
               1)
             (ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*
+              1)
+            (ethereum-lisp.snap-sync::*snap-sync-range-nested-subtree-prefix-nibbles*
               1))
         (is
          (plusp
@@ -877,6 +881,37 @@
          (zerop
           (ethereum-lisp.snap-sync::snap-sync-promote-complete-range-plan
            target-database root)))))))
+
+(deftest snap-proved-range-subtrees-publish-coarse-and-nested-layers
+  (:layer :unit :module :p2p)
+  (let ((trie (make-mpt)))
+    ;; Populate every two-nibble bucket with a hashed leaf. The full proved
+    ;; interval must expose both the public coarse layer and its nested reuse
+    ;; layer, rather than replacing one with the other.
+    (dotimes (index 256)
+      (let ((key (make-byte-vector 32)))
+        (setf (aref key 0) index)
+        (mpt-put
+         trie key
+         (make-byte-vector 64 :initial-element (1+ (mod index 255))))))
+    (let ((ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*
+            1)
+          (ethereum-lisp.snap-sync::*snap-sync-range-nested-subtree-prefix-nibbles*
+            2))
+      (multiple-value-bind (subtrees groups)
+          (ethereum-lisp.snap-sync::snap-sync-proved-range-subtrees
+           trie (make-byte-vector 32)
+           (make-byte-vector 32 :initial-element #xff))
+        (is (plusp (count 1 subtrees :key (lambda (entry) (length (car entry))))))
+        (is (plusp (count 2 subtrees :key (lambda (entry) (length (car entry))))))
+        (is (= (length subtrees) (length groups)))
+        (is
+         (every
+          (lambda (group)
+            (and (= 3 (length group))
+                 (every (lambda (reference) (= 32 (length reference)))
+                        (third group))))
+          groups))))))
 
 (deftest snap-range-plan-promotion-excludes-incomplete-storage-bucket
   (:layer :unit :module :p2p)
@@ -906,6 +941,8 @@
       (let* ((ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
                1)
              (ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*
+               1)
+             (ethereum-lisp.snap-sync::*snap-sync-range-nested-subtree-prefix-nibbles*
                1)
              (references
                (mpt-hashed-subtrees-with-prefix-at-depth
@@ -955,6 +992,9 @@
          (wide-reference (snap-test-hash 254))
          (wide-records
            (list wide-reference (snap-test-hash 255)))
+         (nested-reference (snap-test-index-hash 998))
+         (nested-records
+           (list nested-reference (snap-test-index-hash 999)))
          (wide-dependencies
            (loop for index from 0
                  repeat
@@ -962,7 +1002,10 @@
                   ethereum-lisp.snap-sync::+snap-sync-account-subtree-dependencies-max+)
                  collect
                  (let ((hash (make-byte-vector 32)))
-                   (setf (aref hash 0) #x30
+                   ;; All entries share coarse prefix 3, but distributing the
+                   ;; second nibble keeps each nested prefix independently
+                   ;; within the dependency-proof bound.
+                   (setf (aref hash 0) (logior #x30 (mod index 16))
                          (aref hash 31) index)
                    (cons hash
                          (make-hash32 (snap-test-index-hash (+ 1000 index))))))))
@@ -973,21 +1016,27 @@
           (ethereum-lisp.snap-sync::snap-sync-classify-account-range-subtrees
            (list (list #(1) dependent-reference dependent-records)
                  (list #(2) safe-reference safe-records)
-                 (list #(3) wide-reference wide-records))
+                 (list #(3) wide-reference wide-records)
+                 (list #(3 0) nested-reference nested-records))
            (cons dependency wide-dependencies))
         (is (= 1 (length safe)))
         (is (bytes= safe-reference (first safe)))
-        (is (= 1 (length dependency-subtrees)))
-        (is (bytes= dependent-reference
-                    (caar dependency-subtrees)))
+        (is (= 2 (length dependency-subtrees)))
+        (is
+         (find dependent-reference dependency-subtrees
+               :key #'car :test #'bytes=))
+        (is
+         (find nested-reference dependency-subtrees
+               :key #'car :test #'bytes=))
         ;; Bounded dependency metadata replaces an account-tree walk but not
         ;; the exact storage work it names.  Its reconstructed account nodes
-        ;; are therefore complete; the over-limit group remains fail-closed.
-        (is (= 4 (length complete-references)))
+        ;; are therefore complete. The over-limit coarse group remains
+        ;; fail-closed while its independently bounded nested child closes.
+        (is (= 6 (length complete-references)))
         (is (every
              (lambda (reference)
                (find reference complete-references :test #'bytes=))
-             (append dependent-records safe-records)))
+             (append dependent-records safe-records nested-records)))
         (is (notany
              (lambda (reference)
                (find reference complete-references :test #'bytes=))
@@ -1004,9 +1053,12 @@
                (lambda (reference)
                  (find reference incomplete :test #'bytes=))
                wide-records)))
-        (let* ((encoded
+        (let* ((dependent-entry
+                 (find dependent-reference dependency-subtrees
+                       :key #'car :test #'bytes=))
+               (encoded
                  (ethereum-lisp.snap-sync::snap-sync-account-subtree-dependencies-value
-                  (cdar dependency-subtrees)))
+                  (cdr dependent-entry)))
                (decoded
                  (ethereum-lisp.snap-sync::snap-sync-account-subtree-dependencies-from-value
                   encoded)))
@@ -1325,6 +1377,8 @@
                1)
              (ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*
                1)
+             (ethereum-lisp.snap-sync::*snap-sync-range-nested-subtree-prefix-nibbles*
+               1)
              (result
                (ethereum-lisp.snap-sync::snap-sync-prepare-storage-page
                 source state-root account-hash storage-root 0 task
@@ -1394,6 +1448,8 @@
       (let ((ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
               1)
             (ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*
+              1)
+            (ethereum-lisp.snap-sync::*snap-sync-range-nested-subtree-prefix-nibbles*
               1))
         (let ((references
                 (mpt-hashed-subtrees-at-prefix-depth
@@ -4685,6 +4741,8 @@
       (let ((ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
               1)
             (ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*
+              1)
+            (ethereum-lisp.snap-sync::*snap-sync-range-nested-subtree-prefix-nibbles*
               1))
         (unwind-protect
              (progn
@@ -4720,12 +4778,14 @@
   (let ((lookup-depth
           ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*)
         (publication-depth
-          ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*))
+          ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*)
+        (nested-depth
+          ethereum-lisp.snap-sync::*snap-sync-range-nested-subtree-prefix-nibbles*))
     (is (= 4 lookup-depth))
-    ;; Range pages must publish at the first lookup depth. Restoring the old
-    ;; depth-five default makes a fresh healer visit up to sixteen fine proof
-    ;; roots for every complete coarse bucket before it can skip descendants.
+    ;; Range pages publish at the first lookup depth for the one-read unchanged
+    ;; bucket fast path, plus one bounded child layer for a changed bucket.
     (is (= lookup-depth publication-depth))
+    (is (= (1+ publication-depth) nested-depth))
     (is
      (not
       (ethereum-lisp.snap-sync::snap-sync-healed-subtree-candidate-p
@@ -4779,7 +4839,7 @@
     (is
      (ethereum-lisp.snap-sync::snap-sync-healed-subtree-candidate-p
       (ethereum-lisp.snap-sync::snap-sync-make-heal-work
-       :account nil (make-byte-vector (1+ publication-depth))
+       :account nil (make-byte-vector nested-depth)
        (snap-test-hash 224))))))
 
 (deftest snap-state-healer-finds-range-proof-inside-coarser-miss
@@ -4874,7 +4934,9 @@
         (let ((ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
                 1)
               (ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*
-                2))
+                2)
+              (ethereum-lisp.snap-sync::*snap-sync-range-nested-subtree-prefix-nibbles*
+                3))
           (multiple-value-bind
                 (baseline-processed baseline-fetched baseline-skipped)
               (run baseline-database 227)
@@ -4885,6 +4947,136 @@
               (is (zerop proved-fetched))
               (is (< proved-processed baseline-processed))
               (is (> proved-skipped baseline-skipped)))))))))
+
+(deftest snap-state-healer-layered-proofs-bound-a-changed-coarse-bucket
+  (:layer :integration :module :p2p)
+  ;; A pivot changes one of sixteen children below a coarse bucket. A stale
+  ;; coarse proof must miss, while the nested layer should skip the other
+  ;; fifteen children without decoding their local trie nodes.
+  (labels ((fixture-trie (changed-p)
+             (let ((trie (make-mpt)))
+               (dotimes (index 256 trie)
+                 (let* ((bucket (floor index 16))
+                        (item (mod index 16))
+                        (key (make-byte-vector 32))
+                        (account
+                          (state-account-rlp
+                           (make-state-account
+                            :nonce (if (and changed-p (zerop index)) 999 index)
+                            :balance (+ 100000 index)))))
+                   ;; Every key is below coarse prefix 3. The low nibble of
+                   ;; byte zero selects one of sixteen nested children.
+                   (setf (aref key 0) (+ #x30 bucket)
+                         (aref key 31) item)
+                   (mpt-put trie key account))))))
+    (let* ((old-trie (fixture-trie nil))
+           (new-trie (fixture-trie t))
+           (new-root (make-hash32 (mpt-root-hash new-trie)))
+           (new-records (mpt-dirty-node-records new-trie))
+           (old-coarse
+             (mapcar #'cdr
+                     (mpt-hashed-subtrees-with-prefix-at-depth old-trie 1)))
+           (old-nested
+             (mapcar #'cdr
+                     (mpt-hashed-subtrees-with-prefix-at-depth old-trie 2)))
+           (new-nested
+             (mapcar #'cdr
+                     (mpt-hashed-subtrees-with-prefix-at-depth new-trie 2)))
+           (coarse-only-database (make-memory-key-value-database))
+           (layered-database (make-memory-key-value-database))
+           (source
+             (ethereum-lisp.snap-sync:make-snap-sync-source
+              :account-range
+              (lambda (&rest arguments)
+                (declare (ignore arguments))
+                (error "Layered-proof fixture requested an account range"))
+              :storage-ranges
+              (lambda (&rest arguments)
+                (declare (ignore arguments))
+                (error "Layered-proof fixture requested a storage range"))
+              :bytecodes
+              (lambda (&rest arguments)
+                (declare (ignore arguments))
+                (error "Layered-proof fixture requested bytecode"))
+              :trie-nodes
+              (lambda (&rest arguments)
+                (declare (ignore arguments))
+                (error "Layered-proof fixture requested a trie node"))))
+           (genesis (make-hash32 (snap-test-hash 235)))
+           (authority (make-hash32 (snap-test-hash 236))))
+      (is (= 1 (length old-coarse)))
+      (is (= 16 (length old-nested)))
+      (is
+       (= 15
+          (count-if
+           (lambda (reference) (find reference new-nested :test #'bytes=))
+           old-nested)))
+      (dolist (database (list coarse-only-database layered-database))
+        (let ((batch (make-kv-write-batch)))
+          (ethereum-lisp.snap-sync::snap-sync-populate-verified-trie-records-batch
+           database batch new-records)
+          (ethereum-lisp.snap-sync::snap-sync-populate-incomplete-records-batch
+           batch (mapcar #'car new-records))
+          (dolist (reference old-coarse)
+            (ethereum-lisp.snap-sync::snap-sync-populate-healed-subtree-batch
+             batch reference :account))
+          (kv-apply-batch database batch)))
+      (let ((batch (make-kv-write-batch)))
+        (dolist (reference old-nested)
+          (ethereum-lisp.snap-sync::snap-sync-populate-healed-subtree-batch
+           batch reference :account))
+        (kv-apply-batch layered-database batch))
+      (labels ((progress (seed)
+                 (ethereum-lisp.snap-sync::snap-sync-make-progress
+                  :pivot-hash (make-hash32 (snap-test-hash seed))
+                  :pivot-number 6060 :state-root new-root
+                  :partial-root +empty-trie-hash+
+                  :target-hash (make-hash32 (snap-test-hash (1+ seed)))
+                  :chain-id 560048 :genesis-hash genesis
+                  :authority-id authority :completed-p nil
+                  :complete-node-scheme-p t
+                  :tasks
+                  (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+                   :count 1 :completed-p t)))
+               (run (database seed)
+                 (let ((processed nil) (fetched nil) (skipped nil))
+                   (ethereum-lisp.snap-sync::snap-sync-heal-state
+                    database (list source) (progress seed) 350
+                    :on-heal-progress
+                    (lambda (snapshot)
+                      (when
+                          (ethereum-lisp.snap-sync:snap-sync-heal-progress-completed-p
+                           snapshot)
+                        (setf
+                         processed
+                         (ethereum-lisp.snap-sync:snap-sync-heal-progress-processed-nodes
+                          snapshot)
+                         fetched
+                         (ethereum-lisp.snap-sync:snap-sync-heal-progress-fetched-nodes
+                          snapshot)
+                         skipped
+                         (ethereum-lisp.snap-sync:snap-sync-heal-progress-skipped-subtrees
+                          snapshot)))))
+                   (values processed fetched skipped))))
+        (let ((ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
+                1)
+              (ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*
+                1)
+              (ethereum-lisp.snap-sync::*snap-sync-range-nested-subtree-prefix-nibbles*
+                2))
+          (multiple-value-bind
+                (coarse-processed coarse-fetched coarse-skipped)
+              (run coarse-only-database 237)
+            (multiple-value-bind
+                  (layered-processed layered-fetched layered-skipped)
+                (run layered-database 239)
+              (is (zerop coarse-fetched))
+              (is (zerop layered-fetched))
+              (is (> layered-skipped coarse-skipped))
+              (is (>= layered-skipped 15))
+              ;; The nested layer turns a changed 16-way bucket into one
+              ;; changed child plus bounded metadata lookups.
+              (is (< (* 2 layered-processed) coarse-processed)))))))))
 
 (deftest snap-state-healer-reuses-proved-subtrees-across-pivots
   (:layer :integration :module :p2p)
@@ -4954,7 +5146,9 @@
         (let ((ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
                 1)
               (ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*
-                1))
+                1)
+              (ethereum-lisp.snap-sync::*snap-sync-range-nested-subtree-prefix-nibbles*
+                2))
           (unwind-protect
                (progn
                  (setf
@@ -5348,6 +5542,8 @@
              (let ((ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
                      1)
                    (ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*
+                     1)
+                   (ethereum-lisp.snap-sync::*snap-sync-range-nested-subtree-prefix-nibbles*
                      1))
                (is
                 (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
@@ -5399,6 +5595,8 @@
       (let ((ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
               1)
             (ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*
+              1)
+            (ethereum-lisp.snap-sync::*snap-sync-range-nested-subtree-prefix-nibbles*
               1))
         (unwind-protect
              (progn
