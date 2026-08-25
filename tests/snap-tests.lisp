@@ -4699,14 +4699,17 @@
       (is (plusp proof-count))
       (is (zerop exact-read-count)))))
 
-(deftest snap-healed-subtree-public-depth-bounds-rebase-regions
+(deftest snap-healed-subtree-public-depth-matches-geth-style-shortcut
   (:layer :unit :module :p2p)
   (let ((lookup-depth
           ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*)
         (publication-depth
           ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*))
     (is (= 4 lookup-depth))
-    (is (= 5 publication-depth))
+    ;; Range pages must publish at the first lookup depth. Restoring the old
+    ;; depth-five default makes a fresh healer visit up to sixteen fine proof
+    ;; roots for every complete coarse bucket before it can skip descendants.
+    (is (= lookup-depth publication-depth))
     (is
      (not
       (ethereum-lisp.snap-sync::snap-sync-healed-subtree-candidate-p
@@ -4723,14 +4726,15 @@
        :account nil (make-byte-vector publication-depth)
        (snap-test-hash 225) :marker-state :inside)))
     (is
-     (not
-      (ethereum-lisp.snap-sync::snap-sync-healed-subtree-publication-candidate-p
-       (ethereum-lisp.snap-sync::snap-sync-make-heal-work
-        :account nil (make-byte-vector lookup-depth) (snap-test-hash 223)))))
-    (is
      (ethereum-lisp.snap-sync::snap-sync-healed-subtree-publication-candidate-p
       (ethereum-lisp.snap-sync::snap-sync-make-heal-work
-       :account nil (make-byte-vector publication-depth)
+       :account nil (make-byte-vector lookup-depth) (snap-test-hash 223))))
+    ;; Finer proofs written by older runtimes and completed changed buckets
+    ;; remain eligible below the new coarse publication boundary.
+    (is
+     (ethereum-lisp.snap-sync::snap-sync-healed-subtree-candidate-p
+      (ethereum-lisp.snap-sync::snap-sync-make-heal-work
+       :account nil (make-byte-vector (1+ publication-depth))
        (snap-test-hash 224))))))
 
 (deftest snap-state-healer-finds-range-proof-inside-coarser-miss

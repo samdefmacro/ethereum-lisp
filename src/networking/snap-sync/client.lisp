@@ -118,12 +118,14 @@ remains disabled unless a controlled deployment binds it explicitly.")
   "Maximum deferred storage roots carried by one account-subtree proof.")
 (defparameter *snap-sync-healed-subtree-prefix-nibbles* 4
   "Minimum trie depth at which the healer consumes completion proofs.")
-(defparameter *snap-sync-range-subtree-prefix-nibbles* 5
-  "Finer trie depth published by range proofs and shallow legacy promotion.
+(defparameter *snap-sync-range-subtree-prefix-nibbles* 4
+  "Coarse trie depth published by range proofs and shallow legacy promotion.
 
-The healer still consumes older four-nibble proofs. Five-nibble proofs retain
-reuse inside a coarse bucket changed by a later pivot, while requiring only the
-first four levels of concrete nodes to discover the content-addressed roots.")
+Range ingestion publishes the same four-nibble closure boundary that the
+healer consumes. This mirrors geth's complete-hash shortcut: an unchanged
+bucket is rejected by the in-memory Bloom filter or accepted by one metadata
+lookup before any descendant node is read. Older finer proofs remain valid and
+are still consumed below a changed coarse bucket.")
 (defconstant +snap-sync-healed-subtrees-per-batch+ 2048
   "Maximum completed subtree proofs published by one durable write batch.")
 (defconstant +snap-sync-healed-subtree-bloom-bits+ (ash 1 27)
@@ -139,9 +141,9 @@ first four levels of concrete nodes to discover the content-addressed roots.")
 (defparameter +snap-sync-deferred-storage-value+ #(1)
   "Versioned value shared by deferred storage work and plan markers.")
 (defparameter +snap-sync-range-plan-promotion-prefix+
-  (ascii-to-bytes "snap-range-plan-promoted-v2:"))
+  (ascii-to-bytes "snap-range-plan-promoted-v3:"))
 (defparameter +snap-sync-storage-plan-promotion-prefix+
-  (ascii-to-bytes "snap-storage-plan-promoted-v2:"))
+  (ascii-to-bytes "snap-storage-plan-promoted-v3:"))
 (defconstant +snap-sync-range-plan-promotion-max-roots+ 64)
 (defparameter +snap-sync-storage-task-identifier-prefix+
   (ascii-to-bytes "snap-storage-range-task-v1:")

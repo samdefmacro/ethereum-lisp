@@ -291,9 +291,10 @@ promotion marker until its cursors finish. New range pages instead persist a
 bounded dependency proof for such a bucket. A healer regression rejects a
 direct read of that account-subtree node, observes the proof skip, and still
 requests the listed storage paths; malformed, duplicate, empty-root, or
-over-limit dependency values fail closed. The public depth regression fixes the legacy
-proof lookup boundary at four nibbles and the finer publication boundary at
-five, preserving existing proofs while limiting rebase invalidation.
+over-limit dependency values fail closed. The public depth regression fixes the
+legacy proof lookup and range-publication boundary at four nibbles, while retaining
+consumption of older finer proofs below a changed coarse bucket. Restoring the
+former depth-five publication default makes that regression fail.
 They batch complete small storage tries with each account cursor and
 prove that the range-only proven-absent insertion produces the
 same root as the ordinary checked insertion and rejects empty values,

@@ -378,8 +378,12 @@ them by their physical location instead reintroduces dependency cycles:
   content that an older pivot wrote but the current root may never reach.
   Completion percentage is therefore unavailable until the authorized root has
   actually been traversed; `completed=T` remains the only terminal authority.
-  The
-  smaller 8,192-work durable checkpoint remains the restart contract. A legal
+  The smaller 8,192-work durable checkpoint remains the restart contract.
+  Range pages and completed legacy plans publish closure proofs at the
+  healer's first four-nibble lookup boundary, so an unchanged bucket costs one
+  Bloom-filtered metadata decision instead of up to sixteen finer proof
+  decisions. Proofs written below that boundary remain valid and preserve
+  reuse inside a coarse bucket changed by a later pivot. A legal
   checkpoint restored at that exact cap can therefore fill every idle peer
   instead of shrinking to one path merely to reserve worst-case branch room;
   checkpoint publication waits until the transient frontier drains back into
