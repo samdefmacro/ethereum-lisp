@@ -4110,6 +4110,33 @@ loop cannot block on a message that never comes."
   #-sbcl
   (is t))
 
+(deftest devnet-snap-bytecode-capacity-escapes-target-time-minimum
+  (:layer :unit :module :p2p)
+  #+sbcl
+  (let* ((queue (ethereum-lisp.cli::make-devnet-peer-request-queue))
+         (response-id ethereum-lisp.snap:+snap-message-bytecodes+)
+         (target ethereum-lisp.cli::+devnet-snap-request-target-seconds+))
+    ;; The old ROUND(1.05 * throughput * two-seconds) formula remained at one
+    ;; after an ordinary one-item response took the whole target interval.
+    ;; Geth's explicit +1/ceiling probe must make forward progress instead.
+    (is (= 2
+           (ethereum-lisp.cli::devnet-peer-request-queue-record-snap-delivery
+            queue response-id 1 target)))
+    (is (= 2
+           (ethereum-lisp.cli::devnet-peer-request-queue-snap-capacity
+            queue response-id)))
+    (multiple-value-bind (packet requested)
+        (ethereum-lisp.cli::devnet-peer-bytecode-request
+         queue
+         (loop for index below 4 collect (snap-test-index-hash index))
+         (* 512 1024))
+      (is (= 2 (length requested)))
+      (is (= 2
+             (length
+              (ethereum-lisp.snap:snap-get-bytecodes-hashes packet))))))
+  #-sbcl
+  (is t))
+
 (deftest devnet-snap-source-pool-prefers-capacity-and-independent-type-slots
   (:layer :unit :module :p2p)
   #+sbcl

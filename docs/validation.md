@@ -203,6 +203,8 @@ cl-workbench validation run cold-integration \
 cl-workbench validation run cold-unit \
   --match DEVNET-SNAP-BYTECODE-ASSIGNMENT-LEARNS-ITEM-CAPACITY
 cl-workbench validation run cold-unit \
+  --match DEVNET-SNAP-BYTECODE-CAPACITY-ESCAPES-TARGET-TIME-MINIMUM
+cl-workbench validation run cold-unit \
   --match DEVNET-DIAL-SNAP-DEMAND-REPLACES-DEGRADED-CAPACITY
 cl-workbench validation run cold-unit \
   --match SNAP-MULTI-BYTECODES-USE-ONE-FIXED-GLOBAL-WORKER-POOL
@@ -332,8 +334,10 @@ peer starts account and storage ranges at 64 KiB, a fast sequence grows at
 most twofold per response toward 512 KiB, a slow sequence falls back without
 crossing the lower bound, and the production source applies the learned
 per-type cap to its outgoing packet. ByteCodes learns in returned-code units
-from 1 through the 84-hash protocol cap; concurrent pages prove that their
-batches never exceed the fixed sixteen-worker import-wide pool. Ready
+from 1 through the 84-hash protocol cap; a response taking the entire capacity
+target still advances 1 to 2 through geth's explicit plus-one ceiling instead
+of becoming trapped at the minimum. Concurrent pages prove that their
+batches never exceed the fixed thirty-two-worker import-wide pool. Ready
 account results prove sixteen successor cursors share one durable publication
 write, while the existing injected-failure controls keep all of those cursors
 behind an unsuccessful seam. A changed-root rebase installs

@@ -161,8 +161,10 @@ them by their physical location instead reintroduces dependency cycles:
   rebases them to a serviceable newer pivot. Account and
   storage requests start at geth's 64 KiB lower cap. Each peer and response
   type learns an EWMA of delivered capacity and round-trip time, grows or
-  shrinks toward a two-second request target, and stays within the protocol's
-  native units: 64--512 KiB for ranges, 1--84 returned code items for
+  shrinks toward geth's conservative six-second minimum timeout capacity, and
+  uses geth's explicit `ceil(1 + estimated-capacity)` probe so an ordinary full
+  response cannot strand the next assignment at one item. It stays within the
+  protocol's native units: 64--512 KiB for ranges, 1--84 returned code items for
   ByteCodes, and 1--1,024 returned nodes for TrieNodes. This prevents a slow
   peer from holding a fixed maximum response until the session's wall-clock
   deadline while allowing fast peers to refill the full page in bounded steps.

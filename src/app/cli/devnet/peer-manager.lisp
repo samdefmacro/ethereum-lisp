@@ -40,8 +40,13 @@ nothing would hold a thread and a descriptor indefinitely.")
 (defconstant +devnet-snap-max-trie-node-paths+ 1024
   "Maximum TrieNodes lookups assigned to one peer request.")
 
-(defconstant +devnet-snap-request-target-seconds+ 2d0
-  "Target wall time used to turn observed SNAP throughput into a request cap.")
+(defconstant +devnet-snap-request-target-seconds+ 6d0
+  "Conservative geth-style wall time used to size one SNAP assignment.
+
+Geth feeds its adaptive message capacity with the request timeout rather than
+the raw round-trip target.  At its two-second minimum RTT and threefold timeout
+scaling that floor is six seconds.  Using the RTT itself here strands code-item
+capacity near one on ordinary one-to-two-second public peers.")
 
 (defconstant +devnet-snap-rate-measurement-impact+ 0.2d0
   "EWMA weight of one SNAP response throughput and latency measurement.")
@@ -159,14 +164,18 @@ from causing an unstable jump."
                     (* impact elapsed))
                  (float elapsed 1d0)))
            (old-capacity (devnet-peer-snap-rate-capacity rate))
-           ;; Slightly overfill the target to avoid locking into a capacity
-           ;; below what the peer can actually deliver in the same RTT.
+           ;; Match geth's escape from a stable minimum: the explicit +1 and
+           ;; CEILING ensure a full response always probes a larger assignment,
+           ;; even when its elapsed time is exactly the target.  The bounded
+           ;; step below still prevents a single cache hit from jumping to max.
            (desired
              (devnet-peer-snap-clamp-capacity
               response-id
-              (round (* throughput
-                        +devnet-snap-request-target-seconds+
-                        1.05d0))))
+              (ceiling
+               (+ 1d0
+                  (* throughput
+                     +devnet-snap-request-target-seconds+
+                     1.01d0)))))
            (capacity
              (devnet-peer-snap-clamp-capacity
               response-id
