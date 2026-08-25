@@ -282,9 +282,14 @@ negative. The focused marker-lifecycle regression plants both account and
 storage negatives, proves only the closed nodes, and requires the open markers
 to remain while the superseded markers disappear.
 StorageRanges pages publish equivalent
-storage-subtree proofs with their node and cursor batch. The integration
+storage-subtree proofs with their node and cursor batch. Completing the final
+partition publishes the whole storage root in that same batch, and the healer
+accepts such a root-level proof only for storage work; account roots retain the
+coarse-depth dependency boundary. The integration
 regressions observe both kinds before final TrieNodes traversal, then promote
-legacy account and completed-storage plans through shallow trie walks. An
+legacy account and completed-storage plans through shallow trie walks. A new
+storage-promotion version forces older completed plans to publish the whole-root
+proof once; the shallow descendants remain reusable across changed roots. An
 incomplete legacy large-storage plan excludes only its account prefix bucket,
 rather than forcing a full account-tree rescan, and cannot publish the final
 promotion marker until its cursors finish. New range pages instead persist a

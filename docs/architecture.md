@@ -302,14 +302,19 @@ them by their physical location instead reintroduces dependency cycles:
   unclassified hash presence into a completeness proof.
   StorageRanges pages apply the complete-proof rule directly
   to their reconstructed storage trie, publishing coarse storage-subtree proofs
-  atomically with their node records and successor cursor. Pre-optimization
+  atomically with their node records and successor cursor. The batch that
+  completes all sixteen cursors also publishes the storage root itself: storage
+  leaves have no external code or trie dependencies, so a later moving pivot
+  can apply geth's exact hash-presence shortcut before reading any descendant.
+  Pre-optimization
   range plans are upgraded lazily with depth-bounded walks over only the account
   and completed storage tries' shallow spines. Legacy account buckets containing
   an incomplete large-storage cursor set remain excluded while every other
-  bucket is immediately reusable; completed storage roots receive their own
-  reusable proofs. New proofs use five-nibble buckets so a later pivot can still reuse
-  unchanged descendants inside a changed four-nibble bucket; the healer keeps
-  consuming older four-nibble proofs for migration compatibility. The records
+  bucket is immediately reusable; completed storage roots receive both the
+  whole-root proof and finer reusable proofs. New proofs use four-nibble
+  buckets, matching the healer's first lookup boundary, while the healer keeps
+  consuming older finer proofs inside a changed coarse bucket for migration
+  compatibility. The records
   are written in 2,048-record batches and versioned idempotency markers follow
   them, so a crash can only repeat safe work.
   The authenticated prefix of byte-capped
@@ -356,7 +361,7 @@ them by their physical location instead reintroduces dependency cycles:
   A completion-proof miss at the range publication depth owns the one
   post-order proof sentinel for that region, but does not suppress Bloom
   probes below it. This distinction is required because an authenticated range
-  boundary can leave its depth-five bucket open while proving smaller hashed
+  boundary can leave its coarse bucket open while proving smaller hashed
   subtrees farther down. Descendant `:inside` work therefore continues to
   consume those finer proofs without creating nested publication sentinels;
   the final healer walks only the genuinely open boundary instead of decoding

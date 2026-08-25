@@ -143,7 +143,7 @@ are still consumed below a changed coarse bucket.")
 (defparameter +snap-sync-range-plan-promotion-prefix+
   (ascii-to-bytes "snap-range-plan-promoted-v3:"))
 (defparameter +snap-sync-storage-plan-promotion-prefix+
-  (ascii-to-bytes "snap-storage-plan-promoted-v3:"))
+  (ascii-to-bytes "snap-storage-plan-promoted-v4:"))
 (defconstant +snap-sync-range-plan-promotion-max-roots+ 64)
 (defparameter +snap-sync-storage-task-identifier-prefix+
   (ascii-to-bytes "snap-storage-range-task-v1:")
@@ -858,7 +858,14 @@ observational and not consensus-visible."
         ;; A previous byte-capped attempt may have marked the same content as
         ;; open.  This complete root proof supersedes those durable negatives.
         (snap-sync-delete-incomplete-records-batch
-         batch (mapcar #'car records))))))
+         batch (mapcar #'car records))
+        ;; Storage leaves have no external code or trie dependencies. Once a
+        ;; response reconstructs the complete authenticated root, publish the
+        ;; root itself as geth's exact hash-presence shortcut. A later moving
+        ;; pivot can then skip the whole unchanged storage trie before reading
+        ;; any descendant.
+        (snap-sync-populate-healed-subtree-batch
+         batch (hash32-bytes storage-root) :storage)))))
 
 (defun snap-sync-populate-partial-storage-group
     (database batch storage-root slots proof)
@@ -3863,11 +3870,18 @@ values are decoded only after one ordered, bounded metadata MultiGet."
     (let ((references
             (if (hash32= storage-root +empty-trie-hash+)
                 '()
-                (mpt-hashed-subtrees-at-prefix-depth
-                 (make-persisted-mpt
-                  storage-root
-                  (lambda (hash) (trie-node-store-get database hash)))
-                 *snap-sync-range-subtree-prefix-nibbles*))))
+                ;; A completed partition plan proves the entire storage trie,
+                ;; not merely its shallow buckets. Publish the root first so a
+                ;; rebased healer can reject the whole unchanged trie with one
+                ;; Bloom/metadata lookup. The finer roots remain useful when a
+                ;; different storage root shares unchanged descendants.
+                (cons
+                 (hash32-bytes storage-root)
+                 (mpt-hashed-subtrees-at-prefix-depth
+                  (make-persisted-mpt
+                   storage-root
+                   (lambda (hash) (trie-node-store-get database hash)))
+                  *snap-sync-range-subtree-prefix-nibbles*)))))
       (snap-sync-persist-promoted-subtrees
        database references :storage
        (snap-sync-storage-plan-promotion-identifier storage-root)))))
@@ -4049,6 +4063,14 @@ never read or revalidated."
                (snap-sync-storage-page-result-healed-subtrees result))
         (snap-sync-populate-healed-subtree-batch
          batch reference :storage))
+      (when (and
+             (not (hash32= storage-root +empty-trie-hash+))
+             (every #'snap-sync-account-task-completed-p next))
+        ;; The cursor set and every authenticated page become durable in this
+        ;; same batch. Publishing the complete root here cannot race ahead of
+        ;; its descendants and avoids a later promotion scan.
+        (snap-sync-populate-healed-subtree-batch
+         batch (hash32-bytes storage-root) :storage))
       (kv-apply-batch database batch)
       next)))
 
@@ -4377,11 +4399,17 @@ caller safely falls back to TrieNodes healing with authenticated pages retained.
   ;; A miss at the publication depth arms one region and marks its descendants
   ;; :INSIDE. Range ingestion can publish smaller proved subtrees below an open
   ;; boundary bucket, so those descendants must still probe the Bloom filter;
-  ;; otherwise the first depth-five miss masks every finer range proof below it
+  ;; otherwise the first publication-depth miss masks every finer range proof below it
   ;; and turns a small boundary walk into a full local-trie scan.
   (and (member (snap-sync-heal-work-marker-state work) '(nil :inside))
-       (>= (length (snap-sync-heal-work-path work))
-           *snap-sync-healed-subtree-prefix-nibbles*)
+       (or
+        (>= (length (snap-sync-heal-work-path work))
+            *snap-sync-healed-subtree-prefix-nibbles*)
+        ;; A completed StorageRanges plan has no external dependencies, so its
+        ;; root is a safe whole-trie proof candidate. Account roots retain the
+        ;; coarse-depth gate because their leaves may name storage and code.
+        (and (eq :storage (snap-sync-heal-work-kind work))
+             (zerop (length (snap-sync-heal-work-path work)))))
        (let ((reference (snap-sync-heal-work-reference work)))
          (and (byte-vector-p reference) (= 32 (length reference))))))
 

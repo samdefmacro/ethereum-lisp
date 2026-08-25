@@ -1284,6 +1284,9 @@
            #'ethereum-lisp.snap-sync::snap-sync-account-task-completed-p
            (ethereum-lisp.snap-sync::snap-sync-load-or-create-storage-tasks
             target-database root account-hash storage-root)))
+      (is
+       (ethereum-lisp.snap-sync::snap-sync-healed-subtree-present-p
+        target-database (hash32-bytes storage-root) :storage))
       (multiple-value-bind (node present-p)
           (ethereum-lisp.trie:trie-node-store-get
            target-database storage-root)
@@ -1401,6 +1404,9 @@
           (is
            (ethereum-lisp.snap-sync::snap-sync-storage-plan-promoted-p
             database storage-root))
+          (is
+           (ethereum-lisp.snap-sync::snap-sync-healed-subtree-present-p
+            database (hash32-bytes storage-root) :storage))
           (is
            (every
             (lambda (reference)
@@ -4716,6 +4722,16 @@
        (ethereum-lisp.snap-sync::snap-sync-make-heal-work
         :account nil (make-byte-vector (1- lookup-depth))
         (snap-test-hash 221)))))
+    (is
+     (not
+      (ethereum-lisp.snap-sync::snap-sync-healed-subtree-candidate-p
+       (ethereum-lisp.snap-sync::snap-sync-make-heal-work
+        :account nil (make-byte-vector 0) (snap-test-hash 220)))))
+    (is
+     (ethereum-lisp.snap-sync::snap-sync-healed-subtree-candidate-p
+      (ethereum-lisp.snap-sync::snap-sync-make-heal-work
+       :storage (snap-test-hash 219) (make-byte-vector 0)
+       (snap-test-hash 218))))
     (is
      (ethereum-lisp.snap-sync::snap-sync-healed-subtree-candidate-p
       (ethereum-lisp.snap-sync::snap-sync-make-heal-work
