@@ -4718,6 +4718,11 @@
       (ethereum-lisp.snap-sync::snap-sync-make-heal-work
        :account nil (make-byte-vector lookup-depth) (snap-test-hash 222))))
     (is
+     (ethereum-lisp.snap-sync::snap-sync-healed-subtree-candidate-p
+      (ethereum-lisp.snap-sync::snap-sync-make-heal-work
+       :account nil (make-byte-vector publication-depth)
+       (snap-test-hash 225) :marker-state :inside)))
+    (is
      (not
       (ethereum-lisp.snap-sync::snap-sync-healed-subtree-publication-candidate-p
        (ethereum-lisp.snap-sync::snap-sync-make-heal-work
@@ -4727,6 +4732,110 @@
       (ethereum-lisp.snap-sync::snap-sync-make-heal-work
        :account nil (make-byte-vector publication-depth)
        (snap-test-hash 224))))))
+
+(deftest snap-state-healer-finds-range-proof-inside-coarser-miss
+  (:layer :integration :module :p2p)
+  ;; An open bucket at the range publication depth may still contain a smaller
+  ;; proved subtree. A miss at that parent must not mask the valid nested proof
+  ;; and force every already authenticated descendant through the decoder.
+  (let* ((trie (make-mpt))
+         (first-key (make-byte-vector 32))
+         (second-key (make-byte-vector 32))
+         (account
+           (state-account-rlp
+            (make-state-account :nonce 1 :balance 900001)))
+         (baseline-database (make-memory-key-value-database))
+         (proved-database (make-memory-key-value-database)))
+    ;; Both keys share their first two nibbles, making the hashed branch at
+    ;; publication depth two the miss that arms the region. Their third nibble
+    ;; differs, making each hashed leaf a depth-three proof candidate below
+    ;; :INSIDE work.
+    (setf (aref second-key 1) #x10)
+    (mpt-put trie first-key account)
+    (mpt-put trie second-key account)
+    (let* ((root (make-hash32 (mpt-root-hash trie)))
+           (records (mpt-dirty-node-records trie))
+           (nested (mpt-hashed-subtrees-with-prefix-at-depth trie 3))
+           (proved-reference (cdar nested))
+           (source
+             (ethereum-lisp.snap-sync:make-snap-sync-source
+              :account-range
+              (lambda (&rest arguments)
+                (declare (ignore arguments))
+                (error "Nested-proof fixture requested an account range"))
+              :storage-ranges
+              (lambda (&rest arguments)
+                (declare (ignore arguments))
+                (error "Nested-proof fixture requested a storage range"))
+              :bytecodes
+              (lambda (&rest arguments)
+                (declare (ignore arguments))
+                (error "Nested-proof fixture requested bytecode"))
+              :trie-nodes
+              (lambda (&rest arguments)
+                (declare (ignore arguments))
+                (error "Nested-proof fixture requested a trie node"))))
+           (genesis (make-hash32 (snap-test-hash 225)))
+           (authority (make-hash32 (snap-test-hash 226))))
+      (is proved-reference)
+      (is (= 2 (length nested)))
+      (dolist (database (list baseline-database proved-database))
+        (let ((batch (make-kv-write-batch)))
+          (ethereum-lisp.snap-sync::snap-sync-populate-verified-trie-records-batch
+           database batch records)
+          (ethereum-lisp.snap-sync::snap-sync-populate-incomplete-records-batch
+           batch (mapcar #'car records))
+          (kv-apply-batch database batch)))
+      (let ((batch (make-kv-write-batch)))
+        (ethereum-lisp.snap-sync::snap-sync-populate-healed-subtree-batch
+         batch proved-reference :account)
+        (kv-apply-batch proved-database batch))
+      (labels ((progress (seed)
+                 (ethereum-lisp.snap-sync::snap-sync-make-progress
+                  :pivot-hash (make-hash32 (snap-test-hash seed))
+                  :pivot-number 6050 :state-root root
+                  :partial-root +empty-trie-hash+
+                  :target-hash (make-hash32 (snap-test-hash (1+ seed)))
+                  :chain-id 560048 :genesis-hash genesis
+                  :authority-id authority :completed-p nil
+                  :complete-node-scheme-p t
+                  :tasks
+                  (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+                   :count 1 :completed-p t)))
+               (run (database seed)
+                 (let ((processed nil) (fetched nil) (skipped nil))
+                   (ethereum-lisp.snap-sync::snap-sync-heal-state
+                    database (list source) (progress seed) 350
+                    :on-heal-progress
+                    (lambda (snapshot)
+                      (when
+                          (ethereum-lisp.snap-sync:snap-sync-heal-progress-completed-p
+                           snapshot)
+                        (setf
+                         processed
+                         (ethereum-lisp.snap-sync:snap-sync-heal-progress-processed-nodes
+                          snapshot)
+                         fetched
+                         (ethereum-lisp.snap-sync:snap-sync-heal-progress-fetched-nodes
+                          snapshot)
+                         skipped
+                         (ethereum-lisp.snap-sync:snap-sync-heal-progress-skipped-subtrees
+                          snapshot)))))
+                   (values processed fetched skipped))))
+        (let ((ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
+                1)
+              (ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*
+                2))
+          (multiple-value-bind
+                (baseline-processed baseline-fetched baseline-skipped)
+              (run baseline-database 227)
+            (multiple-value-bind
+                  (proved-processed proved-fetched proved-skipped)
+                (run proved-database 229)
+              (is (zerop baseline-fetched))
+              (is (zerop proved-fetched))
+              (is (< proved-processed baseline-processed))
+              (is (> proved-skipped baseline-skipped)))))))))
 
 (deftest snap-state-healer-reuses-proved-subtrees-across-pivots
   (:layer :integration :module :p2p)

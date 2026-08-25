@@ -353,6 +353,15 @@ them by their physical location instead reintroduces dependency cycles:
   paths for the same account share one wire path set, matching geth's grouping
   and avoiding a repeated remote account-trie lookup per storage node. A
   response-order index maps partial replies back to the exact DFS continuation.
+  A completion-proof miss at the range publication depth owns the one
+  post-order proof sentinel for that region, but does not suppress Bloom
+  probes below it. This distinction is required because an authenticated range
+  boundary can leave its depth-five bucket open while proving smaller hashed
+  subtrees farther down. Descendant `:inside` work therefore continues to
+  consume those finer proofs without creating nested publication sentinels;
+  the final healer walks only the genuinely open boundary instead of decoding
+  every already proved local descendant.
+
   Pending, in-flight, locally exposed, and deferred work are counted in work
   units rather than request units against a 131,072-work remote-admission
   target; the serving side independently applies the same 1,024-lookup

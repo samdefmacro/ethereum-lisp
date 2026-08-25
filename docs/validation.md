@@ -224,6 +224,8 @@ cl-workbench validation run cold-integration \
 cl-workbench validation run cold-integration \
   --match SNAP-STATE-HEALER-REUSES-PROVED-SUBTREES
 cl-workbench validation run cold-integration \
+  --match SNAP-STATE-HEALER-FINDS-RANGE-PROOF-INSIDE-COARSER-MISS
+cl-workbench validation run cold-integration \
   --match SNAP-STATE-HEALER-USES-GETH-COMPLETE-NODE-DIFFERENCE-FRONTIER
 cl-workbench validation run cold-unit \
   --match SNAP-COMPLETE-NODE-SCHEME-NEVER-TRUSTS-A-LEGACY-TRIE-STORE

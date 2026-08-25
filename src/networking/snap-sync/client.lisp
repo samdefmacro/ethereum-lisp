@@ -4372,7 +4372,12 @@ caller safely falls back to TrieNodes healing with authenticated pages retained.
   (unless (and (integerp *snap-sync-healed-subtree-prefix-nibbles*)
                (<= 1 *snap-sync-healed-subtree-prefix-nibbles* 64))
     (error "Snap healed-subtree prefix depth must be between one and 64"))
-  (and (null (snap-sync-heal-work-marker-state work))
+  ;; A miss at the publication depth arms one region and marks its descendants
+  ;; :INSIDE. Range ingestion can publish smaller proved subtrees below an open
+  ;; boundary bucket, so those descendants must still probe the Bloom filter;
+  ;; otherwise the first depth-five miss masks every finer range proof below it
+  ;; and turns a small boundary walk into a full local-trie scan.
+  (and (member (snap-sync-heal-work-marker-state work) '(nil :inside))
        (>= (length (snap-sync-heal-work-path work))
            *snap-sync-healed-subtree-prefix-nibbles*)
        (let ((reference (snap-sync-heal-work-reference work)))
@@ -4388,6 +4393,13 @@ caller safely falls back to TrieNodes healing with authenticated pages retained.
      "Snap range subtree depth must be between the lookup depth and 64"))
   (>= (length (snap-sync-heal-work-path work))
       *snap-sync-range-subtree-prefix-nibbles*))
+
+(defun snap-sync-healed-subtree-miss-marker-state (work)
+  "Preserve one publication owner while probing finer nested range proofs."
+  (if (eq :inside (snap-sync-heal-work-marker-state work))
+      :inside
+      (and (snap-sync-healed-subtree-publication-candidate-p work)
+           :armed)))
 
 (defun snap-sync-heal-signal-source-errors (errors)
   (let ((storage-error
@@ -5087,10 +5099,8 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                                        :fetched-p
                                        (snap-sync-heal-work-fetched-p work)
                                        :marker-state
-                                       (and
-                                        (snap-sync-healed-subtree-publication-candidate-p
-                                         work)
-                                        :armed))
+                                       (snap-sync-healed-subtree-miss-marker-state
+                                        work))
                                       actual-lookups)))
                                   (incf candidate-index))
                                 (push work actual-lookups)))
@@ -5492,10 +5502,8 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                                        :fetched-p
                                        (snap-sync-heal-work-fetched-p work)
                                        :marker-state
-                                       (and
-                                        (snap-sync-healed-subtree-publication-candidate-p
-                                         work)
-                                        :armed))
+                                       (snap-sync-healed-subtree-miss-marker-state
+                                        work))
                                       actual-lookups)))
                                   (incf candidate-index))
                                 (push work actual-lookups)))
