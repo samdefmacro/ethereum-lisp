@@ -98,6 +98,9 @@ remains disabled unless a controlled deployment binds it explicitly.")
 (defparameter +snap-sync-healed-storage-subtree-identifier-prefix+
   (ascii-to-bytes "snap-healed-storage-subtree-v1:")
   "Domain-separate durable storage-subtree proof keys.")
+(defparameter +snap-sync-healed-storage-root-identifier-prefix+
+  (ascii-to-bytes "snap-healed-storage-root-v1:")
+  "Domain-separate fully traversed storage-root proof keys.")
 (defparameter +snap-sync-account-subtree-dependencies-identifier-prefix+
   (ascii-to-bytes "snap-account-subtree-dependencies-v1:")
   "Account-trie completion proofs carrying deferred storage dependencies.")
@@ -143,7 +146,7 @@ are still consumed below a changed coarse bucket.")
 (defparameter +snap-sync-range-plan-promotion-prefix+
   (ascii-to-bytes "snap-range-plan-promoted-v3:"))
 (defparameter +snap-sync-storage-plan-promotion-prefix+
-  (ascii-to-bytes "snap-storage-plan-promoted-v4:"))
+  (ascii-to-bytes "snap-storage-plan-promoted-v5:"))
 (defconstant +snap-sync-range-plan-promotion-max-roots+ 64)
 (defparameter +snap-sync-storage-task-identifier-prefix+
   (ascii-to-bytes "snap-storage-range-task-v1:")
@@ -865,7 +868,7 @@ observational and not consensus-visible."
         ;; pivot can then skip the whole unchanged storage trie before reading
         ;; any descendant.
         (snap-sync-populate-healed-subtree-batch
-         batch (hash32-bytes storage-root) :storage)))))
+         batch (hash32-bytes storage-root) :storage-root)))))
 
 (defun snap-sync-populate-partial-storage-group
     (database batch storage-root slots proof)
@@ -3458,7 +3461,8 @@ the returned encoded, presence, and decoded vectors retain input order."
    'vector
    (ecase kind
      (:account +snap-sync-healed-subtree-identifier-prefix+)
-     (:storage +snap-sync-healed-storage-subtree-identifier-prefix+))
+     (:storage +snap-sync-healed-storage-subtree-identifier-prefix+)
+     (:storage-root +snap-sync-healed-storage-root-identifier-prefix+))
    reference))
 
 (defun snap-sync-account-subtree-dependencies-identifier (reference)
@@ -3541,13 +3545,16 @@ the returned encoded, presence, and decoded vectors retain input order."
   (unless (and (typep bloom 'bit-vector)
                (= (length bloom) +snap-sync-healed-subtree-bloom-bits+)
                (byte-vector-p reference) (= 32 (length reference))
-               (member kind '(:account :storage :account-dependencies)))
+               (member kind
+                       '(:account :storage :storage-root
+                         :account-dependencies)))
     (error "Snap healed-subtree Bloom input is malformed"))
   (let* ((mask (1- +snap-sync-healed-subtree-bloom-bits+))
          (salt
            (ecase kind
              (:account #x9e3779b9)
              (:storage #x85ebca6b)
+             (:storage-root #x27d4eb2f)
              (:account-dependencies #xc2b2ae35)))
          (first
            (logxor salt (snap-sync-healed-subtree-bloom-word reference 0)))
@@ -3608,6 +3615,9 @@ the returned encoded, presence, and decoded vectors retain input order."
     (snap-sync-index-healed-subtree-prefix
      database bloom :storage
      +snap-sync-healed-storage-subtree-identifier-prefix+)
+    (snap-sync-index-healed-subtree-prefix
+     database bloom :storage-root
+     +snap-sync-healed-storage-root-identifier-prefix+)
     (snap-sync-index-healed-subtree-prefix
      database bloom :account-dependencies
      +snap-sync-account-subtree-dependencies-identifier-prefix+)
@@ -3867,21 +3877,24 @@ values are decoded only after one ordered, bounded metadata MultiGet."
                     (snap-sync-heal-work-account-hash work)
                     storage-root))))
       (return-from snap-sync-promote-complete-storage-plan 0))
+    ;; v4 briefly treated completed partition cursors as a full closure proof.
+    ;; They only prove authenticated range coverage; the final local healer is
+    ;; still the trust boundary. Conservatively retire that root-shaped v1
+    ;; subtree proof before publishing the safe shallow references below.
+    (let ((batch (make-kv-write-batch)))
+      (kv-batch-delete-chain-record
+       batch :metadata
+       (snap-sync-healed-subtree-identifier
+        (hash32-bytes storage-root) :storage))
+      (kv-apply-batch database batch))
     (let ((references
             (if (hash32= storage-root +empty-trie-hash+)
                 '()
-                ;; A completed partition plan proves the entire storage trie,
-                ;; not merely its shallow buckets. Publish the root first so a
-                ;; rebased healer can reject the whole unchanged trie with one
-                ;; Bloom/metadata lookup. The finer roots remain useful when a
-                ;; different storage root shares unchanged descendants.
-                (cons
-                 (hash32-bytes storage-root)
-                 (mpt-hashed-subtrees-at-prefix-depth
-                  (make-persisted-mpt
-                   storage-root
-                   (lambda (hash) (trie-node-store-get database hash)))
-                  *snap-sync-range-subtree-prefix-nibbles*)))))
+                (mpt-hashed-subtrees-at-prefix-depth
+                 (make-persisted-mpt
+                  storage-root
+                  (lambda (hash) (trie-node-store-get database hash)))
+                 *snap-sync-range-subtree-prefix-nibbles*))))
       (snap-sync-persist-promoted-subtrees
        database references :storage
        (snap-sync-storage-plan-promotion-identifier storage-root)))))
@@ -4063,14 +4076,6 @@ never read or revalidated."
                (snap-sync-storage-page-result-healed-subtrees result))
         (snap-sync-populate-healed-subtree-batch
          batch reference :storage))
-      (when (and
-             (not (hash32= storage-root +empty-trie-hash+))
-             (every #'snap-sync-account-task-completed-p next))
-        ;; The cursor set and every authenticated page become durable in this
-        ;; same batch. Publishing the complete root here cannot race ahead of
-        ;; its descendants and avoids a later promotion scan.
-        (snap-sync-populate-healed-subtree-batch
-         batch (hash32-bytes storage-root) :storage))
       (kv-apply-batch database batch)
       next)))
 
@@ -4405,13 +4410,20 @@ caller safely falls back to TrieNodes healing with authenticated pages retained.
        (or
         (>= (length (snap-sync-heal-work-path work))
             *snap-sync-healed-subtree-prefix-nibbles*)
-        ;; A completed StorageRanges plan has no external dependencies, so its
-        ;; root is a safe whole-trie proof candidate. Account roots retain the
-        ;; coarse-depth gate because their leaves may name storage and code.
+        ;; A storage root can consume only the separate proof published after
+        ;; full closure validation. Account roots retain the coarse-depth gate
+        ;; because their leaves may name storage and code dependencies.
         (and (eq :storage (snap-sync-heal-work-kind work))
              (zerop (length (snap-sync-heal-work-path work)))))
        (let ((reference (snap-sync-heal-work-reference work)))
          (and (byte-vector-p reference) (= 32 (length reference))))))
+
+(defun snap-sync-healed-subtree-proof-kind (work)
+  "Use a separate trust namespace for a fully traversed storage root."
+  (if (and (eq :storage (snap-sync-heal-work-kind work))
+           (zerop (length (snap-sync-heal-work-path work))))
+      :storage-root
+      (snap-sync-heal-work-kind work)))
 
 (defun snap-sync-healed-subtree-publication-candidate-p (work)
   "Select the finer boundary at which new completion proofs are published."
@@ -4421,15 +4433,23 @@ caller safely falls back to TrieNodes healing with authenticated pages retained.
                    64))
     (error
      "Snap range subtree depth must be between the lookup depth and 64"))
-  (>= (length (snap-sync-heal-work-path work))
-      *snap-sync-range-subtree-prefix-nibbles*))
+  (or
+   (>= (length (snap-sync-heal-work-path work))
+       *snap-sync-range-subtree-prefix-nibbles*)
+   ;; A root proof is published only by the healer's post-order sentinel after
+   ;; the entire storage trie has been traversed and every node is durable.
+   (eq :storage-root (snap-sync-healed-subtree-proof-kind work))))
 
 (defun snap-sync-healed-subtree-miss-marker-state (work)
   "Preserve one publication owner while probing finer nested range proofs."
-  (if (eq :inside (snap-sync-heal-work-marker-state work))
-      :inside
-      (and (snap-sync-healed-subtree-publication-candidate-p work)
-           :armed)))
+  (cond
+    ;; Deferred storage roots can arrive inside an account proof owner, but
+    ;; their closure is independent and must own a root post-order sentinel.
+    ((eq :storage-root (snap-sync-healed-subtree-proof-kind work)) :armed)
+    ((eq :inside (snap-sync-heal-work-marker-state work)) :inside)
+    (t
+     (and (snap-sync-healed-subtree-publication-candidate-p work)
+          :armed))))
 
 (defun snap-sync-heal-signal-source-errors (errors)
   (let ((storage-error
@@ -4790,7 +4810,7 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
            ;; after every such dependency is durable; a failure leaves the
            ;; older checkpoint authoritative and merely repeats safe work.
            (let* ((reference (snap-sync-heal-work-reference work))
-                  (kind (snap-sync-heal-work-kind work))
+                  (kind (snap-sync-healed-subtree-proof-kind work))
                   (identifier
                     (snap-sync-healed-subtree-identifier reference kind)))
              (unless
@@ -4953,7 +4973,22 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
            (unless (snap-sync-heal-work-fetched-p work)
              (incf reused-nodes))
            (if (eq object :complete-node-reused)
-               (incf skipped-subtrees)
+               (progn
+                 ;; The versioned negative-marker scheme is itself a durable
+                 ;; closure proof: absence of this node's incomplete marker
+                 ;; means all descendants were completed. Materialize the
+                 ;; stronger root namespace after its ordinary proof miss.
+                 (when
+                     (eq :armed (snap-sync-heal-work-marker-state work))
+                   (push
+                    (snap-sync-make-heal-work
+                     (snap-sync-heal-work-kind work)
+                     (snap-sync-heal-work-account-hash work)
+                     (snap-sync-heal-work-path work)
+                     (snap-sync-heal-work-reference work)
+                     :marker-state :complete)
+                    stack))
+                 (incf skipped-subtrees))
                (progn
                  (when
                      (eq :armed (snap-sync-heal-work-marker-state work))
@@ -5075,7 +5110,7 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                                      candidate-works))
                               (candidate-kinds
                                 (map 'vector
-                                     #'snap-sync-heal-work-kind
+                                     #'snap-sync-healed-subtree-proof-kind
                                      candidate-works))
                               (candidate-presence
                                 (if candidate-works
@@ -5477,7 +5512,7 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                                   candidate-works))
                            (candidate-kinds
                              (map 'vector
-                                  #'snap-sync-heal-work-kind
+                                  #'snap-sync-healed-subtree-proof-kind
                                   candidate-works))
                            (candidate-presence
                              (if candidate-works

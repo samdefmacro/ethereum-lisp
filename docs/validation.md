@@ -283,13 +283,16 @@ storage negatives, proves only the closed nodes, and requires the open markers
 to remain while the superseded markers disappear.
 StorageRanges pages publish equivalent
 storage-subtree proofs with their node and cursor batch. Completing the final
-partition publishes the whole storage root in that same batch, and the healer
-accepts such a root-level proof only for storage work; account roots retain the
-coarse-depth dependency boundary. The integration
+partition does not publish a whole-root proof: durable cursors establish range
+coverage, while the final healer remains the descendant-closure trust boundary.
+After a full post-order walk, or an equivalent versioned complete-node proof,
+the healer publishes a separately namespaced storage-root record. Account roots
+retain the coarse-depth dependency boundary. The integration
 regressions observe both kinds before final TrieNodes traversal, then promote
 legacy account and completed-storage plans through shallow trie walks. A new
-storage-promotion version forces older completed plans to publish the whole-root
-proof once; the shallow descendants remain reusable across changed roots. An
+storage-promotion version retires the short-lived cursor-derived root-shaped
+proof before republishing only safe shallow descendants; fully healed roots use
+the new root namespace and remain reusable across changed pivots. An
 incomplete legacy large-storage plan excludes only its account prefix bucket,
 rather than forcing a full account-tree rescan, and cannot publish the final
 promotion marker until its cursors finish. New range pages instead persist a

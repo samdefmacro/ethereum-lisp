@@ -1199,8 +1199,6 @@
                    final)
                   (ethereum-lisp.snap-sync:snap-sync-heal-progress-promoted-subtrees
                    final)
-                  (ethereum-lisp.snap-sync:snap-sync-heal-progress-skipped-subtrees
-                   final)
                   (ethereum-lisp.snap-sync:snap-sync-heal-progress-frontier-works
                    final)
                   (ethereum-lisp.snap-sync:snap-sync-heal-progress-deferred-storage-works
@@ -1208,12 +1206,12 @@
                   (ethereum-lisp.snap-sync:snap-sync-heal-progress-remote-works
                    final)
                   (ethereum-lisp.snap-sync:snap-sync-heal-progress-known-incomplete-nodes
-                   final)
-                  (ethereum-lisp.snap-sync:snap-sync-heal-progress-reused-nodes
-                   final)
-                  (ethereum-lisp.snap-sync:snap-sync-heal-progress-processed-nodes
                    final)))
           (is (zerop value))))
+      (is
+       (not
+        (ethereum-lisp.snap-sync::snap-sync-healed-subtree-present-p
+         target-database (hash32-bytes storage-root) :storage-root)))
       (multiple-value-bind (node present-p)
           (ethereum-lisp.trie:trie-node-store-get
            target-database storage-root)
@@ -1284,9 +1282,12 @@
            #'ethereum-lisp.snap-sync::snap-sync-account-task-completed-p
            (ethereum-lisp.snap-sync::snap-sync-load-or-create-storage-tasks
             target-database root account-hash storage-root)))
+      ;; Completed partition cursors prove range coverage, not descendant
+      ;; closure. Only the final healer may publish the root trust namespace.
       (is
-       (ethereum-lisp.snap-sync::snap-sync-healed-subtree-present-p
-        target-database (hash32-bytes storage-root) :storage))
+       (not
+        (ethereum-lisp.snap-sync::snap-sync-healed-subtree-present-p
+         target-database (hash32-bytes storage-root) :storage-root)))
       (multiple-value-bind (node present-p)
           (ethereum-lisp.trie:trie-node-store-get
            target-database storage-root)
@@ -1385,6 +1386,10 @@
             for task-index from 0
             do (ethereum-lisp.snap-sync::snap-sync-populate-storage-task-batch
                 batch state-root account-hash storage-root task-index task))
+      ;; Simulate the short-lived v4 deployment that published a root-shaped
+      ;; ordinary storage proof from cursor completion alone.
+      (ethereum-lisp.snap-sync::snap-sync-populate-healed-subtree-batch
+       batch (hash32-bytes storage-root) :storage)
       (kv-apply-batch database batch)
       (let ((ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
               1)
@@ -1405,8 +1410,13 @@
            (ethereum-lisp.snap-sync::snap-sync-storage-plan-promoted-p
             database storage-root))
           (is
-           (ethereum-lisp.snap-sync::snap-sync-healed-subtree-present-p
-            database (hash32-bytes storage-root) :storage))
+           (not
+            (ethereum-lisp.snap-sync::snap-sync-healed-subtree-present-p
+             database (hash32-bytes storage-root) :storage)))
+          (is
+           (not
+            (ethereum-lisp.snap-sync::snap-sync-healed-subtree-present-p
+             database (hash32-bytes storage-root) :storage-root)))
           (is
            (every
             (lambda (reference)
@@ -4733,6 +4743,25 @@
        :storage (snap-test-hash 219) (make-byte-vector 0)
        (snap-test-hash 218))))
     (is
+     (eq
+      :storage-root
+      (ethereum-lisp.snap-sync::snap-sync-healed-subtree-proof-kind
+       (ethereum-lisp.snap-sync::snap-sync-make-heal-work
+        :storage (snap-test-hash 219) (make-byte-vector 0)
+        (snap-test-hash 218)))))
+    (is
+     (ethereum-lisp.snap-sync::snap-sync-healed-subtree-publication-candidate-p
+      (ethereum-lisp.snap-sync::snap-sync-make-heal-work
+       :storage (snap-test-hash 219) (make-byte-vector 0)
+       (snap-test-hash 218))))
+    (is
+     (eq
+      :armed
+      (ethereum-lisp.snap-sync::snap-sync-healed-subtree-miss-marker-state
+       (ethereum-lisp.snap-sync::snap-sync-make-heal-work
+        :storage (snap-test-hash 219) (make-byte-vector 0)
+        (snap-test-hash 218) :marker-state :inside))))
+    (is
      (ethereum-lisp.snap-sync::snap-sync-healed-subtree-candidate-p
       (ethereum-lisp.snap-sync::snap-sync-make-heal-work
        :account nil (make-byte-vector lookup-depth) (snap-test-hash 222))))
@@ -4869,6 +4898,8 @@
               (make-hash32 (snap-test-index-hash index)) index))
     (let* ((first-state (state-db-copy source-state))
            (first-root (state-db-root first-state))
+           (first-storage-root
+             (state-db-get-storage-root first-state (first addresses)))
            (second-root
              (progn
                ;; Change the account leaf that owns the storage trie while
@@ -4931,7 +4962,7 @@
                    'ethereum-lisp.snap-sync::snap-sync-populate-healed-subtree-batch)
                   (lambda (batch reference &optional (kind :account))
                     (incf proof-count)
-                    (when (eq kind :storage)
+                    (when (member kind '(:storage :storage-root))
                       (incf storage-proof-count))
                     (incf (gethash batch proof-batches 0))
                     (funcall real-populate batch reference kind)))
@@ -4950,6 +4981,9 @@
              (fdefinition
               'ethereum-lisp.snap-sync::snap-sync-populate-healed-subtree-batch)
              real-populate))
+          (is
+           (ethereum-lisp.snap-sync::snap-sync-healed-subtree-present-p
+            target-database (hash32-bytes first-storage-root) :storage-root))
           (unwind-protect
                (progn
                  (setf
@@ -4964,7 +4998,8 @@
                         (when (= 1 (aref present index))
                           (incf cache-hits)
                           (when (and kinds
-                                     (eq :storage (elt kinds index)))
+                                     (member (elt kinds index)
+                                             '(:storage :storage-root)))
                             (incf storage-cache-hits))))
                       present)))
                  (ethereum-lisp.snap-sync::snap-sync-heal-state

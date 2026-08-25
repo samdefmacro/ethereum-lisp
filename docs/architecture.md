@@ -302,16 +302,19 @@ them by their physical location instead reintroduces dependency cycles:
   unclassified hash presence into a completeness proof.
   StorageRanges pages apply the complete-proof rule directly
   to their reconstructed storage trie, publishing coarse storage-subtree proofs
-  atomically with their node records and successor cursor. The batch that
-  completes all sixteen cursors also publishes the storage root itself: storage
-  leaves have no external code or trie dependencies, so a later moving pivot
-  can apply geth's exact hash-presence shortcut before reading any descendant.
+  atomically with their node records and successor cursor. Completing all
+  sixteen cursors proves authenticated range coverage but is not itself a
+  descendant-closure proof. The final healer publishes a separately namespaced
+  storage-root proof only after a full post-order walk or the versioned
+  complete-node negative-marker scheme proves closure. A later moving pivot can
+  then apply geth's exact hash-presence shortcut before reading any descendant.
   Pre-optimization
   range plans are upgraded lazily with depth-bounded walks over only the account
   and completed storage tries' shallow spines. Legacy account buckets containing
   an incomplete large-storage cursor set remain excluded while every other
-  bucket is immediately reusable; completed storage roots receive both the
-  whole-root proof and finer reusable proofs. New proofs use four-nibble
+  bucket is immediately reusable; completed storage plans receive finer
+  reusable proofs while fully healed roots receive the whole-root proof. New
+  proofs use four-nibble
   buckets, matching the healer's first lookup boundary, while the healer keeps
   consuming older finer proofs inside a changed coarse bucket for migration
   compatibility. The records
