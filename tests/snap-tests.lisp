@@ -947,20 +947,63 @@
          (storage-root (make-hash32 (snap-test-hash 249)))
          (dependency (cons account-hash storage-root))
          (dependent-reference (snap-test-hash 250))
-         (safe-reference (snap-test-hash 251)))
+         (safe-reference (snap-test-hash 251))
+         (dependent-records
+           (list dependent-reference (snap-test-hash 252)))
+         (safe-records
+           (list safe-reference (snap-test-hash 253)))
+         (wide-reference (snap-test-hash 254))
+         (wide-records
+           (list wide-reference (snap-test-hash 255)))
+         (wide-dependencies
+           (loop for index from 0
+                 repeat
+                 (1+
+                  ethereum-lisp.snap-sync::+snap-sync-account-subtree-dependencies-max+)
+                 collect
+                 (let ((hash (make-byte-vector 32)))
+                   (setf (aref hash 0) #x30
+                         (aref hash 31) index)
+                   (cons hash
+                         (make-hash32 (snap-test-index-hash (+ 1000 index))))))))
     (setf (aref account-hash 0) #x10)
     (let ((ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*
             1))
-      (multiple-value-bind (safe dependency-subtrees)
+      (multiple-value-bind (safe dependency-subtrees complete-references)
           (ethereum-lisp.snap-sync::snap-sync-classify-account-range-subtrees
-           (list (cons #(1) dependent-reference)
-                 (cons #(2) safe-reference))
-           (list dependency))
+           (list (list #(1) dependent-reference dependent-records)
+                 (list #(2) safe-reference safe-records)
+                 (list #(3) wide-reference wide-records))
+           (cons dependency wide-dependencies))
         (is (= 1 (length safe)))
         (is (bytes= safe-reference (first safe)))
         (is (= 1 (length dependency-subtrees)))
         (is (bytes= dependent-reference
                     (caar dependency-subtrees)))
+        ;; Bounded dependency metadata replaces an account-tree walk but not
+        ;; the exact storage work it names.  Its reconstructed account nodes
+        ;; are therefore complete; the over-limit group remains fail-closed.
+        (is (= 4 (length complete-references)))
+        (is (every
+             (lambda (reference)
+               (find reference complete-references :test #'bytes=))
+             (append dependent-records safe-records)))
+        (is (notany
+             (lambda (reference)
+               (find reference complete-references :test #'bytes=))
+             wide-records))
+        (let* ((all-records
+                 (mapcar
+                  (lambda (reference) (cons reference #(1)))
+                  (append dependent-records safe-records wide-records)))
+               (incomplete
+                 (ethereum-lisp.snap-sync::snap-sync-incomplete-record-hashes
+                  all-records complete-references)))
+          (is (= 2 (length incomplete)))
+          (is (every
+               (lambda (reference)
+                 (find reference incomplete :test #'bytes=))
+               wide-records)))
         (let* ((encoded
                  (ethereum-lisp.snap-sync::snap-sync-account-subtree-dependencies-value
                   (cdar dependency-subtrees)))
@@ -1955,6 +1998,14 @@
                      'ethereum-lisp.snap-sync:snap-sync-page-profile))
           (is (plusp
                (ethereum-lisp.snap-sync:snap-sync-page-profile-account-count
+                profile)))
+          (is (plusp
+               (ethereum-lisp.snap-sync:snap-sync-page-profile-trie-record-count
+                profile)))
+          (is (<=
+               (ethereum-lisp.snap-sync:snap-sync-page-profile-incomplete-node-count
+                profile)
+               (ethereum-lisp.snap-sync:snap-sync-page-profile-trie-record-count
                 profile)))
           (is (>=
                (ethereum-lisp.snap-sync:snap-sync-page-profile-total-ms

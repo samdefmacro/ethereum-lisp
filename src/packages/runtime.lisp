@@ -438,6 +438,10 @@
    #:snap-sync-page-profile-account-count
    #:snap-sync-page-profile-storage-account-count
    #:snap-sync-page-profile-code-count
+   #:snap-sync-page-profile-trie-record-count
+   #:snap-sync-page-profile-incomplete-node-count
+   #:snap-sync-page-profile-healed-subtree-count
+   #:snap-sync-page-profile-dependency-subtree-count
    #:snap-sync-page-profile-account-request-ms
    #:snap-sync-page-profile-proof-ms
    #:snap-sync-page-profile-storage-ms

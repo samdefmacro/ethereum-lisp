@@ -1497,6 +1497,18 @@ must prove the new state root before either record can authorize publication."
              profile)
             "codes"
             (ethereum-lisp.snap-sync:snap-sync-page-profile-code-count profile)
+            "trieRecords"
+            (ethereum-lisp.snap-sync:snap-sync-page-profile-trie-record-count
+             profile)
+            "incompleteNodes"
+            (ethereum-lisp.snap-sync:snap-sync-page-profile-incomplete-node-count
+             profile)
+            "healedSubtrees"
+            (ethereum-lisp.snap-sync:snap-sync-page-profile-healed-subtree-count
+             profile)
+            "dependencySubtrees"
+            (ethereum-lisp.snap-sync:snap-sync-page-profile-dependency-subtree-count
+             profile)
             "accountRequestMs"
             (ethereum-lisp.snap-sync:snap-sync-page-profile-account-request-ms
              profile)

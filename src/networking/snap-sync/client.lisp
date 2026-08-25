@@ -1413,12 +1413,18 @@ publishes the account cursor."
 (defstruct (snap-sync-page-profile
             (:constructor make-snap-sync-page-profile
                 (&key account-count storage-account-count code-count
+                      trie-record-count incomplete-node-count
+                      healed-subtree-count dependency-subtree-count
                       account-request-ms proof-ms storage-ms code-ms metadata-ms
                       buffer-ms total-ms)))
   "Observational wall-clock breakdown for one verified SNAP account page."
   (account-count 0)
   (storage-account-count 0)
   (code-count 0)
+  (trie-record-count 0)
+  (incomplete-node-count 0)
+  (healed-subtree-count 0)
+  (dependency-subtree-count 0)
   (account-request-ms 0)
   (proof-ms 0)
   (storage-ms 0)
@@ -1724,7 +1730,14 @@ frontier also falls back safely instead of creating an uncheckpointable run."
 
 (defun snap-sync-classify-account-range-subtrees
     (candidates deferred-storage)
-  "Split proved account subtrees by their unresolved storage dependencies."
+  "Split proved account subtrees by their unresolved storage dependencies.
+
+The third value contains every concrete trie-node hash whose descendant trie
+closure is proved by the range.  A subtree with a bounded dependency list is
+included: its durable dependency proof makes the healer schedule those exact
+storage roots before skipping the account walk, so its account-trie records do
+not need millions of per-node negative markers.  A subtree whose dependency
+list is too wide remains conservative and contributes no complete references."
   (let ((dependencies-by-prefix (make-hash-table :test #'equalp))
         (safe-subtrees '())
         (dependency-subtrees '())
@@ -1752,7 +1765,13 @@ frontier also falls back safely instead of creating an uncheckpointable run."
                  (nconc complete-references references)))
           ((<= (length dependencies)
                +snap-sync-account-subtree-dependencies-max+)
-           (push (cons reference dependencies) dependency-subtrees)))))
+           (push (cons reference dependencies) dependency-subtrees)
+           ;; The dependency proof is published in the same buffered batch as
+           ;; these records.  SNAP-SYNC-HEAL-STATE checks that proof before the
+           ;; complete-node fast path and schedules every listed storage root,
+           ;; preserving external closure without walking this account trie.
+           (setf complete-references
+                 (nconc complete-references references))))))
     (values (nreverse safe-subtrees) (nreverse dependency-subtrees)
             complete-references)))
 
@@ -1885,6 +1904,11 @@ again."
            (snap-sync-account-page-work-candidates work) deferred-storage)
         (let* ((metadata-finished-at (get-internal-real-time))
                (started-at (snap-sync-account-page-work-started-at work))
+               (account-records
+                 (snap-sync-account-page-work-account-records work))
+               (incomplete-node-hashes
+                 (snap-sync-incomplete-record-hashes
+                  account-records complete-references))
                (profile
                  (make-snap-sync-page-profile
                   :account-count
@@ -1894,6 +1918,10 @@ again."
                    (snap-sync-account-page-work-storage-commitments work))
                   :code-count
                   (length (snap-sync-account-page-work-code-hashes work))
+                  :trie-record-count (length account-records)
+                  :incomplete-node-count (length incomplete-node-hashes)
+                  :healed-subtree-count (length safe-subtrees)
+                  :dependency-subtree-count (length dependency-subtrees)
                   :account-request-ms
                   (snap-sync-elapsed-milliseconds
                    started-at
@@ -1911,8 +1939,7 @@ again."
                  (make-snap-sync-page-result
                   :task-index (snap-sync-account-page-work-task-index work)
                   :origin (snap-sync-account-page-work-origin work)
-                  :account-records
-                  (snap-sync-account-page-work-account-records work)
+                  :account-records account-records
                   :codes codes
                   :deferred-storage deferred-storage
                   :healed-subtrees safe-subtrees
@@ -1920,10 +1947,7 @@ again."
                   ;; subtree hash so a later pivot can skip the account walk
                   ;; without skipping external dependencies.
                   :dependency-subtrees dependency-subtrees
-                  :incomplete-node-hashes
-                  (snap-sync-incomplete-record-hashes
-                   (snap-sync-account-page-work-account-records work)
-                   complete-references)
+                  :incomplete-node-hashes incomplete-node-hashes
                   :next-origin (snap-sync-account-page-work-next-origin work)
                   :completed-p
                   (snap-sync-account-page-work-completed-p work)
