@@ -89,20 +89,20 @@ remains disabled unless a controlled deployment binds it explicitly.")
 (defconstant +snap-sync-heal-deferred-storage-target+ 2048
   "Collect this many account storage roots before descending into them.")
 (defconstant +snap-sync-heal-codes-per-request+ 2048)
-(defconstant +snap-sync-heal-checkpoint-version+ 3)
+(defconstant +snap-sync-heal-checkpoint-version+ 4)
 (defparameter +snap-sync-heal-checkpoint-identifier+
   "snap-state-heal-checkpoint")
 (defparameter +snap-sync-healed-subtree-identifier-prefix+
-  (ascii-to-bytes "snap-healed-subtree-v1:")
+  (ascii-to-bytes "snap-healed-subtree-v2:")
   "Domain-separate durable account-subtree proof keys.")
 (defparameter +snap-sync-healed-storage-subtree-identifier-prefix+
-  (ascii-to-bytes "snap-healed-storage-subtree-v1:")
+  (ascii-to-bytes "snap-healed-storage-subtree-v2:")
   "Domain-separate durable storage-subtree proof keys.")
 (defparameter +snap-sync-healed-storage-root-identifier-prefix+
-  (ascii-to-bytes "snap-healed-storage-root-v1:")
+  (ascii-to-bytes "snap-healed-storage-root-v2:")
   "Domain-separate fully traversed storage-root proof keys.")
 (defparameter +snap-sync-account-subtree-dependencies-identifier-prefix+
-  (ascii-to-bytes "snap-account-subtree-dependencies-v1:")
+  (ascii-to-bytes "snap-account-subtree-dependencies-v2:")
   "Account-trie completion proofs carrying deferred storage dependencies.")
 (defparameter +snap-sync-healed-subtree-value+ #(1)
   "Versioned value for a completely verified content-addressed subtree.")
@@ -113,8 +113,10 @@ remains disabled unless a controlled deployment binds it explicitly.")
   "Versioned value for an incomplete content-addressed trie node.")
 (defparameter +snap-sync-complete-node-scheme-identifier+
   "snap-complete-trie-node-scheme")
-(defparameter +snap-sync-complete-node-scheme-value+ #(1)
-  "Marks a trie store whose every incomplete SNAP node has a negative marker.")
+(defparameter +snap-sync-complete-node-scheme-value+ #(2)
+  "Marks a trie store whose every incomplete SNAP node follows closure epoch 2.")
+(defparameter +snap-sync-legacy-complete-node-scheme-value+ #(1)
+  "Recognized but never trusted marker from the pre-closure-safe epoch.")
 (defconstant +snap-sync-node-completions-per-batch+ 2048)
 (defconstant +snap-sync-account-subtree-dependencies-version+ 1)
 (defconstant +snap-sync-account-subtree-dependencies-max+ 64
@@ -144,20 +146,20 @@ descendant scan.")
 (defconstant +snap-sync-healed-subtree-bloom-hashes+ 4
   "Double-hashed bit probes per healed-subtree proof identifier.")
 (defparameter +snap-sync-deferred-storage-identifier-prefix+
-  (ascii-to-bytes "snap-deferred-storage-v1:")
+  (ascii-to-bytes "snap-deferred-storage-v2:")
   "Prefix for state-root-scoped storage work discovered during range import.")
 (defparameter +snap-sync-deferred-storage-plan-prefix+
-  (ascii-to-bytes "snap-deferred-storage-plan-v1:")
+  (ascii-to-bytes "snap-deferred-storage-plan-v2:")
   "Prefix for the trusted marker that says the deferred work set is complete.")
 (defparameter +snap-sync-deferred-storage-value+ #(1)
   "Versioned value shared by deferred storage work and plan markers.")
 (defparameter +snap-sync-range-plan-promotion-prefix+
-  (ascii-to-bytes "snap-range-plan-promoted-v4:"))
+  (ascii-to-bytes "snap-range-plan-promoted-v5:"))
 (defparameter +snap-sync-storage-plan-promotion-prefix+
-  (ascii-to-bytes "snap-storage-plan-promoted-v6:"))
+  (ascii-to-bytes "snap-storage-plan-promoted-v7:"))
 (defconstant +snap-sync-range-plan-promotion-max-roots+ 64)
 (defparameter +snap-sync-storage-task-identifier-prefix+
-  (ascii-to-bytes "snap-storage-range-task-v1:")
+  (ascii-to-bytes "snap-storage-range-task-v2:")
   "Prefix for restart-safe large-contract StorageRanges cursors.")
 (defconstant +snap-sync-storage-task-version+ 1)
 (defparameter +snap-sync-rebased-range-witness-domain+
@@ -717,11 +719,16 @@ observational and not consensus-visible."
   (multiple-value-bind (value present-p)
       (kv-get-chain-record
        database :metadata +snap-sync-complete-node-scheme-identifier+)
-    (when (and present-p
-               (not (bytes= value +snap-sync-complete-node-scheme-value+)))
-      (ethereum-lisp.validation:storage-fail
-       "Persisted snap complete-node scheme marker is malformed"))
-    present-p))
+    (cond
+      ((not present-p) nil)
+      ((bytes= value +snap-sync-complete-node-scheme-value+) t)
+      ;; Epoch one could remove a storage-root negative marker before the
+      ;; final healer had proved descendant closure. Keep all trie content,
+      ;; but make absence of an old marker mean nothing after an upgrade.
+      ((bytes= value +snap-sync-legacy-complete-node-scheme-value+) nil)
+      (t
+       (ethereum-lisp.validation:storage-fail
+        "Persisted snap complete-node scheme marker is malformed")))))
 
 (defun snap-sync-trie-node-store-empty-p (database)
   (multiple-value-bind (iterator close-iterator)
@@ -2630,7 +2637,12 @@ larger resumed frontier so remote batching does not collapse at 8,192 works."
       (let ((version
               (snap-sync-heal-checkpoint-uint
                version "Snap heal checkpoint version")))
-        (unless (member version '(1 2 3))
+        ;; A checkpoint is only a cache of the frontier omitted from its
+        ;; persisted trie. Epochs one through three may already have skipped
+        ;; work using closure proofs retired by epoch four, so resuming them
+        ;; would preserve the omission. Treat them as cache misses and restart
+        ;; from the authorized root.
+        (unless (= version +snap-sync-heal-checkpoint-version+)
           (error "Unsupported snap heal checkpoint version"))
       (unless (rlp-list-p stack-object)
         (error "Snap heal checkpoint stack must be an RLP list"))
@@ -4577,7 +4589,9 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
       (let* ((state-root (snap-sync-progress-state-root progress))
            (root-bytes (hash32-bytes state-root))
            (complete-node-scheme-p
-             (snap-sync-progress-complete-node-scheme-p progress))
+             (and
+              (snap-sync-progress-complete-node-scheme-p progress)
+              (snap-sync-complete-node-scheme-present-p database)))
            (incomplete-nodes
              (if complete-node-scheme-p
                  (snap-sync-load-incomplete-nodes database)

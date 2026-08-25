@@ -1712,6 +1712,7 @@
   (:layer :unit :module :p2p)
   (let ((fresh (make-memory-key-value-database))
         (legacy (make-memory-key-value-database))
+        (legacy-epoch (make-memory-key-value-database))
         (malformed (make-memory-key-value-database)))
     (is
      (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p
@@ -1735,7 +1736,25 @@
       (ethereum-lisp.database:kv-batch-put-chain-record
        batch :metadata
        ethereum-lisp.snap-sync::+snap-sync-complete-node-scheme-identifier+
-       #(2))
+       ethereum-lisp.snap-sync::+snap-sync-legacy-complete-node-scheme-value+)
+      (ethereum-lisp.database:kv-batch-put-chain-record
+       batch :trie-node (snap-test-hash 137) #(1 2 3))
+      (kv-apply-batch legacy-epoch batch))
+    ;; Epoch one is recognized so an upgrade can preserve its content, but its
+    ;; absent negative markers no longer authorize a subtree skip.
+    (is
+     (not
+      (ethereum-lisp.snap-sync::snap-sync-complete-node-scheme-present-p
+       legacy-epoch)))
+    (is
+     (not
+      (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p
+       legacy-epoch)))
+    (let ((batch (make-kv-write-batch)))
+      (ethereum-lisp.database:kv-batch-put-chain-record
+       batch :metadata
+       ethereum-lisp.snap-sync::+snap-sync-complete-node-scheme-identifier+
+       #(3))
       (kv-apply-batch malformed batch))
     (signals ethereum-lisp.validation:storage-error
       (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p
@@ -1745,6 +1764,112 @@
      (not
       (ethereum-lisp.snap-sync::snap-sync-complete-node-scheme-present-p
        fresh)))))
+
+(deftest snap-state-healer-invalidates-pre-closure-safe-fast-paths
+  (:layer :integration :module :p2p)
+  ;; The live Hoodi upgrade exposed a persisted v1 range plan and negative-node
+  ;; marker that could reduce a non-empty state to one skipped storage root,
+  ;; publish completion, and fail later when execution opened a missing child.
+  ;; Preserve all content, but prove that every old completion namespace is a
+  ;; cache miss and the authorized account root is traversed again.
+  (let* ((database (make-memory-key-value-database))
+         (account-value
+           (state-account-rlp (make-state-account :nonce 1 :balance 42)))
+         (leaf-object
+           (make-rlp-list
+            (ethereum-lisp.trie.encoding:hex-prefix-encode
+             (make-byte-vector 63) :terminator t)
+            account-value))
+         (leaf-encoded (rlp-encode leaf-object))
+         (leaf-reference (keccak-256 leaf-encoded))
+         (branch-object
+           (apply
+            #'make-rlp-list
+            (append
+             (list leaf-reference)
+             (loop repeat 15 collect (make-byte-vector 0))
+             (list (make-byte-vector 0)))))
+         (branch-encoded (rlp-encode branch-object))
+         (root-reference (keccak-256 branch-encoded))
+         (pivot (make-hash32 (snap-test-hash 138)))
+         (progress
+           (ethereum-lisp.snap-sync::snap-sync-make-progress
+            :pivot-hash pivot :pivot-number 44
+            :state-root (make-hash32 root-reference)
+            :partial-root +empty-trie-hash+
+            :target-hash (make-hash32 (snap-test-hash 139))
+            :chain-id 560048
+            :genesis-hash (make-hash32 (snap-test-hash 140))
+            :authority-id (make-hash32 (snap-test-hash 141))
+            :completed-p nil :complete-node-scheme-p t
+            :tasks
+            (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+             :count 1 :completed-p t)))
+         (trie-calls 0)
+         (fetched nil)
+         (source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :account-range (lambda (request) (declare (ignore request)))
+            :storage-ranges (lambda (request) (declare (ignore request)))
+            :bytecodes (lambda (request) (declare (ignore request)))
+            :trie-nodes
+            (lambda (request)
+              (declare (ignore request))
+              (incf trie-calls)
+              (ethereum-lisp.snap:make-snap-trie-nodes
+               1 (list leaf-encoded))))))
+    (let ((batch (make-kv-write-batch)))
+      (kv-batch-put-chain-record
+       batch :trie-node root-reference branch-encoded)
+      (kv-batch-put-chain-record
+       batch :metadata
+       ethereum-lisp.snap-sync::+snap-sync-complete-node-scheme-identifier+
+       ethereum-lisp.snap-sync::+snap-sync-legacy-complete-node-scheme-value+)
+      (kv-batch-put-chain-record
+       batch :metadata
+       (concatenate
+        'vector (ascii-to-bytes "snap-deferred-storage-plan-v1:")
+        root-reference)
+       #(1))
+      (kv-batch-put-chain-record
+       batch :metadata
+       (concatenate
+        'vector (ascii-to-bytes "snap-healed-subtree-v1:") leaf-reference)
+       #(1))
+      (kv-apply-batch database batch))
+    (is
+     (not
+      (ethereum-lisp.snap-sync::snap-sync-deferred-storage-plan-present-p
+       database (make-hash32 root-reference))))
+    (let ((ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
+            1)
+          (ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*
+            1)
+          (ethereum-lisp.snap-sync::*snap-sync-range-nested-subtree-prefix-nibbles*
+            1))
+      (let ((completed
+              (ethereum-lisp.snap-sync::snap-sync-heal-state
+               database (list source) progress 350
+               :on-heal-progress
+               (lambda (snapshot)
+                 (when
+                     (ethereum-lisp.snap-sync:snap-sync-heal-progress-completed-p
+                      snapshot)
+                   (setf fetched
+                         (ethereum-lisp.snap-sync:snap-sync-heal-progress-fetched-nodes
+                          snapshot)))))))
+        (is
+         (ethereum-lisp.snap-sync:snap-sync-progress-completed-p completed))))
+    (is (= 1 trie-calls))
+    (is (= 1 fetched))
+    (multiple-value-bind (encoded present-p)
+        (ethereum-lisp.trie:trie-node-store-get database leaf-reference)
+      (is present-p)
+      (is (bytes= encoded leaf-encoded)))
+    (multiple-value-bind (state-root present-p)
+        (kv-get-chain-record database :state-history (hash32-bytes pivot))
+      (is present-p)
+      (is (bytes= state-root root-reference)))))
 
 (deftest snap-sync-progress-expands-thirty-two-durable-cursors-to-sixty-four
   (:layer :unit :module :p2p)
@@ -3329,8 +3454,8 @@
           (second
            (ethereum-lisp.snap-sync::snap-sync-heal-checkpoint-stack
             decoded)))))
-    ;; Version three adds complete-node sentinels, but an upgrade must still
-    ;; resume the version-one checkpoint shape deployed before this cache.
+    ;; A pre-epoch-four checkpoint may already omit work skipped by retired
+    ;; closure proofs. It is a cache miss, not a resumable authority.
     (let* ((legacy-payload
              (rlp-encode
               (make-rlp-list
@@ -3343,22 +3468,10 @@
                  (snap-test-hash 187) 1)))))
            (legacy-record
              (rlp-encode
-              (make-rlp-list legacy-payload (keccak-256 legacy-payload))))
-           (legacy
-             (ethereum-lisp.snap-sync::snap-sync-heal-checkpoint-from-record
-              legacy-record))
-           (legacy-work
-             (first
-              (ethereum-lisp.snap-sync::snap-sync-heal-checkpoint-stack
-               legacy))))
-      (is (= 11
-             (ethereum-lisp.snap-sync::snap-sync-heal-checkpoint-processed-nodes
-              legacy)))
-      (is (eq :storage
-              (ethereum-lisp.snap-sync::snap-sync-heal-work-kind legacy-work)))
-      (is (null
-           (ethereum-lisp.snap-sync::snap-sync-heal-work-marker-state
-            legacy-work))))
+              (make-rlp-list legacy-payload (keccak-256 legacy-payload)))))
+      (signals error
+        (ethereum-lisp.snap-sync::snap-sync-heal-checkpoint-from-record
+         legacy-record)))
     (let ((batch (make-kv-write-batch)))
       (ethereum-lisp.database:kv-batch-put-chain-record
        batch :metadata
@@ -5276,6 +5389,9 @@
            (genesis (make-hash32 (snap-test-hash 227)))
            (authority (make-hash32 (snap-test-hash 228))))
       (declare (ignore first-root))
+      (is
+       (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p
+        exact-database))
       (dolist (database (list exact-database legacy-database))
         (let ((batch (make-kv-write-batch)))
           (ethereum-lisp.snap-sync::snap-sync-populate-verified-trie-records-batch

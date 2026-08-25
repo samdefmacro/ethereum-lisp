@@ -293,8 +293,12 @@ them by their physical location instead reintroduces dependency cycles:
   storage are durable. Marker deletion is buffered in batches of 2,048 and is
   flushed before a checkpoint, subtree proof, yield, or final completion. A
   crash before the delete merely repeats safe traversal. Progress version five
-  records whether this contract is active, while versions two through four
-  remain conservative. A database-level scheme marker is created only when the
+  records whether this contract was requested, while the database marker's
+  second closure epoch proves that the current negative-node semantics actually
+  own the store. The first epoch is recognized but never trusted after upgrade:
+  its trie content remains reusable, while absence of one of its markers cannot
+  authorize a skip. Progress versions two through four remain conservative. A
+  database-level scheme marker is created only when the
   trie-node namespace is empty. The fresh RocksDB bootstrap establishes it
   before exporting the genesis trie, so those expected baseline nodes do not
   accidentally classify a new public datadir as legacy; an upgraded or
@@ -319,7 +323,9 @@ them by their physical location instead reintroduces dependency cycles:
   metadata decision. The bounded five-nibble child layer lets a later pivot
   reuse up to fifteen unchanged children when that coarse bucket changes,
   without restoring a full descendant walk. The healer also keeps consuming
-  older finer proofs for migration compatibility. The records
+  finer proofs written within the current closure-safe epoch. Pre-closure-safe
+  account, storage, storage-root, and dependency namespaces are ignored without
+  deleting their trie content. The records
   are written in 2,048-record batches and versioned idempotency markers follow
   them, so a crash can only repeat safe work.
   The authenticated prefix of byte-capped
@@ -391,15 +397,17 @@ them by their physical location instead reintroduces dependency cycles:
   and rebases can change that denominator. It is not a terminal completion
   percentage; `completed=T` remains the only terminal authority.
   The smaller 8,192-work durable checkpoint remains the restart contract.
-  Range pages and completed legacy plans publish closure proofs at the
+  Range pages and completed current-epoch plans publish closure proofs at the
   healer's first four-nibble lookup boundary and at its five-nibble children.
   An unchanged coarse bucket still costs one Bloom-filtered metadata decision;
   after a coarse miss, the nested layer preserves reuse inside the changed
-  bucket. Older proofs written below either boundary remain valid. A legal
-  checkpoint restored at that exact cap can therefore fill every idle peer
+  bucket. Finer proofs written in the same closure epoch remain valid. A legal
+  version-four checkpoint restored at that exact cap can therefore fill every idle peer
   instead of shrinking to one path merely to reserve worst-case branch room;
   checkpoint publication waits until the transient frontier drains back into
-  its separately bounded record. The
+  its separately bounded record. Checkpoints from versions one through three
+  are cache misses because their frontier may already omit work skipped under a
+  retired proof epoch; restart begins at the authorized root instead. The
   local processing-rate feedback still bounds how quickly traversal exposes
   new remote work, but no global rate setting truncates an individual peer's
   learned capacity. The public-node peer default is 50, matching geth

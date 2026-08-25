@@ -271,11 +271,16 @@ external dependencies before a separate synchronous cursor batch publishes the
 whole WAL prefix. The failure regression permits that idempotent content to
 survive while proving the cursor stays behind a failed seam and a retry
 completes. Fresh empty stores also classify every reconstructed record under a
-version-five geth-style complete-node contract: proof-edge or otherwise open
+progress-version-five, closure-epoch-two geth-style complete-node contract:
+proof-edge or otherwise open
 nodes carry a negative marker in the same content batch, while fully closed
 interior groups require no positive record per node. The migration control
-plants a legacy trie node before scheme initialization and proves hash presence
-remains conservative; malformed scheme and incomplete markers fail closed. If
+plants both a legacy trie node and the old epoch-one scheme marker, proving that
+their content remains available but hash presence remains conservative;
+malformed scheme and incomplete markers fail closed. A live-failure regression
+also plants old range-plan and subtree-proof namespaces around a root with one
+missing child, then requires the epoch-two healer to ignore every shortcut,
+fetch that child, and only then publish state history. If
 a later account or StorageRanges page proves closure for a node that an earlier
 partial page marked open, the proof/record/cursor batch deletes that exact stale
 negative. The focused marker-lifecycle regression plants both account and
@@ -417,8 +422,9 @@ root paths and proves only 1,024 disk lookups are returned; raising the
 production cap makes it fail. Restoring the old immediate checkpoint stop
 makes the live-shape control fail with the observed public-node error. Separate
 controls prove that account traversal defers storage roots into multi-path
-requests, that the version-three node-completion sentinel is backward compatible
-with version-one and version-two checkpoints, and that content-addressed
+requests, that the version-four checkpoint round-trips its node-completion
+sentinel while versions one through three fail closed as cache misses, and that
+content-addressed
 account and contract-storage
 subtrees
 proved under one pivot reduce the decoded work under the next pivot. The
