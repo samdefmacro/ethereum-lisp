@@ -24,8 +24,8 @@ fill the response without repeatedly retransmitting a page's entire remaining
 hash set after the peer reaches its soft byte cap.")
 (defconstant +snap-sync-code-batch-workers+ 4
   "Maximum geth-sized ByteCodes batches in the isolated per-page fallback.")
-(defconstant +snap-sync-global-code-workers+ 16
-  "Import-wide ByteCodes assignments, aligned with the quality SNAP peer floor.")
+(defconstant +snap-sync-global-code-workers+ 32
+  "Import-wide ByteCodes assignments, covering every expected idle SNAP peer.")
 (defconstant +snap-sync-dependency-workers+ 32
   "Global account-page dependency jobs advanced independently of range peers.")
 (defconstant +snap-sync-cursor-batch-pages+ 16

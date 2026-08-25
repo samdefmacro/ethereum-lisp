@@ -322,7 +322,7 @@
 #+sbcl
 (deftest snap-multi-bytecodes-use-one-fixed-global-worker-pool
   (:layer :unit :module :p2p)
-  (is (= 16 ethereum-lisp.snap-sync::+snap-sync-global-code-workers+))
+  (is (= 32 ethereum-lisp.snap-sync::+snap-sync-global-code-workers+))
   (let* ((database (make-memory-key-value-database))
          (runtime
            (ethereum-lisp.snap-sync::make-snap-sync-multi-runtime nil 0 nil))

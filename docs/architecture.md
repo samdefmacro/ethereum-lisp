@@ -171,12 +171,14 @@ them by their physical location instead reintroduces dependency cycles:
   one synchronous publication batch, so a visible cursor still flushes the
   complete preceding WAL prefix without a per-page fsync. Storage and bytecode
   dependencies are scheduled independently of the peer that returned their
-  account page. ByteCodes jobs from every page share sixteen import-wide workers;
-  each assignment considers only idle sessions, chooses the largest learned
-  item capacity, and uses measured RTT to break ties. This matches geth's
-  central capacity-sorted assignment without multiplying worker count by the
-  number of account pages. The response verifier runs while the actual
-  storage/bytecode peer reservation is still held, then releases that peer
+  account page. ByteCodes jobs from every page share thirty-two import-wide
+  workers, enough to cover every SNAP session expected under the fifty-peer
+  public-node limit; each assignment still considers only idle sessions,
+  chooses the largest learned item capacity, and uses measured RTT to break
+  ties. This matches geth's central capacity-sorted assignment without
+  multiplying worker count by the number of account pages. The response
+  verifier runs while the actual storage/bytecode peer reservation is still
+  held, then releases that peer
   before any local WAL write. Empty, unrequested, malformed, or invalid-proof
   responses are therefore charged to the transport that supplied them instead
   of the unrelated AccountRange peer whose page discovered the dependency. An
