@@ -1103,6 +1103,14 @@
                    final)
                   (ethereum-lisp.snap-sync:snap-sync-heal-progress-skipped-subtrees
                    final)
+                  (ethereum-lisp.snap-sync:snap-sync-heal-progress-frontier-works
+                   final)
+                  (ethereum-lisp.snap-sync:snap-sync-heal-progress-deferred-storage-works
+                   final)
+                  (ethereum-lisp.snap-sync:snap-sync-heal-progress-remote-works
+                   final)
+                  (ethereum-lisp.snap-sync:snap-sync-heal-progress-known-incomplete-nodes
+                   final)
                   (ethereum-lisp.snap-sync:snap-sync-heal-progress-reused-nodes
                    final)
                   (ethereum-lisp.snap-sync:snap-sync-heal-progress-processed-nodes
@@ -3656,6 +3664,29 @@
     (is (< caught-up 2d0))
     (is (plusp rate))))
 
+(deftest snap-heal-progress-reports-discovered-work-without-a-denominator
+  (:layer :unit :module :p2p)
+  (let ((snapshot nil))
+    (ethereum-lisp.snap-sync::snap-sync-report-heal-progress
+     (lambda (progress) (setf snapshot progress))
+     11 7 5 3 4096 2 13 101 17 19 23 nil)
+    (is snapshot)
+    (is (= 101
+           (ethereum-lisp.snap-sync:snap-sync-heal-progress-frontier-works
+            snapshot)))
+    (is (= 17
+           (ethereum-lisp.snap-sync:snap-sync-heal-progress-deferred-storage-works
+            snapshot)))
+    (is (= 19
+           (ethereum-lisp.snap-sync:snap-sync-heal-progress-remote-works
+            snapshot)))
+    (is (= 23
+           (ethereum-lisp.snap-sync:snap-sync-heal-progress-known-incomplete-nodes
+            snapshot)))
+    (is (not
+         (ethereum-lisp.snap-sync:snap-sync-heal-progress-completed-p
+          snapshot)))))
+
 (deftest snap-state-healer-sorts-and-groups-storage-paths-by-account
   (:layer :unit :module :p2p)
   (let* ((account-a (make-byte-vector 32 :initial-element #x20))
@@ -5342,7 +5373,8 @@
          (target (make-hash32 (snap-test-hash 213)))
          (genesis (make-hash32 (snap-test-hash 214)))
          (authority (make-hash32 (snap-test-hash 215)))
-         (trie-node-requests 0))
+         (trie-node-requests 0)
+         (heal-progress-events '()))
     (state-db-set-account
      source-state address (make-state-account :nonce 7 :balance 99))
     (state-db-set-code source-state address code)
@@ -5380,9 +5412,52 @@
                :count 1 :completed-p t)))
            (completed
              (ethereum-lisp.snap-sync::snap-sync-heal-state
-              target-database (list source) progress 350)))
+              target-database (list source) progress 350
+              :on-heal-progress
+              (lambda (snapshot)
+                (push snapshot heal-progress-events)))))
       (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p completed))
       (is (plusp trie-node-requests))
+      (let* ((ordered-events (nreverse heal-progress-events))
+             (first-fetched
+               (find-if
+                (lambda (snapshot)
+                  (and
+                   (not
+                    (ethereum-lisp.snap-sync:snap-sync-heal-progress-completed-p
+                     snapshot))
+                   (zerop
+                    (ethereum-lisp.snap-sync:snap-sync-heal-progress-processed-nodes
+                     snapshot))
+                   (plusp
+                    (ethereum-lisp.snap-sync:snap-sync-heal-progress-fetched-nodes
+                     snapshot))))
+                ordered-events))
+             (final (car (last ordered-events))))
+        ;; The delivered root has moved from the only in-flight request back to
+        ;; the local stack. It is one discovered work item, not one local plus
+        ;; one stale remote item.
+        (is first-fetched)
+        (when first-fetched
+          (is (= 1
+                 (ethereum-lisp.snap-sync:snap-sync-heal-progress-frontier-works
+                  first-fetched)))
+          (is (zerop
+               (ethereum-lisp.snap-sync:snap-sync-heal-progress-remote-works
+                first-fetched))))
+        (is final)
+        (when final
+          (is
+           (ethereum-lisp.snap-sync:snap-sync-heal-progress-completed-p final))
+          (is (zerop
+               (ethereum-lisp.snap-sync:snap-sync-heal-progress-frontier-works
+                final)))
+          (is (zerop
+               (ethereum-lisp.snap-sync:snap-sync-heal-progress-deferred-storage-works
+                final)))
+          (is (zerop
+               (ethereum-lisp.snap-sync:snap-sync-heal-progress-remote-works
+                final)))))
       (multiple-value-bind (persisted-root present-p)
           (kv-get-chain-record
            target-database :state-history (hash32-bytes pivot))

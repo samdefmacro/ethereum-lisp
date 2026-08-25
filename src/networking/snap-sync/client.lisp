@@ -268,6 +268,8 @@ state completion.")
             (:constructor %make-snap-sync-heal-progress
                 (&key processed-nodes reused-nodes fetched-nodes request-count
                       response-bytes promoted-subtrees skipped-subtrees
+                      frontier-works deferred-storage-works remote-works
+                      known-incomplete-nodes
                       completed-p)))
   "One cumulative, observational snapshot of final TrieNodes healing.
 
@@ -277,8 +279,12 @@ FETCHED-NODES and RESPONSE-BYTES count accepted TrieNodes response blobs.
 REQUEST-COUNT includes failover attempts. PROMOTED-SUBTREES counts legacy range
 proofs converted into completion records at startup. SKIPPED-SUBTREES counts
 such records that stopped traversal below a content-addressed root during the
-current healer invocation. These counters are observational and not
-consensus-visible."
+current healer invocation. FRONTIER-WORKS is the currently discovered local,
+deferred-storage, and remote work; it can grow as decoded nodes reveal children
+and therefore is not a remaining-work denominator. KNOWN-INCOMPLETE-NODES is
+the conservative durable-marker population and may include content from an
+older pivot that the current root never reaches. These counters are
+observational and not consensus-visible."
   (processed-nodes 0)
   (reused-nodes 0)
   (fetched-nodes 0)
@@ -286,11 +292,16 @@ consensus-visible."
   (response-bytes 0)
   (promoted-subtrees 0)
   (skipped-subtrees 0)
+  (frontier-works 0)
+  (deferred-storage-works 0)
+  (remote-works 0)
+  (known-incomplete-nodes 0)
   (completed-p nil))
 
 (defun snap-sync-report-heal-progress
     (callback processed-nodes reused-nodes fetched-nodes request-count
-     response-bytes promoted-subtrees skipped-subtrees completed-p)
+     response-bytes promoted-subtrees skipped-subtrees frontier-works
+     deferred-storage-works remote-works known-incomplete-nodes completed-p)
   (when callback
     (funcall
      callback
@@ -302,6 +313,10 @@ consensus-visible."
       :response-bytes response-bytes
       :promoted-subtrees promoted-subtrees
       :skipped-subtrees skipped-subtrees
+      :frontier-works frontier-works
+      :deferred-storage-works deferred-storage-works
+      :remote-works remote-works
+      :known-incomplete-nodes known-incomplete-nodes
       :completed-p completed-p))))
 
 (defun snap-sync-require-hash32 (value label)
@@ -4471,7 +4486,10 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
              (snap-sync-report-heal-progress
               on-heal-progress processed-nodes reused-nodes fetched-nodes
               request-count response-bytes promoted-subtrees
-              skipped-subtrees nil)))
+              skipped-subtrees
+              (+ (length stack) deferred-storage-count remote-work-count)
+              deferred-storage-count remote-work-count
+              (hash-table-count incomplete-nodes) nil)))
          (record-processing-rate (started-at processed-before)
            (let ((fills (- processed-nodes processed-before)))
              (when (plusp fills)
@@ -4723,7 +4741,6 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
              (when (plusp healer-pending)
                (decf healer-pending)))
            (incf processed-nodes)
-           (report-local-checkpoint)
            (unless (rlp-list-p object)
              (error "Snap healing response contains a non-list trie node"))
            (let ((items (rlp-list-items object))
@@ -4773,7 +4790,11 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                            kind account-hash next-path reference
                            child-marker-state))))))
                (otherwise
-                (error "Snap healing response has invalid trie node arity")))))
+                (error "Snap healing response has invalid trie node arity"))))
+           ;; Report only after this node has exposed every immediate child and
+           ;; account dependency. Reporting between POP and expansion would
+           ;; transiently understate the discovered frontier.
+           (report-local-checkpoint))
          (decode-encoded (work encoded local-p)
            (let ((reference (snap-sync-heal-work-reference work)))
              (when (and (byte-vector-p reference)
@@ -5161,10 +5182,26 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                           (when (>= pending-fetched-bytes
                                     +snap-sync-heal-write-batch-bytes+)
                             (flush-fetched-nodes))
-                          (snap-sync-report-heal-progress
-                           on-heal-progress processed-nodes reused-nodes
-                           fetched-nodes request-count response-bytes
-                           promoted-subtrees skipped-subtrees nil)
+                          ;; HANDLE-RESULT runs before FINISH-EVENT retires this
+                          ;; job from the pipeline's in-flight count. Delivered
+                          ;; work is already back on STACK, while UNMATCHED is
+                          ;; about to re-enter the shared remote queue. Compute
+                          ;; the post-event remote count explicitly so neither
+                          ;; class is omitted or counted twice in this snapshot.
+                          (let ((remaining-remote-work-count
+                                  (+
+                                   (max 0
+                                        (- remote-work-count (length works)))
+                                   (length unmatched))))
+                            (snap-sync-report-heal-progress
+                             on-heal-progress processed-nodes reused-nodes
+                             fetched-nodes request-count response-bytes
+                             promoted-subtrees skipped-subtrees
+                             (+ (length stack) deferred-storage-count
+                                remaining-remote-work-count)
+                             deferred-storage-count
+                             remaining-remote-work-count
+                             (hash-table-count incomplete-nodes) nil))
                           (values (nreverse unmatched) nil fills))
                       (ethereum-lisp.validation:storage-error (condition)
                         (error condition))
@@ -5430,7 +5467,8 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
       (kv-apply-batch database batch)
       (snap-sync-report-heal-progress
        on-heal-progress processed-nodes reused-nodes fetched-nodes
-       request-count response-bytes promoted-subtrees skipped-subtrees t)
+       request-count response-bytes promoted-subtrees skipped-subtrees
+       0 0 0 (hash-table-count incomplete-nodes) t)
       completed))))))
 
 (defun snap-sync-release-range-phase-memory ()
@@ -5471,7 +5509,7 @@ plans retain the content-addressed healer as the fail-closed path."
         (snap-sync-complete-batch batch completed)
         (kv-apply-batch database batch)
         (snap-sync-report-heal-progress
-         on-heal-progress 0 0 0 0 0 0 0 t)
+         on-heal-progress 0 0 0 0 0 0 0 0 0 0 0 t)
         (return-from snap-sync-fill-storage-then-heal completed))))
   ;; Range workers and their page/dependency graphs have all joined. A full
   ;; collection at this one phase boundary returns their old-generation pages

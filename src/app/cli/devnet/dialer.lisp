@@ -1595,6 +1595,18 @@ must prove the new state root before either record can authorize publication."
               "skippedSubtrees"
               (ethereum-lisp.snap-sync:snap-sync-heal-progress-skipped-subtrees
                heal-progress)
+              "frontierWorks"
+              (ethereum-lisp.snap-sync:snap-sync-heal-progress-frontier-works
+               heal-progress)
+              "deferredStorageWorks"
+              (ethereum-lisp.snap-sync:snap-sync-heal-progress-deferred-storage-works
+               heal-progress)
+              "remoteWorks"
+              (ethereum-lisp.snap-sync:snap-sync-heal-progress-remote-works
+               heal-progress)
+              "knownIncompleteNodes"
+              (ethereum-lisp.snap-sync:snap-sync-heal-progress-known-incomplete-nodes
+               heal-progress)
               "completed" completed-p))))
        :on-source-error
        (lambda (source condition)

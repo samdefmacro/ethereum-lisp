@@ -453,6 +453,10 @@
    #:snap-sync-heal-progress-response-bytes
    #:snap-sync-heal-progress-promoted-subtrees
    #:snap-sync-heal-progress-skipped-subtrees
+   #:snap-sync-heal-progress-frontier-works
+   #:snap-sync-heal-progress-deferred-storage-works
+   #:snap-sync-heal-progress-remote-works
+   #:snap-sync-heal-progress-known-incomplete-nodes
    #:snap-sync-heal-progress-completed-p
    #:snap-sync-read-progress
    #:snap-sync-heal-checkpoint-present-p

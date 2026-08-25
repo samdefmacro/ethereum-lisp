@@ -488,7 +488,15 @@ variable. A one-second periodic pass remains as a bounded fallback. Final
 TrieNodes healing reports monotonic processed/reused/fetched/request/byte
 counters plus the number of whole durable subtrees skipped through
 `peer.snap.heal_progress`, throttled to the first event, every 30 seconds, and
-completion. Its focused controls are
+completion. The event also reports `frontierWorks`, `deferredStorageWorks`, and
+`remoteWorks` for the currently discovered queue, plus
+`knownIncompleteNodes` for conservative durable negative markers. The
+frontier can grow when a decoded parent reveals children, and markers may
+belong to retained content unreachable from the active pivot, so none of these
+fields is a final-work denominator or completion percentage. The production
+call-site control moves a returned node from in-flight work to the local stack
+without double-counting it and requires every live-frontier field to reach zero
+on completion. Its focused controls are
 `SNAP-STATE-HEALER` and `SNAP-HEAL-CHECKPOINT`; both are also included by the
 broader `SNAP-` selectors above. The fetched-node hot-path control plants
 positive witnesses for both single-key and batch trie reads, then proves that a

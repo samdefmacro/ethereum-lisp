@@ -345,6 +345,15 @@ them by their physical location instead reintroduces dependency cycles:
   Pending, in-flight, locally exposed, and deferred work are counted in work
   units rather than request units under a fixed 131,072-work live frontier;
   the serving side independently applies the same 1,024-lookup ceiling. The
+  observational healer snapshot exposes that currently discovered frontier as
+  `frontierWorks`, with `deferredStorageWorks` and `remoteWorks` as subsets.
+  These values are queue pressure, not a completion denominator: decoding one
+  trie node may discover more child or storage work. `knownIncompleteNodes`
+  separately counts conservative durable negative markers, including retained
+  content that an older pivot wrote but the current root may never reach.
+  Completion percentage is therefore unavailable until the authorized root has
+  actually been traversed; `completed=T` remains the only terminal authority.
+  The
   smaller 8,192-work durable checkpoint remains the restart contract. A legal
   checkpoint restored at that exact cap can therefore fill every idle peer
   instead of shrinking to one path merely to reserve worst-case branch room;
