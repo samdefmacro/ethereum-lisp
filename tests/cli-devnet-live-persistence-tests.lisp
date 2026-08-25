@@ -69,6 +69,13 @@ diff in an oracle, or as :STATE-HISTORY for the direct trie provider."
                       (ethereum-lisp.cli:devnet-node-genesis-block first-node))))
               (is (database-engine-payload-store-p
                    (ethereum-lisp.cli:devnet-node-store first-node)))
+              ;; The fresh marker must precede the genesis trie export. If it
+              ;; were first attempted when SNAP progress is created, genesis
+              ;; nodes would make this datadir look legacy and force a full
+              ;; conservative state-tree walk after range download.
+              (is
+               (ethereum-lisp.snap-sync:snap-sync-enable-complete-node-scheme-p
+                (ethereum-lisp.cli::devnet-cli-cached-kv-database dir)))
               (ethereum-lisp.cli::devnet-node-export-database first-node)
               (is (ethereum-lisp.cli::devnet-cli-rocksdb-directory-initialized-p
                    dir))

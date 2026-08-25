@@ -458,6 +458,7 @@
    #:snap-sync-heal-progress-remote-works
    #:snap-sync-heal-progress-known-incomplete-nodes
    #:snap-sync-heal-progress-completed-p
+   #:snap-sync-enable-complete-node-scheme-p
    #:snap-sync-read-progress
    #:snap-sync-heal-checkpoint-present-p
    #:snap-sync-delete-progress

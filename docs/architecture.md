@@ -289,8 +289,11 @@ them by their physical location instead reintroduces dependency cycles:
   crash before the delete merely repeats safe traversal. Progress version five
   records whether this contract is active, while versions two through four
   remain conservative. A database-level scheme marker is created only when the
-  trie-node namespace is empty, so an upgraded or rolled-back legacy datadir can
-  never turn old unclassified hash presence into a completeness proof.
+  trie-node namespace is empty. The fresh RocksDB bootstrap establishes it
+  before exporting the genesis trie, so those expected baseline nodes do not
+  accidentally classify a new public datadir as legacy; an upgraded or
+  rolled-back database reaches no such pre-export seam and can never turn old
+  unclassified hash presence into a completeness proof.
   StorageRanges pages apply the complete-proof rule directly
   to their reconstructed storage trie, publishing coarse storage-subtree proofs
   atomically with their node records and successor cursor. Pre-optimization

@@ -508,10 +508,26 @@
                  persistence-state
                  :database
                  (lambda (metadata)
-                   (node-store-export-to-kv
-                    effective-store
-                    (devnet-cli-make-output-kv-database database-path engine)
-                    :persistence-metadata metadata)))
+                   (let ((output-database
+                           (devnet-cli-make-output-kv-database
+                            database-path engine)))
+                     ;; Establish geth-style negative completeness before the
+                     ;; fresh genesis export writes its first trie node. Doing
+                     ;; this later makes a genuinely new public datadir look
+                     ;; indistinguishable from a legacy unclassified store and
+                     ;; forces its first SNAP pivot through a full conservative
+                     ;; state-tree rescan. Existing chain databases never cross
+                     ;; this seam and retain the fail-closed legacy behavior.
+                     (when (and (eq engine :rocksdb)
+                                (not database-chain-p)
+                                (not
+                                 (ethereum-lisp.snap-sync:snap-sync-enable-complete-node-scheme-p
+                                  output-database)))
+                       (error
+                        "Fresh RocksDB database could not enable SNAP complete-node tracking"))
+                     (node-store-export-to-kv
+                      effective-store output-database
+                      :persistence-metadata metadata))))
               (declare (ignore result))
               (unless
                   (nth-value

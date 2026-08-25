@@ -224,6 +224,8 @@ cl-workbench validation run cold-integration \
 cl-workbench validation run cold-unit \
   --match SNAP-COMPLETE-NODE-SCHEME-NEVER-TRUSTS-A-LEGACY-TRIE-STORE
 cl-workbench validation run cold-integration \
+  --match DEVNET-LIVE-PERSISTENCE-ROUND-TRIPS-ON-ROCKSDB
+cl-workbench validation run cold-integration \
   --match SNAP-STATE-HEALER-BATCHES-DEFERRED-STORAGE-ROOTS
 cl-workbench validation run cold-integration \
   --match SNAP-HEALED-SUBTREE-PUBLICATION-FAILS-CLOSED
