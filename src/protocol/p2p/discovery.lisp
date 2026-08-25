@@ -39,6 +39,16 @@ address; NIL for any other length."
     (cond
       ((= 4 (length ip))
        (format nil "~D.~D.~D.~D" (aref ip 0) (aref ip 1) (aref ip 2) (aref ip 3)))
+      ;; An IPv4 UDP socket can be reported by the kernel as an IPv4-mapped
+      ;; IPv6 sender.  Normalize it before the address is passed back through
+      ;; MAKE-INET-ADDRESS for endpoint proofs and replies; the IPv4 parser
+      ;; deliberately does not accept a bracketed IPv6 rendering.
+      ((and (= 16 (length ip))
+            (loop for index below 10 always (zerop (aref ip index)))
+            (= #xff (aref ip 10))
+            (= #xff (aref ip 11)))
+       (format nil "~D.~D.~D.~D"
+               (aref ip 12) (aref ip 13) (aref ip 14) (aref ip 15)))
       ((= 16 (length ip))
        (format nil "[~{~(~X~)~^:~}]"
                (loop for i from 0 below 16 by 2

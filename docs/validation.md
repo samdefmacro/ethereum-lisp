@@ -175,6 +175,7 @@ cl-workbench validation run cold-unit \
   --match DEVNET-DISCOVERY-HAS-A-GENESIS-FORK-FILTER
 cl-workbench validation run cold-unit --match EIP1459
 cl-workbench validation run cold-unit --match DNS-TXT-DECODER
+cl-workbench validation run cold-unit --match DISCV4-
 
 # Persistent CLI identity/discovery behavior, verified snap client/server, durable
 # pivot progress, bounded multi-peer failover, sole-writer request queues, and

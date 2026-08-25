@@ -228,7 +228,9 @@ them by their physical location instead reintroduces dependency cycles:
   socket for both outbound crawls and inbound service, matching geth's unified
   discv4 endpoint. The Ping's claimed UDP port and its observed source port are
   therefore the same stable P2P port, and the socket continues to answer after
-  each bounded crawl completes.
+  each bounded crawl completes. Linux IPv4 sockets may surface a sender as an
+  IPv4-mapped IPv6 address; the receive boundary normalizes that form back to a
+  dotted IPv4 address before endpoint proof and reply parsing.
   Local persistence and trie-merge failures remain fatal and are not converted
   into retries. Account and storage ranges carry compact boundary proofs, trie
   nodes are served by path set, and every page is verified before its dependency

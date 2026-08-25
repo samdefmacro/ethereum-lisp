@@ -1,5 +1,17 @@
 (in-package #:ethereum-lisp.test)
 
+(deftest discv4-ip-string-normalizes-ipv4-mapped-ipv6-senders
+  (:layer :unit :module :p2p)
+  ;; Linux may report an IPv4 datagram sender through the mapped IPv6 form.
+  ;; The discovery responder must feed the IPv4 parser a dotted address rather
+  ;; than the bracketed rendering reserved for a genuine IPv6 endpoint.
+  (is (string= "63.254.177.7"
+               (ethereum-lisp.p2p:discv4-ip-string
+                #(0 0 0 0 0 0 0 0 0 0 255 255 63 254 177 7))))
+  (is (string= "[2001:db8:0:0:0:0:0:1]"
+               (ethereum-lisp.p2p:discv4-ip-string
+                #(32 1 13 184 0 0 0 0 0 0 0 0 0 0 0 1)))))
+
 (deftest discv4-bonded-public-enodes-retains-only-endpoint-proven-routes
   (:layer :unit :module :p2p)
   (let* ((public-id
