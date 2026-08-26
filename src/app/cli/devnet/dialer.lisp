@@ -53,7 +53,8 @@ produce frames that authenticate."
                   ;; Tell the peer where to reach us. Dialing while advertising
                   ;; port 0 says "do not dial me back" even when we are listening.
                   :listen-port (or (devnet-node-p2p-port node) 0)))
-           (request-queue (make-devnet-peer-request-queue))
+           (request-queue
+             (make-devnet-peer-request-queue (devnet-node-snap-qos node)))
            (entry nil))
       ;; ONE acquisition covering the verdict and both mutations: the mutex is
       ;; not recursive, so this cannot be split into two.
@@ -1552,6 +1553,11 @@ must prove the new state root before either record can authorize publication."
                 "storageCap" storage-capacity
                 "storageRttMs" (and storage-rtt (round (* storage-rtt 1000)))
                 "storageSamples" storage-samples
+                "requestTimeoutMs"
+                (round
+                 (* 1000
+                    (devnet-snap-qos-target-timeout
+                     (devnet-node-snap-qos node))))
                 "completed"
                 (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
                  progress))))))

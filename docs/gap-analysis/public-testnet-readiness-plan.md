@@ -334,7 +334,13 @@ The implementation boundary is split deliberately:
   use the released peer. A pruned or malformed
   response still retries elsewhere without discarding the verified account page
   or blaming its range peer. The CLI advertises snap only when both sides
-  are operational and serves production state through the direct RocksDB
+  are operational. SNAP request deadlines are no longer a fixed thirty seconds:
+  live sessions contribute one cross-message RTT EWMA, the pool uses geth's
+  `floor(sqrt(peer-count))` ordered sample with a two--twenty-second RTT clamp,
+  and each request receives three target RTTs up to a sixty-second ceiling. A
+  cold pool keeps the prior thirty-second allowance, and closed peer samples are
+  removed before replacement scheduling. The CLI serves production state
+  through the direct RocksDB
   provider. A stale pivot remains
   pinned while a wide source pool or a collapsed pool with bounded aggregate
   throughput is still useful. Once a formerly wide public pool has collapsed

@@ -89,6 +89,18 @@ most one follow-up pass, so peer traffic cannot allocate unbounded wakeup work."
            #-sbcl nil)
   pending-p)
 
+(defstruct (devnet-snap-qos
+            (:constructor make-devnet-snap-qos ()))
+  "Node-wide SNAP round-trip samples used for geth-style request deadlines.
+
+Each live peer request queue contributes one EWMA.  Keeping this at node scope
+lets a newly connected peer inherit the established pool's service-time target
+instead of receiving a fixed, per-connection thirty-second stall allowance."
+  (lock #+sbcl
+        (sb-thread:make-mutex :name "ethereum-lisp-snap-qos")
+        #-sbcl nil)
+  (round-trips (make-hash-table :test #'eq)))
+
 (defstruct (devnet-node
             (:constructor %make-devnet-node
                 (&key genesis-path store config genesis-block service
@@ -187,6 +199,7 @@ most one follow-up pass, so peer traffic cannot allocate unbounded wakeup work."
   p2p-port
   nat-policy
   peer-table
+  (snap-qos (make-devnet-snap-qos))
   ;; Who discovery knows about, bucketed by distance. Guarded by the same mutex
   ;; as the peer table and the dial registry.
   discovery-table

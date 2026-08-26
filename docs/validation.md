@@ -523,6 +523,26 @@ datadir. The deeper handoff was therefore removed: proof validation still
 releases the actual pooled peer before local materialization, but each fixed
 lane integrates its authenticated page before claiming another, matching
 geth's delivery-then-next-assignment runloop cadence. A separate
+corrective run of the resulting `a982521d` revision on the same advancing
+datadir completed 95 pages, 532,139 accounts, 47,741 storage accounts, and 656
+StorageRanges samples in 753 seconds. It received 883 MB, versus 1.11 GB in the
+preceding `1d49fa75` control, but account count fell by more than fourfold because
+the cursor had entered a denser contract/code region and the run rebased again.
+The cross-cursor account/page rates are therefore retained as historical
+diagnostics, not a causal speed verdict; future same-host comparisons must use
+wire bytes, dependency latency, peer failures, and a reproducible snapshot or
+fresh empty datadir. The corrective profile exposed the next actionable gap:
+40 of 95 pages spent at least 60 seconds in storage dependencies, 25 spent at
+least 120 seconds, and logs repeatedly consumed the fixed 30-second request
+deadline before failover.
+
+The request-timeout control now supplies sixteen synthetic live RTTs and requires
+the production queue call site to use geth's zero-based `floor(sqrt(N))` sample,
+two--twenty-second RTT clamps, threefold scaling, and sixty-second ceiling. It
+also closes the five fastest queues and proves their samples no longer influence
+the target; a cold pool remains at thirty seconds. This prevents a static
+deadline from multiplying across StorageRanges and ByteCodes retries while
+retaining a bounded allowance for an unmeasured pool. A separate
 failover control
 retires one lane after a transport error and requires another lane to finish
 the exact released partition. A post-verification buffered database failure is

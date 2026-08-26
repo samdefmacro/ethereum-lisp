@@ -173,6 +173,17 @@ them by their physical location instead reintroduces dependency cycles:
   ByteCodes, and 1--1,024 returned nodes for TrieNodes. This prevents a slow
   peer from holding a fixed maximum response until the session's wall-clock
   deadline while allowing fast peers to refill the full page in bounded steps.
+  Request deadlines use the same pool-wide RTT shape as geth instead of a fixed
+  thirty seconds. Each live session contributes one cross-message EWMA; the
+  node orders those samples, selects zero-based index `floor(sqrt(peer-count))`,
+  clamps the service-time target to two--twenty seconds, and permits three
+  target RTTs up to a sixty-second ceiling. A cold pool retains the conservative
+  thirty-second allowance. Removing a closed session removes its sample, while
+  a newly connected session immediately inherits the established pool target.
+  This prevents repeated slow or dead dependency transports from consuming a
+  full fixed timeout at every retry.
+  The page-progress event exposes this current pool deadline as
+  `requestTimeoutMs`, keeping failover behavior measurable on a public gate.
   Fetch workers construct and atomically append verified content batches in
   parallel. One coordinator folds up to sixteen ready successor cursors into
   one synchronous publication batch, so a visible cursor still flushes the

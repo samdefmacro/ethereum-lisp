@@ -4081,6 +4081,64 @@ loop cannot block on a message that never comes."
   #-sbcl
   (is t))
 
+(deftest devnet-snap-request-timeout-follows-live-pool-rtt
+  (:layer :unit :module :p2p)
+  #+sbcl
+  (let* ((qos (ethereum-lisp.cli::make-devnet-snap-qos))
+         (queues
+           (loop repeat 16
+                 collect
+                 (ethereum-lisp.cli::make-devnet-peer-request-queue qos))))
+    (is (= 30d0
+           (ethereum-lisp.cli::devnet-snap-qos-target-timeout qos)))
+    ;; Geth selects index sqrt(N) from ascending live RTTs.  For sixteen peers
+    ;; that is the fifth value (zero-based index four), here 3.0 seconds.
+    (loop for queue in queues
+          for rtt from 1d0 by 0.5d0
+          do (ethereum-lisp.cli::devnet-snap-qos-record-round-trip
+              qos queue rtt))
+    (is (= 9d0
+           (ethereum-lisp.cli::devnet-snap-qos-target-timeout qos)))
+    (let* ((probe
+             (ethereum-lisp.cli::make-devnet-peer-request-queue qos))
+           (job
+             (ethereum-lisp.cli::make-devnet-peer-request-job
+              (lambda () nil)
+              :snap-response-id
+              ethereum-lisp.snap:+snap-message-account-range+
+              :snap-request-id 909)))
+      (setf (ethereum-lisp.cli::devnet-peer-request-queue-pending probe)
+            (list job))
+      (is (eq job
+              (ethereum-lisp.cli::devnet-peer-request-queue-take-eligible
+               probe)))
+      (is (= 9d0
+             (ethereum-lisp.cli::devnet-peer-request-job-timeout-seconds
+              job)))
+      (is (= 9d0
+             (- (ethereum-lisp.cli::devnet-peer-request-job-deadline job)
+                (ethereum-lisp.cli::devnet-peer-request-job-started-at job))))
+      (ethereum-lisp.cli::devnet-peer-request-queue-close probe))
+    ;; Closing faster queues removes their stale influence. Eleven peers remain;
+    ;; zero-based index three is 5.0 seconds, yielding a 15-second deadline.
+    (dolist (queue (subseq queues 0 5))
+      (ethereum-lisp.cli::devnet-peer-request-queue-close queue))
+    (is (= 15d0
+           (ethereum-lisp.cli::devnet-snap-qos-target-timeout qos)))
+    ;; The exact geth clamps remain fail-safe at both ends.
+    (let ((low (first (last queues)))
+          (high (second (last queues 2))))
+      (clrhash (ethereum-lisp.cli::devnet-snap-qos-round-trips qos))
+      (ethereum-lisp.cli::devnet-snap-qos-record-round-trip qos low 0.1d0)
+      (is (= 6d0
+             (ethereum-lisp.cli::devnet-snap-qos-target-timeout qos)))
+      (clrhash (ethereum-lisp.cli::devnet-snap-qos-round-trips qos))
+      (ethereum-lisp.cli::devnet-snap-qos-record-round-trip qos high 90d0)
+      (is (= 60d0
+             (ethereum-lisp.cli::devnet-snap-qos-target-timeout qos)))))
+  #-sbcl
+  (is t))
+
 (deftest devnet-snap-source-applies-learned-range-byte-caps
   (:layer :unit :module :p2p)
   #+sbcl

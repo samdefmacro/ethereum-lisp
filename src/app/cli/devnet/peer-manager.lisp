@@ -54,6 +54,81 @@ capacity near one on ordinary one-to-two-second public peers.")
 (defconstant +devnet-snap-rate-measurement-impact+ 0.2d0
   "EWMA weight of one SNAP response throughput and latency measurement.")
 
+(defconstant +devnet-snap-qos-measurement-impact+ 0.1d0
+  "Geth's EWMA weight for one peer's shared SNAP round-trip estimate.")
+
+(defconstant +devnet-snap-qos-min-rtt-seconds+ 2d0
+  "Geth's minimum useful SNAP service-time target.")
+
+(defconstant +devnet-snap-qos-max-rtt-seconds+ 20d0
+  "Geth's maximum SNAP service-time estimate before timeout scaling.")
+
+(defconstant +devnet-snap-qos-timeout-scale+ 3d0
+  "Geth's RTT-to-request-timeout multiplier.")
+
+(defconstant +devnet-snap-qos-timeout-limit-seconds+ 60d0
+  "Geth's maximum timeout for one SNAP request.")
+
+(defconstant +devnet-snap-qos-cold-timeout-seconds+ 30d0
+  "Safe startup timeout until the first live peer supplies an RTT sample.")
+
+#+sbcl
+(defun devnet-snap-qos-record-round-trip (qos queue elapsed)
+  "Publish QUEUE's shared SNAP RTT EWMA into node-wide QOS."
+  (unless (and (realp elapsed) (plusp elapsed))
+    (error "Invalid SNAP QoS round-trip measurement"))
+  (when qos
+    (sb-thread:with-mutex ((devnet-snap-qos-lock qos))
+      (let* ((samples (devnet-snap-qos-round-trips qos))
+             (old (gethash queue samples))
+             (impact +devnet-snap-qos-measurement-impact+))
+        (setf (gethash queue samples)
+              (if old
+                  (+ (* (- 1d0 impact) old)
+                     (* impact (float elapsed 1d0)))
+                  (float elapsed 1d0))))))
+  elapsed)
+
+#+sbcl
+(defun devnet-snap-qos-forget-queue (qos queue)
+  "Remove a closed peer QUEUE from node-wide SNAP QoS."
+  (when qos
+    (sb-thread:with-mutex ((devnet-snap-qos-lock qos))
+      (remhash queue (devnet-snap-qos-round-trips qos))))
+  t)
+
+#+sbcl
+(defun devnet-snap-qos-target-timeout (qos)
+  "Return Geth's three-RTT request deadline from the live peer pool.
+
+Geth orders live peer RTTs and selects index sqrt(peer-count), which deliberately
+leans toward the faster healthy part of a wide pool.  The estimate is clamped to
+two--twenty seconds and scaled threefold, with a sixty-second ceiling.  Until a
+pool has a sample, retain the existing conservative thirty-second allowance."
+  (if (null qos)
+      +devnet-snap-qos-cold-timeout-seconds+
+      (sb-thread:with-mutex ((devnet-snap-qos-lock qos))
+        (let ((round-trips '()))
+          (maphash
+           (lambda (queue round-trip)
+             (declare (ignore queue))
+             (push round-trip round-trips))
+           (devnet-snap-qos-round-trips qos))
+          (if (null round-trips)
+              +devnet-snap-qos-cold-timeout-seconds+
+              (let* ((ordered (sort round-trips #'<))
+                     (count (length ordered))
+                     (selected
+                       (if (= count 1)
+                           (first ordered)
+                           (nth (floor (sqrt count)) ordered)))
+                     (target-rtt
+                       (max +devnet-snap-qos-min-rtt-seconds+
+                            (min +devnet-snap-qos-max-rtt-seconds+
+                                 selected))))
+                (min +devnet-snap-qos-timeout-limit-seconds+
+                     (* +devnet-snap-qos-timeout-scale+ target-rtt))))))))
+
 #+sbcl
 (defstruct (devnet-peer-snap-rate
             (:constructor make-devnet-peer-snap-rate (capacity)))
@@ -73,6 +148,7 @@ capacity near one on ordinary one-to-two-second public peers.")
   snap-response-id
   snap-request-id
   started-at
+  timeout-seconds
   deadline
   (lock (sb-thread:make-mutex :name "ethereum-lisp-peer-request-job"))
   (changed (sb-thread:make-waitqueue :name "ethereum-lisp-peer-request-job"))
@@ -82,11 +158,12 @@ capacity near one on ordinary one-to-two-second public peers.")
 
 #+sbcl
 (defstruct (devnet-peer-request-queue
-            (:constructor make-devnet-peer-request-queue ()))
+            (:constructor make-devnet-peer-request-queue (&optional snap-qos)))
   (lock (sb-thread:make-mutex :name "ethereum-lisp-peer-request-queue"))
   (pending '())
   (active '())
   (snap-rates (make-hash-table))
+  snap-qos
   closed-p)
 
 #+sbcl
@@ -188,6 +265,8 @@ from causing an unstable jump."
             (devnet-peer-snap-rate-round-trip rate) round-trip
             (devnet-peer-snap-rate-capacity rate) capacity)
       (incf (devnet-peer-snap-rate-samples rate))
+      (devnet-snap-qos-record-round-trip
+       (devnet-peer-request-queue-snap-qos queue) queue elapsed)
       capacity)))
 
 #+sbcl
@@ -217,6 +296,8 @@ from causing an unstable jump."
        (make-condition 'simple-error
                        :format-control "peer session closed"
                        :format-arguments nil))))
+  (devnet-snap-qos-forget-queue
+   (devnet-peer-request-queue-snap-qos queue) queue)
   t)
 
 #+sbcl
@@ -325,8 +406,9 @@ routed back to their waiting worker by message type plus request id."
                (devnet-peer-request-queue-active queue))))
         (when expired
           (error
-           "snap/1 request ~D exceeded the 30 second wall-clock deadline"
-           (devnet-peer-request-job-snap-request-id expired))))
+           "snap/1 request ~D exceeded the ~,2F second wall-clock deadline"
+           (devnet-peer-request-job-snap-request-id expired)
+           (devnet-peer-request-job-timeout-seconds expired))))
       (let ((job
               (find-if
                (lambda (candidate)
@@ -348,8 +430,12 @@ routed back to their waiting worker by message type plus request id."
                 (delete job (devnet-peer-request-queue-pending queue)
                         :test #'eq :count 1))
           (when (devnet-peer-request-job-snap-response-id job)
-            (setf (devnet-peer-request-job-started-at job) now
-                  (devnet-peer-request-job-deadline job) (+ now 30d0))
+            (let ((timeout
+                    (devnet-snap-qos-target-timeout
+                     (devnet-peer-request-queue-snap-qos queue))))
+              (setf (devnet-peer-request-job-started-at job) now
+                    (devnet-peer-request-job-timeout-seconds job) timeout
+                    (devnet-peer-request-job-deadline job) (+ now timeout)))
             (push job (devnet-peer-request-queue-active queue)))
           job)))))
 
@@ -562,7 +648,9 @@ on the session thread rather than on the accept loop."
                           :snap-backend (devnet-peer-snap-backend node)
                           :listen-port (or (devnet-node-p2p-port node) 0)))
                    (id-hex (node-id-to-hex (eth-peer-remote-public-key peer)))
-                   (request-queue (make-devnet-peer-request-queue))
+                   (request-queue
+                     (make-devnet-peer-request-queue
+                      (devnet-node-snap-qos node)))
                    (entry nil)
                    (verdict
                      (call-with-devnet-peer-table
