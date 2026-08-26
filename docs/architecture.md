@@ -319,12 +319,13 @@ them by their physical location instead reintroduces dependency cycles:
   storage-root proof only after a full post-order walk or the versioned
   complete-node negative-marker scheme proves closure. A later moving pivot can
   then apply geth's exact hash-presence shortcut before reading any descendant.
-  Pre-optimization
-  range plans are upgraded lazily with depth-bounded walks over only the account
-  and completed storage tries' shallow spines. Legacy account buckets containing
-  an incomplete large-storage cursor set remain excluded while every other
-  bucket is immediately reusable; completed storage plans receive finer
-  reusable proofs while fully healed roots receive the whole-root proof. New
+  Pre-optimization range plans are upgraded lazily only at closure boundaries
+  they actually prove. Legacy account buckets containing a large-storage cursor
+  set without a whole-root closure remain excluded while every other account
+  bucket is immediately reusable. The short-lived cursor-derived root-shaped
+  storage proof is retired rather than converted by an unproved shallow walk;
+  safe per-page storage proofs remain reusable and fully healed roots receive
+  the whole-root proof. New
   proofs use a layered four/five-nibble index. The four-nibble records match the
   healer's first lookup boundary, so a fully unchanged bucket costs one
   metadata decision. The bounded five-nibble child layer lets a later pivot
@@ -337,7 +338,14 @@ them by their physical location instead reintroduces dependency cycles:
   them, so a crash can only repeat safe work.
   The authenticated prefix of byte-capped
   large storage is persisted immediately and its root is recorded beside that page
-  in a state-root-scoped durable work set. Independently reconstructing every
+  in a state-root-scoped durable work set. As soon as a page discovers such a
+  root, one of the fixed global dependency workers creates or resumes its
+  sixteen geth-aligned StorageRanges partitions. The owning account cursor is
+  withheld until every partition cursor and safe range-derived subtree proof is
+  durable, matching go-ethereum v1.17.4
+  `eth/protocols/snap/sync.go`'s `accountTask.pend` and
+  `processStorageResponse` boundary while leaving the AccountRange dispatcher
+  free to fetch another logical task. Independently reconstructing every
   page against the same authorized root maintains a root-valued range-set witness;
   when the final cursor commits, that witness permits the batch to publish a
   versioned plan marker proving the work set is complete. A state-root rebase
@@ -345,14 +353,13 @@ them by their physical location instead reintroduces dependency cycles:
   a mixed-root range set from publishing the plan. Final healing then starts
   directly from those storage roots instead of rereading the already verified
   account trie. An old or rebased partial import has no marker and safely
-  retains the full-root traversal. Before final healing, every planned large
-  storage root is split into sixteen inclusive hash ranges matching current
-  geth. Each live source continuously fetches one 512 KiB-capped page at a
-  time and immediately claims another unfinished partition without a global
-  wave barrier; the coordinator atomically commits its content-addressed nodes
-  and versioned per-range successor cursor. A restart resumes those exact
-  cursors. Source exhaustion merely falls back to TrieNodes healing with all
-  verified range pages retained. Completed ranges deliberately remain on the
+  retains the full-root traversal. Each dependency worker continuously fetches
+  one 512 KiB-capped page at a time through the independent live StorageRanges
+  pool; the coordinator atomically commits its content-addressed nodes and
+  versioned per-range successor cursor. A restart resumes those exact cursors.
+  Source exhaustion leaves the account cursor unchanged and retries the same
+  durable storage work with a later source generation. Completed ranges
+  deliberately remain on the
   deferred frontier so final healing can verify or skip their storage roots
   through the durable subtree proofs
   before it can publish completion. Work sets above the 8,192-item checkpoint

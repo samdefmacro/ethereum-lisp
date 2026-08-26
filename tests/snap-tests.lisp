@@ -1149,23 +1149,25 @@
       (is (not (nth-value 1 (gethash storage-complete markers))))
       (is (nth-value 1 (gethash storage-open markers))))))
 
-(deftest snap-state-import-defers-byte-capped-storage-to-resumable-healing
+(deftest snap-state-import-finishes-byte-capped-storage-before-account-cursor
   (:layer :integration :module :p2p)
-  ;; A large storage trie can outlive a public peer's retained pivot while the
-  ;; account page is otherwise valid.  Do not restart that entire account page
-  ;; from its durable cursor: persist the authenticated prefix, finish the trie
-  ;; through restart-safe partitioned StorageRanges after the account ranges
-  ;; are durable, then let content-addressed healing validate it locally.
+  ;; Match geth's account-task pending boundary: persist the authenticated
+  ;; prefix, finish the trie through restart-safe partitioned StorageRanges,
+  ;; and publish its range-derived subtree proofs before the account cursor
+  ;; advances. The final bounded closure walk remains fail closed.
   (let* ((source-state (make-state-db))
          (source-database (make-memory-key-value-database))
          (target-database (make-memory-key-value-database))
          (address
            (address-from-hex
             "0x0000000000000000000000000000000000000043"))
+         (account-hash
+           (ethereum-lisp.crypto:keccak-256 (address-bytes address)))
          (storage-calls 0)
          (trie-node-requests 0)
          (heal-progress-events '())
          (saw-byte-capped-storage-p nil)
+         (storage-ready-before-account-cursor-p nil)
          (saw-account-heal-path-p nil))
     (loop for byte from 1 to 96
           do (state-db-set-storage
@@ -1215,8 +1217,8 @@
            (progress
              (let ((ethereum-lisp.snap-sync::*snap-sync-heal-progress-node-interval*
                      1))
-               (ethereum-lisp.snap-sync:snap-sync-import-state
-                target-database source
+               (ethereum-lisp.snap-sync:snap-sync-import-state-multi
+                target-database (list source)
                 :pivot-hash (make-hash32 (snap-test-hash 124))
                 :pivot-number 42 :state-root root
                 :target-hash (make-hash32 (snap-test-hash 125))
@@ -1224,46 +1226,42 @@
                 :genesis-hash (make-hash32 (snap-test-hash 126))
                 :authority-id (make-hash32 (snap-test-hash 127))
                 :byte-limit 350
+                :on-progress
+                (lambda (range-progress progress-source task-index)
+                  (declare (ignore range-progress progress-source task-index))
+                  (setf storage-ready-before-account-cursor-p
+                        (ethereum-lisp.snap-sync::snap-sync-storage-range-tasks-completed-p
+                         target-database root account-hash storage-root)))
                 :on-heal-progress
                 (lambda (heal-progress)
                   (push heal-progress heal-progress-events))))))
       (is saw-byte-capped-storage-p)
       (is (> storage-calls 1))
+      (is storage-ready-before-account-cursor-p)
       ;; Sixteen restart-safe StorageRanges partitions retain all authenticated
-      ;; nodes. Their completed cursors join the same-root account/code proofs
-      ;; as the trust boundary, without downloading or traversing TrieNodes.
-      (is (zerop trie-node-requests))
+      ;; nodes before the cursor. The final closure walk should need only a
+      ;; small boundary repair, never the account trie or a full storage scan.
+      (is (< trie-node-requests 16))
       ;; The final account-page batch published a complete dependency plan.
       ;; Healing starts directly at the deferred storage root; a one-item path
       ;; set would prove that production fell back to the account trie root.
       (is (not saw-account-heal-path-p))
       (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p progress))
-      (is (= 1 (length heal-progress-events)))
+      (is (plusp (length heal-progress-events)))
       (let ((final (first heal-progress-events)))
         (is (ethereum-lisp.snap-sync:snap-sync-heal-progress-completed-p final))
         (dolist (value
                  (list
-                  (ethereum-lisp.snap-sync:snap-sync-heal-progress-request-count
-                   final)
-                  (ethereum-lisp.snap-sync:snap-sync-heal-progress-fetched-nodes
-                   final)
-                  (ethereum-lisp.snap-sync:snap-sync-heal-progress-response-bytes
-                   final)
-                  (ethereum-lisp.snap-sync:snap-sync-heal-progress-promoted-subtrees
-                   final)
                   (ethereum-lisp.snap-sync:snap-sync-heal-progress-frontier-works
                    final)
                   (ethereum-lisp.snap-sync:snap-sync-heal-progress-deferred-storage-works
                    final)
                   (ethereum-lisp.snap-sync:snap-sync-heal-progress-remote-works
-                   final)
-                  (ethereum-lisp.snap-sync:snap-sync-heal-progress-known-incomplete-nodes
                    final)))
           (is (zerop value))))
       (is
-       (not
-        (ethereum-lisp.snap-sync::snap-sync-healed-subtree-present-p
-         target-database (hash32-bytes storage-root) :storage-root)))
+       (ethereum-lisp.snap-sync::snap-sync-healed-subtree-present-p
+        target-database (hash32-bytes storage-root) :storage-root))
       (multiple-value-bind (node present-p)
           (ethereum-lisp.trie:trie-node-store-get
            target-database storage-root)
@@ -1325,6 +1323,10 @@
               (ethereum-lisp.snap-sync::snap-sync-account-task-start first-task)
               (ethereum-lisp.snap-sync::snap-sync-account-task-next-origin
                first-task)))))
+      (is
+       (not
+        (ethereum-lisp.snap-sync::snap-sync-healed-subtree-present-p
+         target-database (hash32-bytes storage-root) :storage-root)))
       ;; A fresh source resumes the exact durable cursor instead of replaying
       ;; the already authenticated prefix.
       (is (ethereum-lisp.snap-sync::snap-sync-fill-storage-root
@@ -1334,8 +1336,6 @@
            #'ethereum-lisp.snap-sync::snap-sync-account-task-completed-p
            (ethereum-lisp.snap-sync::snap-sync-load-or-create-storage-tasks
             target-database root account-hash storage-root)))
-      ;; Completed partition cursors prove range coverage, not descendant
-      ;; closure. Only the final healer may publish the root trust namespace.
       (is
        (not
         (ethereum-lisp.snap-sync::snap-sync-healed-subtree-present-p
@@ -1402,7 +1402,7 @@
           (ethereum-lisp.snap-sync::snap-sync-storage-page-result-healed-subtrees
            result)))))))
 
-(deftest snap-legacy-storage-plan-promotes-without-descendant-scan
+(deftest snap-legacy-storage-cursors-never-promote-root-closure
   (:layer :unit :module :p2p)
   (let* ((state (make-state-db))
          (database (make-memory-key-value-database))
@@ -1459,12 +1459,13 @@
                  1)))
           (is (plusp (length references)))
           (is
-           (plusp
+           (zerop
             (ethereum-lisp.snap-sync::snap-sync-promote-complete-range-plan
              database state-root)))
           (is
-           (ethereum-lisp.snap-sync::snap-sync-storage-plan-promoted-p
-            database storage-root))
+           (not
+            (ethereum-lisp.snap-sync::snap-sync-storage-plan-promoted-p
+             database storage-root)))
           (is
            (not
             (ethereum-lisp.snap-sync::snap-sync-healed-subtree-present-p
@@ -1474,7 +1475,7 @@
             (ethereum-lisp.snap-sync::snap-sync-healed-subtree-present-p
              database (hash32-bytes storage-root) :storage-root)))
           (is
-           (every
+           (notany
             (lambda (reference)
               (ethereum-lisp.snap-sync::snap-sync-healed-subtree-present-p
                database reference :storage))

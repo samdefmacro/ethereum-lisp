@@ -212,6 +212,10 @@ cl-workbench validation run cold-unit \
   --match SNAP-ACCOUNT-CURSORS-SHARE-ONE-DURABLE-PUBLICATION-BATCH
 cl-workbench validation run cold-unit \
   --match SNAP-RANGE-PROOFS-CLEAR-STALE-INCOMPLETE-MARKERS
+cl-workbench validation run cold-integration \
+  --match SNAP-STATE-IMPORT-FINISHES-BYTE-CAPPED-STORAGE-BEFORE-ACCOUNT-CURSOR
+cl-workbench validation run cold-unit \
+  --match SNAP-LEGACY-STORAGE-CURSORS-NEVER-PROMOTE-ROOT-CLOSURE
 cl-workbench validation run cold-unit \
   --match SNAP-STATE-HEALER-FEEDBACK-BOUNDS-THE-GLOBAL-MISSING-QUEUE
 cl-workbench validation run cold-integration \
@@ -294,12 +298,13 @@ partition does not publish a whole-root proof: durable cursors establish range
 coverage, while the final healer remains the descendant-closure trust boundary.
 After a full post-order walk, or an equivalent versioned complete-node proof,
 the healer publishes a separately namespaced storage-root record. Account roots
-retain the coarse-depth dependency boundary. The integration
-regressions observe both kinds before final TrieNodes traversal, then promote
-legacy account and completed-storage plans through shallow trie walks. A new
-storage-promotion version retires the short-lived cursor-derived root-shaped
-proof before republishing only safe shallow descendants; fully healed roots use
-the new root namespace and remain reusable across changed pivots. An
+retain the coarse-depth dependency boundary. The integration regressions
+observe both kinds before final TrieNodes traversal. Legacy account plans
+promote only buckets whose dependencies are actually closed. A legacy cursor
+set without a whole-root proof remains conservative; the storage-promotion
+control retires the short-lived cursor-derived root-shaped proof and refuses to
+manufacture shallow completion records from cursors alone. Fully healed roots
+use the separate root namespace and remain reusable across changed pivots. An
 incomplete legacy large-storage plan excludes only its account prefix bucket,
 rather than forcing a full account-tree rescan, and cannot publish the final
 promotion marker until its cursors finish. New range pages instead persist a
@@ -318,10 +323,13 @@ same root as the ordinary checked insertion and rejects empty values,
 persist the authenticated prefix of byte-capped large storage, record those
 roots with each durable page, and atomically publish the complete plan only
 when the rebuilt account root equals the authorized state root. Sixteen
-restart-safe StorageRanges cursors then finish each large trie through
-512 KiB-capped pages. The byte-capped-storage regression proves that an
-un-rebased import atomically publishes the state from its complete account,
-code, and storage range proofs with zero TrieNodes requests; a
+restart-safe StorageRanges cursors immediately finish each large trie through
+512 KiB-capped pages before the owning account cursor advances. The
+byte-capped-storage regression observes that production call site, then proves
+the final closure walk never returns to the account root and repairs compact
+storage-proof boundaries in fewer than sixteen TrieNodes requests. Removing the
+pre-cursor storage callback is the mutation control and fails its durable-task
+witness. A
 second regression interrupts StorageRanges after one page and proves a fresh
 source resumes the exact durable cursor. A concurrency regression blocks one
 source and proves a faster source receives its next partition without waiting
