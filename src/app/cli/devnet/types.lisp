@@ -234,6 +234,11 @@ the established pool instead of relearning it from the cold minimum."
   ;; replace their pivot before a live source gets one real attempt.  The chance
   ;; is consumed only when that attempt starts, so waiting for peers is free.
   (snap-session-resume-p t)
+  ;; A durable state session stays pinned even after the CL head crosses the
+  ;; ordinary pivot-age window. Only the healer's bounded liveness policy may
+  ;; authorize replacing productive work. This latch is cleared after the
+  ;; requested atomic session rebase commits.
+  (snap-session-rebase-p nil)
   ;; SNAP peers which explicitly rejected the active pivot's state are an
   ;; availability fact for that pivot, not a score penalty. Keep their stable
   ;; node ids process-locally across finite coordinator passes so the same live

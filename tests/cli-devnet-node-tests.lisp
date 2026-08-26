@@ -2260,7 +2260,8 @@ really reopens the directory instead of observing the first handle's memory."
      (lambda ()
        (is (eq :stale-target
                (ethereum-lisp.cli::devnet-node-snap-sync-target node target)))))
-    (is (= 1 attempts))))
+    (is (= 1 attempts))
+    (is (ethereum-lisp.cli::devnet-node-snap-session-rebase-p node))))
 
 (deftest devnet-snap-restart-pin-waits-for-a-peer-and-is-consumed-on-attempt
   (:layer :unit :module :p2p)
@@ -2498,15 +2499,22 @@ really reopens the directory instead of observing the first handle's memory."
                    (setf
                     (ethereum-lisp.cli::devnet-node-snap-session-resume-p node)
                     nil)
-                   ;; Match geth's stale-pivot rule: committed progress is
-                   ;; protected across ordinary slots, but a known CL target
-                   ;; more than 2*64-8 blocks ahead of the old pivot may move
-                   ;; it instead of waiting forever for a pruned root.
+                   ;; Crossing the ordinary pivot-age window is not itself a
+                   ;; reason to discard productive durable state work.
                    (ethereum-lisp.cli::call-with-devnet-node-store-guard
                     node
                     (lambda ()
                       (ethereum-lisp.chain-store:engine-payload-store-put-remote-block
                        store stale-newer-target)))
+                   (is (hash32=
+                        target-hash
+                        (ethereum-lisp.cli::devnet-node-active-snap-target
+                         node stale-newer-target-hash)))
+                   ;; Only the healer's bounded liveness decision authorizes
+                   ;; the next pass to adopt the newer CL target.
+                   (setf
+                    (ethereum-lisp.cli::devnet-node-snap-session-rebase-p node)
+                    t)
                    (is (hash32=
                         stale-newer-target-hash
                         (ethereum-lisp.cli::devnet-node-active-snap-target
@@ -2645,12 +2653,21 @@ really reopens the directory instead of observing the first handle's memory."
                         (block-header-hash old-target)
                         (ethereum-lisp.cli::devnet-node-active-snap-target
                          node (block-header-hash new-target))))
-                   ;; Once a real post-restart source generation has been
-                   ;; attempted, the original stale-pivot escape is restored.
+                   ;; Consuming the restart attempt does not itself authorize
+                   ;; a rebase: a productive healer may run for many slots.
                    (setf
                     (ethereum-lisp.cli::devnet-node-snap-session-resume-p
                      node)
                     nil)
+                   (is (hash32=
+                        (block-header-hash old-target)
+                        (ethereum-lisp.cli::devnet-node-active-snap-target
+                         node (block-header-hash new-target))))
+                   ;; The healer's explicit stale-target decision releases the
+                   ;; durable session for one atomic rebase.
+                   (setf
+                    (ethereum-lisp.cli::devnet-node-snap-session-rebase-p node)
+                    t)
                    (is (hash32=
                         (block-header-hash new-target)
                         (ethereum-lisp.cli::devnet-node-active-snap-target
@@ -2660,6 +2677,9 @@ really reopens the directory instead of observing the first handle's memory."
                     (lambda ()
                       (ethereum-lisp.cli::devnet-node-rebase-stale-snap-progress
                        node database new-target new-pivot)))
+                   (is (not
+                        (ethereum-lisp.cli::devnet-node-snap-session-rebase-p
+                         node)))
                    (multiple-value-bind (restored present-p)
                        (ethereum-lisp.node-store.persistence:node-store-read-snap-skeleton-progress
                         database)

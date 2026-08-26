@@ -305,14 +305,14 @@ live peers have already pruned; pinning it forever would prevent public sync
 from following newer Engine targets.  Once account-range work has committed,
 the matching skeleton and state progress remain pinned until the target is
 executable, so normal slot-by-slot FCU updates cannot discard expensive state
-work.  If a known newer CL target advances beyond the stale-pivot window, it
-may supersede a session that has no resumable healer frontier, just as geth
-moves an uncommitted stale pivot.  A bounded, identity-matched heal checkpoint
-pins the old target for the first actual Snap attempt after restart; discarding
-it immediately would turn a deploy into a full root rescan, while retaining it
-after that finite source generation fails would prevent the stale-pivot escape.
-The skeleton, state progress, and optional checkpoint are one recovery session
-and must agree."
+work. A newer CL target supersedes durable state work only after the healer's
+bounded liveness policy explicitly requests a rebase. Pivot age alone is
+insufficient: a productive traversal can legitimately outlive the 120-block
+serving window, and silently rebasing it would restart the dynamically
+discovered frontier forever. A bounded, identity-matched heal checkpoint pins
+the old target for the first actual Snap attempt after restart. The skeleton,
+state progress, and optional checkpoint are one recovery session and must
+agree."
   (let ((store (devnet-node-store node)))
     (if (not (database-engine-payload-store-p store))
         latest-target
@@ -358,25 +358,10 @@ and must agree."
                            (target
                              (node-store-snap-skeleton-progress-target-hash
                               skeleton))
-                           (latest-block
-                             (and latest-target
-                                  (or (chain-store-known-block
-                                       store latest-target)
-                                      (engine-payload-store-remote-block
-                                       store latest-target))))
-                           (latest-number
-                             (and latest-block
-                                  (block-header-number
-                                   (block-header latest-block))))
-                           (stale-p
+                           (rebase-p
                              (and (not restart-pin-p)
-                                  latest-number
-                                  (> latest-number
-                                     (+
-                                      (node-store-snap-skeleton-progress-pivot-number
-                                       skeleton)
-                                      +devnet-snap-stale-pivot-distance+)))))
-                      (if (or stale-p
+                                  (devnet-node-snap-session-rebase-p node))))
+                      (if (or rebase-p
                               (chain-store-state-available-p store target))
                           latest-target
                           target))))))))))))
@@ -1267,6 +1252,7 @@ must prove the new state root before either record can authorize publication."
             ((or (and (not skeleton-present-p) (not state-present-p))
                  (and skeleton-present-p skeleton-matches-p
                       (or (not state-present-p) state-matches-p)))
+             (setf (devnet-node-snap-session-rebase-p node) nil)
              (values skeleton skeleton-present-p))
             (t
              (let* ((replacement
@@ -1298,6 +1284,10 @@ must prove the new state root before either record can authorize publication."
                (node-store-populate-snap-skeleton-rebase-batch
                 database batch replacement)
                (kv-apply-batch database batch)
+               ;; Persistence succeeded, so consume the one explicit
+               ;; scheduling authorization. A failure above keeps it latched
+               ;; for a retry of the same CL-authorized transition.
+               (setf (devnet-node-snap-session-rebase-p node) nil)
                (devnet-peer-manager-log
                 node "peer.snap.pivot_rebased"
                 "fromPivot" old-pivot "pivot" pivot-number
@@ -1890,9 +1880,9 @@ must prove the new state root before either record can authorize publication."
 
 The conventional 64-block pivot remains pinned while replacement peers arrive.
 Peers that explicitly rejected that pivot are skipped on later coordinator
-passes. Ordinary target staleness may still move the pivot at geth's bounded
-window; finite source exhaustion alone must not churn roots and discard useful
-in-flight capacity every second."
+passes. Pivot age only makes a newer CL-authorized target eligible; the
+healer's bounded liveness policy must explicitly release durable work before
+the coordinator may rebase it."
   (handler-case
       (handler-case
           (devnet-node-snap-sync-pivot-attempt node target-hash)
@@ -1906,6 +1896,7 @@ in-flight capacity every second."
       ;; A truthy scheduling result prevents this pass from falling into the
       ;; unbounded forward-gap path. The next pass re-evaluates the newest FCU
       ;; target and atomically rebases the stale SNAP session.
+      (setf (devnet-node-snap-session-rebase-p node) t)
       :stale-target)))
 
 (defun devnet-node-consensus-forward-target (node)
