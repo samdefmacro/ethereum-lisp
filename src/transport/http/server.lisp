@@ -91,8 +91,21 @@ report success while a worker still holds a connection."
   #-sbcl
   (progn (declare (ignore semaphore limit)) t))
 
+(defun engine-rpc-http-service-concurrency (service &optional (override :default))
+  "Return SERVICE's effective socket-worker budget, or NIL for serial I/O.
+
+OVERRIDE is an explicit per-listener limit when it is not :DEFAULT."
+  (let ((limit
+          (if (eq override :default)
+              (or *engine-rpc-http-max-concurrent-connections*
+                  (and
+                   (engine-rpc-http-service-request-guarded-p service)
+                   +engine-rpc-http-default-guarded-connections+))
+              override)))
+    (and limit (integerp limit) (plusp limit) limit)))
+
 (defun engine-rpc-http-service-serve-listener
-    (service listener &key max-connections stop-p)
+    (service listener &key max-connections stop-p (concurrency :default))
   (unless (typep service 'engine-rpc-http-service)
     (block-validation-fail
      "Engine RPC HTTP service must be engine-rpc-http-service"))
@@ -103,11 +116,15 @@ report success while a worker still holds a connection."
               (and (integerp max-connections) (<= 0 max-connections)))
     (block-validation-fail
      "Engine RPC HTTP max connections must be non-negative"))
+  (unless (or (eq concurrency :default)
+              (null concurrency)
+              (and (integerp concurrency) (<= 0 concurrency)))
+    (block-validation-fail
+     "Engine RPC HTTP concurrency must be non-negative, NIL, or :DEFAULT"))
   (let* ((served 0)
         (stop-p (or stop-p (lambda () nil)))
         (concurrency
-          (let ((limit *engine-rpc-http-max-concurrent-connections*))
-            (and limit (integerp limit) (plusp limit) limit)))
+          (engine-rpc-http-service-concurrency service concurrency))
         (worker-slots
           #+sbcl (when concurrency
                    (sb-thread:make-semaphore :count concurrency

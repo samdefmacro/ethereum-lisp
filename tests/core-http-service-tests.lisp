@@ -677,6 +677,8 @@ Content-Type: application/json
                                  "payloadStatus")
                           "status")))
       (is (string= "/" (field fields "httpTarget")))
+      (is (integerp (field fields "handlerMs")))
+      (is (not (minusp (field fields "handlerMs"))))
       (is (string= +payload-status-syncing+
                    (field fields "rpcPayloadStatus"))))
     (let* ((sink (ethereum-lisp.telemetry:make-memory-telemetry-sink))
@@ -1222,6 +1224,26 @@ Content-Type: application/json
     (is (= 30 (getf options :http-read-timeout-seconds)))
     (is (= 60 (getf options :http-write-timeout-seconds)))))
 
+(deftest engine-rpc-http-selects-safe-service-concurrency
+  (let ((unguarded (make-engine-rpc-http-service))
+        (guarded
+          (make-engine-rpc-http-service
+           :request-guard-function (lambda (thunk) (funcall thunk)))))
+    (let ((*engine-rpc-http-max-concurrent-connections* nil))
+      (is (null
+           (ethereum-lisp.rpc-http::engine-rpc-http-service-concurrency
+            unguarded)))
+      (is (= ethereum-lisp.rpc-http::+engine-rpc-http-default-guarded-connections+
+             (ethereum-lisp.rpc-http::engine-rpc-http-service-concurrency
+              guarded))))
+    (let ((*engine-rpc-http-max-concurrent-connections* 4))
+      (is (= 4
+             (ethereum-lisp.rpc-http::engine-rpc-http-service-concurrency
+              unguarded))))
+    (is (null
+         (ethereum-lisp.rpc-http::engine-rpc-http-service-concurrency
+          guarded 0)))))
+
 (deftest engine-rpc-http-serves-connections-concurrently
   ;; Request handling is serialised by the RPC request guard, so concurrency
   ;; here is about socket I/O: one silent peer must not starve other callers.
@@ -1231,10 +1253,10 @@ Content-Type: application/json
          (release (sb-thread:make-semaphore :count 0))
          (connections 3)
          (remaining connections)
-         (previous-limit *engine-rpc-http-max-concurrent-connections*)
          (service (make-engine-rpc-http-service
                    :store (make-engine-payload-memory-store)
-                   :config (make-chain-config)))
+                   :config (make-chain-config)
+                   :request-guard-function (lambda (thunk) (funcall thunk))))
          (listener
            (make-engine-rpc-http-listener
             :endpoint "test:0"
@@ -1254,9 +1276,6 @@ Content-Type: application/json
                          (push index served)))))
                   nil))
             :close-function (lambda () nil))))
-    ;; A LET binding would be invisible to the listener thread.
-    (setf *engine-rpc-http-max-concurrent-connections* 4)
-    (unwind-protect
     (let ((listener-thread
             (sb-thread:make-thread
              (lambda ()
@@ -1270,8 +1289,8 @@ Content-Type: application/json
       (is (= 2 (sb-thread:with-mutex (served-lock) (length served))))
       (sb-thread:signal-semaphore release)
       (sb-thread:join-thread listener-thread :timeout 15)
-      (is (= connections (sb-thread:with-mutex (served-lock) (length served)))))
-      (setf *engine-rpc-http-max-concurrent-connections* previous-limit))))
+      (is (= connections
+             (sb-thread:with-mutex (served-lock) (length served)))))))
 
 (deftest devnet-cli-capability-config-reaches-spawned-threads
   (:layer :integration :module :capability-config)

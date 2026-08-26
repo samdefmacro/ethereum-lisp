@@ -144,7 +144,8 @@
           allowed-hosts
           telemetry-sink
           telemetry-fields)
-  (let* ((request nil)
+  (let* ((started-at (get-internal-real-time))
+         (request nil)
          (response
            (handler-case
                (progn
@@ -172,6 +173,11 @@
                   (engine-rpc-http-request-telemetry-fields request))
              (when status-code
                (list (cons "status" (format nil "~D" status-code))))
+             (list
+              (cons "handlerMs"
+                    (round
+                     (* 1000 (- (get-internal-real-time) started-at))
+                     internal-time-units-per-second)))
              (engine-rpc-http-response-telemetry-fields response)))
     (write-string response output-stream)
     response))

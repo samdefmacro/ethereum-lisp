@@ -5,7 +5,8 @@
 (defun start-devnet-node-listeners
     (node engine-listener public-listener
      &key max-connections stop-p shutdown-controller on-listeners-ready
-          p2p-listener)
+          p2p-listener
+          (http-concurrency (if max-connections 0 :default)))
   (unless (typep node 'devnet-node)
     (error "Devnet node must be devnet-node"))
   (unless (typep engine-listener 'engine-rpc-http-listener)
@@ -22,9 +23,13 @@
     (error "Devnet listener-ready callback must be a function"))
   (when (and p2p-listener (not (typep p2p-listener 'eth-sync-listener)))
     (error "Devnet p2p listener must be eth-sync-listener"))
+  (unless (or (eq http-concurrency :default)
+              (null http-concurrency)
+              (and (integerp http-concurrency) (<= 0 http-concurrency)))
+    (error "Devnet HTTP concurrency must be non-negative, NIL, or :DEFAULT"))
   #-sbcl
   (declare (ignore node engine-listener public-listener max-connections stop-p
-                   shutdown-controller on-listeners-ready))
+                   shutdown-controller on-listeners-ready http-concurrency))
   #-sbcl
   (error "Devnet split listener serving requires SBCL threads")
   #+sbcl
@@ -157,6 +162,7 @@
                                            (devnet-node-service node)
                                            engine-listener
                                            :max-connections max-connections
+                                           :concurrency http-concurrency
                                            :stop-p stop-requested-p))
                                   (serious-condition (condition)
                                     (setf engine-error condition)
@@ -169,6 +175,7 @@
                                   (devnet-node-public-service node)
                                   public-listener
                                   :max-connections max-connections
+                                  :concurrency http-concurrency
                                   :stop-p stop-requested-p))
                          (error (condition)
                            (setf public-error condition)
@@ -211,6 +218,7 @@
                                   (devnet-node-service node)
                                   engine-listener
                                   :max-connections max-connections
+                                  :concurrency http-concurrency
                                   :stop-p stop-requested-p)))
                            (devnet-shutdown-request shutdown-controller)
                            (list :engine-connections engine-count

@@ -1325,6 +1325,10 @@
                       :close-function (lambda () nil))
                       :max-connections
                       +devnet-smoke-gate-public-connections+
+                      ;; The fixture's in-memory connections encode an ordered
+                      ;; transcript. Production socket listeners retain the
+                      ;; guarded concurrent default.
+                      :http-concurrency 0
                       :on-listeners-ready
                       (lambda (engine-listener public-listener)
                         (let ((engine-endpoint

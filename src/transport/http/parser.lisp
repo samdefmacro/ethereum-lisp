@@ -21,14 +21,16 @@
 NIL disables the deadline. A peer that connects and then sends nothing would
 otherwise block the listener forever.")
 
-(defparameter *engine-rpc-http-max-concurrent-connections* nil
-  "Connections served at once. NIL, the default, serves them one at a time.
+(defconstant +engine-rpc-http-default-guarded-connections+ 32
+  "Default socket-worker budget for a service with a request guard.")
 
-Concurrency here covers socket I/O, so one slow or silent peer stops starving
-every other caller. It is opt-in because request handling is only serialised
-when the service was given a request guard: the node supplies one, but a service
-constructed without it would run handlers against shared state concurrently.
-Enable this only alongside a request guard.")
+(defparameter *engine-rpc-http-max-concurrent-connections* nil
+  "Explicit connections served at once, or NIL for the safe service default.
+
+Concurrency covers socket I/O, so one slow or silent peer cannot starve every
+other caller. A guarded service defaults to a bounded worker pool because its
+handlers are already serialised at the shared-state boundary. An unguarded
+service remains single-connection unless this value is explicitly configured.")
 
 (defmacro engine-rpc-http-with-request-deadline (&body body)
   "Run BODY under the configured request deadline, when one is set.

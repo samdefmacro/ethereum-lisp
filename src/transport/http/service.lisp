@@ -10,7 +10,8 @@
 (defstruct (engine-rpc-http-service
             (:constructor %make-engine-rpc-http-service
                 (&key host port rpc-context jwt-secret now-provider
-                      telemetry-sink rpc-prefix cors-origins allowed-hosts)))
+                      telemetry-sink rpc-prefix cors-origins allowed-hosts
+                      request-guarded-p)))
   host
   port
   rpc-context
@@ -19,7 +20,8 @@
   telemetry-sink
   rpc-prefix
   cors-origins
-  allowed-hosts)
+  allowed-hosts
+  request-guarded-p)
 
 (defun engine-rpc-http-service-store (service)
   (rpc-context-store (engine-rpc-http-service-rpc-context service)))
@@ -197,7 +199,8 @@
    :telemetry-sink telemetry-sink
    :rpc-prefix rpc-prefix
    :cors-origins cors-origins
-   :allowed-hosts allowed-hosts))
+   :allowed-hosts allowed-hosts
+   :request-guarded-p (not (null request-guard-function))))
 
 (defun engine-rpc-http-service-endpoint (service)
   (unless (typep service 'engine-rpc-http-service)
