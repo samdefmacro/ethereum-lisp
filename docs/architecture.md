@@ -350,9 +350,15 @@ them by their physical location instead reintroduces dependency cycles:
   The authenticated prefix of byte-capped
   large storage is persisted immediately and its root is recorded beside that page
   in a state-root-scoped durable work set. As soon as a page discovers such a
-  root, one of the fixed global dependency workers creates or resumes its
-  sixteen geth-aligned StorageRanges partitions. The owning account cursor is
-  withheld until every partition cursor and safe range-derived subtree proof is
+  root, that same atomic content batch seeds the sixteen version-three
+  StorageRanges cursors at the successor of the last authenticated slot. This
+  matches go-ethereum v1.17.4 `processStorageResponse`: the nil-bound response
+  becomes the first large-storage subtask, so no worker redundantly requests
+  its prefix from explicit origin zero, which hash-scheme public peers may no
+  longer be able to prove. One of the fixed global dependency workers then
+  resumes those geth-aligned partitions. Existing complete cursor sets are
+  never rewound, while a partial persisted set fails closed. The owning account
+  cursor is withheld until every partition cursor and safe range-derived subtree proof is
   durable, matching go-ethereum v1.17.4
   `eth/protocols/snap/sync.go`'s `accountTask.pend` and
   `processStorageResponse` boundary while leaving the AccountRange dispatcher
@@ -366,7 +372,9 @@ them by their physical location instead reintroduces dependency cycles:
   account trie. An old or rebased partial import has no marker and safely
   retains the full-root traversal. Each dependency worker continuously fetches
   one 512 KiB-capped page at a time through the independent live StorageRanges
-  pool; the coordinator atomically commits its content-addressed nodes and
+  pool. A new peer starts at 64 KiB and names at most `capacity / 1024`
+  accounts, matching geth's storage-set assignment width, before adapting up to
+  512 KiB; the coordinator atomically commits its content-addressed nodes and
   versioned per-range successor cursor. A restart resumes those exact cursors.
   Source exhaustion leaves the account cursor unchanged and retries the same
   durable storage work with a later source generation. Completed ranges

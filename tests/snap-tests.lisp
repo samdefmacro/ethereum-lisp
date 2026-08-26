@@ -1177,6 +1177,9 @@
          (trie-node-requests 0)
          (heal-progress-events '())
          (saw-byte-capped-storage-p nil)
+         (initial-storage-prefix-last nil)
+         (replayed-initial-storage-prefix-p nil)
+         (smallest-explicit-storage-origin nil)
          (storage-ready-before-account-cursor-p nil)
          (saw-account-heal-path-p nil))
     (loop for byte from 1 to 96
@@ -1192,14 +1195,23 @@
            (base-source (snap-test-source backend))
            (storage-range-function
              (lambda (request)
-               (let ((partition-p
-                       (plusp
-                        (length
-                         (ethereum-lisp.snap:snap-get-storage-ranges-origin
-                          request)))))
+               (let* ((origin
+                        (ethereum-lisp.snap:snap-get-storage-ranges-origin
+                         request))
+                      (partition-p (plusp (length origin))))
                  (sb-thread:with-mutex (storage-lock)
                    (incf storage-calls)
                    (when partition-p
+                     (when (and initial-storage-prefix-last
+                                (not
+                                 (ethereum-lisp.validation:byte-vector-lexicographic<
+                                  initial-storage-prefix-last origin)))
+                       (setf replayed-initial-storage-prefix-p t))
+                     (when (or (null smallest-explicit-storage-origin)
+                               (ethereum-lisp.validation:byte-vector-lexicographic<
+                                origin smallest-explicit-storage-origin))
+                       (setf smallest-explicit-storage-origin
+                             (copy-seq origin)))
                      (incf partition-active)
                      (setf partition-max-active
                            (max partition-max-active partition-active))
@@ -1215,17 +1227,43 @@
                                storage-changed storage-lock :timeout 1/10))))
                  (unwind-protect
                       (let ((response
-                              (snap-test-call-backend
-                               backend
-                               ethereum-lisp.snap:+snap-message-get-storage-ranges+
-                               request)))
+                              ;; Model the public hash-scheme boundary observed
+                              ;; on Hoodi: the canonical nil-bound request is
+                              ;; serviceable, but replaying its authenticated
+                              ;; prefix with explicit bounds is rejected. Geth
+                              ;; seeds the large-contract cursor from the first
+                              ;; response and never makes this replay.
+                              (if replayed-initial-storage-prefix-p
+                                  (ethereum-lisp.snap:make-snap-storage-ranges
+                                   (ethereum-lisp.snap:snap-get-storage-ranges-id
+                                    request)
+                                   '() '())
+                                  (snap-test-call-backend
+                                   backend
+                                   ethereum-lisp.snap:+snap-message-get-storage-ranges+
+                                   request))))
                         (sb-thread:with-mutex (storage-lock)
                           (setf saw-byte-capped-storage-p
                                 (or saw-byte-capped-storage-p
                                     (not
                                      (null
                                       (ethereum-lisp.snap:snap-storage-ranges-proof
-                                       response))))))
+                                       response)))))
+                          (when (and
+                                 (not partition-p)
+                                 (ethereum-lisp.snap:snap-storage-ranges-proof
+                                  response))
+                            (let* ((groups
+                                     (ethereum-lisp.snap:snap-storage-ranges-slots
+                                      response))
+                                   (last-group (car (last groups)))
+                                   (last-slot (and last-group
+                                                   (car (last last-group)))))
+                              (when last-slot
+                                (setf initial-storage-prefix-last
+                                      (copy-seq
+                                       (ethereum-lisp.snap:snap-storage-data-hash
+                                        last-slot)))))))
                         response)
                    (when partition-p
                      (sb-thread:with-mutex (storage-lock)
@@ -1307,6 +1345,12 @@
                            (push heal-progress heal-progress-events)))))
                  (setf (symbol-function symbol) original)))))
       (is saw-byte-capped-storage-p)
+      (is initial-storage-prefix-last)
+      (is smallest-explicit-storage-origin)
+      (is
+       (ethereum-lisp.validation:byte-vector-lexicographic<
+        initial-storage-prefix-last smallest-explicit-storage-origin))
+      (is (not replayed-initial-storage-prefix-p))
       (is (> storage-calls 1))
       (is (plusp deferred-call-count))
       (is (>= deferred-call-max-source-count 2))

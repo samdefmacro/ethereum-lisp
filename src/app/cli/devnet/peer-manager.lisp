@@ -34,6 +34,9 @@ nothing would hold a thread and a descriptor indefinitely.")
 (defconstant +devnet-snap-max-request-bytes+ (* 512 1024)
   "Largest adaptive account/storage request, matching geth's upper cap.")
 
+(defconstant +devnet-snap-storage-account-byte-estimate+ 1024
+  "Geth's scheduling estimate for one account in a StorageRanges request.")
+
 (defconstant +devnet-snap-max-bytecode-hashes+ 84
   "Geth's 512 KiB ByteCodes assignment cap in code items, not wire bytes.")
 

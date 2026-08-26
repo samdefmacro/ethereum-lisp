@@ -598,7 +598,7 @@ target."
          "error" condition)))))
 
 (defun devnet-peer-apply-adaptive-snap-byte-cap (queue message-id packet)
-  "Apply QUEUE's learned account/storage byte cap to one request PACKET."
+  "Apply QUEUE's learned account/storage capacity to one request PACKET."
   (case message-id
     (#.ethereum-lisp.snap:+snap-message-get-account-range+
      (setf (ethereum-lisp.snap:snap-get-account-range-bytes packet)
@@ -607,11 +607,25 @@ target."
             (devnet-peer-request-queue-snap-capacity
              queue ethereum-lisp.snap:+snap-message-account-range+))))
     (#.ethereum-lisp.snap:+snap-message-get-storage-ranges+
-     (setf (ethereum-lisp.snap:snap-get-storage-ranges-bytes packet)
-           (min
-            (ethereum-lisp.snap:snap-get-storage-ranges-bytes packet)
-            (devnet-peer-request-queue-snap-capacity
-             queue ethereum-lisp.snap:+snap-message-storage-ranges+)))))
+     (let* ((capacity
+              (min
+               (ethereum-lisp.snap:snap-get-storage-ranges-bytes packet)
+               (devnet-peer-request-queue-snap-capacity
+                queue ethereum-lisp.snap:+snap-message-storage-ranges+)))
+            (accounts
+              (ethereum-lisp.snap:snap-get-storage-ranges-accounts packet))
+            (account-limit
+              (max
+               1
+               (floor capacity
+                      +devnet-snap-storage-account-byte-estimate+))))
+       ;; Geth derives storageSets from the learned byte capacity. Besides
+       ;; keeping the response near its target size, this prevents the first
+       ;; 64 KiB request to a new peer from naming all 512 pending accounts.
+       (setf (ethereum-lisp.snap:snap-get-storage-ranges-bytes packet)
+             capacity
+             (ethereum-lisp.snap:snap-get-storage-ranges-accounts packet)
+             (subseq accounts 0 (min account-limit (length accounts)))))))
   packet)
 
 (defun devnet-peer-bytecode-request (queue hashes byte-limit)

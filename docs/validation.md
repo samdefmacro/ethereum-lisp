@@ -323,9 +323,13 @@ same root as the ordinary checked insertion and rejects empty values,
 persist the authenticated prefix of byte-capped large storage, record those
 roots with each durable page, and atomically publish the complete plan only
 when the rebuilt account root equals the authorized state root. Sixteen
-restart-safe StorageRanges cursors immediately finish each large trie through
-512 KiB-capped pages before the owning account cursor advances. The
-byte-capped-storage regression observes that production call site, then proves
+restart-safe StorageRanges cursors, seeded atomically after the last slot of
+the initial authenticated nil-bound prefix, immediately finish each large trie
+through 512 KiB-capped pages before the owning account cursor advances. The
+byte-capped-storage regression observes that production call site, models a
+public hash-scheme peer which rejects an explicit replay of that initial
+prefix, and requires the first bounded origin to be strictly greater than its
+last authenticated slot. It then proves
 the final closure walk never returns to the account root and repairs compact
 storage-proof boundaries in fewer than sixteen TrieNodes requests. Removing the
 pre-cursor storage callback is the mutation control and fails its durable-task
@@ -341,7 +345,8 @@ router instead of being rejected as unsolicited. Rate controls prove a new
 peer starts account and storage ranges at 64 KiB, a fast sequence grows at
 most twofold per response toward 512 KiB, a slow sequence falls back without
 crossing the lower bound, and the production source applies the learned
-per-type cap to its outgoing packet. ByteCodes learns in returned-code units
+per-type cap to its outgoing packet and limits StorageRanges account hashes to
+geth's `capacity / 1024` estimate. ByteCodes learns in returned-code units
 from 1 through the 84-hash protocol cap; a response taking the entire capacity
 target still advances 1 to 2 through geth's explicit plus-one ceiling instead
 of becoming trapped at the minimum. Concurrent pages prove that their

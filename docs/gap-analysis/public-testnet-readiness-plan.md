@@ -292,9 +292,14 @@ The implementation boundary is split deliberately:
   long-running CLI coordinator retains verified cursors, refreshes the source
   set, and retries while local persistence/merge faults remain fatal. The CLI
   persists the authenticated prefix of a byte-capped storage response, then
-  immediately finishes that large trie through sixteen restart-safe,
-  512 KiB-capped StorageRanges partitions before the owning account cursor can
-  advance. One large root at a time receives the import-wide live storage pool,
+  atomically seeds version-three cursors at the successor of that prefix's last
+  authenticated slot and immediately finishes the large trie through sixteen
+  restart-safe, 512 KiB-capped StorageRanges partitions before the owning account cursor can
+  advance. This matches go-ethereum v1.17.4's reuse of the initial nil-bound
+  response and avoids an explicit origin-zero replay that public hash-scheme
+  peers may reject. New peers name at most `capacity / 1024` storage accounts
+  while their request budget adapts from 64 KiB to 512 KiB. One large root at a
+  time receives the import-wide live storage pool,
   matching geth's priority for open storage subtasks without creating one
   all-peer scheduler per account page. Each page publishes reusable four-nibble
   coarse and five-nibble nested storage-subtree proofs with its durable cursor. Legacy

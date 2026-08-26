@@ -159,8 +159,13 @@ descendant scan.")
   (ascii-to-bytes "snap-storage-plan-promoted-v7:"))
 (defconstant +snap-sync-range-plan-promotion-max-roots+ 64)
 (defparameter +snap-sync-storage-task-identifier-prefix+
-  (ascii-to-bytes "snap-storage-range-task-v2:")
-  "Prefix for restart-safe large-contract StorageRanges cursors.")
+  (ascii-to-bytes "snap-storage-range-task-v3:")
+  "Prefix for restart-safe large-contract StorageRanges cursors.
+
+Version three seeds the cursors from the authenticated prefix returned by the
+initial nil-bound StorageRanges request.  Version two restarted that prefix at
+zero with an explicit bound, which historical snap servers may refuse even
+though they served the canonical full-range request.")
 (defconstant +snap-sync-storage-task-version+ 1)
 (defparameter +snap-sync-rebased-range-witness-domain+
   (ascii-to-bytes "snap-rebased-range-witness-v1:")
@@ -918,7 +923,7 @@ observational and not consensus-visible."
          batch (hash32-bytes storage-root) :storage-root)))))
 
 (defun snap-sync-populate-partial-storage-group
-    (database batch storage-root slots proof)
+    (database batch state-root account-hash storage-root slots proof)
   "Verify one byte-capped storage prefix and retain every authenticated node.
 
 The range remains deferred because this response does not prove that the
@@ -950,7 +955,16 @@ reuse this work instead of downloading the same prefix again."
          database batch records)
         (snap-sync-delete-incomplete-records-batch
          batch complete-references)
-        (snap-sync-populate-incomplete-records-batch batch incomplete)))))
+        (snap-sync-populate-incomplete-records-batch batch incomplete)
+        ;; Geth turns this exact nil-bound response into the first large
+        ;; storage subtask and continues after its last authenticated slot.
+        ;; Persist the same cursor in the content batch. Re-requesting the
+        ;; prefix from zero with explicit Origin/Limit is both redundant and
+        ;; unavailable on hash-scheme peers which retained the snapshot but no
+        ;; longer retain the historical trie proof for that explicit range.
+        (snap-sync-seed-storage-tasks-batch
+         database batch state-root account-hash storage-root
+         (snap-sync-increment-hash (caar (last entries))))))))
 
 (defun snap-sync-fetch-storage-commitment-request
     (database source state-root requested byte-limit)
@@ -986,15 +1000,15 @@ response before retrying the same immutable request elsewhere."
                          database batch (cdr commitment) slots)
                         (setf populated-p t))
                (when proof
-                 (snap-sync-populate-partial-storage-group
-                  database batch
-                  (cdr (nth (1- received) requested))
-                  (nth (1- received) groups)
-                  proof)
+                 (let ((commitment (nth (1- received) requested)))
+                   (snap-sync-populate-partial-storage-group
+                    database batch state-root
+                    (car commitment) (cdr commitment)
+                    (nth (1- received) groups) proof))
                  (setf populated-p t))
-             (values received
-                     (and proof (nth (1- received) requested))
-                     batch populated-p)))))
+               (values received
+                       (and proof (nth (1- received) requested))
+                       batch populated-p)))))
       (multiple-value-bind (received open-commitment batch populated-p)
           (if (functionp (snap-sync-source-storage-ranges-verified source))
               (funcall
@@ -1794,6 +1808,47 @@ frontier also falls back safely instead of creating an uncheckpointable run."
     state-root account-hash storage-root task-index)
    (snap-sync-storage-task-record task))
   batch)
+
+(defun snap-sync-seed-storage-tasks-batch
+    (database batch state-root account-hash storage-root next-origin)
+  "Seed a large storage task set after its nil-bound prefix is already durable.
+
+NEXT-ORIGIN is the successor of the last authenticated slot, or NIL when that
+prefix reached the end of the hash space.  Existing complete task sets are
+never rewound: a concurrent or restarted worker may already have advanced them
+beyond this initial prefix.  A partial persisted set is corruption and remains
+fail closed."
+  (let ((identifiers
+          (coerce
+           (loop for index below +snap-sync-storage-task-count+
+                 collect
+                 (snap-sync-storage-task-identifier
+                  state-root account-hash storage-root index))
+           'vector)))
+    (multiple-value-bind (records present)
+        (kv-get-chain-records database :metadata identifiers)
+      (let ((present-count (count 1 present)))
+        (cond
+          ((zerop present-count)
+           (let ((tasks
+                   (if next-origin
+                       (snap-sync-make-account-tasks
+                        :count +snap-sync-storage-task-count+
+                        :next-origin next-origin)
+                       (snap-sync-make-account-tasks
+                        :count +snap-sync-storage-task-count+
+                        :completed-p t))))
+             (loop for task in tasks
+                   for index from 0
+                   do (snap-sync-populate-storage-task-batch
+                       batch state-root account-hash storage-root index task))
+             tasks))
+          ((/= present-count +snap-sync-storage-task-count+)
+           (ethereum-lisp.validation:storage-fail
+            "Persisted snap storage range task set is incomplete"))
+          (t
+           (loop for record across records
+                 collect (snap-sync-storage-task-from-record record))))))))
 
 (defun snap-sync-load-or-create-storage-tasks
     (database state-root account-hash storage-root)

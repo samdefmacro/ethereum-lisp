@@ -4087,12 +4087,14 @@ loop cannot block on a message that never comes."
   (let* ((queue (ethereum-lisp.cli::make-devnet-peer-request-queue))
          (limit (* 512 1024))
          (root (make-byte-vector 32))
+         (storage-accounts
+           (loop for index below 200 collect (snap-test-index-hash index)))
          (account
            (ethereum-lisp.snap:make-snap-get-account-range
             1 root root root limit))
          (storage
            (ethereum-lisp.snap:make-snap-get-storage-ranges
-            1 root (list root) (make-byte-vector 0) (make-byte-vector 0)
+            1 root storage-accounts (make-byte-vector 0) (make-byte-vector 0)
             limit)))
     (ethereum-lisp.cli::devnet-peer-apply-adaptive-snap-byte-cap
      queue ethereum-lisp.snap:+snap-message-get-account-range+ account)
@@ -4102,6 +4104,9 @@ loop cannot block on a message that never comes."
            (ethereum-lisp.snap:snap-get-account-range-bytes account)))
     (is (= ethereum-lisp.cli::+devnet-snap-min-request-bytes+
            (ethereum-lisp.snap:snap-get-storage-ranges-bytes storage)))
+    (is (= 64
+           (length
+            (ethereum-lisp.snap:snap-get-storage-ranges-accounts storage))))
     (ethereum-lisp.cli::devnet-peer-request-queue-record-snap-delivery
      queue ethereum-lisp.snap:+snap-message-account-range+
      ethereum-lisp.cli::+devnet-snap-min-request-bytes+ 0.05d0)
@@ -4111,7 +4116,21 @@ loop cannot block on a message that never comes."
       (ethereum-lisp.cli::devnet-peer-apply-adaptive-snap-byte-cap
        queue ethereum-lisp.snap:+snap-message-get-account-range+ next)
       (is (= (* 2 ethereum-lisp.cli::+devnet-snap-min-request-bytes+)
-             (ethereum-lisp.snap:snap-get-account-range-bytes next)))))
+             (ethereum-lisp.snap:snap-get-account-range-bytes next))))
+    (ethereum-lisp.cli::devnet-peer-request-queue-record-snap-delivery
+     queue ethereum-lisp.snap:+snap-message-storage-ranges+
+     ethereum-lisp.cli::+devnet-snap-min-request-bytes+ 0.05d0)
+    (let ((next
+            (ethereum-lisp.snap:make-snap-get-storage-ranges
+             2 root storage-accounts
+             (make-byte-vector 0) (make-byte-vector 0) limit)))
+      (ethereum-lisp.cli::devnet-peer-apply-adaptive-snap-byte-cap
+       queue ethereum-lisp.snap:+snap-message-get-storage-ranges+ next)
+      (is (= (* 2 ethereum-lisp.cli::+devnet-snap-min-request-bytes+)
+             (ethereum-lisp.snap:snap-get-storage-ranges-bytes next)))
+      (is (= 128
+             (length
+              (ethereum-lisp.snap:snap-get-storage-ranges-accounts next))))))
   #-sbcl
   (is t))
 
