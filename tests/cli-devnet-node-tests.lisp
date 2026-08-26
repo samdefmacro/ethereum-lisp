@@ -1554,7 +1554,14 @@ really reopens the directory instead of observing the first handle's memory."
           (is (integerp (field record "reusedNodes")))
           (is (= 0 (field record "requests")))
           (is (= 0 (field record "fetchedNodes")))
-          (is (= 0 (field record "nodeBytes"))))
+          (is (= 0 (field record "nodeBytes")))
+          (is (= 0 (field record "sampleSeconds")))
+          (is (= 0 (field record "processedRate")))
+          (is (= 0 (field record "discoveredRate")))
+          (is (= 0 (field record "netDrainRate")))
+          (is (= 0 (field record "etaSeconds")))
+          (is (string= "completed" (field record "etaStatus")))
+          (is (string= "high" (field record "etaConfidence"))))
         (is (= 1 (length source-logs)))
         (let ((record (first source-logs)))
           (is (= (block-header-number pivot-header) (field record "pivot")))
@@ -1570,6 +1577,90 @@ really reopens the directory instead of observing the first handle's memory."
   (is (ethereum-lisp.cli::devnet-snap-heal-progress-log-due-p 100 101 t))
   ;; A backwards-adjusted wall clock must not suppress logs indefinitely.
   (is (ethereum-lisp.cli::devnet-snap-heal-progress-log-due-p 100 99 nil)))
+
+(deftest devnet-snap-heal-estimate-requires-stable-net-drain
+  (:layer :unit :module :p2p)
+  (flet ((sample (at processed frontier)
+           (ethereum-lisp.cli::make-devnet-snap-heal-estimate-sample
+            at processed frontier)))
+    (multiple-value-bind
+          (seconds processed-rate discovered-rate net-drain-rate
+           eta status confidence)
+        (ethereum-lisp.cli::devnet-snap-heal-estimate
+         (list (sample 0 1 0)) t)
+      (is (= 0 seconds))
+      (is (= 0 processed-rate))
+      (is (= 0 discovered-rate))
+      (is (= 0 net-drain-rate))
+      (is (= 0 eta))
+      (is (string= "completed" status))
+      (is (string= "high" confidence)))
+    (multiple-value-bind
+          (seconds processed-rate discovered-rate net-drain-rate
+           eta status confidence)
+        (ethereum-lisp.cli::devnet-snap-heal-estimate
+         (list (sample 0 0 100000) (sample 60 120000 90000)) nil)
+      (is (= 60 seconds))
+      (is (= 2000 processed-rate))
+      (is (= 1833 discovered-rate))
+      (is (= 167 net-drain-rate))
+      (is (null eta))
+      (is (string= "warming" status))
+      (is (string= "none" confidence)))
+    (multiple-value-bind
+          (seconds processed-rate discovered-rate net-drain-rate
+           eta status confidence)
+        (ethereum-lisp.cli::devnet-snap-heal-estimate
+         (list (sample 0 0 100000)
+               (sample 60 120000 94000)
+               (sample 120 240000 88000)
+               (sample 180 360000 82000)
+               (sample 240 480000 76000)
+               (sample 300 600000 70000))
+         nil)
+      (is (= 300 seconds))
+      (is (= 2000 processed-rate))
+      (is (= 1900 discovered-rate))
+      (is (= 100 net-drain-rate))
+      (is (= 700 eta))
+      (is (string= "converging" status))
+      (is (string= "high" confidence)))
+    (multiple-value-bind
+          (seconds processed-rate discovered-rate net-drain-rate
+           eta status confidence)
+        (ethereum-lisp.cli::devnet-snap-heal-estimate
+         (list (sample 0 0 100000)
+               (sample 100 200000 120000)
+               (sample 200 400000 130000)
+               (sample 300 600000 90000))
+         nil)
+      (declare (ignore seconds processed-rate discovered-rate net-drain-rate))
+      (is (null eta))
+      (is (string= "unstable" status))
+      (is (string= "none" confidence)))
+    (multiple-value-bind
+          (seconds processed-rate discovered-rate net-drain-rate
+           eta status confidence)
+        (ethereum-lisp.cli::devnet-snap-heal-estimate
+         (list (sample 0 0 100000) (sample 300 600000 160000)) nil)
+      (declare (ignore seconds processed-rate discovered-rate net-drain-rate))
+      (is (null eta))
+      (is (string= "dynamic-expansion" status))
+      (is (string= "none" confidence)))))
+
+(deftest devnet-snap-heal-estimate-samples-retain-a-bounded-window
+  (:layer :unit :module :p2p)
+  (flet ((sample (at)
+           (ethereum-lisp.cli::make-devnet-snap-heal-estimate-sample
+            at at at)))
+    (let ((samples
+            (ethereum-lisp.cli::devnet-snap-heal-trim-estimate-samples
+             (list (sample 0) (sample 100) (sample 200) (sample 400))
+             400)))
+      (is (= 3 (length samples)))
+      (is (= 100
+             (ethereum-lisp.cli::devnet-snap-heal-estimate-sample-at
+              (first samples)))))))
 
 (deftest devnet-snap-stale-successor-requires-a-newer-forkchoice-target
   (:layer :unit :module :p2p)

@@ -371,6 +371,12 @@ The implementation boundary is split deliberately:
   and five minutes of processed-plus-fetched work falls below the live minimum,
   the coordinator yields to a newer consensus-authorized target while retaining
   all content-addressed state and verified subtree proofs for cross-pivot reuse.
+  Operator healing telemetry uses a bounded five-minute frontier window rather
+  than treating cumulative processed nodes as remaining work. It reports local
+  processing, approximate discovery, and signed net-drain rates; `etaSeconds`
+  remains absent while the window is warming, expanding, or unstable. A finite
+  ETA appears only after at least five constituent intervals and three fifths
+  of them drain the frontier, and is paired with an explicit confidence class.
 - `src/networking/eth-sync/sync.lisp` supplies the bounded downloader, while
   `src/app/cli/devnet/dialer.lisp` owns the continuous coordinator. Work is
   authorized by an Engine target hash, delivered through each session's sole

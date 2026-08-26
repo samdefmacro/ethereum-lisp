@@ -145,6 +145,20 @@ first, so a long backfill does not starve a short one."
 (defconstant +devnet-snap-heal-progress-log-interval-seconds+ 30
   "Minimum interval between non-terminal TrieNodes healing progress events.")
 
+(defconstant +devnet-snap-heal-estimate-window-seconds+ 300
+  "Minimum rolling window before healer convergence receives an ETA.")
+
+(defconstant +devnet-snap-heal-estimate-minimum-intervals+ 5
+  "Minimum independent frontier intervals required for a convergence ETA.")
+
+(defstruct (devnet-snap-heal-estimate-sample
+            (:constructor make-devnet-snap-heal-estimate-sample
+                (at processed frontier)))
+  "One operator-only sample used to classify healer convergence."
+  at
+  processed
+  frontier)
+
 (defconstant +devnet-snap-heal-target-check-interval-seconds+ 30
   "Minimum interval between CL-target staleness checks during one heal.")
 
@@ -259,6 +273,90 @@ target exists."
       (< now last-log-at)
       (>= (- now last-log-at)
           +devnet-snap-heal-progress-log-interval-seconds+)))
+
+(defun devnet-snap-heal-trim-estimate-samples (samples now)
+  "Retain a bounded rolling window plus its nearest preceding sample."
+  (let ((cutoff (- now +devnet-snap-heal-estimate-window-seconds+)))
+    (loop while (and (rest samples)
+                     (<=
+                      (devnet-snap-heal-estimate-sample-at (second samples))
+                      cutoff))
+          do (setf samples (rest samples)))
+    samples))
+
+(defun devnet-snap-heal-estimate (samples completed-p)
+  "Classify convergence and return conservative operator telemetry.
+
+The healer discovers child work while consuming its frontier, so processed
+throughput alone is not a completion signal.  Over a bounded window, gross
+discovery is approximated by PROCESSED + delta(FRONTIER), while net drain is
+-delta(FRONTIER).  An ETA is exposed only after a full window has positive net
+drain and at least three fifths of its constituent intervals also drain."
+  (let* ((first (first samples))
+         (last (car (last samples)))
+         (duration
+           (if (and first last)
+               (- (devnet-snap-heal-estimate-sample-at last)
+                  (devnet-snap-heal-estimate-sample-at first))
+               0)))
+    (when (or (null first) (null last) (not (plusp duration)))
+      (return-from devnet-snap-heal-estimate
+        (values 0 0 0 0 (and completed-p 0)
+                (if completed-p "completed" "warming")
+                (if completed-p "high" "none"))))
+    (let* ((processed-delta
+             (- (devnet-snap-heal-estimate-sample-processed last)
+                (devnet-snap-heal-estimate-sample-processed first)))
+           (frontier-delta
+             (- (devnet-snap-heal-estimate-sample-frontier last)
+                (devnet-snap-heal-estimate-sample-frontier first)))
+           (drained (- frontier-delta))
+           (processed-rate (round processed-delta duration))
+           (discovered-rate
+             (max 0 (round (+ processed-delta frontier-delta) duration)))
+           (net-drain-rate (round drained duration))
+           (intervals (max 0 (1- (length samples))))
+           (draining-intervals
+             (loop for tail on samples
+                   while (rest tail)
+                   count
+                   (< (devnet-snap-heal-estimate-sample-frontier
+                       (second tail))
+                      (devnet-snap-heal-estimate-sample-frontier
+                       (first tail)))))
+           (full-window-p
+             (>= duration +devnet-snap-heal-estimate-window-seconds+))
+           (stable-drain-p
+             (and (>= intervals
+                      +devnet-snap-heal-estimate-minimum-intervals+)
+                  (>= (* 5 draining-intervals) (* 3 intervals))))
+           (high-confidence-p
+             (and (>= intervals
+                      +devnet-snap-heal-estimate-minimum-intervals+)
+                  (>= (* 10 draining-intervals) (* 9 intervals))))
+           (eta-seconds
+             (and (not completed-p) full-window-p stable-drain-p
+                  (plusp net-drain-rate)
+                  (ceiling
+                   (* (devnet-snap-heal-estimate-sample-frontier last)
+                      duration)
+                   drained)))
+           (status
+             (cond
+               (completed-p "completed")
+               ((not full-window-p) "warming")
+               ((not (plusp drained)) "dynamic-expansion")
+               ((or (not stable-drain-p) (not (plusp net-drain-rate)))
+                "unstable")
+               (t "converging")))
+           (confidence
+             (cond
+               (completed-p "high")
+               ((null eta-seconds) "none")
+               (high-confidence-p "high")
+               (t "medium"))))
+      (values duration processed-rate discovered-rate net-drain-rate
+              (if completed-p 0 eta-seconds) status confidence))))
 
 (defconstant +devnet-snap-stale-pivot-distance+
   (- (* 2 +devnet-snap-pivot-distance+) 8)
@@ -1308,6 +1406,7 @@ must prove the new state root before either record can authorize publication."
          (source-entries '())
          (source-pool (make-devnet-snap-source-pool node pivot-hash))
          (last-heal-log-at nil)
+         (heal-estimate-samples '())
          (last-heal-progress-at (unix-time))
          (last-heal-progress-work nil)
          (last-heal-target-check-at (unix-time))
@@ -1650,43 +1749,73 @@ must prove the new state root before either record can authorize publication."
            (when (devnet-snap-heal-progress-log-due-p
                   last-heal-log-at now completed-p)
              (setf last-heal-log-at now)
-             (devnet-peer-manager-log
-              node "peer.snap.heal_progress"
-              "pivot" pivot-number
-              "processedNodes"
-              (ethereum-lisp.snap-sync:snap-sync-heal-progress-processed-nodes
-               heal-progress)
-              "reusedNodes"
-              (ethereum-lisp.snap-sync:snap-sync-heal-progress-reused-nodes
-               heal-progress)
-              "fetchedNodes"
-              (ethereum-lisp.snap-sync:snap-sync-heal-progress-fetched-nodes
-               heal-progress)
-              "requests"
-              (ethereum-lisp.snap-sync:snap-sync-heal-progress-request-count
-               heal-progress)
-              "nodeBytes"
-              (ethereum-lisp.snap-sync:snap-sync-heal-progress-response-bytes
-               heal-progress)
-              "promotedSubtrees"
-              (ethereum-lisp.snap-sync:snap-sync-heal-progress-promoted-subtrees
-               heal-progress)
-              "skippedSubtrees"
-              (ethereum-lisp.snap-sync:snap-sync-heal-progress-skipped-subtrees
-               heal-progress)
-              "frontierWorks"
-              (ethereum-lisp.snap-sync:snap-sync-heal-progress-frontier-works
-               heal-progress)
-              "deferredStorageWorks"
-              (ethereum-lisp.snap-sync:snap-sync-heal-progress-deferred-storage-works
-               heal-progress)
-              "remoteWorks"
-              (ethereum-lisp.snap-sync:snap-sync-heal-progress-remote-works
-               heal-progress)
-              "knownIncompleteNodes"
-              (ethereum-lisp.snap-sync:snap-sync-heal-progress-known-incomplete-nodes
-               heal-progress)
-              "completed" completed-p))))
+             (when (and heal-estimate-samples
+                        (< now
+                           (devnet-snap-heal-estimate-sample-at
+                            (car (last heal-estimate-samples)))))
+               (setf heal-estimate-samples '()))
+             (setf heal-estimate-samples
+                   (nconc
+                    heal-estimate-samples
+                    (list
+                     (make-devnet-snap-heal-estimate-sample
+                      now
+                      (ethereum-lisp.snap-sync:snap-sync-heal-progress-processed-nodes
+                       heal-progress)
+                      (ethereum-lisp.snap-sync:snap-sync-heal-progress-frontier-works
+                       heal-progress))))
+                   heal-estimate-samples
+                   (devnet-snap-heal-trim-estimate-samples
+                    heal-estimate-samples now))
+             (multiple-value-bind
+                   (sample-seconds processed-rate discovered-rate
+                    net-drain-rate eta-seconds eta-status eta-confidence)
+                 (devnet-snap-heal-estimate
+                  heal-estimate-samples completed-p)
+               (devnet-peer-manager-log
+                node "peer.snap.heal_progress"
+                "pivot" pivot-number
+                "processedNodes"
+                (ethereum-lisp.snap-sync:snap-sync-heal-progress-processed-nodes
+                 heal-progress)
+                "reusedNodes"
+                (ethereum-lisp.snap-sync:snap-sync-heal-progress-reused-nodes
+                 heal-progress)
+                "fetchedNodes"
+                (ethereum-lisp.snap-sync:snap-sync-heal-progress-fetched-nodes
+                 heal-progress)
+                "requests"
+                (ethereum-lisp.snap-sync:snap-sync-heal-progress-request-count
+                 heal-progress)
+                "nodeBytes"
+                (ethereum-lisp.snap-sync:snap-sync-heal-progress-response-bytes
+                 heal-progress)
+                "promotedSubtrees"
+                (ethereum-lisp.snap-sync:snap-sync-heal-progress-promoted-subtrees
+                 heal-progress)
+                "skippedSubtrees"
+                (ethereum-lisp.snap-sync:snap-sync-heal-progress-skipped-subtrees
+                 heal-progress)
+                "frontierWorks"
+                (ethereum-lisp.snap-sync:snap-sync-heal-progress-frontier-works
+                 heal-progress)
+                "deferredStorageWorks"
+                (ethereum-lisp.snap-sync:snap-sync-heal-progress-deferred-storage-works
+                 heal-progress)
+                "remoteWorks"
+                (ethereum-lisp.snap-sync:snap-sync-heal-progress-remote-works
+                 heal-progress)
+                "knownIncompleteNodes"
+                (ethereum-lisp.snap-sync:snap-sync-heal-progress-known-incomplete-nodes
+                 heal-progress)
+                "sampleSeconds" sample-seconds
+                "processedRate" processed-rate
+                "discoveredRate" discovered-rate
+                "netDrainRate" net-drain-rate
+                "etaSeconds" eta-seconds
+                "etaStatus" eta-status
+                "etaConfidence" eta-confidence
+                "completed" completed-p)))))
        :on-source-error
        (lambda (source condition)
          (let ((entry (entry-for-source source)))

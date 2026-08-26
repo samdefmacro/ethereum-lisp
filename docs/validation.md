@@ -170,6 +170,7 @@ cl-workbench validation run cold-unit --match ETH-72
 cl-workbench validation run cold-unit --match ETH-GOSSIP-NOTIFIES
 cl-workbench validation run cold-unit --match DEVNET-BROADCAST
 cl-workbench validation run cold-unit --match DEVNET-SNAP-HEAL-PROGRESS
+cl-workbench validation run cold-unit --match DEVNET-SNAP-HEAL-ESTIMATE
 cl-workbench validation run cold-unit --match DEVNET-CLI-PUBLIC-PRESETS
 cl-workbench validation run cold-unit \
   --match DEVNET-DISCOVERY-HAS-A-GENESIS-FORK-FILTER
