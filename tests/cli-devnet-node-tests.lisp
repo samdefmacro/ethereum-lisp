@@ -1845,16 +1845,26 @@ really reopens the directory instead of observing the first handle's memory."
                   :fetched-nodes 1000 :request-count 11
                   :response-bytes 101000 :completed-p nil))
                 (is (not (funcall yield-p)))
-                ;; After a full request window delivers no additional nodes
-                ;; for five minutes, collapse corroborates the inefficient
-                ;; serving edge. Productive local work still excludes the
-                ;; independent progress-stalled reason.
+                ;; After a full request window delivers no additional nodes,
+                ;; high local throughput still retains the exact frontier.
                 (setf now 749)
                 (funcall
                  progress-callback
                  (ethereum-lisp.snap-sync::%make-snap-sync-heal-progress
                   :processed-nodes 160000 :reused-nodes 159000
                   :fetched-nodes 1000 :request-count 75
+                  :response-bytes 101000 :completed-p nil))
+                (is (not (funcall yield-p)))
+                ;; Only a following five-minute window with low aggregate
+                ;; work corroborates the collapsed serving edge. The final
+                ;; local batch keeps progress liveness fresh, excluding the
+                ;; independent progress-stalled reason.
+                (setf now 1049)
+                (funcall
+                 progress-callback
+                 (ethereum-lisp.snap-sync::%make-snap-sync-heal-progress
+                  :processed-nodes 162048 :reused-nodes 161048
+                  :fetched-nodes 1000 :request-count 139
                   :response-bytes 101000 :completed-p nil))
                 (is (funcall yield-p))
                 (error 'ethereum-lisp.snap-sync:snap-sync-heal-yielded))))
@@ -1875,7 +1885,7 @@ really reopens the directory instead of observing the first handle's memory."
                      when (string= key name) return value)))
         (is (= 64 (field "target")))
         (is (= 205 (field "successor")))
-        (is (string= "source-collapse" (field "reason")))))))
+        (is (string= "source-throughput-low" (field "reason")))))))
 
 (deftest devnet-snap-collapsed-source-pool-yields-after-low-total-throughput
   (:layer :unit :module :p2p)
@@ -2148,7 +2158,7 @@ really reopens the directory instead of observing the first handle's memory."
     (is (= 1 (count "peer.snap.target_stale" logs
                     :key #'first :test #'string=)))))
 
-(deftest devnet-snap-productive-heal-yields-after-underfilled-responses
+(deftest devnet-snap-underfilled-heal-waits-for-low-total-throughput
   (:layer :unit :module :p2p)
   (let* ((node
            (ethereum-lisp.cli:make-devnet-node
@@ -2207,19 +2217,36 @@ really reopens the directory instead of observing the first handle's memory."
                   :fetched-nodes 1024 :request-count 64
                   :response-bytes 262144 :completed-p nil))
                 ;; A second complete request window returns only one node per
-                ;; request. Local work remains productive, so the ordinary
-                ;; progress-stall policy must stay fresh.
+                ;; request, but unlocks enough local work to exceed the
+                ;; aggregate throughput floor.
                 (setf now 409)
                 (funcall
                  progress-callback
                  (ethereum-lisp.snap-sync::%make-snap-sync-heal-progress
-                  :processed-nodes 6144 :reused-nodes 5056
+                  :processed-nodes 200000 :reused-nodes 198912
                   :fetched-nodes 1088 :request-count 128
                   :response-bytes 266240 :completed-p nil))
                 (is (not (funcall yield-p)))
-                ;; Five minutes after the last efficient response window, the
-                ;; CL-stale pivot yields despite continuing tiny responses.
+                ;; Close the first five-minute throughput window. Underfilled
+                ;; responses alone must not discard this productive frontier.
                 (setf now 410)
+                (funcall
+                 progress-callback
+                 (ethereum-lisp.snap-sync::%make-snap-sync-heal-progress
+                  :processed-nodes 200000 :reused-nodes 198912
+                  :fetched-nodes 1088 :request-count 128
+                  :response-bytes 266240 :completed-p nil))
+                (is (not (funcall yield-p)))
+                ;; A following complete window with only sparse remote and
+                ;; local progress now proves low total throughput. This keeps
+                ;; progress liveness fresh while permitting a stale rebase.
+                (setf now 710)
+                (funcall
+                 progress-callback
+                 (ethereum-lisp.snap-sync::%make-snap-sync-heal-progress
+                  :processed-nodes 202048 :reused-nodes 200896
+                  :fetched-nodes 1152 :request-count 192
+                  :response-bytes 270336 :completed-p nil))
                 (is (funcall yield-p))
                 (error 'ethereum-lisp.snap-sync:snap-sync-heal-yielded))))
       (cons 'ethereum-lisp.cli::devnet-peer-manager-log
@@ -2239,7 +2266,7 @@ really reopens the directory instead of observing the first handle's memory."
                      when (string= key name) return value)))
         (is (= 64 (field "target")))
         (is (= 225 (field "successor")))
-        (is (string= "response-underfilled" (field "reason")))))))
+        (is (string= "response-throughput-low" (field "reason")))))))
 
 (deftest devnet-snap-heal-yield-skips-the-forward-gap-fallback
   (:layer :unit :module :p2p)

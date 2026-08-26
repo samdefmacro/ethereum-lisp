@@ -1421,11 +1421,11 @@ must prove the new state root before either record can authorize publication."
              ;; absent for the same bounded interval: sparse residual traffic
              ;; must not pin a root after the public serving window collapses.
              ;; A numerically stable pool can fail the same way by returning
-             ;; only the disappearing edge of a pruned root.  Classify that
-             ;; independently from peer count using bounded request windows.
-             ;; Finally, useful individual packets from a collapsed pool must
-             ;; still achieve bounded aggregate wall-clock throughput: two or
-             ;; three slow survivors cannot pin a stale root indefinitely.
+             ;; only the disappearing edge of a pruned root. Classify that
+             ;; with both bounded request efficiency and aggregate wall-clock
+             ;; throughput. Sparse packets are not independently stale when
+             ;; they unlock fast local traversal; rebasing that useful work
+             ;; would repeatedly rediscover the same frontier.
              (let ((reason
                      (cond
                        ((and
@@ -1441,21 +1441,12 @@ must prove the new state root before either record can authorize publication."
                              +devnet-snap-heal-throughput-window-seconds+))
                         "source-throughput-low")
                        ((and
-                         heal-source-collapse-window-p
                          heal-underfilled-response-window-p
-                         (>= now last-heal-source-healthy-at)
-                         (>= (- now last-heal-source-healthy-at)
-                             +devnet-snap-heal-source-collapse-interval-seconds+)
+                         heal-low-throughput-window-p
                          (>= now last-heal-efficient-response-at)
                          (>= (- now last-heal-efficient-response-at)
                              +devnet-snap-heal-source-collapse-interval-seconds+))
-                        "source-collapse")
-                       ((and
-                         heal-underfilled-response-window-p
-                         (>= now last-heal-efficient-response-at)
-                         (>= (- now last-heal-efficient-response-at)
-                             +devnet-snap-heal-source-collapse-interval-seconds+))
-                        "response-underfilled"))))
+                        "response-throughput-low"))))
                (when (and
                     reason
                     (or (< now last-heal-target-check-at)
