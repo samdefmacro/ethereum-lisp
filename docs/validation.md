@@ -202,6 +202,8 @@ cl-workbench validation run cold-integration \
   --match DEVNET-SNAP-SOURCE-POOL-VALIDATES-STORAGE-BEFORE-PEER-RELEASE
 cl-workbench validation run cold-integration \
   --match SNAP-LARGE-STORAGE-RANGE-VERIFIES-BEFORE-SOURCE-RELEASE
+cl-workbench validation run cold-integration \
+  --match SNAP-GLOBAL-STORAGE-REQUEST-LANE-REFILLS-BEFORE-MATERIALIZATION
 cl-workbench validation run cold-unit \
   --match DEVNET-SNAP-BYTECODE-ASSIGNMENT-LEARNS-ITEM-CAPACITY
 cl-workbench validation run cold-unit \
@@ -504,7 +506,12 @@ restoring the fixed sixteen-way plan makes that witness fail. A two-root control
 then holds one partition open, requires the
 second root to start before that request is released, and proves maximum live
 requests equal the fixed source count. Replacing the rotating claim with a
-queue-head-only mutation makes that witness fail. Another control queues two
+queue-head-only mutation makes that witness fail. A request/materializer
+handoff control blocks the first authenticated page's trie expansion and
+requires the sole request lane to issue a second StorageRanges request before
+that expansion resumes. Restoring the combined worker makes
+`SNAP-GLOBAL-STORAGE-REQUEST-LANE-REFILLS-BEFORE-MATERIALIZATION` fail. Another
+control queues two
 independently verified partition results behind the commit coordinator and
 requires exactly one buffered database batch; replacing it with a synchronous
 write or reducing the storage cursor batch limit to one makes that positive

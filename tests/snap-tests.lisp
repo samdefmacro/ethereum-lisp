@@ -1945,6 +1945,122 @@
       (is fast-reused-before-slow-release-p))))
 
 #+sbcl
+(deftest snap-global-storage-request-lane-refills-before-materialization
+  (:layer :integration :module :p2p)
+  (let* ((source-state (make-state-db))
+         (source-database (make-memory-key-value-database))
+         (target-database (make-memory-key-value-database))
+         (address
+           (address-from-hex
+            "0x0000000000000000000000000000000000000051"))
+         (account-hash
+           (ethereum-lisp.crypto:keccak-256 (address-bytes address)))
+         (lock (sb-thread:make-mutex :name "snap-test-storage-handoff"))
+         (changed
+           (sb-thread:make-waitqueue :name "snap-test-storage-handoff"))
+         (storage-calls 0)
+         (first-materialization-p t)
+         (refilled-before-materialization-p nil))
+    (loop for byte from 1 to 128
+          do (state-db-set-storage
+              source-state address
+              (make-hash32 (make-byte-vector 32 :initial-element byte))
+              (+ 8000 byte)))
+    (let* ((state-root (state-db-root source-state))
+           (storage-root (state-db-get-storage-root source-state address))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              source-database source-state))
+           (base-source (snap-test-source backend))
+           (source
+             (ethereum-lisp.snap-sync:make-snap-sync-source
+              :account-range
+              (ethereum-lisp.snap-sync:snap-sync-source-account-range
+               base-source)
+              :storage-ranges
+              (lambda (request)
+                (sb-thread:with-mutex (lock)
+                  (incf storage-calls)
+                  (sb-thread:condition-broadcast changed))
+                (funcall
+                 (ethereum-lisp.snap-sync:snap-sync-source-storage-ranges
+                  base-source)
+                 request))
+              :bytecodes
+              (ethereum-lisp.snap-sync:snap-sync-source-bytecodes base-source)
+              :trie-nodes
+              (ethereum-lisp.snap-sync:snap-sync-source-trie-nodes
+               base-source)))
+           (runtime
+             (ethereum-lisp.snap-sync::make-snap-sync-multi-runtime
+              nil 0 nil))
+           (materialize-name
+             'ethereum-lisp.snap-sync::snap-sync-materialize-verified-storage-page)
+           (real-materialize (fdefinition materialize-name))
+           (request-worker nil)
+           (materializer nil)
+           (failure nil))
+      (unwind-protect
+           (progn
+             (setf
+              (fdefinition materialize-name)
+              (lambda (verified)
+                (let ((wait-p nil))
+                  (sb-thread:with-mutex (lock)
+                    (when first-materialization-p
+                      (setf first-materialization-p nil
+                            wait-p t))
+                    (when wait-p
+                      ;; A combined request/materialization worker times out
+                      ;; here. The split request lane issues a second page while
+                      ;; this first authenticated trie is still unexpanded.
+                      (loop repeat 40
+                            while (< storage-calls 2)
+                            do (sb-thread:condition-wait
+                                changed lock :timeout 1/20))
+                      (setf refilled-before-materialization-p
+                            (>= storage-calls 2))))
+                  (funcall real-materialize verified)))
+              (ethereum-lisp.snap-sync::snap-sync-multi-runtime-storage-worker-count
+               runtime)
+              1
+              (ethereum-lisp.snap-sync::snap-sync-multi-runtime-storage-materializer-count
+               runtime)
+              1
+              materializer
+              (sb-thread:make-thread
+               (lambda ()
+                 (ethereum-lisp.snap-sync::snap-sync-multi-storage-materializer
+                  runtime target-database state-root))
+               :name "snap-test-storage-handoff-materializer")
+              request-worker
+              (sb-thread:make-thread
+               (lambda ()
+                 (ethereum-lisp.snap-sync::snap-sync-multi-storage-worker
+                  runtime target-database source state-root 350))
+               :name "snap-test-storage-handoff-request"))
+             (handler-case
+                 (ethereum-lisp.snap-sync::snap-sync-multi-fill-storage-root
+                  runtime target-database state-root account-hash storage-root)
+               (serious-condition (condition)
+                 (setf failure condition))))
+        (sb-thread:with-mutex
+            ((ethereum-lisp.snap-sync::snap-sync-multi-runtime-lock runtime))
+          (setf
+           (ethereum-lisp.snap-sync::snap-sync-multi-runtime-stopped-p runtime)
+           t)
+          (ethereum-lisp.snap-sync::snap-sync-multi-notify runtime))
+        (when request-worker (sb-thread:join-thread request-worker))
+        (when materializer (sb-thread:join-thread materializer))
+        (setf (fdefinition materialize-name) real-materialize))
+      (is (null failure))
+      (is refilled-before-materialization-p)
+      (is (>= storage-calls 2))
+      (is
+       (ethereum-lisp.snap-sync::snap-sync-storage-range-tasks-completed-p
+        target-database state-root account-hash storage-root)))))
+
+#+sbcl
 (deftest snap-global-storage-lanes-rotate-across-large-roots
   (:layer :integration :module :p2p)
   (let* ((source-state (make-state-db))
@@ -2061,9 +2177,19 @@
                 sources
                 (ethereum-lisp.snap-sync::snap-sync-multi-runtime-storage-worker-count
                  runtime)
+                (length sources)
+                (ethereum-lisp.snap-sync::snap-sync-multi-runtime-storage-materializer-count
+                 runtime)
                 (length sources)))
              (dolist (source sources)
                (let ((worker-source source))
+                 (push
+                  (sb-thread:make-thread
+                   (lambda ()
+                     (ethereum-lisp.snap-sync::snap-sync-multi-storage-materializer
+                      runtime target-database state-root))
+                   :name "snap-test-global-storage-materializer")
+                  workers)
                  (push
                   (sb-thread:make-thread
                    (lambda ()
@@ -2326,6 +2452,7 @@
               nil 0 nil))
            (failing-worker nil)
            (healthy-worker nil)
+           (materializer nil)
            (caller nil))
       (unwind-protect
            (progn
@@ -2335,7 +2462,16 @@
              (setf
               (ethereum-lisp.snap-sync::snap-sync-multi-runtime-storage-worker-count
                runtime)
-              2)
+              2
+              (ethereum-lisp.snap-sync::snap-sync-multi-runtime-storage-materializer-count
+               runtime)
+              1
+              materializer
+              (sb-thread:make-thread
+               (lambda ()
+                 (ethereum-lisp.snap-sync::snap-sync-multi-storage-materializer
+                  runtime target-database state-root))
+               :name "snap-test-storage-failover-materializer"))
              (setf
               failing-worker
               (sb-thread:make-thread
@@ -2376,7 +2512,8 @@
           (ethereum-lisp.snap-sync::snap-sync-multi-notify runtime))
         (when caller (ignore-errors (sb-thread:join-thread caller)))
         (when failing-worker (sb-thread:join-thread failing-worker))
-        (when healthy-worker (sb-thread:join-thread healthy-worker)))
+        (when healthy-worker (sb-thread:join-thread healthy-worker))
+        (when materializer (sb-thread:join-thread materializer)))
       (is (= 1 failed-calls))
       (is (plusp healthy-calls))
       (is (null caller-condition))
@@ -2411,6 +2548,7 @@
              (ethereum-lisp.snap-sync::make-snap-sync-multi-runtime
               nil 0 nil))
            (worker nil)
+           (materializer nil)
            (failure nil))
       ;; Initialize the durable cursors before arming the failure so the
       ;; injected generic database error occurs only after a verified page.
@@ -2423,6 +2561,15 @@
        (ethereum-lisp.snap-sync::snap-sync-multi-runtime-storage-worker-count
         runtime)
        1
+       (ethereum-lisp.snap-sync::snap-sync-multi-runtime-storage-materializer-count
+        runtime)
+       1
+       materializer
+       (sb-thread:make-thread
+        (lambda ()
+          (ethereum-lisp.snap-sync::snap-sync-multi-storage-materializer
+           runtime target-database state-root))
+        :name "snap-test-storage-local-commit-materializer")
        worker
        (sb-thread:make-thread
         (lambda ()
@@ -2444,7 +2591,8 @@
            (ethereum-lisp.snap-sync::snap-sync-multi-runtime-stopped-p runtime)
            t)
           (ethereum-lisp.snap-sync::snap-sync-multi-notify runtime))
-        (when worker (sb-thread:join-thread worker)))
+        (when worker (sb-thread:join-thread worker))
+        (when materializer (sb-thread:join-thread materializer)))
       (is failure)
       (when failure
         (is (search "Simulated snap buffered batch failure"

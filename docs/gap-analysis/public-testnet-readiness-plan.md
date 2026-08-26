@@ -301,12 +301,15 @@ The implementation boundary is split deliberately:
   response and avoids an explicit origin-zero replay that public hash-scheme
   peers may reject. New peers name at most `capacity / 1024` storage accounts
   while their request budget adapts from 64 KiB to 512 KiB. One fixed
-  StorageRanges worker per live source drains an import-wide rotating queue of
-  open large-root partitions. A lone root can use all of its adaptive chunks;
-  rotating after each claim lets other account tasks use idle lanes, matching
-  geth v1.17.4's global `assignStorageTasks` behavior without creating one
-  all-peer scheduler per account page. Verified partition responses queue at
-  one commit coordinator; responses arriving during a write are folded, up to
+  StorageRanges request lane and one local materializer per live source drain
+  an import-wide rotating queue of open large-root partitions. Their bounded
+  handoff retains at most thirty-two authenticated pages, so a request lane can
+  refill a released peer while trie expansion proceeds without creating one
+  all-peer scheduler per account page or an unbounded response backlog. A lone
+  root can use all of its adaptive chunks; rotating after each claim lets other
+  account tasks use idle lanes, matching geth v1.17.4's global
+  `assignStorageTasks` behavior. Materialized partition responses queue at one
+  commit coordinator; responses arriving during a write are folded, up to
   sixteen at a time, into the next atomic buffered node/proof/cursor WAL batch.
   The owning account cursor remains behind until every storage job completes;
   its later synchronous batch flushes the preceding WAL prefix, so a crash
