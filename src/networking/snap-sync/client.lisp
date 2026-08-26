@@ -1017,12 +1017,10 @@ response before retrying the same immutable request elsewhere."
 
 Geth returns a prefix of the requested accounts.  All groups preceding a
 proof are complete tries and are persisted eagerly.  The final proved group
-was byte-capped: its authenticated prefix is persisted too, while the remaining
-trie is deferred to the content-addressed TrieNodes healing phase.  Completing
-a large storage trie here can outlive a public peer's retained pivot and would
-force the otherwise verified account page to be retried from its durable
-cursor.  Healing reuses every node already on disk and must still reconstruct
-the exact authorized state root before completion."
+was byte-capped: its authenticated prefix is persisted too and returned as an
+open commitment.  The production account-task boundary immediately completes
+that commitment through restart-safe partitioned StorageRanges before its
+account cursor advances; final healing remains the closure oracle."
   (let ((remaining commitments)
         (deferred '()))
     (loop while remaining
@@ -2112,7 +2110,7 @@ again."
    :deferred-storage-function
    (lambda (commitments)
      (snap-sync-complete-deferred-storage-roots
-      database source state-root commitments byte-limit))))
+      database (list source) state-root commitments byte-limit))))
 
 (defun snap-sync-replace-task (tasks index replacement)
   (loop for task in tasks
@@ -4475,19 +4473,20 @@ caller safely falls back to TrieNodes healing with authenticated pages retained.
           (error 'snap-sync-heal-yielded))))))
 
 (defun snap-sync-complete-deferred-storage-roots
-    (database source state-root commitments byte-limit)
+    (database sources state-root commitments byte-limit &key source-provider)
   "Finish COMMITMENTS before their owning account page may advance.
 
-The caller is one of the bounded import-wide dependency workers. SOURCE may be
-account-pinned, but its StorageRanges function is backed by the independent
-live peer pool, so these serial root schedulers still keep many storage request
-slots busy without spawning one all-peer worker set per account page. Durable
-partition cursors make any failed page retry resume rather than replay."
+The multi-source caller serializes large roots at the import boundary and gives
+each root every current StorageRanges source. Its sixteen partition workers
+therefore match geth's large-contract priority without spawning one all-peer
+worker set per account page. Durable partition cursors make any failed page
+retry resume rather than replay."
   (dolist (commitment commitments commitments)
     (unless
         (snap-sync-fill-storage-root
-         database (list source) state-root (car commitment) (cdr commitment)
-         (min byte-limit +snap-sync-storage-request-bytes+))
+         database sources state-root (car commitment) (cdr commitment)
+         (min byte-limit +snap-sync-storage-request-bytes+)
+         :source-provider source-provider)
       (snap-sync-state-unavailable "storage-range"))))
 
 (defun snap-sync-fill-deferred-storage
@@ -5889,6 +5888,13 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
   (code-inflight (make-hash-table :test #'equalp))
   (code-write-lock
     (sb-thread:make-mutex :name "snap-sync-code-publish"))
+  ;; Match geth's storage-task priority without multiplying the peer count by
+  ;; every account page. Exactly one large storage root owns the import-wide
+  ;; StorageRanges lanes at a time; its sixteen durable partitions may use all
+  ;; current sources concurrently.
+  (storage-root-lock
+    (sb-thread:make-mutex :name "snap-sync-large-storage-root"))
+  (storage-sources '())
   (code-jobs '())
   (code-worker-count 0)
   (dependency-jobs '())
@@ -6001,6 +6007,15 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
       (setf (gethash source (snap-sync-multi-runtime-failed-sources runtime)) t)
       (snap-sync-multi-notify runtime)
       t)))
+
+#+sbcl
+(defun snap-sync-multi-current-storage-sources (runtime)
+  "Return the live import sources eligible for one large storage root."
+  (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
+    (loop for source in (snap-sync-multi-runtime-storage-sources runtime)
+          unless (gethash source
+                          (snap-sync-multi-runtime-failed-sources runtime))
+            collect source)))
 
 #+sbcl
 (defun snap-sync-multi-worker
@@ -6272,8 +6287,20 @@ range-derived subtree proofs."
                   byte-limit))
                :deferred-storage-function
                (lambda (commitments)
-                 (snap-sync-complete-deferred-storage-roots
-                  database source state-root commitments byte-limit)))))
+                 ;; Geth gives an open large contract priority across every
+                 ;; idle StorageRanges peer. Serialize large roots globally,
+                 ;; then let their sixteen restart-safe partitions occupy the
+                 ;; current source set instead of leaving the account page on
+                 ;; the one logical source which happened to fetch its range.
+                 (sb-thread:with-mutex
+                     ((snap-sync-multi-runtime-storage-root-lock runtime))
+                   (snap-sync-complete-deferred-storage-roots
+                    database
+                    (snap-sync-multi-current-storage-sources runtime)
+                    state-root commitments byte-limit
+                    :source-provider
+                    (lambda ()
+                      (snap-sync-multi-current-storage-sources runtime))))))))
           (serious-condition (condition)
             (snap-sync-multi-push-event
              runtime
@@ -6427,6 +6454,9 @@ those cursors. HEAL-YIELD-P is forwarded to final healing."
          (start-worker (source)
            (sb-thread:with-mutex
                ((snap-sync-multi-runtime-lock runtime))
+             (pushnew
+              source (snap-sync-multi-runtime-storage-sources runtime)
+              :test #'eq)
              (incf (snap-sync-multi-runtime-source-count runtime))
              (snap-sync-multi-notify runtime))
            (handler-case

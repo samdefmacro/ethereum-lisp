@@ -1163,6 +1163,16 @@
             "0x0000000000000000000000000000000000000043"))
          (account-hash
            (ethereum-lisp.crypto:keccak-256 (address-bytes address)))
+         (storage-lock
+           (sb-thread:make-mutex :name "snap-test-account-storage-lanes"))
+         (storage-changed
+           (sb-thread:make-waitqueue :name "snap-test-account-storage-lanes"))
+         (partition-active 0)
+         (partition-max-active 0)
+         (partition-starts 0)
+         (deferred-call-count 0)
+         (deferred-call-max-source-count 0)
+         (deferred-call-saw-source-provider-p nil)
          (storage-calls 0)
          (trie-node-requests 0)
          (heal-progress-events '())
@@ -1180,26 +1190,52 @@
              (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
               source-database source-state))
            (base-source (snap-test-source backend))
+           (storage-range-function
+             (lambda (request)
+               (let ((partition-p
+                       (plusp
+                        (length
+                         (ethereum-lisp.snap:snap-get-storage-ranges-origin
+                          request)))))
+                 (sb-thread:with-mutex (storage-lock)
+                   (incf storage-calls)
+                   (when partition-p
+                     (incf partition-active)
+                     (setf partition-max-active
+                           (max partition-max-active partition-active))
+                     (when (< partition-starts 2)
+                       (incf partition-starts)
+                       (sb-thread:condition-broadcast storage-changed))
+                     ;; The first partition waits for a second production lane.
+                     ;; The separate call-site observer below distinguishes
+                     ;; this import-wide phase from later multi-source work.
+                     (loop repeat 20
+                           while (< partition-starts 2)
+                           do (sb-thread:condition-wait
+                               storage-changed storage-lock :timeout 1/10))))
+                 (unwind-protect
+                      (let ((response
+                              (snap-test-call-backend
+                               backend
+                               ethereum-lisp.snap:+snap-message-get-storage-ranges+
+                               request)))
+                        (sb-thread:with-mutex (storage-lock)
+                          (setf saw-byte-capped-storage-p
+                                (or saw-byte-capped-storage-p
+                                    (not
+                                     (null
+                                      (ethereum-lisp.snap:snap-storage-ranges-proof
+                                       response))))))
+                        response)
+                   (when partition-p
+                     (sb-thread:with-mutex (storage-lock)
+                       (decf partition-active)))))))
            (source
              (ethereum-lisp.snap-sync:make-snap-sync-source
               :account-range
               (ethereum-lisp.snap-sync:snap-sync-source-account-range
                base-source)
-              :storage-ranges
-              (lambda (request)
-                (incf storage-calls)
-                (let ((response
-                        (snap-test-call-backend
-                         backend
-                         ethereum-lisp.snap:+snap-message-get-storage-ranges+
-                         request)))
-                  (setf saw-byte-capped-storage-p
-                        (or saw-byte-capped-storage-p
-                            (not
-                             (null
-                              (ethereum-lisp.snap:snap-storage-ranges-proof
-                               response)))))
-                  response))
+              :storage-ranges storage-range-function
               :bytecodes
               (ethereum-lisp.snap-sync:snap-sync-source-bytecodes base-source)
               :trie-nodes
@@ -1214,29 +1250,68 @@
                  (ethereum-lisp.snap-sync:snap-sync-source-trie-nodes
                   base-source)
                  request))))
+           (source-two
+             (ethereum-lisp.snap-sync:make-snap-sync-source
+              :account-range
+              (ethereum-lisp.snap-sync:snap-sync-source-account-range
+               base-source)
+              :storage-ranges storage-range-function
+              :bytecodes
+              (ethereum-lisp.snap-sync:snap-sync-source-bytecodes base-source)
+              :trie-nodes
+              (ethereum-lisp.snap-sync:snap-sync-source-trie-nodes
+               base-source)))
            (progress
-             (let ((ethereum-lisp.snap-sync::*snap-sync-heal-progress-node-interval*
-                     1))
-               (ethereum-lisp.snap-sync:snap-sync-import-state-multi
-                target-database (list source)
-                :pivot-hash (make-hash32 (snap-test-hash 124))
-                :pivot-number 42 :state-root root
-                :target-hash (make-hash32 (snap-test-hash 125))
-                :chain-id 560048
-                :genesis-hash (make-hash32 (snap-test-hash 126))
-                :authority-id (make-hash32 (snap-test-hash 127))
-                :byte-limit 350
-                :on-progress
-                (lambda (range-progress progress-source task-index)
-                  (declare (ignore range-progress progress-source task-index))
-                  (setf storage-ready-before-account-cursor-p
-                        (ethereum-lisp.snap-sync::snap-sync-storage-range-tasks-completed-p
-                         target-database root account-hash storage-root)))
-                :on-heal-progress
-                (lambda (heal-progress)
-                  (push heal-progress heal-progress-events))))))
+             (let* ((symbol
+                      'ethereum-lisp.snap-sync::snap-sync-complete-deferred-storage-roots)
+                    (original (symbol-function symbol)))
+               (unwind-protect
+                    (progn
+                      ;; Observe the shipped multi-import call site, not a
+                      ;; private reconstruction of its scheduler wiring.
+                      (setf
+                       (symbol-function symbol)
+                       (lambda (&rest arguments)
+                         (sb-thread:with-mutex (storage-lock)
+                           (incf deferred-call-count)
+                           (setf deferred-call-max-source-count
+                                 (max deferred-call-max-source-count
+                                      (length (second arguments)))
+                                 deferred-call-saw-source-provider-p
+                                 (or deferred-call-saw-source-provider-p
+                                     (not
+                                      (null
+                                       (getf (nthcdr 5 arguments)
+                                             :source-provider))))))
+                         (apply original arguments)))
+                      (let ((ethereum-lisp.snap-sync::*snap-sync-heal-progress-node-interval*
+                              1))
+                        (ethereum-lisp.snap-sync:snap-sync-import-state-multi
+                         target-database (list source source-two)
+                         :pivot-hash (make-hash32 (snap-test-hash 124))
+                         :pivot-number 42 :state-root root
+                         :target-hash (make-hash32 (snap-test-hash 125))
+                         :chain-id 560048
+                         :genesis-hash (make-hash32 (snap-test-hash 126))
+                         :authority-id (make-hash32 (snap-test-hash 127))
+                         :byte-limit 350
+                         :on-progress
+                         (lambda (range-progress progress-source task-index)
+                           (declare
+                            (ignore range-progress progress-source task-index))
+                           (setf storage-ready-before-account-cursor-p
+                                 (ethereum-lisp.snap-sync::snap-sync-storage-range-tasks-completed-p
+                                  target-database root account-hash storage-root)))
+                         :on-heal-progress
+                         (lambda (heal-progress)
+                           (push heal-progress heal-progress-events)))))
+                 (setf (symbol-function symbol) original)))))
       (is saw-byte-capped-storage-p)
       (is (> storage-calls 1))
+      (is (plusp deferred-call-count))
+      (is (>= deferred-call-max-source-count 2))
+      (is deferred-call-saw-source-provider-p)
+      (is (= 2 partition-max-active))
       (is storage-ready-before-account-cursor-p)
       ;; Sixteen restart-safe StorageRanges partitions retain all authenticated
       ;; nodes before the cursor. The final closure walk should need only a
@@ -2518,11 +2593,20 @@
                  (is (not
                       (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
                        progress)))
-                 (is (= 1
-                        (count-if
-                         #'ethereum-lisp.snap-sync:snap-sync-account-task-completed-p
-                         (ethereum-lisp.snap-sync:snap-sync-progress-tasks
-                          progress)))))))
+                 ;; The coordinator durably commits the contiguous result
+                 ;; prefix already queued when it observes the first event.
+                 ;; Concurrent range/dependency workers may therefore publish
+                 ;; more than one cursor at this boundary, but never zero or a
+                 ;; falsely complete pivot.
+                 (let* ((tasks
+                          (ethereum-lisp.snap-sync:snap-sync-progress-tasks
+                           progress))
+                        (completed
+                          (count-if
+                           #'ethereum-lisp.snap-sync:snap-sync-account-task-completed-p
+                           tasks)))
+                   (is (plusp completed))
+                   (is (< completed (length tasks)))))))
         (setf (fdefinition release-name) real-release)))))
 
 (deftest snap-state-healing-reports-a-typed-source-generation-exhaustion

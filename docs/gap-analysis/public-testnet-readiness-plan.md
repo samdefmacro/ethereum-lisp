@@ -294,8 +294,10 @@ The implementation boundary is split deliberately:
   persists the authenticated prefix of a byte-capped storage response, then
   immediately finishes that large trie through sixteen restart-safe,
   512 KiB-capped StorageRanges partitions before the owning account cursor can
-  advance. Each page publishes reusable four-nibble coarse
-  and five-nibble nested storage-subtree proofs with its durable cursor. Legacy
+  advance. One large root at a time receives the import-wide live storage pool,
+  matching geth's priority for open storage subtasks without creating one
+  all-peer scheduler per account page. Each page publishes reusable four-nibble
+  coarse and five-nibble nested storage-subtree proofs with its durable cursor. Legacy
   completed cursors remain range-coverage evidence only: their short-lived
   root-shaped proof is retired, and final healing must establish descendant
   closure before publishing the separate whole-root proof.
@@ -329,8 +331,11 @@ The implementation boundary is split deliberately:
   and retain their exact suffix in the same bounded delivery window.
 - Snap bootstrap persists only pivot-through-target bodies (at most 65), then
   atomically installs the verified state pivot as a sparse checkpoint anchored
-  by the Engine target. The target stays noncanonical while its at-most-64-block
-  tail executes and until an ordinary forkchoiceUpdated publishes it.
+  by the Engine target. The full ETH peer pool resolves that target and tail;
+  SNAP capability is required only for the subsequent state-root probe and
+  download, matching the reference downloader's separation of header and state
+  peers. The target stays noncanonical while its at-most-64-block tail executes
+  and until an ordinary forkchoiceUpdated publishes it.
 - `src/foundation/rlp.lisp`, the protocol decoders, and the eth/snap session
   boundary reject oversized lists and out-of-range message IDs before creating
   unbounded values. eth/72 custody is a 16-byte little-endian bitmap, Cells uses

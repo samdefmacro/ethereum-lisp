@@ -138,8 +138,13 @@ them by their physical location instead reintroduces dependency cycles:
   `snap/1` is advertised only when both the verified client and the serving
   backend are installed. The public direct RocksDB provider supplies that
   backend; memory/file stores remain test oracles and do not claim production
-  snap service. A CL-authorized pivot binds the state download to target hash,
-  chain, genesis, and database authority. Fresh imports split the account
+  snap service. The full live ETH pool resolves the CL-authorized target and
+  its bounded header tail; only the later state-root availability probe is
+  restricted to SNAP-capable peers. A scarce or trailing SNAP pool therefore
+  cannot hide a target already available from ordinary ETH peers, while an ETH-
+  only header source can never become a state source. A CL-authorized pivot
+  binds the state download to target hash, chain, genesis, and database
+  authority. Fresh imports split the account
   keyspace into sixty-four durable ranges. One AccountRange dispatcher uses
   each available snap peer and hands its verified pages to a bounded global
   dependency queue. The session thread remains the only RLPx writer, but it
@@ -178,9 +183,15 @@ them by their physical location instead reintroduces dependency cycles:
   public-node limit; each assignment still considers only idle sessions,
   chooses the largest learned item capacity, and uses measured RTT to break
   ties. This matches geth's central capacity-sorted assignment without
-  multiplying worker count by the number of account pages. The response
-  verifier runs while the actual storage/bytecode peer reservation is still
-  held, then releases that peer
+  multiplying worker count by the number of account pages. A byte-capped large
+  storage root receives the same priority geth gives its storage subtasks:
+  exactly one such root at a time owns up to sixteen import-wide
+  StorageRanges lanes across the current source set. Other account dependency
+  workers wait at that root boundary instead of each spawning an all-peer
+  scheduler, so the account cursor stops waiting on one accidental range peer
+  without multiplying live requests or threads by the number of pages. The
+  response verifier runs while the actual storage/bytecode peer reservation is
+  still held, then releases that peer
   before any local WAL write. Empty, unrequested, malformed, or invalid-proof
   responses are therefore charged to the transport that supplied them instead
   of the unrelated AccountRange peer whose page discovered the dependency. An

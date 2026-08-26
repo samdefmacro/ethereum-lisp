@@ -485,12 +485,19 @@ high-throughput collapsed pool remains on its exact authenticated frontier.
 The range tests prove that sixty-four durable account ranges feed one AccountRange
 dispatcher per source and a bounded global dependency scheduler, while three
 sole-writer request queues overlap independent response types with geth's
-adaptive 64--512 KiB snap byte limits. The source-pool controls prove that
+adaptive 64--512 KiB snap byte limits. A production-call-site control forces
+the first large-storage partition to wait for a second lane and proves that one
+account page actually gives its sixteen durable partitions both the import-wide
+source set and a live source provider; restoring the old account-pinned call
+makes that exact source-count witness fail. The source-pool controls prove that
 learned capacity wins an idle tie, bytecode reservations remain independent of
 storage load, an ordinary failed dependency peer enters cooldown while the same
 request succeeds elsewhere, and a generation with only cooled but otherwise
 live transports waits until one is eligible instead of returning an empty
-source set. The positive empty-pool control still returns immediately. An
+source set. A separate production-boundary control resolves the CL target from
+the full live ETH pool and leaves the later pivot-state probe SNAP-only;
+restoring the old target resolver's SNAP filter makes its positive ETH-source
+witness fail. The positive empty-pool control still returns immediately. An
 explicit state-unavailable response cannot
 be readmitted by expiring that cooldown or be misattributed to the unrelated
 account-page source. ByteCodes and StorageRanges integration controls return an

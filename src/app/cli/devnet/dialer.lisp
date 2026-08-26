@@ -557,10 +557,15 @@ into a permanent peer ban."))
     (values (first headers) (car (last headers)) (reverse headers))))
 
 (defun devnet-node-resolve-snap-target (node target-hash)
-  "Resolve a CL target through the first valid live snap peer, with failover."
-  (dolist (entry (devnet-node-live-sync-entries node :snap-only-p t)
+  "Resolve a CL target through the first valid live ETH peer, with failover.
+
+Target headers and their bounded ancestry are ETH work. The later pivot probe
+still selects only SNAP-capable peers, so a scarce or temporarily trailing SNAP
+pool cannot prevent a wider ETH pool from resolving the consensus-authorized
+target."
+  (dolist (entry (devnet-node-live-sync-entries node)
                  (eth-sync-multi-peer-fail
-                  "no snap peer could resolve consensus target ~A"
+                  "no ETH peer could resolve consensus target ~A"
                   (hash32-to-hex target-hash)))
     (handler-case
         (multiple-value-bind (target pivot tail)

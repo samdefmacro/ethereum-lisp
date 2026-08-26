@@ -2696,6 +2696,45 @@ really reopens the directory instead of observing the first handle's memory."
                        :format-arguments nil))
       (is (= -50 (ethereum-lisp.cli::devnet-peer-score table peer-id))))))
 
+(deftest devnet-snap-target-resolution-uses-the-live-eth-pool
+  (:layer :integration :module :p2p)
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (entry
+           (ethereum-lisp.cli::make-devnet-peer-entry
+            :id-hex "eth-header-source" :peer :peer :request-queue :queue))
+         (target-hash
+           (make-hash32 (make-byte-vector 32 :initial-element 8)))
+         (snap-only-observations '())
+         (resolve-calls 0))
+    (devnet-peer-sync-call-with-function-overrides
+     (list
+      (cons 'ethereum-lisp.cli::devnet-node-live-sync-entries
+            (lambda (callback-node &key snap-only-p)
+              (declare (ignore callback-node))
+              (push snap-only-p snap-only-observations)
+              (list entry)))
+      (cons 'ethereum-lisp.cli::devnet-peer-resolve-snap-target
+            (lambda (callback-entry callback-target)
+              (is (eq entry callback-entry))
+              (is (hash32= target-hash callback-target))
+              (incf resolve-calls)
+              (values :target-header :pivot-header '(:tail-header)))))
+     (lambda ()
+       (multiple-value-bind (resolved target pivot tail)
+           (ethereum-lisp.cli::devnet-node-resolve-snap-target
+            node target-hash)
+         (is (eq entry resolved))
+         (is (eq :target-header target))
+         (is (eq :pivot-header pivot))
+         (is (equal '(:tail-header) tail)))))
+    ;; Positive witnesses: one real resolver pass reached the injected ETH
+    ;; source, and the production live-entry query did not ask for SNAP-only.
+    (is (= 1 resolve-calls))
+    (is (equal '(nil) snap-only-observations))))
+
 (deftest devnet-snap-pivot-does-not-fall-forward-to-an-unstable-root
   (:layer :integration :module :p2p)
   (let* ((node
