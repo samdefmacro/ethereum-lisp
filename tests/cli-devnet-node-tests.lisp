@@ -4736,7 +4736,7 @@ loop cannot block on a message that never comes."
   #-sbcl
   (is t))
 
-(deftest devnet-snap-source-pool-validates-storage-before-peer-release
+(deftest devnet-snap-source-pool-validates-storage-before-release-and-materializes-after
   (:layer :integration :module :p2p)
   #+sbcl
   (let* ((node
@@ -4800,7 +4800,11 @@ loop cannot block on a message that never comes."
                    response-id encoded)))
               :bytecodes (lambda (request) request)
               :trie-nodes (lambda (request) request)))
-           (pooled-source nil))
+           (pooled-source nil)
+           (materialized-after-release-p nil)
+           (materialize-name
+             'ethereum-lisp.snap-sync::snap-sync-populate-verified-storage-group)
+           (real-materialize (fdefinition materialize-name)))
       (devnet-peer-sync-call-with-function-overrides
        (list
         (cons 'ethereum-lisp.cli::devnet-node-live-sync-entries
@@ -4813,7 +4817,22 @@ loop cannot block on a message that never comes."
                 (cond
                   ((eq entry entry-one) invalid-source)
                   ((eq entry entry-two) valid-source)
-                  (t (error "Unexpected source-pool entry"))))))
+                  (t (error "Unexpected source-pool entry")))))
+        (cons materialize-name
+              (lambda (database batch root group)
+                ;; Both the rejected peer and the successful retry must have
+                ;; released their StorageRanges reservation before authenticated
+                ;; trie records and subtree metadata are materialized locally.
+                (dolist (entry (list entry-one entry-two))
+                  (is
+                   (zerop
+                    (gethash
+                     ethereum-lisp.snap:+snap-message-storage-ranges+
+                     (ethereum-lisp.cli::
+                      devnet-snap-source-pool-reservation-table pool entry)
+                     0))))
+                (setf materialized-after-release-p t)
+                (funcall real-materialize database batch root group))))
        (lambda ()
          (setf pooled-source
                (ethereum-lisp.cli::devnet-snap-source-pool-source
@@ -4828,6 +4847,7 @@ loop cannot block on a message that never comes."
            (is (null open-commitment)))
          (is (= 1 invalid-calls))
          (is (= 1 valid-calls))
+         (is materialized-after-release-p)
          (is
           (gethash
            entry-one

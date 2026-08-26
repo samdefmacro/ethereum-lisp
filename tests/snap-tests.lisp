@@ -1765,7 +1765,7 @@
             references)))))))
 
 #+sbcl
-(deftest snap-large-storage-range-verifies-before-source-release
+(deftest snap-large-storage-range-verifies-before-source-release-and-materializes-after
   (:layer :integration :module :p2p)
   (let* ((source-state (make-state-db))
          (source-database (make-memory-key-value-database))
@@ -1812,10 +1812,13 @@
                           request))))
                   ;; This assignment occurs before the callback returns, which
                   ;; is the source-pool reservation boundary in production.
+                  ;; Only the authenticated carrier may exist here; expanding
+                  ;; it into trie records and subtree metadata happens after
+                  ;; this callback returns the peer to the idle pool.
                   (setf verified-before-release-p
                         (typep
                          result
-                         'ethereum-lisp.snap-sync::snap-sync-storage-page-result))
+                         'ethereum-lisp.snap-sync::snap-sync-verified-storage-page))
                   result))
               :bytecodes
               (ethereum-lisp.snap-sync:snap-sync-source-bytecodes base-source)

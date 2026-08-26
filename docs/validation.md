@@ -528,7 +528,14 @@ be readmitted by expiring that cooldown or be misattributed to the unrelated
 account-page source. ByteCodes and StorageRanges integration controls return an
 invalid but transport-successful response from the first peer, require client
 verification to retire that exact peer before its reservation is released, and
-then complete the unchanged dependency request through a second peer. Concurrent
+then complete the unchanged dependency request through a second peer. The
+small- and partitioned-storage timing controls additionally require proof
+verification to produce only an authenticated carrier while reserved, release
+the actual StorageRanges slot, and materialize records/subtree metadata
+afterward. Moving large-storage materialization back into the verified callback
+makes
+`SNAP-LARGE-STORAGE-RANGE-VERIFIES-BEFORE-SOURCE-RELEASE-AND-MATERIALIZES-AFTER`
+fail. Concurrent
 rejection writers retain every stable peer id.
 The discv4 unit controls retain only UDP-bonded public routing seeds, the CLI
 seed merge always retains configured bootnodes while bounding process-local

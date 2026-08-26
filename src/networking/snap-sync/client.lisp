@@ -899,77 +899,100 @@ observational and not consensus-visible."
               groups (nconc groups depth-groups))))
     (values subtrees groups)))
 
-(defun snap-sync-populate-complete-storage-group
-    (database batch storage-root slots)
-  "Verify one complete storage group and add its trie nodes to BATCH."
+(defstruct (snap-sync-verified-storage-group
+            (:constructor make-snap-sync-verified-storage-group
+                (&key commitment entries proof trie partial-p)))
+  "One proof-verified StorageRanges group awaiting local materialization."
+  commitment
+  entries
+  proof
+  trie
+  partial-p)
+
+(defun snap-sync-verify-complete-storage-group (commitment slots)
+  "Verify one complete storage group while its answering peer is reserved."
   (let ((entries (snap-sync-storage-entries slots)))
     (when (null entries)
       (error "Snap peer returned an empty group for a non-empty storage root"))
     (multiple-value-bind (verified-p trie)
         (mpt-verify-range-proof
-         storage-root entries nil :start (make-byte-vector 32))
+         (cdr commitment) entries nil :start (make-byte-vector 32))
       (declare (ignore verified-p))
       (unless trie
         (error "Complete snap storage group did not reconstruct its trie"))
-      (let ((records (mpt-dirty-node-records trie)))
-        (snap-sync-populate-verified-trie-records-batch
-         database batch records)
-        ;; A previous byte-capped attempt may have marked the same content as
-        ;; open.  This complete root proof supersedes those durable negatives.
-        (snap-sync-delete-incomplete-records-batch
-         batch (mapcar #'car records))
-        ;; Storage leaves have no external code or trie dependencies. Once a
-        ;; response reconstructs the complete authenticated root, publish the
-        ;; root itself as geth's exact hash-presence shortcut. A later moving
-        ;; pivot can then skip the whole unchanged storage trie before reading
-        ;; any descendant.
-        (snap-sync-populate-healed-subtree-batch
-         batch (hash32-bytes storage-root) :storage-root)))))
+      (make-snap-sync-verified-storage-group
+       :commitment commitment :entries entries :trie trie :partial-p nil))))
 
-(defun snap-sync-populate-partial-storage-group
-    (database batch state-root account-hash storage-root slots proof)
-  "Verify one byte-capped storage prefix and retain every authenticated node.
-
-The range remains deferred because this response does not prove that the
-storage trie is complete.  Persisting its reconstructed interior and compact
-edge proof is nevertheless safe: every record is content-addressed and the
-range proof authenticates it against STORAGE-ROOT.  Final healing can then
-reuse this work instead of downloading the same prefix again."
+(defun snap-sync-verify-partial-storage-group (commitment slots proof)
+  "Verify one byte-capped storage prefix while its peer is reserved."
   (let ((entries (snap-sync-storage-entries slots)))
     (when (null entries)
       (error "Snap peer returned an empty byte-capped storage group"))
     (multiple-value-bind (verified-p trie)
         (mpt-verify-range-proof
-         storage-root entries proof :start (make-byte-vector 32))
+         (cdr commitment) entries proof :start (make-byte-vector 32))
       (declare (ignore verified-p))
       (unless trie
         (error "Byte-capped snap storage group did not reconstruct its range"))
-      (let* ((last-key (caar (last entries)))
-             (records (snap-sync-verified-account-records trie proof))
-             (groups
-               (nth-value
-                1
-                (snap-sync-proved-range-subtrees
-                 trie (make-byte-vector 32) last-key)))
-             (complete-references
-               (loop for group in groups append (third group)))
-             (incomplete
-               (snap-sync-incomplete-record-hashes
-                records complete-references)))
-        (snap-sync-populate-verified-trie-records-batch
-         database batch records)
-        (snap-sync-delete-incomplete-records-batch
-         batch complete-references)
-        (snap-sync-populate-incomplete-records-batch batch incomplete)
-        ;; Geth turns this exact nil-bound response into the first large
-        ;; storage subtask and continues after its last authenticated slot.
-        ;; Persist the same cursor in the content batch. Re-requesting the
-        ;; prefix from zero with explicit Origin/Limit is both redundant and
-        ;; unavailable on hash-scheme peers which retained the snapshot but no
-        ;; longer retain the historical trie proof for that explicit range.
-        (snap-sync-seed-storage-tasks-batch
-         database batch state-root account-hash storage-root
-         (snap-sync-increment-hash last-key) last-key (length entries))))))
+      (make-snap-sync-verified-storage-group
+       :commitment commitment :entries entries :proof proof :trie trie
+       :partial-p t))))
+
+(defun snap-sync-populate-verified-storage-group
+    (database batch state-root group)
+  "Materialize proof-verified GROUP after releasing its answering peer.
+
+A partial range remains deferred because it does not prove that the storage
+trie is complete.  Persisting its reconstructed interior and compact edge
+proof is nevertheless safe: every record is content-addressed and the range
+proof authenticates it against STORAGE-ROOT.  Final healing can then reuse
+this work instead of downloading the same prefix again.  A complete group
+publishes its authenticated storage root immediately."
+  (let* ((commitment (snap-sync-verified-storage-group-commitment group))
+         (account-hash (car commitment))
+         (storage-root (cdr commitment))
+         (entries (snap-sync-verified-storage-group-entries group))
+         (proof (snap-sync-verified-storage-group-proof group))
+         (trie (snap-sync-verified-storage-group-trie group)))
+    (if (snap-sync-verified-storage-group-partial-p group)
+        (let* ((last-key (caar (last entries)))
+               (records (snap-sync-verified-account-records trie proof))
+               (groups
+                 (nth-value
+                  1
+                  (snap-sync-proved-range-subtrees
+                   trie (make-byte-vector 32) last-key)))
+               (complete-references
+                 (loop for group in groups append (third group)))
+               (incomplete
+                 (snap-sync-incomplete-record-hashes
+                  records complete-references)))
+          (snap-sync-populate-verified-trie-records-batch
+           database batch records)
+          (snap-sync-delete-incomplete-records-batch
+           batch complete-references)
+          (snap-sync-populate-incomplete-records-batch batch incomplete)
+          ;; Geth turns this exact nil-bound response into the first large
+          ;; storage subtask and continues after its last authenticated slot.
+          ;; Persist the same cursor in the content batch. Re-requesting the
+          ;; prefix from zero with explicit Origin/Limit is both redundant and
+          ;; unavailable on hash-scheme peers which retained the snapshot but no
+          ;; longer retain the historical trie proof for that explicit range.
+          (snap-sync-seed-storage-tasks-batch
+           database batch state-root account-hash storage-root
+           (snap-sync-increment-hash last-key) last-key (length entries)))
+        (let ((records (mpt-dirty-node-records trie)))
+          (snap-sync-populate-verified-trie-records-batch
+           database batch records)
+          ;; A previous byte-capped attempt may have marked the same content
+          ;; as open. This complete root proof supersedes those negatives.
+          (snap-sync-delete-incomplete-records-batch
+           batch (mapcar #'car records))
+          ;; Storage leaves have no external dependencies. Publish the whole
+          ;; root as geth's exact hash-presence shortcut.
+          (snap-sync-populate-healed-subtree-batch
+           batch (hash32-bytes storage-root) :storage-root))))
+  batch)
 
 (defun snap-sync-fetch-storage-commitment-request
     (database source state-root requested byte-limit)
@@ -996,25 +1019,24 @@ response before retrying the same immutable request elsewhere."
              (when (or (zerop received) (> received (length requested)))
                (error "Snap peer returned an invalid storage group count"))
              (let ((complete-count (if proof (1- received) received))
-                   (batch (make-kv-write-batch))
-                   (populated-p nil))
+                   (verified-groups '()))
                (loop for commitment in requested
                      for slots in groups
                      repeat complete-count
-                     do (snap-sync-populate-complete-storage-group
-                         database batch (cdr commitment) slots)
-                        (setf populated-p t))
+                     do (push
+                         (snap-sync-verify-complete-storage-group
+                          commitment slots)
+                         verified-groups))
                (when proof
                  (let ((commitment (nth (1- received) requested)))
-                   (snap-sync-populate-partial-storage-group
-                    database batch state-root
-                    (car commitment) (cdr commitment)
-                    (nth (1- received) groups) proof))
-                 (setf populated-p t))
+                   (push
+                    (snap-sync-verify-partial-storage-group
+                     commitment (nth (1- received) groups) proof)
+                    verified-groups)))
                (values received
                        (and proof (nth (1- received) requested))
-                       batch populated-p)))))
-      (multiple-value-bind (received open-commitment batch populated-p)
+                       (nreverse verified-groups))))))
+      (multiple-value-bind (received open-commitment verified-groups)
           (if (functionp (snap-sync-source-storage-ranges-verified source))
               (funcall
                (snap-sync-source-storage-ranges-verified source)
@@ -1023,11 +1045,18 @@ response before retrying the same immutable request elsewhere."
                (snap-sync-source-call
                 (snap-sync-source-storage-ranges source)
                 request "storage ranges")))
-        (when populated-p
-          ;; Release the peer after proof verification but before the local WAL
-          ;; write. The later synchronous cursor batch still durably flushes
-          ;; this buffered prefix before exposing its account page.
-          (kv-apply-batch-buffered database batch))
+        ;; Keep proof verification inside the exact peer reservation, but match
+        ;; geth by returning that peer to the idle StorageRanges pool before
+        ;; generating records, subtree metadata, and the WAL batch from the
+        ;; already authenticated tries.
+        (when verified-groups
+          (let ((batch (make-kv-write-batch)))
+            (dolist (group verified-groups)
+              (snap-sync-populate-verified-storage-group
+               database batch state-root group))
+            ;; The later synchronous account cursor flushes this prefix before
+            ;; exposing progress which depends on it.
+            (kv-apply-batch-buffered database batch)))
         (values received open-commitment)))))
 
 (defun snap-sync-fetch-storage-commitments-serial
@@ -1595,6 +1624,17 @@ publishes the account cursor."
   incomplete-node-hashes
   next-origin
   completed-p)
+
+(defstruct (snap-sync-verified-storage-page
+            (:constructor make-snap-sync-verified-storage-page
+                (&key task-index origin limit entries proof trie)))
+  "One authenticated large-storage page awaiting local trie materialization."
+  task-index
+  origin
+  limit
+  entries
+  proof
+  trie)
 
 (defun snap-sync-verified-account-records (trie proof)
   "Collect one verified account page's reconstructed and boundary nodes."
@@ -4196,6 +4236,47 @@ promoted immediately. Descendants are never read or revalidated."
   (loop for state-root in (snap-sync-deferred-storage-plan-roots database)
         sum (snap-sync-promote-complete-range-plan database state-root)))
 
+(defun snap-sync-materialize-verified-storage-page (verified)
+  "Build local records and subtree metadata for authenticated VERIFIED."
+  (let* ((task-index (snap-sync-verified-storage-page-task-index verified))
+         (origin (snap-sync-verified-storage-page-origin verified))
+         (limit (snap-sync-verified-storage-page-limit verified))
+         (entries (snap-sync-verified-storage-page-entries verified))
+         (proof (snap-sync-verified-storage-page-proof verified))
+         (trie (snap-sync-verified-storage-page-trie verified))
+         (last-wire (and entries (caar (last entries))))
+         (completed-p
+           (or (null entries)
+               (null proof)
+               (not
+                (ethereum-lisp.validation:byte-vector-lexicographic<
+                 last-wire limit))))
+         (next-origin
+           (and (not completed-p) last-wire
+                (snap-sync-increment-hash last-wire)))
+         (proved-end (if completed-p limit last-wire))
+         (records (snap-sync-verified-account-records trie proof))
+         (subtree-values
+           (if (and trie proved-end)
+               (multiple-value-list
+                (snap-sync-proved-range-subtrees trie origin proved-end))
+               (list nil nil)))
+         (healed-subtrees (mapcar #'cdr (first subtree-values)))
+         (complete-references
+           (loop for group in (second subtree-values)
+                 append (third group))))
+    (when (and (not completed-p) (null next-origin))
+      (error "Snap storage range page did not advance its task"))
+    (make-snap-sync-storage-page-result
+     :task-index task-index :origin (copy-seq origin)
+     :records records
+     :healed-subtrees healed-subtrees
+     :complete-node-hashes complete-references
+     :incomplete-node-hashes
+     (snap-sync-incomplete-record-hashes records complete-references)
+     :next-origin next-origin
+     :completed-p completed-p)))
+
 (defun snap-sync-prepare-storage-page
     (source state-root account-hash storage-root task-index task byte-limit)
   "Fetch and authenticate one page of a partitioned large storage trie."
@@ -4221,8 +4302,7 @@ promoted immediately. Descendants are never read or revalidated."
                (snap-sync-state-unavailable "storage-range"))
              (let* ((entries
                       (snap-sync-storage-entries
-                       (if groups (first groups) '())))
-                    (last-wire (and entries (caar (last entries)))))
+                       (if groups (first groups) '()))))
                (multiple-value-bind (verified-p trie)
                    (if entries
                        (mpt-verify-range-proof
@@ -4231,52 +4311,23 @@ promoted immediately. Descendants are never read or revalidated."
                         storage-root entries proof :start origin
                         :end (snap-sync-increment-hash limit)))
                  (declare (ignore verified-p))
-                 (let* ((completed-p
-                          (or (null entries)
-                              (null proof)
-                              (not
-                               (ethereum-lisp.validation:byte-vector-lexicographic<
-                                last-wire limit))))
-                        (next-origin
-                          (and (not completed-p) last-wire
-                               (snap-sync-increment-hash last-wire)))
-                        (proved-end (if completed-p limit last-wire))
-                        (records
-                          (snap-sync-verified-account-records trie proof))
-                        (subtree-values
-                          (if (and trie proved-end)
-                              (multiple-value-list
-                               (snap-sync-proved-range-subtrees
-                                trie origin proved-end))
-                              (list nil nil)))
-                        (healed-subtrees
-                          (mapcar #'cdr (first subtree-values)))
-                        (complete-references
-                          (loop for group in (second subtree-values)
-                                append (third group))))
-                   (when (and (not completed-p) (null next-origin))
-                     (error "Snap storage range page did not advance its task"))
-                   (make-snap-sync-storage-page-result
-                    :task-index task-index :origin (copy-seq origin)
-                    :records records
-                    :healed-subtrees healed-subtrees
-                    :complete-node-hashes complete-references
-                    :incomplete-node-hashes
-                    (snap-sync-incomplete-record-hashes
-                     records complete-references)
-                    :next-origin next-origin
-                    :completed-p completed-p)))))))
+                 (make-snap-sync-verified-storage-page
+                  :task-index task-index :origin (copy-seq origin)
+                  :limit (copy-seq limit) :entries entries :proof proof
+                  :trie trie))))))
       ;; A production source uses the global per-response-type idle-peer pool.
       ;; Keep proof verification inside that reservation so a malformed or
-      ;; pruned response retires the transport which actually supplied it.
-      ;; Fixed and test sources retain the ordinary direct callback fallback.
-      (if (functionp (snap-sync-source-storage-ranges-verified source))
-          (funcall
-           (snap-sync-source-storage-ranges-verified source) request #'verify)
-          (verify
-           (snap-sync-source-call
-            (snap-sync-source-storage-ranges source)
-            request "storage ranges"))))))
+      ;; pruned response retires the exact transport. Return it to the idle
+      ;; pool before the already authenticated trie is expanded into records
+      ;; and subtree metadata, matching geth's delivery/integration boundary.
+      (snap-sync-materialize-verified-storage-page
+       (if (functionp (snap-sync-source-storage-ranges-verified source))
+           (funcall
+            (snap-sync-source-storage-ranges-verified source) request #'verify)
+           (verify
+            (snap-sync-source-call
+             (snap-sync-source-storage-ranges source)
+             request "storage ranges")))))))
 
 (defun snap-sync-populate-storage-page-batch
     (database batch state-root account-hash storage-root tasks result)

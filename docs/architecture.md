@@ -205,8 +205,12 @@ them by their physical location instead reintroduces dependency cycles:
   intermediate storage fsync while every pair retains its exact per-partition
   cursor order and atomic content boundary. The
   response verifier runs while the actual storage/bytecode peer reservation is
-  still held, then releases that peer
-  before any local WAL write. Empty, unrequested, malformed, or invalid-proof
+  still held, then releases that peer before expanding an authenticated
+  StorageRanges trie into records/subtree metadata or issuing any local WAL
+  write. This matches geth's separation between response proof validation and
+  scheduler-side response integration, and lets the idle peer start its next
+  request while local materialization proceeds. Empty, unrequested, malformed,
+  or invalid-proof
   responses are therefore charged to the transport that supplied them instead
   of the unrelated AccountRange peer whose page discovered the dependency. An
   ordinary dependency transport failure enters a thirty-second cooldown and the

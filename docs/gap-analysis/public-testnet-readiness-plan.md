@@ -327,9 +327,12 @@ The implementation boundary is split deliberately:
   nodes. StorageRanges and ByteCodes responses remain assigned through
   independent geth-style idle-peer pools; client proof/hash validation completes
   before the actual dependency peer reservation is released, including every
-  partitioned large-storage page, so a pruned or malformed response retries
-  elsewhere without discarding the verified account page or blaming its range
-  peer. The CLI advertises snap only when both sides
+  partitioned large-storage page. Authenticated StorageRanges tries are expanded
+  into records, subtree metadata, and WAL batches only after that release,
+  matching geth's delivery/integration seam so local materialization does not
+  keep the peer's next response-type request idle. A pruned or malformed
+  response still retries elsewhere without discarding the verified account page
+  or blaming its range peer. The CLI advertises snap only when both sides
   are operational and serves production state through the direct RocksDB
   provider. A stale pivot remains
   pinned while a wide source pool or a collapsed pool with bounded aggregate
