@@ -193,8 +193,12 @@ them by their physical location instead reintroduces dependency cycles:
   geth v1.17.4 `assignStorageTasks`: open large subtasks take precedence over
   new small-state discovery, while the global idle-peer pool does not serialize
   every account task behind one contract. Verified responses pass through one
-  commit coordinator, preserving exact per-partition cursor order and the
-  atomic node/proof/cursor boundary. The
+  commit coordinator. Responses which finish during an earlier write queue
+  behind it, and the next drain folds up to sixteen independent partition
+  node/proof/cursor pairs into one synchronous WAL batch. The first response
+  may still form a one-page batch, but sustained parallel delivery no longer
+  pays one fsync per StorageRanges response. Every pair retains its exact
+  per-partition cursor order and atomic content boundary. The
   response verifier runs while the actual storage/bytecode peer reservation is
   still held, then releases that peer
   before any local WAL write. Empty, unrequested, malformed, or invalid-proof

@@ -498,7 +498,10 @@ account page uses the fixed import-wide StorageRanges worker set before its
 cursor advances. A two-root control then holds one partition open, requires the
 second root to start before that request is released, and proves maximum live
 requests equal the fixed source count. Replacing the rotating claim with a
-queue-head-only mutation makes that witness fail. A separate failover control
+queue-head-only mutation makes that witness fail. Another control queues two
+independently verified partition results behind the commit coordinator and
+requires exactly one synchronous database batch; reducing the storage cursor
+batch limit to one makes that positive witness fail. A separate failover control
 retires one lane after a transport error and requires another lane to finish
 the exact released partition. A post-verification generic database failure is
 also required to reach the caller unchanged instead of being misclassified as

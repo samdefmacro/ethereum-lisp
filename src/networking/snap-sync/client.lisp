@@ -30,6 +30,8 @@ hash set after the peer reaches its soft byte cap.")
   "Global account-page dependency jobs advanced independently of range peers.")
 (defconstant +snap-sync-cursor-batch-pages+ 16
   "Maximum ready account cursors published by one synchronous WAL batch.")
+(defconstant +snap-sync-storage-cursor-batch-pages+ 16
+  "Maximum verified storage partition cursors in one durable WAL batch.")
 (defconstant +snap-sync-legacy-account-task-count+ 16
   "Account partition count written by progress versions before oversubscription.")
 (defconstant +snap-sync-previous-account-task-count+ 32
@@ -4202,9 +4204,13 @@ promoted immediately. Descendants are never read or revalidated."
             (snap-sync-source-storage-ranges source)
             request "storage ranges"))))))
 
-(defun snap-sync-commit-storage-page
-    (database state-root account-hash storage-root tasks result)
-  "Atomically install one authenticated storage page and its durable cursor."
+(defun snap-sync-populate-storage-page-batch
+    (database batch state-root account-hash storage-root tasks result)
+  "Append one authenticated storage page and cursor to BATCH.
+
+Return the updated durable task vector without applying BATCH.  Callers may
+therefore combine independent partition responses in one atomic WAL seam while
+retaining the exact cursor/content crash boundary for every response."
   (let* ((task-index (snap-sync-storage-page-result-task-index result))
          (task (nth task-index tasks)))
     (unless task
@@ -4221,8 +4227,7 @@ promoted immediately. Descendants are never read or revalidated."
               (snap-sync-storage-page-result-next-origin result)
               :completed-p
               (snap-sync-storage-page-result-completed-p result)))
-           (next (snap-sync-replace-task tasks task-index replacement))
-           (batch (make-kv-write-batch)))
+           (next (snap-sync-replace-task tasks task-index replacement)))
       (snap-sync-populate-verified-trie-records-batch
        database batch (snap-sync-storage-page-result-records result))
       ;; A partition page may prove closure for nodes retained by an earlier
@@ -4241,8 +4246,16 @@ promoted immediately. Descendants are never read or revalidated."
                (snap-sync-storage-page-result-healed-subtrees result))
         (snap-sync-populate-healed-subtree-batch
          batch reference :storage))
-      (kv-apply-batch database batch)
       next)))
+
+(defun snap-sync-commit-storage-page
+    (database state-root account-hash storage-root tasks result)
+  "Atomically install one authenticated storage page and its durable cursor."
+  (let ((batch (make-kv-write-batch)))
+    (prog1
+        (snap-sync-populate-storage-page-batch
+         database batch state-root account-hash storage-root tasks result)
+      (kv-apply-batch database batch))))
 
 #+sbcl
 (defstruct (snap-sync-storage-runtime
@@ -5966,6 +5979,7 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
     (sb-thread:make-mutex :name "snap-sync-storage-publish"))
   (storage-sources '())
   (storage-jobs '())
+  (storage-results '())
   (storage-worker-count 0)
   (storage-source-errors '())
   storage-fatal-condition
@@ -6017,6 +6031,16 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
   (claims (make-hash-table))
   (waiters 1)
   completed-p)
+
+#+sbcl
+(defstruct (snap-sync-global-storage-result
+            (:constructor make-snap-sync-global-storage-result
+                (job task-index source result)))
+  "One verified partition response waiting for the durable commit coordinator."
+  job
+  task-index
+  source
+  result)
 
 #+sbcl
 (defun snap-sync-multi-notify (runtime)
@@ -6172,32 +6196,124 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
     (snap-sync-multi-notify runtime)))
 
 #+sbcl
+(defun snap-sync-multi-queue-storage-result
+    (runtime job task-index source result)
+  "Queue one verified response before entering the commit coordinator."
+  (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
+    (when (snap-sync-multi-runtime-storage-fatal-condition runtime)
+      (error (snap-sync-multi-runtime-storage-fatal-condition runtime)))
+    (unless
+        (eq source
+            (gethash task-index
+                     (snap-sync-global-storage-job-claims job)))
+      (error "Snap global storage result lost its partition claim"))
+    (setf (snap-sync-multi-runtime-storage-results runtime)
+          (nconc
+           (snap-sync-multi-runtime-storage-results runtime)
+           (list
+            (make-snap-sync-global-storage-result
+             job task-index source result))))
+    (snap-sync-multi-notify runtime)))
+
+#+sbcl
+(defun snap-sync-multi-storage-result-batch (runtime)
+  "Take one bounded verified response batch, or signal a latched fatal error."
+  (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
+    (when (snap-sync-multi-runtime-storage-fatal-condition runtime)
+      (error (snap-sync-multi-runtime-storage-fatal-condition runtime)))
+    (loop repeat +snap-sync-storage-cursor-batch-pages+
+          while (snap-sync-multi-runtime-storage-results runtime)
+          collect (pop (snap-sync-multi-runtime-storage-results runtime)))))
+
+#+sbcl
+(defun snap-sync-multi-commit-storage-results
+    (runtime database state-root entries)
+  "Publish ENTRIES through one atomic durable batch and release their claims."
+  (let ((batch (make-kv-write-batch))
+        (task-updates '()))
+    ;; Claims are immutable from verification until this coordinator releases
+    ;; them. Validate the complete batch before constructing any durable state.
+    (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
+      (dolist (entry entries)
+        (let ((job (snap-sync-global-storage-result-job entry))
+              (task-index
+                (snap-sync-global-storage-result-task-index entry))
+              (source (snap-sync-global-storage-result-source entry)))
+          (unless
+              (eq source
+                  (gethash task-index
+                           (snap-sync-global-storage-job-claims job)))
+            (error "Snap global storage batch lost a partition claim")))))
+    (dolist (entry entries)
+      (let* ((job (snap-sync-global-storage-result-job entry))
+             (task-index
+               (snap-sync-global-storage-result-task-index entry))
+             (result (snap-sync-global-storage-result-result entry))
+             (update (assoc job task-updates :test #'eq))
+             (current
+               (if update
+                   (cdr update)
+                   (sb-thread:with-mutex
+                       ((snap-sync-multi-runtime-lock runtime))
+                     (snap-sync-global-storage-job-tasks job))))
+             (next
+               (progn
+                 (unless
+                     (= task-index
+                        (snap-sync-storage-page-result-task-index result))
+                   (error "Snap global storage batch task index mismatch"))
+                 (snap-sync-populate-storage-page-batch
+                  database batch state-root
+                  (snap-sync-global-storage-job-account-hash job)
+                  (snap-sync-global-storage-job-storage-root job)
+                  current result))))
+        (if update
+            (setf (cdr update) next)
+            (push (cons job next) task-updates))))
+    ;; This synced write flushes every response's nodes, proof metadata, and
+    ;; exact successor cursor together. No visible cursor can outrun content.
+    (kv-apply-batch database batch)
+    (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
+      (dolist (update task-updates)
+        (setf (snap-sync-global-storage-job-tasks (car update)) (cdr update))
+        (when (every #'snap-sync-account-task-completed-p (cdr update))
+          (setf (snap-sync-global-storage-job-completed-p (car update)) t)))
+      (dolist (entry entries)
+        (let ((job (snap-sync-global-storage-result-job entry))
+              (task-index
+                (snap-sync-global-storage-result-task-index entry))
+              (source (snap-sync-global-storage-result-source entry)))
+          (unless
+              (eq source
+                  (gethash task-index
+                           (snap-sync-global-storage-job-claims job)))
+            (error "Snap committed storage batch lost a partition claim"))
+          (remhash task-index (snap-sync-global-storage-job-claims job))))
+      (snap-sync-multi-notify runtime))))
+
+#+sbcl
 (defun snap-sync-multi-commit-storage-page
     (runtime database state-root job task-index source result)
-  "Serialize verified page integration like geth's sync event loop."
+  "Queue and batch verified page integration like geth's sync event loop."
+  (snap-sync-multi-queue-storage-result
+   runtime job task-index source result)
+  ;; Any worker may become the single coordinator. The first response often
+  ;; forms a one-page batch; responses verified during that write accumulate,
+  ;; and the next drain folds up to sixteen cursors into one durable seam.
   (sb-thread:with-mutex
       ((snap-sync-multi-runtime-storage-write-lock runtime))
-    (let* ((current
-             (sb-thread:with-mutex
-                 ((snap-sync-multi-runtime-lock runtime))
-               (snap-sync-global-storage-job-tasks job)))
-           (next
-             (snap-sync-commit-storage-page
-              database state-root
-              (snap-sync-global-storage-job-account-hash job)
-              (snap-sync-global-storage-job-storage-root job)
-              current result)))
-      (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
-        (unless
-            (eq source
-                (gethash
-                 task-index (snap-sync-global-storage-job-claims job)))
-          (error "Snap global storage result lost its partition claim"))
-        (setf (snap-sync-global-storage-job-tasks job) next)
-        (remhash task-index (snap-sync-global-storage-job-claims job))
-        (when (every #'snap-sync-account-task-completed-p next)
-          (setf (snap-sync-global-storage-job-completed-p job) t))
-        (snap-sync-multi-notify runtime)))))
+    (loop
+      (let ((entries (snap-sync-multi-storage-result-batch runtime)))
+        (unless entries (return))
+        (handler-case
+            (snap-sync-multi-commit-storage-results
+             runtime database state-root entries)
+          (serious-condition (condition)
+            (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
+              (setf (snap-sync-multi-runtime-storage-fatal-condition runtime)
+                    condition)
+              (snap-sync-multi-notify runtime))
+            (error condition)))))))
 
 #+sbcl
 (defun snap-sync-multi-storage-worker
@@ -7013,7 +7129,8 @@ those cursors. HEAL-YIELD-P is forwarded to final healing."
             (setf (snap-sync-multi-runtime-events runtime) nil
                   (snap-sync-multi-runtime-dependency-jobs runtime) nil
                   (snap-sync-multi-runtime-code-jobs runtime) nil
-                  (snap-sync-multi-runtime-storage-jobs runtime) nil)
+                  (snap-sync-multi-runtime-storage-jobs runtime) nil
+                  (snap-sync-multi-runtime-storage-results runtime) nil)
             (clrhash (snap-sync-multi-runtime-claims runtime))
             (clrhash (snap-sync-multi-runtime-code-inflight runtime)))
           (setf threads nil

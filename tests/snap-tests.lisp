@@ -1970,6 +1970,131 @@
         target-database state-root account-b storage-b)))))
 
 #+sbcl
+(deftest snap-global-storage-cursors-share-one-durable-batch
+  (:layer :integration :module :p2p)
+  (let* ((source-state (make-state-db))
+         (source-database (make-memory-key-value-database))
+         (target-database (make-instance 'snap-counting-test-database))
+         (address-a
+           (address-from-hex
+            "0x0000000000000000000000000000000000000050"))
+         (address-b
+           (address-from-hex
+            "0x0000000000000000000000000000000000000051"))
+         (account-a
+           (ethereum-lisp.crypto:keccak-256 (address-bytes address-a)))
+         (account-b
+           (ethereum-lisp.crypto:keccak-256 (address-bytes address-b))))
+    (state-db-set-storage
+     source-state address-a
+     (make-hash32 (make-byte-vector 32 :initial-element 17)) 8001)
+    (state-db-set-storage
+     source-state address-b
+     (make-hash32 (make-byte-vector 32 :initial-element 18)) 8002)
+    (let* ((state-root (state-db-root source-state))
+           (storage-a (state-db-get-storage-root source-state address-a))
+           (storage-b (state-db-get-storage-root source-state address-b))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              source-database source-state))
+           (source (snap-test-source backend))
+           (tasks-a
+             (ethereum-lisp.snap-sync::snap-sync-load-or-create-storage-tasks
+              target-database state-root account-a storage-a))
+           (tasks-b
+             (ethereum-lisp.snap-sync::snap-sync-load-or-create-storage-tasks
+              target-database state-root account-b storage-b))
+           (job-a
+             (ethereum-lisp.snap-sync::make-snap-sync-global-storage-job
+              account-a storage-a tasks-a))
+           (job-b
+             (ethereum-lisp.snap-sync::make-snap-sync-global-storage-job
+              account-b storage-b tasks-b))
+           (result-a
+             (ethereum-lisp.snap-sync::snap-sync-prepare-storage-page
+              source state-root account-a storage-a 0 (first tasks-a) 4096))
+           (result-b
+             (ethereum-lisp.snap-sync::snap-sync-prepare-storage-page
+              source state-root account-b storage-b 0 (first tasks-b) 4096))
+           (runtime
+             (ethereum-lisp.snap-sync::make-snap-sync-multi-runtime
+              nil 0 nil))
+           (thread-a nil)
+           (thread-b nil)
+           (condition-a nil)
+           (condition-b nil))
+      (setf
+       (gethash
+        0
+        (ethereum-lisp.snap-sync::snap-sync-global-storage-job-claims job-a))
+       source
+       (gethash
+        0
+        (ethereum-lisp.snap-sync::snap-sync-global-storage-job-claims job-b))
+       source
+       (snap-counting-test-database-apply-count target-database) 0
+       (snap-counting-test-database-batch-sizes target-database) '()
+       (snap-counting-test-database-batch-prefixes target-database) '())
+      ;; Hold the coordinator while both independently verified responses enter
+      ;; its queue. Releasing it must publish both cursor/content pairs through
+      ;; one atomic KV batch, not one fsync per StorageRanges response.
+      (sb-thread:with-mutex
+          ((ethereum-lisp.snap-sync::snap-sync-multi-runtime-storage-write-lock
+            runtime))
+        (setf
+         thread-a
+         (sb-thread:make-thread
+          (lambda ()
+            (handler-case
+                (ethereum-lisp.snap-sync::snap-sync-multi-commit-storage-page
+                 runtime target-database state-root job-a 0 source result-a)
+              (serious-condition (condition)
+                (setf condition-a condition))))
+          :name "snap-test-storage-batch-a")
+         thread-b
+         (sb-thread:make-thread
+          (lambda ()
+            (handler-case
+                (ethereum-lisp.snap-sync::snap-sync-multi-commit-storage-page
+                 runtime target-database state-root job-b 0 source result-b)
+              (serious-condition (condition)
+                (setf condition-b condition))))
+          :name "snap-test-storage-batch-b"))
+        (sb-thread:with-mutex
+            ((ethereum-lisp.snap-sync::snap-sync-multi-runtime-lock runtime))
+          (loop repeat 40
+                while
+                  (< (length
+                      (ethereum-lisp.snap-sync::snap-sync-multi-runtime-storage-results
+                       runtime))
+                     2)
+                do (sb-thread:condition-wait
+                    (ethereum-lisp.snap-sync::snap-sync-multi-runtime-changed
+                     runtime)
+                    (ethereum-lisp.snap-sync::snap-sync-multi-runtime-lock
+                     runtime)
+                    :timeout 1/20))
+          (is
+           (= 2
+              (length
+               (ethereum-lisp.snap-sync::snap-sync-multi-runtime-storage-results
+                runtime))))))
+      (sb-thread:join-thread thread-a)
+      (sb-thread:join-thread thread-b)
+      (is (null condition-a))
+      (is (null condition-b))
+      (is (= 1 (snap-counting-test-database-apply-count target-database)))
+      (is
+       (ethereum-lisp.snap-sync::snap-sync-account-task-completed-p
+        (first
+         (ethereum-lisp.snap-sync::snap-sync-global-storage-job-tasks job-a))))
+      (is
+       (ethereum-lisp.snap-sync::snap-sync-account-task-completed-p
+        (first
+         (ethereum-lisp.snap-sync::snap-sync-global-storage-job-tasks
+          job-b)))))))
+
+#+sbcl
 (deftest snap-global-storage-lane-requeues-a-failed-partition
   (:layer :integration :module :p2p)
   (let* ((source-state (make-state-db))
