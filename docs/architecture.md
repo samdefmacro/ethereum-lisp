@@ -222,9 +222,10 @@ them by their physical location instead reintroduces dependency cycles:
   work cannot conceal that remote serving collapse. A stable intrinsically
   small but efficient pool does not satisfy either policy. This keeps content-
   addressed progress moving across public state-retention windows instead of
-  pinning a doomed old root. While an import is active, the dialer retains at
-  least sixteen live non-degraded SNAP sessions when the configured peer limit
-  permits it.
+  pinning a doomed old root. While an import is active, the dialer protects
+  capacity until the live non-degraded SNAP pool reaches the workload's
+  half-capacity target: twenty-five sessions under the default fifty-peer
+  limit.
   A failed capability is recorded by response type; success in unrelated SNAP
   traffic cannot hide it, and the still-useful ETH transport no longer counts
   toward the SNAP target while discovery seeks a replacement. Its dedicated

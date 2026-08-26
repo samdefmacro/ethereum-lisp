@@ -51,8 +51,9 @@ keeps escalating backoff from becoming permanent abandonment.")
 This matches geth's default pending-peer budget. Public discovery returns many
 stale, saturated, or unreachable nodes; limiting attempts to eight made those
 ordinary failures serialize replacement of useful SNAP peers. The outbound
-ratio below still bounds established sessions, so a default node can start at
-most sixteen of these dials and continues to reserve inbound capacity.")
+ratio below still bounds established sessions, so a default node starts at most
+sixteen ordinary dials or twenty-five SNAP-demand dials and continues to reserve
+inbound capacity.")
 
 (defconstant +devnet-dial-ratio+ 3
   "One in this many peer slots may be filled by dialing. Our policy, and the
@@ -65,9 +66,6 @@ reached from outside, which is the whole thing the inbound wave was built for.")
 Geth reserves roughly half of its peer capacity for SNAP-capable sessions while
 state download is active. The ordinary one-third outbound target is restored
 as soon as SNAP demand ends, preserving inbound capacity in steady operation.")
-
-(defconstant +devnet-snap-quality-peer-floor+ 16
-  "Minimum non-degraded SNAP sessions retained while state import is active.")
 
 (defconstant +devnet-dial-dynamic-candidate-limit+ 256
   "How many discovered candidates we remember. Our policy — the bound that the
@@ -250,10 +248,10 @@ otherwise missing state-download slots."
    (devnet-peer-table-entries table)))
 
 (defun devnet-snap-quality-shortfall-p (registry table)
+  "Whether active state import still lacks its workload SNAP peer target."
   (and (devnet-dial-registry-snap-demand-p registry)
        (< (devnet-snap-quality-peer-count registry table)
-          (min +devnet-snap-quality-peer-floor+
-               (devnet-peer-table-max-peers table)))))
+          (devnet-dial-target-peers registry table))))
 
 (defun devnet-dial-free-slots (registry table)
   "How many new dials may start right now."

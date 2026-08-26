@@ -498,10 +498,11 @@ Completed
 ranges are not replayed after restart, thirty-two-range cursors expand without
 replay, and a failed source's claimed range is reassigned. SNAP demand raises
 the default outbound target from sixteen to twenty-five capable sessions
-while retaining the absolute fifty-peer bound. Sixteen non-degraded SNAP
-sessions are maintained when capacity permits; a per-response-type failure
-removes one from that quality count and opens a replacement slot, while
-success in another type cannot conceal the failure. A
+while retaining the absolute fifty-peer bound. ETH-only outbound admission
+cannot fill the protected capacity until the non-degraded SNAP pool reaches
+that same workload target; a per-response-type failure removes one from the
+quality count and opens a replacement slot, while success in another type
+cannot conceal the failure. A
 finite source generation may exhaust without stopping the node: the coordinator logs
 that typed availability result, refreshes live sessions on its next pass, and
 resumes without replaying the page committed by the retired generation. A peer

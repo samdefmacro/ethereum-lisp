@@ -62,11 +62,11 @@ produce frames that authenticate."
                node
                (lambda ()
                  (let ((verdict (devnet-peer-table-inbound-verdict table id-hex)))
-                   ;; While fewer than sixteen useful SNAP sessions exist, an
-                   ;; outbound ETH-only handshake must not consume a slot that
-                   ;; discovery can turn into a state source. The peer learns
-                   ;; the ordinary :USELESS-PEER refusal and may be retried once
-                   ;; the state workload ends.
+                   ;; Until the useful SNAP pool reaches this workload's
+                   ;; half-capacity target, an outbound ETH-only handshake must
+                   ;; not consume a slot that discovery can turn into a state
+                   ;; source. The peer learns the ordinary :USELESS-PEER refusal
+                   ;; and may be retried once the state workload ends.
                    (when (and
                           (eq verdict :accept)
                           (null

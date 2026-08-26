@@ -170,12 +170,12 @@
   (:layer :unit :module :devnet)
   (multiple-value-bind (registry table)
       (dial-test-registry :max-peers 50 :max-active 50)
-    (loop for index below 16
+    (loop for index below 25
           do (dial-test-connect
               table (format nil "quality-~D" index) :outbound 0
               :snap-version 1))
     (setf (ethereum-lisp.cli::devnet-dial-registry-snap-demand-p registry) t)
-    (is (= 16
+    (is (= 25
            (ethereum-lisp.cli::devnet-snap-quality-peer-count registry table)))
     (is (not
          (ethereum-lisp.cli::devnet-snap-quality-shortfall-p registry table)))
@@ -191,24 +191,27 @@
         (ethereum-lisp.cli::devnet-dial-registry-snap-degraded-peer-ids
          registry))
        failures)
-      (is (= 15
+      (is (= 24
              (ethereum-lisp.cli::devnet-snap-quality-peer-count
               registry table)))
       (is
        (ethereum-lisp.cli::devnet-snap-quality-shortfall-p registry table))
       ;; A degraded transport remains an ETH connection, but no longer
       ;; satisfies the SNAP target, so discovery opens one replacement slot.
-      (is (= 10
+      (is (= 1
              (ethereum-lisp.cli:devnet-dial-free-slots registry table)))
       ;; Success in one capability must not conceal another type's failure.
       (remhash ethereum-lisp.snap:+snap-message-bytecodes+ failures)
-      (is (= 15
+      (is (= 24
              (ethereum-lisp.cli::devnet-snap-quality-peer-count
               registry table)))
       (remhash ethereum-lisp.snap:+snap-message-storage-ranges+ failures)
-      (is (= 16
+      (is (= 25
              (ethereum-lisp.cli::devnet-snap-quality-peer-count
-              registry table))))))
+              registry table)))
+      (is (not
+           (ethereum-lisp.cli::devnet-snap-quality-shortfall-p
+            registry table))))))
 
 (deftest devnet-dial-plan-is-deterministic-and-bounded
   (:layer :unit :module :devnet)
