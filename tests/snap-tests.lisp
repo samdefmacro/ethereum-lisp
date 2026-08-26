@@ -1601,6 +1601,84 @@
             references)))))))
 
 #+sbcl
+(deftest snap-large-storage-range-verifies-before-source-release
+  (:layer :integration :module :p2p)
+  (let* ((source-state (make-state-db))
+         (source-database (make-memory-key-value-database))
+         (address
+           (address-from-hex
+            "0x0000000000000000000000000000000000000048"))
+         (account-hash
+           (ethereum-lisp.crypto:keccak-256 (address-bytes address)))
+         (direct-calls 0)
+         (verified-calls 0)
+         (verified-before-release-p nil))
+    (loop for byte from 1 to 128
+          do (state-db-set-storage
+              source-state address
+              (make-hash32 (make-byte-vector 32 :initial-element byte))
+              (+ 6000 byte)))
+    (let* ((state-root (state-db-root source-state))
+           (storage-root (state-db-get-storage-root source-state address))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              source-database source-state))
+           (base-source (snap-test-source backend))
+           (source
+             (ethereum-lisp.snap-sync:make-snap-sync-source
+              :account-range
+              (ethereum-lisp.snap-sync:snap-sync-source-account-range
+               base-source)
+              ;; The pre-fix partition path called this callback and therefore
+              ;; released a production pool reservation before proof checking.
+              :storage-ranges
+              (lambda (request)
+                (declare (ignore request))
+                (incf direct-calls)
+                (error "Unverified large-storage callback was used"))
+              :storage-ranges-verified
+              (lambda (request verifier)
+                (incf verified-calls)
+                (let ((result
+                        (funcall
+                         verifier
+                         (funcall
+                          (ethereum-lisp.snap-sync:snap-sync-source-storage-ranges
+                           base-source)
+                          request))))
+                  ;; This assignment occurs before the callback returns, which
+                  ;; is the source-pool reservation boundary in production.
+                  (setf verified-before-release-p
+                        (typep
+                         result
+                         'ethereum-lisp.snap-sync::snap-sync-storage-page-result))
+                  result))
+              :bytecodes
+              (ethereum-lisp.snap-sync:snap-sync-source-bytecodes base-source)
+              :trie-nodes
+              (ethereum-lisp.snap-sync:snap-sync-source-trie-nodes
+               base-source)))
+           (origin (make-byte-vector 32))
+           (task
+             (ethereum-lisp.snap-sync::snap-sync-account-task
+              :start origin
+              :limit (make-byte-vector 32 :initial-element #xff)
+              :next-origin origin :completed-p nil))
+           (result
+             (ethereum-lisp.snap-sync::snap-sync-prepare-storage-page
+              source state-root account-hash storage-root 0 task 350)))
+      (is (= 0 direct-calls))
+      (is (= 1 verified-calls))
+      (is verified-before-release-p)
+      (is
+       (typep
+        result
+        'ethereum-lisp.snap-sync::snap-sync-storage-page-result))
+      (is
+       (ethereum-lisp.snap-sync::snap-sync-storage-page-result-next-origin
+        result)))))
+
+#+sbcl
 (deftest snap-large-storage-ranges-use-live-sources-concurrently
   (:layer :integration :module :p2p)
   (let* ((source-state (make-state-db))

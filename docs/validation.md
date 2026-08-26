@@ -200,6 +200,8 @@ cl-workbench validation run cold-unit --match DEVNET-SNAP-SOURCE-APPLIES
 cl-workbench validation run cold-unit --match DEVNET-SNAP-SOURCE-POOL
 cl-workbench validation run cold-integration \
   --match DEVNET-SNAP-SOURCE-POOL-VALIDATES-STORAGE-BEFORE-PEER-RELEASE
+cl-workbench validation run cold-integration \
+  --match SNAP-LARGE-STORAGE-RANGE-VERIFIES-BEFORE-SOURCE-RELEASE
 cl-workbench validation run cold-unit \
   --match DEVNET-SNAP-BYTECODE-ASSIGNMENT-LEARNS-ITEM-CAPACITY
 cl-workbench validation run cold-unit \

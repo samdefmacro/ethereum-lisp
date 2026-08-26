@@ -4128,65 +4128,79 @@ promoted immediately. Descendants are never read or revalidated."
          (request
            (make-snap-get-storage-ranges
             1 (hash32-bytes state-root) (list (copy-seq account-hash))
-            origin limit byte-limit))
-         (response
+            origin limit byte-limit)))
+    (labels
+        ((verify (response)
+           (let ((groups (snap-storage-ranges-slots response))
+                 (proof (snap-storage-ranges-proof response)))
+             (unless (= 1 (snap-storage-ranges-id response))
+               (error "Snap storage response id mismatch"))
+             ;; Some snap/1 servers encode an empty proved range as no slot
+             ;; groups, while others return one empty group. Both forms are
+             ;; unambiguous because a partition requests exactly one account.
+             (when (> (length groups) 1)
+               (error
+                "Snap peer returned multiple groups for one storage range task"))
+             (when (and (null groups) (null proof))
+               (snap-sync-state-unavailable "storage-range"))
+             (let* ((entries
+                      (snap-sync-storage-entries
+                       (if groups (first groups) '())))
+                    (last-wire (and entries (caar (last entries)))))
+               (multiple-value-bind (verified-p trie)
+                   (if entries
+                       (mpt-verify-range-proof
+                        storage-root entries proof :start origin)
+                       (mpt-verify-range-proof
+                        storage-root entries proof :start origin
+                        :end (snap-sync-increment-hash limit)))
+                 (declare (ignore verified-p))
+                 (let* ((completed-p
+                          (or (null entries)
+                              (null proof)
+                              (not
+                               (ethereum-lisp.validation:byte-vector-lexicographic<
+                                last-wire limit))))
+                        (next-origin
+                          (and (not completed-p) last-wire
+                               (snap-sync-increment-hash last-wire)))
+                        (proved-end (if completed-p limit last-wire))
+                        (records
+                          (snap-sync-verified-account-records trie proof))
+                        (subtree-values
+                          (if (and trie proved-end)
+                              (multiple-value-list
+                               (snap-sync-proved-range-subtrees
+                                trie origin proved-end))
+                              (list nil nil)))
+                        (healed-subtrees
+                          (mapcar #'cdr (first subtree-values)))
+                        (complete-references
+                          (loop for group in (second subtree-values)
+                                append (third group))))
+                   (when (and (not completed-p) (null next-origin))
+                     (error "Snap storage range page did not advance its task"))
+                   (make-snap-sync-storage-page-result
+                    :task-index task-index :origin (copy-seq origin)
+                    :records records
+                    :healed-subtrees healed-subtrees
+                    :complete-node-hashes complete-references
+                    :incomplete-node-hashes
+                    (snap-sync-incomplete-record-hashes
+                     records complete-references)
+                    :next-origin next-origin
+                    :completed-p completed-p)))))))
+      ;; A production source uses the global per-response-type idle-peer pool.
+      ;; Keep proof verification inside that reservation so a malformed or
+      ;; pruned response retires the transport which actually supplied it.
+      ;; Fixed and test sources retain the ordinary direct callback fallback.
+      (if (functionp (snap-sync-source-storage-ranges-verified source))
+          (funcall
+           (snap-sync-source-storage-ranges-verified source) request #'verify)
+          (verify
            (snap-sync-source-call
             (snap-sync-source-storage-ranges source)
-            request "storage ranges"))
-         (groups (snap-storage-ranges-slots response))
-         (proof (snap-storage-ranges-proof response)))
-    (unless (= 1 (snap-storage-ranges-id response))
-      (error "Snap storage response id mismatch"))
-    ;; Some snap/1 servers encode an empty proved range as no slot groups,
-    ;; while others return one empty group. Both representations are
-    ;; unambiguous because large-trie tasks request exactly one account.
-    (when (> (length groups) 1)
-      (error "Snap peer returned multiple groups for one storage range task"))
-    (when (and (null groups) (null proof))
-      (snap-sync-state-unavailable "storage-range"))
-    (let* ((entries
-             (snap-sync-storage-entries (if groups (first groups) '())))
-           (last-wire (and entries (caar (last entries)))))
-      (multiple-value-bind (verified-p trie)
-          (if entries
-              (mpt-verify-range-proof
-               storage-root entries proof :start origin)
-              (mpt-verify-range-proof
-               storage-root entries proof :start origin
-               :end (snap-sync-increment-hash limit)))
-        (declare (ignore verified-p))
-        (let* ((completed-p
-                 (or (null entries)
-                     (null proof)
-                     (not
-                      (ethereum-lisp.validation:byte-vector-lexicographic<
-                       last-wire limit))))
-               (next-origin
-                 (and (not completed-p) last-wire
-                      (snap-sync-increment-hash last-wire)))
-               (proved-end (if completed-p limit last-wire))
-               (records (snap-sync-verified-account-records trie proof))
-               (subtree-values
-                 (if (and trie proved-end)
-                     (multiple-value-list
-                      (snap-sync-proved-range-subtrees
-                       trie origin proved-end))
-                     (list nil nil)))
-               (healed-subtrees
-                 (mapcar #'cdr (first subtree-values)))
-               (complete-references
-                 (loop for group in (second subtree-values)
-                       append (third group))))
-          (when (and (not completed-p) (null next-origin))
-            (error "Snap storage range page did not advance its task"))
-          (make-snap-sync-storage-page-result
-           :task-index task-index :origin (copy-seq origin)
-           :records records
-           :healed-subtrees healed-subtrees
-           :complete-node-hashes complete-references
-           :incomplete-node-hashes
-           (snap-sync-incomplete-record-hashes records complete-references)
-           :next-origin next-origin :completed-p completed-p))))))
+            request "storage ranges"))))))
 
 (defun snap-sync-commit-storage-page
     (database state-root account-hash storage-root tasks result)

@@ -316,9 +316,10 @@ The implementation boundary is split deliberately:
   Legacy progress stays conservative, so an upgrade cannot trust unclassified
   nodes. StorageRanges and ByteCodes responses remain assigned through
   independent geth-style idle-peer pools; client proof/hash validation completes
-  before the actual dependency peer reservation is released, so a pruned or
-  malformed response retries elsewhere without discarding the verified account
-  page or blaming its range peer. The CLI advertises snap only when both sides
+  before the actual dependency peer reservation is released, including every
+  partitioned large-storage page, so a pruned or malformed response retries
+  elsewhere without discarding the verified account page or blaming its range
+  peer. The CLI advertises snap only when both sides
   are operational and serves production state through the direct RocksDB
   provider. A stale pivot remains
   pinned while a wide source pool or a collapsed pool with bounded aggregate

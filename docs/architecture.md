@@ -374,8 +374,13 @@ them by their physical location instead reintroduces dependency cycles:
   one 512 KiB-capped page at a time through the independent live StorageRanges
   pool. A new peer starts at 64 KiB and names at most `capacity / 1024`
   accounts, matching geth's storage-set assignment width, before adapting up to
-  512 KiB; the coordinator atomically commits its content-addressed nodes and
-  versioned per-range successor cursor. A restart resumes those exact cursors.
+  512 KiB. Both the initial multi-account request and every later partition
+  page finish shape and Merkle range-proof validation before releasing the
+  actual pooled peer reservation; malformed or pruned state is therefore
+  retried against the same immutable work without blaming its account-range
+  source. The coordinator then atomically commits its content-addressed nodes
+  and versioned per-range successor cursor. A restart resumes those exact
+  cursors.
   Source exhaustion leaves the account cursor unchanged and retries the same
   durable storage work with a later source generation. Completed ranges
   deliberately remain on the
