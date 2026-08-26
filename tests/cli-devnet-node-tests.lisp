@@ -4105,6 +4105,48 @@ loop cannot block on a message that never comes."
   #-sbcl
   (is t))
 
+(deftest devnet-queued-snap-source-exposes-live-trienode-capacity
+  (:layer :unit :module :p2p)
+  #+sbcl
+  (let* ((qos (ethereum-lisp.cli::make-devnet-snap-qos))
+         (queue (ethereum-lisp.cli::make-devnet-peer-request-queue qos))
+         (entry
+           (ethereum-lisp.cli::make-devnet-peer-entry
+            :id-hex "trienode-capacity-peer"
+            :request-queue queue))
+         (node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (pool (ethereum-lisp.cli::make-devnet-snap-source-pool node))
+         (source
+           (ethereum-lisp.cli::devnet-peer-queued-snap-source entry))
+         (pooled-source
+           (ethereum-lisp.cli::devnet-snap-source-pool-source pool entry))
+         (capacity
+           (ethereum-lisp.snap-sync:snap-sync-source-trie-node-capacity
+            source))
+         (pooled-capacity
+           (ethereum-lisp.snap-sync:snap-sync-source-trie-node-capacity
+            pooled-source)))
+    (is (functionp capacity))
+    (is (functionp pooled-capacity))
+    (is (= 1 (funcall capacity)))
+    (is (= 1 (funcall pooled-capacity)))
+    ;; TrieNodes is measured in returned-node units. A fast 1,024-node reply
+    ;; takes the shared rate tracker to the protocol ceiling, and the source
+    ;; exposes that live value rather than a second healer-local estimate.
+    (is (= 1024
+           (ethereum-lisp.cli::devnet-peer-request-queue-record-snap-delivery
+            queue ethereum-lisp.snap:+snap-message-trie-nodes+
+            1024 1d0)))
+    (is (= 1024 (funcall capacity)))
+    ;; The account-pinned pool wrapper must retain the fixed transport's live
+    ;; capacity callback for the separate cross-source TrieNodes scheduler.
+    (is (= 1024 (funcall pooled-capacity))))
+  #-sbcl
+  (is t))
+
 (deftest devnet-snap-request-capacity-follows-geth-throughput-ewma
   (:layer :unit :module :p2p)
   #+sbcl

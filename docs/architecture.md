@@ -445,15 +445,21 @@ them by their physical location instead reintroduces dependency cycles:
   retry queue, and the coordinator validates and integrates each individual
   response as soon as it arrives. A fast source can therefore receive child
   work discovered from its prior response while an unrelated slow source is
-  still in flight; there is no global request-round join barrier. Every new
-  source starts at the protocol maximum of 1,024 paths. A source-local EWMA
-  learns the useful delivered width against a two-second request target and a
-  second EWMA learns RTT; idle sources are assigned in descending learned
-  capacity and then ascending RTT order. Partial responses requeue only their
-  unmatched exact paths, while a failed source is retired and all of its exact
-  assigned paths return to the same queue. Late handshake completions join the
-  running event loop without restarting it, and a retired identity cannot
-  re-enter the same healing attempt.
+  still in flight; there is no global request-round join barrier. Every
+  production source exposes the TrieNodes item capacity from its existing
+  shared SNAP message-rate tracker. Before each assignment the healer clamps
+  that live capacity to 1,024 and divides it by the local processing throttle,
+  preserving geth's one-item probe. The throttle starts at 1,024 and tunes
+  downward rather than filling a cold frontier with speculative work; pending
+  decoded nodes versus the 0.005-impact local processing-rate EWMA can tune it
+  back upward. Idle sources are assigned in descending resulting capacity and
+  then ascending RTT order. Fixed sources without a transport tracker retain a
+  source-local capacity learner only as a test/integration fallback, never as a
+  second production controller. Partial responses requeue only their unmatched
+  exact paths, while a failed source is retired and all of its exact assigned
+  paths return to the same queue. Late handshake completions join the running
+  event loop without restarting it, and a retired identity cannot re-enter the
+  same healing attempt.
 
   Each request slice is sorted by account and compact path, then all storage
   paths for the same account share one wire path set, matching geth's grouping
@@ -515,8 +521,10 @@ them by their physical location instead reintroduces dependency cycles:
   restart safety. A subtree-completion sentinel also drains its deferred storage
   before it can publish proof of completion.
 
-  Local content-addressed references are read in batches of at most 512 keys.
-  Below the ordinary 4,096-work checkpoint target, width still shrinks so a
+  Local content-addressed references are read in batches of at most 4,096 keys,
+  matching the database MultiGet boundary and amortizing the bounded reader
+  threads across a full native call on large transient frontiers. Below the
+  ordinary 4,096-work checkpoint target, width still shrinks so a
   worst-case 16-way expansion remains immediately encodable in the 8,192-work
   record. Larger transient frontiers instead shrink against the independent
   131,072-work in-memory cap. A restart may begin at the

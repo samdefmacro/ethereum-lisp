@@ -4542,7 +4542,7 @@
   ;; A checkpoint restored at its durable cap must still fill a peer request.
   ;; Reusing the durable cap as the transient expansion limit returns one here
   ;; and recreates the public-node one-path-per-request failure.
-  (is (= 512
+  (is (= 1024
          (ethereum-lisp.snap-sync::snap-sync-heal-local-read-limit
           8192 0 1024 2048)))
   (signals error
@@ -4877,6 +4877,7 @@
               :account-range (lambda (request) (declare (ignore request)))
               :storage-ranges (lambda (request) (declare (ignore request)))
               :bytecodes (lambda (request) (declare (ignore request)))
+              :trie-node-capacity (lambda () 1024)
               :trie-nodes
               (lambda (request)
                 (declare (ignore request))
@@ -4913,6 +4914,7 @@
                   (let* ((initial (nth 1 arguments))
                          (handle-result (nth 6 arguments))
                          (refill (nth 7 arguments))
+                         (assignment-capacity (nth 10 arguments))
                          (result
                            (ethereum-lisp.snap-sync::make-snap-sync-heal-fetch-result
                             :source source :start 0 :end 1 :order #(0)
@@ -4920,6 +4922,11 @@
                             (ethereum-lisp.snap:make-snap-trie-nodes
                              1 (list encoded-root)))))
                     (is (= 1 (length initial)))
+                    (is (functionp assignment-capacity))
+                    ;; The production call site begins with geth's 1,024
+                    ;; local divisor, so even a full transport capacity keeps
+                    ;; the cold one-item probe.
+                    (is (= 1 (funcall assignment-capacity source)))
                     (multiple-value-bind (retry condition delivered)
                         (funcall handle-result result initial)
                       (is (null retry))
@@ -5181,6 +5188,67 @@
      (< 1d0
         (ethereum-lisp.snap-sync::snap-sync-heal-learn-peer-rtt 1d0 3d0)
         3d0))))
+
+(deftest snap-state-healer-dispatches-shared-qos-capacity-through-throttle
+  (:layer :unit :module :p2p)
+  #+sbcl
+  (let* ((capacity-a 800)
+         (capacity-b 200)
+         (source-a
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :trie-node-capacity (lambda () capacity-a)))
+         (source-b
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :trie-node-capacity (lambda () capacity-b)))
+         (runtime
+           (ethereum-lisp.snap-sync::make-snap-sync-heal-pipeline-runtime))
+         (peer-a
+           (ethereum-lisp.snap-sync::make-snap-sync-heal-pipeline-peer
+            source-a 7 1d0))
+         (peer-b
+           (ethereum-lisp.snap-sync::make-snap-sync-heal-pipeline-peer
+            source-b 999 1d0))
+         (work
+           (ethereum-lisp.snap-sync::snap-sync-make-heal-work
+            :account nil #(1) (snap-test-hash 197))))
+    ;; Geth begins at the maximum 1,024 divisor, preserving a one-item probe.
+    (is (= 1
+           (ethereum-lisp.snap-sync::snap-sync-heal-source-request-capacity
+            source-a 1024d0)))
+    (is (= 200
+           (ethereum-lisp.snap-sync::snap-sync-heal-source-request-capacity
+            source-a 4d0)))
+    (is (= 50
+           (ethereum-lisp.snap-sync::snap-sync-heal-source-request-capacity
+            source-b 4d0)))
+    (setf
+     (ethereum-lisp.snap-sync::snap-sync-heal-pipeline-runtime-peers runtime)
+     (list peer-b peer-a)
+     (ethereum-lisp.snap-sync::snap-sync-heal-pipeline-runtime-pending runtime)
+     (make-list 250 :initial-element work))
+    (ethereum-lisp.snap-sync::snap-sync-heal-pipeline-dispatch
+     runtime
+     (lambda (source)
+       (ethereum-lisp.snap-sync::snap-sync-heal-source-request-capacity
+        source 4d0)))
+    ;; The transport tracker overrides both stale local capacities before the
+    ;; peers are sorted, then the local processing throttle divides each one.
+    (is (= 200
+           (length
+            (ethereum-lisp.snap-sync::snap-sync-heal-pipeline-peer-job
+             peer-a))))
+    (is (= 50
+           (length
+            (ethereum-lisp.snap-sync::snap-sync-heal-pipeline-peer-job
+             peer-b))))
+    (is
+     (ethereum-lisp.snap-sync::
+      snap-sync-heal-pipeline-peer-externally-sized-p peer-a))
+    (is
+     (ethereum-lisp.snap-sync::
+      snap-sync-heal-pipeline-peer-externally-sized-p peer-b)))
+  #-sbcl
+  (is t))
 
 (deftest snap-state-healer-counts-inflight-work-not-requests
   (:layer :unit :module :p2p)
@@ -5558,14 +5626,21 @@
             do (is
                 (<= (+ (- stack-count batch) (* 16 batch))
                     ethereum-lisp.snap-sync::+snap-sync-heal-checkpoint-max-works+)))
+      ;; The soft durable region is still bounded by worst-case sixteen-way
+      ;; expansion, even though a larger transient frontier may use the full
+      ;; database MultiGet width.
       (is
-       (= 512
+       (= 546
           (ethereum-lisp.snap-sync::snap-sync-heal-local-read-limit
            1 0 2048 2048)))
       (is
        (= 292
           (ethereum-lisp.snap-sync::snap-sync-heal-local-read-limit
            3800 0 296 2048)))
+      (is
+       (= 4096
+          (ethereum-lisp.snap-sync::snap-sync-heal-local-read-limit
+           10000 0 8192 8192)))
       (multiple-value-bind (persisted-root present-p)
           (kv-get-chain-record database :state-history (hash32-bytes pivot))
         (is present-p)
@@ -5582,7 +5657,9 @@
             #P"/private/tmp/"))
          (references
            (map 'vector #'snap-test-index-hash
-                (loop for index below 512 collect index)))
+                (loop for index below
+                        ethereum-lisp.snap-sync::+snap-sync-heal-local-reads-per-batch+
+                      collect index)))
          (real-get-many
            (fdefinition 'ethereum-lisp.database:kv-get-chain-records))
          (mutex (sb-thread:make-mutex :name "snap-heal-read-test"))
@@ -5641,11 +5718,13 @@
                       (is (= 8 call-count))
                       (is (= 8 (length worker-threads)))
                       (is (= 8 (length decoder-threads)))
-                      (is (= (- 512 (ceiling 512 7)) decoder-call-count))
-                      (is (= 512 (length values)))
-                      (is (= 512 (length present)))
-                      (is (= 512 (length decoded)))
-                      (dotimes (index 512)
+                      (is (= (- (length references)
+                                (ceiling (length references) 7))
+                             decoder-call-count))
+                      (is (= (length references) (length values)))
+                      (is (= (length references) (length present)))
+                      (is (= (length references) (length decoded)))
+                      (dotimes (index (length references))
                         (if (zerop (mod index 7))
                             (progn
                               (is (zerop (aref present index)))
@@ -5664,7 +5743,7 @@
                              database references)))
                       (is (= 8 metadata-call-count))
                       (is (= 8 (length metadata-worker-threads)))
-                      (dotimes (index 512)
+                      (dotimes (index (length references))
                         (is (= (if (zerop (mod index 5)) 0 1)
                                (aref present index))))))
                   (kv-put-chain-record
@@ -5682,7 +5761,8 @@
                      (when (and (eq candidate database)
                                 (eq kind :trie-node)
                                 (bytes= (aref identifiers 0)
-                                        (aref references 128)))
+                                        (aref references
+                                              (floor (length references) 4))))
                        (error "Injected parallel snap read failure"))
                      (funcall
                       real-get-many candidate kind identifiers default)))

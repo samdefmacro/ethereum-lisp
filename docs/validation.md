@@ -371,9 +371,14 @@ child before the slow response returns. A direct shared-queue control retires a
 failed source and requires its exact work and condition to return to the
 coordinator. Another dispatches two 1,024-work requests and requires frontier
 accounting to report 2,048 in-flight works rather than two requests. Capacity
-controls contract partial or slow peers, retain the 1,024 ceiling for a fast
-full peer, and order idle peers by learned capacity and RTT. They also prove a
-second source actually serves TrieNodes. A late-admission control starts healing
+controls retain the isolated-source learner as a fallback, while the production
+control exposes the request queue's live TrieNodes item capacity, divides 800
+and 200-item peer capacities by the same local throttle into 200 and 50-work
+assignments, and overrides stale healer-local values before capacity ordering.
+The maximum initial throttle also preserves geth's one-item cold probe. These
+controls reject the former production double-controller in which the shared
+0.1 message-rate EWMA learned a value the healer never consumed. They also
+prove a second source actually serves TrieNodes. A late-admission control starts healing
 with one source, exposes a second source through the live provider after work
 has begun, and proves that the new source serves TrieNodes before completion.
 The request encoder still sorts the whole slice, groups every storage path for
@@ -386,11 +391,15 @@ that more than one trie hash crosses the ordered
 multi-get seam in a batch, while the database integration control proves one
 generic RocksDB batch reaches exactly one native call and preserves
 duplicate-key order and per-key absence. A healer-specific RocksDB control
-proves that one 512-key local batch reaches eight bounded read workers,
+proves that one 4,096-key local batch reaches eight bounded read workers,
 performs present-value decoding on all eight workers, rejoins values,
 presence bits, and decoded objects in exact input order, and propagates an
 injected worker failure. Switching the production dispatch back to serial makes
-its eight-call and eight-decoder-thread witnesses fail. Generic controls
+its eight-call and eight-decoder-thread witnesses fail. The frontier limiter
+also proves that the soft durable region continues to reserve worst-case
+sixteen-way expansion room while a 10,000-work transient frontier may use the
+full 4,096-key database batch, avoiding one reader-thread lifecycle per 512
+nodes. Generic controls
 enforce the 4,096-key
 and 4 MiB key-byte bounds. The RocksDB construction regressions witness the
 exact 1 GiB block-cache budget for the shared 16 GiB EL/CL profile, ten-bit
@@ -550,7 +559,9 @@ use geth's 0.1 units-per-second EWMA and
 `ceil(1 + 1.01 * throughput * live-timeout)` directly: a fast first range or
 ByteCodes response can reach the protocol cap, a zero delivery returns to the
 minimum without changing RTT, and a new peer inherits mean throughputs rather
-than a timeout-specific capacity. These controls reject the former 0.2 EWMA,
+than a timeout-specific capacity. TrieNodes uses that same tracker in returned-
+node units and exposes its live 1--1,024 capacity to the healer. These controls
+reject the former 0.2 EWMA,
 immediate-median timeout, and double/half step limiter. A peer-range verdict
 control requires durable `ACCEPTED` to return normally while deterministic
 `INVALID` still raises the validation failure; this protects the ordinary

@@ -410,6 +410,7 @@
    #:snap-sync-source-account-range
    #:snap-sync-source-storage-ranges
    #:snap-sync-source-bytecodes
+   #:snap-sync-source-trie-node-capacity
    #:snap-sync-source-trie-nodes
    #:snap-sync-state-unavailable
    #:snap-sync-state-unavailable-request-kind

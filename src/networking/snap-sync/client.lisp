@@ -73,8 +73,13 @@ dispatcher can claim another partition without waiting for storage or code.")
 (defconstant +snap-sync-heal-min-throttle+ 1d0)
 (defconstant +snap-sync-heal-max-throttle+
   +snap-sync-trie-node-lookups-per-request+)
-(defconstant +snap-sync-heal-local-reads-per-batch+ 512
-  "Maximum local read width before frontier-aware shrinking.")
+(defconstant +snap-sync-heal-local-reads-per-batch+ 4096
+  "Maximum local read width before frontier-aware shrinking.
+
+This matches the database MultiGet key-count boundary.  Small durable
+frontiers still shrink against worst-case sixteen-way trie expansion, while a
+large transient frontier amortizes the eight bounded reader threads across a
+full native batch instead of recreating them once per 512 nodes.")
 (defparameter *snap-sync-heal-local-read-workers* 8
   "Maximum concurrent RocksDB MultiGet calls during local trie healing.")
 (defparameter *snap-sync-heal-remote-first-p* nil
@@ -259,7 +264,7 @@ state completion.")
             (:constructor make-snap-sync-source
                 (&key account-range storage-ranges bytecodes bytecodes-batch
                       storage-ranges-verified bytecodes-batch-verified
-                      trie-nodes)))
+                      trie-node-capacity trie-nodes)))
   account-range
   storage-ranges
   bytecodes
@@ -274,6 +279,11 @@ state completion.")
   ;; AccountRange source whose page discovered the dependency.
   storage-ranges-verified
   bytecodes-batch-verified
+  ;; Optional live TrieNodes item capacity from the transport's shared SNAP
+  ;; message-rate tracker. Production sources expose this so the healer uses
+  ;; the same peer throughput/timeout controller as every other SNAP message.
+  ;; Fixed and isolated test sources may omit it and retain the local fallback.
+  trie-node-capacity
   trie-nodes)
 
 (defstruct (snap-sync-account-task
@@ -2456,6 +2466,9 @@ its bounded pivot tail will anchor the resumable import."
   "One independently scheduled TrieNodes source in the healer event loop."
   source
   capacity
+  ;; True when CAPACITY came from the source transport's shared SNAP tracker.
+  ;; Such peers must not also run the healer's legacy local capacity learner.
+  externally-sized-p
   rtt
   job
   thread
@@ -3290,6 +3303,32 @@ the protocol's 1,024-lookup ceiling remains absolute."
            (snap-sync-heal-pipeline-peer-rtt right))
         (> left-capacity right-capacity))))
 
+(defun snap-sync-heal-source-request-capacity (source throttle)
+  "Return SOURCE's Geth-shaped TrieNodes assignment, or NIL for fallback.
+
+The source callback exposes the transport's shared message-rate capacity for
+TrieNodes at its current timeout. Geth clamps that value to 1,024, divides it
+by the local processing throttle, and preserves a one-item probe."
+  (unless (and (realp throttle)
+               (<= +snap-sync-heal-min-throttle+
+                   throttle
+                   +snap-sync-heal-max-throttle+))
+    (error "Invalid snap healer throttle"))
+  (let ((capacity-function
+          (snap-sync-source-trie-node-capacity source)))
+    (when capacity-function
+      (unless (functionp capacity-function)
+        (error "Snap TrieNodes capacity provider must be a function"))
+      (let ((capacity (funcall capacity-function)))
+        (unless (and (integerp capacity)
+                     (<= 1 capacity +snap-sync-heal-paths-per-source+))
+          (error "Snap TrieNodes capacity must be between 1 and ~D"
+                 +snap-sync-heal-paths-per-source+))
+        (max 1
+             (floor
+              (min capacity +snap-sync-heal-paths-per-source+)
+              throttle))))))
+
 #+sbcl
 (defun snap-sync-heal-pipeline-worker
     (runtime peer root-bytes byte-limit)
@@ -3382,17 +3421,39 @@ response has been validated instead of waiting for an unrelated slow peer."
        (snap-sync-heal-pipeline-runtime-inflight-works runtime))))
 
 #+sbcl
-(defun snap-sync-heal-pipeline-dispatch (runtime)
+(defun snap-sync-heal-pipeline-dispatch
+    (runtime &optional assignment-capacity)
   "Assign shared work to every idle peer without a round barrier."
   (sb-thread:with-mutex ((snap-sync-heal-pipeline-runtime-lock runtime))
     (let ((idle
-            (stable-sort
-             (remove-if
-              (lambda (peer)
-                (or (snap-sync-heal-pipeline-peer-retired-p peer)
-                    (snap-sync-heal-pipeline-peer-inflight-p peer)))
-              (copy-list (snap-sync-heal-pipeline-runtime-peers runtime)))
-             #'snap-sync-heal-pipeline-peer<)))
+            (remove-if
+             (lambda (peer)
+               (or (snap-sync-heal-pipeline-peer-retired-p peer)
+                   (snap-sync-heal-pipeline-peer-inflight-p peer)))
+             (copy-list (snap-sync-heal-pipeline-runtime-peers runtime)))))
+      ;; Refresh transport-owned capacities before ordering and assignment.
+      ;; A NIL result deliberately retains the local fallback for fixed test
+      ;; sources which do not own a SNAP request queue.
+      (when assignment-capacity
+        (dolist (peer idle)
+          (let ((capacity
+                  (funcall
+                   assignment-capacity
+                   (snap-sync-heal-pipeline-peer-source peer))))
+            (if capacity
+                (progn
+                  (unless (and (integerp capacity)
+                               (<= 1 capacity
+                                   +snap-sync-heal-paths-per-source+))
+                    (error "Invalid external TrieNodes assignment capacity"))
+                  (setf
+                   (snap-sync-heal-pipeline-peer-capacity peer) capacity
+                   (snap-sync-heal-pipeline-peer-externally-sized-p peer) t))
+                (setf
+                 (snap-sync-heal-pipeline-peer-externally-sized-p peer)
+                 nil)))))
+      (setf idle
+            (stable-sort idle #'snap-sync-heal-pipeline-peer<))
       (dolist (peer idle)
         (unless (snap-sync-heal-pipeline-runtime-pending runtime)
           (return))
@@ -3427,7 +3488,8 @@ response has been validated instead of waiting for an unrelated slow peer."
 #+sbcl
 (defun snap-sync-heal-run-pipeline
     (sources initial-works root-bytes byte-limit capacity-table rtt-table
-     handle-result refill refresh-sources &optional pause-p)
+     handle-result refill refresh-sources
+     &optional pause-p assignment-capacity)
   "Run a geth-shaped TrieNodes event loop over a bounded shared frontier.
 
 HANDLE-RESULT receives an individual result and its exact work vector, and
@@ -3438,7 +3500,9 @@ sources from REFRESH-SOURCES join without restarting the pipeline. PAUSE-P
 receives the exact outstanding work count; when it becomes true, assignment
 stops, in-flight responses are integrated, and the exact pending queue is
 returned for a durable checkpoint. The return values are any unprocessed works,
-the finite generation's source errors, and whether a pause requested the return."
+the finite generation's source errors, and whether a pause requested the return.
+ASSIGNMENT-CAPACITY optionally returns a live, already-throttled item capacity
+for one source. When present, it replaces the local peer-capacity learner."
   (let ((runtime (make-snap-sync-heal-pipeline-runtime))
         (errors '())
         (pause-requested-p nil))
@@ -3473,18 +3537,21 @@ the finite generation's source errors, and whether a pause requested the return.
                      (setf (snap-sync-heal-pipeline-peer-retired-p peer) t)
                      (push condition errors))
                    (unless condition
+                     (unless
+                         (snap-sync-heal-pipeline-peer-externally-sized-p peer)
+                       (setf
+                        (snap-sync-heal-pipeline-peer-capacity peer)
+                        (snap-sync-heal-learn-peer-capacity
+                         (snap-sync-heal-pipeline-peer-capacity peer)
+                         (length works) delivered elapsed)
+                        (gethash
+                         (snap-sync-heal-pipeline-peer-source peer)
+                         capacity-table)
+                        (snap-sync-heal-pipeline-peer-capacity peer)))
                      (setf
-                      (snap-sync-heal-pipeline-peer-capacity peer)
-                      (snap-sync-heal-learn-peer-capacity
-                       (snap-sync-heal-pipeline-peer-capacity peer)
-                       (length works) delivered elapsed)
                       (snap-sync-heal-pipeline-peer-rtt peer)
                       (snap-sync-heal-learn-peer-rtt
                        (snap-sync-heal-pipeline-peer-rtt peer) elapsed)
-                      (gethash
-                       (snap-sync-heal-pipeline-peer-source peer)
-                       capacity-table)
-                      (snap-sync-heal-pipeline-peer-capacity peer)
                       (gethash
                        (snap-sync-heal-pipeline-peer-source peer)
                        rtt-table)
@@ -3526,7 +3593,8 @@ the finite generation's source errors, and whether a pause requested the return.
                      (when (plusp room)
                        (snap-sync-heal-pipeline-enqueue
                         runtime (funcall refill room outstanding))))
-                   (snap-sync-heal-pipeline-dispatch runtime))
+                   (snap-sync-heal-pipeline-dispatch
+                    runtime assignment-capacity))
                  (let ((event (snap-sync-heal-pipeline-next-event runtime)))
                    (cond
                      (event
@@ -4911,10 +4979,9 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
            ;; nodes not yet integrated by PROCESS-OBJECT; RATE is nodes/second.
            (healer-pending 0)
            (healer-processing-rate 0d0)
-           ;; Retained for aggregate processing telemetry and compatibility
-           ;; with checkpoint tests. Request width is learned per peer by the
-           ;; event loop, starting from geth's 1,024-path maximum.
-           (healer-throttle +snap-sync-heal-min-throttle+)
+           ;; Geth starts maximally throttled and tunes downward instead of
+           ;; instantly filling a cold frontier with remotely discovered work.
+           (healer-throttle +snap-sync-heal-max-throttle+)
            (last-throttle-adjusted-at (get-internal-real-time)))
     (labels
         ((prefer-peer-nodes-p ()
@@ -4971,10 +5038,9 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                       healer-throttle healer-pending healer-processing-rate)
                      last-throttle-adjusted-at now))))
          (current-request-paths ()
-           ;; The event loop starts every new source at geth's full lookup
-           ;; capacity and contracts it from actual delivery/RTT feedback.
-           ;; The aggregate throttle remains telemetry; applying it here makes
-           ;; the first cold request narrower than the peer-specific policy.
+           ;; This is the frontier-fill ceiling, not an individual peer's live
+           ;; assignment. Dispatch derives that from the shared SNAP tracker
+           ;; divided by HEALER-THROTTLE, matching geth.
            +snap-sync-heal-paths-per-source+)
          (read-local-nodes (references &key decoder (disk-p t))
            ;; Preserve the ordered batch contract while satisfying freshly
@@ -5726,7 +5792,10 @@ for more missing hashes."
                     active-sources missing root-bytes byte-limit
                     source-capacities source-rtts
                     #'handle-result #'refill #'refresh-active-sources
-                    #'pipeline-checkpoint-due-p)
+                    #'pipeline-checkpoint-due-p
+                    (lambda (source)
+                      (snap-sync-heal-source-request-capacity
+                       source healer-throttle)))
                  (setf remote-work-count 0)
                  (flush-fetched-nodes)
                  (flush-healed-subtrees)

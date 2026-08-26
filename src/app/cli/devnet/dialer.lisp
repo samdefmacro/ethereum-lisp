@@ -749,6 +749,10 @@ target."
            (values
             (request ethereum-lisp.snap:+snap-message-get-bytecodes+ packet)
             requested)))
+       :trie-node-capacity
+       (lambda ()
+         (devnet-peer-request-queue-snap-capacity
+          queue ethereum-lisp.snap:+snap-message-trie-nodes+))
        :trie-nodes
        (lambda (packet)
          (request ethereum-lisp.snap:+snap-message-get-trie-nodes+ packet))))))
@@ -1088,6 +1092,8 @@ the transport which supplied it."
         "bytecodes" :result-function verifier))
      ;; Trie healing already has its own cross-source scheduler and request
      ;; grouping, so retain the fixed source identity for that phase.
+     :trie-node-capacity
+     (ethereum-lisp.snap-sync:snap-sync-source-trie-node-capacity fixed)
      :trie-nodes
      (ethereum-lisp.snap-sync:snap-sync-source-trie-nodes fixed))))
 
