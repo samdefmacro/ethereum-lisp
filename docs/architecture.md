@@ -165,24 +165,30 @@ them by their physical location instead reintroduces dependency cycles:
   preserves its durable cursors and the next coordinator pass atomically
   rebases them to a serviceable newer pivot. Account and
   storage requests in an empty pool start at geth's 64 KiB lower cap. Each peer
-  and response type learns an EWMA of delivered capacity and round-trip time,
-  grows or shrinks toward the node's live geth-style timeout capacity, and
-  uses geth's explicit `ceil(1 + estimated-capacity)` probe so an ordinary full
-  response cannot strand the next assignment at one item. It stays within the
+  and response type learns geth's 0.1 EWMA of delivered units per second and
+  uses the node's current timeout to derive
+  `ceil(1 + 1.01 * throughput * timeout)` for every assignment. A zero delivery
+  resets that message throughput without contaminating the peer RTT. It stays
+  within the
   protocol's native units: 64--512 KiB for ranges, 1--84 returned code items for
   ByteCodes, and 1--1,024 returned nodes for TrieNodes. This prevents a slow
   peer from holding a fixed maximum response until the session's wall-clock
-  deadline while allowing fast peers to refill the full page in bounded steps.
+  deadline while allowing a proven fast peer to refill the full page without a
+  local double/half limiter absent from geth.
   Request deadlines use the same pool-wide RTT shape as geth instead of a fixed
-  thirty seconds. Each live session contributes one cross-message EWMA; the
-  node orders those samples, selects zero-based index `floor(sqrt(peer-count))`,
-  clamps the service-time target to two--twenty seconds, and permits three
-  target RTTs up to a sixty-second ceiling. A cold pool starts at Geth's
-  twenty-second RTT and sixty-second deadline. Removing a closed session removes
-  its sample and capacity snapshots, while a newly connected session immediately
-  inherits the established pool RTT and mean per-message capacities. Its first
-  small response contributes only the same ten-percent EWMA impact as Geth, so
-  one cache hit cannot collapse every following request to the six-second floor.
+  thirty seconds. Each live session contributes one cross-message EWMA. The
+  tuner orders those samples, selects zero-based index
+  `floor(sqrt(peer-count))`, clamps the sampled RTT to two--twenty seconds, and
+  applies geth's 0.25 impact to a cached pool RTT no more than once per cached
+  RTT. New connections below ten live peers detune confidence down to a 0.1
+  floor; each tuning pass moves it halfway back toward one. The deadline is
+  `min(60s, 3 * cached-rtt / confidence)`. A cold pool therefore starts at
+  Geth's twenty-second RTT and sixty-second deadline. Removing a closed session
+  removes its RTT and throughput snapshots, while a newly connected session
+  immediately inherits the live median RTT and mean per-message throughputs.
+  Its first small response contributes only the same ten-percent EWMA impact as
+  Geth, so one cache hit cannot collapse every following request to the
+  six-second floor.
   This prevents repeated slow or dead dependency transports from consuming a
   full fixed timeout at every retry.
   The page-progress event exposes this current pool deadline as

@@ -4105,7 +4105,7 @@ loop cannot block on a message that never comes."
   #-sbcl
   (is t))
 
-(deftest devnet-snap-request-capacity-adapts-with-bounded-steps
+(deftest devnet-snap-request-capacity-follows-geth-throughput-ewma
   (:layer :unit :module :p2p)
   #+sbcl
   (let* ((queue (ethereum-lisp.cli::make-devnet-peer-request-queue))
@@ -4115,16 +4115,46 @@ loop cannot block on a message that never comes."
     (is (= minimum
            (ethereum-lisp.cli::devnet-peer-request-queue-snap-capacity
             queue response-id)))
-    ;; A very fast first response may grow only one step, not jump to max.
-    (is (= (* 2 minimum)
-           (ethereum-lisp.cli::devnet-peer-request-queue-record-snap-delivery
-            queue response-id minimum 0.05d0)))
-    (is (= (* 4 minimum)
-           (ethereum-lisp.cli::devnet-peer-request-queue-record-snap-delivery
-            queue response-id (* 2 minimum) 0.05d0)))
+    ;; Geth starts a first peer at zero throughput, applies the 0.1 EWMA, then
+    ;; derives the request from throughput * timeout. A sufficiently fast first
+    ;; 64 KiB response therefore reaches the protocol cap immediately; the old
+    ;; local double-step limiter would return only 128 KiB here.
     (is (= maximum
            (ethereum-lisp.cli::devnet-peer-request-queue-record-snap-delivery
-            queue response-id (* 4 minimum) 0.05d0)))
+            queue response-id minimum 0.05d0)))
+    ;; Geth interprets a zero delivery as no usable throughput, but does not
+    ;; contaminate the peer's shared RTT with the timeout/unavailable interval.
+    (is (= minimum
+           (ethereum-lisp.cli::devnet-peer-request-queue-record-snap-delivery
+            queue response-id 0 30d0)))
+    (multiple-value-bind (capacity rtt samples)
+        (ethereum-lisp.cli::devnet-peer-request-queue-snap-statistics
+         queue response-id)
+      (is (= minimum capacity))
+      ;; The tracker RTT is shared by all response types and starts at 20s:
+      ;; 0.9 * 20 + 0.1 * 0.05 = 18.005. The zero delivery leaves it intact.
+      (is (< (abs (- 18.005d0 rtt)) 1d-12))
+      (is (= 2 samples)))
+    ;; RTT belongs to Geth's peer tracker, not to one message kind. A newly
+    ;; observed ByteCodes rate sees the AccountRange measurement immediately.
+    (multiple-value-bind (capacity rtt samples)
+        (ethereum-lisp.cli::devnet-peer-request-queue-snap-statistics
+         queue ethereum-lisp.snap:+snap-message-bytecodes+)
+      (is (= 1 capacity))
+      (is (< (abs (- 18.005d0 rtt)) 1d-12))
+      (is (zerop samples)))
+    (is (= 2
+           (ethereum-lisp.cli::devnet-peer-request-queue-record-snap-delivery
+            queue ethereum-lisp.snap:+snap-message-bytecodes+ 1 10d0)))
+    (multiple-value-bind (capacity rtt samples)
+        (ethereum-lisp.cli::devnet-peer-request-queue-snap-statistics
+         queue response-id)
+      (is (= minimum capacity))
+      (is (< (abs (- 17.2045d0 rtt)) 1d-12))
+      (is (= 2 samples)))
+    (is (= maximum
+           (ethereum-lisp.cli::devnet-peer-request-queue-record-snap-delivery
+            queue response-id minimum 0.05d0)))
     ;; Repeated slow measurements reduce capacity but never below 64 KiB.
     (loop repeat 64
           do (ethereum-lisp.cli::devnet-peer-request-queue-record-snap-delivery
@@ -4155,14 +4185,27 @@ loop cannot block on a message that never comes."
     (is (= 60d0
            (ethereum-lisp.cli::devnet-snap-qos-target-timeout qos)))
     ;; Each first response contributes ten percent to its 20-second inherited
-    ;; RTT. For sixteen peers the fast-side median is zero-based index four:
-    ;; 18.3 seconds, yielding a 54.9-second deadline.
+    ;; RTT. Geth does not replace the cached pool RTT on every packet, and the
+    ;; first nine peer joins have detuned confidence to 1/9, so the deadline
+    ;; remains at its 60-second cap before the periodic tuner runs.
     (loop for queue in queues
           for rtt from 1d0 by 0.5d0
-          do (ethereum-lisp.cli::devnet-snap-qos-record-round-trip
-              qos queue rtt))
+          do (ethereum-lisp.cli::devnet-peer-request-queue-record-round-trip
+              queue rtt))
+    (is (< (abs (- (/ 1d0 9d0)
+                   (ethereum-lisp.cli::devnet-snap-qos-confidence qos)))
+           1d-12))
+    (is (= 60d0
+           (ethereum-lisp.cli::devnet-snap-qos-target-timeout qos)))
+    ;; Force one due tuning interval. The live fast-side median is 18.3s;
+    ;; Geth's 0.25 cache impact moves 20 -> 19.575. With confidence pinned to
+    ;; one for this oracle, the resulting timeout is exactly 58.725 seconds.
+    (setf (ethereum-lisp.cli::devnet-snap-qos-confidence qos) 1d0
+          (ethereum-lisp.cli::devnet-snap-qos-tuned-at qos)
+          (- (get-internal-real-time)
+             (* 21 internal-time-units-per-second)))
     (is (< (abs
-            (- 54.9d0
+            (- 58.725d0
                (ethereum-lisp.cli::devnet-snap-qos-target-timeout qos)))
            1d-9))
     (let* ((probe (first queues))
@@ -4178,26 +4221,30 @@ loop cannot block on a message that never comes."
               (ethereum-lisp.cli::devnet-peer-request-queue-take-eligible
                probe)))
       (is (< (abs
-              (- 54.9d0
+              (- 58.725d0
                  (ethereum-lisp.cli::devnet-peer-request-job-timeout-seconds
                   job)))
              1d-9))
       (is (< (abs
-              (- 54.9d0
+              (- 58.725d0
                  (- (ethereum-lisp.cli::devnet-peer-request-job-deadline job)
                     (ethereum-lisp.cli::devnet-peer-request-job-started-at
                      job))))
              1d-9))
       (setf (ethereum-lisp.cli::devnet-peer-request-queue-active probe) nil))
-    ;; Closing the five fastest queues removes their stale influence. Eleven
-    ;; peers remain; zero-based index three is 18.5 seconds, yielding 55.5.
+    ;; Closing peers removes their RTT and throughput snapshots. Like Geth,
+    ;; untracking alone does not rewrite the already tuned cache.
     (dolist (queue (subseq queues 0 5))
       (ethereum-lisp.cli::devnet-peer-request-queue-close queue))
+    (is (= 11 (hash-table-count
+               (ethereum-lisp.cli::devnet-snap-qos-round-trips qos))))
+    (is (= 11 (hash-table-count
+               (ethereum-lisp.cli::devnet-snap-qos-throughputs qos))))
     (is (< (abs
-            (- 55.5d0
+            (- 58.725d0
                (ethereum-lisp.cli::devnet-snap-qos-target-timeout qos)))
            1d-9))
-    ;; The exact geth clamps remain fail-safe at both ends.
+    ;; The live median still clamps peer samples to Geth's 2--20s interval.
     (let ((low (first (last queues)))
           (high (second (last queues 2))))
       (clrhash (ethereum-lisp.cli::devnet-snap-qos-round-trips qos))
@@ -4205,17 +4252,21 @@ loop cannot block on a message that never comes."
                      (ethereum-lisp.cli::devnet-snap-qos-round-trips qos))
             0.1d0)
       (is (= 6d0
-             (ethereum-lisp.cli::devnet-snap-qos-target-timeout qos)))
+             (* 3d0
+                (ethereum-lisp.cli::devnet-snap-qos-live-median-round-trip-locked
+                 qos))))
       (clrhash (ethereum-lisp.cli::devnet-snap-qos-round-trips qos))
       (setf (gethash high
                      (ethereum-lisp.cli::devnet-snap-qos-round-trips qos))
             90d0)
       (is (= 60d0
-             (ethereum-lisp.cli::devnet-snap-qos-target-timeout qos)))))
+             (* 3d0
+                (ethereum-lisp.cli::devnet-snap-qos-live-median-round-trip-locked
+                 qos))))))
   #-sbcl
   (is t))
 
-(deftest devnet-snap-new-peer-inherits-live-pool-capacities
+(deftest devnet-snap-new-peer-inherits-live-pool-throughputs
   (:layer :unit :module :p2p)
   #+sbcl
   (let* ((qos (ethereum-lisp.cli::make-devnet-snap-qos))
@@ -4223,24 +4274,27 @@ loop cannot block on a message that never comes."
          (range-id ethereum-lisp.snap:+snap-message-account-range+)
          (code-id ethereum-lisp.snap:+snap-message-bytecodes+)
          (minimum ethereum-lisp.cli::+devnet-snap-min-request-bytes+))
-    (is (= (* 2 minimum)
-           (ethereum-lisp.cli::devnet-peer-request-queue-record-snap-delivery
-            first range-id minimum 0.05d0)))
-    (is (= 2
-           (ethereum-lisp.cli::devnet-peer-request-queue-record-snap-delivery
-            first code-id 1 0.05d0)))
-    (let ((second
-            (ethereum-lisp.cli::make-devnet-peer-request-queue qos)))
-      ;; Geth seeds a new peer tracker from the live mean instead of forcing
-      ;; every churned public session through 64 KiB and one code item again.
-      (is (= (* 2 minimum)
-             (ethereum-lisp.cli::devnet-peer-request-queue-snap-capacity
-              second range-id)))
+    (let ((range-capacity
+            (ethereum-lisp.cli::devnet-peer-request-queue-record-snap-delivery
+             first range-id minimum 3d0)))
+      (is (< minimum range-capacity))
+      (is (< range-capacity
+             ethereum-lisp.cli::+devnet-snap-max-request-bytes+))
       (is (= 2
-             (ethereum-lisp.cli::devnet-peer-request-queue-snap-capacity
-              second code-id)))
-      (ethereum-lisp.cli::devnet-peer-request-queue-close second))
-    (ethereum-lisp.cli::devnet-peer-request-queue-close first))
+             (ethereum-lisp.cli::devnet-peer-request-queue-record-snap-delivery
+              first code-id 1 12d0)))
+      (let ((second
+              (ethereum-lisp.cli::make-devnet-peer-request-queue qos)))
+        ;; Geth seeds a new peer tracker from the live mean throughput instead
+        ;; of copying a capacity tied to one obsolete timeout.
+        (is (= range-capacity
+               (ethereum-lisp.cli::devnet-peer-request-queue-snap-capacity
+                second range-id)))
+        (is (= 2
+               (ethereum-lisp.cli::devnet-peer-request-queue-snap-capacity
+                second code-id)))
+        (ethereum-lisp.cli::devnet-peer-request-queue-close second))
+      (ethereum-lisp.cli::devnet-peer-request-queue-close first)))
   #-sbcl
   (is t))
 
@@ -4278,7 +4332,7 @@ loop cannot block on a message that never comes."
              2 root root root limit)))
       (ethereum-lisp.cli::devnet-peer-apply-adaptive-snap-byte-cap
        queue ethereum-lisp.snap:+snap-message-get-account-range+ next)
-      (is (= (* 2 ethereum-lisp.cli::+devnet-snap-min-request-bytes+)
+      (is (= limit
              (ethereum-lisp.snap:snap-get-account-range-bytes next))))
     (ethereum-lisp.cli::devnet-peer-request-queue-record-snap-delivery
      queue ethereum-lisp.snap:+snap-message-storage-ranges+
@@ -4289,9 +4343,9 @@ loop cannot block on a message that never comes."
              (make-byte-vector 0) (make-byte-vector 0) limit)))
       (ethereum-lisp.cli::devnet-peer-apply-adaptive-snap-byte-cap
        queue ethereum-lisp.snap:+snap-message-get-storage-ranges+ next)
-      (is (= (* 2 ethereum-lisp.cli::+devnet-snap-min-request-bytes+)
+      (is (= limit
              (ethereum-lisp.snap:snap-get-storage-ranges-bytes next)))
-      (is (= 128
+      (is (= 200
              (length
               (ethereum-lisp.snap:snap-get-storage-ranges-accounts next))))))
   #-sbcl
@@ -4311,13 +4365,11 @@ loop cannot block on a message that never comes."
       (is (= 1
              (length
               (ethereum-lisp.snap:snap-get-bytecodes-hashes packet)))))
-    ;; ByteCodes capacity is measured in delivered code items. Repeated fast
-    ;; samples grow 1 -> 2 -> 4 ... -> 84 without treating payload bytes as a
-    ;; nonsensical hash count.
-    (dotimes (index 7)
-      (declare (ignore index))
-      (ethereum-lisp.cli::devnet-peer-request-queue-record-snap-delivery
-       queue response-id 84 0.05d0))
+    ;; ByteCodes capacity is measured in delivered code items. Geth's first
+    ;; fast sample can reach 84 immediately; the old double-step limiter could
+    ;; not, and treating payload bytes as a hash count would overshoot wildly.
+    (ethereum-lisp.cli::devnet-peer-request-queue-record-snap-delivery
+     queue response-id 84 0.05d0)
     (is (= ethereum-lisp.cli::+devnet-snap-max-bytecode-hashes+
            (ethereum-lisp.cli::devnet-peer-request-queue-snap-capacity
             queue response-id)))
@@ -4390,7 +4442,7 @@ loop cannot block on a message that never comes."
     ;; delivery capacity, so geth-style capacity ordering must still choose it.
     (ethereum-lisp.cli::devnet-peer-request-queue-record-snap-delivery
      queue-one storage-id
-     ethereum-lisp.cli::+devnet-snap-min-request-bytes+ 0.05d0)
+     ethereum-lisp.cli::+devnet-snap-min-request-bytes+ 0.2d0)
     (ethereum-lisp.cli::devnet-peer-request-queue-record-snap-delivery
      queue-two storage-id
      ethereum-lisp.cli::+devnet-snap-min-request-bytes+ 0.25d0)

@@ -91,19 +91,24 @@ most one follow-up pass, so peer traffic cannot allocate unbounded wakeup work."
 
 (defstruct (devnet-snap-qos
             (:constructor make-devnet-snap-qos ()))
-  "Node-wide SNAP rate samples used for geth-style request scheduling.
+  "Node-wide SNAP message-rate trackers used for geth-style scheduling.
 
-Each live peer request queue contributes one EWMA.  Keeping this at node scope
-lets a newly connected peer inherit the established pool's service-time target
-and per-message capacity instead of relearning both from the cold minimum after
-every public-peer churn event."
+Each live peer request queue contributes one shared RTT and one throughput EWMA
+per response type.  ROUND-TRIP and CONFIDENCE cache the periodically tuned pool
+estimate: new connections detune confidence, while successful tuning converges
+it back toward one.  Keeping this at node scope lets a replacement peer inherit
+the established pool instead of relearning it from the cold minimum."
   (lock #+sbcl
         (sb-thread:make-mutex :name "ethereum-lisp-snap-qos")
         #-sbcl nil)
   (round-trips (make-hash-table :test #'eq))
-  ;; Queue -> response-id/capacity table.  The nested tables are snapshots, so
-  ;; pool means never acquire a peer queue lock while holding the QoS lock.
-  (capacities (make-hash-table :test #'eq)))
+  ;; Queue -> response-id/units-per-second table. The nested tables are
+  ;; snapshots, so pool means never acquire a peer queue lock while holding the
+  ;; QoS lock.
+  (throughputs (make-hash-table :test #'eq))
+  (round-trip 20d0)
+  (confidence 1d0)
+  (tuned-at (get-internal-real-time)))
 
 (defstruct (devnet-node
             (:constructor %make-devnet-node

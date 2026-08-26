@@ -300,7 +300,7 @@ The implementation boundary is split deliberately:
   restart compatibility. This also matches its reuse of the initial nil-bound
   response and avoids an explicit origin-zero replay that public hash-scheme
   peers may reject. The first peer begins at 64 KiB; churned peers inherit the
-  live pool's mean per-message capacities. Each names at most `capacity / 1024`
+  live pool's mean per-message throughputs. Each names at most `capacity / 1024`
   storage accounts while its request budget adapts up to 512 KiB against the
   same live timeout used for expiry. The exact `f72afc7f` formal deployment
   proved why both inheritance rules are required: its first small reply drove
@@ -325,6 +325,13 @@ The implementation boundary is split deliberately:
   completed cursors remain range-coverage evidence only: their short-lived
   root-shaped proof is retired, and final healing must establish descendant
   closure before publishing the separate whole-root proof.
+  The exact successor `5bdd9aae` formal deployment reused the unchanged
+  datadir from `2026-08-26T13:07:56Z`. Its thirteen-minute endpoint had no
+  restart, OOM, request timeout, or peer-range fatal and retained thirteen
+  peers. Healer progress reached 2,062,336 processed nodes, including 2,059,651
+  local reuses and 2,681 remote fetches, while its dynamically discovered
+  frontier grew to 27,474; this proves the `f72afc7f` timeout and buffered-block
+  failures no longer stop the live node, but not that healing is complete.
   Fresh stores also use geth's exact hash-presence frontier: open range or
   fetched nodes carry durable negative markers, and healer DFS removes each
   marker only after its descendants and external dependencies are complete.
@@ -344,12 +351,16 @@ The implementation boundary is split deliberately:
   response still retries elsewhere without discarding the verified account page
   or blaming its range peer. The CLI advertises snap only when both sides
   are operational. SNAP request deadlines are no longer a fixed thirty seconds:
-  live sessions contribute one cross-message RTT EWMA, the pool uses geth's
-  `floor(sqrt(peer-count))` ordered sample with a two--twenty-second RTT clamp,
-  and each request receives three target RTTs up to a sixty-second ceiling. A
-  cold pool starts from Geth's twenty-second RTT and sixty-second allowance;
-  replacement peers inherit the live per-message capacity means, and closed
-  peer samples are removed before replacement scheduling. The CLI serves production state
+  live sessions contribute one cross-message RTT EWMA. The pool caches geth's
+  `floor(sqrt(peer-count))` ordered sample with a two--twenty-second clamp,
+  updates it at 0.25 impact once per cached RTT, and detunes confidence when a
+  small pool gains a peer. Each request receives
+  `min(60s, 3 * cached-rtt / confidence)`. Per-message assignments use geth's
+  0.1 throughput EWMA and `ceil(1 + 1.01 * throughput * timeout)` rather than a
+  separate double/half limiter. A cold pool starts from Geth's twenty-second
+  RTT and sixty-second allowance; replacement peers inherit live mean
+  throughputs, and closed peer snapshots are removed before replacement
+  scheduling. The CLI serves production state
   through the direct RocksDB
   provider. A stale pivot remains
   pinned while a wide source pool or a collapsed pool with bounded aggregate

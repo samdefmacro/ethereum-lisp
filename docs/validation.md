@@ -538,20 +538,23 @@ fresh empty datadir. The corrective profile exposed the next actionable gap:
 least 120 seconds, and logs repeatedly consumed the fixed 30-second request
 deadline before failover.
 
-The request-timeout control now creates sixteen cold trackers at Geth's
+The request-timeout control creates sixteen cold trackers at Geth's
 twenty-second RTT, supplies each first synthetic live response with the exact
-ten-percent EWMA impact, and requires the production queue call site to use
-geth's zero-based `floor(sqrt(N))` sample, two--twenty-second RTT clamps,
-threefold scaling, and sixty-second ceiling. It also closes the five fastest
-queues and proves their RTT and capacity snapshots no longer influence the
-target; a cold pool remains at sixty seconds. Production capacity estimation
-uses that same live timeout rather than a fixed six seconds. This prevents one
-tiny first packet from collapsing later deadlines, preserves learned work size
-across peer churn, and avoids multiplying a static expiry across StorageRanges
-and ByteCodes retries. A peer-range verdict control requires durable `ACCEPTED`
-to return normally while deterministic `INVALID` still raises the validation
-failure; this protects the ordinary pre-pivot block buffer from being mistaken
-for an executable-state failure.
+ten-percent EWMA impact, and requires the production queue call site to retain
+the cached RTT until its tuning interval. The forced tuning oracle checks
+geth's zero-based `floor(sqrt(N))` sample, two--twenty-second clamp, 0.25 cache
+impact, connection-driven confidence detuning, threefold confidence-scaled
+timeout, and sixty-second ceiling. Closing five queues removes their RTT and
+throughput snapshots without rewriting the cache early. The capacity controls
+use geth's 0.1 units-per-second EWMA and
+`ceil(1 + 1.01 * throughput * live-timeout)` directly: a fast first range or
+ByteCodes response can reach the protocol cap, a zero delivery returns to the
+minimum without changing RTT, and a new peer inherits mean throughputs rather
+than a timeout-specific capacity. These controls reject the former 0.2 EWMA,
+immediate-median timeout, and double/half step limiter. A peer-range verdict
+control requires durable `ACCEPTED` to return normally while deterministic
+`INVALID` still raises the validation failure; this protects the ordinary
+pre-pivot block buffer from being mistaken for an executable-state failure.
 
 The exact `f72afc7f` image exposed both controls on the formal Hoodi datadir. It
 started at `2026-08-26T12:28:47Z` and exited at `12:34:48Z` without OOM. Before
@@ -564,6 +567,18 @@ misclassified that pre-state result as a fatal non-executable block. The prior
 immediately resumed Engine `eth_syncing`. The cold-RTT inheritance and buffered
 verdict regressions above are therefore production-derived, not speculative
 tuning.
+
+The exact successor `5bdd9aae` image was uploaded with archive SHA-256
+`676259397a4f3f4bae14fae7662661a2cc6de7970c0a78adb68c26ef402cfe8c`
+and upgraded onto that unchanged datadir at `2026-08-26T13:07:56Z`. At the
+`13:20:57Z` endpoint it had run for thirteen minutes without restart, OOM,
+request timeout, or peer-range fatal; it held thirteen peers at 171.79% CPU and
+3.888 GiB RSS. The retained range state entered healing instead of replaying
+pages. From `13:10:28Z` through `13:21:28Z`, healer progress advanced from zero
+to 2,062,336 processed nodes: 2,059,651 were locally reused and 2,681 fetched in
+18 requests. The live frontier simultaneously expanded to 27,474 works, so this
+is evidence that the two `f72afc7f` failures are fixed and productive healing
+resumed; it is not a completion percentage or a fixed healer ETA.
 
 A separate
 failover control

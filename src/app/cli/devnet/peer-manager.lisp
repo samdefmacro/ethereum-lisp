@@ -51,8 +51,11 @@ the raw round-trip target.  At its two-second minimum RTT and threefold timeout
 scaling that floor is six seconds.  Using the RTT itself here strands code-item
 capacity near one on ordinary one-to-two-second public peers.")
 
-(defconstant +devnet-snap-rate-measurement-impact+ 0.2d0
-  "EWMA weight of one SNAP response throughput and latency measurement.")
+(defconstant +devnet-snap-rate-measurement-impact+ 0.1d0
+  "Geth's EWMA weight of one SNAP response throughput measurement.")
+
+(defconstant +devnet-snap-capacity-overestimation+ 1.01d0
+  "Geth's small capacity overshoot, before its explicit one-item probe.")
 
 (defconstant +devnet-snap-qos-measurement-impact+ 0.1d0
   "Geth's EWMA weight for one peer's shared SNAP round-trip estimate.")
@@ -71,6 +74,15 @@ capacity near one on ordinary one-to-two-second public peers.")
 
 (defconstant +devnet-snap-qos-cold-timeout-seconds+ 60d0
   "Geth's initial three-times-20-second timeout for an untuned peer pool.")
+
+(defconstant +devnet-snap-qos-min-confidence+ 0.1d0
+  "Geth's lower confidence bound after public-peer churn.")
+
+(defconstant +devnet-snap-qos-confidence-peer-cap+ 10
+  "Peer count above which Geth no longer detunes QoS confidence.")
+
+(defconstant +devnet-snap-qos-tuning-impact+ 0.25d0
+  "Geth's impact of one periodically sampled pool RTT on its cached RTT.")
 
 #+sbcl
 (defun devnet-snap-qos-live-median-round-trip-locked (qos)
@@ -92,73 +104,87 @@ capacity near one on ordinary one-to-two-second public peers.")
            (min +devnet-snap-qos-max-rtt-seconds+ selected)))))
 
 #+sbcl
+(defun devnet-snap-qos-mean-throughputs-locked (qos)
+  "Return a fresh table containing Geth's live per-message throughput means."
+  (let ((means (make-hash-table))
+        (count (hash-table-count (devnet-snap-qos-throughputs qos))))
+    (when (plusp count)
+      (maphash
+       (lambda (queue throughputs)
+         (declare (ignore queue))
+         (maphash
+          (lambda (response-id throughput)
+            (incf (gethash response-id means 0d0) throughput))
+          throughputs))
+       (devnet-snap-qos-throughputs qos))
+      (maphash
+       (lambda (response-id total)
+         (setf (gethash response-id means) (/ total count)))
+       means))
+    means))
+
+#+sbcl
+(defun devnet-snap-qos-detune-locked (qos)
+  "Apply Geth's confidence relaxation after adding one live peer."
+  (let ((peers (hash-table-count (devnet-snap-qos-round-trips qos))))
+    (cond
+      ((= peers 1)
+       (setf (devnet-snap-qos-confidence qos) 1d0))
+      ((>= peers +devnet-snap-qos-confidence-peer-cap+))
+      (t
+       (setf (devnet-snap-qos-confidence qos)
+             (max +devnet-snap-qos-min-confidence+
+                  (* (devnet-snap-qos-confidence qos)
+                     (/ (1- peers) (float peers 1d0))))))))
+  qos)
+
+#+sbcl
 (defun devnet-snap-qos-track-queue (qos queue)
-  "Track QUEUE with the live pool's RTT, as Geth initializes a new tracker."
-  (when qos
-    (sb-thread:with-mutex ((devnet-snap-qos-lock qos))
-      (setf (gethash queue (devnet-snap-qos-round-trips qos))
-            (devnet-snap-qos-live-median-round-trip-locked qos)
-            (gethash queue (devnet-snap-qos-capacities qos))
-            (make-hash-table))))
-  queue)
-
-#+sbcl
-(defun devnet-snap-qos-mean-capacity
-    (qos response-id minimum maximum)
-  "Return RESPONSE-ID's live pool mean, clamped to its protocol bounds."
+  "Track QUEUE with Geth's live RTT and mean-throughput inheritance."
   (if (null qos)
-      minimum
+      queue
       (sb-thread:with-mutex ((devnet-snap-qos-lock qos))
-        (let ((sum 0)
-              (count 0))
-          (maphash
-           (lambda (queue capacities)
-             (declare (ignore queue))
-             (multiple-value-bind (capacity present-p)
-                 (gethash response-id capacities)
-               (when present-p
-                 (incf sum capacity)
-                 (incf count))))
-           (devnet-snap-qos-capacities qos))
-          (if (zerop count)
-              minimum
-              (max minimum
-                   (min maximum (ceiling sum count))))))))
+        (let ((round-trip
+                (devnet-snap-qos-live-median-round-trip-locked qos)))
+          (setf (gethash queue (devnet-snap-qos-round-trips qos))
+                round-trip
+                (gethash queue (devnet-snap-qos-throughputs qos))
+                (devnet-snap-qos-mean-throughputs-locked qos))
+          (devnet-snap-qos-detune-locked qos)
+          (values queue round-trip)))))
 
 #+sbcl
-(defun devnet-snap-qos-record-capacity
-    (qos queue response-id capacity)
-  "Publish QUEUE's latest response capacity without exposing its mutable rate."
+(defun devnet-snap-qos-queue-throughput (qos queue response-id)
+  "Return QUEUE's inherited or measured RESPONSE-ID units per second."
+  (if (null qos)
+      0d0
+      (sb-thread:with-mutex ((devnet-snap-qos-lock qos))
+        (let ((throughputs
+                (gethash queue (devnet-snap-qos-throughputs qos))))
+          (if throughputs
+              (gethash response-id throughputs 0d0)
+              0d0)))))
+
+#+sbcl
+(defun devnet-snap-qos-record-throughput
+    (qos queue response-id throughput)
+  "Publish QUEUE's latest immutable throughput snapshot to the pool."
   (when qos
     (sb-thread:with-mutex ((devnet-snap-qos-lock qos))
-      (let ((capacities
-              (or (gethash queue (devnet-snap-qos-capacities qos))
-                  (setf (gethash queue (devnet-snap-qos-capacities qos))
+      (let ((throughputs
+              (or (gethash queue (devnet-snap-qos-throughputs qos))
+                  (setf (gethash queue (devnet-snap-qos-throughputs qos))
                         (make-hash-table)))))
-        (setf (gethash response-id capacities) capacity))))
-  capacity)
+        (setf (gethash response-id throughputs) throughput))))
+  throughput)
 
 #+sbcl
-(defun devnet-snap-qos-record-round-trip (qos queue elapsed)
-  "Publish QUEUE's shared SNAP RTT EWMA into node-wide QOS."
-  (unless (and (realp elapsed) (plusp elapsed))
-    (error "Invalid SNAP QoS round-trip measurement"))
+(defun devnet-snap-qos-publish-round-trip (qos queue round-trip)
+  "Publish QUEUE's already-updated shared SNAP RTT into node-wide QOS."
   (when qos
     (sb-thread:with-mutex ((devnet-snap-qos-lock qos))
-      (let* ((samples (devnet-snap-qos-round-trips qos))
-             ;; A newly connected Geth tracker starts at the current pool RTT,
-             ;; or 20 seconds for the first peer. Never let a tiny first packet
-             ;; collapse every subsequent request directly to the six-second
-             ;; floor.
-             (old (or (gethash queue samples)
-                      (devnet-snap-qos-live-median-round-trip-locked qos)))
-             (impact +devnet-snap-qos-measurement-impact+))
-        (setf (gethash queue samples)
-              (if old
-                  (+ (* (- 1d0 impact) old)
-                     (* impact (float elapsed 1d0)))
-                  (float elapsed 1d0))))))
-  elapsed)
+      (setf (gethash queue (devnet-snap-qos-round-trips qos)) round-trip)))
+  round-trip)
 
 #+sbcl
 (defun devnet-snap-qos-forget-queue (qos queue)
@@ -166,25 +192,42 @@ capacity near one on ordinary one-to-two-second public peers.")
   (when qos
     (sb-thread:with-mutex ((devnet-snap-qos-lock qos))
       (remhash queue (devnet-snap-qos-round-trips qos))
-      (remhash queue (devnet-snap-qos-capacities qos))))
+      (remhash queue (devnet-snap-qos-throughputs qos))))
   t)
 
 #+sbcl
-(defun devnet-snap-qos-target-timeout (qos)
-  "Return Geth's three-RTT request deadline from the live peer pool.
+(defun devnet-snap-qos-tune-locked (qos now)
+  "Refresh Geth's cached RTT and confidence no more than once per cached RTT."
+  (let ((elapsed
+          (/ (- now (devnet-snap-qos-tuned-at qos))
+             (float internal-time-units-per-second 1d0))))
+    (when (> elapsed (devnet-snap-qos-round-trip qos))
+      (let ((impact +devnet-snap-qos-tuning-impact+))
+        (setf (devnet-snap-qos-round-trip qos)
+              (+ (* (- 1d0 impact) (devnet-snap-qos-round-trip qos))
+                 (* impact
+                    (devnet-snap-qos-live-median-round-trip-locked qos)))
+              (devnet-snap-qos-confidence qos)
+              (+ (devnet-snap-qos-confidence qos)
+                 (/ (- 1d0 (devnet-snap-qos-confidence qos)) 2d0))
+              (devnet-snap-qos-tuned-at qos) now))))
+  qos)
 
-Geth orders live peer RTTs and selects index sqrt(peer-count), which deliberately
-leans toward the faster healthy part of a wide pool.  The estimate is clamped to
-two--twenty seconds and scaled threefold, with a sixty-second ceiling.  Until a
-pool has a sample, retain Geth's initial sixty-second allowance."
+#+sbcl
+(defun devnet-snap-qos-target-timeout-locked (qos)
+  (min +devnet-snap-qos-timeout-limit-seconds+
+       (/ (* +devnet-snap-qos-timeout-scale+
+             (devnet-snap-qos-round-trip qos))
+          (devnet-snap-qos-confidence qos))))
+
+#+sbcl
+(defun devnet-snap-qos-target-timeout (qos)
+  "Return Geth's confidence-scaled, periodically tuned SNAP request deadline."
   (if (null qos)
       +devnet-snap-qos-cold-timeout-seconds+
       (sb-thread:with-mutex ((devnet-snap-qos-lock qos))
-        (if (zerop (hash-table-count (devnet-snap-qos-round-trips qos)))
-              +devnet-snap-qos-cold-timeout-seconds+
-            (min +devnet-snap-qos-timeout-limit-seconds+
-                 (* +devnet-snap-qos-timeout-scale+
-                    (devnet-snap-qos-live-median-round-trip-locked qos)))))))
+        (devnet-snap-qos-tune-locked qos (get-internal-real-time))
+        (devnet-snap-qos-target-timeout-locked qos))))
 
 #+sbcl
 (defun devnet-snap-qos-capacity-target-seconds (qos)
@@ -199,10 +242,8 @@ value for both request sizing and expiry, matching Geth's SNAP scheduler."
 
 #+sbcl
 (defstruct (devnet-peer-snap-rate
-            (:constructor make-devnet-peer-snap-rate (capacity)))
-  capacity
+            (:constructor make-devnet-peer-snap-rate (throughput)))
   throughput
-  round-trip
   (samples 0))
 
 #+sbcl
@@ -231,14 +272,20 @@ value for both request sizing and expiry, matching Geth's SNAP scheduler."
   (pending '())
   (active '())
   (snap-rates (make-hash-table))
+  (snap-round-trip +devnet-snap-qos-max-rtt-seconds+)
   snap-qos
   closed-p)
 
 #+sbcl
 (defun make-devnet-peer-request-queue (&optional snap-qos)
   "Create and immediately register a request queue with node-wide SNAP QoS."
-  (devnet-snap-qos-track-queue
-   snap-qos (%make-devnet-peer-request-queue snap-qos)))
+  (let ((queue (%make-devnet-peer-request-queue snap-qos)))
+    (multiple-value-bind (tracked inherited-round-trip)
+        (devnet-snap-qos-track-queue snap-qos queue)
+      (when inherited-round-trip
+        (setf (devnet-peer-request-queue-snap-round-trip queue)
+              inherited-round-trip))
+      tracked)))
 
 #-sbcl
 (defun make-devnet-peer-request-queue (&optional snap-qos)
@@ -267,49 +314,78 @@ value for both request sizing and expiry, matching Geth's SNAP scheduler."
   "Return RESPONSE-ID's mutable rate record while QUEUE's lock is held."
   (or (gethash response-id
                (devnet-peer-request-queue-snap-rates queue))
-      (multiple-value-bind (minimum maximum)
-          (devnet-peer-snap-capacity-bounds response-id)
-        (let* ((capacity
-                 (devnet-snap-qos-mean-capacity
-                  (devnet-peer-request-queue-snap-qos queue)
-                  response-id minimum maximum))
-               (rate (make-devnet-peer-snap-rate capacity)))
-          (setf (gethash response-id
-                         (devnet-peer-request-queue-snap-rates queue))
-                rate)
-          (devnet-snap-qos-record-capacity
-           (devnet-peer-request-queue-snap-qos queue)
-           queue response-id capacity)
-          rate))))
+      (let ((rate
+              (make-devnet-peer-snap-rate
+               (devnet-snap-qos-queue-throughput
+                (devnet-peer-request-queue-snap-qos queue)
+                queue response-id))))
+        (setf (gethash response-id
+                       (devnet-peer-request-queue-snap-rates queue))
+              rate)
+        rate)))
+
+#+sbcl
+(defun devnet-peer-snap-capacity-for-throughput
+    (queue response-id throughput)
+  "Convert measured units/second to Geth's current timeout-sized assignment."
+  (devnet-peer-snap-clamp-capacity
+   response-id
+   (ceiling
+    (+ 1d0
+       (* +devnet-snap-capacity-overestimation+
+          throughput
+          (devnet-snap-qos-capacity-target-seconds
+           (devnet-peer-request-queue-snap-qos queue)))))))
 
 #+sbcl
 (defun devnet-peer-request-queue-snap-capacity (queue response-id)
-  "Return this peer's learned byte cap for one SNAP response type."
+  "Return this peer's live Geth-sized capacity for one SNAP response type."
   (sb-thread:with-mutex ((devnet-peer-request-queue-lock queue))
-    (devnet-peer-snap-rate-capacity
-     (devnet-peer-request-queue-snap-rate queue response-id))))
+    (devnet-peer-snap-capacity-for-throughput
+     queue response-id
+     (devnet-peer-snap-rate-throughput
+      (devnet-peer-request-queue-snap-rate queue response-id)))))
 
 #+sbcl
 (defun devnet-peer-request-queue-snap-statistics (queue response-id)
-  "Return learned capacity, RTT seconds, and sample count for RESPONSE-ID."
+  "Return learned capacity, shared peer RTT, and samples for RESPONSE-ID."
   (sb-thread:with-mutex ((devnet-peer-request-queue-lock queue))
     (let ((rate
             (devnet-peer-request-queue-snap-rate queue response-id)))
-      (values (devnet-peer-snap-rate-capacity rate)
-              (devnet-peer-snap-rate-round-trip rate)
+      (values (devnet-peer-snap-capacity-for-throughput
+               queue response-id (devnet-peer-snap-rate-throughput rate))
+              (devnet-peer-request-queue-snap-round-trip queue)
               (devnet-peer-snap-rate-samples rate)))))
+
+#+sbcl
+(defun devnet-peer-request-queue-update-round-trip-locked (queue elapsed)
+  "Apply one successful Geth tracker RTT measurement while QUEUE is locked."
+  (let* ((impact +devnet-snap-qos-measurement-impact+)
+         (round-trip
+           (+ (* (- 1d0 impact)
+                 (devnet-peer-request-queue-snap-round-trip queue))
+              (* impact (float elapsed 1d0)))))
+    (setf (devnet-peer-request-queue-snap-round-trip queue) round-trip)
+    (devnet-snap-qos-publish-round-trip
+     (devnet-peer-request-queue-snap-qos queue) queue round-trip)))
+
+#+sbcl
+(defun devnet-peer-request-queue-record-round-trip (queue elapsed)
+  "Record one successful shared peer RTT without changing message throughput."
+  (unless (and (realp elapsed) (plusp elapsed))
+    (error "Invalid SNAP QoS round-trip measurement"))
+  (sb-thread:with-mutex ((devnet-peer-request-queue-lock queue))
+    (devnet-peer-request-queue-update-round-trip-locked queue elapsed)))
 
 #+sbcl
 (defun devnet-peer-request-queue-record-snap-delivery
     (queue response-id delivered-units elapsed)
   "Update RESPONSE-ID's capacity from one decoded SNAP delivery.
 
-The bounded EWMA follows geth's message-rate strategy: slow peers remain useful
-with small requests, while peers that repeatedly fill them quickly grow toward
-the response type's cap. DELIVERED-UNITS is bytes for ranges, code count for
-ByteCodes, and node count for TrieNodes. One sample may at most double or halve
-the current cap, preventing a short tail response or a single fast cache hit
-from causing an unstable jump."
+The exact 0.1 EWMA follows geth's message-rate strategy. DELIVERED-UNITS is
+bytes for ranges, code count for ByteCodes, and node count for TrieNodes. The
+assignment is derived lazily from this throughput and the current pool timeout;
+it is not independently doubled/halved or frozen at an obsolete deadline."
   (unless (and (integerp delivered-units) (not (minusp delivered-units))
                (realp elapsed) (plusp elapsed))
     (error "Invalid SNAP delivery measurement"))
@@ -319,45 +395,21 @@ from causing an unstable jump."
            (sample-throughput (/ delivered-units (float elapsed 1d0)))
            (impact +devnet-snap-rate-measurement-impact+)
            (throughput
-             (if (devnet-peer-snap-rate-throughput rate)
+             (if (zerop delivered-units)
+                 0d0
                  (+ (* (- 1d0 impact)
                        (devnet-peer-snap-rate-throughput rate))
-                    (* impact sample-throughput))
-                 sample-throughput))
-           (round-trip
-             (if (devnet-peer-snap-rate-round-trip rate)
-                 (+ (* (- 1d0 impact)
-                       (devnet-peer-snap-rate-round-trip rate))
-                    (* impact elapsed))
-                 (float elapsed 1d0)))
-           (old-capacity (devnet-peer-snap-rate-capacity rate))
-           ;; Match geth's escape from a stable minimum: the explicit +1 and
-           ;; CEILING ensure a full response always probes a larger assignment,
-           ;; even when its elapsed time is exactly the target.  The bounded
-           ;; step below still prevents a single cache hit from jumping to max.
-           (desired
-             (devnet-peer-snap-clamp-capacity
-              response-id
-              (ceiling
-               (+ 1d0
-                  (* throughput
-                     (devnet-snap-qos-capacity-target-seconds
-                      (devnet-peer-request-queue-snap-qos queue))
-                     1.01d0)))))
+                    (* impact sample-throughput))))
            (capacity
-             (devnet-peer-snap-clamp-capacity
-              response-id
-              (max (floor old-capacity 2)
-                   (min (* old-capacity 2) desired)))))
-      (setf (devnet-peer-snap-rate-throughput rate) throughput
-            (devnet-peer-snap-rate-round-trip rate) round-trip
-            (devnet-peer-snap-rate-capacity rate) capacity)
+             (devnet-peer-snap-capacity-for-throughput
+              queue response-id throughput)))
+      (setf (devnet-peer-snap-rate-throughput rate) throughput)
       (incf (devnet-peer-snap-rate-samples rate))
-      (devnet-snap-qos-record-capacity
+      (devnet-snap-qos-record-throughput
        (devnet-peer-request-queue-snap-qos queue)
-       queue response-id capacity)
-      (devnet-snap-qos-record-round-trip
-       (devnet-peer-request-queue-snap-qos queue) queue elapsed)
+       queue response-id throughput)
+      (when (plusp delivered-units)
+        (devnet-peer-request-queue-update-round-trip-locked queue elapsed))
       capacity)))
 
 #+sbcl
