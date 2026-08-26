@@ -384,6 +384,29 @@ The implementation boundary is split deliberately:
   sidecars. The fallback never observes the mutable sidecar cache without its
   guard, and a sidecar absent from durable storage remains the corresponding
   per-item `null` permitted by the V3 response contract.
+  The exact `501159cd` amd64 runtime archive, SHA-256
+  `8e23a35f30be2948769648ac14dcd85fc5e63378fc5a97cb426a8074095cbabb`,
+  upgraded the exact `a89826b4` process on its unchanged
+  `/data/hoodi-sec5-20260814/datadir-4e3d7717` at
+  `2026-08-26T19:02:39Z`. The rollback-protected cutover retained the non-root,
+  read-only-root, capability-free container boundary. Before the cutover the
+  datadir held 34,554,006,720 bytes and the durable target was `0x3562c8`;
+  immediately afterwards it held 34,924,990,767 bytes and the target had
+  advanced to `0x35637d`. In the first post-cutover request window,
+  twenty-five `engine_getBlobsV3` calls took 0--4 ms (0.6 ms mean), 157
+  `eth_syncing` calls took at most 188 ms, and Lighthouse reported no Engine
+  timeout after the replacement became ready. The seven connection failures
+  in that interval were confined to the intentional alias cutover.
+  The reviewed restart broker then restarted that same container and datadir
+  at `19:10:51Z`: the before/after durable sizes were 34,569,975,005 and
+  34,570,066,258 bytes, while `highestBlock` advanced from `0x35637d` to
+  `0x3563a3`. Within seventy seconds the resumed healer processed 409,600
+  nodes, reused 409,599 locally, issued no remote request, and reconstructed a
+  39,780-work live frontier. Post-restart Engine calls had no timeout or OOM;
+  `engine_getBlobsV3` remained at most 4 ms, `engine_newPayloadV4` at most
+  920 ms, and `engine_forkchoiceUpdatedV3` at most 1,076 ms. This is exact-image
+  upgrade, liveness, and same-datadir restart evidence. It deliberately does
+  not substitute for the mandatory final run from a new empty datadir.
 - `src/networking/eth-sync/sync.lisp` supplies the bounded downloader, while
   `src/app/cli/devnet/dialer.lisp` owns the continuous coordinator. Work is
   authorized by an Engine target hash, delivered through each session's sole
