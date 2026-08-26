@@ -377,6 +377,13 @@ The implementation boundary is split deliberately:
   remains absent while the window is warming, expanding, or unstable. A finite
   ETA appears only after at least five constituent intervals and three fifths
   of them drain the frontier, and is paired with an explicit confidence class.
+  Long state-sync writes do not make the consensus client wait for the same
+  store guard: `eth_syncing` serves its last consistent snapshot, while
+  `engine_getBlobsV3` uses the ordinary cache-aware reader when it can acquire
+  the guard immediately and otherwise point-reads only immutable durable
+  sidecars. The fallback never observes the mutable sidecar cache without its
+  guard, and a sidecar absent from durable storage remains the corresponding
+  per-item `null` permitted by the V3 response contract.
 - `src/networking/eth-sync/sync.lisp` supplies the bounded downloader, while
   `src/app/cli/devnet/dialer.lisp` owns the continuous coordinator. Work is
   authorized by an Engine target hash, delivered through each session's sole

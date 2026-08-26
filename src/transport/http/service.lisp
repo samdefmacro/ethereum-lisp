@@ -89,6 +89,7 @@
        forkchoice-persistence-function
        request-guard-function
        request-guard-predicate
+       get-blobs-v3-function
        (allowed-method-p #'engine-rpc-any-method-p)
        network-id
        (coinbase (zero-address))
@@ -144,6 +145,10 @@
              (not (functionp request-guard-predicate)))
     (block-validation-fail
      "Engine RPC HTTP request guard predicate must be a function"))
+  (when (and get-blobs-v3-function
+             (not (functionp get-blobs-v3-function)))
+    (block-validation-fail
+     "Engine RPC HTTP getBlobsV3 snapshot must be a function"))
   (unless (functionp allowed-method-p)
     (block-validation-fail
      "Engine RPC HTTP method filter must be a function"))
@@ -185,6 +190,7 @@
     :forkchoice-persistence-function forkchoice-persistence-function
     :request-guard-function request-guard-function
     :request-guard-predicate request-guard-predicate
+    :get-blobs-v3-function get-blobs-v3-function
     :network-id network-id
     :coinbase coinbase
     :allowed-method-p allowed-method-p

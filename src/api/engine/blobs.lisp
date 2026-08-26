@@ -59,20 +59,73 @@
         nil
         (mapcar #'engine-rpc-blob-and-proof-v2-object blobs))))
 
-(defun engine-rpc-handle-get-blobs-v3 (params store config)
-  (unless (engine-rpc-get-blobs-osaka-p store config)
-    (return-from engine-rpc-handle-get-blobs-v3 nil))
+(defun engine-rpc-handle-get-blobs-v3-with-reader
+    (params osaka-p reader)
+  (unless osaka-p
+    (return-from engine-rpc-handle-get-blobs-v3-with-reader nil))
   (let ((hashes
           (engine-rpc-get-blob-hashes-param
            params "engine_getBlobsV3")))
     (engine-rpc-validate-get-blobs-request-size hashes)
     (mapcar (lambda (versioned-hash)
               (let ((blob-and-proofs
-                      (engine-payload-store-blob-and-proofs-v2
-                       store versioned-hash)))
+                      (funcall reader versioned-hash)))
                 (when blob-and-proofs
                   (engine-rpc-blob-and-proof-v2-object blob-and-proofs))))
             hashes)))
+
+(defun engine-rpc-handle-get-blobs-v3 (params store config)
+  (engine-rpc-handle-get-blobs-v3-with-reader
+   params
+   (engine-rpc-get-blobs-osaka-p store config)
+   (lambda (versioned-hash)
+     (engine-payload-store-blob-and-proofs-v2 store versioned-hash))))
+
+(defun make-engine-rpc-get-blobs-v3-snapshot-function
+    (store config guard-try-function)
+  "Return a nonblocking production reader for engine_getBlobsV3.
+
+The normal cache-aware handler runs whenever GUARD-TRY-FUNCTION can acquire the
+node store immediately. While a long state-sync write owns that guard, the
+reader uses only immutable RocksDB blob-sidecar records and the last fork state
+observed under the guard. Missing durable content is reported as unavailable,
+as allowed by getBlobs, instead of making the consensus client miss its HTTP
+deadline."
+  (unless (functionp guard-try-function)
+    (block-validation-fail
+     "Engine getBlobsV3 guard probe must be a function"))
+  (let ((osaka-p (engine-rpc-get-blobs-osaka-p store config))
+        (snapshot-lock
+          #+sbcl (sb-thread:make-mutex
+                  :name "ethereum-lisp-rpc-get-blobs-v3-snapshot")
+          #-sbcl nil))
+    (labels ((snapshot-osaka-p ()
+               #+sbcl
+               (sb-thread:with-mutex (snapshot-lock) osaka-p)
+               #-sbcl
+               osaka-p)
+             (refresh (params)
+               (let ((active-p (engine-rpc-get-blobs-osaka-p store config)))
+                 #+sbcl
+                 (sb-thread:with-mutex (snapshot-lock)
+                   (setf osaka-p active-p))
+                 #-sbcl
+                 (setf osaka-p active-p)
+                 (engine-rpc-handle-get-blobs-v3-with-reader
+                  params active-p
+                  (lambda (versioned-hash)
+                    (engine-payload-store-blob-and-proofs-v2
+                     store versioned-hash))))))
+      (lambda (params)
+        (multiple-value-bind (result acquired-p)
+            (funcall guard-try-function (lambda () (refresh params)))
+          (if acquired-p
+              result
+              (engine-rpc-handle-get-blobs-v3-with-reader
+               params (snapshot-osaka-p)
+               (lambda (versioned-hash)
+                 (engine-payload-store-durable-blob-and-proofs-v2
+                  store versioned-hash)))))))))
 
 (defun engine-rpc-get-blobs-indices-bitmap-param (params method)
   (let ((bitmap

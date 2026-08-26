@@ -9,7 +9,8 @@
   (:import-from #:ethereum-lisp.engine-payloads
                 #:engine-target-gas-limit)
   (:import-from #:ethereum-lisp.engine-api
-                #:engine-rpc-improve-open-payloads)
+                #:engine-rpc-improve-open-payloads
+                #:make-engine-rpc-get-blobs-v3-snapshot-function)
   (:import-from #:ethereum-lisp.eth-wire
                 #:eth-pooled-entry-transaction
                 #:+eth-protocol-version-69+

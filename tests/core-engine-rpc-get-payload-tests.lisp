@@ -48,6 +48,68 @@
                 config)))
         (is (search "\"shouldOverrideBuilder\":false" response-json))))))
 
+(deftest engine-get-blobs-v3-snapshot-falls-back-without-waiting
+  (let* ((source (make-engine-payload-memory-store))
+         (database (make-memory-key-value-database))
+         (blob (make-byte-vector +blob-byte-size+))
+         (commitment (make-byte-vector +kzg-commitment-size+))
+         (proofs
+           (loop for index below +cell-proofs-per-blob+
+                 collect
+                 (let ((proof (make-byte-vector +kzg-proof-size+)))
+                   (setf (aref proof 0) index)
+                   proof)))
+         (sidecar nil)
+         (versioned-hash nil)
+         (unknown-hash
+           "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+         (config (make-chain-config :london-block 0 :osaka-time 0))
+         (acquire-p nil)
+         (guard-probes 0)
+         (guard-entries 0)
+         (store nil)
+         (reader nil)
+         (params nil))
+    (setf (aref blob (1- (length blob))) #x5a
+          (aref commitment 0) #xbb
+          sidecar (make-blob-sidecar
+                   :blobs (list blob)
+                   :commitments (list commitment)
+                   :proofs proofs)
+          versioned-hash (first (blob-sidecar-versioned-hashes sidecar)))
+    (let ((*kzg-cell-proof-verifier*
+            (lambda (verified-blob verified-commitment verified-proofs)
+              (declare
+               (ignore verified-blob verified-commitment verified-proofs))
+              t)))
+      (ethereum-lisp.chain-store:engine-payload-store-put-blob-sidecar
+       source sidecar)
+      (node-store-export-to-kv source database)
+      (setf store (make-database-engine-payload-store database)
+            reader
+            (ethereum-lisp.engine-api:make-engine-rpc-get-blobs-v3-snapshot-function
+             store config
+             (lambda (thunk)
+               (incf guard-probes)
+               (if acquire-p
+                   (progn
+                     (incf guard-entries)
+                     (values (funcall thunk) t))
+                   (values nil nil))))
+            params
+            (list (list (hash32-to-hex versioned-hash) unknown-hash)))
+      (let ((fallback (funcall reader params)))
+        (is (= 2 (length fallback)))
+        (is (assoc "blob" (first fallback) :test #'string=))
+        (is (null (second fallback)))
+        (is (= 1 guard-probes))
+        (is (= 0 guard-entries))
+        (setf acquire-p t)
+        (let ((ordinary (funcall reader params)))
+          (is (equal fallback ordinary))
+          (is (= 2 guard-probes))
+          (is (= 1 guard-entries)))))))
+
 (deftest engine-rpc-get-payload-v4-returns-prague-execution-requests
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))

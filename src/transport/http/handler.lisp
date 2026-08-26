@@ -89,6 +89,7 @@
                                forkchoice-persistence-function
                                request-guard-function
                                request-guard-predicate
+                               get-blobs-v3-function
                                network-id
                                coinbase
                                (rpc-prefix "/")
@@ -118,6 +119,7 @@
     :forkchoice-persistence-function forkchoice-persistence-function
     :request-guard-function request-guard-function
     :request-guard-predicate request-guard-predicate
+    :get-blobs-v3-function get-blobs-v3-function
     :network-id network-id
     :coinbase coinbase
     :allowed-method-p allowed-method-p
@@ -193,6 +195,7 @@
           forkchoice-persistence-function
           request-guard-function
           request-guard-predicate
+          get-blobs-v3-function
           network-id
           coinbase
           (rpc-prefix "/")
@@ -225,6 +228,7 @@
     :forkchoice-persistence-function forkchoice-persistence-function
     :request-guard-function request-guard-function
     :request-guard-predicate request-guard-predicate
+    :get-blobs-v3-function get-blobs-v3-function
     :network-id network-id
     :coinbase coinbase
     :allowed-method-p allowed-method-p

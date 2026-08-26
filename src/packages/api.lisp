@@ -73,6 +73,7 @@
    #:engine-rpc-pending-build-transactions
    #:engine-rpc-improve-prepared-payload
    #:engine-rpc-improve-open-payloads
+   #:make-engine-rpc-get-blobs-v3-snapshot-function
    #:engine-rpc-engine-method-p
    #:engine-rpc-required-eth-method-p
    #:+engine-rpc-required-eth-methods+

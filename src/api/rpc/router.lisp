@@ -16,7 +16,7 @@
                       txpool-account-queue-limit txpool-global-queue-limit
                       txpool-local-addresses txpool-no-local-exemptions-p
                       txpool-lifetime-seconds txpool-now admin-backend
-                      gas-limit-target)))
+                      gas-limit-target get-blobs-v3-function)))
   store
   config
   import-function
@@ -39,7 +39,8 @@
   txpool-lifetime-seconds
   admin-backend
   txpool-now
-  gas-limit-target)
+  gas-limit-target
+  get-blobs-v3-function)
 
 (defun make-rpc-context
     (store config &key import-function
@@ -62,7 +63,8 @@
                        txpool-lifetime-seconds
                        admin-backend
                        txpool-now
-                       gas-limit-target)
+                       gas-limit-target
+                       get-blobs-v3-function)
   (unless (functionp allowed-method-p)
     (block-validation-fail "JSON-RPC method filter must be a function"))
   (when (and new-payload-persistence-function
@@ -81,6 +83,10 @@
              (not (functionp request-guard-predicate)))
     (block-validation-fail
      "JSON-RPC request guard predicate must be a function"))
+  (when (and get-blobs-v3-function
+             (not (functionp get-blobs-v3-function)))
+    (block-validation-fail
+     "JSON-RPC getBlobsV3 snapshot must be a function"))
   (%make-rpc-context
    :store store
    :config config
@@ -104,7 +110,8 @@
    :txpool-lifetime-seconds txpool-lifetime-seconds
    :admin-backend admin-backend
    :txpool-now txpool-now
-   :gas-limit-target gas-limit-target))
+   :gas-limit-target gas-limit-target
+   :get-blobs-v3-function get-blobs-v3-function))
 
 (defun rpc-context-with-txpool-now (context txpool-now)
   (unless (typep context 'rpc-context)
@@ -173,7 +180,9 @@
            (rpc-context-new-payload-persistence-function context)
            :forkchoice-persistence-function
            (rpc-context-forkchoice-persistence-function context)
-           :gas-limit-target (rpc-context-gas-limit-target context))
+           :gas-limit-target (rpc-context-gas-limit-target context)
+           :get-blobs-v3-function
+           (rpc-context-get-blobs-v3-function context))
           (rpc-dispatch-public-method id method params context)
           (rpc-method-not-found-response id))
       (rpc-method-not-found-response id)))

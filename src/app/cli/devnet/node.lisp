@@ -213,6 +213,9 @@
               genesis-block
               persistence-state
               db-engine)))
+         (get-blobs-v3-function
+           (make-engine-rpc-get-blobs-v3-snapshot-function
+            store config store-guard-try-function))
          (jwt-secret (and jwt-secret-path
                           (devnet-cli-read-jwt-secret jwt-secret-path)))
          (service
@@ -230,7 +233,10 @@
             :gas-limit-target miner-gas-limit
             :request-guard-function store-guard-function
             :request-guard-predicate
-            (lambda (method) (not (string= method "eth_syncing")))
+            (lambda (method)
+              (not (member method '("eth_syncing" "engine_getBlobsV3")
+                           :test #'string=)))
+            :get-blobs-v3-function get-blobs-v3-function
             :jwt-secret jwt-secret
             :rpc-prefix
             (devnet-endpoint-config-rpc-prefix engine-endpoint-config)
@@ -256,7 +262,10 @@
             :gas-limit-target miner-gas-limit
             :request-guard-function store-guard-function
             :request-guard-predicate
-            (lambda (method) (not (string= method "eth_syncing")))
+            (lambda (method)
+              (not (member method '("eth_syncing" "engine_getBlobsV3")
+                           :test #'string=)))
+            :get-blobs-v3-function get-blobs-v3-function
             :rpc-prefix
             (devnet-endpoint-config-rpc-prefix public-endpoint-config)
             :allowed-method-p

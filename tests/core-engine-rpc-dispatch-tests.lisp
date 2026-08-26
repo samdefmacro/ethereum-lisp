@@ -53,6 +53,7 @@
 (deftest rpc-context-bypasses-guard-only-for-a-snapshot-method
   (let* ((guard-calls 0)
          (snapshot-calls 0)
+         (blob-snapshot-calls 0)
          (backend
            (make-admin-backend
             :syncing
@@ -71,7 +72,14 @@
               (incf guard-calls)
               (funcall thunk))
             :request-guard-predicate
-            (lambda (method) (not (string= method "eth_syncing")))))
+            (lambda (method)
+              (not (member method '("eth_syncing" "engine_getBlobsV3")
+                           :test #'string=)))
+            :get-blobs-v3-function
+            (lambda (params)
+              (incf blob-snapshot-calls)
+              (is (= 1 (length params)))
+              (list nil))))
          (syncing
            (parse-json
             (ethereum-lisp.rpc:rpc-handle-request-json
@@ -83,6 +91,18 @@
                  (cdr (assoc "currentBlock"
                              (cdr (assoc "result" syncing :test #'string=))
                              :test #'string=))))
+    (let* ((missing-hash
+             "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+           (blobs
+             (parse-json
+              (ethereum-lisp.rpc:rpc-handle-request-json
+               (format nil
+                       "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"engine_getBlobsV3\",\"params\":[[\"~A\"]]}"
+                       missing-hash)
+               context))))
+      (is (= 0 guard-calls))
+      (is (= 1 blob-snapshot-calls))
+      (is (= 1 (length (cdr (assoc "result" blobs :test #'string=))))))
     (let ((chain-id
             (parse-json
              (ethereum-lisp.rpc:rpc-handle-request-json

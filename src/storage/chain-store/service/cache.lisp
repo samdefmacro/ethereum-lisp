@@ -774,3 +774,20 @@ transient or raced verdict can be retried without restarting the node."
                   (length
                    (engine-blob-and-proofs-cell-proofs blob-and-proofs))))
       blob-and-proofs)))
+
+(defun engine-payload-store-durable-blob-and-proofs-v2
+    (store versioned-hash)
+  "Read one cell-proof blob directly from STORE's durable backing.
+
+Unlike ENGINE-PAYLOAD-STORE-BLOB-AND-PROOFS-V2, this does not inspect or
+advance the mutable sidecar cache. It is therefore suitable for a best-effort
+Engine read while the node's ordinary store guard is owned by long-running
+state synchronization."
+  (setf store (chain-store-require-memory-store store))
+  (multiple-value-bind (blob-and-proofs present-p)
+      (chain-store-backing-blob-sidecar store versioned-hash)
+    (when (and present-p
+               (= +cell-proofs-per-blob+
+                  (length
+                   (engine-blob-and-proofs-cell-proofs blob-and-proofs))))
+      (engine-payload-store-copy-blob-and-proofs blob-and-proofs))))

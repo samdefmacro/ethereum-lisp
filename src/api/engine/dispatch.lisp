@@ -3,7 +3,8 @@
 (defun engine-rpc-handle-engine-method
     (id method params store config
      &key import-function new-payload-persistence-function
-          forkchoice-persistence-function gas-limit-target)
+          forkchoice-persistence-function gas-limit-target
+          get-blobs-v3-function)
   (let ((version (engine-rpc-new-payload-version method)))
     (cond
       (version
@@ -120,7 +121,9 @@
        (json-rpc-response
         id
         :result
-        (engine-rpc-handle-get-blobs-v3 params store config)))
+        (if get-blobs-v3-function
+            (funcall get-blobs-v3-function params)
+            (engine-rpc-handle-get-blobs-v3 params store config))))
       ((string= method "engine_getBlobsV4")
        (json-rpc-response
         id
