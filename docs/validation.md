@@ -506,10 +506,13 @@ second root to start before that request is released, and proves maximum live
 requests equal the fixed source count. Replacing the rotating claim with a
 queue-head-only mutation makes that witness fail. Another control queues two
 independently verified partition results behind the commit coordinator and
-requires exactly one synchronous database batch; reducing the storage cursor
-batch limit to one makes that positive witness fail. A separate failover control
+requires exactly one buffered database batch; replacing it with a synchronous
+write or reducing the storage cursor batch limit to one makes that positive
+witness fail. The RocksDB SIGKILL durability oracle above proves a following
+synchronous account cursor flushes this preceding WAL prefix. A separate
+failover control
 retires one lane after a transport error and requires another lane to finish
-the exact released partition. A post-verification generic database failure is
+the exact released partition. A post-verification buffered database failure is
 also required to reach the caller unchanged instead of being misclassified as
 remote source exhaustion. The source-pool controls prove that
 learned capacity wins an idle tie, bytecode reservations remain independent of

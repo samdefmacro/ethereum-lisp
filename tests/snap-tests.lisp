@@ -5,7 +5,10 @@
 (defclass snap-failing-test-database (memory-key-value-database)
   ((fail-next-apply-p
     :initform nil
-    :accessor snap-failing-test-database-fail-next-apply-p)))
+    :accessor snap-failing-test-database-fail-next-apply-p)
+   (fail-next-buffered-apply-p
+    :initform nil
+    :accessor snap-failing-test-database-fail-next-buffered-apply-p)))
 
 (defmethod kv-apply-batch :around
     ((database snap-failing-test-database) (batch kv-write-batch))
@@ -18,11 +21,18 @@
 
 (defmethod kv-apply-batch-buffered :around
     ((database snap-failing-test-database) (batch kv-write-batch))
-  ;; The memory backend implements buffered writes through KV-APPLY-BATCH.
-  ;; Preserve that oracle's atomic visibility without consuming a failure that
-  ;; production RocksDB would encounter only at the later synchronous seam.
-  (let ((*snap-test-buffered-apply-p* t))
-    (call-next-method)))
+  (if (snap-failing-test-database-fail-next-buffered-apply-p database)
+      (progn
+        (setf
+         (snap-failing-test-database-fail-next-buffered-apply-p database)
+         nil)
+        (error "Simulated snap buffered batch failure"))
+      ;; The memory backend implements buffered writes through KV-APPLY-BATCH.
+      ;; Preserve that oracle's atomic visibility without consuming a failure
+      ;; that production RocksDB would encounter only at the later synchronous
+      ;; seam.
+      (let ((*snap-test-buffered-apply-p* t))
+        (call-next-method))))
 
 (defclass snap-counting-test-database (memory-key-value-database)
   ((apply-count :initform 0 :accessor snap-counting-test-database-apply-count)
@@ -2117,7 +2127,7 @@
         target-database state-root account-b storage-b)))))
 
 #+sbcl
-(deftest snap-global-storage-cursors-share-one-durable-batch
+(deftest snap-global-storage-cursors-share-one-buffered-batch
   (:layer :integration :module :p2p)
   (let* ((source-state (make-state-db))
          (source-database (make-memory-key-value-database))
@@ -2183,8 +2193,9 @@
        (snap-counting-test-database-batch-sizes target-database) '()
        (snap-counting-test-database-batch-prefixes target-database) '())
       ;; Hold the coordinator while both independently verified responses enter
-      ;; its queue. Releasing it must publish both cursor/content pairs through
-      ;; one atomic KV batch, not one fsync per StorageRanges response.
+      ;; its queue. Releasing it must buffer both cursor/content pairs through
+      ;; one atomic KV batch. The owning account cursor supplies the later
+      ;; durability seam, so storage delivery itself must not force an fsync.
       (sb-thread:with-mutex
           ((ethereum-lisp.snap-sync::snap-sync-multi-runtime-storage-write-lock
             runtime))
@@ -2231,6 +2242,9 @@
       (is (null condition-a))
       (is (null condition-b))
       (is (= 1 (snap-counting-test-database-apply-count target-database)))
+      (is (= 1
+             (snap-counting-test-database-buffered-apply-count
+              target-database)))
       (is
        (ethereum-lisp.snap-sync::snap-sync-account-task-completed-p
         (first
@@ -2400,7 +2414,9 @@
       (ethereum-lisp.snap-sync::snap-sync-load-or-create-storage-tasks
        target-database state-root account-hash storage-root)
       (setf
-       (snap-failing-test-database-fail-next-apply-p target-database) t
+       (snap-failing-test-database-fail-next-buffered-apply-p
+        target-database)
+       t
        (ethereum-lisp.snap-sync::snap-sync-multi-runtime-storage-worker-count
         runtime)
        1
@@ -2428,7 +2444,7 @@
         (when worker (sb-thread:join-thread worker)))
       (is failure)
       (when failure
-        (is (search "Simulated snap progress batch failure"
+        (is (search "Simulated snap buffered batch failure"
                     (princ-to-string failure)))
         (is (not
              (typep

@@ -307,8 +307,11 @@ The implementation boundary is split deliberately:
   geth v1.17.4's global `assignStorageTasks` behavior without creating one
   all-peer scheduler per account page. Verified partition responses queue at
   one commit coordinator; responses arriving during a write are folded, up to
-  sixteen at a time, into the next atomic node/proof/cursor WAL batch instead
-  of each forcing a separate fsync. Each page publishes reusable four-nibble
+  sixteen at a time, into the next atomic buffered node/proof/cursor WAL batch.
+  The owning account cursor remains behind until every storage job completes;
+  its later synchronous batch flushes the preceding WAL prefix, so a crash
+  before that seam safely replays storage rather than exposing incomplete
+  account progress. Each page publishes reusable four-nibble
   coarse and five-nibble nested storage-subtree proofs with its durable cursor. Legacy
   completed cursors remain range-coverage evidence only: their short-lived
   root-shaped proof is retired, and final healing must establish descendant

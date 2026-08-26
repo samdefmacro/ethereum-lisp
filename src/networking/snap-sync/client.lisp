@@ -6302,7 +6302,12 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
 #+sbcl
 (defun snap-sync-multi-commit-storage-results
     (runtime database state-root entries)
-  "Publish ENTRIES through one atomic durable batch and release their claims."
+  "Buffer ENTRIES through one atomic WAL batch and release their claims.
+
+The owning account page cannot publish its successor cursor until every
+storage job is complete.  Its later synchronous cursor batch therefore flushes
+this entire WAL prefix.  A crash before that seam leaves the account cursor
+behind and may safely replay any lost storage pages."
   (let ((batch (make-kv-write-batch))
         (task-updates '()))
     ;; Claims are immutable from verification until this coordinator releases
@@ -6344,9 +6349,13 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
         (if update
             (setf (cdr update) next)
             (push (cons job next) task-updates))))
-    ;; This synced write flushes every response's nodes, proof metadata, and
-    ;; exact successor cursor together. No visible cursor can outrun content.
-    (kv-apply-batch database batch)
+    ;; Keep each response's nodes, proof metadata, and exact storage cursor
+    ;; atomic, but do not force an intermediate fsync.  These cursors are only
+    ;; prerequisites inside an unfinished account page; the account cursor's
+    ;; later synchronous batch flushes this preceding WAL prefix before making
+    ;; progress externally durable.  This matches geth's in-memory storage
+    ;; subtask progress without giving up our restart-safe cursor format.
+    (kv-apply-batch-buffered database batch)
     (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
       (dolist (update task-updates)
         (setf (snap-sync-global-storage-job-tasks (car update)) (cdr update))

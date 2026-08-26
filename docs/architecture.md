@@ -197,10 +197,13 @@ them by their physical location instead reintroduces dependency cycles:
   every account task behind one contract. Verified responses pass through one
   commit coordinator. Responses which finish during an earlier write queue
   behind it, and the next drain folds up to sixteen independent partition
-  node/proof/cursor pairs into one synchronous WAL batch. The first response
-  may still form a one-page batch, but sustained parallel delivery no longer
-  pays one fsync per StorageRanges response. Every pair retains its exact
-  per-partition cursor order and atomic content boundary. The
+  node/proof/cursor pairs into one atomic buffered WAL batch. The owning
+  account page remains pending until all of its storage jobs complete; its
+  later synchronous account-cursor batch flushes the complete preceding WAL
+  prefix. A crash before that seam leaves the account cursor behind and safely
+  replays any lost storage work. Sustained parallel delivery therefore pays no
+  intermediate storage fsync while every pair retains its exact per-partition
+  cursor order and atomic content boundary. The
   response verifier runs while the actual storage/bytecode peer reservation is
   still held, then releases that peer
   before any local WAL write. Empty, unrequested, malformed, or invalid-proof
