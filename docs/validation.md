@@ -490,13 +490,19 @@ wall-clock window: useful individual responses cannot pin an old root when the
 surviving pool's aggregate throughput falls below 131,072 work units, while a
 high-throughput collapsed pool remains on its exact authenticated frontier.
 The range tests prove that sixty-four durable account ranges feed one AccountRange
-dispatcher per source and a bounded global dependency scheduler, while three
+dispatcher per source and bounded global dependency schedulers, while three
 sole-writer request queues overlap independent response types with geth's
 adaptive 64--512 KiB snap byte limits. A production-call-site control forces
 the first large-storage partition to wait for a second lane and proves that one
-account page actually gives its sixteen durable partitions both the import-wide
-source set and a live source provider; restoring the old account-pinned call
-makes that exact source-count witness fail. The source-pool controls prove that
+account page uses the fixed import-wide StorageRanges worker set before its
+cursor advances. A two-root control then holds one partition open, requires the
+second root to start before that request is released, and proves maximum live
+requests equal the fixed source count. Replacing the rotating claim with a
+queue-head-only mutation makes that witness fail. A separate failover control
+retires one lane after a transport error and requires another lane to finish
+the exact released partition. A post-verification generic database failure is
+also required to reach the caller unchanged instead of being misclassified as
+remote source exhaustion. The source-pool controls prove that
 learned capacity wins an idle tie, bytecode reservations remain independent of
 storage load, an ordinary failed dependency peer enters cooldown while the same
 request succeeds elsewhere, and a generation with only cooled but otherwise

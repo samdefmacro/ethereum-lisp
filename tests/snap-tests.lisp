@@ -1172,7 +1172,7 @@
          (partition-starts 0)
          (deferred-call-count 0)
          (deferred-call-max-source-count 0)
-         (deferred-call-saw-source-provider-p nil)
+         (deferred-call-saw-global-workers-p nil)
          (storage-calls 0)
          (trie-node-requests 0)
          (heal-progress-events '())
@@ -1301,7 +1301,7 @@
                base-source)))
            (progress
              (let* ((symbol
-                      'ethereum-lisp.snap-sync::snap-sync-complete-deferred-storage-roots)
+                      'ethereum-lisp.snap-sync::snap-sync-multi-complete-deferred-storage-roots)
                     (original (symbol-function symbol)))
                (unwind-protect
                     (progn
@@ -1310,17 +1310,24 @@
                       (setf
                        (symbol-function symbol)
                        (lambda (&rest arguments)
-                         (sb-thread:with-mutex (storage-lock)
-                           (incf deferred-call-count)
-                           (setf deferred-call-max-source-count
-                                 (max deferred-call-max-source-count
-                                      (length (second arguments)))
-                                 deferred-call-saw-source-provider-p
-                                 (or deferred-call-saw-source-provider-p
-                                     (not
-                                      (null
-                                       (getf (nthcdr 5 arguments)
-                                             :source-provider))))))
+                         (let ((runtime (first arguments)))
+                           (sb-thread:with-mutex
+                               ((ethereum-lisp.snap-sync::snap-sync-multi-runtime-lock
+                                 runtime))
+                             (incf deferred-call-count)
+                             (setf
+                              deferred-call-max-source-count
+                              (max
+                               deferred-call-max-source-count
+                               (length
+                                (ethereum-lisp.snap-sync::snap-sync-multi-runtime-storage-sources
+                                 runtime)))
+                              deferred-call-saw-global-workers-p
+                              (or
+                               deferred-call-saw-global-workers-p
+                               (plusp
+                                (ethereum-lisp.snap-sync::snap-sync-multi-runtime-storage-worker-count
+                                 runtime))))))
                          (apply original arguments)))
                       (let ((ethereum-lisp.snap-sync::*snap-sync-heal-progress-node-interval*
                               1))
@@ -1354,7 +1361,7 @@
       (is (> storage-calls 1))
       (is (plusp deferred-call-count))
       (is (>= deferred-call-max-source-count 2))
-      (is deferred-call-saw-source-provider-p)
+      (is deferred-call-saw-global-workers-p)
       (is (= 2 partition-max-active))
       (is storage-ready-before-account-cursor-p)
       ;; Sixteen restart-safe StorageRanges partitions retain all authenticated
@@ -1776,6 +1783,385 @@
            (* 512 1024)))
       (is (= 2 max-active))
       (is fast-reused-before-slow-release-p))))
+
+#+sbcl
+(deftest snap-global-storage-lanes-rotate-across-large-roots
+  (:layer :integration :module :p2p)
+  (let* ((source-state (make-state-db))
+         (source-database (make-memory-key-value-database))
+         (target-database (make-memory-key-value-database))
+         (address-a
+           (address-from-hex
+            "0x0000000000000000000000000000000000000046"))
+         (address-b
+           (address-from-hex
+            "0x0000000000000000000000000000000000000047"))
+         (account-a
+           (ethereum-lisp.crypto:keccak-256 (address-bytes address-a)))
+         (account-b
+           (ethereum-lisp.crypto:keccak-256 (address-bytes address-b)))
+         (lock (sb-thread:make-mutex :name "snap-test-global-storage"))
+         (changed
+           (sb-thread:make-waitqueue :name "snap-test-global-storage"))
+         (active 0)
+         (max-active 0)
+         (slow-a-active-p nil)
+         (slow-a-used-p nil)
+         (slow-a-saw-b-before-timeout-p nil)
+         (b-calls 0)
+         (b-overlapped-a-p nil)
+         (result-a nil)
+         (result-b nil)
+         (condition-a nil)
+         (condition-b nil))
+    (loop for byte from 1 to 64
+          do
+             (let ((slot
+                     (make-hash32
+                      (make-byte-vector 32 :initial-element byte))))
+               (state-db-set-storage
+                source-state address-a slot (+ 4000 byte))
+               (state-db-set-storage
+                source-state address-b slot (+ 5000 byte))))
+    (let* ((state-root (state-db-root source-state))
+           (storage-a (state-db-get-storage-root source-state address-a))
+           (storage-b (state-db-get-storage-root source-state address-b))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              source-database source-state))
+           (base-source (snap-test-source backend))
+           (storage-function
+             (lambda (request)
+               (let* ((requested
+                        (first
+                         (ethereum-lisp.snap:snap-get-storage-ranges-accounts
+                          request)))
+                      (a-p (bytes= requested account-a))
+                      (slow-p nil))
+                 (sb-thread:with-mutex (lock)
+                   (incf active)
+                   (setf max-active (max max-active active))
+                   (cond
+                     ((and a-p (not slow-a-used-p))
+                      (setf slow-a-used-p t
+                            slow-a-active-p t
+                            slow-p t)
+                      (sb-thread:condition-broadcast changed))
+                     ((bytes= requested account-b)
+                      (incf b-calls)
+                      (when slow-a-active-p
+                        (setf b-overlapped-a-p t))
+                      (sb-thread:condition-broadcast changed))))
+                 (when slow-p
+                   ;; The bound keeps a deliberately serial mutation red
+                   ;; without hanging the complete cold integration suite.
+                   (sb-thread:with-mutex (lock)
+                     (loop repeat 40
+                           while (zerop b-calls)
+                           do (sb-thread:condition-wait
+                               changed lock :timeout 1/20))
+                     (setf slow-a-saw-b-before-timeout-p
+                           (plusp b-calls))))
+                 (unwind-protect
+                      (funcall
+                       (ethereum-lisp.snap-sync:snap-sync-source-storage-ranges
+                        base-source)
+                       request)
+                   (sb-thread:with-mutex (lock)
+                     (when slow-p (setf slow-a-active-p nil))
+                     (decf active)
+                     (sb-thread:condition-broadcast changed))))))
+           (make-source
+             (lambda ()
+               (ethereum-lisp.snap-sync:make-snap-sync-source
+                :account-range
+                (ethereum-lisp.snap-sync:snap-sync-source-account-range
+                 base-source)
+                :storage-ranges storage-function
+                :bytecodes
+                (ethereum-lisp.snap-sync:snap-sync-source-bytecodes base-source)
+                :trie-nodes
+                (ethereum-lisp.snap-sync:snap-sync-source-trie-nodes
+                 base-source))))
+           (sources (list (funcall make-source) (funcall make-source)))
+           (runtime
+             (ethereum-lisp.snap-sync::make-snap-sync-multi-runtime
+              nil 0 nil))
+           (workers '())
+           (caller-a nil)
+           (caller-b nil))
+      (unwind-protect
+           (progn
+             (sb-thread:with-mutex
+                 ((ethereum-lisp.snap-sync::snap-sync-multi-runtime-lock
+                   runtime))
+               (setf
+                (ethereum-lisp.snap-sync::snap-sync-multi-runtime-storage-sources
+                 runtime)
+                sources
+                (ethereum-lisp.snap-sync::snap-sync-multi-runtime-storage-worker-count
+                 runtime)
+                (length sources)))
+             (dolist (source sources)
+               (let ((worker-source source))
+                 (push
+                  (sb-thread:make-thread
+                   (lambda ()
+                     (ethereum-lisp.snap-sync::snap-sync-multi-storage-worker
+                      runtime target-database worker-source state-root 350))
+                   :name "snap-test-global-storage-worker")
+                  workers)))
+             (setf
+              caller-a
+              (sb-thread:make-thread
+               (lambda ()
+                 (handler-case
+                     (setf result-a
+                           (ethereum-lisp.snap-sync::snap-sync-multi-fill-storage-root
+                            runtime target-database state-root account-a
+                            storage-a))
+                   (serious-condition (condition)
+                     (setf condition-a condition))))
+               :name "snap-test-global-storage-root-a"))
+             (sb-thread:with-mutex (lock)
+               (loop repeat 40
+                     until slow-a-active-p
+                     do (sb-thread:condition-wait
+                         changed lock :timeout 1/20)))
+             (setf
+              caller-b
+              (sb-thread:make-thread
+               (lambda ()
+                 (handler-case
+                     (setf result-b
+                           (ethereum-lisp.snap-sync::snap-sync-multi-fill-storage-root
+                            runtime target-database state-root account-b
+                            storage-b))
+                   (serious-condition (condition)
+                     (setf condition-b condition))))
+               :name "snap-test-global-storage-root-b"))
+             (sb-thread:join-thread caller-a)
+             (setf caller-a nil)
+             (sb-thread:join-thread caller-b)
+             (setf caller-b nil))
+        (sb-thread:with-mutex
+            ((ethereum-lisp.snap-sync::snap-sync-multi-runtime-lock runtime))
+          (setf
+           (ethereum-lisp.snap-sync::snap-sync-multi-runtime-stopped-p runtime)
+           t)
+          (ethereum-lisp.snap-sync::snap-sync-multi-notify runtime))
+        (when caller-a (ignore-errors (sb-thread:join-thread caller-a)))
+        (when caller-b (ignore-errors (sb-thread:join-thread caller-b)))
+        (dolist (worker workers)
+          (sb-thread:join-thread worker)))
+      (is (null condition-a))
+      (is (null condition-b))
+      (is result-a)
+      (is result-b)
+      (is (= 2 max-active))
+      (is b-overlapped-a-p)
+      (is slow-a-saw-b-before-timeout-p)
+      (is (plusp b-calls))
+      (is
+       (ethereum-lisp.snap-sync::snap-sync-storage-range-tasks-completed-p
+        target-database state-root account-a storage-a))
+      (is
+       (ethereum-lisp.snap-sync::snap-sync-storage-range-tasks-completed-p
+        target-database state-root account-b storage-b)))))
+
+#+sbcl
+(deftest snap-global-storage-lane-requeues-a-failed-partition
+  (:layer :integration :module :p2p)
+  (let* ((source-state (make-state-db))
+         (source-database (make-memory-key-value-database))
+         (target-database (make-memory-key-value-database))
+         (address
+           (address-from-hex
+            "0x0000000000000000000000000000000000000048"))
+         (account-hash
+           (ethereum-lisp.crypto:keccak-256 (address-bytes address)))
+         (lock (sb-thread:make-mutex :name "snap-test-storage-failover"))
+         (changed
+           (sb-thread:make-waitqueue :name "snap-test-storage-failover"))
+         (failed-calls 0)
+         (healthy-calls 0)
+         (result nil)
+         (caller-condition nil))
+    (loop for byte from 1 to 64
+          do (state-db-set-storage
+              source-state address
+              (make-hash32 (make-byte-vector 32 :initial-element byte))
+              (+ 6000 byte)))
+    (let* ((state-root (state-db-root source-state))
+           (storage-root (state-db-get-storage-root source-state address))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              source-database source-state))
+           (base-source (snap-test-source backend))
+           (failing-source
+             (ethereum-lisp.snap-sync:make-snap-sync-source
+              :account-range
+              (ethereum-lisp.snap-sync:snap-sync-source-account-range
+               base-source)
+              :storage-ranges
+              (lambda (request)
+                (declare (ignore request))
+                (sb-thread:with-mutex (lock)
+                  (incf failed-calls)
+                  (sb-thread:condition-broadcast changed))
+                (error "synthetic StorageRanges transport failure"))
+              :bytecodes
+              (ethereum-lisp.snap-sync:snap-sync-source-bytecodes base-source)
+              :trie-nodes
+              (ethereum-lisp.snap-sync:snap-sync-source-trie-nodes
+               base-source)))
+           (healthy-source
+             (ethereum-lisp.snap-sync:make-snap-sync-source
+              :account-range
+              (ethereum-lisp.snap-sync:snap-sync-source-account-range
+               base-source)
+              :storage-ranges
+              (lambda (request)
+                (incf healthy-calls)
+                (funcall
+                 (ethereum-lisp.snap-sync:snap-sync-source-storage-ranges
+                  base-source)
+                 request))
+              :bytecodes
+              (ethereum-lisp.snap-sync:snap-sync-source-bytecodes base-source)
+              :trie-nodes
+              (ethereum-lisp.snap-sync:snap-sync-source-trie-nodes
+               base-source)))
+           (runtime
+             (ethereum-lisp.snap-sync::make-snap-sync-multi-runtime
+              nil 0 nil))
+           (failing-worker nil)
+           (healthy-worker nil)
+           (caller nil))
+      (unwind-protect
+           (progn
+             ;; Count the deliberately late healthy lane up front. The waiter
+             ;; must not classify the finite source set as exhausted between
+             ;; the failed claim's release and the positive failover control.
+             (setf
+              (ethereum-lisp.snap-sync::snap-sync-multi-runtime-storage-worker-count
+               runtime)
+              2)
+             (setf
+              failing-worker
+              (sb-thread:make-thread
+               (lambda ()
+                 (ethereum-lisp.snap-sync::snap-sync-multi-storage-worker
+                  runtime target-database failing-source state-root 350))
+               :name "snap-test-failing-storage-lane")
+              caller
+              (sb-thread:make-thread
+               (lambda ()
+                 (handler-case
+                     (setf result
+                           (ethereum-lisp.snap-sync::snap-sync-multi-fill-storage-root
+                            runtime target-database state-root account-hash
+                            storage-root))
+                   (serious-condition (condition)
+                     (setf caller-condition condition))))
+               :name "snap-test-storage-failover-caller"))
+             (sb-thread:with-mutex (lock)
+               (loop repeat 40
+                     while (zerop failed-calls)
+                     do (sb-thread:condition-wait
+                         changed lock :timeout 1/20)))
+             (setf
+              healthy-worker
+              (sb-thread:make-thread
+               (lambda ()
+                 (ethereum-lisp.snap-sync::snap-sync-multi-storage-worker
+                  runtime target-database healthy-source state-root 350))
+               :name "snap-test-healthy-storage-lane"))
+             (sb-thread:join-thread caller)
+             (setf caller nil))
+        (sb-thread:with-mutex
+            ((ethereum-lisp.snap-sync::snap-sync-multi-runtime-lock runtime))
+          (setf
+           (ethereum-lisp.snap-sync::snap-sync-multi-runtime-stopped-p runtime)
+           t)
+          (ethereum-lisp.snap-sync::snap-sync-multi-notify runtime))
+        (when caller (ignore-errors (sb-thread:join-thread caller)))
+        (when failing-worker (sb-thread:join-thread failing-worker))
+        (when healthy-worker (sb-thread:join-thread healthy-worker)))
+      (is (= 1 failed-calls))
+      (is (plusp healthy-calls))
+      (is (null caller-condition))
+      (is result)
+      (is
+       (ethereum-lisp.snap-sync::snap-sync-storage-range-tasks-completed-p
+        target-database state-root account-hash storage-root)))))
+
+#+sbcl
+(deftest snap-global-storage-local-commit-failure-is-fatal
+  (:layer :integration :module :p2p)
+  (let* ((source-state (make-state-db))
+         (source-database (make-memory-key-value-database))
+         (target-database (make-instance 'snap-failing-test-database))
+         (address
+           (address-from-hex
+            "0x0000000000000000000000000000000000000049"))
+         (account-hash
+           (ethereum-lisp.crypto:keccak-256 (address-bytes address))))
+    (loop for byte from 1 to 32
+          do (state-db-set-storage
+              source-state address
+              (make-hash32 (make-byte-vector 32 :initial-element byte))
+              (+ 7000 byte)))
+    (let* ((state-root (state-db-root source-state))
+           (storage-root (state-db-get-storage-root source-state address))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              source-database source-state))
+           (source (snap-test-source backend))
+           (runtime
+             (ethereum-lisp.snap-sync::make-snap-sync-multi-runtime
+              nil 0 nil))
+           (worker nil)
+           (failure nil))
+      ;; Initialize the durable cursors before arming the failure so the
+      ;; injected generic database error occurs only after a verified page.
+      (ethereum-lisp.snap-sync::snap-sync-load-or-create-storage-tasks
+       target-database state-root account-hash storage-root)
+      (setf
+       (snap-failing-test-database-fail-next-apply-p target-database) t
+       (ethereum-lisp.snap-sync::snap-sync-multi-runtime-storage-worker-count
+        runtime)
+       1
+       worker
+       (sb-thread:make-thread
+        (lambda ()
+          (ethereum-lisp.snap-sync::snap-sync-multi-storage-worker
+           runtime target-database source state-root 350))
+        :name "snap-test-storage-local-commit-failure"))
+      (unwind-protect
+           (setf failure
+                 (handler-case
+                     (progn
+                       (ethereum-lisp.snap-sync::snap-sync-multi-fill-storage-root
+                        runtime target-database state-root account-hash
+                        storage-root)
+                       nil)
+                   (serious-condition (condition) condition)))
+        (sb-thread:with-mutex
+            ((ethereum-lisp.snap-sync::snap-sync-multi-runtime-lock runtime))
+          (setf
+           (ethereum-lisp.snap-sync::snap-sync-multi-runtime-stopped-p runtime)
+           t)
+          (ethereum-lisp.snap-sync::snap-sync-multi-notify runtime))
+        (when worker (sb-thread:join-thread worker)))
+      (is failure)
+      (when failure
+        (is (search "Simulated snap progress batch failure"
+                    (princ-to-string failure)))
+        (is (not
+             (typep
+              failure
+              'ethereum-lisp.snap-sync:snap-sync-sources-exhausted)))))))
 
 (deftest snap-sync-progress-v5-round-trips-and-migrates-v2-v4
   (:layer :unit :module :p2p)

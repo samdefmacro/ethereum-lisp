@@ -298,9 +298,11 @@ The implementation boundary is split deliberately:
   advance. This matches go-ethereum v1.17.4's reuse of the initial nil-bound
   response and avoids an explicit origin-zero replay that public hash-scheme
   peers may reject. New peers name at most `capacity / 1024` storage accounts
-  while their request budget adapts from 64 KiB to 512 KiB. One large root at a
-  time receives the import-wide live storage pool,
-  matching geth's priority for open storage subtasks without creating one
+  while their request budget adapts from 64 KiB to 512 KiB. One fixed
+  StorageRanges worker per live source drains an import-wide rotating queue of
+  open large-root partitions. A lone root can use all sixteen durable chunks;
+  rotating after each claim lets other account tasks use idle lanes, matching
+  geth v1.17.4's global `assignStorageTasks` behavior without creating one
   all-peer scheduler per account page. Each page publishes reusable four-nibble
   coarse and five-nibble nested storage-subtree proofs with its durable cursor. Legacy
   completed cursors remain range-coverage evidence only: their short-lived

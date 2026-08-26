@@ -4545,11 +4545,11 @@ caller safely falls back to TrieNodes healing with authenticated pages retained.
     (database sources state-root commitments byte-limit &key source-provider)
   "Finish COMMITMENTS before their owning account page may advance.
 
-The multi-source caller serializes large roots at the import boundary and gives
-each root every current StorageRanges source. Its sixteen partition workers
-therefore match geth's large-contract priority without spawning one all-peer
-worker set per account page. Durable partition cursors make any failed page
-retry resume rather than replay."
+Synchronous and portable callers give each root their current StorageRanges
+sources. Production multi-source range import instead uses its fixed global
+rotating lane queue, so this fallback does not multiply one all-peer worker set
+per account page. Durable partition cursors make any failed page retry resume
+rather than replay."
   (dolist (commitment commitments commitments)
     (unless
         (snap-sync-fill-storage-root
@@ -5957,13 +5957,18 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
   (code-inflight (make-hash-table :test #'equalp))
   (code-write-lock
     (sb-thread:make-mutex :name "snap-sync-code-publish"))
-  ;; Match geth's storage-task priority without multiplying the peer count by
-  ;; every account page. Exactly one large storage root owns the import-wide
-  ;; StorageRanges lanes at a time; its sixteen durable partitions may use all
-  ;; current sources concurrently.
-  (storage-root-lock
-    (sb-thread:make-mutex :name "snap-sync-large-storage-root"))
+  ;; One fixed worker per imported source drains all large-root partitions.
+  ;; The shared queue rotates after every claim: an open root keeps priority
+  ;; over new small-state discovery, but cannot serialize unrelated account
+  ;; tasks behind all sixteen of its partitions. This is the same global
+  ;; idle-peer boundary used by geth's assignStorageTasks loop.
+  (storage-write-lock
+    (sb-thread:make-mutex :name "snap-sync-storage-publish"))
   (storage-sources '())
+  (storage-jobs '())
+  (storage-worker-count 0)
+  (storage-source-errors '())
+  storage-fatal-condition
   (code-jobs '())
   (code-worker-count 0)
   (dependency-jobs '())
@@ -6000,6 +6005,18 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
   result
   condition
   report-p)
+
+#+sbcl
+(defstruct (snap-sync-global-storage-job
+            (:constructor make-snap-sync-global-storage-job
+                (account-hash storage-root tasks)))
+  "One durable large-root task shared by the import-wide StorageRanges lanes."
+  account-hash
+  storage-root
+  tasks
+  (claims (make-hash-table))
+  (waiters 1)
+  completed-p)
 
 #+sbcl
 (defun snap-sync-multi-notify (runtime)
@@ -6078,13 +6095,263 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
       t)))
 
 #+sbcl
-(defun snap-sync-multi-current-storage-sources (runtime)
-  "Return the live import sources eligible for one large storage root."
+(defun snap-sync-global-storage-job-matches-p
+    (job account-hash storage-root)
+  (and
+   (bytes= account-hash
+           (snap-sync-global-storage-job-account-hash job))
+   (hash32= storage-root
+            (snap-sync-global-storage-job-storage-root job))))
+
+#+sbcl
+(defun snap-sync-multi-claim-storage-page (runtime source)
+  "Claim one large-root partition from the rotating global job queue."
   (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
-    (loop for source in (snap-sync-multi-runtime-storage-sources runtime)
-          unless (gethash source
-                          (snap-sync-multi-runtime-failed-sources runtime))
-            collect source)))
+    (loop
+      (when (snap-sync-multi-runtime-stopped-p runtime)
+        (return (values nil nil nil)))
+      (let* ((jobs (snap-sync-multi-runtime-storage-jobs runtime))
+             (count (length jobs)))
+        (loop repeat count
+              for job = (pop jobs)
+              do
+                 ;; Rotate after every examination. Successive idle sources
+                 ;; therefore visit different roots before returning to a
+                 ;; root that still has more of its sixteen chunks available.
+                 (setf jobs (nconc jobs (list job)))
+                 (unless (snap-sync-global-storage-job-completed-p job)
+                   (loop for task in
+                           (snap-sync-global-storage-job-tasks job)
+                         for task-index from 0
+                         unless
+                           (or
+                            (snap-sync-account-task-completed-p task)
+                            (gethash
+                             task-index
+                             (snap-sync-global-storage-job-claims job)))
+                           do
+                              (setf
+                               (gethash
+                                task-index
+                                (snap-sync-global-storage-job-claims job))
+                               source
+                               (snap-sync-multi-runtime-storage-jobs runtime)
+                               jobs)
+                              (return-from
+                                  snap-sync-multi-claim-storage-page
+                                (values
+                                 job task-index
+                                 (snap-sync-copy-account-task task)))))
+                 (setf (snap-sync-multi-runtime-storage-jobs runtime) jobs)))
+      (sb-thread:condition-wait
+       (snap-sync-multi-runtime-changed runtime)
+       (snap-sync-multi-runtime-lock runtime)))))
+
+#+sbcl
+(defun snap-sync-multi-release-storage-claim
+    (runtime job task-index source)
+  (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
+    (when (eq source
+              (gethash
+               task-index (snap-sync-global-storage-job-claims job)))
+      (remhash task-index (snap-sync-global-storage-job-claims job)))
+    (snap-sync-multi-notify runtime)))
+
+#+sbcl
+(defun snap-sync-multi-fail-storage-claim
+    (runtime job task-index source condition fatal-p)
+  "Release one claim and classify its failure at the scheduler boundary."
+  (snap-sync-multi-release-storage-claim
+   runtime job task-index source)
+  (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
+    (push condition
+          (snap-sync-multi-runtime-storage-source-errors runtime))
+    (when fatal-p
+      (setf (snap-sync-multi-runtime-storage-fatal-condition runtime)
+            condition))
+    (snap-sync-multi-notify runtime)))
+
+#+sbcl
+(defun snap-sync-multi-commit-storage-page
+    (runtime database state-root job task-index source result)
+  "Serialize verified page integration like geth's sync event loop."
+  (sb-thread:with-mutex
+      ((snap-sync-multi-runtime-storage-write-lock runtime))
+    (let* ((current
+             (sb-thread:with-mutex
+                 ((snap-sync-multi-runtime-lock runtime))
+               (snap-sync-global-storage-job-tasks job)))
+           (next
+             (snap-sync-commit-storage-page
+              database state-root
+              (snap-sync-global-storage-job-account-hash job)
+              (snap-sync-global-storage-job-storage-root job)
+              current result)))
+      (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
+        (unless
+            (eq source
+                (gethash
+                 task-index (snap-sync-global-storage-job-claims job)))
+          (error "Snap global storage result lost its partition claim"))
+        (setf (snap-sync-global-storage-job-tasks job) next)
+        (remhash task-index (snap-sync-global-storage-job-claims job))
+        (when (every #'snap-sync-account-task-completed-p next)
+          (setf (snap-sync-global-storage-job-completed-p job) t))
+        (snap-sync-multi-notify runtime)))))
+
+#+sbcl
+(defun snap-sync-multi-storage-worker
+    (runtime database source state-root byte-limit)
+  "Drain all large storage roots through SOURCE's one import-wide lane."
+  (unwind-protect
+       (handler-case
+           (loop
+             (multiple-value-bind (job task-index task)
+                 (snap-sync-multi-claim-storage-page runtime source)
+               (unless job (return))
+               (handler-case
+                   (let ((result
+                           (snap-sync-prepare-storage-page
+                            source state-root
+                            (snap-sync-global-storage-job-account-hash job)
+                            (snap-sync-global-storage-job-storage-root job)
+                            task-index task byte-limit)))
+                     ;; Fetch/proof failures belong to the answering source.
+                     ;; Once verification has succeeded, every failure below
+                     ;; is local scheduler or persistence state and must never
+                     ;; be converted into peer exhaustion.
+                     (handler-case
+                         (snap-sync-multi-commit-storage-page
+                          runtime database state-root job task-index source
+                          result)
+                       (serious-condition (condition)
+                         (snap-sync-multi-fail-storage-claim
+                          runtime job task-index source condition t)
+                         (return))))
+                 (ethereum-lisp.validation:storage-error (condition)
+                   (snap-sync-multi-fail-storage-claim
+                    runtime job task-index source condition t)
+                   (return))
+                 (serious-condition (condition)
+                   (snap-sync-multi-fail-storage-claim
+                    runtime job task-index source condition nil)
+                   ;; Match geth's peer-idle set: a failed source leaves this
+                   ;; import-wide response-type pool and its exact task is free
+                   ;; for a different lane.
+                   (return)))))
+         ;; A queue/claim bug happens outside the remote response boundary. It
+         ;; is a local fatal condition even when no job claim could be released.
+         (serious-condition (condition)
+           (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
+             (setf (snap-sync-multi-runtime-storage-fatal-condition runtime)
+                   condition)
+             (snap-sync-multi-notify runtime))))
+    (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
+      (decf (snap-sync-multi-runtime-storage-worker-count runtime))
+      (when (minusp
+             (snap-sync-multi-runtime-storage-worker-count runtime))
+        (error "Snap global storage worker count underflow"))
+      (snap-sync-multi-notify runtime))))
+
+#+sbcl
+(defun snap-sync-multi-fill-storage-root
+    (runtime database state-root account-hash storage-root)
+  "Queue one root and wait while fixed source lanes share all open roots."
+  (let* ((tasks
+           (snap-sync-load-or-create-storage-tasks
+            database state-root account-hash storage-root))
+         (job nil)
+         (terminal nil))
+    (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
+      (when (snap-sync-multi-runtime-stopped-p runtime)
+        (return-from snap-sync-multi-fill-storage-root nil))
+      (setf job
+            (find-if
+             (lambda (candidate)
+               (snap-sync-global-storage-job-matches-p
+                candidate account-hash storage-root))
+             (snap-sync-multi-runtime-storage-jobs runtime)))
+      (if job
+          (incf (snap-sync-global-storage-job-waiters job))
+          (progn
+            (setf job
+                  (make-snap-sync-global-storage-job
+                   (copy-seq account-hash) storage-root tasks)
+                  (snap-sync-global-storage-job-completed-p job)
+                  (every #'snap-sync-account-task-completed-p tasks)
+                  (snap-sync-multi-runtime-storage-jobs runtime)
+                  (nconc
+                   (snap-sync-multi-runtime-storage-jobs runtime)
+                   (list job)))
+            (snap-sync-multi-notify runtime))))
+    (unwind-protect
+         (setf terminal
+               (sb-thread:with-mutex
+                   ((snap-sync-multi-runtime-lock runtime))
+                 (loop
+                   (cond
+                     ((snap-sync-global-storage-job-completed-p job)
+                      (return :completed))
+                     ((snap-sync-multi-runtime-stopped-p runtime)
+                      (return :stopped))
+                     ((snap-sync-multi-runtime-storage-fatal-condition runtime)
+                      (return
+                        (snap-sync-multi-runtime-storage-fatal-condition
+                         runtime)))
+                     ((zerop
+                       (snap-sync-multi-runtime-storage-worker-count runtime))
+                      (let ((failures
+                              (reverse
+                               (copy-list
+                                (snap-sync-multi-runtime-storage-source-errors
+                                 runtime)))))
+                        (return
+                          (if (and
+                               failures
+                               (every
+                                (lambda (condition)
+                                  (typep condition
+                                         'snap-sync-state-unavailable))
+                                failures))
+                              (make-condition
+                               'snap-sync-state-unavailable
+                               :request-kind "storage-range")
+                              (make-condition
+                               'snap-sync-sources-exhausted
+                               :phase :storage-ranges
+                               :failures failures)))))
+                     (t
+                      (sb-thread:condition-wait
+                       (snap-sync-multi-runtime-changed runtime)
+                       (snap-sync-multi-runtime-lock runtime)))))))
+      (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
+        (decf (snap-sync-global-storage-job-waiters job))
+        (when (minusp (snap-sync-global-storage-job-waiters job))
+          (error "Snap global storage job waiter count underflow"))
+        (when (and
+               (zerop (snap-sync-global-storage-job-waiters job))
+               (or
+                (snap-sync-global-storage-job-completed-p job)
+                (snap-sync-multi-runtime-stopped-p runtime)
+                (typep terminal 'condition)))
+          (setf (snap-sync-multi-runtime-storage-jobs runtime)
+                (delete
+                 job (snap-sync-multi-runtime-storage-jobs runtime)
+                 :test #'eq)))
+        (snap-sync-multi-notify runtime)))
+    (when (typep terminal 'condition)
+      (error terminal))
+    (eq terminal :completed)))
+
+#+sbcl
+(defun snap-sync-multi-complete-deferred-storage-roots
+    (runtime database state-root commitments)
+  "Finish COMMITMENTS through the import-wide rotating StorageRanges queue."
+  (dolist (commitment commitments commitments)
+    (unless
+        (snap-sync-multi-fill-storage-root
+         runtime database state-root (car commitment) (cdr commitment))
+      (return nil))))
 
 #+sbcl
 (defun snap-sync-multi-worker
@@ -6356,20 +6623,12 @@ range-derived subtree proofs."
                   byte-limit))
                :deferred-storage-function
                (lambda (commitments)
-                 ;; Geth gives an open large contract priority across every
-                 ;; idle StorageRanges peer. Serialize large roots globally,
-                 ;; then let their sixteen restart-safe partitions occupy the
-                 ;; current source set instead of leaving the account page on
-                 ;; the one logical source which happened to fetch its range.
-                 (sb-thread:with-mutex
-                     ((snap-sync-multi-runtime-storage-root-lock runtime))
-                   (snap-sync-complete-deferred-storage-roots
-                    database
-                    (snap-sync-multi-current-storage-sources runtime)
-                    state-root commitments byte-limit
-                    :source-provider
-                    (lambda ()
-                      (snap-sync-multi-current-storage-sources runtime))))))))
+                 ;; Every source owns one fixed StorageRanges lane. The global
+                 ;; rotating queue gives all sixteen chunks of an open root
+                 ;; priority while still allowing other account tasks to use
+                 ;; otherwise idle peers, matching geth's assignment loop.
+                 (snap-sync-multi-complete-deferred-storage-roots
+                  runtime database state-root commitments)))))
           (serious-condition (condition)
             (snap-sync-multi-push-event
              runtime
@@ -6485,6 +6744,7 @@ those cursors. HEAL-YIELD-P is forwarded to final healing."
          (threads '())
          (dependency-threads '())
          (code-threads '())
+         (storage-threads '())
          (range-yielded-p nil)
          (errors '()))
     (when (snap-sync-progress-completed-p progress)
@@ -6520,12 +6780,52 @@ those cursors. HEAL-YIELD-P is forwarded to final healing."
                   runtime database state-root byte-limit))
                :name "snap-sync-dependency-worker")
               dependency-threads)))
+         (start-storage-worker (source)
+           (let ((start-p nil))
+             (sb-thread:with-mutex
+                 ((snap-sync-multi-runtime-lock runtime))
+               (unless
+                   (member
+                    source
+                    (snap-sync-multi-runtime-storage-sources runtime)
+                    :test #'eq)
+                 (setf
+                  (snap-sync-multi-runtime-storage-sources runtime)
+                  (nconc
+                   (snap-sync-multi-runtime-storage-sources runtime)
+                   (list source))
+                  start-p t)
+                 (incf
+                  (snap-sync-multi-runtime-storage-worker-count runtime))
+                 (snap-sync-multi-notify runtime)))
+             (when start-p
+               (handler-case
+                   (let ((worker-source source))
+                     (push
+                      (sb-thread:make-thread
+                       (lambda ()
+                         (snap-sync-multi-storage-worker
+                          runtime database worker-source state-root
+                          (min byte-limit
+                               +snap-sync-storage-request-bytes+)))
+                       :name "snap-sync-global-storage-worker")
+                      storage-threads))
+                 (serious-condition (condition)
+                   (sb-thread:with-mutex
+                       ((snap-sync-multi-runtime-lock runtime))
+                     (decf
+                      (snap-sync-multi-runtime-storage-worker-count runtime))
+                     (setf (snap-sync-multi-runtime-storage-sources runtime)
+                           (delete
+                            source
+                            (snap-sync-multi-runtime-storage-sources runtime)
+                            :test #'eq))
+                     (snap-sync-multi-notify runtime))
+                   (error condition))))))
          (start-worker (source)
+           (start-storage-worker source)
            (sb-thread:with-mutex
                ((snap-sync-multi-runtime-lock runtime))
-             (pushnew
-              source (snap-sync-multi-runtime-storage-sources runtime)
-              :test #'eq)
              (incf (snap-sync-multi-runtime-source-count runtime))
              (snap-sync-multi-notify runtime))
            (handler-case
@@ -6701,6 +7001,8 @@ those cursors. HEAL-YIELD-P is forwarded to final healing."
           (sb-thread:join-thread thread))
         (dolist (thread code-threads)
           (sb-thread:join-thread thread))
+        (dolist (thread storage-threads)
+          (sb-thread:join-thread thread))
         ;; A moving-pivot yield is a safe phase boundary: every committed page
         ;; is durable and every worker has joined. Discard any uncommitted page
         ;; graphs left in the stopped scheduler before collecting, otherwise
@@ -6710,12 +7012,14 @@ those cursors. HEAL-YIELD-P is forwarded to final healing."
           (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
             (setf (snap-sync-multi-runtime-events runtime) nil
                   (snap-sync-multi-runtime-dependency-jobs runtime) nil
-                  (snap-sync-multi-runtime-code-jobs runtime) nil)
+                  (snap-sync-multi-runtime-code-jobs runtime) nil
+                  (snap-sync-multi-runtime-storage-jobs runtime) nil)
             (clrhash (snap-sync-multi-runtime-claims runtime))
             (clrhash (snap-sync-multi-runtime-code-inflight runtime)))
           (setf threads nil
                 dependency-threads nil
-                code-threads nil)
+                code-threads nil
+                storage-threads nil)
           (snap-sync-release-range-phase-memory))))))
 
 #-sbcl

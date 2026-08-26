@@ -183,13 +183,18 @@ them by their physical location instead reintroduces dependency cycles:
   public-node limit; each assignment still considers only idle sessions,
   chooses the largest learned item capacity, and uses measured RTT to break
   ties. This matches geth's central capacity-sorted assignment without
-  multiplying worker count by the number of account pages. A byte-capped large
-  storage root receives the same priority geth gives its storage subtasks:
-  exactly one such root at a time owns up to sixteen import-wide
-  StorageRanges lanes across the current source set. Other account dependency
-  workers wait at that root boundary instead of each spawning an all-peer
-  scheduler, so the account cursor stops waiting on one accidental range peer
-  without multiplying live requests or threads by the number of pages. The
+  multiplying worker count by the number of account pages. Byte-capped large
+  storage roots enter one import-wide rotating queue. Every live source owns
+  exactly one fixed StorageRanges worker, so live requests and worker threads
+  remain bounded by source count instead of multiplying by account pages or
+  roots. A lone root can occupy all of its sixteen durable partitions. After
+  each claim the queue rotates, allowing another account task's open root to
+  use an otherwise idle source before returning to the first root. This follows
+  geth v1.17.4 `assignStorageTasks`: open large subtasks take precedence over
+  new small-state discovery, while the global idle-peer pool does not serialize
+  every account task behind one contract. Verified responses pass through one
+  commit coordinator, preserving exact per-partition cursor order and the
+  atomic node/proof/cursor boundary. The
   response verifier runs while the actual storage/bytecode peer reservation is
   still held, then releases that peer
   before any local WAL write. Empty, unrequested, malformed, or invalid-proof
