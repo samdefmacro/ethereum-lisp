@@ -51,6 +51,8 @@ Verified pages move to the global dependency queue immediately, so the account
 dispatcher can claim another partition without waiting for storage or code.")
 (defconstant +snap-sync-storage-task-count+ 16
   "Maximum parallel ranges used to finish one byte-capped storage trie.")
+(defconstant +snap-sync-storage-slot-width+ 64
+  "Pessimistic hash-plus-value bytes used by geth's storage density estimate.")
 (defconstant +snap-sync-heal-paths-per-source+
   +snap-sync-trie-node-lookups-per-request+
   "Maximum healing paths assigned to one source in a concurrent round.")
@@ -942,12 +944,13 @@ reuse this work instead of downloading the same prefix again."
       (declare (ignore verified-p))
       (unless trie
         (error "Byte-capped snap storage group did not reconstruct its range"))
-      (let* ((records (snap-sync-verified-account-records trie proof))
+      (let* ((last-key (caar (last entries)))
+             (records (snap-sync-verified-account-records trie proof))
              (groups
                (nth-value
                 1
                 (snap-sync-proved-range-subtrees
-                 trie (make-byte-vector 32) (caar (last entries)))))
+                 trie (make-byte-vector 32) last-key)))
              (complete-references
                (loop for group in groups append (third group)))
              (incomplete
@@ -966,7 +969,7 @@ reuse this work instead of downloading the same prefix again."
         ;; longer retain the historical trie proof for that explicit range.
         (snap-sync-seed-storage-tasks-batch
          database batch state-root account-hash storage-root
-         (snap-sync-increment-hash (caar (last entries))))))))
+         (snap-sync-increment-hash last-key) last-key (length entries))))))
 
 (defun snap-sync-fetch-storage-commitment-request
     (database source state-root requested byte-limit)
@@ -1811,15 +1814,91 @@ frontier also falls back safely instead of creating an uncheckpointable run."
    (snap-sync-storage-task-record task))
   batch)
 
+(defun snap-sync-estimate-remaining-storage-slots (prefix-count last-key)
+  "Estimate slots after LAST-KEY exactly like geth v1.17.4.
+
+The estimate assumes uniformly distributed secure storage hashes. NIL retains
+the conservative sixteen-way fallback when the prefix is too small to fit the
+estimate in an unsigned 64-bit counter or when LAST-KEY is zero."
+  (unless (and (integerp prefix-count) (plusp prefix-count))
+    (error "Snap storage density estimate requires a positive prefix count"))
+  (let ((last (bytes-to-integer (ensure-byte-vector last-key))))
+    (when (plusp last)
+      (let ((total
+              (floor (* (1- (ash 1 256)) prefix-count) last)))
+        (when (<= total (1- (ash 1 64)))
+          (max 0 (- total prefix-count)))))))
+
+(defun snap-sync-adaptive-storage-task-count (prefix-count last-key)
+  "Return geth v1.17.4's density-selected large-storage chunk count."
+  (let ((remaining
+          (snap-sync-estimate-remaining-storage-slots prefix-count last-key)))
+    (if remaining
+        (min
+         +snap-sync-storage-task-count+
+         (1+
+          (floor
+           remaining
+           (* 2
+              (floor +snap-sync-storage-request-bytes+
+                     +snap-sync-storage-slot-width+)))))
+        +snap-sync-storage-task-count+)))
+
+(defun snap-sync-make-seeded-storage-tasks
+    (next-origin last-key prefix-count)
+  "Build an adaptive large-storage plan in sixteen durable record slots.
+
+The active prefix matches geth v1.17.4 NEW-HASH-RANGE: its first task owns the
+already authenticated nil-bound prefix and the remaining hash space is divided
+into the density-selected number of chunks. Unused record slots are completed
+sentinels, preserving the version-three restart format and fail-closed complete
+set checks without issuing redundant network requests."
+  (let* ((last-key (ensure-byte-vector last-key))
+         (last (bytes-to-integer last-key))
+         (space (ash 1 256))
+         (maximum (1- space))
+         (count
+           (snap-sync-adaptive-storage-task-count prefix-count last-key))
+         (step (ceiling (- space last) count))
+         (tasks
+           (loop for index below count
+                 for start-value = (if (zerop index)
+                                       0
+                                       (+ last (* index step)))
+                 for limit-value = (min maximum
+                                        (1- (+ last (* (1+ index) step))))
+                 for start = (snap-sync-integer-to-hash-bytes start-value)
+                 for limit = (snap-sync-integer-to-hash-bytes limit-value)
+                 collect
+                 (cond
+                   ((null next-origin)
+                    (snap-sync-account-task
+                     :start start :limit limit :completed-p t))
+                   ((zerop index)
+                    (snap-sync-account-task
+                     :start start :limit limit :next-origin next-origin))
+                   (t
+                    (snap-sync-account-task
+                     :start start :limit limit :next-origin start)))))
+         (sentinel (snap-sync-integer-to-hash-bytes maximum)))
+    (nconc
+     tasks
+     (loop repeat (- +snap-sync-storage-task-count+ count)
+           collect
+           (snap-sync-account-task
+            :start sentinel :limit sentinel :completed-p t)))))
+
 (defun snap-sync-seed-storage-tasks-batch
-    (database batch state-root account-hash storage-root next-origin)
+    (database batch state-root account-hash storage-root
+     next-origin last-key prefix-count)
   "Seed a large storage task set after its nil-bound prefix is already durable.
 
 NEXT-ORIGIN is the successor of the last authenticated slot, or NIL when that
-prefix reached the end of the hash space.  Existing complete task sets are
-never rewound: a concurrent or restarted worker may already have advanced them
-beyond this initial prefix.  A partial persisted set is corruption and remains
-fail closed."
+prefix reached the end of the hash space. LAST-KEY and PREFIX-COUNT select
+geth's adaptive one-to-sixteen chunk plan. Existing complete task sets are never
+rewound: a concurrent or restarted worker may already have advanced them beyond
+this initial prefix. A partial persisted set is corruption and remains fail
+closed."
   (let ((identifiers
           (coerce
            (loop for index below +snap-sync-storage-task-count+
@@ -1833,13 +1912,8 @@ fail closed."
         (cond
           ((zerop present-count)
            (let ((tasks
-                   (if next-origin
-                       (snap-sync-make-account-tasks
-                        :count +snap-sync-storage-task-count+
-                        :next-origin next-origin)
-                       (snap-sync-make-account-tasks
-                        :count +snap-sync-storage-task-count+
-                        :completed-p t))))
+                   (snap-sync-make-seeded-storage-tasks
+                    next-origin last-key prefix-count)))
              (loop for task in tasks
                    for index from 0
                    do (snap-sync-populate-storage-task-batch

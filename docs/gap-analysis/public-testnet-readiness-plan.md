@@ -293,14 +293,16 @@ The implementation boundary is split deliberately:
   set, and retries while local persistence/merge faults remain fatal. The CLI
   persists the authenticated prefix of a byte-capped storage response, then
   atomically seeds version-three cursors at the successor of that prefix's last
-  authenticated slot and immediately finishes the large trie through sixteen
-  restart-safe, 512 KiB-capped StorageRanges partitions before the owning account cursor can
-  advance. This matches go-ethereum v1.17.4's reuse of the initial nil-bound
+  authenticated slot and immediately finishes the large trie through one to
+  sixteen restart-safe, 512 KiB-capped StorageRanges partitions before the
+  owning account cursor can advance. Their count uses go-ethereum v1.17.4's
+  exact prefix-density estimate while sixteen durable record slots preserve
+  restart compatibility. This also matches its reuse of the initial nil-bound
   response and avoids an explicit origin-zero replay that public hash-scheme
   peers may reject. New peers name at most `capacity / 1024` storage accounts
   while their request budget adapts from 64 KiB to 512 KiB. One fixed
   StorageRanges worker per live source drains an import-wide rotating queue of
-  open large-root partitions. A lone root can use all sixteen durable chunks;
+  open large-root partitions. A lone root can use all of its adaptive chunks;
   rotating after each claim lets other account tasks use idle lanes, matching
   geth v1.17.4's global `assignStorageTasks` behavior without creating one
   all-peer scheduler per account page. Verified partition responses queue at

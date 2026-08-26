@@ -1178,6 +1178,8 @@
          (heal-progress-events '())
          (saw-byte-capped-storage-p nil)
          (initial-storage-prefix-last nil)
+         (initial-storage-task-count nil)
+         (partition-origin-values '())
          (replayed-initial-storage-prefix-p nil)
          (smallest-explicit-storage-origin nil)
          (storage-ready-before-account-cursor-p nil)
@@ -1202,6 +1204,9 @@
                  (sb-thread:with-mutex (storage-lock)
                    (incf storage-calls)
                    (when partition-p
+                     (push
+                      (ethereum-lisp.snap-sync::bytes-to-integer origin)
+                      partition-origin-values)
                      (when (and initial-storage-prefix-last
                                 (not
                                  (ethereum-lisp.validation:byte-vector-lexicographic<
@@ -1215,14 +1220,17 @@
                      (incf partition-active)
                      (setf partition-max-active
                            (max partition-max-active partition-active))
-                     (when (< partition-starts 2)
+                     (when (< partition-starts
+                              (min 2 initial-storage-task-count))
                        (incf partition-starts)
                        (sb-thread:condition-broadcast storage-changed))
-                     ;; The first partition waits for a second production lane.
-                     ;; The separate call-site observer below distinguishes
-                     ;; this import-wide phase from later multi-source work.
+                     ;; When density selects multiple chunks, the first waits
+                     ;; for a second production lane. A one-chunk plan must not
+                     ;; manufacture concurrency by timing out and retrying the
+                     ;; same cursor through another source.
                      (loop repeat 20
-                           while (< partition-starts 2)
+                           while (< partition-starts
+                                    (min 2 initial-storage-task-count))
                            do (sb-thread:condition-wait
                                storage-changed storage-lock :timeout 1/10))))
                  (unwind-protect
@@ -1260,10 +1268,15 @@
                                    (last-slot (and last-group
                                                    (car (last last-group)))))
                               (when last-slot
-                                (setf initial-storage-prefix-last
-                                      (copy-seq
-                                       (ethereum-lisp.snap:snap-storage-data-hash
-                                        last-slot)))))))
+                                (let ((last-key
+                                        (ethereum-lisp.snap:snap-storage-data-hash
+                                         last-slot)))
+                                  (setf
+                                   initial-storage-prefix-last
+                                   (copy-seq last-key)
+                                   initial-storage-task-count
+                                   (ethereum-lisp.snap-sync::snap-sync-adaptive-storage-task-count
+                                    (length last-group) last-key)))))))
                         response)
                    (when partition-p
                      (sb-thread:with-mutex (storage-lock)
@@ -1362,11 +1375,15 @@
       (is (plusp deferred-call-count))
       (is (>= deferred-call-max-source-count 2))
       (is deferred-call-saw-global-workers-p)
-      (is (= 2 partition-max-active))
+      (is initial-storage-task-count)
+      (is (= (min 2 initial-storage-task-count) partition-max-active))
+      (is (= (length partition-origin-values)
+             (length (remove-duplicates partition-origin-values))))
       (is storage-ready-before-account-cursor-p)
-      ;; Sixteen restart-safe StorageRanges partitions retain all authenticated
-      ;; nodes before the cursor. The final closure walk should need only a
-      ;; small boundary repair, never the account trie or a full storage scan.
+      ;; The adaptive active partitions plus completed sentinels in the
+      ;; sixteen-record restart plan retain all authenticated nodes before the
+      ;; cursor. The final closure walk should need only a small boundary
+      ;; repair, never the account trie or a full storage scan.
       (is (< trie-node-requests 16))
       ;; The final account-page batch published a complete dependency plan.
       ;; Healing starts directly at the deferred storage root; a one-item path
@@ -1471,6 +1488,136 @@
            target-database storage-root)
         (is present-p)
         (is (plusp (length node)))))))
+
+(deftest snap-large-storage-chunks-follow-geth-density-estimate
+  (:layer :unit :module :p2p)
+  (let* ((space (ash 1 256))
+         (maximum (1- space))
+         (last (floor space 4))
+         (last-key
+           (ethereum-lisp.snap-sync::snap-sync-integer-to-hash-bytes last))
+         (next
+           (ethereum-lisp.snap-sync::snap-sync-integer-to-hash-bytes
+            (1+ last)))
+         (tasks
+           (ethereum-lisp.snap-sync::snap-sync-make-seeded-storage-tasks
+            next last-key 8192))
+         (step (ceiling (- space last) 2))
+         (first (first tasks))
+         (second (second tasks)))
+    ;; At one quarter of the hash space, 8,192 uniformly distributed slots
+    ;; estimate roughly 24K remaining. Geth v1.17.4 therefore uses two chunks,
+    ;; not the fixed sixteen-way fallback.
+    (is (= 2
+           (ethereum-lisp.snap-sync::snap-sync-adaptive-storage-task-count
+            8192 last-key)))
+    (is (= ethereum-lisp.snap-sync::+snap-sync-storage-task-count+
+           (length tasks)))
+    (is (= 2
+           (count-if-not
+            #'ethereum-lisp.snap-sync::snap-sync-account-task-completed-p
+            tasks)))
+    (is (bytes= (make-byte-vector 32)
+                (ethereum-lisp.snap-sync::snap-sync-account-task-start first)))
+    (is (bytes= next
+                (ethereum-lisp.snap-sync::snap-sync-account-task-next-origin
+                 first)))
+    (is (bytes=
+         (ethereum-lisp.snap-sync::snap-sync-integer-to-hash-bytes
+          (1- (+ last step)))
+         (ethereum-lisp.snap-sync::snap-sync-account-task-limit first)))
+    (is (bytes=
+         (ethereum-lisp.snap-sync::snap-sync-integer-to-hash-bytes
+          (+ last step))
+         (ethereum-lisp.snap-sync::snap-sync-account-task-start second)))
+    (is (bytes=
+         (ethereum-lisp.snap-sync::snap-sync-integer-to-hash-bytes maximum)
+         (ethereum-lisp.snap-sync::snap-sync-account-task-limit second)))
+    (is (every
+         #'ethereum-lisp.snap-sync::snap-sync-account-task-completed-p
+         (nthcdr 2 tasks)))
+    ;; A denser half-space prefix needs one continuation. Zero or an estimate
+    ;; wider than uint64 follows geth's error path and retains the conservative
+    ;; maximum.
+    (is (= 1
+           (ethereum-lisp.snap-sync::snap-sync-adaptive-storage-task-count
+            8192
+            (ethereum-lisp.snap-sync::snap-sync-integer-to-hash-bytes
+             (floor space 2)))))
+    (is (= ethereum-lisp.snap-sync::+snap-sync-storage-task-count+
+           (ethereum-lisp.snap-sync::snap-sync-adaptive-storage-task-count
+            1 (make-byte-vector 32))))
+    (is (= ethereum-lisp.snap-sync::+snap-sync-storage-task-count+
+           (ethereum-lisp.snap-sync::snap-sync-adaptive-storage-task-count
+            1
+            (ethereum-lisp.snap-sync::snap-sync-integer-to-hash-bytes 1))))))
+
+(deftest snap-byte-capped-storage-response-seeds-adaptive-durable-tasks
+  (:layer :integration :module :p2p)
+  (let* ((source-state (make-state-db))
+         (source-database (make-memory-key-value-database))
+         (target-database (make-memory-key-value-database))
+         (address
+           (address-from-hex
+            "0x0000000000000000000000000000000000000045"))
+         (account-hash
+           (ethereum-lisp.crypto:keccak-256 (address-bytes address))))
+    (loop for byte from 1 to 128
+          do (state-db-set-storage
+              source-state address
+              (make-hash32 (make-byte-vector 32 :initial-element byte))
+              (+ 3000 byte)))
+    (let* ((state-root (state-db-root source-state))
+           (storage-root (state-db-get-storage-root source-state address))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              source-database source-state))
+           (base-source (snap-test-source backend))
+           (response nil)
+           (source
+             (ethereum-lisp.snap-sync:make-snap-sync-source
+              :account-range
+              (ethereum-lisp.snap-sync:snap-sync-source-account-range
+               base-source)
+              :storage-ranges
+              (lambda (request)
+                (setf response
+                      (funcall
+                       (ethereum-lisp.snap-sync:snap-sync-source-storage-ranges
+                        base-source)
+                       request)))
+              :bytecodes
+              (ethereum-lisp.snap-sync:snap-sync-source-bytecodes base-source)
+              :trie-nodes
+              (ethereum-lisp.snap-sync:snap-sync-source-trie-nodes
+               base-source))))
+      (multiple-value-bind (received open)
+          (ethereum-lisp.snap-sync::snap-sync-fetch-storage-commitment-request
+           target-database source state-root
+           (list (cons account-hash storage-root)) 350)
+        (is (= 1 received))
+        (is (not (null open))))
+      (is (not (null response)))
+      (when response
+        (let* ((groups
+                 (ethereum-lisp.snap:snap-storage-ranges-slots response))
+               (prefix (car (last groups)))
+               (last-slot (car (last prefix)))
+               (expected
+                 (ethereum-lisp.snap-sync::snap-sync-adaptive-storage-task-count
+                  (length prefix)
+                  (ethereum-lisp.snap:snap-storage-data-hash last-slot)))
+               (tasks
+                 (ethereum-lisp.snap-sync::snap-sync-load-or-create-storage-tasks
+                  target-database state-root account-hash storage-root)))
+          ;; Drive the shipped nil-bound request and buffered persistence seam.
+          ;; A fixed sixteen-way implementation makes both witnesses fail.
+          (is (< expected
+                 ethereum-lisp.snap-sync::+snap-sync-storage-task-count+))
+          (is (= expected
+                 (count-if-not
+                  #'ethereum-lisp.snap-sync::snap-sync-account-task-completed-p
+                  tasks))))))))
 
 (deftest snap-storage-range-page-publishes-proved-subtrees
   (:layer :integration :module :p2p)

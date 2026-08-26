@@ -187,7 +187,9 @@ them by their physical location instead reintroduces dependency cycles:
   storage roots enter one import-wide rotating queue. Every live source owns
   exactly one fixed StorageRanges worker, so live requests and worker threads
   remain bounded by source count instead of multiplying by account pages or
-  roots. A lone root can occupy all of its sixteen durable partitions. After
+  roots. Geth v1.17.4's density estimate selects one to sixteen durable
+  partitions from the authenticated prefix; a lone root can occupy all of its
+  selected partitions. After
   each claim the queue rotates, allowing another account task's open root to
   use an otherwise idle source before returning to the first root. This follows
   geth v1.17.4 `assignStorageTasks`: open large subtasks take precedence over
@@ -333,9 +335,10 @@ them by their physical location instead reintroduces dependency cycles:
   unclassified hash presence into a completeness proof.
   StorageRanges pages apply the complete-proof rule directly
   to their reconstructed storage trie, publishing coarse storage-subtree proofs
-  atomically with their node records and successor cursor. Completing all
-  sixteen cursors proves authenticated range coverage but is not itself a
-  descendant-closure proof. The final healer publishes a separately namespaced
+  atomically with their node records and successor cursor. Completing every
+  active cursor plus the unused sentinels in the sixteen-record plan proves
+  authenticated range coverage but is not itself a descendant-closure proof.
+  The final healer publishes a separately namespaced
   storage-root proof only after a full post-order walk or the versioned
   complete-node negative-marker scheme proves closure. A later moving pivot can
   then apply geth's exact hash-presence shortcut before reading any descendant.
@@ -359,9 +362,11 @@ them by their physical location instead reintroduces dependency cycles:
   The authenticated prefix of byte-capped
   large storage is persisted immediately and its root is recorded beside that page
   in a state-root-scoped durable work set. As soon as a page discovers such a
-  root, that same atomic content batch seeds the sixteen version-three
-  StorageRanges cursors at the successor of the last authenticated slot. This
-  matches go-ethereum v1.17.4 `processStorageResponse`: the nil-bound response
+  root, that same atomic content batch uses its returned-slot count and last
+  hash to seed one to sixteen active version-three StorageRanges cursors at the
+  successor of the last authenticated slot. Unused slots remain completed
+  sentinels, preserving the sixteen-record restart format. This matches
+  go-ethereum v1.17.4 `processStorageResponse`: the nil-bound response
   becomes the first large-storage subtask, so no worker redundantly requests
   its prefix from explicit origin zero, which hash-scheme public peers may no
   longer be able to prove. One of the fixed global dependency workers then

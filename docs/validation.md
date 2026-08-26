@@ -492,10 +492,16 @@ high-throughput collapsed pool remains on its exact authenticated frontier.
 The range tests prove that sixty-four durable account ranges feed one AccountRange
 dispatcher per source and bounded global dependency schedulers, while three
 sole-writer request queues overlap independent response types with geth's
-adaptive 64--512 KiB snap byte limits. A production-call-site control forces
-the first large-storage partition to wait for a second lane and proves that one
-account page uses the fixed import-wide StorageRanges worker set before its
-cursor advances. A two-root control then holds one partition open, requires the
+adaptive 64--512 KiB snap byte limits. A production-call-site control observes
+the density-selected partition count, uses a second lane only when the plan has
+one, and proves a one-chunk plan never manufactures concurrency by timing out
+and double-claiming its cursor. It also proves that one account page uses the
+fixed import-wide StorageRanges worker set before its cursor advances. A
+density control reproduces geth v1.17.4's remaining-slot
+estimate, requires a quarter-space 8,192-slot prefix to select two active
+chunks, and retains sixteen durable records by completing the unused sentinels;
+restoring the fixed sixteen-way plan makes that witness fail. A two-root control
+then holds one partition open, requires the
 second root to start before that request is released, and proves maximum live
 requests equal the fixed source count. Replacing the rotating claim with a
 queue-head-only mutation makes that witness fail. Another control queues two
