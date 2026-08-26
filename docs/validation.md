@@ -746,7 +746,8 @@ limit. A failed cutover restarts the source. `restore` verifies both ownership
 chains before reversing the cutover, and neither action removes a container,
 image, or datadir. Because `restore` never starts the historical candidate
 image, it also accepts an exact older benchmark revision after runtime code has
-advanced; candidate-starting actions retain the runtime-drift refusal:
+advanced; candidate-starting actions retain the runtime-drift refusal by
+default:
 
 ```sh
 HOODI_LISP_BENCH_RUNTIME_REVISION=0123456789abcdef0123456789abcdef01234567 \
@@ -767,6 +768,25 @@ HOODI_LISP_BENCH_ALLOW_MUTATION=1 \
 HOODI_LISP_BENCH_RUNTIME_REVISION=0123456789abcdef0123456789abcdef01234567 \
 HOODI_LISP_BENCH_SOURCE_CONTAINER=hoodi-el-sec5-01234567 \
 scripts/hoodi-lisp-benchmark-gate.sh restore
+```
+
+For a reverse-order A/B on one already-populated benchmark datadir, `resume`
+may deliberately start an exact ancestor image from the current checkout when
+`HOODI_LISP_BENCH_ALLOW_HISTORICAL_RUNTIME=1` is explicit. The broker still
+requires that ancestor relationship, an exact image revision, an exact stopped
+owned predecessor on the same datadir, and a clean checkout. Set
+`HOODI_LISP_BENCH_SOURCE_REVISION` to the separately verified revision of the
+current live-gate rollback target; it defaults to the candidate revision for
+ordinary forward comparisons. This exception applies only to `resume` and
+does not weaken `start` or `restart`:
+
+```sh
+HOODI_LISP_BENCH_ALLOW_MUTATION=1 \
+HOODI_LISP_BENCH_ALLOW_HISTORICAL_RUNTIME=1 \
+HOODI_LISP_BENCH_RUNTIME_REVISION=0123456789abcdef0123456789abcdef01234567 \
+HOODI_LISP_BENCH_SOURCE_REVISION=89abcdef0123456789abcdef0123456789abcdef \
+HOODI_LISP_BENCH_PREVIOUS_REVISION=89abcdef0123456789abcdef0123456789abcdef \
+scripts/hoodi-lisp-benchmark-gate.sh resume
 ```
 
 `restart` verifies the exact benchmark ownership, runtime image id, revision,

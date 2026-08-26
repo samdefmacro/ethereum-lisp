@@ -17,6 +17,7 @@ image="${HOODI_LISP_BENCH_IMAGE:-ethereum-lisp-runtime:sec5-${short_revision}-am
 container="${HOODI_LISP_BENCH_CONTAINER:-hoodi-lisp-bench-${short_revision}-fresh1}"
 datadir="${HOODI_LISP_BENCH_DATADIR:-$remote_root/lisp-${short_revision}-fresh1}"
 source="${HOODI_LISP_BENCH_SOURCE_CONTAINER:-hoodi-el-sec5-${short_revision}}"
+source_revision="${HOODI_LISP_BENCH_SOURCE_REVISION:-$revision}"
 previous_revision="${HOODI_LISP_BENCH_PREVIOUS_REVISION:-$revision}"
 previous_short_revision="${previous_revision:0:8}"
 previous_image="${HOODI_LISP_BENCH_PREVIOUS_IMAGE:-ethereum-lisp-runtime:sec5-${previous_short_revision}-amd64}"
@@ -45,6 +46,8 @@ require_mutation() {
 
 case "$revision" in *[!0-9a-f]*|'') fail "unsafe runtime revision" ;; esac
 [ "${#revision}" -eq 40 ] || fail "runtime revision must be a full Git id"
+case "$source_revision" in *[!0-9a-f]*|'') fail "unsafe source runtime revision" ;; esac
+[ "${#source_revision}" -eq 40 ] || fail "source runtime revision must be a full Git id"
 case "$previous_revision" in *[!0-9a-f]*|'') fail "unsafe previous runtime revision" ;; esac
 [ "${#previous_revision}" -eq 40 ] || fail "previous runtime revision must be a full Git id"
 # Restore never starts REVISION: it only verifies/stops that historical
@@ -58,8 +61,11 @@ if [ "$actual_head" != "$revision" ] && [ "$action" != restore ]; then
         ':(exclude)scripts/hoodi-live-gate.sh' \
         ':(exclude)scripts/hoodi-geth-benchmark-gate.sh' \
         ':(exclude)scripts/hoodi-lisp-benchmark-gate.sh')"
-    [ -z "$runtime_sensitive_changes" ] ||
-        fail "checkout changed runtime-sensitive paths after $revision: $runtime_sensitive_changes"
+    if [ -n "$runtime_sensitive_changes" ]; then
+        [ "$action" = resume ] &&
+            [ "${HOODI_LISP_BENCH_ALLOW_HISTORICAL_RUNTIME:-}" = 1 ] ||
+            fail "checkout changed runtime-sensitive paths after $revision: $runtime_sensitive_changes"
+    fi
 fi
 case "$host" in *[!A-Za-z0-9_.@-]*|'') fail "unsafe SSH host" ;; esac
 case "$remote_root" in /data/hoodi-sec5-*) ;; *) fail "unsafe remote root" ;; esac
@@ -224,13 +230,14 @@ resume() {
         "$source" "$lighthouse" "$cl_network" "$egress_network" "$cl_alias" \
         "$jwt_dir" "$public_ip" "$p2p_port" "$ready_timeout" "$seccomp_profile" \
         "$expected_seccomp_sha256" "$previous_revision" "$previous_image" \
-        "$previous_container" <<'REMOTE'
+        "$previous_container" "$source_revision" <<'REMOTE'
 set -eu
 revision="$1"; image="$2"; container="$3"; datadir="$4"; source="$5"
 lighthouse="$6"; cl_network="$7"; egress_network="$8"; cl_alias="$9"
 jwt_dir="${10}"; public_ip="${11}"; p2p_port="${12}"; ready_timeout="${13}"
 seccomp_profile="${14}"; expected_seccomp="${15}"; previous_revision="${16}"
 previous_image="${17}"; previous_container="${18}"
+source_revision="${19}"
 
 [ "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image")" = "$revision" ] || {
     echo "runtime image revision mismatch" >&2; exit 1;
@@ -281,7 +288,7 @@ previous_datadir="$(docker container inspect --format '{{range .Mounts}}{{if eq 
 [ "$(docker container inspect --format '{{ index .Config.Labels "agent" }}' "$source")" = codex-sec5-live-gate ] || {
     echo "source EL ownership mismatch" >&2; exit 1;
 }
-[ "$(docker container inspect --format '{{ index .Config.Labels "io.ethereum-lisp.gate-revision" }}' "$source")" = "$revision" ] || {
+[ "$(docker container inspect --format '{{ index .Config.Labels "io.ethereum-lisp.gate-revision" }}' "$source")" = "$source_revision" ] || {
     echo "source EL revision mismatch" >&2; exit 1;
 }
 source_user="$(docker container inspect --format '{{.Config.User}}' "$source")"
