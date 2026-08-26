@@ -299,8 +299,17 @@ The implementation boundary is split deliberately:
   exact prefix-density estimate while sixteen durable record slots preserve
   restart compatibility. This also matches its reuse of the initial nil-bound
   response and avoids an explicit origin-zero replay that public hash-scheme
-  peers may reject. New peers name at most `capacity / 1024` storage accounts
-  while their request budget adapts from 64 KiB to 512 KiB. One fixed
+  peers may reject. The first peer begins at 64 KiB; churned peers inherit the
+  live pool's mean per-message capacities. Each names at most `capacity / 1024`
+  storage accounts while its request budget adapts up to 512 KiB against the
+  same live timeout used for expiry. The exact `f72afc7f` formal deployment
+  proved why both inheritance rules are required: its first small reply drove
+  the old raw pool estimate to a six-second timeout, producing twelve expiries
+  before the run ended. That run also exposed a separate pre-state acquisition
+  defect: a durably buffered `ACCEPTED` forward block was treated as fatal.
+  Forward range import now continues on `VALID`, `ACCEPTED`, and `SYNCING`, and
+  rejects only deterministic `INVALID`, matching the split between Geth block
+  acquisition and pivot-state availability. One fixed
   StorageRanges worker per live source drains an import-wide rotating queue of
   open large-root partitions. A lone root can use all of its adaptive chunks;
   rotating after each claim lets other account tasks use idle lanes, matching
@@ -338,8 +347,9 @@ The implementation boundary is split deliberately:
   live sessions contribute one cross-message RTT EWMA, the pool uses geth's
   `floor(sqrt(peer-count))` ordered sample with a two--twenty-second RTT clamp,
   and each request receives three target RTTs up to a sixty-second ceiling. A
-  cold pool keeps the prior thirty-second allowance, and closed peer samples are
-  removed before replacement scheduling. The CLI serves production state
+  cold pool starts from Geth's twenty-second RTT and sixty-second allowance;
+  replacement peers inherit the live per-message capacity means, and closed
+  peer samples are removed before replacement scheduling. The CLI serves production state
   through the direct RocksDB
   provider. A stale pivot remains
   pinned while a wide source pool or a collapsed pool with bounded aggregate

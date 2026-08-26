@@ -1014,6 +1014,66 @@ really reopens the directory instead of observing the first handle's memory."
     :suggested-fee-recipient (zero-address))
    config))
 
+(deftest devnet-peer-range-import-accepts-a-durable-buffered-block
+  (:layer :unit :module :p2p)
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (block
+           (first
+            (eth-sync-produce-empty-blocks
+             (ethereum-lisp.cli::devnet-node-genesis-block node)
+             (ethereum-lisp.cli::devnet-node-config node) 1))))
+    (devnet-peer-sync-call-with-function-overrides
+     (list
+      (cons
+       'ethereum-lisp.block-import:import-p2p-block-candidate
+       (lambda (store seen-block config &rest arguments)
+         (declare (ignore store config arguments))
+         (is (eq block seen-block))
+         (values
+          (make-payload-status :status +payload-status-accepted+)
+          seen-block nil))))
+     (lambda ()
+       ;; A pre-state forward range is supposed to buffer candidates. Geth does
+       ;; the same before its pivot state is available; ACCEPTED is not a fatal
+       ;; consensus verdict and must not tear down the node process.
+       (multiple-value-bind (status candidate receipts)
+           (ethereum-lisp.cli::devnet-peer-sync-import-block
+            node block :require-valid-p t)
+         (is (string= +payload-status-accepted+
+                      (payload-status-status status)))
+         (is (eq block candidate))
+         (is (null receipts)))))))
+
+(deftest devnet-peer-range-import-still-rejects-an-invalid-block
+  (:layer :unit :module :p2p)
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (block
+           (first
+            (eth-sync-produce-empty-blocks
+             (ethereum-lisp.cli::devnet-node-genesis-block node)
+             (ethereum-lisp.cli::devnet-node-config node) 1))))
+    (devnet-peer-sync-call-with-function-overrides
+     (list
+      (cons
+       'ethereum-lisp.block-import:import-p2p-block-candidate
+       (lambda (store seen-block config &rest arguments)
+         (declare (ignore store config arguments))
+         (values
+          (make-payload-status
+           :status +payload-status-invalid+
+           :validation-error "injected invalid peer block")
+          seen-block nil))))
+     (lambda ()
+       (signals block-validation-error
+         (ethereum-lisp.cli::devnet-peer-sync-import-block
+          node block :require-valid-p t))))))
+
 (defun devnet-peer-sync-durable-resume-case
     (database-path db-engine &key before-restart)
   "Exercise peer candidate and cursor durability for one database backend."
@@ -4089,18 +4149,23 @@ loop cannot block on a message that never comes."
            (loop repeat 16
                  collect
                  (ethereum-lisp.cli::make-devnet-peer-request-queue qos))))
-    (is (= 30d0
+    ;; Like Geth, a newly tracked peer starts at the 20-second RTT ceiling, so
+    ;; the cold pool permits a 60-second request while it learns real service
+    ;; times instead of collapsing on one tiny response.
+    (is (= 60d0
            (ethereum-lisp.cli::devnet-snap-qos-target-timeout qos)))
-    ;; Geth selects index sqrt(N) from ascending live RTTs.  For sixteen peers
-    ;; that is the fifth value (zero-based index four), here 3.0 seconds.
+    ;; Each first response contributes ten percent to its 20-second inherited
+    ;; RTT. For sixteen peers the fast-side median is zero-based index four:
+    ;; 18.3 seconds, yielding a 54.9-second deadline.
     (loop for queue in queues
           for rtt from 1d0 by 0.5d0
           do (ethereum-lisp.cli::devnet-snap-qos-record-round-trip
               qos queue rtt))
-    (is (= 9d0
-           (ethereum-lisp.cli::devnet-snap-qos-target-timeout qos)))
-    (let* ((probe
-             (ethereum-lisp.cli::make-devnet-peer-request-queue qos))
+    (is (< (abs
+            (- 54.9d0
+               (ethereum-lisp.cli::devnet-snap-qos-target-timeout qos)))
+           1d-9))
+    (let* ((probe (first queues))
            (job
              (ethereum-lisp.cli::make-devnet-peer-request-job
               (lambda () nil)
@@ -4112,30 +4177,70 @@ loop cannot block on a message that never comes."
       (is (eq job
               (ethereum-lisp.cli::devnet-peer-request-queue-take-eligible
                probe)))
-      (is (= 9d0
-             (ethereum-lisp.cli::devnet-peer-request-job-timeout-seconds
-              job)))
-      (is (= 9d0
-             (- (ethereum-lisp.cli::devnet-peer-request-job-deadline job)
-                (ethereum-lisp.cli::devnet-peer-request-job-started-at job))))
-      (ethereum-lisp.cli::devnet-peer-request-queue-close probe))
-    ;; Closing faster queues removes their stale influence. Eleven peers remain;
-    ;; zero-based index three is 5.0 seconds, yielding a 15-second deadline.
+      (is (< (abs
+              (- 54.9d0
+                 (ethereum-lisp.cli::devnet-peer-request-job-timeout-seconds
+                  job)))
+             1d-9))
+      (is (< (abs
+              (- 54.9d0
+                 (- (ethereum-lisp.cli::devnet-peer-request-job-deadline job)
+                    (ethereum-lisp.cli::devnet-peer-request-job-started-at
+                     job))))
+             1d-9))
+      (setf (ethereum-lisp.cli::devnet-peer-request-queue-active probe) nil))
+    ;; Closing the five fastest queues removes their stale influence. Eleven
+    ;; peers remain; zero-based index three is 18.5 seconds, yielding 55.5.
     (dolist (queue (subseq queues 0 5))
       (ethereum-lisp.cli::devnet-peer-request-queue-close queue))
-    (is (= 15d0
-           (ethereum-lisp.cli::devnet-snap-qos-target-timeout qos)))
+    (is (< (abs
+            (- 55.5d0
+               (ethereum-lisp.cli::devnet-snap-qos-target-timeout qos)))
+           1d-9))
     ;; The exact geth clamps remain fail-safe at both ends.
     (let ((low (first (last queues)))
           (high (second (last queues 2))))
       (clrhash (ethereum-lisp.cli::devnet-snap-qos-round-trips qos))
-      (ethereum-lisp.cli::devnet-snap-qos-record-round-trip qos low 0.1d0)
+      (setf (gethash low
+                     (ethereum-lisp.cli::devnet-snap-qos-round-trips qos))
+            0.1d0)
       (is (= 6d0
              (ethereum-lisp.cli::devnet-snap-qos-target-timeout qos)))
       (clrhash (ethereum-lisp.cli::devnet-snap-qos-round-trips qos))
-      (ethereum-lisp.cli::devnet-snap-qos-record-round-trip qos high 90d0)
+      (setf (gethash high
+                     (ethereum-lisp.cli::devnet-snap-qos-round-trips qos))
+            90d0)
       (is (= 60d0
              (ethereum-lisp.cli::devnet-snap-qos-target-timeout qos)))))
+  #-sbcl
+  (is t))
+
+(deftest devnet-snap-new-peer-inherits-live-pool-capacities
+  (:layer :unit :module :p2p)
+  #+sbcl
+  (let* ((qos (ethereum-lisp.cli::make-devnet-snap-qos))
+         (first (ethereum-lisp.cli::make-devnet-peer-request-queue qos))
+         (range-id ethereum-lisp.snap:+snap-message-account-range+)
+         (code-id ethereum-lisp.snap:+snap-message-bytecodes+)
+         (minimum ethereum-lisp.cli::+devnet-snap-min-request-bytes+))
+    (is (= (* 2 minimum)
+           (ethereum-lisp.cli::devnet-peer-request-queue-record-snap-delivery
+            first range-id minimum 0.05d0)))
+    (is (= 2
+           (ethereum-lisp.cli::devnet-peer-request-queue-record-snap-delivery
+            first code-id 1 0.05d0)))
+    (let ((second
+            (ethereum-lisp.cli::make-devnet-peer-request-queue qos)))
+      ;; Geth seeds a new peer tracker from the live mean instead of forcing
+      ;; every churned public session through 64 KiB and one code item again.
+      (is (= (* 2 minimum)
+             (ethereum-lisp.cli::devnet-peer-request-queue-snap-capacity
+              second range-id)))
+      (is (= 2
+             (ethereum-lisp.cli::devnet-peer-request-queue-snap-capacity
+              second code-id)))
+      (ethereum-lisp.cli::devnet-peer-request-queue-close second))
+    (ethereum-lisp.cli::devnet-peer-request-queue-close first))
   #-sbcl
   (is t))
 

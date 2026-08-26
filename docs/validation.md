@@ -343,7 +343,7 @@ for a global wave. The production peer-queue regression puts two account jobs
 ahead of a storage job and proves the storage request bypasses the occupied
 account response slot, then routes out-of-order typed replies to the correct
 workers. A pump regression separately proves that a SNAP response reaches that
-router instead of being rejected as unsolicited. Rate controls prove a new
+router instead of being rejected as unsolicited. Rate controls prove the first
 peer starts account and storage ranges at 64 KiB, a fast sequence grows at
 most twofold per response toward 512 KiB, a slow sequence falls back without
 crossing the lower bound, and the production source applies the learned
@@ -351,7 +351,9 @@ per-type cap to its outgoing packet and limits StorageRanges account hashes to
 geth's `capacity / 1024` estimate. ByteCodes learns in returned-code units
 from 1 through the 84-hash protocol cap; a response taking the entire capacity
 target still advances 1 to 2 through geth's explicit plus-one ceiling instead
-of becoming trapped at the minimum. Concurrent pages prove that their
+of becoming trapped at the minimum. A shared-pool control then proves a churned
+peer inherits the live mean range and ByteCodes capacities instead of restarting
+at 64 KiB and one item. Concurrent pages prove that their
 batches never exceed the fixed thirty-two-worker import-wide pool. Ready
 account results prove sixteen successor cursors share one durable publication
 write, while the existing injected-failure controls keep all of those cursors
@@ -536,13 +538,34 @@ fresh empty datadir. The corrective profile exposed the next actionable gap:
 least 120 seconds, and logs repeatedly consumed the fixed 30-second request
 deadline before failover.
 
-The request-timeout control now supplies sixteen synthetic live RTTs and requires
-the production queue call site to use geth's zero-based `floor(sqrt(N))` sample,
-two--twenty-second RTT clamps, threefold scaling, and sixty-second ceiling. It
-also closes the five fastest queues and proves their samples no longer influence
-the target; a cold pool remains at thirty seconds. This prevents a static
-deadline from multiplying across StorageRanges and ByteCodes retries while
-retaining a bounded allowance for an unmeasured pool. A separate
+The request-timeout control now creates sixteen cold trackers at Geth's
+twenty-second RTT, supplies each first synthetic live response with the exact
+ten-percent EWMA impact, and requires the production queue call site to use
+geth's zero-based `floor(sqrt(N))` sample, two--twenty-second RTT clamps,
+threefold scaling, and sixty-second ceiling. It also closes the five fastest
+queues and proves their RTT and capacity snapshots no longer influence the
+target; a cold pool remains at sixty seconds. Production capacity estimation
+uses that same live timeout rather than a fixed six seconds. This prevents one
+tiny first packet from collapsing later deadlines, preserves learned work size
+across peer churn, and avoids multiplying a static expiry across StorageRanges
+and ByteCodes retries. A peer-range verdict control requires durable `ACCEPTED`
+to return normally while deterministic `INVALID` still raises the validation
+failure; this protects the ordinary pre-pivot block buffer from being mistaken
+for an executable-state failure.
+
+The exact `f72afc7f` image exposed both controls on the formal Hoodi datadir. It
+started at `2026-08-26T12:28:47Z` and exited at `12:34:48Z` without OOM. Before
+exit it logged twelve six-second request expiries, fifteen import failures, and
+no completed account page: the first tiny response had collapsed the raw pool
+sample directly to the six-second floor. The terminal condition was a forward
+range candidate whose normal durable verdict was `ACCEPTED`; the old caller
+misclassified that pre-state result as a fatal non-executable block. The prior
+`a982521d` container was restored on the unchanged datadir at `12:41:43Z` and
+immediately resumed Engine `eth_syncing`. The cold-RTT inheritance and buffered
+verdict regressions above are therefore production-derived, not speculative
+tuning.
+
+A separate
 failover control
 retires one lane after a transport error and requires another lane to finish
 the exact released partition. A post-verification buffered database failure is

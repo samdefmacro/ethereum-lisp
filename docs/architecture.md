@@ -164,9 +164,9 @@ them by their physical location instead reintroduces dependency cycles:
   If every live source explicitly rejects the retained state, the importer
   preserves its durable cursors and the next coordinator pass atomically
   rebases them to a serviceable newer pivot. Account and
-  storage requests start at geth's 64 KiB lower cap. Each peer and response
-  type learns an EWMA of delivered capacity and round-trip time, grows or
-  shrinks toward geth's conservative six-second minimum timeout capacity, and
+  storage requests in an empty pool start at geth's 64 KiB lower cap. Each peer
+  and response type learns an EWMA of delivered capacity and round-trip time,
+  grows or shrinks toward the node's live geth-style timeout capacity, and
   uses geth's explicit `ceil(1 + estimated-capacity)` probe so an ordinary full
   response cannot strand the next assignment at one item. It stays within the
   protocol's native units: 64--512 KiB for ranges, 1--84 returned code items for
@@ -177,13 +177,22 @@ them by their physical location instead reintroduces dependency cycles:
   thirty seconds. Each live session contributes one cross-message EWMA; the
   node orders those samples, selects zero-based index `floor(sqrt(peer-count))`,
   clamps the service-time target to two--twenty seconds, and permits three
-  target RTTs up to a sixty-second ceiling. A cold pool retains the conservative
-  thirty-second allowance. Removing a closed session removes its sample, while
-  a newly connected session immediately inherits the established pool target.
+  target RTTs up to a sixty-second ceiling. A cold pool starts at Geth's
+  twenty-second RTT and sixty-second deadline. Removing a closed session removes
+  its sample and capacity snapshots, while a newly connected session immediately
+  inherits the established pool RTT and mean per-message capacities. Its first
+  small response contributes only the same ten-percent EWMA impact as Geth, so
+  one cache hit cannot collapse every following request to the six-second floor.
   This prevents repeated slow or dead dependency transports from consuming a
   full fixed timeout at every retry.
   The page-progress event exposes this current pool deadline as
   `requestTimeoutMs`, keeping failover behavior measurable on a public gate.
+  Concurrent forward block download may still reach a structurally valid block
+  before SNAP makes its parent state executable. Its durable `ACCEPTED` or
+  `SYNCING` verdict advances the peer cursor as buffered work; only deterministic
+  `INVALID` is a peer-range validation failure. This matches Geth's separation
+  between block acquisition and pivot-state availability and prevents a normal
+  pre-state range from terminating the node process.
   Fetch workers construct and atomically append verified content batches in
   parallel. One coordinator folds up to sixteen ready successor cursors into
   one synchronous publication batch, so a visible cursor still flushes the
@@ -408,9 +417,10 @@ them by their physical location instead reintroduces dependency cycles:
   account trie. An old or rebased partial import has no marker and safely
   retains the full-root traversal. Each dependency worker continuously fetches
   one 512 KiB-capped page at a time through the independent live StorageRanges
-  pool. A new peer starts at 64 KiB and names at most `capacity / 1024`
-  accounts, matching geth's storage-set assignment width, before adapting up to
-  512 KiB. Both the initial multi-account request and every later partition
+  pool. The first peer starts at 64 KiB; a later peer inherits the live pool
+  mean and names at most `capacity / 1024` accounts, matching geth's tracker and
+  storage-set assignment width before adapting up to 512 KiB. Both the initial
+  multi-account request and every later partition
   page finish shape and Merkle range-proof validation before releasing the
   actual pooled peer reservation; malformed or pruned state is therefore
   retried against the same immutable work without blaming its account-range

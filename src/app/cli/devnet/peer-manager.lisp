@@ -69,8 +69,74 @@ capacity near one on ordinary one-to-two-second public peers.")
 (defconstant +devnet-snap-qos-timeout-limit-seconds+ 60d0
   "Geth's maximum timeout for one SNAP request.")
 
-(defconstant +devnet-snap-qos-cold-timeout-seconds+ 30d0
-  "Safe startup timeout until the first live peer supplies an RTT sample.")
+(defconstant +devnet-snap-qos-cold-timeout-seconds+ 60d0
+  "Geth's initial three-times-20-second timeout for an untuned peer pool.")
+
+#+sbcl
+(defun devnet-snap-qos-live-median-round-trip-locked (qos)
+  "Return Geth's clamped fast-side median while QOS is locked."
+  (let ((round-trips '()))
+    (maphash
+     (lambda (queue round-trip)
+       (declare (ignore queue))
+       (push round-trip round-trips))
+     (devnet-snap-qos-round-trips qos))
+    (let* ((ordered (sort round-trips #'<))
+           (count (length ordered))
+           (selected
+             (cond
+               ((zerop count) +devnet-snap-qos-max-rtt-seconds+)
+               ((= count 1) (first ordered))
+               (t (nth (floor (sqrt count)) ordered)))))
+      (max +devnet-snap-qos-min-rtt-seconds+
+           (min +devnet-snap-qos-max-rtt-seconds+ selected)))))
+
+#+sbcl
+(defun devnet-snap-qos-track-queue (qos queue)
+  "Track QUEUE with the live pool's RTT, as Geth initializes a new tracker."
+  (when qos
+    (sb-thread:with-mutex ((devnet-snap-qos-lock qos))
+      (setf (gethash queue (devnet-snap-qos-round-trips qos))
+            (devnet-snap-qos-live-median-round-trip-locked qos)
+            (gethash queue (devnet-snap-qos-capacities qos))
+            (make-hash-table))))
+  queue)
+
+#+sbcl
+(defun devnet-snap-qos-mean-capacity
+    (qos response-id minimum maximum)
+  "Return RESPONSE-ID's live pool mean, clamped to its protocol bounds."
+  (if (null qos)
+      minimum
+      (sb-thread:with-mutex ((devnet-snap-qos-lock qos))
+        (let ((sum 0)
+              (count 0))
+          (maphash
+           (lambda (queue capacities)
+             (declare (ignore queue))
+             (multiple-value-bind (capacity present-p)
+                 (gethash response-id capacities)
+               (when present-p
+                 (incf sum capacity)
+                 (incf count))))
+           (devnet-snap-qos-capacities qos))
+          (if (zerop count)
+              minimum
+              (max minimum
+                   (min maximum (ceiling sum count))))))))
+
+#+sbcl
+(defun devnet-snap-qos-record-capacity
+    (qos queue response-id capacity)
+  "Publish QUEUE's latest response capacity without exposing its mutable rate."
+  (when qos
+    (sb-thread:with-mutex ((devnet-snap-qos-lock qos))
+      (let ((capacities
+              (or (gethash queue (devnet-snap-qos-capacities qos))
+                  (setf (gethash queue (devnet-snap-qos-capacities qos))
+                        (make-hash-table)))))
+        (setf (gethash response-id capacities) capacity))))
+  capacity)
 
 #+sbcl
 (defun devnet-snap-qos-record-round-trip (qos queue elapsed)
@@ -80,7 +146,12 @@ capacity near one on ordinary one-to-two-second public peers.")
   (when qos
     (sb-thread:with-mutex ((devnet-snap-qos-lock qos))
       (let* ((samples (devnet-snap-qos-round-trips qos))
-             (old (gethash queue samples))
+             ;; A newly connected Geth tracker starts at the current pool RTT,
+             ;; or 20 seconds for the first peer. Never let a tiny first packet
+             ;; collapse every subsequent request directly to the six-second
+             ;; floor.
+             (old (or (gethash queue samples)
+                      (devnet-snap-qos-live-median-round-trip-locked qos)))
              (impact +devnet-snap-qos-measurement-impact+))
         (setf (gethash queue samples)
               (if old
@@ -94,7 +165,8 @@ capacity near one on ordinary one-to-two-second public peers.")
   "Remove a closed peer QUEUE from node-wide SNAP QoS."
   (when qos
     (sb-thread:with-mutex ((devnet-snap-qos-lock qos))
-      (remhash queue (devnet-snap-qos-round-trips qos))))
+      (remhash queue (devnet-snap-qos-round-trips qos))
+      (remhash queue (devnet-snap-qos-capacities qos))))
   t)
 
 #+sbcl
@@ -104,30 +176,26 @@ capacity near one on ordinary one-to-two-second public peers.")
 Geth orders live peer RTTs and selects index sqrt(peer-count), which deliberately
 leans toward the faster healthy part of a wide pool.  The estimate is clamped to
 two--twenty seconds and scaled threefold, with a sixty-second ceiling.  Until a
-pool has a sample, retain the existing conservative thirty-second allowance."
+pool has a sample, retain Geth's initial sixty-second allowance."
   (if (null qos)
       +devnet-snap-qos-cold-timeout-seconds+
       (sb-thread:with-mutex ((devnet-snap-qos-lock qos))
-        (let ((round-trips '()))
-          (maphash
-           (lambda (queue round-trip)
-             (declare (ignore queue))
-             (push round-trip round-trips))
-           (devnet-snap-qos-round-trips qos))
-          (if (null round-trips)
+        (if (zerop (hash-table-count (devnet-snap-qos-round-trips qos)))
               +devnet-snap-qos-cold-timeout-seconds+
-              (let* ((ordered (sort round-trips #'<))
-                     (count (length ordered))
-                     (selected
-                       (if (= count 1)
-                           (first ordered)
-                           (nth (floor (sqrt count)) ordered)))
-                     (target-rtt
-                       (max +devnet-snap-qos-min-rtt-seconds+
-                            (min +devnet-snap-qos-max-rtt-seconds+
-                                 selected))))
-                (min +devnet-snap-qos-timeout-limit-seconds+
-                     (* +devnet-snap-qos-timeout-scale+ target-rtt))))))))
+            (min +devnet-snap-qos-timeout-limit-seconds+
+                 (* +devnet-snap-qos-timeout-scale+
+                    (devnet-snap-qos-live-median-round-trip-locked qos)))))))
+
+#+sbcl
+(defun devnet-snap-qos-capacity-target-seconds (qos)
+  "Return Geth's live timeout target for capacity estimation.
+
+Queues outside a node-wide pool exist only in focused tests and retain the
+historical six-second target. Production queues use the same TargetTimeout
+value for both request sizing and expiry, matching Geth's SNAP scheduler."
+  (if qos
+      (devnet-snap-qos-target-timeout qos)
+      +devnet-snap-request-target-seconds+))
 
 #+sbcl
 (defstruct (devnet-peer-snap-rate
@@ -158,13 +226,23 @@ pool has a sample, retain the existing conservative thirty-second allowance."
 
 #+sbcl
 (defstruct (devnet-peer-request-queue
-            (:constructor make-devnet-peer-request-queue (&optional snap-qos)))
+            (:constructor %make-devnet-peer-request-queue (&optional snap-qos)))
   (lock (sb-thread:make-mutex :name "ethereum-lisp-peer-request-queue"))
   (pending '())
   (active '())
   (snap-rates (make-hash-table))
   snap-qos
   closed-p)
+
+#+sbcl
+(defun make-devnet-peer-request-queue (&optional snap-qos)
+  "Create and immediately register a request queue with node-wide SNAP QoS."
+  (devnet-snap-qos-track-queue
+   snap-qos (%make-devnet-peer-request-queue snap-qos)))
+
+#-sbcl
+(defun make-devnet-peer-request-queue (&optional snap-qos)
+  (%make-devnet-peer-request-queue snap-qos))
 
 #+sbcl
 (defun devnet-peer-snap-capacity-bounds (response-id)
@@ -189,11 +267,20 @@ pool has a sample, retain the existing conservative thirty-second allowance."
   "Return RESPONSE-ID's mutable rate record while QUEUE's lock is held."
   (or (gethash response-id
                (devnet-peer-request-queue-snap-rates queue))
-      (setf (gethash response-id
-                     (devnet-peer-request-queue-snap-rates queue))
-            (make-devnet-peer-snap-rate
-             (nth-value
-              0 (devnet-peer-snap-capacity-bounds response-id))))))
+      (multiple-value-bind (minimum maximum)
+          (devnet-peer-snap-capacity-bounds response-id)
+        (let* ((capacity
+                 (devnet-snap-qos-mean-capacity
+                  (devnet-peer-request-queue-snap-qos queue)
+                  response-id minimum maximum))
+               (rate (make-devnet-peer-snap-rate capacity)))
+          (setf (gethash response-id
+                         (devnet-peer-request-queue-snap-rates queue))
+                rate)
+          (devnet-snap-qos-record-capacity
+           (devnet-peer-request-queue-snap-qos queue)
+           queue response-id capacity)
+          rate))))
 
 #+sbcl
 (defun devnet-peer-request-queue-snap-capacity (queue response-id)
@@ -254,7 +341,8 @@ from causing an unstable jump."
               (ceiling
                (+ 1d0
                   (* throughput
-                     +devnet-snap-request-target-seconds+
+                     (devnet-snap-qos-capacity-target-seconds
+                      (devnet-peer-request-queue-snap-qos queue))
                      1.01d0)))))
            (capacity
              (devnet-peer-snap-clamp-capacity
@@ -265,6 +353,9 @@ from causing an unstable jump."
             (devnet-peer-snap-rate-round-trip rate) round-trip
             (devnet-peer-snap-rate-capacity rate) capacity)
       (incf (devnet-peer-snap-rate-samples rate))
+      (devnet-snap-qos-record-capacity
+       (devnet-peer-request-queue-snap-qos queue)
+       queue response-id capacity)
       (devnet-snap-qos-record-round-trip
        (devnet-peer-request-queue-snap-qos queue) queue elapsed)
       capacity)))

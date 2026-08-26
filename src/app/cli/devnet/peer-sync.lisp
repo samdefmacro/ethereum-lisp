@@ -382,7 +382,11 @@ would replace committed data with NIL."
 PEER-ID, when supplied by a forward downloader, is recorded in the same
 database batch as the candidate so a restarted session resumes after this
 block.  Gap-fill and propagation imports omit it because they are not a
-contiguous forward cursor."
+contiguous forward cursor. REQUIRE-VALID-P rejects a deterministic INVALID
+verdict; ACCEPTED and SYNCING remain successful durable-buffering outcomes.
+Those statuses are expected while SNAP has not yet made the candidate's parent
+state executable, and treating them as peer invalidity would terminate a normal
+forward download before state import can close the gap."
   (let ((store (devnet-node-store node))
         (config (devnet-node-config node))
         (durability-function
@@ -419,10 +423,10 @@ contiguous forward cursor."
                (list :durability-function durability-function)
                (when progress (list :progress progress))))
            (when (and require-valid-p
-                      (not (string= +payload-status-valid+
-                                    (payload-status-status status))))
+                      (string= +payload-status-invalid+
+                               (payload-status-status status)))
              (block-validation-fail
-              "Peer range block ~A was not executable: ~A~@[ (~A)~]"
+              "Peer range block ~A was invalid: ~A~@[ (~A)~]"
               (hash32-to-hex (block-hash block))
               (payload-status-status status)
               (payload-status-validation-error status)))
