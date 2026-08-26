@@ -4921,6 +4921,12 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                 (list
                  (snap-sync-make-heal-work
                   :account nil (make-byte-vector 0) root-bytes)))))
+           ;; STACK is a list because DFS order depends on cheap front pushes,
+           ;; but LENGTH is linear. The live frontier can hold 131,072 works
+           ;; while a due checkpoint deliberately waits for it to shrink below
+           ;; 8,192. Keep the exact count alongside the list so every inner-loop
+           ;; frontier bound remains O(1) during that interval.
+           (stack-count (length stack))
            (active-sources (remove-duplicates (copy-list sources) :test #'eq))
            (retired-sources '())
            (retired-source-errors '())
@@ -4943,8 +4949,9 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
            (pending-fetched-count 0)
            (pending-node-completion-batch (make-kv-write-batch))
            (pending-node-completion-count 0)
-           ;; Peer-local capacity and RTT survive safe checkpoint boundaries;
-           ;; a newly admitted source starts at the protocol maximum.
+           ;; The local capacity table is retained only for fixed sources that
+           ;; do not expose the production request queue's shared SNAP tracker.
+           ;; RTT ordering survives safe checkpoint boundaries for both paths.
            (source-capacities (make-hash-table :test #'eq))
            (source-rtts (make-hash-table :test #'eq))
            ;; While the event loop owns work outside STACK, the older durable
@@ -4984,7 +4991,16 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
            (healer-throttle +snap-sync-heal-max-throttle+)
            (last-throttle-adjusted-at (get-internal-real-time)))
     (labels
-        ((prefer-peer-nodes-p ()
+        ((stack-push (work)
+           (push work stack)
+           (incf stack-count)
+           work)
+         (stack-pop ()
+           (unless stack
+             (error "Snap healer stack count diverged from its frontier"))
+           (decf stack-count)
+           (pop stack))
+         (prefer-peer-nodes-p ()
            (and
             *snap-sync-heal-remote-first-p*
             (typep
@@ -5016,7 +5032,7 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
               on-heal-progress processed-nodes reused-nodes fetched-nodes
               request-count response-bytes promoted-subtrees
               skipped-subtrees
-              (+ (length stack) deferred-storage-count remote-work-count)
+              (+ stack-count deferred-storage-count remote-work-count)
               deferred-storage-count remote-work-count
               (hash-table-count incomplete-nodes) nil)))
          (record-processing-rate (started-at processed-before)
@@ -5094,10 +5110,10 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
          (push-reference (kind account-hash path reference &optional marker-state)
            (unless (and (byte-vector-p reference)
                         (zerop (length reference)))
-             (push (snap-sync-make-heal-work
-                    kind account-hash path reference
-                    :marker-state marker-state)
-                   stack)))
+             (stack-push
+              (snap-sync-make-heal-work
+               kind account-hash path reference
+               :marker-state marker-state))))
          (defer-storage-reference (account-hash reference)
            (unless (and (byte-vector-p reference)
                         (zerop (length reference)))
@@ -5110,7 +5126,7 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
            ;; deferred list leaves the oldest discovered storage root on top,
            ;; while making every root part of the next durable frontier.
            (dolist (work deferred-storage)
-             (push work stack))
+             (stack-push work))
            (setf deferred-storage nil
                  deferred-storage-count 0))
          (flush-fetched-nodes (&optional synchronous-p)
@@ -5233,7 +5249,7 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
            ;; excess; stopping here would make the node fail at the first
            ;; checkpoint boundary without producing a resumable record.
            (and (checkpoint-due-p)
-                (<= (+ (length stack) deferred-storage-count pending-count
+                (<= (+ stack-count deferred-storage-count pending-count
                        remote-work-count)
                     +snap-sync-heal-checkpoint-max-works+)))
          (queue-code-hash (hash)
@@ -5368,39 +5384,36 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                  ;; stronger root namespace after its ordinary proof miss.
                  (when
                      (eq :armed (snap-sync-heal-work-marker-state work))
-                   (push
+                   (stack-push
                     (snap-sync-make-heal-work
                      (snap-sync-heal-work-kind work)
                      (snap-sync-heal-work-account-hash work)
                      (snap-sync-heal-work-path work)
                      (snap-sync-heal-work-reference work)
-                     :marker-state :complete)
-                    stack))
+                     :marker-state :complete)))
                  (incf skipped-subtrees))
                (progn
                  (when
                      (eq :armed (snap-sync-heal-work-marker-state work))
-                   (push
+                   (stack-push
                     (snap-sync-make-heal-work
                      (snap-sync-heal-work-kind work)
                      (snap-sync-heal-work-account-hash work)
                      (snap-sync-heal-work-path work)
                      (snap-sync-heal-work-reference work)
-                     :marker-state :complete)
-                    stack))
+                     :marker-state :complete)))
                  (let ((reference (snap-sync-heal-work-reference work)))
                    (when (and complete-node-scheme-p
                               (byte-vector-p reference)
                               (= 32 (length reference))
                               (nth-value
                                1 (gethash reference incomplete-nodes)))
-                     (push
+                     (stack-push
                       (snap-sync-make-heal-work
                        (snap-sync-heal-work-kind work)
                        (snap-sync-heal-work-account-hash work)
                        (snap-sync-heal-work-path work)
-                       reference :marker-state :node-complete)
-                      stack)))
+                       reference :marker-state :node-complete))))
                  (process-object work object))))
          (collect-missing (maximum &optional bounded-refill-p)
            "Advance local trie work and return at most MAXIMUM missing hashes.
@@ -5419,7 +5432,7 @@ for more missing hashes."
                     (min
                      maximum
                      (snap-sync-heal-missing-limit
-                      (+ (length stack) deferred-storage-count
+                      (+ stack-count deferred-storage-count
                          remote-work-count)
                       ;; A local fallback remains useful after every peer in a
                       ;; pruned-pivot generation has been retired.
@@ -5446,7 +5459,7 @@ for more missing hashes."
                           (read-limit
                             (min
                              (snap-sync-heal-local-read-limit
-                              (+ (length stack) deferred-storage-count
+                              (+ stack-count deferred-storage-count
                                  remote-work-count missing-count)
                               missing-count missing-limit checkpoint-room)
                              (if bounded-refill-p
@@ -5465,7 +5478,7 @@ for more missing hashes."
                                       (not
                                        (checkpoint-blocks-traversal-p
                                         missing-count)))
-                           for work = (pop stack)
+                           for work = (stack-pop)
                            for reference =
                              (snap-sync-heal-work-reference work)
                            do (incf examined-count)
@@ -5474,7 +5487,7 @@ for more missing hashes."
                                   (snap-sync-heal-work-marker-state work))
                               (if (or lookups deferred-storage)
                                   (progn
-                                    (push work stack)
+                                    (stack-push work)
                                     (unless lookups
                                       (drain-deferred-storage))
                                     (return))
@@ -5483,7 +5496,7 @@ for more missing hashes."
                                   (snap-sync-heal-work-marker-state work))
                               (if (or lookups deferred-storage)
                                   (progn
-                                    (push work stack)
+                                    (stack-push work)
                                     (unless lookups
                                       (drain-deferred-storage))
                                     (return))
@@ -5494,7 +5507,7 @@ for more missing hashes."
                              ((or (rlp-list-p reference)
                                   (zerop (length reference)))
                               (if lookups
-                                  (push work stack)
+                                  (stack-push work)
                                   (when (rlp-list-p reference)
                                     (process-object work reference)))
                               (return))
@@ -5549,7 +5562,7 @@ for more missing hashes."
                                       (<= (+ deferred-storage-count
                                              (length dependencies))
                                           +snap-sync-heal-deferred-storage-target+)
-                                      (<= (+ (length stack) missing-count
+                                      (<= (+ stack-count missing-count
                                              deferred-storage-count
                                              remote-work-count
                                              (length dependencies))
@@ -5641,7 +5654,7 @@ for more missing hashes."
                        stale-p
                        (and
                         (checkpoint-due-p)
-                        (<= (+ (length stack) deferred-storage-count
+                        (<= (+ stack-count deferred-storage-count
                                remote-work-count)
                             +snap-sync-heal-checkpoint-max-works+)))))
                   (retire-source (source condition)
@@ -5730,10 +5743,9 @@ for more missing hashes."
                           ;; independently in flight.
                           (loop for index downfrom (1- (length works)) to 0
                                 when (aref matched index)
-                                  do (push
+                                  do (stack-push
                                       (snap-sync-copy-heal-work
-                                       (aref works index) :fetched-p t)
-                                      stack))
+                                       (aref works index) :fetched-p t)))
                           (incf fetched-nodes fills)
                           (incf response-bytes fetched-bytes)
                           (incf healer-pending fills)
@@ -5755,7 +5767,7 @@ for more missing hashes."
                              on-heal-progress processed-nodes reused-nodes
                              fetched-nodes request-count response-bytes
                              promoted-subtrees skipped-subtrees
-                             (+ (length stack) deferred-storage-count
+                             (+ stack-count deferred-storage-count
                                 remaining-remote-work-count)
                              deferred-storage-count
                              remaining-remote-work-count
@@ -5775,8 +5787,7 @@ for more missing hashes."
                              (max
                               (if stack 1 0)
                               (- +snap-sync-heal-live-frontier-max-works+
-                                 outstanding
-                                 (length stack)
+                                 outstanding stack-count
                                  deferred-storage-count)))))
                       (if (plusp available)
                           (let ((new-missing
@@ -5801,7 +5812,7 @@ for more missing hashes."
                  (flush-healed-subtrees)
                  (when (or remaining paused-p)
                    (dolist (work (reverse remaining))
-                     (push work stack))
+                     (stack-push work))
                    (when (snap-sync-heal-checkpoint-frontier-p stack)
                      (persist-checkpoint stack))
                    (when paused-p
@@ -5831,7 +5842,7 @@ for more missing hashes."
                (request-paths (current-request-paths))
                (missing-limit
                  (snap-sync-heal-missing-limit
-                  (+ (length stack) deferred-storage-count)
+                  (+ stack-count deferred-storage-count)
                   ;; One local fallback batch remains useful after every peer
                   ;; in a pruned-pivot generation has been retired. A truly
                   ;; absent node reaches FETCH-MISSING and reports exhaustion.
@@ -5851,7 +5862,7 @@ for more missing hashes."
                                 last-checkpoint-processed-nodes))))
                        (read-limit
                          (snap-sync-heal-local-read-limit
-                          (+ (length stack) deferred-storage-count
+                          (+ stack-count deferred-storage-count
                              missing-count)
                           missing-count missing-limit
                           checkpoint-room))
@@ -5866,7 +5877,7 @@ for more missing hashes."
                                    (not
                                     (checkpoint-blocks-traversal-p
                                      missing-count)))
-                        for work = (pop stack)
+                        for work = (stack-pop)
                         for reference =
                           (snap-sync-heal-work-reference work)
                         do (cond
@@ -5874,7 +5885,7 @@ for more missing hashes."
                                   (snap-sync-heal-work-marker-state work))
                               (if (or lookups deferred-storage)
                                   (progn
-                                    (push work stack)
+                                    (stack-push work)
                                     (unless lookups
                                       (drain-deferred-storage))
                                     (return))
@@ -5883,7 +5894,7 @@ for more missing hashes."
                                   (snap-sync-heal-work-marker-state work))
                               (if (or lookups deferred-storage)
                                   (progn
-                                    (push work stack)
+                                    (stack-push work)
                                     (unless lookups
                                       (drain-deferred-storage))
                                     (return))
@@ -5898,7 +5909,7 @@ for more missing hashes."
                              ((or (rlp-list-p reference)
                                   (zerop (length reference)))
                               (if lookups
-                                  (push work stack)
+                                  (stack-push work)
                                   (when (rlp-list-p reference)
                                     (process-object work reference)))
                               ;; PROCESS-OBJECT may grow STACK. Recompute the
@@ -5953,7 +5964,7 @@ for more missing hashes."
                                       (<= (+ deferred-storage-count
                                              (length dependencies))
                                           +snap-sync-heal-deferred-storage-target+)
-                                      (<= (+ (length stack) missing-count
+                                      (<= (+ stack-count missing-count
                                              deferred-storage-count
                                              (length dependencies))
                                           +snap-sync-heal-live-frontier-max-works+))

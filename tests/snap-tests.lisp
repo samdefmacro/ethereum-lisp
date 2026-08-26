@@ -4584,6 +4584,9 @@
   ;; first 16-way branch made the exact frontier 8207 works at the checkpoint
   ;; boundary.  Keep the older checkpoint authoritative until single-work DFS
   ;; reads drain that transient excess instead of terminating the whole node.
+  ;; Production also keeps an O(1) count beside this list: once checkpoint
+  ;; eligibility is forced below, the per-work gate must not linearly recount
+  ;; all 8,000+ remaining entries.
   (let* ((database (make-memory-key-value-database))
          (account-hash (snap-test-hash 220))
          (leaf-object

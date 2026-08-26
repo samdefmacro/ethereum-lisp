@@ -399,7 +399,11 @@ its eight-call and eight-decoder-thread witnesses fail. The frontier limiter
 also proves that the soft durable region continues to reserve worst-case
 sixteen-way expansion room while a 10,000-work transient frontier may use the
 full 4,096-key database batch, avoiding one reader-thread lifecycle per 512
-nodes. Generic controls
+nodes. The oversized-overdue-frontier integration control forces checkpoint
+eligibility while an 8,192-work restart frontier expands past the durable cap;
+the production path now maintains the exact DFS count on every push/pop, so
+that hot inner-loop decision is constant-time rather than repeatedly taking
+the linear length of the whole list. Generic controls
 enforce the 4,096-key
 and 4 MiB key-byte bounds. The RocksDB construction regressions witness the
 exact 1 GiB block-cache budget for the shared 16 GiB EL/CL profile, ten-bit

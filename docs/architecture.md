@@ -527,9 +527,12 @@ them by their physical location instead reintroduces dependency cycles:
   ordinary 4,096-work checkpoint target, width still shrinks so a
   worst-case 16-way expansion remains immediately encodable in the 8,192-work
   record. Larger transient frontiers instead shrink against the independent
-  131,072-work in-memory cap. A restart may begin at the
-  legal 8,192-work durable cap, where its next branch can transiently expand
-  the exact DFS frontier above one checkpoint record. If a
+  131,072-work in-memory cap. A restart may begin at the legal 8,192-work
+  durable cap, where its next branch can transiently expand the exact DFS
+  frontier above one checkpoint record. The frontier therefore retains an
+  exact O(1) count alongside its front-pushed list; checkpoint, refill, and
+  remote-admission bounds never traverse the entire list merely to discover
+  that the oversized frontier must keep draining. If a
   checkpoint becomes due in that state, the prior durable record remains
   authoritative while batched local reads and full peer flights drain the
   excess; fetched nodes may still be committed by content hash, but no partial
