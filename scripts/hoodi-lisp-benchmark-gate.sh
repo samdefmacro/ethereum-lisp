@@ -50,10 +50,10 @@ case "$source_revision" in *[!0-9a-f]*|'') fail "unsafe source runtime revision"
 [ "${#source_revision}" -eq 40 ] || fail "source runtime revision must be a full Git id"
 case "$previous_revision" in *[!0-9a-f]*|'') fail "unsafe previous runtime revision" ;; esac
 [ "${#previous_revision}" -eq 40 ] || fail "previous runtime revision must be a full Git id"
-# Restore never starts REVISION: it only verifies/stops that historical
-# benchmark container and restarts its source gate.  Keep historical runtime
-# drift checks on every action that can start a candidate image.
-if [ "$actual_head" != "$revision" ] && [ "$action" != restore ]; then
+# Status and restore never start REVISION. Keep historical runtime drift checks
+# on every action that can start a candidate image.
+if [ "$actual_head" != "$revision" ] &&
+    [ "$action" != status ] && [ "$action" != restore ]; then
     git -C "$repo_root" merge-base --is-ancestor "$revision" "$actual_head" ||
         fail "runtime revision is not an ancestor of checkout HEAD"
     runtime_sensitive_changes="$(git -C "$repo_root" diff --name-only "$revision" "$actual_head" -- . \

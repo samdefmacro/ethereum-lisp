@@ -202,8 +202,6 @@ cl-workbench validation run cold-integration \
   --match DEVNET-SNAP-SOURCE-POOL-VALIDATES-STORAGE-BEFORE-PEER-RELEASE
 cl-workbench validation run cold-integration \
   --match SNAP-LARGE-STORAGE-RANGE-VERIFIES-BEFORE-SOURCE-RELEASE
-cl-workbench validation run cold-integration \
-  --match SNAP-GLOBAL-STORAGE-REQUEST-LANE-REFILLS-BEFORE-MATERIALIZATION
 cl-workbench validation run cold-unit \
   --match DEVNET-SNAP-BYTECODE-ASSIGNMENT-LEARNS-ITEM-CAPACITY
 cl-workbench validation run cold-unit \
@@ -506,17 +504,25 @@ restoring the fixed sixteen-way plan makes that witness fail. A two-root control
 then holds one partition open, requires the
 second root to start before that request is released, and proves maximum live
 requests equal the fixed source count. Replacing the rotating claim with a
-queue-head-only mutation makes that witness fail. A request/materializer
-handoff control blocks the first authenticated page's trie expansion and
-requires the sole request lane to issue a second StorageRanges request before
-that expansion resumes. Restoring the combined worker makes
-`SNAP-GLOBAL-STORAGE-REQUEST-LANE-REFILLS-BEFORE-MATERIALIZATION` fail. Another
-control queues two
+queue-head-only mutation makes that witness fail. Another control queues two
 independently verified partition results behind the commit coordinator and
 requires exactly one buffered database batch; replacing it with a synchronous
 write or reducing the storage cursor batch limit to one makes that positive
 witness fail. The RocksDB SIGKILL durability oracle above proves a following
 synchronous account cursor flushes this preceding WAL prefix. A separate
+same-datadir reverse-order Hoodi A/B on 2026-08-26 rejected a deeper
+request/materializer handoff. Revision `196b3e30` completed 82 account pages,
+587,492 accounts, 52,574 storage accounts, and 1,195 StorageRanges samples in
+781 seconds: 6.30 pages, 45,134 accounts, 4,039 storage accounts, and 91.81
+StorageRanges samples per minute. The immediately following control on
+`1d49fa75` completed 251 pages, 2,336,962 accounts, 208,746 storage accounts,
+and 1,972 StorageRanges samples in 758 seconds: 19.87 pages, 184,984 accounts,
+16,523 storage accounts, and 156.09 StorageRanges samples per minute. Both
+runs rebased their pivot once on the same host and preserved the same benchmark
+datadir. The deeper handoff was therefore removed: proof validation still
+releases the actual pooled peer before local materialization, but each fixed
+lane integrates its authenticated page before claiming another, matching
+geth's delivery-then-next-assignment runloop cadence. A separate
 failover control
 retires one lane after a transport error and requires another lane to finish
 the exact released partition. A post-verification buffered database failure is

@@ -185,13 +185,9 @@ them by their physical location instead reintroduces dependency cycles:
   ties. This matches geth's central capacity-sorted assignment without
   multiplying worker count by the number of account pages. Byte-capped large
   storage roots enter one import-wide rotating queue. Every live source owns
-  exactly one fixed StorageRanges request lane and one local materializer, so
-  both remain bounded by source count instead of multiplying by account pages
-  or roots. At most thirty-two authenticated pages can wait between them. The
-  request lane therefore refills a released response-type slot without waiting
-  for trie-record expansion or the commit coordinator, while bounded
-  backpressure prevents response retention from growing with the chain state.
-  Geth v1.17.4's density estimate selects one to sixteen durable
+  exactly one fixed StorageRanges worker, so live requests and worker threads
+  remain bounded by source count instead of multiplying by account pages or
+  roots. Geth v1.17.4's density estimate selects one to sixteen durable
   partitions from the authenticated prefix; a lone root can occupy all of its
   selected partitions. After
   each claim the queue rotates, allowing another account task's open root to
@@ -212,9 +208,12 @@ them by their physical location instead reintroduces dependency cycles:
   still held, then releases that peer before expanding an authenticated
   StorageRanges trie into records/subtree metadata or issuing any local WAL
   write. This matches geth's separation between response proof validation and
-  scheduler-side response integration. The split request/materializer lanes
-  make the idle peer start its next request while local materialization
-  proceeds. Empty, unrequested, malformed,
+  scheduler-side response integration. The released peer is eligible to other
+  already-running lanes, but a fixed lane does not claim another page until it
+  has handed the current page through integration. This preserves geth's
+  runloop cadence: delivery is integrated before the next assignment pass,
+  rather than building a deep authenticated-response backlog. Empty,
+  unrequested, malformed,
   or invalid-proof
   responses are therefore charged to the transport that supplied them instead
   of the unrelated AccountRange peer whose page discovered the dependency. An

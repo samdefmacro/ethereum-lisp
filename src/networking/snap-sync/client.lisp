@@ -32,13 +32,6 @@ hash set after the peer reaches its soft byte cap.")
   "Maximum ready account cursors published by one synchronous WAL batch.")
 (defconstant +snap-sync-storage-cursor-batch-pages+ 16
   "Maximum verified storage partition cursors in one durable WAL batch.")
-(defconstant +snap-sync-storage-verified-page-limit+ 32
-  "Maximum authenticated storage pages awaiting local materialization.
-
-This bounded handoff lets request lanes reuse an idle StorageRanges peer while
-CPU-side trie expansion and WAL integration proceed independently.  It is wide
-enough to cover the expected public peer set without retaining an unbounded
-collection of 512 KiB responses.")
 (defconstant +snap-sync-legacy-account-task-count+ 16
   "Account partition count written by progress versions before oversubscription.")
 (defconstant +snap-sync-previous-account-task-count+ 32
@@ -4284,9 +4277,9 @@ promoted immediately. Descendants are never read or revalidated."
      :next-origin next-origin
      :completed-p completed-p)))
 
-(defun snap-sync-fetch-verified-storage-page
+(defun snap-sync-prepare-storage-page
     (source state-root account-hash storage-root task-index task byte-limit)
-  "Fetch and authenticate one large-storage page without materializing it."
+  "Fetch and authenticate one page of a partitioned large storage trie."
   (let* ((origin (snap-sync-account-task-next-origin task))
          (limit (snap-sync-account-task-limit task))
          (request
@@ -4327,24 +4320,14 @@ promoted immediately. Descendants are never read or revalidated."
       ;; pruned response retires the exact transport. Return it to the idle
       ;; pool before the already authenticated trie is expanded into records
       ;; and subtree metadata, matching geth's delivery/integration boundary.
-      (if (functionp (snap-sync-source-storage-ranges-verified source))
-          (funcall
-           (snap-sync-source-storage-ranges-verified source) request #'verify)
-          (verify
-           (snap-sync-source-call
-            (snap-sync-source-storage-ranges source)
-            request "storage ranges"))))))
-
-(defun snap-sync-prepare-storage-page
-    (source state-root account-hash storage-root task-index task byte-limit)
-  "Fetch, authenticate, and materialize one partitioned storage page.
-
-This synchronous composition remains the serial/isolated boundary. Production
-multi-source imports call SNAP-SYNC-FETCH-VERIFIED-STORAGE-PAGE from their
-request lanes and materialize its carrier through a separate bounded queue."
-  (snap-sync-materialize-verified-storage-page
-   (snap-sync-fetch-verified-storage-page
-    source state-root account-hash storage-root task-index task byte-limit)))
+      (snap-sync-materialize-verified-storage-page
+       (if (functionp (snap-sync-source-storage-ranges-verified source))
+           (funcall
+            (snap-sync-source-storage-ranges-verified source) request #'verify)
+           (verify
+            (snap-sync-source-call
+             (snap-sync-source-storage-ranges source)
+             request "storage ranges")))))))
 
 (defun snap-sync-populate-storage-page-batch
     (database batch state-root account-hash storage-root tasks result)
@@ -6112,20 +6095,17 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
   (code-inflight (make-hash-table :test #'equalp))
   (code-write-lock
     (sb-thread:make-mutex :name "snap-sync-code-publish"))
-  ;; One fixed request/materializer pair per imported source drains all
-  ;; large-root partitions. A bounded authenticated-page handoff lets the
-  ;; request lane refill an idle StorageRanges peer before CPU-side trie
-  ;; expansion and WAL integration. The shared claim queue rotates after every
-  ;; claim, matching geth's assignStorageTasks/delivery boundary.
+  ;; One fixed worker per imported source drains all large-root partitions.
+  ;; The shared queue rotates after every claim: an open root keeps priority
+  ;; over new small-state discovery, but cannot serialize unrelated account
+  ;; tasks behind all sixteen of its partitions. This is the same global
+  ;; idle-peer boundary used by geth's assignStorageTasks loop.
   (storage-write-lock
     (sb-thread:make-mutex :name "snap-sync-storage-publish"))
   (storage-sources '())
   (storage-jobs '())
-  (storage-verified-pages '())
-  (storage-materializing-count 0)
   (storage-results '())
   (storage-worker-count 0)
-  (storage-materializer-count 0)
   (storage-source-errors '())
   storage-fatal-condition
   (code-jobs '())
@@ -6186,16 +6166,6 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
   task-index
   source
   result)
-
-#+sbcl
-(defstruct (snap-sync-global-storage-verified-page
-            (:constructor make-snap-sync-global-storage-verified-page
-                (job task-index source verified)))
-  "One authenticated page handed from a request lane to a materializer."
-  job
-  task-index
-  source
-  verified)
 
 #+sbcl
 (defun snap-sync-multi-notify (runtime)
@@ -6351,72 +6321,6 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
     (snap-sync-multi-notify runtime)))
 
 #+sbcl
-(defun snap-sync-multi-queue-verified-storage-page
-    (runtime job task-index source verified)
-  "Bound and enqueue VERIFIED after its StorageRanges peer is idle again."
-  (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
-    (loop while
-            (and
-             (not (snap-sync-multi-runtime-stopped-p runtime))
-             (null (snap-sync-multi-runtime-storage-fatal-condition runtime))
-             (>= (length
-                  (snap-sync-multi-runtime-storage-verified-pages runtime))
-                 +snap-sync-storage-verified-page-limit+))
-          do (sb-thread:condition-wait
-              (snap-sync-multi-runtime-changed runtime)
-              (snap-sync-multi-runtime-lock runtime)))
-    (when (or (snap-sync-multi-runtime-stopped-p runtime)
-              (snap-sync-multi-runtime-storage-fatal-condition runtime))
-      (return-from snap-sync-multi-queue-verified-storage-page nil))
-    (unless
-        (eq source
-            (gethash task-index
-                     (snap-sync-global-storage-job-claims job)))
-      (error "Snap verified storage page lost its partition claim"))
-    (setf (snap-sync-multi-runtime-storage-verified-pages runtime)
-          (nconc
-           (snap-sync-multi-runtime-storage-verified-pages runtime)
-           (list
-            (make-snap-sync-global-storage-verified-page
-             job task-index source verified))))
-    (snap-sync-multi-notify runtime)
-    t))
-
-#+sbcl
-(defun snap-sync-multi-claim-verified-storage-page (runtime)
-  "Take one authenticated page for CPU-side trie materialization."
-  (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
-    (loop
-      (when (snap-sync-multi-runtime-storage-fatal-condition runtime)
-        (return nil))
-      ;; A moving-pivot or caller stop discards queued authenticated carriers;
-      ;; at most the pages already inside a materializer finish their safe
-      ;; local commit before join.
-      (when (snap-sync-multi-runtime-stopped-p runtime)
-        (return nil))
-      (when (snap-sync-multi-runtime-storage-verified-pages runtime)
-        (let ((entry
-                (pop
-                 (snap-sync-multi-runtime-storage-verified-pages runtime))))
-          (incf (snap-sync-multi-runtime-storage-materializing-count runtime))
-          ;; Wake request lanes blocked on the bounded verified-page backlog.
-          (snap-sync-multi-notify runtime)
-          (return entry)))
-      (sb-thread:condition-wait
-       (snap-sync-multi-runtime-changed runtime)
-       (snap-sync-multi-runtime-lock runtime)))))
-
-#+sbcl
-(defun snap-sync-multi-finish-storage-materialization (runtime)
-  "Release one materializer's active-page accounting."
-  (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
-    (decf (snap-sync-multi-runtime-storage-materializing-count runtime))
-    (when (minusp
-           (snap-sync-multi-runtime-storage-materializing-count runtime))
-      (error "Snap storage materialization count underflow"))
-    (snap-sync-multi-notify runtime)))
-
-#+sbcl
 (defun snap-sync-multi-queue-storage-result
     (runtime job task-index source result)
   "Queue one verified response before entering the commit coordinator."
@@ -6548,8 +6452,7 @@ behind and may safely replay any lost storage pages."
 #+sbcl
 (defun snap-sync-multi-storage-worker
     (runtime database source state-root byte-limit)
-  "Fetch and proof-verify pages through SOURCE's import-wide request lane."
-  (declare (ignore database))
+  "Drain all large storage roots through SOURCE's one import-wide lane."
   (unwind-protect
        (handler-case
            (loop
@@ -6557,21 +6460,24 @@ behind and may safely replay any lost storage pages."
                  (snap-sync-multi-claim-storage-page runtime source)
                (unless job (return))
                (handler-case
-                   (let ((verified
-                           (snap-sync-fetch-verified-storage-page
+                   (let ((result
+                           (snap-sync-prepare-storage-page
                             source state-root
                             (snap-sync-global-storage-job-account-hash job)
                             (snap-sync-global-storage-job-storage-root job)
                             task-index task byte-limit)))
-                     ;; The actual pooled peer is idle before this handoff.
-                     ;; Immediately claim another request while independent
-                     ;; materializers expand this authenticated page.
-                     (unless
-                         (snap-sync-multi-queue-verified-storage-page
-                          runtime job task-index source verified)
-                       (snap-sync-multi-release-storage-claim
-                        runtime job task-index source)
-                       (return)))
+                     ;; Fetch/proof failures belong to the answering source.
+                     ;; Once verification has succeeded, every failure below
+                     ;; is local scheduler or persistence state and must never
+                     ;; be converted into peer exhaustion.
+                     (handler-case
+                         (snap-sync-multi-commit-storage-page
+                          runtime database state-root job task-index source
+                          result)
+                       (serious-condition (condition)
+                         (snap-sync-multi-fail-storage-claim
+                          runtime job task-index source condition t)
+                         (return))))
                  (ethereum-lisp.validation:storage-error (condition)
                    (snap-sync-multi-fail-storage-claim
                     runtime job task-index source condition t)
@@ -6595,43 +6501,6 @@ behind and may safely replay any lost storage pages."
       (when (minusp
              (snap-sync-multi-runtime-storage-worker-count runtime))
         (error "Snap global storage worker count underflow"))
-      (snap-sync-multi-notify runtime))))
-
-#+sbcl
-(defun snap-sync-multi-storage-materializer
-    (runtime database state-root)
-  "Materialize authenticated pages independently of StorageRanges requests."
-  (unwind-protect
-       (loop
-         (let ((entry
-                 (snap-sync-multi-claim-verified-storage-page runtime)))
-           (unless entry (return))
-           (unwind-protect
-                (let ((job
-                        (snap-sync-global-storage-verified-page-job entry))
-                      (task-index
-                        (snap-sync-global-storage-verified-page-task-index
-                         entry))
-                      (source
-                        (snap-sync-global-storage-verified-page-source entry)))
-                  (handler-case
-                      (snap-sync-multi-commit-storage-page
-                       runtime database state-root job task-index source
-                       (snap-sync-materialize-verified-storage-page
-                        (snap-sync-global-storage-verified-page-verified
-                         entry)))
-                    (serious-condition (condition)
-                      ;; Proof validation is already complete. Any failure in
-                      ;; materialization or persistence is local and fatal.
-                      (snap-sync-multi-fail-storage-claim
-                       runtime job task-index source condition t)
-                      (return))))
-             (snap-sync-multi-finish-storage-materialization runtime))))
-    (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
-      (decf (snap-sync-multi-runtime-storage-materializer-count runtime))
-      (when (minusp
-             (snap-sync-multi-runtime-storage-materializer-count runtime))
-        (error "Snap storage materializer count underflow"))
       (snap-sync-multi-notify runtime))))
 
 #+sbcl
@@ -6679,17 +6548,8 @@ behind and may safely replay any lost storage pages."
                       (return
                         (snap-sync-multi-runtime-storage-fatal-condition
                          runtime)))
-                     ((and
-                       (zerop
-                        (snap-sync-multi-runtime-storage-worker-count runtime))
-                       (null
-                        (snap-sync-multi-runtime-storage-verified-pages
-                         runtime))
-                       (zerop
-                        (snap-sync-multi-runtime-storage-materializing-count
-                         runtime))
-                       (null
-                        (snap-sync-multi-runtime-storage-results runtime)))
+                     ((zerop
+                       (snap-sync-multi-runtime-storage-worker-count runtime))
                       (let ((failures
                               (reverse
                                (copy-list
@@ -7187,52 +7047,31 @@ those cursors. HEAL-YIELD-P is forwarded to final healing."
                   start-p t)
                  (incf
                   (snap-sync-multi-runtime-storage-worker-count runtime))
-                 (incf
-                  (snap-sync-multi-runtime-storage-materializer-count runtime))
                  (snap-sync-multi-notify runtime)))
              (when start-p
-               (let ((worker-source source)
-                     (request-started-p nil)
-                     (materializer-started-p nil))
-                 (handler-case
-                     (progn
-                       ;; Start integration first so the request lane can hand
-                       ;; off its first authenticated page immediately.
-                       (push
-                        (sb-thread:make-thread
-                         (lambda ()
-                           (snap-sync-multi-storage-materializer
-                            runtime database state-root))
-                         :name "snap-sync-storage-materializer")
-                        storage-threads)
-                       (setf materializer-started-p t)
-                       (push
-                        (sb-thread:make-thread
-                         (lambda ()
-                           (snap-sync-multi-storage-worker
-                            runtime database worker-source state-root
-                            (min byte-limit
-                                 +snap-sync-storage-request-bytes+)))
-                         :name "snap-sync-storage-request-worker")
-                        storage-threads)
-                       (setf request-started-p t))
-                   (serious-condition (condition)
-                     (sb-thread:with-mutex
-                         ((snap-sync-multi-runtime-lock runtime))
-                       (unless request-started-p
-                         (decf
-                          (snap-sync-multi-runtime-storage-worker-count
-                           runtime)))
-                       (unless materializer-started-p
-                         (decf
-                          (snap-sync-multi-runtime-storage-materializer-count
-                           runtime)))
-                       (setf
-                        (snap-sync-multi-runtime-storage-fatal-condition
-                         runtime)
-                        condition)
-                       (snap-sync-multi-notify runtime))
-                     (error condition)))))))
+               (handler-case
+                   (let ((worker-source source))
+                     (push
+                      (sb-thread:make-thread
+                       (lambda ()
+                         (snap-sync-multi-storage-worker
+                          runtime database worker-source state-root
+                          (min byte-limit
+                               +snap-sync-storage-request-bytes+)))
+                       :name "snap-sync-global-storage-worker")
+                      storage-threads))
+                 (serious-condition (condition)
+                   (sb-thread:with-mutex
+                       ((snap-sync-multi-runtime-lock runtime))
+                     (decf
+                      (snap-sync-multi-runtime-storage-worker-count runtime))
+                     (setf (snap-sync-multi-runtime-storage-sources runtime)
+                           (delete
+                            source
+                            (snap-sync-multi-runtime-storage-sources runtime)
+                            :test #'eq))
+                     (snap-sync-multi-notify runtime))
+                   (error condition))))))
          (start-worker (source)
            (start-storage-worker source)
            (sb-thread:with-mutex
@@ -7425,7 +7264,6 @@ those cursors. HEAL-YIELD-P is forwarded to final healing."
                   (snap-sync-multi-runtime-dependency-jobs runtime) nil
                   (snap-sync-multi-runtime-code-jobs runtime) nil
                   (snap-sync-multi-runtime-storage-jobs runtime) nil
-                  (snap-sync-multi-runtime-storage-verified-pages runtime) nil
                   (snap-sync-multi-runtime-storage-results runtime) nil)
             (clrhash (snap-sync-multi-runtime-claims runtime))
             (clrhash (snap-sync-multi-runtime-code-inflight runtime)))
