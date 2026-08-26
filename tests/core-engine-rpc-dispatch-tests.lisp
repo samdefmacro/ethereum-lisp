@@ -50,6 +50,48 @@
     (is (string= "0x1"
                  (cdr (assoc "result" response :test #'string=))))))
 
+(deftest rpc-context-bypasses-guard-only-for-a-snapshot-method
+  (let* ((guard-calls 0)
+         (snapshot-calls 0)
+         (backend
+           (make-admin-backend
+            :syncing
+            (lambda ()
+              (incf snapshot-calls)
+              '(("startingBlock" . "0x0")
+                ("currentBlock" . "0x2")
+                ("highestBlock" . "0x3")))))
+         (context
+           (ethereum-lisp.rpc:make-rpc-context
+            (make-engine-payload-memory-store)
+            (make-chain-config)
+            :admin-backend backend
+            :request-guard-function
+            (lambda (thunk)
+              (incf guard-calls)
+              (funcall thunk))
+            :request-guard-predicate
+            (lambda (method) (not (string= method "eth_syncing")))))
+         (syncing
+           (parse-json
+            (ethereum-lisp.rpc:rpc-handle-request-json
+             "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_syncing\",\"params\":[]}"
+             context))))
+    (is (= 0 guard-calls))
+    (is (= 1 snapshot-calls))
+    (is (string= "0x2"
+                 (cdr (assoc "currentBlock"
+                             (cdr (assoc "result" syncing :test #'string=))
+                             :test #'string=))))
+    (let ((chain-id
+            (parse-json
+             (ethereum-lisp.rpc:rpc-handle-request-json
+              "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"eth_chainId\",\"params\":[]}"
+              context))))
+      (is (string= "0x1"
+                   (cdr (assoc "result" chain-id :test #'string=))))
+      (is (= 1 guard-calls)))))
+
 (deftest json-rpc-protocol-package-boundary
   (let ((protocol (find-package '#:ethereum-lisp.json-rpc))
         (json (find-package '#:ethereum-lisp.json))

@@ -8,6 +8,7 @@
                 (&key store config import-function
                       new-payload-persistence-function
                       forkchoice-persistence-function request-guard-function
+                      request-guard-predicate
                       network-id coinbase
                       allowed-method-p allow-unprotected-transactions-p
                       txpool-price-limit txpool-price-bump-percent
@@ -22,6 +23,7 @@
   new-payload-persistence-function
   forkchoice-persistence-function
   request-guard-function
+  request-guard-predicate
   network-id
   coinbase
   allowed-method-p
@@ -44,6 +46,7 @@
                        new-payload-persistence-function
                        forkchoice-persistence-function
                        request-guard-function
+                       request-guard-predicate
                        network-id
                        coinbase
                        (allowed-method-p #'engine-rpc-any-method-p)
@@ -74,6 +77,10 @@
              (not (functionp request-guard-function)))
     (block-validation-fail
      "JSON-RPC request guard must be a function"))
+  (when (and request-guard-predicate
+             (not (functionp request-guard-predicate)))
+    (block-validation-fail
+     "JSON-RPC request guard predicate must be a function"))
   (%make-rpc-context
    :store store
    :config config
@@ -81,6 +88,7 @@
    :new-payload-persistence-function new-payload-persistence-function
    :forkchoice-persistence-function forkchoice-persistence-function
    :request-guard-function request-guard-function
+   :request-guard-predicate request-guard-predicate
    :network-id network-id
    :coinbase coinbase
    :allowed-method-p allowed-method-p
@@ -242,11 +250,21 @@
 (defun rpc-handle-request (request context)
   (unless (typep context 'rpc-context)
     (block-validation-fail "JSON-RPC context must be an rpc-context"))
-  (let ((thunk (lambda ()
-                 (rpc-handle-request-without-guard request context)))
-        (guard (rpc-context-request-guard-function context)))
+  (let* ((thunk (lambda ()
+                  (rpc-handle-request-without-guard request context)))
+         (guard (rpc-context-request-guard-function context))
+         (predicate (rpc-context-request-guard-predicate context))
+         (method
+           (and predicate
+                (json-object-p request)
+                (json-object-field-present-p request "method")
+                (json-object-field request "method")))
+         (guard-required-p
+           (or (null predicate)
+               (not (stringp method))
+               (funcall predicate method))))
     (handler-case
-        (if guard
+        (if (and guard guard-required-p)
             (funcall guard thunk)
             (funcall thunk))
       (error (condition)

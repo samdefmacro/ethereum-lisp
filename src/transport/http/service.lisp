@@ -88,6 +88,7 @@
        new-payload-persistence-function
        forkchoice-persistence-function
        request-guard-function
+       request-guard-predicate
        (allowed-method-p #'engine-rpc-any-method-p)
        network-id
        (coinbase (zero-address))
@@ -139,6 +140,10 @@
              (not (functionp request-guard-function)))
     (block-validation-fail
      "Engine RPC HTTP request guard must be a function"))
+  (when (and request-guard-predicate
+             (not (functionp request-guard-predicate)))
+    (block-validation-fail
+     "Engine RPC HTTP request guard predicate must be a function"))
   (unless (functionp allowed-method-p)
     (block-validation-fail
      "Engine RPC HTTP method filter must be a function"))
@@ -179,6 +184,7 @@
     :new-payload-persistence-function new-payload-persistence-function
     :forkchoice-persistence-function forkchoice-persistence-function
     :request-guard-function request-guard-function
+    :request-guard-predicate request-guard-predicate
     :network-id network-id
     :coinbase coinbase
     :allowed-method-p allowed-method-p

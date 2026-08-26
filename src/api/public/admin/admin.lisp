@@ -16,19 +16,21 @@
 (defstruct (admin-backend
             (:constructor make-admin-backend
                 (&key node-info peers add-peer remove-peer
-                      peer-count listening-p)))
+                      peer-count listening-p syncing)))
   "How the RPC layer reaches peering state, as closures.
 
 NODE-INFO returns a plist describing this node; PEERS a list of plists, one per
 connected peer; ADD-PEER takes an enode URL and returns true if it was accepted;
-PEER-COUNT an integer; LISTENING-P whether an inbound listener is bound. Any may
-be NIL, which reads as 'this node cannot answer that'."
+PEER-COUNT an integer; LISTENING-P whether an inbound listener is bound; SYNCING
+returns the latest consistent eth_syncing snapshot. Any may be NIL, which reads
+as 'this node cannot answer that'."
   node-info
   peers
   add-peer
   remove-peer
   peer-count
-  listening-p)
+  listening-p
+  syncing)
 
 (defun admin-backend-listening (backend)
   (and backend

@@ -211,6 +211,46 @@ rather than a node's peering state."
     (is (assoc "result" response :test #'string=))
     (is (null (assoc "error" response :test #'string=)))))
 
+(deftest eth-syncing-snapshot-does-not-wait-for-the-store-guard
+  #-sbcl
+  (skip-test "Store-guard contention probe requires SBCL threads")
+  #+sbcl
+  (let* ((node (ethereum-lisp.cli:make-devnet-node
+                :genesis-json *eth-sync-paris-genesis-json*
+                :port 0))
+         (backend (ethereum-lisp.cli::devnet-node-admin-backend (list node)))
+         (snapshot-function
+           (ethereum-lisp.public-api::admin-backend-syncing backend))
+         (entered (sb-thread:make-semaphore :count 0))
+         (release (sb-thread:make-semaphore :count 0))
+         (holder
+           (sb-thread:make-thread
+            (lambda ()
+              (ethereum-lisp.cli::call-with-devnet-node-store-guard
+               node
+               (lambda ()
+                 (sb-thread:signal-semaphore entered)
+                 (sb-thread:wait-on-semaphore release))))))
+         (engine-context
+           (ethereum-lisp.rpc-http:engine-rpc-http-service-rpc-context
+            (ethereum-lisp.cli:devnet-node-service node)))
+         (guard-predicate
+           (ethereum-lisp.rpc::rpc-context-request-guard-predicate
+            engine-context)))
+    (unwind-protect
+         (progn
+           (sb-thread:wait-on-semaphore entered)
+           (let ((contended (funcall snapshot-function)))
+             (is (listp contended))
+             (is (string= "0x0"
+                          (cdr (assoc "highestBlock" contended
+                                      :test #'string=))))))
+      (sb-thread:signal-semaphore release)
+      (sb-thread:join-thread holder))
+    (is (eq :false (funcall snapshot-function)))
+    (is (not (funcall guard-predicate "eth_syncing")))
+    (is (funcall guard-predicate "engine_newPayloadV4"))))
+
 (deftest net-listening-and-peer-count-follow-the-peering-backend
   ;; Both were hardcoded to false and 0x0. A node answering admin_peers with
   ;; three peers and net_peerCount with zero is worse than one answering neither.

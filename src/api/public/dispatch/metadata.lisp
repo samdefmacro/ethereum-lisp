@@ -57,7 +57,8 @@
       ((public-rpc-dispatch-method-p context "eth_syncing")
        (public-rpc-dispatch-response
         context
-        (engine-rpc-handle-eth-syncing params store)))
+        (engine-rpc-handle-eth-syncing
+         params store (public-rpc-dispatch-context-admin-backend context))))
       ((public-rpc-dispatch-method-p context "eth_accounts")
        (public-rpc-dispatch-response
         context

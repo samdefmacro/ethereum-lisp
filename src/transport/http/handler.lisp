@@ -88,6 +88,7 @@
                                new-payload-persistence-function
                                forkchoice-persistence-function
                                request-guard-function
+                               request-guard-predicate
                                network-id
                                coinbase
                                (rpc-prefix "/")
@@ -116,6 +117,7 @@
     :new-payload-persistence-function new-payload-persistence-function
     :forkchoice-persistence-function forkchoice-persistence-function
     :request-guard-function request-guard-function
+    :request-guard-predicate request-guard-predicate
     :network-id network-id
     :coinbase coinbase
     :allowed-method-p allowed-method-p
@@ -190,6 +192,7 @@
           new-payload-persistence-function
           forkchoice-persistence-function
           request-guard-function
+          request-guard-predicate
           network-id
           coinbase
           (rpc-prefix "/")
@@ -221,6 +224,7 @@
     :new-payload-persistence-function new-payload-persistence-function
     :forkchoice-persistence-function forkchoice-persistence-function
     :request-guard-function request-guard-function
+    :request-guard-predicate request-guard-predicate
     :network-id network-id
     :coinbase coinbase
     :allowed-method-p allowed-method-p

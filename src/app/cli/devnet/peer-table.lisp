@@ -277,9 +277,52 @@ built before the node struct exists and needs the backend at construction time;
 the box is filled immediately after, and every closure reads it at call time, so
 none can capture a half-built node.
 
-Peer reads take the peer-table mutex, never the store guard."
-  (flet ((node () (first node-box)))
+Peer reads take the peer-table mutex, never the store guard. The syncing closure
+refreshes a cached snapshot only when it can acquire the store guard without
+waiting."
+  (let ((syncing-snapshot
+          '(("startingBlock" . "0x0")
+            ("currentBlock" . "0x0")
+            ("highestBlock" . "0x0")))
+        (syncing-lock
+          #+sbcl (sb-thread:make-mutex
+                  :name "ethereum-lisp-rpc-syncing-snapshot")
+          #-sbcl nil))
+    (flet ((node () (first node-box)))
     (make-admin-backend
+     :syncing
+     (lambda ()
+       (let ((node (node)))
+         (when node
+           (multiple-value-bind (snapshot refreshed-p)
+               (call-with-devnet-node-store-guard-if-free
+                node
+                (lambda ()
+                  (let* ((store (devnet-node-store node))
+                         (current (chain-store-head-number store))
+                         (highest
+                           (loop for block
+                                   in (engine-payload-store-remote-block-list
+                                       store)
+                                 maximize
+                                 (block-header-number
+                                  (block-header block)))))
+                    (if (and highest (> highest current))
+                        (list
+                         (cons "startingBlock" (quantity-to-hex current))
+                         (cons "currentBlock" (quantity-to-hex current))
+                         (cons "highestBlock" (quantity-to-hex highest)))
+                        :false))))
+             (when refreshed-p
+               #+sbcl
+               (sb-thread:with-mutex (syncing-lock)
+                 (setf syncing-snapshot snapshot))
+               #-sbcl
+               (setf syncing-snapshot snapshot))))
+         #+sbcl
+         (sb-thread:with-mutex (syncing-lock) syncing-snapshot)
+         #-sbcl
+         syncing-snapshot))
      :listening-p
      (lambda () (and (node) (devnet-node-p2p-port (node)) t))
      :peer-count
@@ -377,4 +420,4 @@ Peer reads take the peer-table mutex, never the store guard."
            (ignore-errors
              (sb-bsd-sockets:socket-close
               (devnet-peer-entry-socket entry))))
-         (if (or entry removed-static-p) t nil))))))
+         (if (or entry removed-static-p) t nil)))))))

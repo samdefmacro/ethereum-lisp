@@ -72,16 +72,25 @@ neither."
          (setf highest (if highest (max highest number) number))))
     highest))
 
-(defun engine-rpc-handle-eth-syncing (params store)
+(defun engine-rpc-handle-eth-syncing (params store &optional admin-backend)
   (when params
     (block-validation-fail "eth_syncing params must be empty"))
-  (let ((highest (engine-rpc-sync-highest-block store))
-        (current (chain-store-head-number store)))
-    (if (and highest (> highest current))
-        (list (cons "startingBlock" (quantity-to-hex current))
-              (cons "currentBlock" (quantity-to-hex current))
-              (cons "highestBlock" (quantity-to-hex highest)))
-        :false)))
+  (let ((snapshot-function
+          (and admin-backend
+               ;; ADMIN-BACKEND is defined later in the public API load order.
+               ;; Keep this cross-file accessor call late-bound.
+               (locally
+                   (declare (notinline admin-backend-syncing))
+                 (admin-backend-syncing admin-backend)))))
+    (if snapshot-function
+        (funcall snapshot-function)
+        (let ((highest (engine-rpc-sync-highest-block store))
+              (current (chain-store-head-number store)))
+          (if (and highest (> highest current))
+              (list (cons "startingBlock" (quantity-to-hex current))
+                    (cons "currentBlock" (quantity-to-hex current))
+                    (cons "highestBlock" (quantity-to-hex highest)))
+              :false)))))
 
 (defun engine-rpc-handle-eth-accounts (params)
   (when params

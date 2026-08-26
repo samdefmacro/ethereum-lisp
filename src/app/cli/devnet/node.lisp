@@ -229,6 +229,8 @@
             :forkchoice-persistence-function forkchoice-persistence-function
             :gas-limit-target miner-gas-limit
             :request-guard-function store-guard-function
+            :request-guard-predicate
+            (lambda (method) (not (string= method "eth_syncing")))
             :jwt-secret jwt-secret
             :rpc-prefix
             (devnet-endpoint-config-rpc-prefix engine-endpoint-config)
@@ -253,6 +255,8 @@
             :forkchoice-persistence-function forkchoice-persistence-function
             :gas-limit-target miner-gas-limit
             :request-guard-function store-guard-function
+            :request-guard-predicate
+            (lambda (method) (not (string= method "eth_syncing")))
             :rpc-prefix
             (devnet-endpoint-config-rpc-prefix public-endpoint-config)
             :allowed-method-p
