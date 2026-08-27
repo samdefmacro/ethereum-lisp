@@ -31,6 +31,10 @@ connection is the only safe answer -- a half-read frame leaves the cipher and
 MAC out of step permanently. Comfortably above the worst legitimate gap: a
 single response is bounded by the 2 MiB soft serve limit.")
 
+(defun devnet-internal-time-milliseconds (ticks)
+  "Convert Common Lisp internal-time TICKS to whole milliseconds."
+  (floor (* ticks 1000) internal-time-units-per-second))
+
 (defun devnet-runtime-heap-snapshot ()
   "Return implementation heap telemetry without making it a memory policy.
 
@@ -41,7 +45,7 @@ production runtime and supported validation image use SBCL."
   #+sbcl
   (values (sb-kernel::dynamic-usage)
           (sb-ext:get-bytes-consed)
-          sb-ext:*gc-run-time*)
+          (devnet-internal-time-milliseconds sb-ext:*gc-run-time*))
   #-sbcl
   (values nil nil nil))
 

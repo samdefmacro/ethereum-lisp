@@ -1442,6 +1442,18 @@ really reopens the directory instead of observing the first handle's memory."
        (is (= ethereum-lisp.eth-wire:+eth-message-new-block-hashes+
               (second (first message-calls))))))))
 
+(deftest devnet-runtime-gc-time-is-reported-in-milliseconds
+  (:layer :unit :module :p2p)
+  (is (= 0
+         (ethereum-lisp.cli::devnet-internal-time-milliseconds 0)))
+  (is (= 1000
+         (ethereum-lisp.cli::devnet-internal-time-milliseconds
+          internal-time-units-per-second)))
+  (is (= 1500
+         (ethereum-lisp.cli::devnet-internal-time-milliseconds
+          (+ internal-time-units-per-second
+             (floor internal-time-units-per-second 2))))))
+
 (deftest devnet-snap-pivot-logs-each-durable-state-page
   (:layer :integration :module :p2p)
   (let* ((node

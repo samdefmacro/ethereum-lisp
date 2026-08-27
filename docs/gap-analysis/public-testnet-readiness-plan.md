@@ -295,8 +295,8 @@ The implementation boundary is split deliberately:
   cannot expose incomplete progress across a crash. In addition,
   buffered closure hash sets are released with the rest of the page result, and
   every page profile exposes dynamic heap usage, cumulative allocation, and GC
-  time for live diagnosis. Every thirty-two committed pages revisit promoted
-  SBCL objects. The production
+  CPU time in converted milliseconds for live diagnosis. Every thirty-two
+  committed pages revisit promoted SBCL objects. The production
   executable reserves a 6 GiB heap and the reviewed remote gate enforces a 7 GiB
   whole-container ceiling. A failed source releases its range for another peer. Exhausting
   every source in one live-peer snapshot is a typed availability result: the

@@ -157,7 +157,8 @@ them by their physical location instead reintroduces dependency cycles:
   claiming incomplete progress. Once closure metadata is buffered, both its
   complete and incomplete hash sets are cleared from the page result as well.
   The page profile reports SBCL dynamic usage, cumulative bytes consed, and GC
-  run time beside the protocol timings; these are diagnostic signals, never
+  CPU time converted from implementation ticks to milliseconds beside the
+  protocol timings; these are diagnostic signals, never
   admission limits. A released cursor wakes the next dispatcher,
   and every thirty-two committed pages trigger one coarse
   full collection so dependency graphs promoted while StorageRanges was slow
