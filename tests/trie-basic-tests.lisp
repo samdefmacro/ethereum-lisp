@@ -169,6 +169,31 @@
     (is (< 512 initial-encodings))
     (is (< update-encodings 16))))
 
+(deftest trie-root-hash-caches-every-hashed-dirty-child
+  (:layer :unit :module :trie)
+  (let ((trie (make-mpt)))
+    ;; Large values make each leaf and every ancestor a hashed reference. Once
+    ;; the root has recursively encoded those references, collecting durable
+    ;; records must not hash the same nodes for a second time.
+    (dotimes (index 128)
+      (mpt-put trie
+               (vector (ldb (byte 8 8) index)
+                       (ldb (byte 8 0) index))
+               (make-byte-vector 64 :initial-element (logand index #xff))))
+    (let ((ethereum-lisp.trie::*node-hash-computation-count* 0))
+      (mpt-root-hash trie)
+      (let ((root-hash-computations
+              ethereum-lisp.trie::*node-hash-computation-count*))
+        (is (< 1 root-hash-computations))
+        ;; NODE-HASH owns the root hash while child references own descendant
+        ;; hashes. Both directions must share the same cache.
+        (ethereum-lisp.trie::node-reference (mpt-root-node trie))
+        (is (= root-hash-computations
+               ethereum-lisp.trie::*node-hash-computation-count*))
+        (ethereum-lisp.trie:mpt-dirty-node-records trie)
+        (is (= root-hash-computations
+               ethereum-lisp.trie::*node-hash-computation-count*))))))
+
 (deftest trie-rehash-cost-is-independent-of-trie-size
   ;; The test above bounds the update at a single size, which a rebuild that
   ;; happened to stay under the bound would also satisfy. The contract is that

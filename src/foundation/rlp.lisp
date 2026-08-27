@@ -36,8 +36,22 @@ network input from consuming the Lisp control stack.")
         (concat-bytes (encode-length #x80 (length bytes)) bytes))))
 
 (defun rlp-encode-list-items (items)
-  (let ((payload (apply #'concat-bytes (mapcar #'rlp-encode items))))
-    (concat-bytes (encode-length #xc0 (length payload)) payload)))
+  ;; Encode each child once, then copy it directly into the final list.  The
+  ;; old CONCAT-BYTES pair first allocated a complete payload and immediately
+  ;; copied that payload into an equally large prefixed result.  SNAP proof
+  ;; verification encodes millions of trie lists, so that temporary doubled
+  ;; the dominant allocation without contributing any retained value.
+  (let* ((encoded-items (mapcar #'rlp-encode items))
+         (payload-length
+           (reduce #'+ encoded-items :key #'length :initial-value 0))
+         (prefix (encode-length #xc0 payload-length))
+         (result (make-byte-vector (+ (length prefix) payload-length))))
+    (replace result prefix)
+    (loop with offset = (length prefix)
+          for encoded in encoded-items
+          do (replace result encoded :start1 offset)
+             (incf offset (length encoded)))
+    result))
 
 (defun rlp-encode (value)
   (etypecase value

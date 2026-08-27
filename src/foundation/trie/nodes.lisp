@@ -145,6 +145,9 @@ builder used after SNAP has already proved strict key ordering."
   "When bound to a number, increment it for every trie node encoded on a cache
 miss. Tests use this to guard the dirty-path complexity contract.")
 
+(defvar *node-hash-computation-count* nil
+  "When bound to a number, increment it for every concrete node hash cache miss.")
+
 (declaim (ftype (function (t) t) node-reference))
 
 (defun trie-resolve-node (node)
@@ -233,7 +236,31 @@ miss. Tests use this to guard the dirty-path complexity contract.")
           (let* ((encoded (encoded-node node))
                  (reference (if (< (length encoded) 32)
                                 (node-rlp-object node)
-                                (keccak-256 encoded))))
+                                (or
+                                 (node-cache-value
+                                  node
+                                  #'leaf-node-cached-hash
+                                  #'extension-node-cached-hash
+                                  #'branch-node-cached-hash)
+                                 (progn
+                                   (when *node-hash-computation-count*
+                                     (incf *node-hash-computation-count*))
+                                   (keccak-256 encoded))))))
+            ;; A hashed child reference is exactly the node's content hash.
+            ;; Persisting a freshly reconstructed SNAP page subsequently walks
+            ;; every dirty child and asks for NODE-HASH; populate that cache
+            ;; here so the walk does not hash the same encoding a second time.
+            (when (and (byte-vector-p reference)
+                       (= 32 (length reference)))
+              (setf (node-cache-value
+                     node
+                     (lambda (value object)
+                       (setf (leaf-node-cached-hash object) value))
+                     (lambda (value object)
+                       (setf (extension-node-cached-hash object) value))
+                     (lambda (value object)
+                       (setf (branch-node-cached-hash object) value)))
+                    reference))
             (setf (node-cache-value
                    node
                    (lambda (value object)
@@ -251,15 +278,18 @@ miss. Tests use this to guard the dirty-path complexity contract.")
                             #'leaf-node-cached-hash
                             #'extension-node-cached-hash
                             #'branch-node-cached-hash)
-          (setf (node-cache-value
-                 node
-                 (lambda (value object)
-                   (setf (leaf-node-cached-hash object) value))
-                 (lambda (value object)
-                   (setf (extension-node-cached-hash object) value))
-                 (lambda (value object)
-                   (setf (branch-node-cached-hash object) value)))
-                (keccak-256 (encoded-node node))))))
+          (progn
+            (when *node-hash-computation-count*
+              (incf *node-hash-computation-count*))
+            (setf (node-cache-value
+                   node
+                   (lambda (value object)
+                     (setf (leaf-node-cached-hash object) value))
+                   (lambda (value object)
+                     (setf (extension-node-cached-hash object) value))
+                   (lambda (value object)
+                     (setf (branch-node-cached-hash object) value)))
+                  (keccak-256 (encoded-node node)))))))
 
 (defun mpt-root-node (trie)
   (mpt-root trie))

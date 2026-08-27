@@ -154,7 +154,11 @@ them by their physical location instead reintroduces dependency cycles:
   account trie records and replaces the expanded record graph with its 32-byte
   keys before waiting for storage or code. The later cursor publication flushes
   that WAL prefix, so a crash can leave only harmless idempotent records without
-  claiming incomplete progress. Once closure metadata is buffered, both its
+  claiming incomplete progress. Trie reference construction shares each
+  32-byte child hash with the later durable-record walk, and the canonical RLP
+  list encoder copies encoded children directly into its final buffer; neither
+  stage rehashes or stages a second full payload solely for persistence. Once
+  closure metadata is buffered, both its
   complete and incomplete hash sets are cleared from the page result as well.
   The page profile reports SBCL dynamic usage, cumulative bytes consed, and GC
   CPU time converted from implementation ticks to milliseconds beside the
@@ -162,8 +166,10 @@ them by their physical location instead reintroduces dependency cycles:
   admission limits. An operator may additionally request a bounded one-to-300
   second SBCL allocation profile through the reviewed live gate. It is off by
   default, starts only after the first durable page has created every fixed
-  worker pool, and prints at most fifty function-level samples without request
-  or peer payloads. Sixteen matches geth's account concurrency after those
+  worker pool, and prints at most fifty fixed-prefix function-table lines; the
+  profiler's thread dump and retained return values are never published, so
+  request and peer payloads remain excluded. Sixteen matches geth's account
+  concurrency after those
   early releases made the larger window fit the same heap budget. A released
   cursor wakes the next dispatcher. There is no periodic full collection in
   the active range phase: live Hoodi evidence showed that the former

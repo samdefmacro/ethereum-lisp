@@ -537,7 +537,10 @@ separate live Lisp heap from RSS retained by SBCL or RocksDB.
 The allocation-profile duration control accepts only zero (disabled) or one
 through 300 seconds; malformed, negative, or wider requests fail before any
 profiler thread starts. The reviewed gate applies the same numeric boundary
-before forwarding the duration as a container environment value. Three
+before forwarding the duration as a container environment value. A report
+projection control proves that only the flat function table survives and that
+sampled-thread return values cannot enter the fixed-prefix evidence lines.
+Three
 sole-writer request queues overlap independent response types with geth's
 adaptive 64--512 KiB snap byte limits. A production-call-site control observes
 the density-selected partition count, uses a second lane only when the plan has

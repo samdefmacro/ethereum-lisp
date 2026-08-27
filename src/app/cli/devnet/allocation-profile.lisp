@@ -29,6 +29,41 @@
 (defvar *devnet-allocation-profile-started-p* nil)
 
 #+sbcl
+(defun devnet-allocation-profile-flat-table (report)
+  "Return only REPORT's bounded flat function table, never its thread dump."
+  (let* ((header-marker "Self        Total        Cumul")
+         (separator (format nil "~%------------------------------------------------------------------------"))
+         (header (search header-marker report)))
+    (unless header
+      (error "SB-SPROF report did not contain a flat-table header"))
+    (let* ((start (1+ (or (position #\Newline report
+                                    :end header :from-end t)
+                          -1)))
+           (first-separator (search separator report :start2 header))
+           (second-separator
+             (and first-separator
+                  (search separator report
+                          :start2 (+ first-separator (length separator)))))
+           (end (and second-separator
+                     (+ second-separator (length separator)))))
+      (unless end
+        (error "SB-SPROF report did not contain a complete flat table"))
+      (subseq report start end))))
+
+#+sbcl
+(defun devnet-write-allocation-profile-table (table seconds)
+  "Write TABLE as independently filterable, payload-free diagnostic lines."
+  (format *error-output*
+          "allocation-profile-begin seconds=~D max-functions=50~%"
+          seconds)
+  (with-input-from-string (stream table)
+    (loop for line = (read-line stream nil nil)
+          while line
+          do (format *error-output* "allocation-profile-row ~A~%" line)))
+  (format *error-output* "allocation-profile-end~%")
+  (finish-output *error-output*))
+
+#+sbcl
 (defun devnet-run-allocation-profile (seconds)
   "Sample allocation stacks for SECONDS and print one bounded flat report."
   (handler-case
@@ -39,13 +74,17 @@
         (unwind-protect
              (sleep seconds)
           (sb-sprof:stop-profiling))
-        (format *error-output*
-                "allocation-profile-begin seconds=~D max-functions=50~%"
-                seconds)
-        (sb-sprof:report
-         :type :flat :max 50 :stream *error-output* :show-progress nil)
-        (format *error-output* "allocation-profile-end~%")
-        (finish-output *error-output*))
+        ;; SB-SPROF's preamble prints sampled thread objects. A finished thread
+        ;; retains and prints its return value, which can include peer or RPC
+        ;; payloads. Capture the report privately and publish only the flat
+        ;; function table with a prefix that evidence collectors can filter.
+        (let* ((report
+                 (with-output-to-string (stream)
+                   (sb-sprof:report
+                    :type :flat :max 50 :stream stream
+                    :show-progress nil)))
+               (table (devnet-allocation-profile-flat-table report)))
+          (devnet-write-allocation-profile-table table seconds)))
     (serious-condition (condition)
       (ignore-errors (sb-sprof:stop-profiling))
       (format *error-output* "allocation-profile-error type=~A~%"

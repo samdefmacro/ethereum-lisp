@@ -14,7 +14,18 @@
          (ethereum-lisp.cli::devnet-parse-allocation-profile-seconds "300")))
   (dolist (invalid '("-1" "301" "1s" "yes"))
     (signals error
-      (ethereum-lisp.cli::devnet-parse-allocation-profile-seconds invalid))))
+      (ethereum-lisp.cli::devnet-parse-allocation-profile-seconds invalid)))
+  #+sbcl
+  (let* ((secret "peer-secret-must-not-escape")
+         (report
+           (format nil
+                   "Sampled threads:~%~A~%   Self        Total        Cumul~%  Nr Function~%------------------------------------------------------------------------~%   2 SAFE-FUNCTION~%------------------------------------------------------------------------~%elsewhere~%"
+                   secret))
+         (table
+           (ethereum-lisp.cli::devnet-allocation-profile-flat-table report)))
+    (is (search "SAFE-FUNCTION" table))
+    (is (null (search secret table)))
+    (is (null (search "Sampled threads" table)))))
 
 (deftest devnet-discovery-next-crawl-seeds-is-bounded-and-prioritized
   (let ((merged

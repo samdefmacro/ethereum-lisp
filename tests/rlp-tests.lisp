@@ -29,6 +29,21 @@
   (is (string= "0xc7c0c1c0c3c0c1c0"
                (rlp-hex (list '() (list '()) (list '() (list '())))))))
 
+#+sbcl
+(deftest rlp-list-encoding-does-not-stage-a-complete-payload-copy
+  (:layer :unit :module :rlp)
+  (let* ((items
+           (loop repeat 17
+                 collect (make-byte-vector 64 :initial-element 7)))
+         (started (sb-ext:get-bytes-consed)))
+    (dotimes (index 10000)
+      (declare (ignore index))
+      (rlp-encode items))
+    ;; The former payload-then-result implementation consumes about 94 MB for
+    ;; this fixed workload on the pinned SBCL; direct final-buffer copies stay
+    ;; comfortably below the bound while preserving the same canonical bytes.
+    (is (< (- (sb-ext:get-bytes-consed) started) 88000000))))
+
 (deftest rlp-long-string-example
   (let ((text "Lorem ipsum dolor sit amet, consectetur adipisicing elit"))
     (is (string= "0xb8384c6f72656d20697073756d20646f6c6f722073697420616d65742c20636f6e7365637465747572206164697069736963696e6720656c6974"
