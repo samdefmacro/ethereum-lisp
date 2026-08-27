@@ -511,11 +511,13 @@ surviving pool's aggregate throughput falls below 131,072 work units, while a
 high-throughput collapsed pool remains on its exact authenticated frontier.
 The range tests prove that sixty-four durable account ranges feed one AccountRange
 dispatcher per source and bounded global dependency schedulers, while no more
-than eight decoded account pages remain claimed across the dependency pipeline.
+than sixteen decoded account pages remain claimed across the dependency
+pipeline.
 The GC-watermark control requires a coarse full collection after each thirty-two
 durable cursor publications. Together these distinguish partition granularity
 from the memory bound exercised by the 6 GiB embedded heap and 7 GiB remote
-container limit. The range-proof marker control additionally retains the page
+container limit while matching geth's sixteen account chunks. The range-proof
+marker control additionally retains the page
 result after publication and requires both closure hash sets and the expanded
 records to be empty. The production page-log control requires non-negative
 `dynamicUsageBytes`, `bytesConsed`, and `gcRunMs` fields, with an exact

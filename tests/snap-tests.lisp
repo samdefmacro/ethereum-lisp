@@ -2483,7 +2483,9 @@
 #+sbcl
 (deftest snap-multi-account-pages-apply-memory-backpressure
   (:layer :unit :module :p2p)
-  (is (= 8 ethereum-lisp.snap-sync::+snap-sync-account-inflight-pages+))
+  ;; Match geth's accountConcurrency while retaining a hard bound below the
+  ;; sixty-four durable scheduling partitions.
+  (is (= 16 ethereum-lisp.snap-sync::+snap-sync-account-inflight-pages+))
   (let* ((progress
            (ethereum-lisp.snap-sync::snap-sync-make-progress
             :pivot-hash (make-hash32 (snap-test-hash 231))
@@ -2507,7 +2509,9 @@
          (claimed-task nil))
     (unwind-protect
          (progn
-           (dotimes (expected 8)
+           (dotimes
+               (expected
+                ethereum-lisp.snap-sync::+snap-sync-account-inflight-pages+)
              (multiple-value-bind (index task)
                  (ethereum-lisp.snap-sync::snap-sync-multi-claim-task
                   runtime source)
@@ -2531,7 +2535,7 @@
            (setf waiter nil)
            (is (= 0 claimed-index))
            (is claimed-task)
-           (is (= 8
+           (is (= ethereum-lisp.snap-sync::+snap-sync-account-inflight-pages+
                   (hash-table-count
                    (ethereum-lisp.snap-sync::snap-sync-multi-runtime-claims
                     runtime)))))

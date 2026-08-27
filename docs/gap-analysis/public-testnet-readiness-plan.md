@@ -288,7 +288,8 @@ The implementation boundary is split deliberately:
   pinned geth scheduler: one worker per live source verifies 512 KiB-soft-limited
   pages concurrently, while the coordinator alone merges state and commits each
   range cursor. The sixty-four partitions remain durable scheduling granularity;
-  only eight decoded pages may stay claimed through dependency completion, and
+  only sixteen decoded pages may stay claimed through dependency completion,
+  matching geth's account concurrency, and
   each page buffers its proof-authenticated account trie records immediately,
   retaining only their 32-byte keys while storage/code work is pending. The
   later synchronous cursor publication flushes that WAL prefix, so prebuffering

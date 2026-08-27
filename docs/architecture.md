@@ -148,8 +148,8 @@ them by their physical location instead reintroduces dependency cycles:
   keyspace into sixty-four durable ranges. One AccountRange dispatcher uses
   each available snap peer and hands its verified pages to a bounded global
   dependency queue. Durable partition count is scheduling granularity rather
-  than a heap allowance: at most eight decoded account pages may remain claimed
-  across range verification and dependency completion. Immediately after its
+  than a heap allowance: at most sixteen decoded account pages may remain
+  claimed across range verification and dependency completion. Immediately after its
   range proof succeeds, a worker buffers the authenticated content-addressed
   account trie records and replaces the expanded record graph with its 32-byte
   keys before waiting for storage or code. The later cursor publication flushes
@@ -159,7 +159,9 @@ them by their physical location instead reintroduces dependency cycles:
   The page profile reports SBCL dynamic usage, cumulative bytes consed, and GC
   CPU time converted from implementation ticks to milliseconds beside the
   protocol timings; these are diagnostic signals, never
-  admission limits. A released cursor wakes the next dispatcher,
+  admission limits. Sixteen matches geth's account concurrency after those
+  early releases made the larger window fit the same heap budget. A released
+  cursor wakes the next dispatcher,
   and every thirty-two committed pages trigger one coarse
   full collection so dependency graphs promoted while StorageRanges was slow
   are revisited during the range phase instead of only before final healing.
