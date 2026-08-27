@@ -521,10 +521,13 @@ The range tests prove that sixty-four durable account ranges feed one AccountRan
 dispatcher per source and bounded global dependency schedulers, while no more
 than sixteen decoded account pages remain claimed across the dependency
 pipeline.
-The GC-watermark control requires a coarse full collection after each thirty-two
-durable cursor publications. Together these distinguish partition granularity
-from the memory bound exercised by the 6 GiB embedded heap and 7 GiB remote
-container limit while matching geth's sixteen account chunks. The range-proof
+The GC-watermark control requires the in-phase full-collection interval to be
+disabled even after one million durable cursor publications. The separate
+moving-pivot control still witnesses exactly one collection after every worker
+has joined and unreachable queues have been discarded. Together these
+distinguish partition granularity from the memory bound exercised by the 6 GiB
+embedded heap and 7 GiB remote container limit while matching geth's sixteen
+account chunks. The range-proof
 marker control additionally retains the page
 result after publication and requires both closure hash sets and the expanded
 records to be empty. The production page-log control requires non-negative

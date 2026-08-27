@@ -52,13 +52,15 @@ retain sixty-four decoded 512-KiB responses. A page expands into account trie
 records plus storage/code dependency graphs, and slow StorageRanges work can
 otherwise promote dozens of those graphs into SBCL's old generation. Sixteen
 matches geth's accountConcurrency while the immediate record/closure release
-and coarse full-GC watermark keep the live heap inside the remote budget.")
-(defconstant +snap-sync-range-full-gc-pages+ 32
-  "Committed range pages between explicit old-generation collections.
+and phase-boundary collection keep the live heap inside the remote budget.")
+(defparameter *snap-sync-range-full-gc-pages* nil
+  "Optional committed-page interval for an in-phase full collection.
 
-Account pages are long-lived while dependencies finish. Once their cursors are
-durable the graphs become garbage, but SBCL's nursery collector need not revisit
-promoted objects before a long fresh import has touched the reserved heap.")
+This is deliberately disabled on the supported public-node profile.  The live
+Hoodi gate showed that the former thirty-two-page stop-the-world collection
+made the consensus client's five-second Engine upcheck expire.  Bounded page
+queues limit live range data, while moving-pivot and range-to-healer boundaries
+still join every worker, discard unreachable queues, and collect once.")
 (defconstant +snap-sync-range-workers-per-source+ 1
   "One AccountRange dispatcher per source, matching geth's idle-peer model.
 
@@ -7104,11 +7106,14 @@ range-derived subtree proofs."
 
 #+sbcl
 (defun snap-sync-multi-range-gc-due-p (runtime)
-  "Advance RUNTIME's coarse GC watermark and report whether to collect."
+  "Advance an enabled in-phase GC watermark and report whether to collect."
   (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
-    (when (>= (- (snap-sync-multi-runtime-pages runtime)
-                 (snap-sync-multi-runtime-last-full-gc-pages runtime))
-              +snap-sync-range-full-gc-pages+)
+    (when (and
+           (integerp *snap-sync-range-full-gc-pages*)
+           (plusp *snap-sync-range-full-gc-pages*)
+           (>= (- (snap-sync-multi-runtime-pages runtime)
+                  (snap-sync-multi-runtime-last-full-gc-pages runtime))
+               *snap-sync-range-full-gc-pages*))
       (setf (snap-sync-multi-runtime-last-full-gc-pages runtime)
             (snap-sync-multi-runtime-pages runtime))
       t)))
@@ -7398,10 +7403,10 @@ those cursors. HEAL-YIELD-P is forwarded to final healing."
                                       (snap-sync-multi-event-source result-event)
                                       (snap-sync-multi-event-task-index
                                        result-event))))
-                             ;; A cursor commit is the lifetime boundary for
-                             ;; the page's decoded account/dependency graph.
-                             ;; Periodically revisit promoted objects instead
-                             ;; of touching the entire runtime heap first.
+                             ;; Keep an opt-in emergency watermark behind one
+                             ;; exact configuration seam. Production leaves it
+                             ;; disabled: Hoodi proved the stop-the-world pause
+                             ;; can make the colocated CL miss Engine upchecks.
                              (when (snap-sync-multi-range-gc-due-p runtime)
                                (snap-sync-release-range-phase-memory))
                              ;; Match geth's moving-pivot behavior at a durable

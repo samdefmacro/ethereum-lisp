@@ -161,10 +161,12 @@ them by their physical location instead reintroduces dependency cycles:
   protocol timings; these are diagnostic signals, never
   admission limits. Sixteen matches geth's account concurrency after those
   early releases made the larger window fit the same heap budget. A released
-  cursor wakes the next dispatcher,
-  and every thirty-two committed pages trigger one coarse
-  full collection so dependency graphs promoted while StorageRanges was slow
-  are revisited during the range phase instead of only before final healing.
+  cursor wakes the next dispatcher. There is no periodic full collection in
+  the active range phase: live Hoodi evidence showed that the former
+  thirty-two-page stop-the-world watermark could make the colocated consensus
+  client miss its five-second Engine upcheck. Moving-pivot and
+  range-to-healer boundaries still join workers, clear unreachable scheduler
+  queues, and collect once before the next phase.
   The embedded production runtime reserves 6 GiB of dynamic space and the
   reviewed same-host gate caps the complete process at 7 GiB. The session
   thread remains the only RLPx writer, but it

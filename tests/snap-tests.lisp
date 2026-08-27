@@ -2550,23 +2550,18 @@
           (sb-thread:join-thread waiter :timeout 5 :default nil))))))
 
 #+sbcl
-(deftest snap-multi-range-gc-uses-coarse-durable-watermark
+(deftest snap-multi-range-gc-is-disabled-between-phase-boundaries
   (:layer :unit :module :p2p)
+  (is (null ethereum-lisp.snap-sync::*snap-sync-range-full-gc-pages*))
   (let ((runtime
           (ethereum-lisp.snap-sync::make-snap-sync-multi-runtime nil 0 nil)))
-    (setf (ethereum-lisp.snap-sync::snap-sync-multi-runtime-pages runtime) 31)
+    (setf (ethereum-lisp.snap-sync::snap-sync-multi-runtime-pages runtime)
+          1000000)
     (is (not (ethereum-lisp.snap-sync::snap-sync-multi-range-gc-due-p
               runtime)))
-    (setf (ethereum-lisp.snap-sync::snap-sync-multi-runtime-pages runtime) 32)
-    (is (ethereum-lisp.snap-sync::snap-sync-multi-range-gc-due-p runtime))
-    (is (= 32
+    (is (zerop
            (ethereum-lisp.snap-sync::snap-sync-multi-runtime-last-full-gc-pages
-            runtime)))
-    (setf (ethereum-lisp.snap-sync::snap-sync-multi-runtime-pages runtime) 63)
-    (is (not (ethereum-lisp.snap-sync::snap-sync-multi-range-gc-due-p
-              runtime)))
-    (setf (ethereum-lisp.snap-sync::snap-sync-multi-runtime-pages runtime) 64)
-    (is (ethereum-lisp.snap-sync::snap-sync-multi-range-gc-due-p runtime))))
+            runtime)))))
 
 (deftest snap-sync-progress-v5-round-trips-and-migrates-v2-v4
   (:layer :unit :module :p2p)
