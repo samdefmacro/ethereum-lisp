@@ -268,6 +268,34 @@ mutation."
 
 ;;; What the admin RPC namespace is allowed to see.
 
+(defun devnet-node-sync-highest-block (node)
+  "Return the highest consensus-authorized block represented by live sync.
+
+The ordinary Engine candidate remains in REMOTE-BLOCKS while its ancestry is
+unknown.  SNAP bootstrap moves that target into the durable skeleton before it
+downloads state, so looking only at REMOTE-BLOCKS makes ETH_SYNCING turn false
+for the entire AccountRange/healer phase.  The skeleton target came from
+Engine forkchoice and is validated against the persistence authority; it is
+therefore a stronger source than a peer-advertised head."
+  (let* ((store (devnet-node-store node))
+         (remote-highest
+           (loop for block in (engine-payload-store-remote-block-list store)
+                 maximize
+                 (block-header-number (block-header block))))
+         (snap-highest
+           (when (database-engine-payload-store-p store)
+             (multiple-value-bind (progress present-p)
+                 (node-store-read-snap-skeleton-progress
+                  (database-engine-payload-store-database store))
+               (when present-p
+                 (node-store-snap-skeleton-progress-target-number
+                  progress))))))
+    (cond
+      ((and remote-highest snap-highest)
+       (max remote-highest snap-highest))
+      (remote-highest remote-highest)
+      (snap-highest snap-highest))))
+
 (defun devnet-node-admin-backend (node-box)
   "How the admin RPC namespace reaches this node's peering state.
 
@@ -300,13 +328,7 @@ waiting."
                 (lambda ()
                   (let* ((store (devnet-node-store node))
                          (current (chain-store-head-number store))
-                         (highest
-                           (loop for block
-                                   in (engine-payload-store-remote-block-list
-                                       store)
-                                 maximize
-                                 (block-header-number
-                                  (block-header block)))))
+                         (highest (devnet-node-sync-highest-block node)))
                     (if (and highest (> highest current))
                         (list
                          (cons "startingBlock" (quantity-to-hex current))

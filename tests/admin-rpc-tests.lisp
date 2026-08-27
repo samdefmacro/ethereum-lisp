@@ -251,6 +251,74 @@ rather than a node's peering state."
     (is (not (funcall guard-predicate "eth_syncing")))
     (is (funcall guard-predicate "engine_newPayloadV4"))))
 
+(deftest eth-syncing-reports-the-durable-snap-skeleton-target
+  (:layer :integration :module :cli)
+  (let ((path
+          (merge-pathnames
+           (make-pathname
+            :directory
+            `(:relative
+              ,(format nil "ethereum-lisp-snap-syncing-~A" (gensym))))
+           #P"/private/tmp/")))
+    (unwind-protect
+         (ethereum-lisp.cli::call-with-devnet-cli-kv-database-cache
+          (lambda ()
+            (let* ((node
+                     (ethereum-lisp.cli:make-devnet-node
+                      :genesis-json *eth-sync-paris-genesis-json*
+                      :database-path path :db-engine :rocksdb
+                      :port 0 :public-port 0))
+                   (store (ethereum-lisp.cli::devnet-node-store node))
+                   (database
+                     (ethereum-lisp.node-store.persistence:database-engine-payload-store-database
+                      store))
+                   (genesis-hash
+                     (block-hash
+                      (ethereum-lisp.cli::devnet-node-genesis-block node)))
+                   (authority-id
+                     (ethereum-lisp.cli::devnet-persistence-state-authority-id
+                      (ethereum-lisp.cli::devnet-node-persistence-state node)))
+                   (target-hash
+                     (make-hash32
+                      (make-byte-vector 32 :initial-element #x42)))
+                   (progress
+                     (ethereum-lisp.node-store.persistence:make-node-store-snap-skeleton-progress
+                      :authority-id authority-id
+                      :chain-id
+                      (chain-config-chain-id
+                       (ethereum-lisp.cli::devnet-node-config node))
+                      :genesis-hash genesis-hash
+                      :target-number 100 :target-hash target-hash
+                      :anchor-number 36 :anchor-hash genesis-hash
+                      :pivot-number 36 :pivot-hash genesis-hash
+                      :last-number 36 :last-hash genesis-hash))
+                   (backend
+                     (ethereum-lisp.cli::devnet-node-admin-backend (list node)))
+                   (snapshot-function
+                     (ethereum-lisp.public-api::admin-backend-syncing backend)))
+              (let ((batch (make-kv-write-batch)))
+                (ethereum-lisp.node-store.persistence::node-store-populate-snap-skeleton-progress-batch
+                 database batch progress)
+                (kv-apply-batch database batch))
+              ;; The target has already left the in-memory remote-block list,
+              ;; as it does before AccountRange and healer work begin.  The
+              ;; durable CL-authorized skeleton must keep ETH_SYNCING truthful.
+              (is (null (engine-payload-store-remote-block-list store)))
+              (let ((snapshot (funcall snapshot-function)))
+                (is (listp snapshot))
+                (is (string= "0x0"
+                             (cdr (assoc "currentBlock" snapshot
+                                         :test #'string=))))
+                (is (string= "0x64"
+                             (cdr (assoc "highestBlock" snapshot
+                                         :test #'string=)))))
+              (ethereum-lisp.node-store.persistence:node-store-delete-snap-skeleton-progress
+               database)
+              (is (eq :false (funcall snapshot-function))))))
+      (uiop:delete-directory-tree path
+                                  :validate t
+                                  :if-does-not-exist :ignore))))
+
 (deftest net-listening-and-peer-count-follow-the-peering-backend
   ;; Both were hardcoded to false and 0x0. A node answering admin_peers with
   ;; three peers and net_peerCount with zero is worse than one answering neither.

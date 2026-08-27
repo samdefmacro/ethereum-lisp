@@ -247,6 +247,8 @@ cl-workbench validation run cold-unit \
 cl-workbench validation run cold-integration \
   --match DEVNET-LIVE-PERSISTENCE-ROUND-TRIPS-ON-ROCKSDB
 cl-workbench validation run cold-integration \
+  --match ETH-SYNCING-REPORTS-THE-DURABLE-SNAP-SKELETON-TARGET
+cl-workbench validation run cold-integration \
   --match SNAP-STATE-HEALER-BATCHES-DEFERRED-STORAGE-ROOTS
 cl-workbench validation run cold-integration \
   --match SNAP-HEALED-SUBTREE-PUBLICATION-FAILS-CLOSED
@@ -780,6 +782,13 @@ The discovery genesis-filter control forces the store's nonblocking guard probe
 to fail, then proves the node still caches an EIP-2124 context identical to its
 known genesis and enables its ENR record predicate. This keeps a fresh SNAP
 import from disabling cross-chain filtering while it owns persistence.
+The public syncing regression removes every in-memory remote block, persists a
+CL-authorized skeleton target in the direct RocksDB provider, and requires
+`eth_syncing.highestBlock` to retain that target throughout AccountRange and
+healer work. Deleting the skeleton restores `false`; mutating the production
+snapshot to ignore the skeleton makes the positive assertion fail. The older
+store-guard contention control remains green, so this point read does not make
+Engine health checks wait behind a long state write.
 
 These selectors do not prove public reachability. Section 5 also requires an
 ephemeral Hoodi run from an empty datadir, using the reviewed container runtime,
