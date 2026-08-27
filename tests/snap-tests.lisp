@@ -2457,7 +2457,7 @@
 #+sbcl
 (deftest snap-multi-account-pages-apply-memory-backpressure
   (:layer :unit :module :p2p)
-  (is (= 16 ethereum-lisp.snap-sync::+snap-sync-account-inflight-pages+))
+  (is (= 8 ethereum-lisp.snap-sync::+snap-sync-account-inflight-pages+))
   (let* ((progress
            (ethereum-lisp.snap-sync::snap-sync-make-progress
             :pivot-hash (make-hash32 (snap-test-hash 231))
@@ -2481,7 +2481,7 @@
          (claimed-task nil))
     (unwind-protect
          (progn
-           (dotimes (expected 16)
+           (dotimes (expected 8)
              (multiple-value-bind (index task)
                  (ethereum-lisp.snap-sync::snap-sync-multi-claim-task
                   runtime source)
@@ -2505,7 +2505,7 @@
            (setf waiter nil)
            (is (= 0 claimed-index))
            (is claimed-task)
-           (is (= 16
+           (is (= 8
                   (hash-table-count
                    (ethereum-lisp.snap-sync::snap-sync-multi-runtime-claims
                     runtime)))))
@@ -2524,18 +2524,18 @@
   (:layer :unit :module :p2p)
   (let ((runtime
           (ethereum-lisp.snap-sync::make-snap-sync-multi-runtime nil 0 nil)))
+    (setf (ethereum-lisp.snap-sync::snap-sync-multi-runtime-pages runtime) 31)
+    (is (not (ethereum-lisp.snap-sync::snap-sync-multi-range-gc-due-p
+              runtime)))
+    (setf (ethereum-lisp.snap-sync::snap-sync-multi-runtime-pages runtime) 32)
+    (is (ethereum-lisp.snap-sync::snap-sync-multi-range-gc-due-p runtime))
+    (is (= 32
+           (ethereum-lisp.snap-sync::snap-sync-multi-runtime-last-full-gc-pages
+            runtime)))
     (setf (ethereum-lisp.snap-sync::snap-sync-multi-runtime-pages runtime) 63)
     (is (not (ethereum-lisp.snap-sync::snap-sync-multi-range-gc-due-p
               runtime)))
     (setf (ethereum-lisp.snap-sync::snap-sync-multi-runtime-pages runtime) 64)
-    (is (ethereum-lisp.snap-sync::snap-sync-multi-range-gc-due-p runtime))
-    (is (= 64
-           (ethereum-lisp.snap-sync::snap-sync-multi-runtime-last-full-gc-pages
-            runtime)))
-    (setf (ethereum-lisp.snap-sync::snap-sync-multi-runtime-pages runtime) 127)
-    (is (not (ethereum-lisp.snap-sync::snap-sync-multi-range-gc-due-p
-              runtime)))
-    (setf (ethereum-lisp.snap-sync::snap-sync-multi-runtime-pages runtime) 128)
     (is (ethereum-lisp.snap-sync::snap-sync-multi-range-gc-due-p runtime))))
 
 (deftest snap-sync-progress-v5-round-trips-and-migrates-v2-v4

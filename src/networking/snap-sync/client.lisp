@@ -44,15 +44,15 @@ response type, while range-proof verification and RocksDB writes happen on
 workers after their response is routed. Sixty-four logical partitions bound the
 global dependency backlog and keep newly admitted account peers busy without
 changing the durable page bound.")
-(defconstant +snap-sync-account-inflight-pages+ 16
+(defconstant +snap-sync-account-inflight-pages+ 8
   "Maximum verified account pages retained across the dependency pipeline.
 
 The sixty-four durable partitions are scheduler granularity, not permission to
 retain sixty-four decoded 512-KiB responses. A page expands into account trie
 records plus storage/code dependency graphs, and slow StorageRanges work can
-otherwise promote dozens of those graphs into SBCL's old generation. Sixteen
-keeps ordinary public SNAP peers useful while applying memory backpressure.")
-(defconstant +snap-sync-range-full-gc-pages+ 64
+otherwise promote dozens of those graphs into SBCL's old generation. Eight
+still overlaps public dependency latency while fitting the shared 16-GiB host.")
+(defconstant +snap-sync-range-full-gc-pages+ 32
   "Committed range pages between explicit old-generation collections.
 
 Account pages are long-lived while dependencies finish. Once their cursors are
