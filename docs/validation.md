@@ -419,8 +419,8 @@ that hot inner-loop decision is constant-time rather than repeatedly taking
 the linear length of the whole list. Generic controls
 enforce the 4,096-key
 and 4 MiB key-byte bounds. The RocksDB construction regressions witness the
-exact 512 MiB block-cache budget for the shared 16 GiB EL/CL profile, ten-bit
-full Bloom policy, production
+exact 256 MiB block-cache and 384 MiB level-compaction preset budgets for the
+shared 16 GiB EL/CL profile, ten-bit full Bloom policy, production
 table-factory call site, and an enabled `ReadOptions.async_io` on the live
 adapter handle. Removing that setter or changing its value to zero makes the
 native readback witness fail; this witnesses asynchronous read configuration,

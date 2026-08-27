@@ -287,10 +287,14 @@
          (real-bloom-create
            (fdefinition
             'ethereum-lisp.database::%rocks-filter-policy-create-bloom-full))
+         (real-optimize
+           (fdefinition
+            'ethereum-lisp.database::%rocks-options-optimize-level-style-compaction))
          (real-set-factory
            (fdefinition
             'ethereum-lisp.database::%rocks-options-set-block-table-factory))
          (cache-capacity nil)
+         (compaction-budget nil)
          (bloom-bits nil)
          (factory-calls 0))
     (unwind-protect
@@ -306,6 +310,12 @@
             (lambda (bits-per-key)
               (setf bloom-bits bits-per-key)
               (funcall real-bloom-create bits-per-key)))
+           (setf
+            (fdefinition
+             'ethereum-lisp.database::%rocks-options-optimize-level-style-compaction)
+            (lambda (options budget)
+              (setf compaction-budget budget)
+              (funcall real-optimize options budget)))
            (setf
             (fdefinition
              'ethereum-lisp.database::%rocks-options-set-block-table-factory)
@@ -326,13 +336,20 @@
        real-bloom-create)
       (setf
        (fdefinition
+        'ethereum-lisp.database::%rocks-options-optimize-level-style-compaction)
+       real-optimize)
+      (setf
+       (fdefinition
         'ethereum-lisp.database::%rocks-options-set-block-table-factory)
        real-set-factory)
       (when (probe-file path)
         (uiop:delete-directory-tree path :validate t)))
     (is (= ethereum-lisp.database::+rocksdb-block-cache-bytes+
            cache-capacity))
-    (is (= (* 512 1024 1024) cache-capacity))
+    (is (= (* 256 1024 1024) cache-capacity))
+    (is (= ethereum-lisp.database::+rocksdb-level-compaction-memory-budget+
+           compaction-budget))
+    (is (= (* 384 1024 1024) compaction-budget))
     (is (= ethereum-lisp.database::+rocksdb-bloom-bits-per-key+
            bloom-bits))
     (is (= 1 factory-calls))))

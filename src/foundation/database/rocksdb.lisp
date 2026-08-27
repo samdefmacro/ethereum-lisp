@@ -141,17 +141,22 @@
 
 (defvar *rocksdb-library-loaded-p* nil)
 
-(defconstant +rocksdb-level-compaction-memory-budget+ (* 512 1024 1024)
-  "Total memtable budget used to reduce write amplification during bulk sync.")
+(defconstant +rocksdb-level-compaction-memory-budget+ (* 384 1024 1024)
+  "Level-compaction preset budget for the shared public-node profile.
+
+RocksDB divides this value into four 96-MiB write buffers and permits six in
+the worst case, bounding live memtables at 576 MiB while retaining two-way
+flush merging during bulk sync.")
 (defconstant +rocksdb-background-job-count+ 8
   "One bounded flush/compaction job per supported public-node vCPU.")
 (defconstant +rocksdb-background-bytes-per-sync+ (* 1024 1024)
   "Incremental background-file sync width; WAL cursor batches remain synced.")
-(defconstant +rocksdb-block-cache-bytes+ (* 512 1024 1024)
+(defconstant +rocksdb-block-cache-bytes+ (* 256 1024 1024)
   "Block-cache budget for the supported shared 16-GiB EL/CL node profile.
 
-The 7-GiB EL cgroup also charges RocksDB memtables and filesystem cache.  A
-one-GiB block cache exhausted that hard boundary during a sustained Hoodi range
+The 7-GiB EL cgroup also charges RocksDB memtables and filesystem cache.  Larger
+caches exhausted that hard boundary or forced enough direct reclaim to make
+the consensus client's Engine upcheck time out during sustained Hoodi range
 import even though the live Lisp heap remained below two GiB.")
 (defconstant +rocksdb-bloom-bits-per-key+ 10.0d0
   "Full-filter budget for random content-addressed state lookups.")
@@ -251,10 +256,10 @@ import even though the live Lisp heap remained below two GiB.")
           ;; RocksDB's default 64 MiB/one-memtable flush cadence produced
           ;; roughly 8x physical writes on the Hoodi gate. Keep leveled
           ;; compaction and every durability check, but use RocksDB's own
-          ;; bounded bulk-write preset: 128 MiB memtables, two-way flush
-          ;; merging, and a matching 512 MiB base level. Eight background jobs
+          ;; bounded bulk-write preset: 96 MiB memtables, two-way flush
+          ;; merging, and a matching 384 MiB base level. Eight background jobs
           ;; let the supported 8-vCPU/16-GiB node drain compaction debt without
-          ;; increasing the fixed memtable budget.
+          ;; increasing the fixed level-compaction preset.
           (%rocks-options-optimize-level-style-compaction
            options +rocksdb-level-compaction-memory-budget+)
           (%rocks-options-increase-parallelism
