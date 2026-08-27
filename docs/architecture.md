@@ -178,7 +178,12 @@ them by their physical location instead reintroduces dependency cycles:
   discarded as stale. Synchronous eth jobs wait for an empty SNAP response seam, so they
   cannot consume a pipelined reply. The next range can therefore use the
   connection while an earlier page resolves storage, bytecode, or RocksDB
-  work through the global queue; older
+  work through the global queue. Post-Hello raw Snappy blocks are compressed
+  and decompressed through the pinned `libsnappy.so.1` C API with specialized
+  Lisp vectors pinned only for each bounded call. The decoded-length prefix is
+  validated before the at-most-16-MiB destination allocation, and the retained
+  pure Lisp codec remains a differential oracle rather than the production
+  per-copy-byte hot path; older
   sixteen-range progress remains resumable and thirty-two-range progress is
   expanded at its exact durable cursors. During range import the dial scheduler
   seeks SNAP-capable outbound sessions up to half of `--maxpeers`, returning to

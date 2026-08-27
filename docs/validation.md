@@ -617,6 +617,28 @@ controlled candidate therefore raises only RocksDB background job parallelism
 from four to eight while retaining the fixed 512 MiB memtable budget, then
 measures the same preserved datadir again.
 
+That `cd5fd0be` candidate started at `2026-08-27T07:39:28Z`. Its first roughly
+fifteen-minute window completed 137 pages and 1,168,316 accounts at 4.046 GiB
+RSS; the second completed another 118 pages and 1,096,588 accounts at 4.931 GiB
+RSS. Completed-page dependency latency improved: cumulative means fell from
+47.4 seconds in the first window to about 33.0 seconds in the second, while
+storage fell from 35.0 to about 25.2 seconds and code from 21.1 to about 8.2
+seconds. Aggregate throughput did not improve because the refreshed source pool
+remained at twelve to fifteen rather than the preceding candidate's nineteen to
+twenty. The local RocksDB change is therefore retained as a bounded phase
+latency improvement, not presented as a geth-parity result.
+
+The next transport audit found that every compressed devp2p payload still used
+the byte-at-a-time pure Lisp Snappy COPY loop even though the reviewed runtime
+already ships `libsnappy.so.1`. The native control cross-decodes native and pure
+outputs in both directions over empty, literal, repetitive, and 512-KiB inputs,
+and both paths reject the same invalid back-reference. Go decode vectors and
+corrupt-input controls remain unchanged. In the isolated Workbench container,
+a 4-MiB repetitive payload decompressed in about 3 ms through libsnappy versus
+41 ms through the oracle, and compressed in about 3 ms versus 172 ms. Seventeen
+RLPx unit controls and all sixty-nine SNAP integration controls pass with the
+native production path.
+
 The exact `f72afc7f` image exposed both controls on the formal Hoodi datadir. It
 started at `2026-08-26T12:28:47Z` and exited at `12:34:48Z` without OOM. Before
 exit it logged twelve six-second request expiries, fifteen import failures, and

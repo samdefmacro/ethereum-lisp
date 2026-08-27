@@ -101,7 +101,7 @@ RUN git clone --depth 1 --branch v2.1.1 --recurse-submodules \
 # ---------------------------------------------------------------------------
 FROM native AS lisp
 
-# libsecp256k1-1, NOT libsecp256k1-dev, and the distinction is load-bearing.
+# libsecp256k1-1 and libsnappy1v5, not their -dev packages, are load-bearing.
 # SAVE-LISP-AND-DIE records the exact namestring each shared object was opened
 # under and re-dlopens that string on startup. The binding tries
 # (:or "libsecp256k1.so" "libsecp256k1.so.1" ...), so a builder carrying the
@@ -113,6 +113,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         curl \
         libsecp256k1-1 \
+        libsnappy1v5 \
         sbcl \
     && rm -rf /var/lib/apt/lists/*
 

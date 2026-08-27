@@ -64,6 +64,30 @@
          (compressed (snappy-compress data)))
     (is (bytes= data (snappy-decompress compressed)))))
 
+(deftest snappy-native-codec-matches-the-pure-oracle
+  (dolist (data
+           (list
+            (make-byte-vector 0)
+            (ascii-to-bytes "ethereum devp2p snap/1")
+            (make-byte-vector 4096 :initial-element #x41)
+            (coerce
+             (loop for index below (* 512 1024)
+                   collect (mod (+ (* index 73) (ash index -7)) 251))
+             '(simple-array (unsigned-byte 8) (*)))))
+    (let ((native (snappy-compress data))
+          (pure (ethereum-lisp.snappy::snappy-compress-lisp data)))
+      ;; Snappy encoders may choose different legal copy layouts. Cross-decode
+      ;; both directions instead of requiring byte-identical compression.
+      (is
+       (bytes=
+        data (ethereum-lisp.snappy::snappy-decompress-lisp native)))
+      (is (bytes= data (snappy-decompress pure)))))
+  ;; Both decoders must reject the same structurally invalid copy.
+  (let ((corrupt (hex-to-bytes "0x080c616263640105")))
+    (signals error (snappy-decompress corrupt))
+    (signals error
+      (ethereum-lisp.snappy::snappy-decompress-lisp corrupt))))
+
 (deftest snappy-compress-emits-real-back-references
   (let* ((data (make-byte-vector 4096 :initial-element #x41))
          (compressed (snappy-compress data)))

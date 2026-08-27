@@ -377,7 +377,10 @@ The implementation boundary is split deliberately:
   the importer carries its original logical id. A cold pool starts from Geth's twenty-second
   RTT and sixty-second allowance; replacement peers inherit live mean
   throughputs, and closed peer snapshots are removed before replacement
-  scheduling. TrieNodes healer assignment consumes that same per-peer capacity
+  scheduling. Compressed post-Hello devp2p payloads use the runtime's pinned
+  libsnappy C API rather than a per-byte Lisp COPY loop; decoded length remains
+  capped before allocation, and the pure implementation remains the test
+  oracle. TrieNodes healer assignment consumes that same per-peer capacity
   instead of learning a second local value, then applies geth's independently
   tuned local-processing divisor (initially 1,024, with a one-item probe).
   The CLI serves production state
