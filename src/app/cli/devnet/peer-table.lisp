@@ -268,6 +268,20 @@ mutation."
 
 ;;; What the admin RPC namespace is allowed to see.
 
+(defun devnet-node-durable-snap-highest-block (node)
+  "Return the persistence-authority-validated durable SNAP target, if any.
+
+This is deliberately a direct database point read.  AccountRange and healer
+work can own the node store guard for minutes, while RocksDB still permits a
+concurrent immutable read of the atomically published skeleton record."
+  (let ((store (devnet-node-store node)))
+    (when (database-engine-payload-store-p store)
+      (multiple-value-bind (progress present-p)
+          (node-store-read-snap-skeleton-progress
+           (database-engine-payload-store-database store))
+        (when present-p
+          (node-store-snap-skeleton-progress-target-number progress))))))
+
 (defun devnet-node-sync-highest-block (node)
   "Return the highest consensus-authorized block represented by live sync.
 
@@ -282,14 +296,7 @@ therefore a stronger source than a peer-advertised head."
            (loop for block in (engine-payload-store-remote-block-list store)
                  maximize
                  (block-header-number (block-header block))))
-         (snap-highest
-           (when (database-engine-payload-store-p store)
-             (multiple-value-bind (progress present-p)
-                 (node-store-read-snap-skeleton-progress
-                  (database-engine-payload-store-database store))
-               (when present-p
-                 (node-store-snap-skeleton-progress-target-number
-                  progress))))))
+         (snap-highest (devnet-node-durable-snap-highest-block node)))
     (cond
       ((and remote-highest snap-highest)
        (max remote-highest snap-highest))
@@ -312,6 +319,8 @@ waiting."
           '(("startingBlock" . "0x0")
             ("currentBlock" . "0x0")
             ("highestBlock" . "0x0")))
+        (syncing-current 0)
+        (syncing-highest nil)
         (syncing-lock
           #+sbcl (sb-thread:make-mutex
                   :name "ethereum-lisp-rpc-syncing-snapshot")
@@ -322,29 +331,58 @@ waiting."
      (lambda ()
        (let ((node (node)))
          (when node
-           (multiple-value-bind (snapshot refreshed-p)
+           (multiple-value-bind (refresh refreshed-p)
                (call-with-devnet-node-store-guard-if-free
                 node
                 (lambda ()
                   (let* ((store (devnet-node-store node))
                          (current (chain-store-head-number store))
                          (highest (devnet-node-sync-highest-block node)))
-                    (if (and highest (> highest current))
-                        (list
-                         (cons "startingBlock" (quantity-to-hex current))
-                         (cons "currentBlock" (quantity-to-hex current))
-                         (cons "highestBlock" (quantity-to-hex highest)))
-                        :false))))
+                    (list
+                     :snapshot
+                     (if (and highest (> highest current))
+                         (list
+                          (cons "startingBlock" (quantity-to-hex current))
+                          (cons "currentBlock" (quantity-to-hex current))
+                          (cons "highestBlock" (quantity-to-hex highest)))
+                         :false)
+                     :current current
+                     :highest highest))))
              (when refreshed-p
                #+sbcl
                (sb-thread:with-mutex (syncing-lock)
-                 (setf syncing-snapshot snapshot))
+                 (setf syncing-snapshot (getf refresh :snapshot)
+                       syncing-current (getf refresh :current)
+                       syncing-highest (getf refresh :highest)))
                #-sbcl
-               (setf syncing-snapshot snapshot))))
-         #+sbcl
-         (sb-thread:with-mutex (syncing-lock) syncing-snapshot)
-         #-sbcl
-         syncing-snapshot))
+               (setf syncing-snapshot (getf refresh :snapshot)
+                     syncing-current (getf refresh :current)
+                     syncing-highest (getf refresh :highest))))
+           ;; The guarded refresh above remains the authority for the mutable
+           ;; head and remote-block list.  Overlay only the independently
+           ;; validated durable skeleton point read: long state imports may
+           ;; keep the guard busy for their whole AccountRange/healer phase.
+           (let ((durable-highest
+                   (handler-case
+                       (devnet-node-durable-snap-highest-block node)
+                     (serious-condition () nil))))
+             (flet ((answer ()
+                      (if (and durable-highest
+                               (> durable-highest syncing-current))
+                          (let ((highest
+                                  (max durable-highest
+                                       (or syncing-highest durable-highest))))
+                            (list
+                             (cons "startingBlock"
+                                   (quantity-to-hex syncing-current))
+                             (cons "currentBlock"
+                                   (quantity-to-hex syncing-current))
+                             (cons "highestBlock" (quantity-to-hex highest))))
+                          syncing-snapshot)))
+               #+sbcl
+               (sb-thread:with-mutex (syncing-lock) (answer))
+               #-sbcl
+               (answer))))))
      :listening-p
      (lambda () (and (node) (devnet-node-p2p-port (node)) t))
      :peer-count

@@ -785,10 +785,11 @@ import from disabling cross-chain filtering while it owns persistence.
 The public syncing regression removes every in-memory remote block, persists a
 CL-authorized skeleton target in the direct RocksDB provider, and requires
 `eth_syncing.highestBlock` to retain that target throughout AccountRange and
-healer work. Deleting the skeleton restores `false`; mutating the production
-snapshot to ignore the skeleton makes the positive assertion fail. The older
-store-guard contention control remains green, so this point read does not make
-Engine health checks wait behind a long state write.
+healer work while another thread continuously owns the node store guard.
+Deleting the skeleton restores `false`; mutating the production snapshot to
+ignore the direct, authority-validating point-read overlay makes the positive
+assertion fail. The older store-guard contention control remains green, so this
+point read does not make Engine health checks wait behind a long state write.
 
 These selectors do not prove public reachability. Section 5 also requires an
 ephemeral Hoodi run from an empty datadir, using the reviewed container runtime,

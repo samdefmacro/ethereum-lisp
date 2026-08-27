@@ -302,13 +302,39 @@ rather than a node's peering state."
                 (kv-apply-batch database batch))
               ;; The target has already left the in-memory remote-block list,
               ;; as it does before AccountRange and healer work begin.  The
-              ;; durable CL-authorized skeleton must keep ETH_SYNCING truthful.
+              ;; durable CL-authorized skeleton must keep ETH_SYNCING truthful
+              ;; even while that long import owns the ordinary store guard.
               (is (null (engine-payload-store-remote-block-list store)))
+              #+sbcl
+              (let* ((entered (sb-thread:make-semaphore :count 0))
+                     (release (sb-thread:make-semaphore :count 0))
+                     (holder
+                       (sb-thread:make-thread
+                        (lambda ()
+                          (ethereum-lisp.cli::call-with-devnet-node-store-guard
+                           node
+                           (lambda ()
+                             (sb-thread:signal-semaphore entered)
+                             (sb-thread:wait-on-semaphore release)))))))
+                (unwind-protect
+                     (progn
+                       (sb-thread:wait-on-semaphore entered)
+                       (is (= 100
+                              (ethereum-lisp.cli::devnet-node-durable-snap-highest-block
+                               node)))
+                       (let ((snapshot (funcall snapshot-function)))
+                         (is (listp snapshot))
+                         (is (string= "0x0"
+                                      (cdr (assoc "currentBlock" snapshot
+                                                  :test #'string=))))
+                         (is (string= "0x64"
+                                      (cdr (assoc "highestBlock" snapshot
+                                                  :test #'string=))))))
+                  (sb-thread:signal-semaphore release)
+                  (sb-thread:join-thread holder)))
+              #-sbcl
               (let ((snapshot (funcall snapshot-function)))
                 (is (listp snapshot))
-                (is (string= "0x0"
-                             (cdr (assoc "currentBlock" snapshot
-                                         :test #'string=))))
                 (is (string= "0x64"
                              (cdr (assoc "highestBlock" snapshot
                                          :test #'string=)))))

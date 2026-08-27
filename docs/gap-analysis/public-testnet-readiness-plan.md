@@ -400,8 +400,10 @@ The implementation boundary is split deliberately:
   Long state-sync writes do not make the consensus client wait for the same
   store guard: `eth_syncing` serves its last consistent snapshot. Its highest
   block includes the durable, persistence-authority-validated SNAP skeleton
-  target after that target leaves the in-memory remote-block queue, so the
-  AccountRange and healer phases cannot be misreported as caught up. Meanwhile,
+  target through an independent RocksDB point read after that target leaves the
+  in-memory remote-block queue. The immutable overlay remains available while
+  AccountRange or healer owns the ordinary store guard, so those phases cannot
+  be misreported as caught up. Meanwhile,
   `engine_getBlobsV3` uses the ordinary cache-aware reader when it can acquire
   the guard immediately and otherwise point-reads only immutable durable
   sidecars. The fallback never observes the mutable sidecar cache without its
