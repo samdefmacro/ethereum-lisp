@@ -1134,15 +1134,28 @@
       (ethereum-lisp.snap-sync::snap-sync-populate-incomplete-node-batch
        initial reference))
     (kv-apply-batch database initial)
-    (ethereum-lisp.snap-sync::snap-sync-buffer-account-page-content
-     database (make-hash32 (snap-test-index-hash 1804))
-     (ethereum-lisp.snap-sync::make-snap-sync-page-result
-      :account-records
-      (list
-       (cons account-complete (make-byte-vector 1 :initial-element 1))
-       (cons account-open (make-byte-vector 1 :initial-element 2)))
-      :complete-node-hashes (list account-complete)
-      :incomplete-node-hashes (list account-open)))
+    (let ((result
+            (ethereum-lisp.snap-sync::make-snap-sync-page-result
+             :account-records
+             (list
+              (cons account-complete (make-byte-vector 1 :initial-element 1))
+              (cons account-open (make-byte-vector 1 :initial-element 2)))
+             :complete-node-hashes (list account-complete)
+             :incomplete-node-hashes (list account-open))))
+      (ethereum-lisp.snap-sync::snap-sync-buffer-account-page-content
+       database (make-hash32 (snap-test-index-hash 1804)) result)
+      ;; Once the authenticated metadata is buffered, the coordinator needs
+      ;; only cursor-ordering fields.  Neither side of the closure set may keep
+      ;; the page's hash graph alive until the next coarse full collection.
+      (is (null
+           (ethereum-lisp.snap-sync::snap-sync-page-result-account-records
+            result)))
+      (is (null
+           (ethereum-lisp.snap-sync::snap-sync-page-result-complete-node-hashes
+            result)))
+      (is (null
+           (ethereum-lisp.snap-sync::snap-sync-page-result-incomplete-node-hashes
+            result))))
     (let* ((origin (make-byte-vector 32))
            (limit (make-byte-vector 32 :initial-element #xff))
            (task

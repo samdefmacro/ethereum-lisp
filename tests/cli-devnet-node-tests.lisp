@@ -1521,6 +1521,11 @@ really reopens the directory instead of observing the first handle's memory."
                (lambda (record)
                  (string= "peer.snap.progress" (first record)))
                logs))
+            (profile-logs
+              (remove-if-not
+               (lambda (record)
+                 (string= "peer.snap.page_profile" (first record)))
+               logs))
             (heal-logs
               (remove-if-not
                (lambda (record)
@@ -1544,6 +1549,18 @@ really reopens the directory instead of observing the first handle's memory."
           ;; Page durability is not state completeness. Byte-capped storage may
           ;; still be mandatory work for the final content-addressed traversal.
           (is (null (field record "completed"))))
+        (is (plusp (length profile-logs)))
+        (dolist (record profile-logs)
+          ;; Runtime memory counters are observational only. They make a live
+          ;; Hoodi sample distinguish retained Lisp graphs from RSS which SBCL
+          ;; has reclaimed internally but not returned to the kernel.
+          (is (and (integerp (field record "dynamicUsageBytes"))
+                   (not (minusp (field record "dynamicUsageBytes")))))
+          (is (and (integerp (field record "bytesConsed"))
+                   (not (minusp (field record "bytesConsed")))))
+          (is (and (integerp (field record "gcRunMs"))
+                   (not (minusp (field record "gcRunMs")))))
+          (is (integerp (field record "totalMs"))))
         ;; The shared source/target database makes this a reuse-only healing
         ;; pass. Its terminal snapshot still reaches the operator log.
         (is (= 1 (length heal-logs)))

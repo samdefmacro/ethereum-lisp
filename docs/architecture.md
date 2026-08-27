@@ -154,7 +154,11 @@ them by their physical location instead reintroduces dependency cycles:
   account trie records and replaces the expanded record graph with its 32-byte
   keys before waiting for storage or code. The later cursor publication flushes
   that WAL prefix, so a crash can leave only harmless idempotent records without
-  claiming incomplete progress. A released cursor wakes the next dispatcher,
+  claiming incomplete progress. Once closure metadata is buffered, both its
+  complete and incomplete hash sets are cleared from the page result as well.
+  The page profile reports SBCL dynamic usage, cumulative bytes consed, and GC
+  run time beside the protocol timings; these are diagnostic signals, never
+  admission limits. A released cursor wakes the next dispatcher,
   and every thirty-two committed pages trigger one coarse
   full collection so dependency graphs promoted while StorageRanges was slow
   are revisited during the range phase instead of only before final healing.

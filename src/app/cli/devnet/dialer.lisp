@@ -31,6 +31,20 @@ connection is the only safe answer -- a half-read frame leaves the cipher and
 MAC out of step permanently. Comfortably above the worst legitimate gap: a
 single response is bounded by the 2 MiB soft serve limit.")
 
+(defun devnet-runtime-heap-snapshot ()
+  "Return implementation heap telemetry without making it a memory policy.
+
+DYNAMIC-USAGE distinguishes live/allocated Lisp heap from RSS retained by the
+runtime or RocksDB.  The cumulative counters make page-profile samples useful
+without retaining any per-page object graph.  Portable builds report NIL; the
+production runtime and supported validation image use SBCL."
+  #+sbcl
+  (values (sb-kernel::dynamic-usage)
+          (sb-ext:get-bytes-consed)
+          sb-ext:*gc-run-time*)
+  #-sbcl
+  (values nil nil nil))
+
 (defun devnet-dial-outbound-admit-function (node candidate host port node-id
                                             status chain-context)
   "The admission half of an OUTBOUND session: run the initiator handshake on an
@@ -1649,47 +1663,52 @@ must prove the new state root before either record can authorize publication."
                  progress))))))
        :on-page-profile
        (lambda (profile source task-index)
-         (let ((entry (entry-for-source source)))
-           (devnet-peer-manager-log
-            node "peer.snap.page_profile"
-            "peer" (devnet-peer-entry-id-hex entry)
-            "pivot" pivot-number
-            "task" task-index
-            "accounts"
-            (ethereum-lisp.snap-sync:snap-sync-page-profile-account-count
-             profile)
-            "storageAccounts"
-            (ethereum-lisp.snap-sync:snap-sync-page-profile-storage-account-count
-             profile)
-            "codes"
-            (ethereum-lisp.snap-sync:snap-sync-page-profile-code-count profile)
-            "trieRecords"
-            (ethereum-lisp.snap-sync:snap-sync-page-profile-trie-record-count
-             profile)
-            "incompleteNodes"
-            (ethereum-lisp.snap-sync:snap-sync-page-profile-incomplete-node-count
-             profile)
-            "healedSubtrees"
-            (ethereum-lisp.snap-sync:snap-sync-page-profile-healed-subtree-count
-             profile)
-            "dependencySubtrees"
-            (ethereum-lisp.snap-sync:snap-sync-page-profile-dependency-subtree-count
-             profile)
-            "accountRequestMs"
-            (ethereum-lisp.snap-sync:snap-sync-page-profile-account-request-ms
-             profile)
-            "proofMs"
-            (ethereum-lisp.snap-sync:snap-sync-page-profile-proof-ms profile)
-            "storageMs"
-            (ethereum-lisp.snap-sync:snap-sync-page-profile-storage-ms profile)
-            "codeMs"
-            (ethereum-lisp.snap-sync:snap-sync-page-profile-code-ms profile)
-            "metadataMs"
-            (ethereum-lisp.snap-sync:snap-sync-page-profile-metadata-ms profile)
-            "bufferMs"
-            (ethereum-lisp.snap-sync:snap-sync-page-profile-buffer-ms profile)
-            "totalMs"
-            (ethereum-lisp.snap-sync:snap-sync-page-profile-total-ms profile))))
+         (multiple-value-bind (dynamic-usage bytes-consed gc-run-ms)
+             (devnet-runtime-heap-snapshot)
+           (let ((entry (entry-for-source source)))
+             (devnet-peer-manager-log
+              node "peer.snap.page_profile"
+              "peer" (devnet-peer-entry-id-hex entry)
+              "pivot" pivot-number
+              "task" task-index
+              "accounts"
+              (ethereum-lisp.snap-sync:snap-sync-page-profile-account-count
+               profile)
+              "storageAccounts"
+              (ethereum-lisp.snap-sync:snap-sync-page-profile-storage-account-count
+               profile)
+              "codes"
+              (ethereum-lisp.snap-sync:snap-sync-page-profile-code-count profile)
+              "trieRecords"
+              (ethereum-lisp.snap-sync:snap-sync-page-profile-trie-record-count
+               profile)
+              "incompleteNodes"
+              (ethereum-lisp.snap-sync:snap-sync-page-profile-incomplete-node-count
+               profile)
+              "healedSubtrees"
+              (ethereum-lisp.snap-sync:snap-sync-page-profile-healed-subtree-count
+               profile)
+              "dependencySubtrees"
+              (ethereum-lisp.snap-sync:snap-sync-page-profile-dependency-subtree-count
+               profile)
+              "accountRequestMs"
+              (ethereum-lisp.snap-sync:snap-sync-page-profile-account-request-ms
+               profile)
+              "proofMs"
+              (ethereum-lisp.snap-sync:snap-sync-page-profile-proof-ms profile)
+              "storageMs"
+              (ethereum-lisp.snap-sync:snap-sync-page-profile-storage-ms profile)
+              "codeMs"
+              (ethereum-lisp.snap-sync:snap-sync-page-profile-code-ms profile)
+              "metadataMs"
+              (ethereum-lisp.snap-sync:snap-sync-page-profile-metadata-ms profile)
+              "bufferMs"
+              (ethereum-lisp.snap-sync:snap-sync-page-profile-buffer-ms profile)
+              "totalMs"
+              (ethereum-lisp.snap-sync:snap-sync-page-profile-total-ms profile)
+              "dynamicUsageBytes" dynamic-usage
+              "bytesConsed" bytes-consed
+              "gcRunMs" gc-run-ms))))
        :on-heal-progress
        (lambda (heal-progress)
          (let* ((now (unix-time))

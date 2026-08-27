@@ -2143,6 +2143,7 @@ again."
           (snap-sync-page-result-deferred-storage result) '()
           (snap-sync-page-result-healed-subtrees result) '()
           (snap-sync-page-result-dependency-subtrees result) '()
+          (snap-sync-page-result-complete-node-hashes result) '()
           (snap-sync-page-result-incomplete-node-hashes result) '())
     result))
 

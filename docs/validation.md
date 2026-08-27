@@ -515,7 +515,11 @@ than eight decoded account pages remain claimed across the dependency pipeline.
 The GC-watermark control requires a coarse full collection after each thirty-two
 durable cursor publications. Together these distinguish partition granularity
 from the memory bound exercised by the 6 GiB embedded heap and 7 GiB remote
-container limit. Three
+container limit. The range-proof marker control additionally retains the page
+result after publication and requires both closure hash sets and the expanded
+records to be empty. The production page-log control requires non-negative
+`dynamicUsageBytes`, `bytesConsed`, and `gcRunMs` fields so a remote run can
+separate live Lisp heap from RSS retained by SBCL or RocksDB. Three
 sole-writer request queues overlap independent response types with geth's
 adaptive 64--512 KiB snap byte limits. A production-call-site control observes
 the density-selected partition count, uses a second lane only when the plan has

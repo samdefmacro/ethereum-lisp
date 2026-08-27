@@ -293,7 +293,10 @@ The implementation boundary is split deliberately:
   retaining only their 32-byte keys while storage/code work is pending. The
   later synchronous cursor publication flushes that WAL prefix, so prebuffering
   cannot expose incomplete progress across a crash. In addition,
-  every thirty-two committed pages revisit promoted SBCL objects. The production
+  buffered closure hash sets are released with the rest of the page result, and
+  every page profile exposes dynamic heap usage, cumulative allocation, and GC
+  time for live diagnosis. Every thirty-two committed pages revisit promoted
+  SBCL objects. The production
   executable reserves a 6 GiB heap and the reviewed remote gate enforces a 7 GiB
   whole-container ceiling. A failed source releases its range for another peer. Exhausting
   every source in one live-peer snapshot is a typed availability result: the
