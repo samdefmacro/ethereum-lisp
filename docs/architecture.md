@@ -572,6 +572,12 @@ them by their physical location instead reintroduces dependency cycles:
   supported eight-core public-node profile. This
   path uses a 1 GiB sharded block cache on the supported shared 16 GiB EL/CL
   public-node profile instead of RocksDB 11's 32 MiB fallback. At the
+  same eight-vCPU boundary, RocksDB receives eight bounded background
+  flush/compaction jobs while its level-compaction memtable budget remains
+  fixed at 512 MiB. Background concurrency can therefore drain independent
+  SST work without multiplying the range import's memory allowance or changing
+  WAL durability.
+  At the
   flat-range-to-healer boundary, joined range-worker garbage is collected once.
   A moving-pivot yield first joins every worker, drops the stopped scheduler's
   uncommitted page queues, and performs the same collection before rebasing;

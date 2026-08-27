@@ -599,6 +599,24 @@ dependency peer out of the whole-peer cooldown table after the same typed
 timeout. Restoring the old session-fatal deadline or reusing logical id `1` on
 the wire makes these controls fail.
 
+The exact `dd2a14f2` same-datadir Hoodi run started at
+`2026-08-27T06:55:34Z`. In its first roughly fifteen-minute sample it completed
+133 pages and 1,194,404 accounts while its source pool grew from three to
+fourteen. In the following roughly fifteen minutes it completed another 203
+pages and 1,890,571 accounts, the pool reached nineteen (twenty high-water),
+and request-timeout growth fell from 414 to 93. Session-closed dependency
+failures remained cumulative at 37 rather than collapsing the pool. This proves
+the request-local timeout lifetime, but not geth throughput parity: the second
+window was about 127,700 accounts/minute, roughly 35% of the pinned same-host
+geth account rate. The container remained below its 7 GiB limit, but its second
+endpoint used 4.504 GiB RSS and reported 77.6/126 GB cumulative block I/O.
+A five-second process sample used 3.40 of eight CPUs, read 62.9 MiB/s, wrote
+70.7 MiB/s, and spent only 0.2% in I/O wait; a simultaneous device sample kept
+SSD await near one to two milliseconds and utilization near one third. The next
+controlled candidate therefore raises only RocksDB background job parallelism
+from four to eight while retaining the fixed 512 MiB memtable budget, then
+measures the same preserved datadir again.
+
 The exact `f72afc7f` image exposed both controls on the formal Hoodi datadir. It
 started at `2026-08-26T12:28:47Z` and exited at `12:34:48Z` without OOM. Before
 exit it logged twelve six-second request expiries, fifteen import failures, and

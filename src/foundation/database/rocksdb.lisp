@@ -143,8 +143,8 @@
 
 (defconstant +rocksdb-level-compaction-memory-budget+ (* 512 1024 1024)
   "Total memtable budget used to reduce write amplification during bulk sync.")
-(defconstant +rocksdb-background-job-count+ 4
-  "Bounded flush/compaction parallelism for the supported public-node profile.")
+(defconstant +rocksdb-background-job-count+ 8
+  "One bounded flush/compaction job per supported public-node vCPU.")
 (defconstant +rocksdb-background-bytes-per-sync+ (* 1024 1024)
   "Incremental background-file sync width; WAL cursor batches remain synced.")
 (defconstant +rocksdb-block-cache-bytes+ (* 1024 1024 1024)
@@ -248,8 +248,9 @@
           ;; roughly 8x physical writes on the Hoodi gate. Keep leveled
           ;; compaction and every durability check, but use RocksDB's own
           ;; bounded bulk-write preset: 128 MiB memtables, two-way flush
-          ;; merging, and a matching 512 MiB base level. Four background jobs
-          ;; fit the supported 8-vCPU/16-GiB node.
+          ;; merging, and a matching 512 MiB base level. Eight background jobs
+          ;; let the supported 8-vCPU/16-GiB node drain compaction debt without
+          ;; increasing the fixed memtable budget.
           (%rocks-options-optimize-level-style-compaction
            options +rocksdb-level-compaction-memory-budget+)
           (%rocks-options-increase-parallelism
