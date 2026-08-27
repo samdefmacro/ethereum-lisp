@@ -147,7 +147,15 @@ them by their physical location instead reintroduces dependency cycles:
   authority. Fresh imports split the account
   keyspace into sixty-four durable ranges. One AccountRange dispatcher uses
   each available snap peer and hands its verified pages to a bounded global
-  dependency queue. The session thread remains the only RLPx writer, but it
+  dependency queue. Durable partition count is scheduling granularity rather
+  than a heap allowance: at most eight decoded account pages may remain claimed
+  across range verification and dependency completion. A released cursor wakes
+  the next dispatcher, and every thirty-two committed pages trigger one coarse
+  full collection so dependency graphs promoted while StorageRanges was slow
+  are revisited during the range phase instead of only before final healing.
+  The embedded production runtime reserves 6 GiB of dynamic space and the
+  reviewed same-host gate caps the complete process at 7 GiB. The session
+  thread remains the only RLPx writer, but it
   may pipeline one account, storage, bytecode, and trie-node request at once;
   decoded replies are matched by response type and request id before waking the
   worker. Synchronous eth jobs wait for an empty SNAP response seam, so they

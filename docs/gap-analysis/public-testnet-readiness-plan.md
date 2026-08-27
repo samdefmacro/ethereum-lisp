@@ -287,7 +287,11 @@ The implementation boundary is split deliberately:
   block/cursor batches all fail closed. Sixty-four durable account ranges match the
   pinned geth scheduler: one worker per live source verifies 512 KiB-soft-limited
   pages concurrently, while the coordinator alone merges state and commits each
-  range cursor. A failed source releases its range for another peer. Exhausting
+  range cursor. The sixty-four partitions remain durable scheduling granularity;
+  only eight decoded pages may stay claimed through dependency completion, and
+  every thirty-two committed pages revisit promoted SBCL objects. The production
+  executable reserves a 6 GiB heap and the reviewed remote gate enforces a 7 GiB
+  whole-container ceiling. A failed source releases its range for another peer. Exhausting
   every source in one live-peer snapshot is a typed availability result: the
   long-running CLI coordinator retains verified cursors, refreshes the source
   set, and retries while local persistence/merge faults remain fatal. The CLI

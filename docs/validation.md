@@ -506,7 +506,12 @@ wall-clock window: useful individual responses cannot pin an old root when the
 surviving pool's aggregate throughput falls below 131,072 work units, while a
 high-throughput collapsed pool remains on its exact authenticated frontier.
 The range tests prove that sixty-four durable account ranges feed one AccountRange
-dispatcher per source and bounded global dependency schedulers, while three
+dispatcher per source and bounded global dependency schedulers, while no more
+than eight decoded account pages remain claimed across the dependency pipeline.
+The GC-watermark control requires a coarse full collection after each thirty-two
+durable cursor publications. Together these distinguish partition granularity
+from the memory bound exercised by the 6 GiB embedded heap and 7 GiB remote
+container limit. Three
 sole-writer request queues overlap independent response types with geth's
 adaptive 64--512 KiB snap byte limits. A production-call-site control observes
 the density-selected partition count, uses a second lane only when the plan has
