@@ -323,6 +323,10 @@ index. Older still-finer proofs remain consumable below a changed bucket.
 They batch complete small storage tries with each account cursor and
 prove that the range-only proven-absent insertion produces the
 same root as the ordinary checked insertion and rejects empty values,
+prebuffer every proof-authenticated account trie record before dependency
+resolution while leaving the durable cursor absent, retain only record hashes
+in the pending page, and require the later metadata-only cursor batch to follow
+that WAL prefix,
 persist the authenticated prefix of byte-capped large storage, record those
 roots with each durable page, and atomically publish the complete plan only
 when the rebuilt account root equals the authorized state root. Sixteen

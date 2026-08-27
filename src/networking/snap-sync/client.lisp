@@ -1617,14 +1617,14 @@ publishes the account cursor."
 
 (defstruct (snap-sync-account-page-work
             (:constructor make-snap-sync-account-page-work
-                (&key task-index origin account-records storage-commitments
+                (&key task-index origin account-record-hashes storage-commitments
                       code-hashes candidates account-count next-origin
                       completed-p started-at account-response-at
-                      proof-finished-at)))
+                      proof-finished-at prebuffer-ms)))
   "Verified account range waiting for globally scheduled dependencies."
   task-index
   origin
-  account-records
+  account-record-hashes
   storage-commitments
   code-hashes
   candidates
@@ -1633,7 +1633,8 @@ publishes the account cursor."
   completed-p
   started-at
   account-response-at
-  proof-finished-at)
+  proof-finished-at
+  (prebuffer-ms 0))
 
 (defstruct (snap-sync-storage-page-result
             (:constructor make-snap-sync-storage-page-result
@@ -1719,6 +1720,20 @@ uniform persistence interface."
                     (nth-value 1 (gethash reference incomplete)))
           (setf (gethash reference incomplete) t)
           (push reference result))))))
+
+(defun snap-sync-incomplete-reference-hashes
+    (references complete-references)
+  "Return unique REFERENCES not covered by a proved complete subtree."
+  (let ((complete (make-hash-table :test #'equalp))
+        (incomplete (make-hash-table :test #'equalp))
+        (result '()))
+    (dolist (reference complete-references)
+      (setf (gethash reference complete) t))
+    (dolist (reference references (nreverse result))
+      (unless (or (nth-value 1 (gethash reference complete))
+                  (nth-value 1 (gethash reference incomplete)))
+        (setf (gethash reference incomplete) t)
+        (push reference result)))))
 
 (defun snap-sync-populate-incomplete-records-batch (batch references)
   "Mark authenticated nodes whose full descendant closure is not yet proved."
@@ -2132,7 +2147,7 @@ again."
     result))
 
 (defun snap-sync-prepare-account-page-range
-    (source state-root task-index task byte-limit)
+    (database source state-root task-index task byte-limit)
   "Fetch and verify one account range, without waiting for its dependencies."
   (let* ((started-at (get-internal-real-time))
          (origin (snap-sync-account-task-next-origin task))
@@ -2193,19 +2208,33 @@ again."
                     (snap-sync-proved-range-subtrees
                      account-trie origin proved-end))
                    '())))
-        (make-snap-sync-account-page-work
-         :task-index task-index
-         :origin (copy-seq origin)
-         :account-records account-records
-         :storage-commitments storage-commitments
-         :code-hashes code-hashes
-         :candidates candidates
-         :account-count (length entries)
-         :next-origin next-origin
-         :completed-p complete-p
-         :started-at started-at
-         :account-response-at account-response-at
-         :proof-finished-at proof-finished-at))))))
+        ;; The proof has authenticated these content-addressed records already.
+        ;; Buffer them before StorageRanges/ByteCodes work so slow dependencies
+        ;; retain only 32-byte references, not the reconstructed trie graph.
+        ;; A later synchronous cursor batch flushes this WAL prefix; a crash
+        ;; before that seam merely leaves harmless idempotent content behind.
+        (let* ((prebuffer-started-at (get-internal-real-time))
+               (batch (make-kv-write-batch))
+               (account-record-hashes (mapcar #'car account-records)))
+          (snap-sync-populate-verified-trie-records-batch
+           database batch account-records)
+          (kv-apply-batch-buffered database batch)
+          (make-snap-sync-account-page-work
+           :task-index task-index
+           :origin (copy-seq origin)
+           :account-record-hashes account-record-hashes
+           :storage-commitments storage-commitments
+           :code-hashes code-hashes
+           :candidates candidates
+           :account-count (length entries)
+           :next-origin next-origin
+           :completed-p complete-p
+           :started-at started-at
+           :account-response-at account-response-at
+           :proof-finished-at proof-finished-at
+           :prebuffer-ms
+           (snap-sync-elapsed-milliseconds
+            prebuffer-started-at (get-internal-real-time)))))))))
 
 (defun snap-sync-complete-account-page
     (database source state-root work byte-limit
@@ -2235,11 +2264,11 @@ again."
            (snap-sync-account-page-work-candidates work) deferred-storage)
         (let* ((metadata-finished-at (get-internal-real-time))
                (started-at (snap-sync-account-page-work-started-at work))
-               (account-records
-                 (snap-sync-account-page-work-account-records work))
+               (account-record-hashes
+                 (snap-sync-account-page-work-account-record-hashes work))
                (incomplete-node-hashes
-                 (snap-sync-incomplete-record-hashes
-                  account-records complete-references))
+                 (snap-sync-incomplete-reference-hashes
+                  account-record-hashes complete-references))
                (profile
                  (make-snap-sync-page-profile
                   :account-count
@@ -2249,7 +2278,7 @@ again."
                    (snap-sync-account-page-work-storage-commitments work))
                   :code-count
                   (length (snap-sync-account-page-work-code-hashes work))
-                  :trie-record-count (length account-records)
+                  :trie-record-count (length account-record-hashes)
                   :incomplete-node-count (length incomplete-node-hashes)
                   :healed-subtree-count (length safe-subtrees)
                   :dependency-subtree-count (length dependency-subtrees)
@@ -2270,7 +2299,9 @@ again."
                  (make-snap-sync-page-result
                   :task-index (snap-sync-account-page-work-task-index work)
                   :origin (snap-sync-account-page-work-origin work)
-                  :account-records account-records
+                  ;; Account trie records were buffered immediately after
+                  ;; proof verification; only closure metadata remains here.
+                  :account-records '()
                   :codes codes
                   :deferred-storage deferred-storage
                   :healed-subtrees safe-subtrees
@@ -2288,8 +2319,9 @@ again."
           (let ((finished-at (get-internal-real-time)))
             (setf
              (snap-sync-page-profile-buffer-ms profile)
-             (snap-sync-elapsed-milliseconds
-              metadata-finished-at finished-at)
+             (+ (snap-sync-account-page-work-prebuffer-ms work)
+                (snap-sync-elapsed-milliseconds
+                 metadata-finished-at finished-at))
              (snap-sync-page-profile-total-ms profile)
              (snap-sync-elapsed-milliseconds started-at finished-at)))
           result)))))
@@ -2300,7 +2332,7 @@ again."
   (snap-sync-complete-account-page
    database source state-root
    (snap-sync-prepare-account-page-range
-    source state-root task-index task byte-limit)
+    database source state-root task-index task byte-limit)
    byte-limit
    :deferred-storage-function
    (lambda (commitments)
@@ -6714,7 +6746,7 @@ behind and may safely replay any lost storage pages."
            (handler-case
                (let ((work
                        (snap-sync-prepare-account-page-range
-                        source state-root task-index task byte-limit)))
+                        database source state-root task-index task byte-limit)))
                  (snap-sync-multi-push-dependency
                   runtime
                   (make-snap-sync-multi-event

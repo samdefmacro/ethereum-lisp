@@ -149,8 +149,13 @@ them by their physical location instead reintroduces dependency cycles:
   each available snap peer and hands its verified pages to a bounded global
   dependency queue. Durable partition count is scheduling granularity rather
   than a heap allowance: at most eight decoded account pages may remain claimed
-  across range verification and dependency completion. A released cursor wakes
-  the next dispatcher, and every thirty-two committed pages trigger one coarse
+  across range verification and dependency completion. Immediately after its
+  range proof succeeds, a worker buffers the authenticated content-addressed
+  account trie records and replaces the expanded record graph with its 32-byte
+  keys before waiting for storage or code. The later cursor publication flushes
+  that WAL prefix, so a crash can leave only harmless idempotent records without
+  claiming incomplete progress. A released cursor wakes the next dispatcher,
+  and every thirty-two committed pages trigger one coarse
   full collection so dependency graphs promoted while StorageRanges was slow
   are revisited during the range phase instead of only before final healing.
   The embedded production runtime reserves 6 GiB of dynamic space and the
@@ -208,9 +213,12 @@ them by their physical location instead reintroduces dependency cycles:
   between block acquisition and pivot-state availability and prevents a normal
   pre-state range from terminating the node process.
   Fetch workers construct and atomically append verified content batches in
-  parallel. One coordinator folds up to sixteen ready successor cursors into
-  one synchronous publication batch, so a visible cursor still flushes the
-  complete preceding WAL prefix without a per-page fsync. Storage and bytecode
+  parallel. Account records enter that WAL as soon as their range proof is
+  accepted; closure markers and dependency metadata follow after the page's
+  storage and code complete. One coordinator folds up to sixteen ready
+  successor cursors into one synchronous publication batch, so a visible cursor
+  still flushes the complete preceding WAL prefix without a per-page fsync.
+  Storage and bytecode
   dependencies are scheduled independently of the peer that returned their
   account page. ByteCodes jobs from every page share thirty-two import-wide
   workers, enough to cover every SNAP session expected under the fifty-peer

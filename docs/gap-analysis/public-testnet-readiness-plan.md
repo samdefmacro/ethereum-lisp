@@ -289,6 +289,10 @@ The implementation boundary is split deliberately:
   pages concurrently, while the coordinator alone merges state and commits each
   range cursor. The sixty-four partitions remain durable scheduling granularity;
   only eight decoded pages may stay claimed through dependency completion, and
+  each page buffers its proof-authenticated account trie records immediately,
+  retaining only their 32-byte keys while storage/code work is pending. The
+  later synchronous cursor publication flushes that WAL prefix, so prebuffering
+  cannot expose incomplete progress across a crash. In addition,
   every thirty-two committed pages revisit promoted SBCL objects. The production
   executable reserves a 6 GiB heap and the reviewed remote gate enforces a 7 GiB
   whole-container ceiling. A failed source releases its range for another peer. Exhausting

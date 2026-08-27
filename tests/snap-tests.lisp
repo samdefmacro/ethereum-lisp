@@ -772,23 +772,36 @@
       (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p progress))
       (is (= 1 storage-calls))
       (is (= (length addresses) largest-request))
-      ;; One initial synchronous batch installs the complete-node scheme, and
-      ;; one buffered WAL batch installs every verified storage trie. Each
-      ;; account page also buffers its content before a separate small cursor
-      ;; batch publishes it; the final traversal alone writes completion.
-      (let ((apply-count
-              (snap-counting-test-database-apply-count target-database)))
-        (unless (= 7 apply-count)
-          (error "Expected seven scheme/content/cursor/completion batches, got ~D (~S)"
-                 apply-count
-                 (list
-                  (nreverse
-                   (snap-counting-test-database-batch-sizes target-database))
-                  (nreverse
-                   (snap-counting-test-database-batch-prefixes
-                    target-database)))))
-        (is (= 7 apply-count)))
-      (is (= 3
+      ;; One initial synchronous batch installs the complete-node scheme. Each
+      ;; of the two account pages then prebuffers its authenticated trie nodes,
+      ;; buffers storage/closure metadata, and publishes a separate cursor
+      ;; batch. The final traversal alone writes completion.
+      (let* ((apply-count
+               (snap-counting-test-database-apply-count target-database))
+             (batch-sizes
+               (reverse
+                (copy-list
+                 (snap-counting-test-database-batch-sizes target-database))))
+             (batch-prefixes
+               (reverse
+                (copy-list
+                 (snap-counting-test-database-batch-prefixes
+                  target-database)))))
+        (unless (= 9 apply-count)
+          (error "Expected nine scheme/prebuffer/content/cursor/completion batches, got ~D (~S)"
+                 apply-count (list batch-sizes batch-prefixes)))
+        (is (= 9 apply-count))
+        ;; The account-record WAL batches precede their metadata-only cursor
+        ;; publications. #x19 is :TRIE-NODE and #x0d is :METADATA.
+        (is (every (lambda (prefix) (= #x19 prefix))
+                   (second batch-prefixes)))
+        (is (every (lambda (prefix) (= #x0d prefix))
+                   (fifth batch-prefixes)))
+        (is (every (lambda (prefix) (= #x19 prefix))
+                   (sixth batch-prefixes)))
+        (is (every (lambda (prefix) (= #x0d prefix))
+                   (eighth batch-prefixes))))
+      (is (= 5
              (snap-counting-test-database-buffered-apply-count
               target-database)))
       (is (every #'plusp
@@ -2929,6 +2942,42 @@
         (is
          (every #'ethereum-lisp.snap-sync:snap-sync-account-task-completed-p
                 (ethereum-lisp.snap-sync:snap-sync-progress-tasks durable)))))))
+
+#+sbcl
+(deftest snap-account-range-buffers-records-before-dependencies
+  (:layer :integration :module :p2p)
+  (multiple-value-bind (source-state addresses)
+      (snap-test-partitioned-state)
+    (declare (ignore addresses))
+    (let* ((source-database (make-memory-key-value-database))
+           (target-database (make-memory-key-value-database))
+           (root (state-db-root source-state))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              source-database source-state))
+           (source (snap-test-source backend))
+           (task
+             (first
+              (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+               :count 64)))
+           (work
+             (ethereum-lisp.snap-sync::snap-sync-prepare-account-page-range
+              target-database source root 0 task (* 512 1024)))
+           (references
+             (ethereum-lisp.snap-sync::snap-sync-account-page-work-account-record-hashes
+              work)))
+      (is (plusp (length references)))
+      (is
+       (every
+        (lambda (reference)
+          (nth-value 1 (trie-node-store-get target-database reference)))
+        references))
+      ;; The cursor is intentionally still absent. The buffered records are
+      ;; harmless idempotent content until dependency completion publishes it.
+      (is (not (nth-value
+                1
+                (ethereum-lisp.snap-sync:snap-sync-read-progress
+                 target-database)))))))
 
 #+sbcl
 (deftest snap-state-import-multi-keeps-three-account-peers-busy-across-sixty-four-ranges
