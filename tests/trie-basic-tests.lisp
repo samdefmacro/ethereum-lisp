@@ -1,5 +1,53 @@
 (in-package #:ethereum-lisp.test)
 
+(defun trie-reference-node-rlp-object (node)
+  "Build NODE's canonical RLP object independently of the direct encoder."
+  (labels ((reference (child)
+             (if (ethereum-lisp.trie::hash-node-p child)
+                 (ethereum-lisp.trie::hash-node-hash child)
+                 (let* ((object (object child))
+                        (encoded (rlp-encode object)))
+                   (if (< (length encoded) 32)
+                       object
+                       (keccak-256 encoded)))))
+           (object (current)
+             (etypecase current
+               (ethereum-lisp.trie::leaf-node
+                (make-rlp-list
+                 (hex-prefix-encode
+                  (ethereum-lisp.trie::leaf-node-path current))
+                 (ethereum-lisp.trie::leaf-node-value current)))
+               (ethereum-lisp.trie::extension-node
+                (make-rlp-list
+                 (hex-prefix-encode
+                  (ethereum-lisp.trie::extension-node-path current))
+                 (reference
+                  (ethereum-lisp.trie::extension-node-child current))))
+               (ethereum-lisp.trie::branch-node
+                (apply
+                 #'make-rlp-list
+                 (append
+                  (loop for child across
+                        (ethereum-lisp.trie::branch-node-children current)
+                        collect (if child
+                                    (reference child)
+                                    (make-byte-vector 0)))
+                  (list
+                   (ethereum-lisp.trie::branch-node-value current))))))))
+    (object node)))
+
+(defun trie-fixed-ordered-entries (count)
+  (loop for index below count
+        collect
+        (let ((key (make-byte-vector 32))
+              (value (make-byte-vector 80
+                                       :initial-element (logand index #xff))))
+          (setf (aref key 28) (ldb (byte 8 24) index)
+                (aref key 29) (ldb (byte 8 16) index)
+                (aref key 30) (ldb (byte 8 8) index)
+                (aref key 31) (ldb (byte 8 0) index))
+          (cons key value))))
+
 (deftest trie-empty-root
   (is (string= "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
                (mpt-root-hex (make-mpt)))))
@@ -10,6 +58,53 @@
     (is (string= (mpt-root-hex trie) (mpt-root-hex trie)))
     (is (bytes= (ascii-to-bytes "puppy")
                 (mpt-get trie (ascii-to-bytes "dog"))))))
+
+(deftest trie-direct-node-encoding-matches-reference-object-encoding
+  (:layer :unit :module :trie)
+  (let ((tries (list (make-mpt) (make-mpt) (make-mpt))))
+    (mpt-put (first tries) #(1) #(2))
+    (dolist (entry '((#(1 2) . #(3))
+                     (#(1 3) . #(4))
+                     (#(2 4) . #(5))))
+      (mpt-put (second tries) (car entry) (cdr entry)))
+    (dotimes (index 32)
+      (mpt-put (third tries)
+               (vector index (logxor index #xff))
+               (make-byte-vector 80 :initial-element index)))
+    (dolist (trie tries)
+      (labels ((visit (node)
+                 (unless (ethereum-lisp.trie::hash-node-p node)
+                   (let ((expected
+                           (rlp-encode
+                            (trie-reference-node-rlp-object node)))
+                         (actual (ethereum-lisp.trie::encoded-node node)))
+                     (is (bytes= expected actual))
+                     (is (bytes= (keccak-256 expected)
+                                 (ethereum-lisp.trie::node-hash node))))
+                   (dolist (child
+                            (ethereum-lisp.trie::trie-node-children node))
+                     (visit child)))))
+        (visit (mpt-root-node trie))))))
+
+#+sbcl
+(deftest trie-direct-node-encoding-bounds-range-allocation
+  (:layer :unit :module :trie)
+  (let ((trie (make-mpt)))
+    (ethereum-lisp.trie::mpt-put-ordered-proven-range
+     trie (trie-fixed-ordered-entries 5000))
+    (sb-ext:gc :full t)
+    (let ((started (sb-ext:get-bytes-consed))
+          (ethereum-lisp.trie::*node-encoding-count* 0))
+      (mpt-root-hash trie)
+      (let ((allocated (- (sb-ext:get-bytes-consed) started)))
+        ;; The count is a positive control: the bound must cover the recursive
+        ;; encoder rather than a warm cache or an empty test workload.
+        (is (> ethereum-lisp.trie::*node-encoding-count* 250))
+        ;; The object-graph encoder consumes about 14.6 MB for this exact
+        ;; workload on the pinned SBCL.  The direct writer is about 10.1 MB;
+        ;; retain headroom for allocator granularity while keeping the former
+        ;; implementation decisively above the bound.
+        (is (< allocated 11000000))))))
 
 (deftest trie-insertion-order-independent
   (let ((left (make-mpt))

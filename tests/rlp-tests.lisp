@@ -29,6 +29,32 @@
   (is (string= "0xc7c0c1c0c3c0c1c0"
                (rlp-hex (list '() (list '()) (list '() (list '())))))))
 
+(deftest rlp-byte-item-list-writer-preserves-canonical-boundaries-and-inline-items
+  (:layer :unit :module :rlp)
+  (let* ((inner-object
+           (make-rlp-list (make-byte-vector 0) (make-byte-vector 1)))
+         (inner-encoded (rlp-encode inner-object))
+         (raw-items
+           (vector (make-byte-vector 0)
+                   (make-byte-vector 1 :initial-element #x7f)
+                   (make-byte-vector 55 :initial-element #x81)
+                   (make-byte-vector 56 :initial-element #x82)
+                   (make-byte-vector 256 :initial-element #x83)
+                   inner-encoded))
+         (expected
+           (rlp-encode
+            (make-rlp-list
+             (aref raw-items 0)
+             (aref raw-items 1)
+             (aref raw-items 2)
+             (aref raw-items 3)
+             (aref raw-items 4)
+             inner-object)))
+         (actual
+           (ethereum-lisp.rlp::rlp-encode-byte-items
+            raw-items :preencoded-mask (ash 1 5))))
+    (is (bytes= expected actual))))
+
 #+sbcl
 (deftest rlp-list-encoding-does-not-stage-a-complete-payload-copy
   (:layer :unit :module :rlp)

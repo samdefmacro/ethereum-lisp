@@ -148,7 +148,10 @@ miss. Tests use this to guard the dirty-path complexity contract.")
 (defvar *node-hash-computation-count* nil
   "When bound to a number, increment it for every concrete node hash cache miss.")
 
-(declaim (ftype (function (t) t) node-reference))
+(defparameter +empty-trie-child-bytes+ (make-byte-vector 0)
+  "Shared immutable encoding input for an absent trie branch child.")
+
+(declaim (ftype (function (t) t) encoded-node node-reference))
 
 (defun trie-resolve-node (node)
   "Resolve one HASH-NODE, validating that its loader returns a concrete node."
@@ -207,6 +210,55 @@ miss. Tests use this to guard the dirty-path complexity contract.")
                                          (make-byte-vector 0)))
                        (list (branch-node-value node)))))))))
 
+(defun node-reference-byte-item (node)
+  "Return NODE as bytes plus whether those bytes are already one RLP item."
+  (cond
+    ((null node)
+     (values +empty-trie-child-bytes+ nil))
+    ((hash-node-p node)
+     (values (hash-node-hash node) nil))
+    (t
+     (let ((encoded (encoded-node node)))
+       (if (< (length encoded) 32)
+           ;; An inline child is an RLP list inside its parent's list.  Its
+           ;; bytes must be copied verbatim instead of string-encoded again.
+           (values encoded t)
+           (values (node-reference node) nil))))))
+
+(defun encode-node-direct (node)
+  "Encode concrete NODE without staging an RLP object graph or child buffers."
+  (etypecase node
+    (leaf-node
+     (let ((items (make-array 2)))
+       (setf (aref items 0) (hex-prefix-encode (leaf-node-path node))
+             (aref items 1) (leaf-node-value node))
+       (ethereum-lisp.rlp::rlp-encode-byte-items items)))
+    (extension-node
+     (let ((items (make-array 2))
+           (preencoded-mask 0))
+       (setf (aref items 0) (hex-prefix-encode (extension-node-path node)))
+       (multiple-value-bind (child-item preencoded-p)
+           (node-reference-byte-item (extension-node-child node))
+         (setf (aref items 1) child-item)
+         (when preencoded-p
+           (setf preencoded-mask (logior preencoded-mask (ash 1 1)))))
+       (ethereum-lisp.rlp::rlp-encode-byte-items
+        items :preencoded-mask preencoded-mask)))
+    (branch-node
+     (let ((items (make-array 17))
+           (preencoded-mask 0))
+       (dotimes (index 16)
+         (multiple-value-bind (child-item preencoded-p)
+             (node-reference-byte-item
+              (aref (branch-node-children node) index))
+           (setf (aref items index) child-item)
+           (when preencoded-p
+             (setf preencoded-mask
+                   (logior preencoded-mask (ash 1 index))))))
+       (setf (aref items 16) (branch-node-value node))
+       (ethereum-lisp.rlp::rlp-encode-byte-items
+        items :preencoded-mask preencoded-mask)))))
+
 (defun encoded-node (node)
   (when (hash-node-p node)
     (setf node (trie-resolve-node node)))
@@ -224,7 +276,7 @@ miss. Tests use this to guard the dirty-path complexity contract.")
                                   (setf (extension-node-cached-encoded object) value))
                                 (lambda (value object)
                                   (setf (branch-node-cached-encoded object) value)))
-              (rlp-encode (node-rlp-object node))))))
+              (encode-node-direct node)))))
 
 (defun node-reference (node)
   (if (hash-node-p node)

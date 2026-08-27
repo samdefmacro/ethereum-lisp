@@ -28,6 +28,76 @@ network input from consuming the Lisp control stack.")
                        (list (+ offset 55 (length length-bytes))))
                       length-bytes))))
 
+(defun rlp-length-of-length (length)
+  (ceiling (integer-length length) 8))
+
+(defun rlp-length-prefix-size (length)
+  (if (<= length 55)
+      1
+      (1+ (rlp-length-of-length length))))
+
+(defun rlp-write-length-prefix (target offset base length)
+  "Write one canonical RLP length prefix into TARGET and return the next offset."
+  (if (<= length 55)
+      (progn
+        (setf (aref target offset) (+ base length))
+        (1+ offset))
+      (let ((length-size (rlp-length-of-length length)))
+        (setf (aref target offset) (+ base 55 length-size))
+        (dotimes (index length-size (+ offset 1 length-size))
+          (setf (aref target (+ offset 1 index))
+                (ldb (byte 8 (* 8 (- length-size index 1))) length))))))
+
+(defun rlp-byte-item-size (bytes)
+  (let ((length (length bytes)))
+    (if (and (= length 1) (< (aref bytes 0) #x80))
+        1
+        (+ (rlp-length-prefix-size length) length))))
+
+(defun rlp-write-byte-item (target offset bytes)
+  "Write canonical RLP string BYTES into TARGET and return the next offset."
+  (let ((length (length bytes)))
+    (if (and (= length 1) (< (aref bytes 0) #x80))
+        (progn
+          (setf (aref target offset) (aref bytes 0))
+          (1+ offset))
+        (let ((payload-offset
+                (rlp-write-length-prefix target offset #x80 length)))
+          (replace target bytes :start1 payload-offset)
+          (+ payload-offset length)))))
+
+(defun rlp-encode-byte-items (items &key (preencoded-mask 0))
+  "Encode a list of byte ITEMS directly into its final RLP buffer.
+
+Each clear bit in PREENCODED-MASK names a byte string that still needs its RLP
+string prefix.  Each set bit names one complete, already canonical RLP item to
+copy verbatim.  The latter is required for an inline Merkle Patricia trie child:
+wrapping its encoded list as an RLP string would change the consensus hash."
+  (check-type items vector)
+  (check-type preencoded-mask (integer 0 *))
+  (let ((payload-length 0))
+    (dotimes (index (length items))
+      (let ((item (aref items index)))
+        (unless (byte-vector-p item)
+          (error "RLP byte item ~D is not an octet vector" index))
+        (when (and (logbitp index preencoded-mask)
+                   (zerop (length item)))
+          (error "Pre-encoded RLP byte item ~D is empty" index))
+        (incf payload-length
+              (if (logbitp index preencoded-mask)
+                  (length item)
+                  (rlp-byte-item-size item)))))
+    (let* ((prefix-size (rlp-length-prefix-size payload-length))
+           (result (make-byte-vector (+ prefix-size payload-length)))
+           (offset (rlp-write-length-prefix result 0 #xc0 payload-length)))
+      (dotimes (index (length items) result)
+        (let ((item (aref items index)))
+          (if (logbitp index preencoded-mask)
+              (progn
+                (replace result item :start1 offset)
+                (incf offset (length item)))
+              (setf offset (rlp-write-byte-item result offset item))))))))
+
 (defun rlp-encode-bytes (bytes)
   (let ((bytes (ensure-byte-vector bytes)))
     (if (and (= (length bytes) 1)
