@@ -2454,6 +2454,90 @@
               failure
               'ethereum-lisp.snap-sync:snap-sync-sources-exhausted)))))))
 
+#+sbcl
+(deftest snap-multi-account-pages-apply-memory-backpressure
+  (:layer :unit :module :p2p)
+  (is (= 16 ethereum-lisp.snap-sync::+snap-sync-account-inflight-pages+))
+  (let* ((progress
+           (ethereum-lisp.snap-sync::snap-sync-make-progress
+            :pivot-hash (make-hash32 (snap-test-hash 231))
+            :pivot-number 1
+            :state-root (make-hash32 (snap-test-hash 232))
+            :partial-root +empty-trie-hash+
+            :target-hash (make-hash32 (snap-test-hash 233))
+            :chain-id 560048
+            :genesis-hash (make-hash32 (snap-test-hash 234))
+            :authority-id (make-hash32 (snap-test-hash 235))
+            :completed-p nil :complete-node-scheme-p t
+            :tasks
+            (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+             :count 64)))
+         (runtime
+           (ethereum-lisp.snap-sync::make-snap-sync-multi-runtime
+            progress 1 nil))
+         (source (list :source))
+         (waiter nil)
+         (claimed-index nil)
+         (claimed-task nil))
+    (unwind-protect
+         (progn
+           (dotimes (expected 16)
+             (multiple-value-bind (index task)
+                 (ethereum-lisp.snap-sync::snap-sync-multi-claim-task
+                  runtime source)
+               (is (= expected index))
+               (is task)))
+           (setf waiter
+                 (sb-thread:make-thread
+                  (lambda ()
+                    (multiple-value-setq (claimed-index claimed-task)
+                      (ethereum-lisp.snap-sync::snap-sync-multi-claim-task
+                       runtime source)))
+                  :name "snap-test-account-backpressure"))
+           (is (eq :blocked
+                   (sb-thread:join-thread
+                    waiter :timeout 0.1 :default :blocked)))
+           (ethereum-lisp.snap-sync::snap-sync-multi-release-claim
+            runtime 0 source)
+           (is (not (eq :timeout
+                        (sb-thread:join-thread
+                         waiter :timeout 5 :default :timeout))))
+           (setf waiter nil)
+           (is (= 0 claimed-index))
+           (is claimed-task)
+           (is (= 16
+                  (hash-table-count
+                   (ethereum-lisp.snap-sync::snap-sync-multi-runtime-claims
+                    runtime)))))
+      (sb-thread:with-mutex
+          ((ethereum-lisp.snap-sync::snap-sync-multi-runtime-lock runtime))
+        (setf
+         (ethereum-lisp.snap-sync::snap-sync-multi-runtime-stopped-p runtime)
+         t)
+        (ethereum-lisp.snap-sync::snap-sync-multi-notify runtime))
+      (when waiter
+        (ignore-errors
+          (sb-thread:join-thread waiter :timeout 5 :default nil))))))
+
+#+sbcl
+(deftest snap-multi-range-gc-uses-coarse-durable-watermark
+  (:layer :unit :module :p2p)
+  (let ((runtime
+          (ethereum-lisp.snap-sync::make-snap-sync-multi-runtime nil 0 nil)))
+    (setf (ethereum-lisp.snap-sync::snap-sync-multi-runtime-pages runtime) 63)
+    (is (not (ethereum-lisp.snap-sync::snap-sync-multi-range-gc-due-p
+              runtime)))
+    (setf (ethereum-lisp.snap-sync::snap-sync-multi-runtime-pages runtime) 64)
+    (is (ethereum-lisp.snap-sync::snap-sync-multi-range-gc-due-p runtime))
+    (is (= 64
+           (ethereum-lisp.snap-sync::snap-sync-multi-runtime-last-full-gc-pages
+            runtime)))
+    (setf (ethereum-lisp.snap-sync::snap-sync-multi-runtime-pages runtime) 127)
+    (is (not (ethereum-lisp.snap-sync::snap-sync-multi-range-gc-due-p
+              runtime)))
+    (setf (ethereum-lisp.snap-sync::snap-sync-multi-runtime-pages runtime) 128)
+    (is (ethereum-lisp.snap-sync::snap-sync-multi-range-gc-due-p runtime))))
+
 (deftest snap-sync-progress-v5-round-trips-and-migrates-v2-v4
   (:layer :unit :module :p2p)
   (let* ((pivot (make-hash32 (snap-test-hash 131)))

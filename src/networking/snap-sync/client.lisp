@@ -44,6 +44,20 @@ response type, while range-proof verification and RocksDB writes happen on
 workers after their response is routed. Sixty-four logical partitions bound the
 global dependency backlog and keep newly admitted account peers busy without
 changing the durable page bound.")
+(defconstant +snap-sync-account-inflight-pages+ 16
+  "Maximum verified account pages retained across the dependency pipeline.
+
+The sixty-four durable partitions are scheduler granularity, not permission to
+retain sixty-four decoded 512-KiB responses. A page expands into account trie
+records plus storage/code dependency graphs, and slow StorageRanges work can
+otherwise promote dozens of those graphs into SBCL's old generation. Sixteen
+keeps ordinary public SNAP peers useful while applying memory backpressure.")
+(defconstant +snap-sync-range-full-gc-pages+ 64
+  "Committed range pages between explicit old-generation collections.
+
+Account pages are long-lived while dependencies finish. Once their cursors are
+durable the graphs become garbage, but SBCL's nursery collector need not revisit
+promoted objects before a long fresh import has touched the reserved heap.")
 (defconstant +snap-sync-range-workers-per-source+ 1
   "One AccountRange dispatcher per source, matching geth's idle-peer model.
 
@@ -6195,6 +6209,7 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
   source-count
   max-pages
   (pages 0)
+  (last-full-gc-pages 0)
   stopped-p)
 
 #+sbcl
@@ -6273,6 +6288,11 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
              (sb-thread:condition-wait
               (snap-sync-multi-runtime-changed runtime)
               (snap-sync-multi-runtime-lock runtime))))
+        ((>= (hash-table-count (snap-sync-multi-runtime-claims runtime))
+             +snap-sync-account-inflight-pages+)
+         (sb-thread:condition-wait
+          (snap-sync-multi-runtime-changed runtime)
+          (snap-sync-multi-runtime-lock runtime)))
         (t
          (multiple-value-bind (index task)
              (snap-sync-next-unfinished-task
@@ -7023,6 +7043,17 @@ range-derived subtree proofs."
     (snap-sync-multi-notify runtime)))
 
 #+sbcl
+(defun snap-sync-multi-range-gc-due-p (runtime)
+  "Advance RUNTIME's coarse GC watermark and report whether to collect."
+  (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
+    (when (>= (- (snap-sync-multi-runtime-pages runtime)
+                 (snap-sync-multi-runtime-last-full-gc-pages runtime))
+              +snap-sync-range-full-gc-pages+)
+      (setf (snap-sync-multi-runtime-last-full-gc-pages runtime)
+            (snap-sync-multi-runtime-pages runtime))
+      t)))
+
+#+sbcl
 (defun snap-sync-import-state-multi
     (database sources
      &key pivot-hash pivot-number state-root chain-id genesis-hash authority-id
@@ -7307,6 +7338,12 @@ those cursors. HEAL-YIELD-P is forwarded to final healing."
                                       (snap-sync-multi-event-source result-event)
                                       (snap-sync-multi-event-task-index
                                        result-event))))
+                             ;; A cursor commit is the lifetime boundary for
+                             ;; the page's decoded account/dependency graph.
+                             ;; Periodically revisit promoted objects instead
+                             ;; of touching the entire runtime heap first.
+                             (when (snap-sync-multi-range-gc-due-p runtime)
+                               (snap-sync-release-range-phase-memory))
                              ;; Match geth's moving-pivot behavior at a durable
                              ;; cursor batch boundary. Other workers may still
                              ;; own bounded in-flight pages; unwind stops them

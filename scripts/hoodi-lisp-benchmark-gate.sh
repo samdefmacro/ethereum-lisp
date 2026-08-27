@@ -184,6 +184,7 @@ docker run --detach --pull never \
     --label "io.ethereum-lisp.benchmark-source=$source" \
     --label "io.ethereum-lisp.gate-revision=$revision" \
     --user "$source_user" --read-only --cap-drop ALL \
+    --memory 7g --memory-swap 7g \
     --security-opt no-new-privileges --security-opt "seccomp=$seccomp_profile" \
     --mount "type=bind,source=$datadir,target=/data" \
     --mount "type=bind,source=$jwt_dir,target=/jwt,readonly" \
@@ -319,6 +320,7 @@ docker run --detach --pull never \
     --label "io.ethereum-lisp.resumed-from-container=$previous_container" \
     --label "io.ethereum-lisp.resumed-from-revision=$previous_revision" \
     --user "$source_user" --read-only --cap-drop ALL \
+    --memory 7g --memory-swap 7g \
     --security-opt no-new-privileges --security-opt "seccomp=$seccomp_profile" \
     --mount "type=bind,source=$datadir,target=/data" \
     --mount "type=bind,source=$jwt_dir,target=/jwt,readonly" \
