@@ -1036,23 +1036,29 @@ capacity wins and RTT breaks ties, matching geth's capacity-sorted assignment."
 
 #+sbcl
 (defun devnet-snap-source-pool-fail-and-release
-    (pool entry response-id &key state-unavailable-p)
+    (pool entry response-id &key state-unavailable-p request-timeout-p)
   "Retire ENTRY for this import or cool it down, then wake global waiters."
   (sb-thread:with-mutex ((devnet-snap-source-pool-lock pool))
-    (if state-unavailable-p
-        (progn
-          (setf (gethash
-                 entry (devnet-snap-source-pool-unavailable-entries pool))
-                t)
-          (when (devnet-snap-source-pool-pivot-hash pool)
-            (devnet-node-note-snap-pivot-unavailable
-             (devnet-snap-source-pool-node pool)
-             (devnet-snap-source-pool-pivot-hash pool)
-             entry)))
-        (setf
-         (gethash entry (devnet-snap-source-pool-failed-entries pool))
-         (+ (get-universal-time)
-            +devnet-snap-source-pool-failure-cooldown-seconds+)))
+    (cond
+      (state-unavailable-p
+       (setf (gethash
+              entry (devnet-snap-source-pool-unavailable-entries pool))
+             t)
+       (when (devnet-snap-source-pool-pivot-hash pool)
+         (devnet-node-note-snap-pivot-unavailable
+          (devnet-snap-source-pool-node pool)
+          (devnet-snap-source-pool-pivot-hash pool)
+          entry)))
+      (request-timeout-p
+       ;; The request queue already reset this response type's capacity to its
+       ;; minimum. Match geth by making the live peer immediately assignable;
+       ;; a whole-peer cooldown would also strand its independent SNAP slots.
+       nil)
+      (t
+       (setf
+        (gethash entry (devnet-snap-source-pool-failed-entries pool))
+        (+ (get-universal-time)
+           +devnet-snap-source-pool-failure-cooldown-seconds+))))
     (devnet-snap-source-pool-release-locked pool entry response-id)
     (sb-thread:condition-notify
      (devnet-snap-source-pool-waitqueue pool response-id)))
@@ -1131,7 +1137,9 @@ the transport which supplied it."
                  :state-unavailable-p
                  (typep
                   transport-condition
-                  'ethereum-lisp.snap-sync:snap-sync-state-unavailable))
+                  'ethereum-lisp.snap-sync:snap-sync-state-unavailable)
+                 :request-timeout-p
+                 (typep transport-condition 'devnet-snap-request-timeout))
                 (progn
                   (devnet-snap-source-pool-release pool entry response-id)
                   (devnet-node-set-snap-peer-degraded

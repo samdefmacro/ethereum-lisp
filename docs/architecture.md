@@ -169,8 +169,13 @@ them by their physical location instead reintroduces dependency cycles:
   reviewed same-host gate caps the complete process at 7 GiB. The session
   thread remains the only RLPx writer, but it
   may pipeline one account, storage, bytecode, and trie-node request at once;
-  decoded replies are matched by response type and request id before waking the
-  worker. Synchronous eth jobs wait for an empty SNAP response seam, so they
+  every outbound request receives a non-zero session-unique wire id, and its
+  decoded reply is matched by response type plus that wire id before the
+  transport restores the importer's logical id and wakes the worker. A request
+  deadline requeues only that immutable job and resets the peer's per-message
+  capacity; the session and its other typed slots remain live, while a delayed
+  response for the expired wire id is decoded under the ordinary caps and
+  discarded as stale. Synchronous eth jobs wait for an empty SNAP response seam, so they
   cannot consume a pipelined reply. The next range can therefore use the
   connection while an earlier page resolves storage, bytecode, or RocksDB
   work through the global queue; older

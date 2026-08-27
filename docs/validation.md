@@ -196,6 +196,10 @@ cl-workbench validation run cold-integration --match BOUNDED-PIVOT
 cl-workbench validation run cold-integration --match ETH-SYNC-MULTI-PEER
 cl-workbench validation run cold-integration --match ETH-SYNC-THREE-SCRIPTED
 cl-workbench validation run cold-integration --match DEVNET-PEER-REQUEST-QUEUE
+cl-workbench validation run cold-integration \
+  --match DEVNET-SNAP-TIMEOUT-REVERTS-ONLY-THE-REQUEST
+cl-workbench validation run cold-integration \
+  --match SNAP-STATE-IMPORT-MULTI-RETRIES-A-REQUEST-TIMEOUT
 cl-workbench validation run cold-unit --match DEVNET-SNAP-REQUEST-CAPACITY
 cl-workbench validation run cold-unit --match DEVNET-SNAP-SOURCE-APPLIES
 cl-workbench validation run cold-unit --match DEVNET-SNAP-SOURCE-POOL
@@ -587,6 +591,13 @@ immediate-median timeout, and double/half step limiter. A peer-range verdict
 control requires durable `ACCEPTED` to return normally while deterministic
 `INVALID` still raises the validation failure; this protects the ordinary
 pre-pivot block buffer from being mistaken for an executable-state failure.
+The request-lifetime controls additionally allocate distinct non-zero wire ids,
+restore the caller's logical id on a matched response, expire one job without
+closing its session, absorb a late response without completing its replacement,
+retry an AccountRange timeout on the same source identity, and keep a pooled
+dependency peer out of the whole-peer cooldown table after the same typed
+timeout. Restoring the old session-fatal deadline or reusing logical id `1` on
+the wire makes these controls fail.
 
 The exact `f72afc7f` image exposed both controls on the formal Hoodi datadir. It
 started at `2026-08-26T12:28:47Z` and exited at `12:34:48Z` without OOM. Before

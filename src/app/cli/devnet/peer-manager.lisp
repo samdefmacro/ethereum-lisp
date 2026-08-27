@@ -249,13 +249,18 @@ value for both request sizing and expiry, matching Geth's SNAP scheduler."
 #+sbcl
 (defstruct (devnet-peer-request-job
             (:constructor make-devnet-peer-request-job
-                (function &key snap-response-id snap-request-id)))
+                (function &key snap-response-id snap-request-id
+                               snap-logical-request-id)))
   function
   ;; NIL identifies an ordinary synchronous eth/session job. A snap job names
   ;; its response message and request id, allowing one in-flight request per
   ;; snap response type without ever giving up the session's sole writer.
   snap-response-id
+  ;; Production transport requests receive a session-unique wire id so a late
+  ;; response from an expired request cannot be mistaken for its replacement.
+  ;; The importer still sees the logical id it supplied in the request.
   snap-request-id
+  snap-logical-request-id
   started-at
   timeout-seconds
   deadline
@@ -271,6 +276,7 @@ value for both request sizing and expiry, matching Geth's SNAP scheduler."
   (lock (sb-thread:make-mutex :name "ethereum-lisp-peer-request-queue"))
   (pending '())
   (active '())
+  (snap-request-sequence 0)
   (snap-rates (make-hash-table))
   (snap-round-trip +devnet-snap-qos-max-rtt-seconds+)
   snap-qos
@@ -469,6 +475,72 @@ it is not independently doubled/halved or frozen at an obsolete deadline."
    queue (make-devnet-peer-request-job function)))
 
 #+sbcl
+(define-condition devnet-snap-request-timeout
+    (ethereum-lisp.snap-sync:snap-sync-request-timeout)
+  ((request-id
+    :initarg :request-id
+    :reader devnet-snap-request-timeout-request-id)
+   (response-id
+    :initarg :response-id
+    :reader devnet-snap-request-timeout-response-id)
+   (timeout-seconds
+    :initarg :timeout-seconds
+    :reader devnet-snap-request-timeout-seconds))
+  (:report
+   (lambda (condition stream)
+     (format stream
+             "snap/1 request ~D exceeded the ~,2F second wall-clock deadline"
+             (devnet-snap-request-timeout-request-id condition)
+             (devnet-snap-request-timeout-seconds condition)))))
+
+#+sbcl
+(defun devnet-peer-request-queue-allocate-snap-id (queue)
+  "Allocate a non-zero, session-unique SNAP wire request id."
+  (sb-thread:with-mutex ((devnet-peer-request-queue-lock queue))
+    (let ((next
+            (if (= (devnet-peer-request-queue-snap-request-sequence queue)
+                   most-positive-fixnum)
+                1
+                (1+
+                 (devnet-peer-request-queue-snap-request-sequence queue)))))
+      (setf (devnet-peer-request-queue-snap-request-sequence queue) next)
+      next)))
+
+#+sbcl
+(defun devnet-snap-request-with-id (message-id request id)
+  "Copy REQUEST and replace its wire id without mutating importer state."
+  (let ((copy (copy-structure request)))
+    (case message-id
+      (#.ethereum-lisp.snap:+snap-message-get-account-range+
+       (setf (ethereum-lisp.snap:snap-get-account-range-id copy) id))
+      (#.ethereum-lisp.snap:+snap-message-get-storage-ranges+
+       (setf (ethereum-lisp.snap:snap-get-storage-ranges-id copy) id))
+      (#.ethereum-lisp.snap:+snap-message-get-bytecodes+
+       (setf (ethereum-lisp.snap:snap-get-bytecodes-id copy) id))
+      (#.ethereum-lisp.snap:+snap-message-get-trie-nodes+
+       (setf (ethereum-lisp.snap:snap-get-trie-nodes-id copy) id))
+      (otherwise
+       (error "Unknown SNAP request message id ~D" message-id)))
+    copy))
+
+#+sbcl
+(defun devnet-snap-response-with-id (message-id response id)
+  "Copy RESPONSE and restore the importer-visible logical request id."
+  (let ((copy (copy-structure response)))
+    (case message-id
+      (#.ethereum-lisp.snap:+snap-message-account-range+
+       (setf (ethereum-lisp.snap:snap-account-range-id copy) id))
+      (#.ethereum-lisp.snap:+snap-message-storage-ranges+
+       (setf (ethereum-lisp.snap:snap-storage-ranges-id copy) id))
+      (#.ethereum-lisp.snap:+snap-message-bytecodes+
+       (setf (ethereum-lisp.snap:snap-bytecodes-id copy) id))
+      (#.ethereum-lisp.snap:+snap-message-trie-nodes+
+       (setf (ethereum-lisp.snap:snap-trie-nodes-id copy) id))
+      (otherwise
+       (error "Unknown SNAP response message id ~D" message-id)))
+    copy))
+
+#+sbcl
 (defun devnet-peer-request-queue-submit-snap
     (queue peer message-id request)
   "Pipeline one typed snap request through PEER's sole-writer session.
@@ -476,17 +548,23 @@ it is not independently doubled/halved or frozen at an obsolete deadline."
 Only one request for each response message type may be in flight. Different
 account, storage, bytecode, and trie-node response types may overlap and are
 routed back to their waiting worker by message type plus request id."
-  (let ((request-id (ethereum-lisp.snap:snap-request-id message-id request)))
-    (unless (integerp request-id)
+  (let* ((logical-id
+           (ethereum-lisp.snap:snap-request-id message-id request))
+         (wire-id
+           (devnet-peer-request-queue-allocate-snap-id queue))
+         (wire-request
+           (devnet-snap-request-with-id message-id request wire-id)))
+    (unless (integerp logical-id)
       (error "Snap request has no request id for message ~D" message-id))
     (devnet-peer-request-queue-submit-job
      queue
      (make-devnet-peer-request-job
       (lambda ()
         (ethereum-lisp.eth-sync:eth-peer-start-snap-request
-         peer message-id request))
+         peer message-id wire-request))
       :snap-response-id (1+ message-id)
-      :snap-request-id request-id))))
+      :snap-request-id wire-id
+      :snap-logical-request-id logical-id))))
 
 #+sbcl
 (defun devnet-peer-request-monotonic-seconds ()
@@ -521,66 +599,116 @@ routed back to their waiting worker by message type plus request id."
 (defun devnet-peer-snap-response-handler (queue)
   "Return the session-owned decoder/router for QUEUE's pipelined responses."
   (lambda (message-id payload)
-    (let ((job
-            (sb-thread:with-mutex ((devnet-peer-request-queue-lock queue))
-              (find message-id (devnet-peer-request-queue-active queue)
-                    :key #'devnet-peer-request-job-snap-response-id))))
-      (when job
-        (let ((response
-                (ethereum-lisp.snap:decode-snap-message message-id payload)))
-          (unless (= (devnet-peer-request-job-snap-request-id job)
-                     (ethereum-lisp.snap:snap-response-id
-                      message-id response))
-            (error "Snap response id does not match its in-flight request"))
-          (devnet-peer-request-queue-complete-snap
-           queue job response (length payload))
-          t)))))
+    ;; Even ids are requests for our snap server. Odd ids are responses; a
+    ;; well-formed unmatched response is stale and is ignored like geth's
+    ;; delivery callbacks instead of tearing down the RLPx session.
+    (when (member message-id
+                  (list
+                   ethereum-lisp.snap:+snap-message-account-range+
+                   ethereum-lisp.snap:+snap-message-storage-ranges+
+                   ethereum-lisp.snap:+snap-message-bytecodes+
+                   ethereum-lisp.snap:+snap-message-trie-nodes+))
+      (let* ((response
+               (ethereum-lisp.snap:decode-snap-message message-id payload))
+             (wire-id
+               (ethereum-lisp.snap:snap-response-id message-id response))
+             (job
+               (sb-thread:with-mutex ((devnet-peer-request-queue-lock queue))
+                 (find-if
+                  (lambda (candidate)
+                    (and
+                     (= message-id
+                        (devnet-peer-request-job-snap-response-id candidate))
+                     (= wire-id
+                        (devnet-peer-request-job-snap-request-id candidate))))
+                  (devnet-peer-request-queue-active queue)))))
+        (when job
+          (let ((logical-id
+                  (or
+                   (devnet-peer-request-job-snap-logical-request-id job)
+                   (devnet-peer-request-job-snap-request-id job))))
+            (devnet-peer-request-queue-complete-snap
+             queue job
+             (devnet-snap-response-with-id
+              message-id response logical-id)
+             (length payload))))
+        t))))
 
 #+sbcl
 (defun devnet-peer-request-queue-take-eligible (queue)
   "Take one job that cannot consume a live response belonging to another job."
-  (let ((now (devnet-peer-request-monotonic-seconds)))
-    (sb-thread:with-mutex ((devnet-peer-request-queue-lock queue))
-      (let ((expired
-              (find-if
-               (lambda (job)
-                 (let ((deadline (devnet-peer-request-job-deadline job)))
-                   (and deadline (>= now deadline))))
-               (devnet-peer-request-queue-active queue))))
-        (when expired
-          (error
-           "snap/1 request ~D exceeded the ~,2F second wall-clock deadline"
-           (devnet-peer-request-job-snap-request-id expired)
-           (devnet-peer-request-job-timeout-seconds expired))))
-      (let ((job
+  (loop
+    (let ((now (devnet-peer-request-monotonic-seconds))
+          (expired nil)
+          (job nil))
+      (sb-thread:with-mutex ((devnet-peer-request-queue-lock queue))
+        (setf expired
               (find-if
                (lambda (candidate)
-                 (let ((response-id
-                         (devnet-peer-request-job-snap-response-id candidate)))
-                   (if response-id
-                       (not
-                        (find response-id
-                              (devnet-peer-request-queue-active queue)
-                              :key #'devnet-peer-request-job-snap-response-id))
-                       ;; ETH-PEER-AWAIT cannot coexist with an asynchronous
-                       ;; snap response: it would reject that response as
-                       ;; unsolicited. Run synchronous jobs only at an empty
-                       ;; response seam.
-                       (null (devnet-peer-request-queue-active queue)))))
-               (devnet-peer-request-queue-pending queue))))
-        (when job
-          (setf (devnet-peer-request-queue-pending queue)
-                (delete job (devnet-peer-request-queue-pending queue)
-                        :test #'eq :count 1))
-          (when (devnet-peer-request-job-snap-response-id job)
-            (let ((timeout
-                    (devnet-snap-qos-target-timeout
-                     (devnet-peer-request-queue-snap-qos queue))))
-              (setf (devnet-peer-request-job-started-at job) now
-                    (devnet-peer-request-job-timeout-seconds job) timeout
-                    (devnet-peer-request-job-deadline job) (+ now timeout)))
-            (push job (devnet-peer-request-queue-active queue)))
-          job)))))
+                 (let ((deadline
+                         (devnet-peer-request-job-deadline candidate)))
+                   (and deadline (>= now deadline))))
+               (devnet-peer-request-queue-active queue)))
+        (if expired
+            (setf (devnet-peer-request-queue-active queue)
+                  (delete expired
+                          (devnet-peer-request-queue-active queue)
+                          :test #'eq :count 1))
+            (progn
+              (setf job
+                    (find-if
+                     (lambda (candidate)
+                       (let ((response-id
+                               (devnet-peer-request-job-snap-response-id
+                                candidate)))
+                         (if response-id
+                             (not
+                              (find
+                               response-id
+                               (devnet-peer-request-queue-active queue)
+                               :key
+                               #'devnet-peer-request-job-snap-response-id))
+                             ;; ETH-PEER-AWAIT cannot coexist with an
+                             ;; asynchronous snap response: it would reject
+                             ;; that response as unsolicited.
+                             (null
+                              (devnet-peer-request-queue-active queue)))))
+                     (devnet-peer-request-queue-pending queue)))
+              (when job
+                (setf (devnet-peer-request-queue-pending queue)
+                      (delete job
+                              (devnet-peer-request-queue-pending queue)
+                              :test #'eq :count 1))
+                (when (devnet-peer-request-job-snap-response-id job)
+                  (let ((timeout
+                          (devnet-snap-qos-target-timeout
+                           (devnet-peer-request-queue-snap-qos queue))))
+                    (setf
+                     (devnet-peer-request-job-started-at job) now
+                     (devnet-peer-request-job-timeout-seconds job) timeout
+                     (devnet-peer-request-job-deadline job) (+ now timeout)))
+                  (push job
+                        (devnet-peer-request-queue-active queue)))))))
+      (when expired
+        ;; Geth reverts only this request, records a zero delivery for the
+        ;; message-type capacity, and keeps the peer/session available. The
+        ;; unique wire id lets the response router absorb any late packet.
+        (devnet-peer-request-queue-record-snap-delivery
+         queue (devnet-peer-request-job-snap-response-id expired) 0
+         (max
+          1d-6
+          (- now (devnet-peer-request-job-started-at expired))))
+        (devnet-peer-request-job-finish
+         expired nil
+         (make-condition
+          'devnet-snap-request-timeout
+          :request-id (devnet-peer-request-job-snap-request-id expired)
+          :response-id (devnet-peer-request-job-snap-response-id expired)
+          :timeout-seconds
+          (devnet-peer-request-job-timeout-seconds expired))))
+      (cond (expired)
+            (job (return job))
+            (t (return nil))))))
 
 #+sbcl
 (defun devnet-peer-pending-request (queue)

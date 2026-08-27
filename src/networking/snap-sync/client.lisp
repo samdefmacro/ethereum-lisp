@@ -234,6 +234,15 @@ throttling.")
      (format stream "Snap peer does not have the requested ~A state"
              (snap-sync-state-unavailable-request-kind condition)))))
 
+(define-condition snap-sync-request-timeout (error) ()
+  (:documentation
+   "One SNAP request expired without proving the peer session unusable.
+
+Transport adapters specialize this condition with request metadata. Schedulers
+must retry its immutable work without retiring the source identity; malformed
+frames, socket failures, and validation errors remain ordinary fatal source
+conditions."))
+
 (define-condition snap-sync-sources-exhausted (error)
   ((phase
     :initarg :phase
@@ -6754,6 +6763,13 @@ behind and may safely replay any lost storage pages."
                   (make-snap-sync-multi-event
                    :kind :dependency :source source :task-index task-index
                    :result work)))
+             (snap-sync-request-timeout (condition)
+               (declare (ignore condition))
+               ;; A timed-out request does not prove the RLPx session or peer
+               ;; unusable. The transport has already reset this message
+               ;; type's capacity and assigned a unique id, so release the
+               ;; immutable range and let this same worker retry normally.
+               (snap-sync-multi-release-claim runtime task-index source))
              (serious-condition (condition)
                (let ((report-p
                        (snap-sync-multi-mark-source-failed runtime source)))

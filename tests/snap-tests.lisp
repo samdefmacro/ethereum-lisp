@@ -3459,6 +3459,51 @@
       (is (find failed-origin healthy-origins :test #'bytes=)))))
 
 #+sbcl
+(deftest snap-state-import-multi-retries-a-request-timeout-on-the-same-source
+  (:layer :integration :module :p2p)
+  (multiple-value-bind (source-state addresses)
+      (snap-test-partitioned-state)
+    (declare (ignore addresses))
+    (let* ((source-database (make-memory-key-value-database))
+           (target-database (make-memory-key-value-database))
+           (root (state-db-root source-state))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              source-database source-state))
+           (base-source (snap-test-source backend))
+           (calls 0)
+           (source-errors 0)
+           (source
+             (snap-test-source-with-account-callback
+              base-source
+              (lambda (request)
+                (if (= 1 (incf calls))
+                    (error
+                     'ethereum-lisp.snap-sync:snap-sync-request-timeout)
+                    (funcall
+                     (ethereum-lisp.snap-sync:snap-sync-source-account-range
+                      base-source)
+                     request)))))
+           (progress
+             (ethereum-lisp.snap-sync:snap-sync-import-state-multi
+              target-database (list source)
+              :pivot-hash (make-hash32 (snap-test-hash 248))
+              :pivot-number 913 :state-root root
+              :target-hash (make-hash32 (snap-test-hash 249))
+              :chain-id 560048
+              :genesis-hash (make-hash32 (snap-test-hash 250))
+              :authority-id (make-hash32 (snap-test-hash 251))
+              :on-source-error
+              (lambda (failed condition)
+                (declare (ignore failed condition))
+                (incf source-errors)))))
+      (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p progress))
+      (is (< 1 calls))
+      ;; A request expiry is not a source/session verdict and must not consume
+      ;; the source-error callback or the source identity for this import.
+      (is (zerop source-errors)))))
+
+#+sbcl
 (deftest snap-state-import-multi-preserves-all-source-state-unavailability
   (:layer :integration :module :p2p)
   (let* ((database (make-memory-key-value-database))

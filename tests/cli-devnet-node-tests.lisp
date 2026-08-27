@@ -4161,6 +4161,114 @@ loop cannot block on a message that never comes."
   #-sbcl
   (is t))
 
+(deftest devnet-snap-wire-request-ids-are-unique-and-logical-ids-survive
+  (:layer :unit :module :p2p)
+  #+sbcl
+  (let ((queue (ethereum-lisp.cli::make-devnet-peer-request-queue)))
+    (unwind-protect
+         (let* ((logical
+                  (ethereum-lisp.snap:make-snap-get-account-range
+                   7 (make-byte-vector 32) (make-byte-vector 32)
+                   (make-byte-vector 32) 1024))
+                (first-id
+                  (ethereum-lisp.cli::devnet-peer-request-queue-allocate-snap-id
+                   queue))
+                (second-id
+                  (ethereum-lisp.cli::devnet-peer-request-queue-allocate-snap-id
+                   queue))
+                (wire
+                  (ethereum-lisp.cli::devnet-snap-request-with-id
+                   ethereum-lisp.snap:+snap-message-get-account-range+
+                   logical second-id))
+                (response
+                  (ethereum-lisp.snap:make-snap-account-range
+                   second-id '() '()))
+                (restored
+                  (ethereum-lisp.cli::devnet-snap-response-with-id
+                   ethereum-lisp.snap:+snap-message-account-range+
+                   response 7)))
+           (is (plusp first-id))
+           (is (< first-id second-id))
+           (is (= 7 (ethereum-lisp.snap:snap-get-account-range-id logical)))
+           (is (= second-id
+                  (ethereum-lisp.snap:snap-get-account-range-id wire)))
+           (is (= second-id
+                  (ethereum-lisp.snap:snap-account-range-id response)))
+           (is (= 7 (ethereum-lisp.snap:snap-account-range-id restored))))
+      (ethereum-lisp.cli::devnet-peer-request-queue-close queue)))
+  #-sbcl
+  (is t))
+
+(deftest devnet-snap-timeout-reverts-only-the-request-and-absorbs-late-response
+  (:layer :integration :module :p2p)
+  #+sbcl
+  (let* ((queue (ethereum-lisp.cli::make-devnet-peer-request-queue))
+         (now (ethereum-lisp.cli::devnet-peer-request-monotonic-seconds))
+         (expired
+           (ethereum-lisp.cli::make-devnet-peer-request-job
+            (lambda () nil)
+            :snap-response-id
+            ethereum-lisp.snap:+snap-message-account-range+
+            :snap-request-id 101
+            :snap-logical-request-id 1))
+         (replacement
+           (ethereum-lisp.cli::make-devnet-peer-request-job
+            (lambda () nil)
+            :snap-response-id
+            ethereum-lisp.snap:+snap-message-account-range+
+            :snap-request-id 102
+            :snap-logical-request-id 1)))
+    (unwind-protect
+         (progn
+           (setf
+            (ethereum-lisp.cli::devnet-peer-request-job-started-at expired)
+            (- now 7d0)
+            (ethereum-lisp.cli::devnet-peer-request-job-timeout-seconds expired)
+            6d0
+            (ethereum-lisp.cli::devnet-peer-request-job-deadline expired)
+            (- now 1d0)
+            (ethereum-lisp.cli::devnet-peer-request-queue-active queue)
+            (list expired)
+            (ethereum-lisp.cli::devnet-peer-request-queue-pending queue)
+            (list replacement))
+           (is (eq replacement
+                   (ethereum-lisp.cli::devnet-peer-request-queue-take-eligible
+                    queue)))
+           (is (ethereum-lisp.cli::devnet-peer-request-job-done-p expired))
+           (is (typep
+                (ethereum-lisp.cli::devnet-peer-request-job-condition expired)
+                'ethereum-lisp.snap-sync:snap-sync-request-timeout))
+           (is (not
+                (ethereum-lisp.cli::devnet-peer-request-queue-closed-p queue)))
+           (let ((handler
+                   (ethereum-lisp.cli::devnet-peer-snap-response-handler
+                    queue)))
+             ;; The expired wire response is valid but stale. It must not
+             ;; complete the replacement or tear down the peer session.
+             (is (funcall
+                  handler ethereum-lisp.snap:+snap-message-account-range+
+                  (ethereum-lisp.snap:encode-snap-message
+                   ethereum-lisp.snap:+snap-message-account-range+
+                   (ethereum-lisp.snap:make-snap-account-range 101 '() '()))))
+             (is (not
+                  (ethereum-lisp.cli::devnet-peer-request-job-done-p
+                   replacement)))
+             (is (funcall
+                  handler ethereum-lisp.snap:+snap-message-account-range+
+                  (ethereum-lisp.snap:encode-snap-message
+                   ethereum-lisp.snap:+snap-message-account-range+
+                   (ethereum-lisp.snap:make-snap-account-range 102 '() '()))))
+             (is (ethereum-lisp.cli::devnet-peer-request-job-done-p
+                  replacement))
+             (is (= 1
+                    (ethereum-lisp.snap:snap-account-range-id
+                     (first
+                      (ethereum-lisp.cli::devnet-peer-request-job-values
+                       replacement)))))))
+      (ethereum-lisp.cli::devnet-peer-request-queue-close queue)))
+  #-sbcl
+  (is t))
+
 (deftest devnet-peer-request-queue-pipelines-distinct-snap-response-types
   (:layer :integration :module :p2p)
   #+sbcl
@@ -4807,6 +4915,62 @@ loop cannot block on a message that never comes."
                 :third "storage ranges")))
        (is (= 2 failed-calls))
        (is (= 3 healthy-calls)))))
+  #-sbcl
+  (is t))
+
+(deftest devnet-snap-source-pool-reuses-a-live-peer-after-request-timeout
+  (:layer :unit :module :p2p)
+  #+sbcl
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (entry
+           (ethereum-lisp.cli::make-devnet-peer-entry
+            :id-hex "timeout-dependency-peer"
+            :request-queue
+            (ethereum-lisp.cli::make-devnet-peer-request-queue)))
+         (pool (ethereum-lisp.cli::make-devnet-snap-source-pool node))
+         (calls 0)
+         (source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :account-range (lambda (request) request)
+            :storage-ranges
+            (lambda (request)
+              (if (= 1 (incf calls))
+                  (error
+                   'ethereum-lisp.cli::devnet-snap-request-timeout
+                   :request-id 17
+                   :response-id
+                   ethereum-lisp.snap:+snap-message-storage-ranges+
+                   :timeout-seconds 6d0)
+                  request))
+            :bytecodes (lambda (request) request)
+            :trie-nodes (lambda (request) request))))
+    (ethereum-lisp.cli::devnet-snap-source-pool-register pool entry source)
+    (devnet-peer-sync-call-with-function-overrides
+     (list
+      (cons 'ethereum-lisp.cli::devnet-node-live-sync-entries
+            (lambda (seen-node &key snap-only-p)
+              (is (eq node seen-node))
+              (is snap-only-p)
+              (list entry))))
+     (lambda ()
+       (is (eq :request
+               (ethereum-lisp.cli::devnet-snap-source-pool-call
+                pool ethereum-lisp.snap:+snap-message-storage-ranges+
+                #'ethereum-lisp.snap-sync:snap-sync-source-storage-ranges
+                :request "storage ranges")))
+       (is (= 2 calls))
+       ;; A single request expiry resets per-message capacity but never enters
+       ;; the whole-peer transport cooldown table.
+       (is (not
+            (nth-value
+             1
+             (gethash
+              entry
+              (ethereum-lisp.cli::devnet-snap-source-pool-failed-entries
+               pool))))))))
   #-sbcl
   (is t))
 

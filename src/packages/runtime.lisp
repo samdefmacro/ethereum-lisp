@@ -414,6 +414,7 @@
    #:snap-sync-source-trie-nodes
    #:snap-sync-state-unavailable
    #:snap-sync-state-unavailable-request-kind
+   #:snap-sync-request-timeout
    #:snap-sync-sources-exhausted
    #:snap-sync-sources-exhausted-phase
    #:snap-sync-sources-exhausted-failures

@@ -369,7 +369,12 @@ The implementation boundary is split deliberately:
   small pool gains a peer. Each request receives
   `min(60s, 3 * cached-rtt / confidence)`. Per-message assignments use geth's
   0.1 throughput EWMA and `ceil(1 + 1.01 * throughput * timeout)` rather than a
-  separate double/half limiter. A cold pool starts from Geth's twenty-second
+  separate double/half limiter. Each live request also receives a non-zero,
+  session-unique wire id. On expiry, only that immutable request is reverted,
+  its message-type capacity records a zero delivery, and the same peer remains
+  available; a late response is matched against the wire id and discarded as
+  stale instead of closing the RLPx session. The verified response returned to
+  the importer carries its original logical id. A cold pool starts from Geth's twenty-second
   RTT and sixty-second allowance; replacement peers inherit live mean
   throughputs, and closed peer snapshots are removed before replacement
   scheduling. TrieNodes healer assignment consumes that same per-peer capacity
