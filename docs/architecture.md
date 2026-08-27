@@ -159,7 +159,11 @@ them by their physical location instead reintroduces dependency cycles:
   The page profile reports SBCL dynamic usage, cumulative bytes consed, and GC
   CPU time converted from implementation ticks to milliseconds beside the
   protocol timings; these are diagnostic signals, never
-  admission limits. Sixteen matches geth's account concurrency after those
+  admission limits. An operator may additionally request a bounded one-to-300
+  second SBCL allocation profile through the reviewed live gate. It is off by
+  default, starts only after the first durable page has created every fixed
+  worker pool, and prints at most fifty function-level samples without request
+  or peer payloads. Sixteen matches geth's account concurrency after those
   early releases made the larger window fit the same heap budget. A released
   cursor wakes the next dispatcher. There is no periodic full collection in
   the active range phase: live Hoodi evidence showed that the former

@@ -1,5 +1,21 @@
 (in-package #:ethereum-lisp.test)
 
+(deftest devnet-allocation-profile-duration-is-explicit-and-bounded
+  (:layer :unit :module :p2p)
+  (is (null
+       (ethereum-lisp.cli::devnet-parse-allocation-profile-seconds nil)))
+  (is (null
+       (ethereum-lisp.cli::devnet-parse-allocation-profile-seconds "")))
+  (is (null
+       (ethereum-lisp.cli::devnet-parse-allocation-profile-seconds "0")))
+  (is (= 1
+         (ethereum-lisp.cli::devnet-parse-allocation-profile-seconds "1")))
+  (is (= 300
+         (ethereum-lisp.cli::devnet-parse-allocation-profile-seconds "300")))
+  (dolist (invalid '("-1" "301" "1s" "yes"))
+    (signals error
+      (ethereum-lisp.cli::devnet-parse-allocation-profile-seconds invalid))))
+
 (deftest devnet-discovery-next-crawl-seeds-is-bounded-and-prioritized
   (let ((merged
           (ethereum-lisp.cli::devnet-discovery-next-crawl-seeds

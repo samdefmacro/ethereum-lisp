@@ -427,6 +427,7 @@
        (:file "cli-devnet-background" :pathname "cli/devnet/background")
        (:file "cli-devnet-peer-sync" :pathname "cli/devnet/peer-sync")
        (:file "cli-devnet-peer-manager" :pathname "cli/devnet/peer-manager")
+       (:file "cli-devnet-allocation-profile" :pathname "cli/devnet/allocation-profile")
        (:file "cli-devnet-dialer" :pathname "cli/devnet/dialer")
        (:file "cli-devnet-metrics-server" :pathname "cli/devnet/metrics-server")
        (:file "cli-devnet-ws-server" :pathname "cli/devnet/ws-server")

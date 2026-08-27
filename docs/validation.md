@@ -533,7 +533,11 @@ result after publication and requires both closure hash sets and the expanded
 records to be empty. The production page-log control requires non-negative
 `dynamicUsageBytes`, `bytesConsed`, and `gcRunMs` fields, with an exact
 internal-time-to-milliseconds unit control, so a remote run can
-separate live Lisp heap from RSS retained by SBCL or RocksDB. Three
+separate live Lisp heap from RSS retained by SBCL or RocksDB.
+The allocation-profile duration control accepts only zero (disabled) or one
+through 300 seconds; malformed, negative, or wider requests fail before any
+profiler thread starts. The reviewed gate applies the same numeric boundary
+before forwarding the duration as a container environment value. Three
 sole-writer request queues overlap independent response types with geth's
 adaptive 64--512 KiB snap byte limits. A production-call-site control observes
 the density-selected partition count, uses a second lane only when the plan has

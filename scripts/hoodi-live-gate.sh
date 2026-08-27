@@ -73,6 +73,7 @@ restart_ready_timeout="${HOODI_GATE_RESTART_READY_TIMEOUT:-600}"
 # native database, stacks, and runtime metadata, but never let an accidental
 # regression consume the whole dedicated host.
 memory_limit_bytes=7516192768
+allocation_profile_seconds="${HOODI_GATE_ALLOC_PROFILE_SECONDS:-0}"
 
 case "$host" in *[!A-Za-z0-9_.@-]*|'') fail "unsafe SSH host: $host" ;; esac
 case "$remote_root" in
@@ -103,6 +104,11 @@ case "$restart_ready_timeout" in
 esac
 [ "$restart_ready_timeout" -ge 30 ] && [ "$restart_ready_timeout" -le 1800 ] ||
     fail "restart ready timeout must be between 30 and 1800 seconds"
+case "$allocation_profile_seconds" in
+    *[!0-9]*|'') fail "allocation profile seconds must be an integer" ;;
+esac
+[ "$allocation_profile_seconds" -le 300 ] ||
+    fail "allocation profile seconds must be at most 300"
 
 if [ "$actual_head" != "$revision" ]; then
     git -C "$repo_root" merge-base --is-ancestor "$revision" "$actual_head" ||
@@ -336,12 +342,14 @@ start_gate() {
         "$revision" "$image" "$container" "$datadir" "$jwt_dir" "$public_ip" \
         "$remote_seccomp_profile" "$expected_seccomp_sha256" \
         "$lighthouse_container" "$old_container" "$cl_network" "$egress_network" \
-        "$cl_alias" "$p2p_port" "$memory_limit_bytes" <<'REMOTE'
+        "$cl_alias" "$p2p_port" "$memory_limit_bytes" \
+        "$allocation_profile_seconds" <<'REMOTE'
 set -eu
 revision="$1"; image="$2"; container="$3"; datadir="$4"; jwt_dir="$5"; public_ip="$6"
 seccomp_profile="$7"; expected_seccomp="$8"; lighthouse="$9"; old="${10}"
 cl_network="${11}"; egress_network="${12}"; cl_alias="${13}"; p2p_port="${14}"
 memory_limit="${15}"
+allocation_profile_seconds="${16}"
 
 image_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image")"
 image_platform="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image")"
@@ -424,6 +432,7 @@ if ! docker run --detach --pull never \
     --security-opt "seccomp=$seccomp_profile" \
     --memory "$memory_limit" \
     --memory-swap "$memory_limit" \
+    --env "ETHEREUM_LISP_ALLOC_PROFILE_SECONDS=$allocation_profile_seconds" \
     --mount "type=bind,source=$datadir,target=/data" \
     --mount "type=bind,source=$jwt_dir,target=/jwt,readonly" \
     --network "$cl_network" \
@@ -481,13 +490,15 @@ upgrade_gate() {
         "$remote_seccomp_profile" "$expected_seccomp_sha256" \
         "$lighthouse_container" "$previous_container" "$previous_revision" \
         "$cl_network" "$egress_network" "$cl_alias" "$p2p_port" \
-        "$restart_ready_timeout" "$memory_limit_bytes" <<'REMOTE'
+        "$restart_ready_timeout" "$memory_limit_bytes" \
+        "$allocation_profile_seconds" <<'REMOTE'
 set -eu
 revision="$1"; image="$2"; container="$3"; datadir="$4"; jwt_dir="$5"; public_ip="$6"
 seccomp_profile="$7"; expected_seccomp="$8"; lighthouse="$9"; previous="${10}"
 previous_revision="${11}"; cl_network="${12}"; egress_network="${13}"
 cl_alias="${14}"; p2p_port="${15}"; ready_timeout="${16}"
 memory_limit="${17}"
+allocation_profile_seconds="${18}"
 
 image_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image")"
 image_platform="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image")"
@@ -619,6 +630,7 @@ if ! docker run --detach --pull never \
     --security-opt "seccomp=$seccomp_profile" \
     --memory "$memory_limit" \
     --memory-swap "$memory_limit" \
+    --env "ETHEREUM_LISP_ALLOC_PROFILE_SECONDS=$allocation_profile_seconds" \
     --mount "type=bind,source=$datadir,target=/data" \
     --mount "type=bind,source=$jwt_dir,target=/jwt,readonly" \
     --network "$cl_network" \

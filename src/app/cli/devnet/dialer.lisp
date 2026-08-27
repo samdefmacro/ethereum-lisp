@@ -1675,6 +1675,10 @@ must prove the new state root before either record can authorize publication."
                  progress))))))
        :on-page-profile
        (lambda (profile source task-index)
+         ;; By this first durable-page callback, the fixed SNAP worker pools
+         ;; exist, so an explicitly requested profiler can sample every live
+         ;; allocation stack rather than only the coordinator that starts it.
+         (devnet-maybe-start-allocation-profile)
          (multiple-value-bind (dynamic-usage bytes-consed gc-run-ms)
              (devnet-runtime-heap-snapshot)
            (let ((entry (entry-for-source source)))
