@@ -7216,6 +7216,70 @@
       (declare (ignore record))
       (is (not present-p)))))
 
+(deftest snap-state-healer-retries-a-request-timeout-on-the-same-source
+  (:layer :integration :module :p2p)
+  (let* ((database (make-memory-key-value-database))
+         (account-hash (snap-test-hash 251))
+         (leaf-object
+           (make-rlp-list
+            (ethereum-lisp.trie.encoding:hex-prefix-encode
+             #(0) :terminator t)
+            (make-byte-vector 1 :initial-element 1)))
+         (leaf-encoded (rlp-encode leaf-object))
+         (leaf-reference (keccak-256 leaf-encoded))
+         (work
+           (ethereum-lisp.snap-sync::snap-sync-make-heal-work
+            :storage account-hash (make-byte-vector 0) leaf-reference))
+         (progress
+           (ethereum-lisp.snap-sync::snap-sync-make-progress
+            :pivot-hash (make-hash32 (snap-test-hash 252))
+            :pivot-number 3012
+            :state-root (make-hash32 leaf-reference)
+            :partial-root +empty-trie-hash+
+            :target-hash (make-hash32 (snap-test-hash 253))
+            :chain-id 560048
+            :genesis-hash (make-hash32 (snap-test-hash 254))
+            :authority-id (make-hash32 (snap-test-hash 255))
+            :completed-p nil
+            :tasks
+            (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+             :count 1 :completed-p t)))
+         (trie-calls 0)
+         (source-errors 0)
+         (source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :account-range (lambda (request) (declare (ignore request)))
+            :storage-ranges (lambda (request) (declare (ignore request)))
+            :bytecodes (lambda (request) (declare (ignore request)))
+            :trie-node-capacity (lambda () 1)
+            :trie-nodes
+            (lambda (request)
+              (declare (ignore request))
+              (if (= 1 (incf trie-calls))
+                  (error
+                   'ethereum-lisp.snap-sync:snap-sync-request-timeout)
+                  (ethereum-lisp.snap:make-snap-trie-nodes
+                   1 (list leaf-encoded)))))))
+    ;; Seed the same durable storage frontier used by the source-loss restart
+    ;; control above.  Starting from STATE-ROOT directly would intentionally
+    ;; classify this leaf as an account node instead of a storage node.
+    (let ((batch (make-kv-write-batch)))
+      (ethereum-lisp.snap-sync::snap-sync-populate-heal-checkpoint-batch
+       batch progress (list work) 0 0 0 0 0)
+      (kv-apply-batch database batch))
+    (let ((completed
+            (ethereum-lisp.snap-sync::snap-sync-heal-state
+             database (list source) progress 350
+             :on-source-error
+             (lambda (failed condition)
+               (declare (ignore failed condition))
+               (incf source-errors)))))
+      (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p completed))
+      (is (= 2 trie-calls))
+      ;; A request expiry is not a source/session verdict.  The exact work is
+      ;; retried through the same source without reporting source failure.
+      (is (zerop source-errors)))))
+
 (deftest snap-state-healer-fetches-missing-account-storage-and-code-nodes
   (:layer :integration :module :p2p)
   (let* ((source-state (make-state-db))

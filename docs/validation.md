@@ -200,6 +200,8 @@ cl-workbench validation run cold-integration \
   --match DEVNET-SNAP-TIMEOUT-REVERTS-ONLY-THE-REQUEST
 cl-workbench validation run cold-integration \
   --match SNAP-STATE-IMPORT-MULTI-RETRIES-A-REQUEST-TIMEOUT
+cl-workbench validation run cold-integration \
+  --match SNAP-STATE-HEALER-RETRIES-A-REQUEST-TIMEOUT
 cl-workbench validation run cold-unit --match DEVNET-SNAP-REQUEST-CAPACITY
 cl-workbench validation run cold-unit --match DEVNET-SNAP-SOURCE-APPLIES
 cl-workbench validation run cold-unit --match DEVNET-SNAP-SOURCE-POOL
@@ -638,6 +640,18 @@ a 4-MiB repetitive payload decompressed in about 3 ms through libsnappy versus
 41 ms through the oracle, and compressed in about 3 ms versus 172 ms. Seventeen
 RLPx unit controls and all sixty-nine SNAP integration controls pass with the
 native production path.
+
+A later healer timeout audit found one remaining policy mismatch above that
+transport: AccountRange workers already requeued a typed request timeout, but
+the TrieNodes result coordinator still retired its source.  The healer now
+returns the exact immutable work to its shared queue while leaving that peer
+idle and available; the transport has already reset TrieNodes capacity and
+will discard a delayed response by its expired wire id.  The production-entry
+control makes one source time out once and then answer the retry, proving both
+completion and a zero source-error callback count.  Removing the classification
+turns that control red with typed healing-source exhaustion.  After restoration,
+all eighty-five SNAP unit controls and all seventy SNAP integration controls
+pass through the cold Workbench entrypoints.
 
 The exact `f72afc7f` image exposed both controls on the formal Hoodi datadir. It
 started at `2026-08-26T12:28:47Z` and exited at `12:34:48Z` without OOM. Before

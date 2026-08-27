@@ -5730,6 +5730,16 @@ for more missing hashes."
                     (let ((condition
                             (snap-sync-heal-fetch-result-condition result)))
                       (when condition
+                        (when (typep condition 'snap-sync-request-timeout)
+                          ;; The transport already expired only this wire id,
+                          ;; reset TrieNodes capacity, and retained the live
+                          ;; RLPx session.  Preserve that request-local verdict
+                          ;; here too: return the immutable work to the shared
+                          ;; queue without retiring the peer or consuming the
+                          ;; source-error callback.  A delayed response for the
+                          ;; expired id is discarded by the session boundary.
+                          (return-from handle-result
+                            (values (coerce works 'list) nil 0)))
                         (retire-source
                          (snap-sync-heal-fetch-result-source result)
                          condition)
