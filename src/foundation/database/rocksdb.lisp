@@ -147,8 +147,12 @@
   "One bounded flush/compaction job per supported public-node vCPU.")
 (defconstant +rocksdb-background-bytes-per-sync+ (* 1024 1024)
   "Incremental background-file sync width; WAL cursor batches remain synced.")
-(defconstant +rocksdb-block-cache-bytes+ (* 1024 1024 1024)
-  "Block-cache budget for the supported shared 16-GiB EL/CL node profile.")
+(defconstant +rocksdb-block-cache-bytes+ (* 512 1024 1024)
+  "Block-cache budget for the supported shared 16-GiB EL/CL node profile.
+
+The 7-GiB EL cgroup also charges RocksDB memtables and filesystem cache.  A
+one-GiB block cache exhausted that hard boundary during a sustained Hoodi range
+import even though the live Lisp heap remained below two GiB.")
 (defconstant +rocksdb-bloom-bits-per-key+ 10.0d0
   "Full-filter budget for random content-addressed state lookups.")
 

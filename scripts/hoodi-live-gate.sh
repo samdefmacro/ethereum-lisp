@@ -771,11 +771,26 @@ rpc() {
 }
 date -u +before-timestamp=%Y-%m-%dT%H:%M:%SZ
 printf 'before-started='; docker container inspect --format '{{.State.StartedAt}}' "$container"
+before_running="$(docker container inspect --format '{{.State.Running}}' "$container")"
+printf 'before-running=%s\n' "$before_running"
+printf 'before-finished='; docker container inspect --format '{{.State.FinishedAt}}' "$container"
+printf 'before-exit='; docker container inspect --format '{{.State.ExitCode}}' "$container"
+printf 'before-oom='; docker container inspect --format '{{.State.OOMKilled}}' "$container"
 printf 'before-datadir-bytes='; du -sb "$datadir" | awk '{print $1}'
-printf 'before-block='; rpc eth_blockNumber; printf '\n'
-printf 'before-syncing='; rpc eth_syncing; printf '\n'
+if before_block="$(rpc eth_blockNumber)"; then
+    printf 'before-block=%s\n' "$before_block"
+else
+    printf '%s\n' 'before-block=unavailable'
+fi
+if before_syncing="$(rpc eth_syncing)"; then
+    printf 'before-syncing=%s\n' "$before_syncing"
+else
+    printf '%s\n' 'before-syncing=unavailable'
+fi
 
-docker stop --time 30 "$container" >/dev/null
+if [ "$before_running" = true ]; then
+    docker stop --time 30 "$container" >/dev/null
+fi
 docker start "$container" >/dev/null
 
 ready=false

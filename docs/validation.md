@@ -419,7 +419,7 @@ that hot inner-loop decision is constant-time rather than repeatedly taking
 the linear length of the whole list. Generic controls
 enforce the 4,096-key
 and 4 MiB key-byte bounds. The RocksDB construction regressions witness the
-exact 1 GiB block-cache budget for the shared 16 GiB EL/CL profile, ten-bit
+exact 512 MiB block-cache budget for the shared 16 GiB EL/CL profile, ten-bit
 full Bloom policy, production
 table-factory call site, and an enabled `ReadOptions.async_io` on the live
 adapter handle. Removing that setter or changing its value to zero makes the
@@ -883,10 +883,13 @@ that stopped container and its datadir, and connects the exact-revision EL to
 the already-running Lighthouse alias. It uses the SSH user's non-root uid/gid,
 a read-only container root, an empty revision-named bind-mounted datadir, preset
 bootnodes, and no manual enode. If launch or network attachment fails, it stops
-the failed gate container and restores the rehearsal EL. `restart` stops and
-starts the same container, verifies its revision/datadir ownership first, and
-prints the before/after RPC and datadir evidence needed to assess durable
-progress; it is not by itself proof that progress advanced.
+the failed gate container and restores the rehearsal EL. `restart` verifies the
+same container's revision, datadir, and memory ownership, records its
+running/exit/OOM state, then stops it when necessary and starts it again. A
+crash-stopped container reports its unavailable before-RPC values instead of
+preventing recovery. The broker prints the remaining before/after RPC and
+datadir evidence needed to assess durable progress; a restart is not by itself
+proof that progress advanced.
 Restoring a multi-gigabyte live SNAP database can take several minutes. The
 broker re-resolves Docker's loopback-only ephemeral RPC port after the restart,
 waits up to 600 wall-clock seconds for public RPC by default, fails early if

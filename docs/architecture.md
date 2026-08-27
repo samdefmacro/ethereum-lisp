@@ -575,8 +575,11 @@ them by their physical location instead reintroduces dependency cycles:
   into a fatal node exit. On SBCL, production RocksDB batches of at least 128
   keys are divided into at most eight contiguous native multi-get slices on the
   supported eight-core public-node profile. This
-  path uses a 1 GiB sharded block cache on the supported shared 16 GiB EL/CL
-  public-node profile instead of RocksDB 11's 32 MiB fallback. At the
+  path uses a 512 MiB sharded block cache on the supported shared 16 GiB EL/CL
+  public-node profile instead of RocksDB 11's 32 MiB fallback. This leaves
+  cgroup headroom for the fixed 512 MiB memtable budget and charged filesystem
+  cache under the gate's 7 GiB hard limit; Docker's working-set display omits
+  inactive file pages that still count at that boundary. At the
   same eight-vCPU boundary, RocksDB receives eight bounded background
   flush/compaction jobs while its level-compaction memtable budget remains
   fixed at 512 MiB. Background concurrency can therefore drain independent
