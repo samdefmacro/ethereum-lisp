@@ -827,13 +827,17 @@ HOODI_GATE_ALLOW_MUTATION=1 scripts/hoodi-live-gate.sh restart
 26.1.4's official default profile with only the three io_uring syscalls added;
 the broker refuses another daemon version or profile checksum. `start` and
 `upgrade` retain a non-root/read-only container, drop every capability, set
-`no-new-privileges`, and use that profile. This lets RocksDB issue concurrent
-random reads without replacing Docker's syscall allowlist with an unconfined
-container. Before touching an existing execution client, the broker starts the
-exact candidate image in a read-only, networkless, capability-free one-shot and
-requires its bundled probe to create RocksDB's exact 256-entry ring. Linux 5.15
-must report the compatibility retry; any kernel, memory-lock, or seccomp failure
-leaves the previous client running.
+`no-new-privileges`, use that profile, and set both Docker memory and memory-swap
+to exactly 7 GiB around the runtime's 6 GiB SBCL heap. `status` and `restart`
+fail closed unless both limits remain present, so a host-wide Docker default
+cannot silently replace the documented whole-process boundary. This lets
+RocksDB issue concurrent random reads without replacing Docker's syscall
+allowlist with an unconfined container. Before touching an existing execution
+client, the broker starts the exact candidate image under the same memory limit
+in a read-only, networkless, capability-free one-shot and requires its bundled
+probe to create RocksDB's exact 256-entry ring. Linux 5.15 must report the
+compatibility retry; any kernel, memory-lock, or seccomp failure leaves the
+previous client running.
 
 `HOODI_GATE_P2P_PORT` selects the same explicit TCP/UDP port inside and outside
 the container when the default 30303 is already reserved. If a live run exposes

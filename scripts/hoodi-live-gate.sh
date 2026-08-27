@@ -69,6 +69,10 @@ jwt_dir="${HOODI_GATE_JWT_DIR:-/data/hoodi/jwt}"
 public_ip="${HOODI_GATE_PUBLIC_IP:-165.154.224.110}"
 p2p_port="${HOODI_GATE_P2P_PORT:-30303}"
 restart_ready_timeout="${HOODI_GATE_RESTART_READY_TIMEOUT:-600}"
+# The saved SBCL core reserves a 6 GiB dynamic space.  Leave one GiB for the
+# native database, stacks, and runtime metadata, but never let an accidental
+# regression consume the whole dedicated host.
+memory_limit_bytes=7516192768
 
 case "$host" in *[!A-Za-z0-9_.@-]*|'') fail "unsafe SSH host: $host" ;; esac
 case "$remote_root" in
@@ -332,11 +336,12 @@ start_gate() {
         "$revision" "$image" "$container" "$datadir" "$jwt_dir" "$public_ip" \
         "$remote_seccomp_profile" "$expected_seccomp_sha256" \
         "$lighthouse_container" "$old_container" "$cl_network" "$egress_network" \
-        "$cl_alias" "$p2p_port" <<'REMOTE'
+        "$cl_alias" "$p2p_port" "$memory_limit_bytes" <<'REMOTE'
 set -eu
 revision="$1"; image="$2"; container="$3"; datadir="$4"; jwt_dir="$5"; public_ip="$6"
 seccomp_profile="$7"; expected_seccomp="$8"; lighthouse="$9"; old="${10}"
 cl_network="${11}"; egress_network="${12}"; cl_alias="${13}"; p2p_port="${14}"
+memory_limit="${15}"
 
 image_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image")"
 image_platform="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image")"
@@ -372,6 +377,8 @@ docker run --rm --pull never \
     --cap-drop ALL \
     --security-opt no-new-privileges \
     --security-opt "seccomp=$seccomp_profile" \
+    --memory "$memory_limit" \
+    --memory-swap "$memory_limit" \
     --network none \
     --entrypoint /usr/local/libexec/ethereum-lisp-io-uring-probe \
     "$image"
@@ -415,6 +422,8 @@ if ! docker run --detach --pull never \
     --cap-drop ALL \
     --security-opt no-new-privileges \
     --security-opt "seccomp=$seccomp_profile" \
+    --memory "$memory_limit" \
+    --memory-swap "$memory_limit" \
     --mount "type=bind,source=$datadir,target=/data" \
     --mount "type=bind,source=$jwt_dir,target=/jwt,readonly" \
     --network "$cl_network" \
@@ -454,7 +463,7 @@ if [ "$(docker container inspect --format '{{.State.Running}}' "$container")" !=
     exit 1
 fi
 docker container inspect --format \
-    'container={{.Name}} running={{.State.Running}} started={{.State.StartedAt}} image={{.Image}} user={{.Config.User}} read-only={{.HostConfig.ReadonlyRootfs}} caps={{json .HostConfig.CapDrop}} security={{json .HostConfig.SecurityOpt}} networks={{json .NetworkSettings.Networks}}' \
+    'container={{.Name}} running={{.State.Running}} started={{.State.StartedAt}} image={{.Image}} user={{.Config.User}} read-only={{.HostConfig.ReadonlyRootfs}} memory={{.HostConfig.Memory}} memory-swap={{.HostConfig.MemorySwap}} caps={{json .HostConfig.CapDrop}} security={{json .HostConfig.SecurityOpt}} networks={{json .NetworkSettings.Networks}}' \
     "$container"
 printf 'fresh-datadir=%s uid=%s gid=%s\n' "$datadir" "$gate_uid" "$gate_gid"
 REMOTE
@@ -472,12 +481,13 @@ upgrade_gate() {
         "$remote_seccomp_profile" "$expected_seccomp_sha256" \
         "$lighthouse_container" "$previous_container" "$previous_revision" \
         "$cl_network" "$egress_network" "$cl_alias" "$p2p_port" \
-        "$restart_ready_timeout" <<'REMOTE'
+        "$restart_ready_timeout" "$memory_limit_bytes" <<'REMOTE'
 set -eu
 revision="$1"; image="$2"; container="$3"; datadir="$4"; jwt_dir="$5"; public_ip="$6"
 seccomp_profile="$7"; expected_seccomp="$8"; lighthouse="$9"; previous="${10}"
 previous_revision="${11}"; cl_network="${12}"; egress_network="${13}"
 cl_alias="${14}"; p2p_port="${15}"; ready_timeout="${16}"
+memory_limit="${17}"
 
 image_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image")"
 image_platform="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image")"
@@ -520,6 +530,8 @@ docker run --rm --pull never \
     --cap-drop ALL \
     --security-opt no-new-privileges \
     --security-opt "seccomp=$seccomp_profile" \
+    --memory "$memory_limit" \
+    --memory-swap "$memory_limit" \
     --network none \
     --entrypoint /usr/local/libexec/ethereum-lisp-io-uring-probe \
     "$image"
@@ -605,6 +617,8 @@ if ! docker run --detach --pull never \
     --cap-drop ALL \
     --security-opt no-new-privileges \
     --security-opt "seccomp=$seccomp_profile" \
+    --memory "$memory_limit" \
+    --memory-swap "$memory_limit" \
     --mount "type=bind,source=$datadir,target=/data" \
     --mount "type=bind,source=$jwt_dir,target=/jwt,readonly" \
     --network "$cl_network" \
@@ -668,24 +682,35 @@ printf 'after-block='; rpc "$container" eth_blockNumber; printf '\n'
 printf 'after-syncing='; rpc "$container" eth_syncing; printf '\n'
 printf 'previous-running='; docker container inspect --format '{{.State.Running}}' "$previous"
 docker container inspect --format \
-    'container={{.Name}} running={{.State.Running}} image={{.Image}} user={{.Config.User}} read-only={{.HostConfig.ReadonlyRootfs}} caps={{json .HostConfig.CapDrop}} security={{json .HostConfig.SecurityOpt}} labels={{json .Config.Labels}} networks={{json .NetworkSettings.Networks}}' \
+    'container={{.Name}} running={{.State.Running}} image={{.Image}} user={{.Config.User}} read-only={{.HostConfig.ReadonlyRootfs}} memory={{.HostConfig.Memory}} memory-swap={{.HostConfig.MemorySwap}} caps={{json .HostConfig.CapDrop}} security={{json .HostConfig.SecurityOpt}} labels={{json .Config.Labels}} networks={{json .NetworkSettings.Networks}}' \
     "$container"
 REMOTE
 }
 
 remote_status() {
     note "remote gate status"
-    ssh "$host" bash -s -- "$revision" "$image" "$container" "$datadir" <<'REMOTE'
+    ssh "$host" bash -s -- \
+        "$revision" "$image" "$container" "$datadir" "$memory_limit_bytes" <<'REMOTE'
 set -eu
-revision="$1"; image="$2"; container="$3"; datadir="$4"
+revision="$1"; image="$2"; container="$3"; datadir="$4"; memory_limit="$5"
 date -u +timestamp=%Y-%m-%dT%H:%M:%SZ
 image_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image")"
 [ "$image_revision" = "$revision" ] || { echo "image revision mismatch: $image_revision" >&2; exit 1; }
 docker image inspect --format \
     'image={{.Id}} platform={{.Os}}/{{.Architecture}} revision={{ index .Config.Labels "org.opencontainers.image.revision" }}' \
     "$image"
+actual_memory="$(docker container inspect --format '{{.HostConfig.Memory}}' "$container")"
+actual_memory_swap="$(docker container inspect --format '{{.HostConfig.MemorySwap}}' "$container")"
+[ "$actual_memory" = "$memory_limit" ] || {
+    echo "gate memory limit mismatch: $actual_memory" >&2
+    exit 1
+}
+[ "$actual_memory_swap" = "$memory_limit" ] || {
+    echo "gate memory-swap limit mismatch: $actual_memory_swap" >&2
+    exit 1
+}
 docker container inspect --format \
-    'container={{.Name}} running={{.State.Running}} started={{.State.StartedAt}} image={{.Image}} user={{.Config.User}} read-only={{.HostConfig.ReadonlyRootfs}} caps={{json .HostConfig.CapDrop}} security={{json .HostConfig.SecurityOpt}} networks={{json .NetworkSettings.Networks}}' \
+    'container={{.Name}} running={{.State.Running}} started={{.State.StartedAt}} image={{.Image}} user={{.Config.User}} read-only={{.HostConfig.ReadonlyRootfs}} memory={{.HostConfig.Memory}} memory-swap={{.HostConfig.MemorySwap}} caps={{json .HostConfig.CapDrop}} security={{json .HostConfig.SecurityOpt}} networks={{json .NetworkSettings.Networks}}' \
     "$container"
 printf 'datadir-bytes='
 du -sb "$datadir" | awk '{print $1}'
@@ -710,13 +735,25 @@ restart_gate() {
     require_mutation
     note "recording progress, restarting the same container, and recording it again"
     ssh "$host" bash -s -- \
-        "$revision" "$container" "$datadir" "$restart_ready_timeout" <<'REMOTE'
+        "$revision" "$container" "$datadir" "$restart_ready_timeout" \
+        "$memory_limit_bytes" <<'REMOTE'
 set -eu
 revision="$1"; container="$2"; datadir="$3"; ready_timeout="$4"
+memory_limit="$5"
 label="$(docker container inspect --format '{{ index .Config.Labels "io.ethereum-lisp.gate-revision" }}' "$container")"
 [ "$label" = "$revision" ] || { echo "gate ownership mismatch: $label" >&2; exit 1; }
 mount_source="$(docker container inspect --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Source}}{{end}}{{end}}' "$container")"
 [ "$mount_source" = "$datadir" ] || { echo "gate datadir mismatch: $mount_source" >&2; exit 1; }
+actual_memory="$(docker container inspect --format '{{.HostConfig.Memory}}' "$container")"
+actual_memory_swap="$(docker container inspect --format '{{.HostConfig.MemorySwap}}' "$container")"
+[ "$actual_memory" = "$memory_limit" ] || {
+    echo "gate memory limit mismatch: $actual_memory" >&2
+    exit 1
+}
+[ "$actual_memory_swap" = "$memory_limit" ] || {
+    echo "gate memory-swap limit mismatch: $actual_memory_swap" >&2
+    exit 1
+}
 
 resolve_rpc_port() {
     docker port "$container" 8545/tcp |
