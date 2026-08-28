@@ -451,6 +451,17 @@
    #:snap-sync-page-profile-metadata-ms
    #:snap-sync-page-profile-buffer-ms
    #:snap-sync-page-profile-total-ms
+   #:snap-sync-storage-profile
+   #:snap-sync-storage-profile-page-count
+   #:snap-sync-storage-profile-slot-count
+   #:snap-sync-storage-profile-trie-record-count
+   #:snap-sync-storage-profile-batch-operation-count
+   #:snap-sync-storage-profile-logical-batch-bytes
+   #:snap-sync-storage-profile-completed-task-count
+   #:snap-sync-storage-profile-request-ms
+   #:snap-sync-storage-profile-proof-ms
+   #:snap-sync-storage-profile-materialize-ms
+   #:snap-sync-storage-profile-commit-ms
    #:snap-sync-heal-progress
    #:snap-sync-heal-progress-processed-nodes
    #:snap-sync-heal-progress-reused-nodes

@@ -10,6 +10,21 @@
         (kv-write-batch-operations batch))
   batch)
 
+(defun kv-write-batch-statistics (batch)
+  "Return BATCH's operation count and logical key/value byte count.
+
+The byte count excludes WAL and SST framing.  It is an observational baseline
+for comparing application writes with backend and device write amplification."
+  (check-type batch kv-write-batch)
+  (loop for operation in (kv-write-batch-operations batch)
+        count 1 into operation-count
+        sum (+ (length (second operation))
+               (if (eq :put (first operation))
+                   (length (third operation))
+                   0))
+          into byte-count
+        finally (return (values operation-count byte-count))))
+
 (defun kv-apply-batch-to-memory-shadow (source shadow batch)
   (setf (memory-key-value-database-entries shadow)
         (kv-copy-memory-database-entries source))

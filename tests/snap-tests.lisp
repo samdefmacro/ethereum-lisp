@@ -2299,6 +2299,7 @@
            (runtime
              (ethereum-lisp.snap-sync::make-snap-sync-multi-runtime
               nil 0 nil))
+           (storage-profiles '())
            (thread-a nil)
            (thread-b nil)
            (condition-a nil)
@@ -2314,7 +2315,10 @@
        source
        (snap-counting-test-database-apply-count target-database) 0
        (snap-counting-test-database-batch-sizes target-database) '()
-       (snap-counting-test-database-batch-prefixes target-database) '())
+       (snap-counting-test-database-batch-prefixes target-database) '()
+       (ethereum-lisp.snap-sync::snap-sync-multi-runtime-storage-profile-callback
+        runtime)
+       (lambda (profile) (push profile storage-profiles)))
       ;; Hold the coordinator while both independently verified responses enter
       ;; its queue. Releasing it must buffer both cursor/content pairs through
       ;; one atomic KV batch. The owning account cursor supplies the later
@@ -2368,6 +2372,26 @@
       (is (= 1
              (snap-counting-test-database-buffered-apply-count
               target-database)))
+      (is (= 1 (length storage-profiles)))
+      (let ((profile (first storage-profiles)))
+        (is (= 2
+               (ethereum-lisp.snap-sync:snap-sync-storage-profile-page-count
+                profile)))
+        (is (= 2
+               (ethereum-lisp.snap-sync:snap-sync-storage-profile-slot-count
+                profile)))
+        (is (plusp
+             (ethereum-lisp.snap-sync:snap-sync-storage-profile-trie-record-count
+              profile)))
+        (is (plusp
+             (ethereum-lisp.snap-sync:snap-sync-storage-profile-batch-operation-count
+              profile)))
+        (is (plusp
+             (ethereum-lisp.snap-sync:snap-sync-storage-profile-logical-batch-bytes
+              profile)))
+        (is (= 2
+               (ethereum-lisp.snap-sync:snap-sync-storage-profile-completed-task-count
+                profile))))
       (is
        (ethereum-lisp.snap-sync::snap-sync-account-task-completed-p
         (first

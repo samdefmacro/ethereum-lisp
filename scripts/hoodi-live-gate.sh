@@ -868,6 +868,7 @@ for event in \
     peer.snap.pivot_rebased \
     peer.snap.progress \
     peer.snap.page_profile \
+    peer.snap.storage_profile \
     peer.snap.heal_progress \
     peer.snap.dependency_failed \
     peer.snap.dependencies_unavailable \
@@ -879,6 +880,22 @@ do
     count="$(grep -F -c "$event" "$el_log" || true)"
     printf 'el-event=%s count=%s\n' "$event" "$count"
 done
+storage_profile="$(grep -F 'peer.snap.storage_profile' "$el_log" | tail -1 || true)"
+if [ -n "$storage_profile" ]; then
+    for field in \
+        pivot totalPages totalSlots totalLogicalBytes trieRecords \
+        batchOperations logicalBytes completedTasks requestMs proofMs \
+        materializeMs commitMs elapsedMs slotsPerSecond logicalBytesPerSecond
+    do
+        value="$(
+            printf '%s\n' "$storage_profile" |
+                sed -n "s/.*(\"$field\" \\. \"\([0-9][0-9]*\)\").*/\1/p"
+        )"
+        if [ -n "$value" ]; then
+            printf 'el-storage-profile=%s value=%s\n' "$field" "$value"
+        fi
+    done
+fi
 # Profiler rows are deliberately schema-bounded and contain no peer or network
 # identity. Never print any other raw EL/CL line from this evidence broker.
 grep -E '^allocation-profile-row([[:space:]]|$)' "$el_log" || true

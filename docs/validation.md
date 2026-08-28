@@ -990,6 +990,16 @@ waits up to 600 wall-clock seconds for public RPC by default, fails early if
 the container exits, and accepts a bounded 30--1800 second override through
 `HOODI_GATE_RESTART_READY_TIMEOUT`.
 
+`logs` never prints a raw peer event. In addition to event counts and the
+schema-bounded allocation-profiler rows, it extracts only decimal fields from
+the latest identity-free `peer.snap.storage_profile` event. `totalPages`,
+`totalSlots`, and `totalLogicalBytes` are cumulative for the current pivot
+import; `logicalBytes`, `trieRecords`, and `batchOperations` describe its most
+recent buffered commit; `requestMs`, `proofMs`, `materializeMs`, and `commitMs`
+separate network, verification, local trie expansion, and database time. Use a
+pair of these samples with Docker's block-I/O delta to calculate backend write
+amplification instead of comparing physical writes directly with wire bytes.
+
 When a performance claim needs a same-host geth control, use the separate
 `scripts/hoodi-geth-benchmark-gate.sh`. Its defaults pin the already-installed
 geth v1.17.4 amd64 image by image ID and give geth the same Lighthouse, JWT,

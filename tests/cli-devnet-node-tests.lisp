@@ -1557,6 +1557,15 @@ really reopens the directory instead of observing the first handle's memory."
        'ethereum-lisp.snap-sync:snap-sync-import-state-multi
        (lambda (&rest arguments)
          (push :import-start profile-events)
+         (let ((callback (getf arguments :on-storage-profile)))
+           (is (functionp callback))
+           (funcall
+            callback
+            (ethereum-lisp.snap-sync::make-snap-sync-storage-profile
+             :page-count 2 :slot-count 300 :trie-record-count 400
+             :batch-operation-count 450 :logical-batch-bytes 500000
+             :completed-task-count 1 :request-ms 20 :proof-ms 30
+             :materialize-ms 40 :commit-ms 50)))
          (apply import-function arguments))))
      (lambda ()
        (is
@@ -1580,6 +1589,11 @@ really reopens the directory instead of observing the first handle's memory."
               (remove-if-not
                (lambda (record)
                  (string= "peer.snap.page_profile" (first record)))
+               logs))
+            (storage-profile-logs
+              (remove-if-not
+               (lambda (record)
+                 (string= "peer.snap.storage_profile" (first record)))
                logs))
             (heal-logs
               (remove-if-not
@@ -1625,6 +1639,18 @@ really reopens the directory instead of observing the first handle's memory."
           (is (and (integerp (field record "gcRunMs"))
                    (not (minusp (field record "gcRunMs")))))
           (is (integerp (field record "totalMs"))))
+        (is (= 1 (length storage-profile-logs)))
+        (let ((record (first storage-profile-logs)))
+          (is (null (field record "peer")))
+          (is (= 2 (field record "pages")))
+          (is (= 2 (field record "totalPages")))
+          (is (= 300 (field record "slots")))
+          (is (= 300 (field record "totalSlots")))
+          (is (= 500000 (field record "logicalBytes")))
+          (is (= 500000 (field record "totalLogicalBytes")))
+          (is (= 50 (field record "commitMs")))
+          (is (not (minusp (field record "slotsPerSecond"))))
+          (is (not (minusp (field record "logicalBytesPerSecond")))))
         ;; The shared source/target database makes this a reuse-only healing
         ;; pass. Its terminal snapshot still reaches the operator log.
         (is (= 1 (length heal-logs)))

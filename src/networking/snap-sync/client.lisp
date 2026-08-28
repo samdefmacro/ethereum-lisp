@@ -1655,7 +1655,8 @@ publishes the account cursor."
             (:constructor make-snap-sync-storage-page-result
                 (&key task-index origin records healed-subtrees
                       complete-node-hashes incomplete-node-hashes next-origin
-                      completed-p)))
+                      completed-p entry-count request-ms proof-ms
+                      materialize-ms)))
   task-index
   origin
   records
@@ -1663,18 +1664,44 @@ publishes the account cursor."
   complete-node-hashes
   incomplete-node-hashes
   next-origin
-  completed-p)
+  completed-p
+  (entry-count 0)
+  (request-ms 0)
+  (proof-ms 0)
+  (materialize-ms 0))
 
 (defstruct (snap-sync-verified-storage-page
             (:constructor make-snap-sync-verified-storage-page
-                (&key task-index origin limit entries proof trie)))
+                (&key task-index origin limit entries proof trie started-at
+                      response-at proof-finished-at)))
   "One authenticated large-storage page awaiting local trie materialization."
   task-index
   origin
   limit
   entries
   proof
-  trie)
+  trie
+  started-at
+  response-at
+  proof-finished-at)
+
+(defstruct (snap-sync-storage-profile
+            (:constructor make-snap-sync-storage-profile
+                (&key page-count slot-count trie-record-count
+                      batch-operation-count logical-batch-bytes
+                      completed-task-count request-ms proof-ms materialize-ms
+                      commit-ms)))
+  "Aggregate wall-clock and logical-write evidence for one storage commit."
+  (page-count 0)
+  (slot-count 0)
+  (trie-record-count 0)
+  (batch-operation-count 0)
+  (logical-batch-bytes 0)
+  (completed-task-count 0)
+  (request-ms 0)
+  (proof-ms 0)
+  (materialize-ms 0)
+  (commit-ms 0))
 
 (defun snap-sync-verified-account-records (trie proof)
   "Collect one verified account page's reconstructed and boundary nodes."
@@ -4423,7 +4450,8 @@ promoted immediately. Descendants are never read or revalidated."
 
 (defun snap-sync-materialize-verified-storage-page (verified)
   "Build local records and subtree metadata for authenticated VERIFIED."
-  (let* ((task-index (snap-sync-verified-storage-page-task-index verified))
+  (let* ((materialize-started-at (get-internal-real-time))
+         (task-index (snap-sync-verified-storage-page-task-index verified))
          (origin (snap-sync-verified-storage-page-origin verified))
          (limit (snap-sync-verified-storage-page-limit verified))
          (entries (snap-sync-verified-storage-page-entries verified))
@@ -4460,12 +4488,25 @@ promoted immediately. Descendants are never read or revalidated."
      :incomplete-node-hashes
      (snap-sync-incomplete-record-hashes records complete-references)
      :next-origin next-origin
-     :completed-p completed-p)))
+     :completed-p completed-p
+     :entry-count (length entries)
+     :request-ms
+     (snap-sync-elapsed-milliseconds
+      (snap-sync-verified-storage-page-started-at verified)
+      (snap-sync-verified-storage-page-response-at verified))
+     :proof-ms
+     (snap-sync-elapsed-milliseconds
+      (snap-sync-verified-storage-page-response-at verified)
+      (snap-sync-verified-storage-page-proof-finished-at verified))
+     :materialize-ms
+     (snap-sync-elapsed-milliseconds
+      materialize-started-at (get-internal-real-time)))))
 
 (defun snap-sync-prepare-storage-page
     (source state-root account-hash storage-root task-index task byte-limit)
   "Fetch and authenticate one page of a partitioned large storage trie."
-  (let* ((origin (snap-sync-account-task-next-origin task))
+  (let* ((started-at (get-internal-real-time))
+         (origin (snap-sync-account-task-next-origin task))
          (limit (snap-sync-account-task-limit task))
          (request
            (make-snap-get-storage-ranges
@@ -4473,7 +4514,8 @@ promoted immediately. Descendants are never read or revalidated."
             origin limit byte-limit)))
     (labels
         ((verify (response)
-           (let ((groups (snap-storage-ranges-slots response))
+           (let ((response-at (get-internal-real-time))
+                 (groups (snap-storage-ranges-slots response))
                  (proof (snap-storage-ranges-proof response)))
              (unless (= 1 (snap-storage-ranges-id response))
                (error "Snap storage response id mismatch"))
@@ -4499,7 +4541,8 @@ promoted immediately. Descendants are never read or revalidated."
                  (make-snap-sync-verified-storage-page
                   :task-index task-index :origin (copy-seq origin)
                   :limit (copy-seq limit) :entries entries :proof proof
-                  :trie trie))))))
+                  :trie trie :started-at started-at :response-at response-at
+                  :proof-finished-at (get-internal-real-time)))))))
       ;; A production source uses the global per-response-type idle-peer pool.
       ;; Keep proof verification inside that reservation so a malformed or
       ;; pruned response retires the exact transport. Return it to the idle
@@ -6315,6 +6358,7 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
   (storage-worker-count 0)
   (storage-source-errors '())
   storage-fatal-condition
+  storage-profile-callback
   (code-jobs '())
   (code-worker-count 0)
   (dependency-jobs '())
@@ -6583,7 +6627,8 @@ storage job is complete.  Its later synchronous cursor batch therefore flushes
 this entire WAL prefix.  A crash before that seam leaves the account cursor
 behind and may safely replay any lost storage pages."
   (let ((batch (make-kv-write-batch))
-        (task-updates '()))
+        (task-updates '())
+        (profile nil))
     ;; Claims are immutable from verification until this coordinator releases
     ;; them. Validate the complete batch before constructing any durable state.
     (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
@@ -6629,7 +6674,49 @@ behind and may safely replay any lost storage pages."
     ;; later synchronous batch flushes this preceding WAL prefix before making
     ;; progress externally durable.  This matches geth's in-memory storage
     ;; subtask progress without giving up our restart-safe cursor format.
-    (kv-apply-batch-buffered database batch)
+    (multiple-value-bind (operation-count logical-bytes)
+        (kv-write-batch-statistics batch)
+      (let ((commit-started-at (get-internal-real-time)))
+        (kv-apply-batch-buffered database batch)
+        (setf profile
+              (make-snap-sync-storage-profile
+               :page-count (length entries)
+               :slot-count
+               (loop for entry in entries
+                     sum
+                     (snap-sync-storage-page-result-entry-count
+                      (snap-sync-global-storage-result-result entry)))
+               :trie-record-count
+               (loop for entry in entries
+                     sum
+                     (length
+                      (snap-sync-storage-page-result-records
+                       (snap-sync-global-storage-result-result entry))))
+               :batch-operation-count operation-count
+               :logical-batch-bytes logical-bytes
+               :completed-task-count
+               (loop for entry in entries
+                     count
+                     (snap-sync-storage-page-result-completed-p
+                      (snap-sync-global-storage-result-result entry)))
+               :request-ms
+               (loop for entry in entries
+                     sum
+                     (snap-sync-storage-page-result-request-ms
+                      (snap-sync-global-storage-result-result entry)))
+               :proof-ms
+               (loop for entry in entries
+                     sum
+                     (snap-sync-storage-page-result-proof-ms
+                      (snap-sync-global-storage-result-result entry)))
+               :materialize-ms
+               (loop for entry in entries
+                     sum
+                     (snap-sync-storage-page-result-materialize-ms
+                      (snap-sync-global-storage-result-result entry)))
+               :commit-ms
+               (snap-sync-elapsed-milliseconds
+                commit-started-at (get-internal-real-time))))))
     (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
       (dolist (update task-updates)
         (setf (snap-sync-global-storage-job-tasks (car update)) (cdr update))
@@ -6646,7 +6733,11 @@ behind and may safely replay any lost storage pages."
                            (snap-sync-global-storage-job-claims job)))
             (error "Snap committed storage batch lost a partition claim"))
           (remhash task-index (snap-sync-global-storage-job-claims job))))
-      (snap-sync-multi-notify runtime))))
+      (snap-sync-multi-notify runtime))
+    (let ((callback
+            (snap-sync-multi-runtime-storage-profile-callback runtime)))
+      (when callback (funcall callback profile)))
+    profile))
 
 #+sbcl
 (defun snap-sync-multi-commit-storage-page
@@ -7218,7 +7309,8 @@ range-derived subtree proofs."
     (database sources
      &key pivot-hash pivot-number state-root chain-id genesis-hash authority-id
           target-hash (byte-limit +snap-sync-request-bytes+)
-          on-progress on-page-profile on-source-error on-heal-progress
+          on-progress on-page-profile on-storage-profile on-source-error
+          on-heal-progress
           heal-source-provider range-yield-p heal-yield-p max-pages)
   "Import one pivot through disjoint durable ranges shared across SOURCES.
 
@@ -7228,11 +7320,13 @@ busy, then hands the verified page to a bounded global storage/code pool instead
 of occupying the range peer until those dependencies finish. Each session
 remains the sole RLPx writer while one request per snap response type may be in
 flight, matching replies by both type and request id. The caller thread
-serializes only the progress batch and callbacks. ON-PROGRESS receives
-PROGRESS, SOURCE, and TASK-INDEX
+serializes only the account progress batch and its callbacks. ON-PROGRESS
+receives PROGRESS, SOURCE, and TASK-INDEX
 after that task page is durable. ON-PAGE-PROFILE then receives its observational
-timing profile, SOURCE, and TASK-INDEX. ON-SOURCE-ERROR receives SOURCE and the
-condition after its task has been made retryable by another source.
+timing profile, SOURCE, and TASK-INDEX. The single storage commit coordinator
+invokes ON-STORAGE-PROFILE with one aggregate profile after each buffered
+large-storage page batch. ON-SOURCE-ERROR
+receives SOURCE and the condition after its task has been made retryable.
 HEAL-SOURCE-PROVIDER refreshes both the account worker pool and the final
 content-addressed traversal. Newly connected sources join the range phase up to
 the task concurrency bound; a failed source identity is never started twice in
@@ -7251,6 +7345,8 @@ those cursors. HEAL-YIELD-P is forwarded to final healing."
     (error "Multi-source snap import source provider must be a function"))
   (when (and on-page-profile (not (functionp on-page-profile)))
     (error "Multi-source snap page profile callback must be a function"))
+  (when (and on-storage-profile (not (functionp on-storage-profile)))
+    (error "Multi-source snap storage profile callback must be a function"))
   (when (and range-yield-p (not (functionp range-yield-p)))
     (error "Multi-source snap import range yield predicate must be a function"))
   (setf target-hash (or target-hash pivot-hash))
@@ -7268,6 +7364,8 @@ those cursors. HEAL-YIELD-P is forwarded to final healing."
          (storage-threads '())
          (range-yielded-p nil)
          (errors '()))
+    (setf (snap-sync-multi-runtime-storage-profile-callback runtime)
+          on-storage-profile)
     (when (snap-sync-progress-completed-p progress)
       (return-from snap-sync-import-state-multi progress))
     (when (snap-sync-tasks-completed-p
