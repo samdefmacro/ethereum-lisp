@@ -1022,7 +1022,11 @@ the container exits, and accepts a bounded 30--1800 second override through
 `logs` never prints a raw peer event. In addition to event counts and the
 schema-bounded allocation-profiler rows, it extracts only decimal fields from
 the latest identity-free `peer.snap.storage_profile` event and latest numeric
-SNAP source-refresh event. It also sums page, slot, and phase-millisecond
+SNAP source-refresh event. Stale-pivot evidence is reduced to counts for the
+four production reason labels (`progress-stalled`, `source-throughput-low`,
+`response-throughput-low`, and `sources-unavailable`) plus an `unknown` count;
+it never exposes the accompanying target hashes or peer identities. It also
+sums page, slot, and phase-millisecond
 fields across the bounded recent log window and reports each maximum. `totalPages`,
 `totalSlots`, and `totalLogicalBytes` are cumulative for the current pivot
 import; `logicalBytes`, `trieRecords`, and `batchOperations` describe its most

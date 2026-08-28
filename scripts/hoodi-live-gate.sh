@@ -887,6 +887,26 @@ do
     count="$(grep -F -c "$event" "$el_log" || true)"
     printf 'el-event=%s count=%s\n' "$event" "$count"
 done
+stale_lines="$(grep -F 'peer.snap.target_stale' "$el_log" || true)"
+if [ -n "$stale_lines" ]; then
+    stale_classified=0
+    for reason in \
+        progress-stalled \
+        source-throughput-low \
+        response-throughput-low \
+        sources-unavailable
+    do
+        count="$(
+            printf '%s\n' "$stale_lines" |
+                grep -F -c "(\"reason\" . \"$reason\")" || true
+        )"
+        stale_classified="$(( stale_classified + count ))"
+        printf 'el-target-stale-reason=%s count=%s\n' "$reason" "$count"
+    done
+    stale_total="$(printf '%s\n' "$stale_lines" | wc -l | tr -d ' ')"
+    printf 'el-target-stale-reason=unknown count=%s\n' \
+        "$(( stale_total - stale_classified ))"
+fi
 storage_profile="$(grep -F 'peer.snap.storage_profile' "$el_log" | tail -1 || true)"
 if [ -n "$storage_profile" ]; then
     for field in \
