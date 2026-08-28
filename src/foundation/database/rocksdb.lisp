@@ -525,8 +525,10 @@ faulted scan as a clean end of range."
   (let ((iterator (%rocks-iterator-create
                    (rocksdb-handle database)
                    (rocksdb-read-options database)))
-        (start-id (and start (kv-key-string start)))
-        (end-id (and end (kv-key-string end))))
+        ;; Copy range boundaries once. Comparing native iterator keys as raw
+        ;; bytes avoids allocating a hex string for every visited record.
+        (start-key (and start (kv-copy-bytes start)))
+        (end-key (and end (kv-copy-bytes end))))
     (cond
       (reverse-p
        (cond
@@ -565,11 +567,10 @@ faulted scan as a clean end of range."
                                         (value-length :size))
               (let* ((key-pointer (%rocks-iterator-key iterator key-length))
                      (key (rocksdb-copy-foreign-bytes
-                           key-pointer (cffi:mem-ref key-length :size)))
-                     (key-id (kv-key-string key)))
-                (if (or (and reverse-p start-id (string< key-id start-id))
-                        (and (not reverse-p) end-id
-                             (not (string< key-id end-id))))
+                           key-pointer (cffi:mem-ref key-length :size))))
+                (if (or (and reverse-p start-key (kv-key< key start-key))
+                        (and (not reverse-p) end-key
+                             (not (kv-key< key end-key))))
                     (finish)
                     (let* ((value-pointer
                              (%rocks-iterator-value iterator value-length))

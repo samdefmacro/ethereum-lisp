@@ -347,6 +347,16 @@ The implementation boundary is split deliberately:
   Fresh stores also use geth's exact hash-presence frontier: open range or
   fetched nodes carry durable negative markers, and healer DFS removes each
   marker only after its descendants and external dependencies are complete.
+  Restart does not hydrate the complete retained marker namespace into a Lisp
+  hash table. Exact incomplete status is fetched lazily with ordered bounded
+  RocksDB MultiGets for the references entering each local DFS batch, while
+  bounded in-memory overrides cover freshly fetched markers and completion
+  deletes waiting for their buffered batch. Malformed present markers still
+  fail closed. A bounded allocation profile of the predecessor runtime had
+  attributed 76.3% of samples to the global marker loader and 75.7% to
+  per-iterator-key hex rendering; raw bytewise RocksDB range comparisons remove
+  that secondary allocation path. Regression controls forbid both production
+  behaviors from returning.
   When a later account or partitioned StorageRanges page proves closure for a
   node first observed on an open boundary, its atomic proof/record/cursor batch
   removes that superseded negative instead of leaving the final healer to scan

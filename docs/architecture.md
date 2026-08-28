@@ -596,12 +596,14 @@ them by their physical location instead reintroduces dependency cycles:
   `frontierWorks`, with `deferredStorageWorks` and `remoteWorks` as subsets.
   These values are queue pressure, not a completion denominator: decoding one
   trie node may discover more child or storage work. `knownIncompleteNodes`
-  separately counts conservative durable negative markers, including retained
-  content that an older pivot wrote but the current root may never reach. For
-  one fixed pivot, a stable `processedNodes + knownIncompleteNodes` series is a
-  useful running workload estimate, but discovery, deduplication, stale markers,
-  and rebases can change that denominator. It is not a terminal completion
-  percentage; `completed=T` remains the only terminal authority.
+  separately counts conservative durable negative markers observed in the
+  active traversal, including freshly fetched nodes; it is deliberately not a
+  scan or count of the complete retained marker namespace. On restart the
+  healer checks exact marker presence with bounded, ordered metadata MultiGets
+  as references enter the DFS. This avoids doing work proportional to every
+  retained pivot before the active root can resume. The value is therefore
+  neither a global remaining-work denominator nor a completion percentage;
+  `completed=T` remains the only terminal authority.
   Dependency scheduling also adopts newly connected live SNAP transports
   lazily. Its one-second coordinator refresh is an absolute monotonic deadline,
   not a relative condition-variable timeout: storage claims and commits wake

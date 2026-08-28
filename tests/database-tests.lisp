@@ -1676,6 +1676,49 @@ again (a RocksDB iterator frees its native cursor on exhaustion)."
       (when (probe-file path)
         (uiop:delete-directory-tree path :validate t)))))
 
+(deftest rocksdb-key-value-database-iterator-compares-raw-keys
+  (:layer :integration :module :database)
+  ;; The old iterator converted every visited key to hex merely to enforce
+  ;; range bounds. A large durable snap-marker namespace made that restart
+  ;; scan CPU- and allocation-bound, so guard the raw-byte comparison path.
+  (let ((path
+          (merge-pathnames
+           (make-pathname
+            :directory
+            `(:relative ,(format nil "ethereum-lisp-rocks-raw-iter-~A"
+                                (gensym))))
+           #P"/private/tmp/"))
+        (name 'ethereum-lisp.database::kv-key-string)
+        (calls 0))
+    (unwind-protect
+         (let ((database (make-rocksdb-key-value-database path)))
+           (unwind-protect
+                (progn
+                  (kv-put database #(#x10) #(1))
+                  (kv-put database #(#x20) #(2))
+                  (kv-put database #(#x30) #(3))
+                  (let ((real (fdefinition name)))
+                    (unwind-protect
+                         (progn
+                           (setf (fdefinition name)
+                                 (lambda (key)
+                                   (incf calls)
+                                   (funcall real key)))
+                           (is
+                            (kv-key-list=
+                             (list #(#x10) #(#x20))
+                             (kv-iterator-keys
+                              database :start #(#x10) :end #(#x30))))
+                           (is (= 0 calls))
+                           ;; Mutation control: prove the wrapper observes a
+                           ;; direct invocation in this compiled test image.
+                           (ethereum-lisp.database::kv-key-string #(#x10))
+                           (is (= 1 calls)))
+                      (setf (fdefinition name) real))))
+             (close-rocksdb-key-value-database database)))
+      (when (probe-file path)
+        (uiop:delete-directory-tree path :validate t)))))
+
 (defun assert-kv-iterator-explicit-close-contract (database)
   (kv-put database #(1) #(10))
   (kv-put database #(2) #(20))

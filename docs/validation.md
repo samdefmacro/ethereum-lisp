@@ -844,16 +844,18 @@ counters plus the number of whole durable subtrees skipped through
 `peer.snap.heal_progress`, throttled to the first event, every 30 seconds, and
 completion. The event also reports `frontierWorks`, `deferredStorageWorks`, and
 `remoteWorks` for the currently discovered queue, plus
-`knownIncompleteNodes` for conservative durable negative markers. The
-frontier can grow when a decoded parent reveals children, including a small
-bounded DFS overshoot above the 131,072-work remote-admission target, and
-markers may belong to retained content unreachable from the active pivot. A
+`knownIncompleteNodes` for conservative durable negative markers observed by
+the active traversal. Production restart never hydrates the complete marker
+namespace; bounded ordered marker MultiGets preserve exact fail-closed
+classification as references enter the DFS. The frontier can grow when a
+decoded parent reveals children, including a small bounded DFS overshoot above
+the 131,072-work remote-admission target, and unvisited retained markers do not
+inflate this active count. A
 live pipeline examines at most 4,096 local works in one refill before returning
 to completed peer events, so a mostly reusable trie cannot leave remote slots
 idle while the coordinator tries to discover enough misses to fill the entire
-admission window. A stable `processedNodes + knownIncompleteNodes` series at
-one fixed pivot is a useful running estimate, but none of these fields is an
-authoritative final-work denominator or completion percentage. The
+admission window. None of these fields is an authoritative final-work
+denominator or completion percentage. The
 production call-site control moves a returned node from in-flight work to the
 local stack without double-counting it and requires every live-frontier field
 to reach zero on completion. Source-pool controls also prove that dependency
@@ -868,6 +870,15 @@ content-hash-matched response is decoded once and consumed from the bounded
 response cache, with no per-node point Get and no write-then-reread MultiGet.
 Restoring either redundant production read
 makes `SNAP-STATE-HEALER-PROCESSES-FETCHED-NODES-WITHOUT-REREADING-THEM` fail.
+`SNAP-STATE-HEALER-NEVER-HYDRATES-GLOBAL-INCOMPLETE-MARKER-SET` guards the
+restart boundary with a mutation control: the production healer must not call
+the full marker loader, while the loader remains available as an explicit
+test/operator integrity oracle. `SNAP-INCOMPLETE-NODE-PRESENCE-IS-ORDERED-AND-FAIL-CLOSED`
+checks exact batch order, absence, and malformed-record rejection. The
+RocksDB iterator control
+`ROCKSDB-KEY-VALUE-DATABASE-ITERATOR-COMPARES-RAW-KEYS` proves range bounds no
+longer allocate a hex rendering for each visited key and includes a direct
+wrapper invocation as its mutation control.
 `SNAP-STATE-IMPORT-MULTI-YIELDS-A-STALE-RANGE-PIVOT-AFTER-DURABILITY`
 also replaces the collection hook with a positive witness and proves that a
 durable moving-pivot yield releases the joined range scheduler exactly once

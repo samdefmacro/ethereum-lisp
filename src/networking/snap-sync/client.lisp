@@ -3948,6 +3948,24 @@ the returned encoded, presence, and decoded vectors retain input order."
         (when close-iterator (funcall close-iterator))))
     nodes))
 
+(defun snap-sync-incomplete-nodes-present (database references)
+  "Return ordered presence bits for the requested incomplete-node markers.
+
+The production healer uses this bounded batch lookup instead of hydrating the
+entire durable marker namespace at startup.  A present marker remains a
+versioned fail-closed record; malformed values are storage corruption."
+  (let ((identifiers
+          (map 'vector #'snap-sync-incomplete-node-identifier references)))
+    (multiple-value-bind (values present)
+        (snap-sync-heal-chain-record-batch database :metadata identifiers)
+      (dotimes (index (length references))
+        (when (= 1 (aref present index))
+          (unless (bytes= (aref values index)
+                          +snap-sync-incomplete-node-value+)
+            (ethereum-lisp.validation:storage-fail
+             "Persisted snap incomplete-node marker is malformed"))))
+      present)))
+
 (defun snap-sync-healed-subtree-identifier
     (reference &optional (kind :account))
   (unless (and (byte-vector-p reference) (= 32 (length reference)))
@@ -5097,10 +5115,16 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
              (and
               (snap-sync-progress-complete-node-scheme-p progress)
               (snap-sync-complete-node-scheme-present-p database)))
-           (incomplete-nodes
-             (if complete-node-scheme-p
-                 (snap-sync-load-incomplete-nodes database)
-                 (make-hash-table :test #'equalp)))
+           ;; Retain only markers observed in the active DFS and markers for
+           ;; fetched nodes whose completion sentinel has not run. Loading the
+           ;; complete durable namespace made every restart scan and allocate
+           ;; once per retained node before useful healing could resume.
+           (incomplete-nodes (make-hash-table :test #'equalp))
+           ;; A buffered marker delete is already authoritative to this
+           ;; traversal even though RocksDB still exposes the old value until
+           ;; the completion batch is applied. Keep that bounded override so
+           ;; duplicate references cannot re-arm work in the interim.
+           (pending-complete-nodes (make-hash-table :test #'equalp))
            (stack
              (cond
                (checkpoint-present-p
@@ -5280,20 +5304,42 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                        (coerce (nreverse uncached-indices) 'vector))
                      (references
                        (coerce (nreverse uncached-references) 'vector)))
-                 (multiple-value-bind
-                       (stored stored-present stored-decoded)
-                     (snap-sync-heal-local-node-batch
-                      database references
-                      :decoder
-                      (lambda (index bytes)
-                        (funcall decoder (aref indices index) bytes)))
-                   (dotimes (index (length indices))
-                     (let ((destination (aref indices index)))
-                       (setf (aref encoded destination) (aref stored index)
-                             (aref present destination)
-                             (aref stored-present index)
-                             (aref decoded destination)
-                             (aref stored-decoded index)))))))
+                 (let ((incomplete
+                         (if complete-node-scheme-p
+                             (snap-sync-incomplete-nodes-present
+                              database references)
+                             (make-array (length references)
+                                         :element-type 'bit
+                                         :initial-element 0))))
+                   ;; Pending writes/deletes override the durable snapshot.
+                   ;; Mutate the active set only on this coordinator thread;
+                   ;; the parallel decode closures below read immutable bits.
+                   (dotimes (index (length references))
+                     (let ((reference (aref references index)))
+                       (cond
+                         ((nth-value
+                           1 (gethash reference pending-complete-nodes))
+                          (setf (aref incomplete index) 0))
+                         ((nth-value 1 (gethash reference incomplete-nodes))
+                          (setf (aref incomplete index) 1))
+                         ((= 1 (aref incomplete index))
+                          (setf (gethash reference incomplete-nodes) t)))))
+                   (multiple-value-bind
+                         (stored stored-present stored-decoded)
+                       (snap-sync-heal-local-node-batch
+                        database references
+                        :decoder
+                        (lambda (index bytes)
+                          (funcall decoder
+                                   (aref indices index) bytes
+                                   (= 1 (aref incomplete index)))))
+                     (dotimes (index (length indices))
+                       (let ((destination (aref indices index)))
+                         (setf (aref encoded destination) (aref stored index)
+                               (aref present destination)
+                               (aref stored-present index)
+                               (aref decoded destination)
+                               (aref stored-decoded index))))))))
              ;; Duplicate references in the same batch all observe the cache;
              ;; later visits safely fall back to the now-durable database.
              (dolist (reference cached-references)
@@ -5356,7 +5402,8 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                  (kv-apply-batch-buffered
                   database pending-node-completion-batch))
              (setf pending-node-completion-batch (make-kv-write-batch)
-                   pending-node-completion-count 0)))
+                   pending-node-completion-count 0)
+             (clrhash pending-complete-nodes)))
          (persist-complete-node (work)
            ;; The parent marker is removed only after every child, account
            ;; code, and storage dependency encountered before this DFS
@@ -5372,6 +5419,7 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
              (snap-sync-delete-incomplete-node-batch
               pending-node-completion-batch reference)
              (remhash reference incomplete-nodes)
+             (setf (gethash reference pending-complete-nodes) t)
              (incf pending-node-completion-count)
              (when (= pending-node-completion-count
                       +snap-sync-node-completions-per-batch+)
@@ -5547,14 +5595,14 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                    (ethereum-lisp.validation:storage-fail
                     "Persisted snap trie node is malformed: ~A" condition)
                    (error condition)))))
-         (complete-local-node-p (work)
+         (complete-local-node-p (work incomplete-p)
            (let ((reference (snap-sync-heal-work-reference work)))
              (and complete-node-scheme-p
                   (byte-vector-p reference)
                   (= 32 (length reference))
-                  (not (nth-value 1 (gethash reference incomplete-nodes))))))
-         (decode-local-node (work encoded)
-           (if (complete-local-node-p work)
+                  (not incomplete-p))))
+         (decode-local-node (work encoded incomplete-p)
+           (if (complete-local-node-p work incomplete-p)
                (let ((reference (snap-sync-heal-work-reference work)))
                  ;; Preserve the existing corrupt-value fail-closed boundary
                  ;; while avoiding RLP decode and descendant expansion.
@@ -5794,9 +5842,9 @@ for more missing hashes."
                                    (and active-sources
                                         (prefer-peer-nodes-p)))
                                   :decoder
-                                  (lambda (index bytes)
+                                  (lambda (index bytes incomplete-p)
                                     (decode-local-node
-                                     (aref ordered index) bytes)))
+                                     (aref ordered index) bytes incomplete-p)))
                                (declare (ignore encoded))
                                (dotimes (index (length ordered))
                                  (let ((work (aref ordered index)))
@@ -6209,9 +6257,9 @@ for more missing hashes."
                                 (and
                                  active-sources (prefer-peer-nodes-p)))
                                :decoder
-                               (lambda (index bytes)
+                               (lambda (index bytes incomplete-p)
                                  (decode-local-node
-                                  (aref ordered index) bytes)))
+                                  (aref ordered index) bytes incomplete-p)))
                             (declare (ignore encoded))
                             (dotimes (index (length ordered))
                               (let ((work (aref ordered index)))

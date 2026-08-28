@@ -1185,6 +1185,87 @@
       (is (not (nth-value 1 (gethash storage-complete markers))))
       (is (nth-value 1 (gethash storage-open markers))))))
 
+(deftest snap-incomplete-node-presence-is-ordered-and-fail-closed
+  (:layer :unit :module :p2p)
+  (let* ((database (make-memory-key-value-database))
+         (first (snap-test-hash 8))
+         (missing (snap-test-hash 9))
+         (last (snap-test-hash 10))
+         (batch (make-kv-write-batch)))
+    (dolist (reference (list first last))
+      (ethereum-lisp.snap-sync::snap-sync-populate-incomplete-node-batch
+       batch reference))
+    (kv-apply-batch database batch)
+    (let ((present
+            (ethereum-lisp.snap-sync::snap-sync-incomplete-nodes-present
+             database (vector first missing last))))
+      (is (equalp #*101 present)))
+    (let ((batch (make-kv-write-batch)))
+      (ethereum-lisp.database:kv-batch-put-chain-record
+       batch :metadata
+       (ethereum-lisp.snap-sync::snap-sync-incomplete-node-identifier last)
+       #(2))
+      (kv-apply-batch database batch))
+    (signals ethereum-lisp.validation:storage-error
+      (ethereum-lisp.snap-sync::snap-sync-incomplete-nodes-present
+       database (vector missing last)))))
+
+(deftest snap-state-healer-never-hydrates-global-incomplete-marker-set
+  (:layer :unit :module :p2p)
+  ;; A restart may retain millions of markers outside the active pivot.  The
+  ;; production healer must query only its bounded local batch, while the
+  ;; direct loader remains callable as a test/operator integrity oracle.
+  (let* ((database (make-memory-key-value-database))
+         (reference (snap-test-hash 11))
+         (source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :account-range (lambda (request) (declare (ignore request)))
+            :storage-ranges (lambda (request) (declare (ignore request)))
+            :bytecodes (lambda (request) (declare (ignore request)))
+            :trie-nodes (lambda (request) (declare (ignore request)))))
+         (progress
+           (ethereum-lisp.snap-sync::snap-sync-make-progress
+            :pivot-hash (make-hash32 (snap-test-hash 12))
+            :pivot-number 6200 :state-root +empty-trie-hash+
+            :partial-root +empty-trie-hash+
+            :target-hash (make-hash32 (snap-test-hash 13))
+            :chain-id 560048
+            :genesis-hash (make-hash32 (snap-test-hash 14))
+            :authority-id (make-hash32 (snap-test-hash 15))
+            :completed-p nil :complete-node-scheme-p t
+            :tasks
+            (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+             :count 1 :completed-p t)))
+         (loader-name
+           'ethereum-lisp.snap-sync::snap-sync-load-incomplete-nodes)
+         (real-loader (fdefinition loader-name))
+         (calls 0))
+    (is
+     (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p
+      database))
+    (let ((batch (make-kv-write-batch)))
+      (ethereum-lisp.snap-sync::snap-sync-populate-incomplete-node-batch
+       batch reference)
+      (kv-apply-batch database batch))
+    (unwind-protect
+         (progn
+           (setf (fdefinition loader-name)
+                 (lambda (target)
+                   (incf calls)
+                   (funcall real-loader target)))
+           (is
+            (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
+             (ethereum-lisp.snap-sync::snap-sync-heal-state
+              database (list source) progress 1024)))
+           (is (= 0 calls))
+           (is
+            (= 1
+               (hash-table-count
+                (ethereum-lisp.snap-sync::snap-sync-load-incomplete-nodes
+                 database))))
+           (is (= 1 calls)))
+      (setf (fdefinition loader-name) real-loader))))
+
 (deftest snap-state-import-finishes-byte-capped-storage-before-account-cursor
   (:layer :integration :module :p2p)
   ;; Match geth's account-task pending boundary: persist the authenticated
