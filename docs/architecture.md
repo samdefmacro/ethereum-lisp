@@ -195,7 +195,14 @@ them by their physical location instead reintroduces dependency cycles:
   Lisp vectors pinned only for each bounded call. The decoded-length prefix is
   validated before the at-most-16-MiB destination allocation, and the retained
   pure Lisp codec remains a differential oracle rather than the production
-  per-copy-byte hot path; older
+  per-copy-byte hot path. StorageRanges similarly bypasses the generic RLP
+  object tree on its receive hot path: one canonical cursor validates each
+  length, fixed record shape, and per-list item cap before copying, then creates
+  only the final storage-data and proof values. Other message kinds retain the
+  generic bounded decoder. This matters for a response with tens of thousands
+  of slots, where constructing an `rlp-list` tree and then mapping it into SNAP
+  records otherwise retains two complete sets of list cells during the decode;
+  older
   sixteen-range progress remains resumable and thirty-two-range progress is
   expanded at its exact durable cursors. During range import the dial scheduler
   seeks SNAP-capable outbound sessions up to half of `--maxpeers`, returning to
@@ -238,8 +245,13 @@ them by their physical location instead reintroduces dependency cycles:
   observation, under the same sixty-second ceiling. This Lisp-specific floor
   accounts for bounded RLP materialization cost: a fast ByteCodes reply cannot
   expire legitimate nested StorageRanges replies before their own successful
-  latency has decayed. A zero delivery resets throughput but cannot inflate or
-  erase this service-time observation.
+  latency has decayed. When StorageRanges throughput at the shorter pool
+  deadline already fills the 512 KiB protocol cap, the applied deadline also
+  retains a bounded thirty-second decode allowance. Capacity stays at 512 KiB,
+  so the allowance adds processing margin rather than more wire work. A zero
+  delivery resets throughput and therefore returns the retry to its 64 KiB
+  probe and pool deadline; it cannot inflate or erase the service-time
+  observation.
   This prevents repeated slow or dead dependency transports from consuming a
   full fixed timeout at every retry.
   The page-progress event exposes the pool baseline as `requestTimeoutMs` and

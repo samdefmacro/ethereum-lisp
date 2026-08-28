@@ -163,6 +163,187 @@ response object. This is the only dependency snap serving has on state storage."
      (snap-hash-field (first fields))
      (snap-bytes-field (second fields)))))
 
+(defun snap-rlp-fail (control &rest arguments)
+  "Signal the same typed failure as the generic canonical RLP decoder."
+  (error 'rlp-error :message (apply #'format nil control arguments)))
+
+(defun snap-rlp-read-long-length (bytes position length-size)
+  "Read one canonical RLP long-form length without allocating a byte slice."
+  (let ((end (+ position length-size)))
+    (when (> end (length bytes))
+      (snap-rlp-fail "RLP length overruns input at byte ~D" position))
+    (when (zerop (aref bytes position))
+      (snap-rlp-fail "RLP length has leading zero at byte ~D" position))
+    (values
+     (loop with value = 0
+           for index from position below end
+           do (setf value (+ (ash value 8) (aref bytes index)))
+           finally (return value))
+     end)))
+
+(defun snap-rlp-item-bounds (bytes start)
+  "Return KIND, payload start/end, and next position for one canonical item.
+
+This cursor parser deliberately does not materialize an intermediate RLP tree.
+StorageRanges can contain tens of thousands of two-field records, for which the
+generic tree plus the later protocol-object map otherwise retain two complete
+sets of list cells until decoding returns."
+  (when (>= start (length bytes))
+    (snap-rlp-fail "No RLP item at byte ~D" start))
+  (let ((prefix (aref bytes start)))
+    (labels ((bounded (kind payload-start payload-length)
+               (let ((payload-end (+ payload-start payload-length)))
+                 (when (> payload-end (length bytes))
+                   (snap-rlp-fail "RLP item overruns input at byte ~D" start))
+                 (values kind payload-start payload-end payload-end))))
+      (cond
+        ((< prefix #x80)
+         (values :string start (1+ start) (1+ start)))
+        ((<= prefix #xb7)
+         (let ((payload-length (- prefix #x80))
+               (payload-start (1+ start)))
+           (when (and (= payload-length 1)
+                      (< payload-start (length bytes))
+                      (< (aref bytes payload-start) #x80))
+             (snap-rlp-fail
+              "RLP single byte string is not minimally encoded at byte ~D"
+              start))
+           (bounded :string payload-start payload-length)))
+        ((<= prefix #xbf)
+         (multiple-value-bind (payload-length payload-start)
+             (snap-rlp-read-long-length bytes (1+ start) (- prefix #xb7))
+           (when (<= payload-length 55)
+             (snap-rlp-fail
+              "RLP long string used for short payload at byte ~D" start))
+           (bounded :string payload-start payload-length)))
+        ((<= prefix #xf7)
+         (bounded :list (1+ start) (- prefix #xc0)))
+        (t
+         (multiple-value-bind (payload-length payload-start)
+             (snap-rlp-read-long-length bytes (1+ start) (- prefix #xf7))
+           (when (<= payload-length 55)
+             (snap-rlp-fail
+              "RLP long list used for short payload at byte ~D" start))
+           (bounded :list payload-start payload-length)))))))
+
+(defun snap-rlp-list-bounds (bytes start name)
+  (multiple-value-bind (kind payload-start payload-end next)
+      (snap-rlp-item-bounds bytes start)
+    (unless (eq kind :list)
+      (snap-rlp-fail "~A must be an RLP list at byte ~D" name start))
+    (values payload-start payload-end next)))
+
+(defun snap-rlp-string-at (bytes start name)
+  (multiple-value-bind (kind payload-start payload-end next)
+      (snap-rlp-item-bounds bytes start)
+    (unless (eq kind :string)
+      (snap-rlp-fail "~A must be an RLP string at byte ~D" name start))
+    (values (subseq bytes payload-start payload-end) next)))
+
+(defun decode-snap-storage-data-at (bytes start)
+  (multiple-value-bind (payload-start payload-end next)
+      (snap-rlp-list-bounds bytes start "snap storage data")
+    (multiple-value-bind (hash body-start)
+        (snap-rlp-string-at bytes payload-start "snap storage hash")
+      (multiple-value-bind (body body-end)
+          (snap-rlp-string-at bytes body-start "snap storage value")
+        (unless (= body-end payload-end)
+          (snap-rlp-fail
+           "snap storage data must contain exactly two fields at byte ~D"
+           start))
+        (values
+         (make-snap-storage-data (snap-hash-field hash) body)
+         next)))))
+
+(defun decode-snap-storage-slot-set-at (bytes start)
+  (multiple-value-bind (payload-start payload-end next)
+      (snap-rlp-list-bounds bytes start "snap storage slot set")
+    (loop with position = payload-start
+          with count = 0
+          with slots = '()
+          while (< position payload-end)
+          do (when (>= count +snap-max-storage-slots-per-range+)
+               (snap-rlp-fail
+                "RLP list contains more than ~D items at byte ~D"
+                +snap-max-storage-slots-per-range+ payload-start))
+             (multiple-value-bind (slot next-position)
+                 (decode-snap-storage-data-at bytes position)
+               (push slot slots)
+               (incf count)
+               (setf position next-position))
+          finally
+             (unless (= position payload-end)
+               (snap-rlp-fail
+                "snap storage slot set ended at ~D, expected ~D"
+                position payload-end))
+             (return (values (nreverse slots) next)))))
+
+(defun decode-snap-storage-groups-at (bytes start)
+  (multiple-value-bind (payload-start payload-end next)
+      (snap-rlp-list-bounds bytes start "snap storage groups")
+    (loop with position = payload-start
+          with count = 0
+          with groups = '()
+          while (< position payload-end)
+          do (when (>= count +snap-max-storage-slots-per-range+)
+               (snap-rlp-fail
+                "RLP list contains more than ~D items at byte ~D"
+                +snap-max-storage-slots-per-range+ payload-start))
+             (multiple-value-bind (group next-position)
+                 (decode-snap-storage-slot-set-at bytes position)
+               (push group groups)
+               (incf count)
+               (setf position next-position))
+          finally
+             (unless (= position payload-end)
+               (snap-rlp-fail
+                "snap storage groups ended at ~D, expected ~D"
+                position payload-end))
+             (return (values (nreverse groups) next)))))
+
+(defun decode-snap-storage-proof-at (bytes start)
+  (multiple-value-bind (payload-start payload-end next)
+      (snap-rlp-list-bounds bytes start "snap storage proof")
+    (loop with position = payload-start
+          with count = 0
+          with proof = '()
+          while (< position payload-end)
+          do (when (>= count +snap-max-storage-slots-per-range+)
+               (snap-rlp-fail
+                "RLP list contains more than ~D items at byte ~D"
+                +snap-max-storage-slots-per-range+ payload-start))
+             (multiple-value-bind (node next-position)
+                 (snap-rlp-string-at bytes position "snap storage proof node")
+               (push node proof)
+               (incf count)
+               (setf position next-position))
+          finally
+             (unless (= position payload-end)
+               (snap-rlp-fail
+                "snap storage proof ended at ~D, expected ~D"
+                position payload-end))
+             (return (values (nreverse proof) next)))))
+
+(defun decode-snap-storage-ranges-direct (input)
+  "Decode StorageRanges from one cursor, retaining only final protocol values."
+  (let ((bytes (ensure-byte-vector input)))
+    (multiple-value-bind (payload-start payload-end next)
+        (snap-rlp-list-bounds bytes 0 "StorageRanges")
+      (unless (= next (length bytes))
+        (snap-rlp-fail "Trailing bytes after StorageRanges at byte ~D" next))
+      (multiple-value-bind (id groups-start)
+          (snap-rlp-string-at bytes payload-start "StorageRanges id")
+        (multiple-value-bind (groups proof-start)
+            (decode-snap-storage-groups-at bytes groups-start)
+          (multiple-value-bind (proof fields-end)
+              (decode-snap-storage-proof-at bytes proof-start)
+            (unless (= fields-end payload-end)
+              (snap-rlp-fail
+               "StorageRanges must contain exactly three fields at byte ~D"
+               fields-end))
+            (make-snap-storage-ranges
+             (snap-uint-field id) groups proof)))))))
+
 (defun encode-snap-message (message-id packet)
   "Encode PACKET as the snap/1 body for MESSAGE-ID."
   (rlp-encode
@@ -259,17 +440,7 @@ response object. This is the only dependency snap serving has on state storage."
         (snap-bytes-field limit)
         (snap-uint-field byte-limit))))
     (#x03
-     (destructuring-bind (id slots proof)
-         (snap-fields
-          bytes 3 "StorageRanges"
-          :max-list-items +snap-max-storage-slots-per-range+)
-       (make-snap-storage-ranges
-        (snap-uint-field id)
-        (snap-list-field
-         slots
-         (lambda (slot-set)
-           (snap-list-field slot-set #'snap-storage-data-field)))
-        (snap-list-field proof #'snap-bytes-field))))
+     (decode-snap-storage-ranges-direct bytes))
     (#x04
      (destructuring-bind (id hashes byte-limit)
          (snap-fields bytes 3 "GetByteCodes")

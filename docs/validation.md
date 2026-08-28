@@ -599,8 +599,13 @@ the first StorageRanges rate. It requires the unobserved type to retain the
 cold sixty-second deadline, then requires the storage assignment and its
 reported telemetry deadline to follow the larger threefold per-message EWMA
 under the same sixty-second cap; a zero delivery may reset throughput but must
-not inflate or erase that observation. Replacing the production maximum with
-the pool baseline makes this control fail. The capacity controls
+not inflate or erase that observation. Fifty successful full-size deliveries
+then decay the RTT while saturating the 512 KiB cap: the request must retain a
+thirty-second decode allowance without increasing capacity. Removing that
+allowance makes the control fail. Recording its timeout resets throughput, so
+the following 64 KiB probe must return to the six-second pool deadline instead
+of pinning a dead peer for thirty seconds. Replacing the production maximum
+with the pool baseline makes the earlier cold-type control fail. The capacity controls
 use geth's 0.1 units-per-second EWMA and
 `ceil(1 + 1.01 * throughput * live-timeout)` directly: a fast first range or
 ByteCodes response can reach the protocol cap, a zero delivery returns to the
@@ -619,6 +624,16 @@ retry an AccountRange timeout on the same source identity, and keep a pooled
 dependency peer out of the whole-peer cooldown table after the same typed
 timeout. Restoring the old session-fatal deadline or reusing logical id `1` on
 the wire makes these controls fail.
+
+The StorageRanges direct-decoder controls retain canonical single-byte and
+trailing-data rejection, exact two-field storage records, the geth-compatible
+large-response allowance, and the 131,072-item per-list ceiling. On the pinned
+SBCL, decoding one 8,192-slot response through the production message dispatch
+allocates about 1.05 MB and must remain below 1.3 MB; routing `#x03` back through
+the generic RLP tree allocates about 2.2 MB and makes the control fail. A
+separate 32,769-slot container microbenchmark measured 5 ms and 4.19 MB for the
+direct cursor versus 11 ms and 8.88 MB for the generic tree. This is a bounded
+decoder-path comparison, not by itself a public-sync throughput claim.
 
 The exact `dd2a14f2` same-datadir Hoodi run started at
 `2026-08-27T06:55:34Z`. In its first roughly fifteen-minute sample it completed

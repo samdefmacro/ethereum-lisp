@@ -4680,7 +4680,40 @@ loop cannot block on a message that never comes."
                    (ethereum-lisp.cli::devnet-peer-request-job-timeout-seconds
                     job)))
                1d-12))
-        (setf (ethereum-lisp.cli::devnet-peer-request-queue-active queue) nil))))
+        (setf (ethereum-lisp.cli::devnet-peer-request-queue-active queue) nil))
+      ;; Repeated fast full-size deliveries can legitimately decay the
+      ;; message RTT, but their global-deadline assignment is already clamped
+      ;; to 512 KiB. Retain bounded decode headroom without enlarging it.
+      (dotimes (index 50)
+        (declare (ignore index))
+        (ethereum-lisp.cli::devnet-peer-request-queue-record-snap-delivery
+         queue storage-id
+         ethereum-lisp.cli::+devnet-snap-max-request-bytes+ 1d0))
+      (is (< (abs (- 30d0 (storage-timeout))) 1d-12))
+      (is (= ethereum-lisp.cli::+devnet-snap-max-request-bytes+
+             (ethereum-lisp.cli::devnet-peer-request-queue-snap-capacity
+              queue storage-id)))
+      (let ((job
+              (ethereum-lisp.cli::make-devnet-peer-request-job
+               (lambda () nil)
+               :snap-response-id storage-id
+               :snap-request-id 911)))
+        (setf (ethereum-lisp.cli::devnet-peer-request-queue-pending queue)
+              (list job))
+        (is (eq job
+                (ethereum-lisp.cli::devnet-peer-request-queue-take-eligible
+                 queue)))
+        (is (< (abs
+                (- 30d0
+                   (ethereum-lisp.cli::devnet-peer-request-job-timeout-seconds
+                    job)))
+               1d-12))
+        (setf (ethereum-lisp.cli::devnet-peer-request-queue-active queue) nil))
+      ;; A timeout resets throughput, so the next 64 KiB probe returns to the
+      ;; six-second pool deadline instead of holding a dead peer for 30 seconds.
+      (ethereum-lisp.cli::devnet-peer-request-queue-record-snap-delivery
+       queue storage-id 0 30d0)
+      (is (< (abs (- 6d0 (storage-timeout))) 1d-12))))
   #-sbcl
   (is t))
 

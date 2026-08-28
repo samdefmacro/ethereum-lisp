@@ -3836,6 +3836,62 @@
              (ethereum-lisp.snap:snap-storage-ranges-slots decoded)))))
     (is (< count ethereum-lisp.snap:+snap-max-storage-slots-per-range+))))
 
+(deftest snap-storage-range-direct-decoder-rejects-malformed-shapes
+  (:layer :unit :module :p2p)
+  ;; The direct cursor must retain the generic decoder's canonical checks.
+  ;; This is [id=1 encoded as the forbidden 0x81 0x01, [], []].
+  (signals rlp-error
+    (ethereum-lisp.snap:decode-snap-message
+     ethereum-lisp.snap:+snap-message-storage-ranges+
+     (ensure-byte-vector #(#xc4 #x81 #x01 #xc0 #xc0))))
+  (let ((hash (make-byte-vector 32)))
+    ;; A storage record is exactly [hash, value], never a three-field list.
+    (signals rlp-error
+      (ethereum-lisp.snap:decode-snap-message
+       ethereum-lisp.snap:+snap-message-storage-ranges+
+       (rlp-encode
+        (make-rlp-list
+         (integer-to-minimal-bytes 1)
+         (make-rlp-list
+          (make-rlp-list
+           (make-rlp-list hash (make-byte-vector 0) (make-byte-vector 0))))
+         (make-rlp-list))))))
+  (let ((encoded
+          (ethereum-lisp.snap:encode-snap-message
+           ethereum-lisp.snap:+snap-message-storage-ranges+
+           (ethereum-lisp.snap:make-snap-storage-ranges 1 nil nil))))
+    (signals rlp-error
+      (ethereum-lisp.snap:decode-snap-message
+       ethereum-lisp.snap:+snap-message-storage-ranges+
+       (concat-bytes encoded (ensure-byte-vector #(0)))))))
+
+#+sbcl
+(deftest snap-storage-range-direct-decoder-bounds-allocation
+  (:layer :unit :module :p2p)
+  (let* ((count 8192)
+         (slot
+           (ethereum-lisp.snap:make-snap-storage-data
+            (make-byte-vector 32) (rlp-encode 1)))
+         (encoded
+           (ethereum-lisp.snap:encode-snap-message
+            ethereum-lisp.snap:+snap-message-storage-ranges+
+            (ethereum-lisp.snap:make-snap-storage-ranges
+             19 (list (loop repeat count collect slot)) nil))))
+    (sb-ext:gc :full t)
+    (let ((started (sb-ext:get-bytes-consed)))
+      (let ((decoded
+              (ethereum-lisp.snap:decode-snap-message
+               ethereum-lisp.snap:+snap-message-storage-ranges+ encoded)))
+        (is (= count
+               (length
+                (first
+                 (ethereum-lisp.snap:snap-storage-ranges-slots decoded))))))
+      (let ((allocated (- (sb-ext:get-bytes-consed) started)))
+        ;; The generic RLP tree plus protocol-object remap consumes about
+        ;; 2.2 MB for this pinned workload. The cursor path consumes 1.05 MB;
+        ;; this bound retains allocator headroom while rejecting the old route.
+        (is (< allocated 1300000))))))
+
 (deftest snap-backend-serves-and-persists-runtime-state
   (:layer :integration :module :p2p)
   (let* ((state (make-state-db))

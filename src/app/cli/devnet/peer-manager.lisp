@@ -72,6 +72,14 @@ capacity near one on ordinary one-to-two-second public peers.")
 (defconstant +devnet-snap-qos-timeout-limit-seconds+ 60d0
   "Geth's maximum timeout for one SNAP request.")
 
+(defconstant +devnet-snap-storage-full-range-timeout-seconds+ 30d0
+  "Bounded decode headroom for a StorageRanges assignment already at 512 KiB.
+
+Once throughput times the live pool deadline reaches the protocol cap, a longer
+deadline cannot make the response larger.  SBCL can therefore retain this
+headroom for the nested RLP decode without weakening the adaptive small probe
+used after a timeout resets throughput.")
+
 (defconstant +devnet-snap-qos-cold-timeout-seconds+ 60d0
   "Geth's initial three-times-20-second timeout for an untuned peer pool.")
 
@@ -340,16 +348,27 @@ whose successful deliveries are slower may retain up to the same 60-second
 ceiling.  Zero deliveries never update this floor, so a timeout cannot ratchet
 it upward indefinitely."
   (let* ((qos (devnet-peer-request-queue-snap-qos queue))
-         (global-timeout (devnet-snap-qos-target-timeout qos)))
+         (global-timeout (devnet-snap-qos-target-timeout qos))
+         (rate (devnet-peer-request-queue-snap-rate queue response-id))
+         (full-storage-range-p
+           (and (= response-id
+                   ethereum-lisp.snap:+snap-message-storage-ranges+)
+                (>= (ceiling
+                     (+ 1d0
+                        (* +devnet-snap-capacity-overestimation+
+                           (devnet-peer-snap-rate-throughput rate)
+                           global-timeout)))
+                    +devnet-snap-max-request-bytes+))))
     (if (null qos)
         global-timeout
         (max
          global-timeout
+         (if full-storage-range-p
+             +devnet-snap-storage-full-range-timeout-seconds+
+             0d0)
          (min +devnet-snap-qos-timeout-limit-seconds+
               (* +devnet-snap-qos-timeout-scale+
-                 (devnet-peer-snap-rate-round-trip
-                  (devnet-peer-request-queue-snap-rate
-                   queue response-id))))))))
+                 (devnet-peer-snap-rate-round-trip rate)))))))
 
 #+sbcl
 (defun devnet-peer-snap-capacity-target-seconds-locked
