@@ -67,9 +67,15 @@ Geth reserves roughly half of its peer capacity for SNAP-capable sessions while
 state download is active. The ordinary one-third outbound target is restored
 as soon as SNAP demand ends, preserving inbound capacity in steady operation.")
 
-(defconstant +devnet-dial-dynamic-candidate-limit+ 256
-  "How many discovered candidates we remember. Our policy — the bound that the
-old dial registry, a table only ever added to, did not have.")
+(defconstant +devnet-dial-dynamic-candidate-limit+ 1024
+  "How many discovered candidates we remember while retaining a hard bound.
+
+The public SNAP gate receives independent DNS and discv4 sets larger than 256.
+Remote reason-4 saturation can keep every narrow-registry candidate cooling
+down and reject newly bonded alternatives even though the established and
+in-flight peer limits remain far below their bounds.  A 1024-entry registry
+holds the observed union with bounded memory; it does not change either the
+fifty-peer table limit or the fifty-dial concurrency limit.")
 
 (defconstant +devnet-dial-dynamic-forget-failures+ 3
   "After this many failures a DISCOVERED candidate is forgotten. A configured

@@ -234,6 +234,25 @@
       (is (= 3 (ethereum-lisp.cli:devnet-dial-registry-dialing-count registry)))
       (is (null (ethereum-lisp.cli:devnet-dial-registry-plan registry table 0))))))
 
+(deftest devnet-dial-registry-retains-a-bounded-public-candidate-union
+  (:layer :unit :module :devnet)
+  (let ((registry (ethereum-lisp.cli:make-devnet-dial-registry)))
+    (loop for index below
+            ethereum-lisp.cli:+devnet-dial-dynamic-candidate-limit+
+          always
+          (ethereum-lisp.cli:devnet-dial-registry-offer-dynamic
+           registry
+           (format nil "candidate-~D" index)
+           (format nil "enode://candidate-~D@127.0.0.1:1" index)))
+    (is (= ethereum-lisp.cli:+devnet-dial-dynamic-candidate-limit+
+           (ethereum-lisp.cli:devnet-dial-registry-count registry)))
+    (is
+     (null
+      (ethereum-lisp.cli:devnet-dial-registry-offer-dynamic
+       registry "overflow" "enode://overflow@127.0.0.1:1")))
+    (is (= ethereum-lisp.cli:+devnet-dial-dynamic-candidate-limit+
+           (ethereum-lisp.cli:devnet-dial-registry-count registry)))))
+
 (deftest devnet-dial-registry-forgets-dead-discovered-peers-only
   (:layer :unit :module :devnet)
   ;; Discovery returns every node it has SEEN, not only the ones that answered,

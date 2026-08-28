@@ -372,6 +372,11 @@ them by their physical location instead reintroduces dependency cycles:
   capacity until the live non-degraded SNAP pool reaches the workload's
   half-capacity target: twenty-five sessions under the default fifty-peer
   limit.
+  DNS discovery and the endpoint-proven discv4 table feed a separate bounded
+  1,024-entry dial registry. This width retains their public candidate union
+  while saturated endpoints cool down; the established-peer and concurrent-
+  dial limits remain fifty, so candidate diversity cannot expand live socket
+  ownership.
   A failed capability is recorded by response type; success in unrelated SNAP
   traffic cannot hide it, and the still-useful ETH transport no longer counts
   toward the SNAP target while discovery seeks a replacement. Its dedicated

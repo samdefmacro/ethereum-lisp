@@ -796,7 +796,9 @@ while retaining the absolute fifty-peer bound. ETH-only outbound admission
 cannot fill the protected capacity until the non-degraded SNAP pool reaches
 that same workload target; a per-response-type failure removes one from the
 quality count and opens a replacement slot, while success in another type
-cannot conceal the failure. A
+cannot conceal the failure. A dial-registry control fills all 1,024 bounded
+dynamic candidate slots, rejects the next candidate, and leaves the independent
+fifty-peer and fifty-active-dial controls unchanged. A
 finite source generation may exhaust without stopping the node: the coordinator logs
 that typed availability result, refreshes live sessions on its next pass, and
 resumes without replaying the page committed by the retired generation. A peer
