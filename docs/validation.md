@@ -171,6 +171,9 @@ cl-workbench validation run cold-unit --match ETH-GOSSIP-NOTIFIES
 cl-workbench validation run cold-unit --match DEVNET-BROADCAST
 cl-workbench validation run cold-unit --match DEVNET-SNAP-HEAL-PROGRESS
 cl-workbench validation run cold-unit --match DEVNET-SNAP-HEAL-ESTIMATE
+cl-workbench validation run cold-unit --match TRIE-ORDERED-RANGE-BUILDER
+cl-workbench validation run cold-unit \
+  --match TRIE-DIRECT-NODE-ENCODING-BOUNDS-RANGE-ALLOCATION
 cl-workbench validation run cold-unit --match DEVNET-CLI-PUBLIC-PRESETS
 cl-workbench validation run cold-unit \
   --match DEVNET-DISCOVERY-HAS-A-GENESIS-FORK-FILTER
@@ -787,7 +790,10 @@ the actual StorageRanges slot, and materialize records/subtree metadata
 afterward. Moving large-storage materialization back into the verified callback
 makes
 `SNAP-LARGE-STORAGE-RANGE-VERIFIES-BEFORE-SOURCE-RELEASE-AND-MATERIALIZES-AFTER`
-fail. Concurrent
+fail. The ordered-range trie controls pin the reconstructed root against
+ordinary insertion and cap the 5,000-key byte-key builder below 0.9 MB on the
+pinned SBCL; expanding every secure key into a temporary nibble vector exceeds
+that bound. Concurrent
 rejection writers retain every stable peer id.
 The discv4 unit controls retain only UDP-bonded public routing seeds, the CLI
 seed merge always retains configured bootnodes while bounding process-local

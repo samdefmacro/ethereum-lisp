@@ -117,11 +117,12 @@
       (let ((allocated (- (sb-ext:get-bytes-consed) started)))
         ;; The expected root is a positive control for the complete fixed
         ;; workload. The former recursive path-copying builder allocated about
-        ;; 3.0 MB; the slice builder allocates about 1.44 MB on pinned SBCL.
+        ;; 3.0 MB, and the nibble-vector slice builder about 1.44 MB. Building
+        ;; directly from byte keys consumes about 0.66 MB on pinned SBCL.
         (is (string=
              "0x6f9f1dc940ca433565925bebdb0e377ee79d148dfd4512072d77e0b352a8320b"
              (mpt-root-hex trie)))
-        (is (< allocated 1800000))))))
+        (is (< allocated 900000))))))
 
 (deftest trie-ordered-range-builder-matches-ordinary-insertion
   (:layer :unit :module :trie)

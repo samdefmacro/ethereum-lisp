@@ -136,6 +136,95 @@ builder used after SNAP has already proved strict key ordering."
     (build-node-ordered-slice
      entry-vector 0 (length entry-vector) 0)))
 
+(declaim (inline ordered-byte-key-nibble))
+(defun ordered-byte-key-nibble (key index)
+  "Read nibble INDEX directly from byte vector KEY without expanding KEY."
+  (let ((byte (aref key (ash index -1))))
+    (if (evenp index)
+        (ash byte -4)
+        (logand byte #x0f))))
+
+(defun ordered-byte-key-nibble-slice (key start end &key terminator)
+  "Materialize only KEY's nibble slice START..END and optional terminator."
+  (let* ((length (- end start))
+         (result (make-byte-vector (+ length (if terminator 1 0)))))
+    (loop for index from start below end
+          for output from 0
+          do (setf (aref result output)
+                   (ordered-byte-key-nibble key index)))
+    (when terminator
+      (setf (aref result length) +terminator-nibble+))
+    result))
+
+(defun ordered-byte-slice-common-prefix-length (entries start end depth)
+  "Return the common nibble prefix after DEPTH for ordered byte-key ENTRIES."
+  (let* ((first (car (aref entries start)))
+         (last (car (aref entries (1- end))))
+         (limit (* 2 (min (length first) (length last)))))
+    (loop for index from depth below limit
+          while (= (ordered-byte-key-nibble first index)
+                   (ordered-byte-key-nibble last index))
+          count 1)))
+
+(defun build-node-ordered-byte-slice (entries start end depth)
+  "Build one canonical node from an ordered byte-key slice.
+
+Unlike BUILD-NODE-ORDERED-SLICE, this SNAP hot path never expands every secure
+key into a temporary 64-byte nibble vector. Only the path retained by each
+resulting leaf or extension is materialized."
+  (let ((count (- end start)))
+    (cond
+      ((zerop count) nil)
+      ((= count 1)
+       (let* ((entry (aref entries start))
+              (key (car entry))
+              (key-nibbles (* 2 (length key))))
+         (make-leaf-node
+          :path (ordered-byte-key-nibble-slice
+                 key depth key-nibbles :terminator t)
+          :value (cdr entry))))
+      (t
+       (let ((prefix-length
+               (ordered-byte-slice-common-prefix-length
+                entries start end depth)))
+         (if (plusp prefix-length)
+             (let ((key (car (aref entries start))))
+               (make-extension-node
+                :path (ordered-byte-key-nibble-slice
+                       key depth (+ depth prefix-length))
+                :child
+                (build-node-ordered-byte-slice
+                 entries start end (+ depth prefix-length))))
+             (let ((children (make-array 16 :initial-element nil))
+                   (value (make-byte-vector 0))
+                   (cursor start))
+               (when (= (* 2 (length (car (aref entries cursor)))) depth)
+                 (setf value (cdr (aref entries cursor)))
+                 (incf cursor))
+               (loop while (< cursor end)
+                     for nibble =
+                       (ordered-byte-key-nibble
+                        (car (aref entries cursor)) depth)
+                     for group-end =
+                       (loop for index from (1+ cursor) below end
+                             while (let* ((key (car (aref entries index)))
+                                          (key-nibbles (* 2 (length key))))
+                                     (and (> key-nibbles depth)
+                                          (= (ordered-byte-key-nibble key depth)
+                                             nibble)))
+                             finally (return index))
+                     do (setf (aref children nibble)
+                              (build-node-ordered-byte-slice
+                               entries cursor group-end (1+ depth))
+                              cursor group-end))
+               (make-branch-node :children children :value value))))))))
+
+(defun build-node-ordered-byte-entries (entries)
+  "Build a canonical node directly from ordered `(BYTE-KEY . VALUE)` entries."
+  (let ((entry-vector (coerce entries 'simple-vector)))
+    (build-node-ordered-byte-slice
+     entry-vector 0 (length entry-vector) 0)))
+
 (defvar *node-encoding-count* nil
   "When bound to a number, increment it for every trie node encoded on a cache
 miss. Tests use this to guard the dirty-path complexity contract.")

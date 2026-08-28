@@ -427,7 +427,10 @@ them by their physical location instead reintroduces dependency cycles:
   second global MPT rebuild and its per-node RocksDB point reads. Inside proof
   verification, the strictly ordered flat key/value range is consumed once by
   a canonical sequential trie builder and merged with the trimmed boundary
-  graph. This transient flat staging is deliberately not retained as a second
+  graph. The builder reads secure-key nibbles directly from the 32-byte keys
+  and materializes only paths retained by canonical nodes; it does not expand
+  every page key into a temporary 64-byte nibble vector. This transient flat
+  staging is deliberately not retained as a second
   on-disk state copy: it removes repeated copy-on-write ancestor construction
   while keeping the content-addressed trie as the sole durable authority.
   Ordinary state transitions retain checked `mpt-put`. Complete coarse buckets strictly inside

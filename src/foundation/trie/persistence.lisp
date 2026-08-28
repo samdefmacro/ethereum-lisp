@@ -8,20 +8,25 @@
 (defun mpt-put-ordered-proven-range (trie entries)
   "Bulk insert ordered, non-empty, proven-absent ENTRIES into TRIE."
   (when entries
-    (let ((nibble-entries
-            (mapcar
-             (lambda (entry)
-               (let ((value (ensure-byte-vector (cdr entry))))
-                 (when (zerop (length value))
-                   (error "An ordered proven MPT range contains an empty value"))
-                 (cons
-                  (keybytes-to-nibbles
-                   (ensure-byte-vector (car entry)) :terminator nil)
-                  value)))
-             entries)))
+    (let ((normalized-entries
+            (if (every
+                 (lambda (entry)
+                   (and (byte-vector-p (car entry))
+                        (byte-vector-p (cdr entry))))
+                 entries)
+                entries
+                (mapcar
+                 (lambda (entry)
+                   (cons (ensure-byte-vector (car entry))
+                         (ensure-byte-vector (cdr entry))))
+                 entries))))
+      (dolist (entry normalized-entries)
+        (when (zerop (length (cdr entry)))
+          (error "An ordered proven MPT range contains an empty value")))
       (setf (mpt-root trie)
             (trie-merge-disjoint-nodes
-             (mpt-root trie) (build-node-ordered nibble-entries)))))
+             (mpt-root trie)
+             (build-node-ordered-byte-entries normalized-entries)))))
   trie)
 
 (defun trie-node-children (node)
