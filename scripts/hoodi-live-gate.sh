@@ -472,7 +472,7 @@ if [ "$(docker container inspect --format '{{.State.Running}}' "$container")" !=
     exit 1
 fi
 docker container inspect --format \
-    'container={{.Name}} running={{.State.Running}} started={{.State.StartedAt}} image={{.Image}} user={{.Config.User}} read-only={{.HostConfig.ReadonlyRootfs}} memory={{.HostConfig.Memory}} memory-swap={{.HostConfig.MemorySwap}} caps={{json .HostConfig.CapDrop}} security={{json .HostConfig.SecurityOpt}} networks={{json .NetworkSettings.Networks}}' \
+    'container={{.Name}} running={{.State.Running}} started={{.State.StartedAt}} image={{.Image}} user={{.Config.User}} read-only={{.HostConfig.ReadonlyRootfs}} memory={{.HostConfig.Memory}} memory-swap={{.HostConfig.MemorySwap}} caps={{json .HostConfig.CapDrop}} security-options={{len .HostConfig.SecurityOpt}} networks={{len .NetworkSettings.Networks}}' \
     "$container"
 printf 'fresh-datadir=%s uid=%s gid=%s\n' "$datadir" "$gate_uid" "$gate_gid"
 REMOTE
@@ -694,7 +694,7 @@ printf 'after-block='; rpc "$container" eth_blockNumber; printf '\n'
 printf 'after-syncing='; rpc "$container" eth_syncing; printf '\n'
 printf 'previous-running='; docker container inspect --format '{{.State.Running}}' "$previous"
 docker container inspect --format \
-    'container={{.Name}} running={{.State.Running}} image={{.Image}} user={{.Config.User}} read-only={{.HostConfig.ReadonlyRootfs}} memory={{.HostConfig.Memory}} memory-swap={{.HostConfig.MemorySwap}} caps={{json .HostConfig.CapDrop}} security={{json .HostConfig.SecurityOpt}} labels={{json .Config.Labels}} networks={{json .NetworkSettings.Networks}}' \
+    'container={{.Name}} running={{.State.Running}} image={{.Image}} user={{.Config.User}} read-only={{.HostConfig.ReadonlyRootfs}} memory={{.HostConfig.Memory}} memory-swap={{.HostConfig.MemorySwap}} caps={{json .HostConfig.CapDrop}} security-options={{len .HostConfig.SecurityOpt}} revision={{index .Config.Labels "io.ethereum-lisp.gate-revision"}} upgraded-from={{index .Config.Labels "io.ethereum-lisp.gate-upgraded-from"}} networks={{len .NetworkSettings.Networks}}' \
     "$container"
 REMOTE
 }
@@ -722,7 +722,7 @@ actual_memory_swap="$(docker container inspect --format '{{.HostConfig.MemorySwa
     exit 1
 }
 docker container inspect --format \
-    'container={{.Name}} running={{.State.Running}} started={{.State.StartedAt}} image={{.Image}} user={{.Config.User}} read-only={{.HostConfig.ReadonlyRootfs}} memory={{.HostConfig.Memory}} memory-swap={{.HostConfig.MemorySwap}} caps={{json .HostConfig.CapDrop}} security={{json .HostConfig.SecurityOpt}} networks={{json .NetworkSettings.Networks}}' \
+    'container={{.Name}} running={{.State.Running}} started={{.State.StartedAt}} image={{.Image}} user={{.Config.User}} read-only={{.HostConfig.ReadonlyRootfs}} memory={{.HostConfig.Memory}} memory-swap={{.HostConfig.MemorySwap}} caps={{json .HostConfig.CapDrop}} security-options={{len .HostConfig.SecurityOpt}} networks={{len .NetworkSettings.Networks}}' \
     "$container"
 printf 'datadir-bytes='
 du -sb "$datadir" | awk '{print $1}'
@@ -739,7 +739,6 @@ rpc() {
 printf 'eth_blockNumber='; rpc eth_blockNumber; printf '\n'
 printf 'eth_syncing='; rpc eth_syncing; printf '\n'
 printf 'net_peerCount='; rpc net_peerCount; printf '\n'
-printf 'admin_nodeInfo='; rpc admin_nodeInfo; printf '\n'
 REMOTE
 }
 
