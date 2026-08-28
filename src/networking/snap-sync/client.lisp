@@ -66,6 +66,15 @@ still join every worker, discard unreachable queues, and collect once.")
 
 Verified pages move to the global dependency queue immediately, so the account
 dispatcher can claim another partition without waiting for storage or code.")
+(defparameter *snap-sync-range-source-refresh-seconds* 1d0
+  "Maximum range-phase delay before admitting newly connected SNAP sources.
+
+The coordinator is normally woken by durable account-page events.  One very
+large storage root can postpone such an event for minutes, however, while the
+global StorageRanges worker count remains fixed at the smaller peer set that
+existed when the import began.  A bounded timed wake keeps that dependency
+phase aligned with geth's dynamic idle-peer set without polling the transport
+on a worker thread.  Tests may bind a shorter interval.")
 (defconstant +snap-sync-storage-task-count+ 16
   "Maximum parallel ranges used to finish one byte-capped storage trie.")
 (defconstant +snap-sync-storage-slot-width+ 64
@@ -7237,7 +7246,8 @@ range-derived subtree proofs."
               (snap-sync-multi-mark-source-failed runtime source)))))))))
 
 #+sbcl
-(defun snap-sync-multi-next-event (runtime)
+(defun snap-sync-multi-next-event (runtime &optional refresh-timeout-seconds)
+  "Return the next coordinator event, or :REFRESH after a bounded idle wait."
   (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
     (loop
       (when (snap-sync-multi-runtime-events runtime)
@@ -7261,9 +7271,16 @@ range-derived subtree proofs."
              (zerop
               (hash-table-count (snap-sync-multi-runtime-claims runtime))))
         (return :exhausted))
-      (sb-thread:condition-wait
-       (snap-sync-multi-runtime-changed runtime)
-       (snap-sync-multi-runtime-lock runtime)))))
+      (if refresh-timeout-seconds
+          (unless
+              (sb-thread:condition-wait
+               (snap-sync-multi-runtime-changed runtime)
+               (snap-sync-multi-runtime-lock runtime)
+               :timeout refresh-timeout-seconds)
+            (return :refresh))
+          (sb-thread:condition-wait
+           (snap-sync-multi-runtime-changed runtime)
+           (snap-sync-multi-runtime-lock runtime))))))
 
 #+sbcl
 (defun snap-sync-multi-result-event-batch (runtime first)
@@ -7506,8 +7523,18 @@ those cursors. HEAL-YIELD-P is forwarded to final healing."
                (start-source-workers source))
              (refresh-range-sources)
            (loop
-             (let ((event (snap-sync-multi-next-event runtime)))
+             (let ((event
+                     (snap-sync-multi-next-event
+                      runtime
+                      (and heal-source-provider
+                           *snap-sync-range-source-refresh-seconds*))))
                (case event
+                 (:refresh
+                  ;; Account cursor publication is intentionally delayed by
+                  ;; unfinished storage dependencies.  Admit peers on this
+                  ;; independent wake too, so one large root cannot freeze the
+                  ;; initial range/storage dispatcher width for its lifetime.
+                  (refresh-range-sources))
                  (:complete
                   (return (snap-sync-multi-runtime-progress runtime)))
                  (:limited

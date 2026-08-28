@@ -360,7 +360,12 @@ witness. A
 second regression interrupts StorageRanges after one page and proves a fresh
 source resumes the exact durable cursor. A concurrency regression blocks one
 source and proves a faster source receives its next partition without waiting
-for a global wave. The production peer-queue regression puts two account jobs
+for a global wave. The dynamic-source regression additionally holds the first
+account result behind an unfinished dependency while the initial provider
+snapshot contains only that source. A timed range-coordinator wake must admit
+two later sources and give both range work before the blocked page can publish
+its cursor; waiting only for account progress deadlocks the mutation control.
+The production peer-queue regression puts two account jobs
 ahead of a storage job and proves the storage request bypasses the occupied
 account response slot, then routes out-of-order typed replies to the correct
 workers. A pump regression separately proves that a SNAP response reaches that

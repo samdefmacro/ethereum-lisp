@@ -283,9 +283,14 @@ them by their physical location instead reintroduces dependency cycles:
   storage roots enter one import-wide rotating queue. Every live source owns
   exactly one fixed StorageRanges worker, so live requests and worker threads
   remain bounded by source count instead of multiplying by account pages or
-  roots. Geth v1.17.4's density estimate selects one to sixteen durable
-  partitions from the authenticated prefix; a lone root can occupy all of its
-  selected partitions. After
+  roots. The range coordinator also wakes at a bounded one-second interval to
+  refresh that source set. This wake is independent of account cursor
+  publication: a newly connected SNAP peer can therefore add an account and
+  StorageRanges dispatcher while an earlier page is still waiting for one
+  enormous storage root, rather than leaving the complete dependency phase at
+  its smaller startup width. Geth v1.17.4's density estimate selects one to
+  sixteen durable partitions from the authenticated prefix; a lone root can
+  occupy all of its selected partitions. After
   each claim the queue rotates, allowing another account task's open root to
   use an otherwise idle source before returning to the first root. This follows
   geth v1.17.4 `assignStorageTasks`: open large subtasks take precedence over

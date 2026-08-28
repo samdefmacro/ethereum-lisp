@@ -3283,6 +3283,10 @@
               source-database source-state))
            (base-source (snap-test-source backend))
            (lock (sb-thread:make-mutex :name "snap-test-live-range-sources"))
+           (changed
+             (sb-thread:make-waitqueue
+              :name "snap-test-live-range-sources-changed"))
+           (release-first-p nil)
            (calls (make-array 3 :initial-element 0))
            (sources
              (loop for index below 3
@@ -3292,27 +3296,42 @@
                       base-source
                       (lambda (request)
                         (sb-thread:with-mutex (lock)
-                          (incf (aref calls worker-index)))
+                          (incf (aref calls worker-index))
+                          ;; Keep the first account page behind a large-
+                          ;; dependency-shaped stall.  The coordinator must
+                          ;; refresh sources on its timed wake rather than
+                          ;; waiting for this page's durable result.
+                          (when (zerop worker-index)
+                            (loop until release-first-p
+                                  do (sb-thread:condition-wait changed lock))))
                         (funcall
                          (ethereum-lisp.snap-sync:snap-sync-source-account-range
                           base-source)
                          request))))))
            (provider-calls 0)
            (progress
-             (ethereum-lisp.snap-sync:snap-sync-import-state-multi
-              target-database (list (first sources))
-              :pivot-hash (make-hash32 (snap-test-hash 229))
-              :pivot-number 906 :state-root root
-              :target-hash (make-hash32 (snap-test-hash 230))
-              :chain-id 560048
-              :genesis-hash (make-hash32 (snap-test-hash 231))
-              :authority-id (make-hash32 (snap-test-hash 232))
-              :heal-source-provider
-              (lambda ()
-                (incf provider-calls)
-                sources))))
+             (let ((ethereum-lisp.snap-sync::*snap-sync-range-source-refresh-seconds*
+                     0.01d0))
+               (ethereum-lisp.snap-sync:snap-sync-import-state-multi
+                target-database (list (first sources))
+                :pivot-hash (make-hash32 (snap-test-hash 229))
+                :pivot-number 906 :state-root root
+                :target-hash (make-hash32 (snap-test-hash 230))
+                :chain-id 560048
+                :genesis-hash (make-hash32 (snap-test-hash 231))
+                :authority-id (make-hash32 (snap-test-hash 232))
+                :heal-source-provider
+                (lambda ()
+                  (sb-thread:with-mutex (lock)
+                    (incf provider-calls)
+                    (if (= provider-calls 1)
+                        (list (first sources))
+                        (progn
+                          (setf release-first-p t)
+                          (sb-thread:condition-broadcast changed)
+                          sources))))))))
       (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p progress))
-      (is (plusp provider-calls))
+      (is (>= provider-calls 2))
       (is (plusp (aref calls 0)))
       ;; Account callbacks distinguish range work from the later healer.
       (is (plusp (aref calls 1)))
