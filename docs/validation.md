@@ -937,6 +937,28 @@ new-container, network-attachment, exit, or replacement-readiness failure stops
 the attempted process where applicable and restores the previous container;
 neither path removes a container, image, artifact, or datadir.
 
+When a live stall needs the bounded allocation profiler but the exact runtime
+image must remain unchanged, the broker permits one same-revision diagnostic
+replacement only when all ordinary `upgrade` ownership and rollback checks
+still pass, the replacement container has a new name, and both the diagnostic
+allowance and a non-zero one-to-300-second profile duration are explicit:
+
+```sh
+HOODI_GATE_ALLOW_MUTATION=1 \
+HOODI_GATE_ALLOW_SAME_REVISION_PROFILE=1 \
+HOODI_GATE_ALLOC_PROFILE_SECONDS=120 \
+HOODI_GATE_CONTAINER=hoodi-el-sec5-revision-profile \
+HOODI_GATE_PREVIOUS_CONTAINER=hoodi-el-sec5-revision \
+HOODI_GATE_PREVIOUS_REVISION=0123456789abcdef0123456789abcdef01234567 \
+HOODI_GATE_DATADIR=/data/hoodi-sec5-example/datadir-revision \
+scripts/hoodi-live-gate.sh upgrade
+```
+
+Without that explicit allowance, `upgrade` continues to require a different
+runtime revision. `status` reports and sizes the authoritative `/data` bind
+mount from the inspected container, so a retained datadir whose name predates
+the current revision is not mistaken for the revision-derived default.
+
 The broker's default consensus-network alias is
 `hoodi-el-public-36a22e47`, matching the persisted Lighthouse execution
 endpoint on the dedicated gate. Override `HOODI_GATE_CL_ALIAS` only when the

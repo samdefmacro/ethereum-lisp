@@ -74,6 +74,7 @@ restart_ready_timeout="${HOODI_GATE_RESTART_READY_TIMEOUT:-600}"
 # regression consume the whole dedicated host.
 memory_limit_bytes=7516192768
 allocation_profile_seconds="${HOODI_GATE_ALLOC_PROFILE_SECONDS:-0}"
+allow_same_revision_profile="${HOODI_GATE_ALLOW_SAME_REVISION_PROFILE:-0}"
 
 case "$host" in *[!A-Za-z0-9_.@-]*|'') fail "unsafe SSH host: $host" ;; esac
 case "$remote_root" in
@@ -109,6 +110,10 @@ case "$allocation_profile_seconds" in
 esac
 [ "$allocation_profile_seconds" -le 300 ] ||
     fail "allocation profile seconds must be at most 300"
+case "$allow_same_revision_profile" in
+    0|1) ;;
+    *) fail "same-revision profile allowance must be zero or one" ;;
+esac
 
 if [ "$actual_head" != "$revision" ]; then
     git -C "$repo_root" merge-base --is-ancestor "$revision" "$actual_head" ||
@@ -483,7 +488,12 @@ upgrade_gate() {
     [ -n "$previous_container" ] || fail "upgrade requires HOODI_GATE_PREVIOUS_CONTAINER"
     [ -n "$previous_revision" ] || fail "upgrade requires HOODI_GATE_PREVIOUS_REVISION"
     [ "$previous_container" != "$container" ] || fail "upgrade requires a new container name"
-    [ "$previous_revision" != "$revision" ] || fail "upgrade requires a new runtime revision"
+    if [ "$previous_revision" = "$revision" ]; then
+        [ "$allow_same_revision_profile" = 1 ] ||
+            fail "upgrade requires a new runtime revision"
+        [ "$allocation_profile_seconds" -gt 0 ] ||
+            fail "same-revision replacement requires a non-zero allocation profile duration"
+    fi
     note "replacing the exact previous EL while preserving its durable datadir"
     ssh "$host" bash -s -- \
         "$revision" "$image" "$container" "$datadir" "$jwt_dir" "$public_ip" \
@@ -702,9 +712,9 @@ REMOTE
 remote_status() {
     note "remote gate status"
     ssh "$host" bash -s -- \
-        "$revision" "$image" "$container" "$datadir" "$memory_limit_bytes" <<'REMOTE'
+        "$revision" "$image" "$container" "$remote_root" "$memory_limit_bytes" <<'REMOTE'
 set -eu
-revision="$1"; image="$2"; container="$3"; datadir="$4"; memory_limit="$5"
+revision="$1"; image="$2"; container="$3"; remote_root="$4"; memory_limit="$5"
 date -u +timestamp=%Y-%m-%dT%H:%M:%SZ
 image_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image")"
 [ "$image_revision" = "$revision" ] || { echo "image revision mismatch: $image_revision" >&2; exit 1; }
@@ -721,11 +731,17 @@ actual_memory_swap="$(docker container inspect --format '{{.HostConfig.MemorySwa
     echo "gate memory-swap limit mismatch: $actual_memory_swap" >&2
     exit 1
 }
+datadir="$(docker container inspect --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Source}}{{end}}{{end}}' "$container")"
+case "$datadir" in
+    "$remote_root"/*) ;;
+    *) echo "container datadir is outside the reviewed remote root" >&2; exit 1 ;;
+esac
 docker container inspect --format \
     'container={{.Name}} running={{.State.Running}} started={{.State.StartedAt}} image={{.Image}} user={{.Config.User}} read-only={{.HostConfig.ReadonlyRootfs}} memory={{.HostConfig.Memory}} memory-swap={{.HostConfig.MemorySwap}} caps={{json .HostConfig.CapDrop}} security-options={{len .HostConfig.SecurityOpt}} networks={{len .NetworkSettings.Networks}}' \
     "$container"
 printf 'datadir-bytes='
 du -sb "$datadir" | awk '{print $1}'
+printf 'datadir=%s\n' "$datadir"
 
 rpc_port="$(docker port "$container" 8545/tcp | awk -F: '/127[.]0[.]0[.]1/ {print $NF; exit}')"
 [ -n "$rpc_port" ] || { echo "public RPC loopback port is unavailable" >&2; exit 1; }
@@ -895,6 +911,9 @@ image, container, and datadir are derived from the current full Git revision.
 Upgrade additionally requires HOODI_GATE_PREVIOUS_CONTAINER and
 HOODI_GATE_PREVIOUS_REVISION, and reuses only that container's exact non-empty
 HOODI_GATE_DATADIR. HOODI_GATE_P2P_PORT selects the bounded public P2P port.
+An exact same-revision diagnostic replacement additionally requires
+HOODI_GATE_ALLOW_SAME_REVISION_PROFILE=1, a new container name, and a non-zero
+HOODI_GATE_ALLOC_PROFILE_SECONDS value.
 HOODI_GATE_RESTART_READY_TIMEOUT may override the bounded 600-second restart
 readiness window (accepted range: 30-1800 seconds).
 USAGE
