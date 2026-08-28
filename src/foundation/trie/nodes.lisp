@@ -69,41 +69,62 @@
                    (setf (aref children index) (build-node group)))))
              (make-branch-node :children children :value value)))))))
 
-(defun ordered-entries-common-prefix-length (entries)
-  "Return the common prefix of already ordered nibble ENTRIES.
+(defun ordered-slice-common-prefix-length (entries start end depth)
+  "Return the common prefix after DEPTH for one ordered entry slice."
+  (let* ((first (car (aref entries start)))
+         (last (car (aref entries (1- end))))
+         (limit (min (length first) (length last))))
+    (loop for index from depth below limit
+          while (= (aref first index) (aref last index))
+          count 1)))
 
-For a lexicographically ordered set the first and last key bound every key in
-between, so comparing only those two paths avoids the repeated prefix scans of
-BUILD-NODE."
-  (if (endp entries)
-      0
-      (let ((last-entry (first entries)))
-        (dolist (entry (rest entries))
-          (setf last-entry entry))
-        (common-prefix-length (caar entries) (car last-entry)))))
+(defun build-node-ordered-slice (entries start end depth)
+  "Build one canonical node from ENTRIES in the half-open slice START..END.
 
-(defun ordered-entries-by-first-nibble (entries)
-  "Group non-terminal ordered ENTRIES in one forward pass.
-
-The returned list contains `(NIBBLE . ENTRIES)` groups in ascending nibble
-order. Every grouped path has its leading nibble removed."
-  (let ((groups '())
-        (current-nibble nil)
-        (current '()))
-    (labels ((flush ()
-               (when current
-                 (push (cons current-nibble (nreverse current)) groups)
-                 (setf current nil))))
-      (dolist (entry entries)
-        (let ((path (car entry)))
-          (unless (zerop (length path))
-            (let ((nibble (aref path 0)))
-              (unless (eql nibble current-nibble)
-                (flush)
-                (setf current-nibble nibble))
-              (push (cons (subseq path 1) (cdr entry)) current)))))
-      (flush)
-      (nreverse groups))))
+Every entry retains its full nibble key.  Recursion advances DEPTH and passes
+index ranges instead of allocating a shortened key and a fresh cons at every
+trie level."
+  (let ((count (- end start)))
+    (cond
+      ((zerop count) nil)
+      ((= count 1)
+       (let ((entry (aref entries start)))
+         (make-leaf-node
+          :path (concatenate 'vector (subseq (car entry) depth)
+                             (vector +terminator-nibble+))
+          :value (cdr entry))))
+      (t
+       (let ((prefix-length
+               (ordered-slice-common-prefix-length
+                entries start end depth)))
+         (if (plusp prefix-length)
+             (make-extension-node
+              :path (subseq (car (aref entries start))
+                            depth (+ depth prefix-length))
+              :child
+              (build-node-ordered-slice
+               entries start end (+ depth prefix-length)))
+             (let ((children (make-array 16 :initial-element nil))
+                   (value (make-byte-vector 0))
+                   (cursor start))
+               ;; A key that terminates at this depth precedes every key below
+               ;; it in a lexicographically ordered input range.
+               (when (= (length (car (aref entries cursor))) depth)
+                 (setf value (cdr (aref entries cursor)))
+                 (incf cursor))
+               (loop while (< cursor end)
+                     for nibble = (aref (car (aref entries cursor)) depth)
+                     for group-end =
+                       (loop for index from (1+ cursor) below end
+                             while (let ((path (car (aref entries index))))
+                                     (and (> (length path) depth)
+                                          (= (aref path depth) nibble)))
+                             finally (return index))
+                     do (setf (aref children nibble)
+                              (build-node-ordered-slice
+                               entries cursor group-end (1+ depth))
+                              cursor group-end))
+               (make-branch-node :children children :value value))))))))
 
 (defun build-node-ordered (entries)
   "Build a canonical node from lexicographically ordered nibble ENTRIES.
@@ -111,35 +132,9 @@ order. Every grouped path has its leading nibble removed."
 Unlike BUILD-NODE this path never scans the same level sixteen times and never
 performs copy-on-write insertion for every leaf. It is the flat-range/stack
 builder used after SNAP has already proved strict key ordering."
-  (cond
-    ((endp entries) nil)
-    ((endp (rest entries))
-     (let ((entry (first entries)))
-       (make-leaf-node
-        :path (concatenate 'vector (car entry)
-                           (vector +terminator-nibble+))
-        :value (cdr entry))))
-    (t
-     (let ((prefix-length
-             (ordered-entries-common-prefix-length entries)))
-       (if (plusp prefix-length)
-           (make-extension-node
-            :path (subseq (caar entries) 0 prefix-length)
-            :child
-            (build-node-ordered
-             (mapcar
-              (lambda (entry)
-                (cons (subseq (car entry) prefix-length) (cdr entry)))
-              entries)))
-           (let ((children (make-array 16 :initial-element nil))
-                 (value (make-byte-vector 0)))
-             (dolist (entry entries)
-               (when (zerop (length (car entry)))
-                 (setf value (cdr entry))))
-             (dolist (group (ordered-entries-by-first-nibble entries))
-               (setf (aref children (car group))
-                     (build-node-ordered (cdr group))))
-             (make-branch-node :children children :value value)))))))
+  (let ((entry-vector (coerce entries 'simple-vector)))
+    (build-node-ordered-slice
+     entry-vector 0 (length entry-vector) 0)))
 
 (defvar *node-encoding-count* nil
   "When bound to a number, increment it for every trie node encoded on a cache

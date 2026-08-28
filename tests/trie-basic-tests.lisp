@@ -106,6 +106,45 @@
         ;; implementation decisively above the bound.
         (is (< allocated 11000000))))))
 
+#+sbcl
+(deftest trie-ordered-range-builder-bounds-allocation
+  (:layer :unit :module :trie)
+  (let ((entries (trie-fixed-ordered-entries 5000))
+        (trie (make-mpt)))
+    (sb-ext:gc :full t)
+    (let ((started (sb-ext:get-bytes-consed)))
+      (ethereum-lisp.trie::mpt-put-ordered-proven-range trie entries)
+      (let ((allocated (- (sb-ext:get-bytes-consed) started)))
+        ;; The expected root is a positive control for the complete fixed
+        ;; workload. The former recursive path-copying builder allocated about
+        ;; 3.0 MB; the slice builder allocates about 1.44 MB on pinned SBCL.
+        (is (string=
+             "0x6f9f1dc940ca433565925bebdb0e377ee79d148dfd4512072d77e0b352a8320b"
+             (mpt-root-hex trie)))
+        (is (< allocated 1800000))))))
+
+(deftest trie-ordered-range-builder-matches-ordinary-insertion
+  (:layer :unit :module :trie)
+  (let* ((entries
+           (mapcar
+            (lambda (entry)
+              (cons (car entry) (vector (cdr entry))))
+            '((#() . 1)
+              (#(0) . 2)
+              (#(0 0) . 3)
+              (#(0 1) . 4)
+              (#(1) . 5)
+              (#(15 255) . 6)
+              (#(16) . 7)
+              (#(255) . 8))))
+         (ordinary (make-mpt))
+         (range-built (make-mpt)))
+    (dolist (entry entries)
+      (mpt-put ordinary (car entry) (cdr entry)))
+    (ethereum-lisp.trie::mpt-put-ordered-proven-range range-built entries)
+    (is (bytes= (mpt-root-hash ordinary)
+                (mpt-root-hash range-built)))))
+
 (deftest trie-insertion-order-independent
   (let ((left (make-mpt))
         (right (make-mpt)))
