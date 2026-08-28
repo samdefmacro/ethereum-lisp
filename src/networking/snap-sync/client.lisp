@@ -4576,7 +4576,8 @@ promoted immediately. Descendants are never read or revalidated."
              request "storage ranges")))))))
 
 (defun snap-sync-build-storage-page-batch
-    (database state-root account-hash storage-root task result)
+    (database state-root account-hash storage-root task result
+     &key (clear-complete-markers-p t))
   "Build one privately owned authenticated page batch and replacement cursor."
   (unless (and (not (snap-sync-account-task-completed-p task))
                (bytes= (snap-sync-account-task-next-origin task)
@@ -4593,11 +4594,15 @@ promoted immediately. Descendants are never read or revalidated."
             (snap-sync-storage-page-result-completed-p result))))
     (snap-sync-populate-verified-trie-records-batch
      database batch (snap-sync-storage-page-result-records result))
-    ;; A partition page may prove closure for nodes retained by an earlier
-    ;; byte-capped prefix or an adjacent page. Remove those old negatives in
-    ;; the same atomic batch as the proof, records, and cursor.
-    (snap-sync-delete-incomplete-records-batch
-     batch (snap-sync-storage-page-result-complete-node-hashes result))
+    ;; The synchronous compatibility path clears every stale negative. The
+    ;; production global pipeline instead publishes each coarse/nested healed
+    ;; subtree below in this exact atomic batch. Healer proof lookup precedes
+    ;; descendant negative-marker checks, so those proofs safely supersede the
+    ;; covered stale markers without emitting hundreds of thousands of blind
+    ;; point deletes per response.
+    (when clear-complete-markers-p
+      (snap-sync-delete-incomplete-records-batch
+       batch (snap-sync-storage-page-result-complete-node-hashes result)))
     (snap-sync-populate-incomplete-records-batch
      batch (snap-sync-storage-page-result-incomplete-node-hashes result))
     (snap-sync-populate-storage-task-batch
@@ -6925,7 +6930,7 @@ for RocksDB compaction or a preceding batch write."
                           database state-root
                           (snap-sync-global-storage-job-account-hash job)
                           (snap-sync-global-storage-job-storage-root job)
-                          task result)
+                          task result :clear-complete-markers-p nil)
                        (let ((batch-build-ms
                                (snap-sync-elapsed-milliseconds
                                 batch-started-at

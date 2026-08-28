@@ -2299,7 +2299,8 @@
              (ethereum-lisp.snap-sync::make-snap-sync-multi-runtime
               nil 0 nil))
            (worker nil)
-           (queued 0))
+           (queued 0)
+           (prepared-batches-minimal-p nil))
       (setf
        (snap-counting-test-database-apply-count target-database) 0
        (snap-counting-test-database-buffered-apply-count target-database) 0)
@@ -2347,6 +2348,33 @@
                 queued
                 (length
                  (ethereum-lisp.snap-sync::snap-sync-multi-runtime-storage-results
+                  runtime))
+                prepared-batches-minimal-p
+                (every
+                 (lambda (entry)
+                   (let ((result
+                           (ethereum-lisp.snap-sync::snap-sync-global-storage-result-result
+                            entry))
+                         (batch
+                           (ethereum-lisp.snap-sync::snap-sync-global-storage-result-batch
+                            entry)))
+                     (multiple-value-bind (operations logical-bytes)
+                         (kv-write-batch-statistics batch)
+                       (declare (ignore logical-bytes))
+                       (= operations
+                          (+
+                           (length
+                            (ethereum-lisp.snap-sync::snap-sync-storage-page-result-records
+                             result))
+                           (length
+                            (ethereum-lisp.snap-sync::snap-sync-storage-page-result-incomplete-node-hashes
+                             result))
+                           (length
+                            (ethereum-lisp.snap-sync::snap-sync-storage-page-result-healed-subtrees
+                             result))
+                           ;; One exact partition cursor.
+                           1)))))
+                 (ethereum-lisp.snap-sync::snap-sync-multi-runtime-storage-results
                   runtime)))))
         (sb-thread:with-mutex
             ((ethereum-lisp.snap-sync::snap-sync-multi-runtime-lock runtime))
@@ -2358,6 +2386,7 @@
       ;; With the old per-source commit call, the first page reaches the
       ;; database before this worker can issue a second StorageRanges request.
       (is (>= queued 2))
+      (is prepared-batches-minimal-p)
       (is (>= request-count 2))
       (is (= 0
              (snap-counting-test-database-buffered-apply-count
