@@ -154,8 +154,10 @@ remains disabled unless a controlled deployment binds it explicitly.")
   "Versioned value for an incomplete content-addressed trie node.")
 (defparameter +snap-sync-complete-node-scheme-identifier+
   "snap-complete-trie-node-scheme")
-(defparameter +snap-sync-complete-node-scheme-value+ #(2)
-  "Marks a trie store whose every incomplete SNAP node follows closure epoch 2.")
+(defparameter +snap-sync-complete-node-scheme-value+ #(3)
+  "Marks a trie store whose storage-node negatives follow closure epoch 3.")
+(defparameter +snap-sync-previous-complete-node-scheme-value+ #(2)
+  "Recognized but never trusted marker from the account-dependency-unsafe epoch.")
 (defparameter +snap-sync-legacy-complete-node-scheme-value+ #(1)
   "Recognized but never trusted marker from the pre-closure-safe epoch.")
 (defconstant +snap-sync-node-completions-per-batch+ 2048)
@@ -792,10 +794,15 @@ observational and not consensus-visible."
     (cond
       ((not present-p) nil)
       ((bytes= value +snap-sync-complete-node-scheme-value+) t)
-      ;; Epoch one could remove a storage-root negative marker before the
-      ;; final healer had proved descendant closure. Keep all trie content,
-      ;; but make absence of an old marker mean nothing after an upgrade.
-      ((bytes= value +snap-sync-legacy-complete-node-scheme-value+) nil)
+      ;; Epoch one could close a storage root too early. Epoch two extended
+      ;; descendant closure but still let an account-node sentinel run before
+      ;; the code/storage commitments named by that account leaf completed.
+      ;; Keep content from both epochs, but never interpret marker absence as
+      ;; proof after an upgrade.
+      ((or
+        (bytes= value +snap-sync-previous-complete-node-scheme-value+)
+        (bytes= value +snap-sync-legacy-complete-node-scheme-value+))
+       nil)
       (t
        (ethereum-lisp.validation:storage-fail
         "Persisted snap complete-node scheme marker is malformed")))))
@@ -1569,6 +1576,41 @@ publishes the account cursor."
               genesis-hash authority-id)
   (multiple-value-bind (existing present-p)
       (snap-sync-read-progress database)
+    ;; Epoch-two completion could trust an account node before the external
+    ;; code/storage dependencies named by its leaves were durable. Atomically
+    ;; revoke that publication when the store marker is not the current epoch;
+    ;; all content-addressed nodes and closure-safe subtree proofs remain useful
+    ;; to the conservative retry.
+    (when (and present-p
+               (snap-sync-progress-complete-node-scheme-p existing)
+               (not (snap-sync-complete-node-scheme-present-p database)))
+      (let* ((was-completed-p
+               (snap-sync-progress-completed-p existing))
+             (migrated
+               (snap-sync-make-progress
+                :pivot-hash (snap-sync-progress-pivot-hash existing)
+                :pivot-number (snap-sync-progress-pivot-number existing)
+                :state-root (snap-sync-progress-state-root existing)
+                :partial-root (snap-sync-progress-partial-root existing)
+                :target-hash (snap-sync-progress-target-hash existing)
+                :chain-id (snap-sync-progress-chain-id existing)
+                :genesis-hash (snap-sync-progress-genesis-hash existing)
+                :authority-id (snap-sync-progress-authority-id existing)
+                :complete-node-scheme-p nil
+                :completed-p nil
+                :tasks (snap-sync-progress-tasks existing)))
+             (batch (make-kv-write-batch)))
+        (snap-sync-populate-progress-batch batch migrated)
+        (kv-batch-delete-chain-record
+         batch :metadata +snap-sync-complete-node-scheme-identifier+)
+        (kv-batch-delete-chain-record
+         batch :metadata +snap-sync-heal-checkpoint-identifier+)
+        (when was-completed-p
+          (kv-batch-delete-chain-record
+           batch :state-history
+           (hash32-bytes (snap-sync-progress-pivot-hash existing))))
+        (kv-apply-batch database batch)
+        (setf existing migrated)))
     (let ((progress
             (if present-p
                 (progn
@@ -5611,6 +5653,12 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
          (complete-local-node-p (work incomplete-p)
            (let ((reference (snap-sync-heal-work-reference work)))
              (and complete-node-scheme-p
+                  ;; Account nodes can name code and storage roots outside the
+                  ;; account trie. Their exact reusable shortcut is the
+                  ;; dependency-carrying healed-subtree proof, not absence of
+                  ;; this node-local marker. Storage nodes have no such
+                  ;; external dependencies and retain geth-style hash presence.
+                  (eq :storage (snap-sync-heal-work-kind work))
                   (byte-vector-p reference)
                   (= 32 (length reference))
                   (not incomplete-p))))

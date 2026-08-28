@@ -451,8 +451,11 @@ them by their physical location instead reintroduces dependency cycles:
   Fresh empty stores additionally adopt geth's exact hash-scheme completion
   invariant from commit `38271784c2b31926563806da9a2e023b88f5e7a8`, specifically
   `trie/sync.go` `AddSubTrie`, `children`, `hasNode`, and `commitNodeRequest`:
-  presence of a hash means its descendant trie nodes and leaf-triggered code or
-  storage dependencies were durable before its parent became complete. Range
+  for storage tries: presence of a hash means its descendant storage nodes were
+  durable before its parent became complete. Account-node presence alone is
+  not a closure proof because an account leaf can name code and a storage root
+  outside that trie. Account subtrees therefore use the dependency-carrying
+  healed-subtree proof instead of the node-local negative-marker shortcut. Range
   proof-edge nodes and other authenticated-but-open records are written with a
   hash-keyed negative `incomplete` marker in the same batch. Fully reconstructed
   interior groups need no per-node positive metadata. A fetched TrieNodes record
@@ -462,10 +465,16 @@ them by their physical location instead reintroduces dependency cycles:
   flushed before a checkpoint, subtree proof, yield, or final completion. A
   crash before the delete merely repeats safe traversal. Progress version five
   records whether this contract was requested, while the database marker's
-  second closure epoch proves that the current negative-node semantics actually
-  own the store. The first epoch is recognized but never trusted after upgrade:
-  its trie content remains reusable, while absence of one of its markers cannot
-  authorize a skip. Progress versions two through four remain conservative. A
+  third closure epoch proves that the storage-only negative-node semantics
+  actually own the store. The first epoch could close a storage root before
+  descendant closure, and the second could close an account node before the
+  external dependencies named by its leaves. Both epochs are recognized but
+  never trusted after upgrade: their trie content remains reusable, while
+  absence of one of their markers cannot authorize a skip. If persisted
+  progress claims the scheme under either retired epoch, progress completion,
+  the heal checkpoint, and any published pivot state-history record are revoked
+  in one batch before conservative healing resumes. Progress versions two
+  through four remain conservative. A
   database-level scheme marker is created only when the
   trie-node namespace is empty. The fresh RocksDB bootstrap establishes it
   before exporting the genesis trie, so those expected baseline nodes do not
@@ -720,10 +729,11 @@ them by their physical location instead reintroduces dependency cycles:
   present slice. The coordinator joins every reader, restores the original
   value/presence/decoded order, and propagates the earliest worker-slice failure
   before mutating the DFS frontier; small batches and memory/file stores retain
-  the same ordered generic fallback. Under the version-five complete-node
-  contract, a locally present hash without an `incomplete` marker is hash-
-  checked and closes that exact DFS branch without RLP decoding; marked and
-  legacy nodes retain the ordered decode and descendant walk. A content-hash-
+  the same ordered generic fallback. Under the version-five,
+  closure-epoch-three complete-node contract, a locally present storage hash
+  without an `incomplete` marker is hash-checked and closes that exact DFS
+  branch without RLP decoding. Account nodes, marked storage nodes, and legacy
+  nodes retain the ordered decode and dependency walk. A content-hash-
   and path-matched remote
   response is decoded in full before any of its entries are staged, then its
   decoded nodes are retained in a bounded in-memory response cache alongside

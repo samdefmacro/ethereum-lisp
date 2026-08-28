@@ -344,9 +344,11 @@ The implementation boundary is split deliberately:
   local reuses and 2,681 remote fetches, while its dynamically discovered
   frontier grew to 27,474; this proves the `f72afc7f` timeout and buffered-block
   failures no longer stop the live node, but not that healing is complete.
-  Fresh stores also use geth's exact hash-presence frontier: open range or
-  fetched nodes carry durable negative markers, and healer DFS removes each
-  marker only after its descendants and external dependencies are complete.
+  Fresh stores also use geth's exact hash-presence frontier for storage tries:
+  open range or fetched nodes carry durable negative markers, and healer DFS
+  removes each marker only after its descendants are complete. Account nodes
+  cannot use marker absence as closure because their leaves name external code
+  and storage dependencies; they retain dependency-carrying subtree proofs.
   Restart does not hydrate the complete retained marker namespace into a Lisp
   hash table. Exact incomplete status is fetched lazily with ordered bounded
   RocksDB MultiGets for the references entering each local DFS batch, while
@@ -361,6 +363,13 @@ The implementation boundary is split deliberately:
   candidates use the same bounded exact metadata MultiGets, preserving
   cross-pivot reuse while RocksDB's native point-lookup filters provide the
   storage-level negative cache.
+  The closure marker is now epoch three. Epoch two is recognized only for
+  migration because it could classify an account node complete before the
+  storage/code dependencies named by its leaf were durable. On upgrade, a
+  scheme-claiming epoch-two progress record is atomically reopened; its heal
+  checkpoint and any pivot state-history publication are removed while all
+  content-addressed trie nodes, completed range cursors, and closure-safe proofs
+  remain available to the retry.
   When a later account or partitioned StorageRanges page proves closure for a
   node first observed on an open boundary, its atomic proof/record/cursor batch
   removes that superseded negative instead of leaving the final healer to scan

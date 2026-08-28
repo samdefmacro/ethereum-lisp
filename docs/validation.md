@@ -299,15 +299,16 @@ external dependencies before a separate synchronous cursor batch publishes the
 whole WAL prefix. The failure regression permits that idempotent content to
 survive while proving the cursor stays behind a failed seam and a retry
 completes. Fresh empty stores also classify every reconstructed record under a
-progress-version-five, closure-epoch-two geth-style complete-node contract:
+progress-version-five, closure-epoch-three geth-style complete-node contract:
 proof-edge or otherwise open
 nodes carry a negative marker in the same content batch, while fully closed
 interior groups require no positive record per node. The migration control
-plants both a legacy trie node and the old epoch-one scheme marker, proving that
-their content remains available but hash presence remains conservative;
+plants legacy trie nodes under both the old epoch-one and epoch-two scheme
+markers, proving that their content remains available but hash presence remains
+conservative;
 malformed scheme and incomplete markers fail closed. A live-failure regression
 also plants old range-plan and subtree-proof namespaces around a root with one
-missing child, then requires the epoch-two healer to ignore every shortcut,
+missing child, then requires the current healer to ignore every shortcut,
 fetch that child, and only then publish state history. If
 a later account or StorageRanges page proves closure for a node that an earlier
 partial page marked open, the proof/record/cursor batch deletes that exact stale
@@ -513,11 +514,19 @@ An empty-target first-heal control also requires proof publication while
 observing zero exact metadata reads: restoring the unfiltered production batch
 call makes that witness fail. Positive filter results remain covered by the
 cross-pivot exact-version and storage-namespace checks.
-The exact-difference-frontier control places the same complete old trie under a
-new root in two databases. The version-five run skips locally complete hashes,
-fetches the same changed nodes as the legacy run, clears every negative marker,
-and processes less than one eighth as many nodes. Removing the hash-presence
-branch or prematurely trusting a marked node makes the focused test fail.
+The exact-difference-frontier control places the same complete old storage trie
+under a new root in two databases. The closure-epoch-three run skips locally
+complete storage hashes, fetches the same changed nodes as the legacy run,
+clears every negative marker, and processes less than one eighth as many nodes.
+Removing the storage hash-presence branch or prematurely trusting a marked node
+makes the focused test fail. A separate mutation control plants a complete
+local account trie whose leaf names an absent non-empty storage root. It
+requires the healer to traverse the account node, fetch the storage dependency,
+and make it durable before state-history publication; restoring the epoch-two
+account-node shortcut makes that test fail. The epoch-two completion-migration
+control begins with completed progress and state-history, then requires one
+atomic load-time migration to revoke both publication authorities while
+preserving completed range cursors and reusable trie content.
 Restoring immediate storage descent or removing the coarse subtree cache-hit
 branch makes its corresponding focused test fail.
 A coordinator control proves that
