@@ -875,6 +875,9 @@ restart boundary with a mutation control: the production healer must not call
 the full marker loader, while the loader remains available as an explicit
 test/operator integrity oracle. `SNAP-INCOMPLETE-NODE-PRESENCE-IS-ORDERED-AND-FAIL-CLOSED`
 checks exact batch order, absence, and malformed-record rejection. The
+companion `SNAP-STATE-HEALER-NEVER-REBUILDS-GLOBAL-PROOF-BLOOM` control proves
+restart also avoids enumerating retained subtree proofs; exact bounded metadata
+MultiGets retain their cross-pivot reuse. The
 RocksDB iterator control
 `ROCKSDB-KEY-VALUE-DATABASE-ITERATOR-COMPARES-RAW-KEYS` proves range bounds no
 longer allocate a hex rendering for each visited key and includes a direct

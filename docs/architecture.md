@@ -604,6 +604,11 @@ them by their physical location instead reintroduces dependency cycles:
   retained pivot before the active root can resume. The value is therefore
   neither a global remaining-work denominator nor a completion percentage;
   `completed=T` remains the only terminal authority.
+  Retained healed-subtree proofs follow the same restart rule: the production
+  healer does not enumerate every proof to rebuild a process-local Bloom.
+  Shallow proof candidates are already grouped, so bounded exact metadata
+  MultiGets preserve reuse without a global startup pass; RocksDB's native
+  point-lookup filters remain below that boundary.
   Dependency scheduling also adopts newly connected live SNAP transports
   lazily. Its one-second coordinator refresh is an absolute monotonic deadline,
   not a relative condition-variable timeout: storage claims and commits wake
@@ -704,17 +709,13 @@ them by their physical location instead reintroduces dependency cycles:
   the fallback. The result ordering and caller-visible synchronous boundary do
   not change. The
   parallel dispatch applies both to trie-node records and to the versioned
-  metadata proofs used
-  to skip completed subtrees; proof candidates are collected under the same
-  frontier bound and resolved in input order before absent proofs enter the
-  trie-node batch. At healer startup, both versioned proof namespaces are
-  scanned sequentially into a fixed 16 MiB process-local negative filter. A
-  definite absence skips RocksDB entirely, while a possible hit still executes
-  the exact version-validating metadata read; newly durable proof batches enter
-  the filter only after their write succeeds. Thus first healing avoids an
-  extra random metadata miss per candidate without treating a probabilistic
-  result as proof, and a cache miss does not serialize one metadata lookup on
-  the coordinator before every trie read. For trie-node records, each worker
+  metadata proofs used to skip completed subtrees; proof candidates are
+  collected under the same frontier bound and resolved by exact ordered
+  MultiGet before absent proofs enter the trie-node batch. No application-level
+  proof namespace is scanned at startup. This preserves version validation and
+  cross-pivot proof reuse while RocksDB's native point-lookup filters reject
+  storage-level misses. A cache miss therefore does not serialize one metadata
+  lookup on the coordinator before every trie read. For trie-node records, each worker
   also checks the content hash and performs the bounded RLP decode for its
   present slice. The coordinator joins every reader, restores the original
   value/presence/decoded order, and propagates the earliest worker-slice failure

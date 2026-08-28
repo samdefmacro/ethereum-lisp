@@ -1266,6 +1266,54 @@
            (is (= 1 calls)))
       (setf (fdefinition loader-name) real-loader))))
 
+(deftest snap-state-healer-never-rebuilds-global-proof-bloom
+  (:layer :unit :module :p2p)
+  ;; Retained cross-pivot proofs remain exact RocksDB point lookups. Restart
+  ;; must not enumerate every proof merely to recreate a process-local Bloom.
+  (let* ((database (make-memory-key-value-database))
+         (source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :account-range (lambda (request) (declare (ignore request)))
+            :storage-ranges (lambda (request) (declare (ignore request)))
+            :bytecodes (lambda (request) (declare (ignore request)))
+            :trie-nodes (lambda (request) (declare (ignore request)))))
+         (progress
+           (ethereum-lisp.snap-sync::snap-sync-make-progress
+            :pivot-hash (make-hash32 (snap-test-hash 16))
+            :pivot-number 6201 :state-root +empty-trie-hash+
+            :partial-root +empty-trie-hash+
+            :target-hash (make-hash32 (snap-test-hash 17))
+            :chain-id 560048
+            :genesis-hash (make-hash32 (snap-test-hash 18))
+            :authority-id (make-hash32 (snap-test-hash 19))
+            :completed-p nil :complete-node-scheme-p nil
+            :tasks
+            (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+             :count 1 :completed-p t)))
+         (builder-name
+           'ethereum-lisp.snap-sync::snap-sync-make-healed-subtree-bloom)
+         (real-builder (fdefinition builder-name))
+         (calls 0))
+    (unwind-protect
+         (progn
+           (setf (fdefinition builder-name)
+                 (lambda (target)
+                   (incf calls)
+                   (funcall real-builder target)))
+           (is
+            (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
+             (ethereum-lisp.snap-sync::snap-sync-heal-state
+              database (list source) progress 1024)))
+           (is (= 0 calls))
+           ;; Mutation control proves the wrapper is observable.
+           (is
+            (typep
+             (ethereum-lisp.snap-sync::snap-sync-make-healed-subtree-bloom
+              database)
+             'bit-vector))
+           (is (= 1 calls)))
+      (setf (fdefinition builder-name) real-builder))))
+
 (deftest snap-state-import-finishes-byte-capped-storage-before-account-cursor
   (:layer :integration :module :p2p)
   ;; Match geth's account-task pending boundary: persist the authenticated
@@ -6787,7 +6835,7 @@
         (when (probe-file path)
           (uiop:delete-directory-tree path :validate t))))))
 
-(deftest snap-state-healer-skips-definitely-absent-subtree-proof-reads
+(deftest snap-state-healer-batches-exact-subtree-proof-reads
   (:layer :integration :module :p2p)
   (multiple-value-bind (source-state addresses)
       (snap-test-partitioned-state)
@@ -6813,6 +6861,8 @@
               (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
                :count 1 :completed-p t)))
            (exact-read-count 0)
+           (exact-batch-count 0)
+           (largest-exact-batch 0)
            (proof-count 0)
            (real-present
              (fdefinition
@@ -6820,9 +6870,9 @@
            (real-populate
              (fdefinition
               'ethereum-lisp.snap-sync::snap-sync-populate-healed-subtree-batch)))
-      ;; The empty target has no durable completion proofs.  Production must
-      ;; still publish proofs, but the startup negative filter should reject
-      ;; every first-pass candidate without a metadata point/MultiGet.
+      ;; The empty target has no durable completion proofs. Production must
+      ;; check candidates exactly without a global startup scan, batch those
+      ;; checks, and then publish the newly established proofs.
       (let ((ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
               1)
             (ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*
@@ -6833,9 +6883,12 @@
              (progn
                (setf
                 (fdefinition
-                 'ethereum-lisp.snap-sync::snap-sync-healed-subtrees-present)
+                'ethereum-lisp.snap-sync::snap-sync-healed-subtrees-present)
                 (lambda (database references &optional kinds)
+                  (incf exact-batch-count)
                   (incf exact-read-count (length references))
+                  (setf largest-exact-batch
+                        (max largest-exact-batch (length references)))
                   (funcall real-present database references kinds))
                 (fdefinition
                  'ethereum-lisp.snap-sync::snap-sync-populate-healed-subtree-batch)
@@ -6856,7 +6909,9 @@
             'ethereum-lisp.snap-sync::snap-sync-populate-healed-subtree-batch)
            real-populate)))
       (is (plusp proof-count))
-      (is (zerop exact-read-count)))))
+      (is (plusp exact-read-count))
+      (is (< exact-batch-count exact-read-count))
+      (is (> largest-exact-batch 1)))))
 
 (deftest snap-healed-subtree-public-depth-matches-geth-style-shortcut
   (:layer :unit :module :p2p)

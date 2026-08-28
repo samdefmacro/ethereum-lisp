@@ -356,7 +356,11 @@ The implementation boundary is split deliberately:
   attributed 76.3% of samples to the global marker loader and 75.7% to
   per-iterator-key hex rendering; raw bytewise RocksDB range comparisons remove
   that secondary allocation path. Regression controls forbid both production
-  behaviors from returning.
+  behaviors from returning. Restart likewise does not enumerate every retained
+  healed-subtree proof to recreate a process-local Bloom. Shallow proof
+  candidates use the same bounded exact metadata MultiGets, preserving
+  cross-pivot reuse while RocksDB's native point-lookup filters provide the
+  storage-level negative cache.
   When a later account or partitioned StorageRanges page proves closure for a
   node first observed on an open boundary, its atomic proof/record/cursor batch
   removes that superseded negative instead of leaving the final healer to scan

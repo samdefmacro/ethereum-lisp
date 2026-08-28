@@ -4176,7 +4176,12 @@ than cache misses."
 
 (defun snap-sync-filtered-healed-subtrees-present
     (database references kinds bloom)
-  "Use BLOOM negatives to avoid I/O; confirm every positive in RocksDB."
+  "Use optional BLOOM negatives; confirm candidates exactly in RocksDB.
+
+NIL means no fully populated application index is available, so every
+candidate is checked. This is the production restart path: RocksDB's own
+point-lookup filters remain effective without rebuilding a global Lisp Bloom
+from every retained proof before healing can resume."
   (unless (= (length references) (length kinds))
     (error "Snap healed-subtree references and kinds differ in length"))
   (let ((result
@@ -4186,8 +4191,9 @@ than cache misses."
         (maybe-references '())
         (maybe-kinds '()))
     (dotimes (index (length references))
-      (when (snap-sync-healed-subtree-bloom-maybe-p
-             bloom (aref references index) (aref kinds index))
+      (when (or (null bloom)
+                (snap-sync-healed-subtree-bloom-maybe-p
+                 bloom (aref references index) (aref kinds index)))
         (push index maybe-indices)
         (push (aref references index) maybe-references)
         (push (aref kinds index) maybe-kinds)))
@@ -4206,7 +4212,8 @@ than cache misses."
 (defun snap-sync-filtered-healed-subtree-present-p
     (database reference kind bloom)
   "Avoid batch/list allocation for one completion-sentinel proof check."
-  (and (snap-sync-healed-subtree-bloom-maybe-p bloom reference kind)
+  (and (or (null bloom)
+           (snap-sync-healed-subtree-bloom-maybe-p bloom reference kind))
        (snap-sync-healed-subtree-present-p database reference kind)))
 
 (defun snap-sync-filtered-account-subtree-dependencies
@@ -4224,8 +4231,10 @@ values are decoded only after one ordered, bounded metadata MultiGet."
     (dotimes (index (length references))
       (when (and (eq :account (aref kinds index))
                  (zerop (aref completed index))
-                 (snap-sync-healed-subtree-bloom-maybe-p
-                  bloom (aref references index) :account-dependencies))
+                 (or
+                  (null bloom)
+                  (snap-sync-healed-subtree-bloom-maybe-p
+                   bloom (aref references index) :account-dependencies)))
         (push index maybe-indices)
         (push
          (snap-sync-account-subtree-dependencies-identifier
@@ -5151,8 +5160,11 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
            (pending-healed-subtrees '())
            (pending-healed-subtree-count 0)
            (pending-healed-subtree-index (make-hash-table :test #'equalp))
-           (healed-subtree-bloom
-             (snap-sync-make-healed-subtree-bloom database))
+           ;; Do not rebuild a process-local Bloom by scanning every retained
+           ;; proof namespace on restart. Candidate proofs are shallow and
+           ;; already grouped into bounded ordered metadata MultiGets; exact
+           ;; RocksDB lookups resume immediately and preserve cross-pivot reuse.
+           (healed-subtree-bloom nil)
            (deferred-storage '())
            (deferred-storage-count 0)
            (seen-code-hashes (make-hash-table :test #'equalp))
@@ -5442,9 +5454,10 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                (kv-apply-batch database batch))
              ;; A failed durable batch unwinds before these negative-filter
              ;; bits become visible to the remainder of the traversal.
-             (dolist (entry pending-healed-subtrees)
-               (snap-sync-add-healed-subtree-bloom
-                healed-subtree-bloom (cdr entry) (car entry)))
+             (when healed-subtree-bloom
+               (dolist (entry pending-healed-subtrees)
+                 (snap-sync-add-healed-subtree-bloom
+                  healed-subtree-bloom (cdr entry) (car entry))))
              (setf pending-healed-subtrees nil
                    pending-healed-subtree-count 0)
              (clrhash pending-healed-subtree-index)))
