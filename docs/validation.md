@@ -275,6 +275,8 @@ cl-workbench validation run cold-integration \
 cl-workbench validation run cold-integration \
   --match SNAP-GLOBAL-STORAGE-LANE-PROPAGATES-A-STALE-PIVOT-YIELD
 cl-workbench validation run cold-integration \
+  --match SNAP-STATE-IMPORT-MULTI-NEVER-PUBLISHES-AFTER-A-GLOBAL-STORAGE-YIELD
+cl-workbench validation run cold-integration \
   --match SNAP-TRIE-NODE-SERVER-CAPS-DISK-LOOKUPS
 ```
 
@@ -759,8 +761,12 @@ raises a scheduling yield even while a changing peer generation remains
 nonempty. Its account-dependency and global large-storage companions require
 that yield to stop the worker generation and reach the coordinator without an
 `on-source-error` callback, storage-source error, or fatal database
-classification. Temporarily disabling either response-boundary predicate or
-the dependency scheduler's typed handler makes its focused control fail.
+classification. The end-to-end large-root cancellation control additionally
+requires that the owning account page never enter content publication after
+its global storage job stops. Temporarily converting that typed cancellation
+back to a false empty result makes the control observe a publication and fail.
+Temporarily disabling either response-boundary predicate or the dependency
+scheduler's typed handler makes its focused control fail.
 ByteCodes and StorageRanges integration controls return an
 invalid but transport-successful response from the first peer, require client
 verification to retire that exact peer before its reservation is released, and

@@ -6837,7 +6837,12 @@ behind and may safely replay any lost storage pages."
     (unless
         (snap-sync-multi-fill-storage-root
          runtime database state-root (car commitment) (cdr commitment))
-      (return nil))))
+      ;; NIL means the generation stopped while this page still owned an
+      ;; unresolved large root. It must never be reinterpreted as an empty
+      ;; deferred set: that would publish false account-subtree closure before
+      ;; the cursor seam. The typed cancellation is idempotent when another
+      ;; storage lane already queued the stale-pivot yield.
+      (error 'snap-sync-heal-yielded))))
 
 #+sbcl
 (defun snap-sync-multi-worker

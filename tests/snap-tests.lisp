@@ -3820,6 +3820,91 @@
       ;; A CL-authorized scheduling yield is not a peer/source failure.
       (is (zerop source-errors)))))
 
+#+sbcl
+(deftest snap-state-import-multi-never-publishes-after-a-global-storage-yield
+  (:layer :integration :module :p2p)
+  (let* ((source-state (make-state-db))
+         (source-database (make-memory-key-value-database))
+         (target-database (make-memory-key-value-database))
+         (address
+           (address-from-hex
+            "0x0000000000000000000000000000000000000062"))
+         (storage-calls 0)
+         (buffer-calls 0)
+         (source-errors 0)
+         (buffer-name
+           'ethereum-lisp.snap-sync::snap-sync-buffer-account-page-content)
+         (real-buffer (fdefinition buffer-name)))
+    (loop for byte from 1 to 64
+          do (state-db-set-storage
+              source-state address
+              (make-hash32 (make-byte-vector 32 :initial-element byte))
+              (+ 6200 byte)))
+    (let* ((root (state-db-root source-state))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              source-database source-state))
+           (base-source (snap-test-source backend))
+           (yielding-source
+             (ethereum-lisp.snap-sync:make-snap-sync-source
+              :account-range
+              (ethereum-lisp.snap-sync:snap-sync-source-account-range
+               base-source)
+              :storage-ranges
+              (lambda (request)
+                (incf storage-calls)
+                (if (= 1 storage-calls)
+                    (funcall
+                     (ethereum-lisp.snap-sync:snap-sync-source-storage-ranges
+                      base-source)
+                     request)
+                    (error
+                     'ethereum-lisp.snap-sync:snap-sync-heal-yielded)))
+              :bytecodes
+              (ethereum-lisp.snap-sync:snap-sync-source-bytecodes base-source)
+              :trie-nodes
+              (ethereum-lisp.snap-sync:snap-sync-source-trie-nodes
+               base-source))))
+      (unwind-protect
+           (progn
+             (setf
+              (fdefinition buffer-name)
+              (lambda (database state-root result)
+                (when
+                    (plusp
+                     (ethereum-lisp.snap-sync:snap-sync-page-profile-storage-account-count
+                      (ethereum-lisp.snap-sync::snap-sync-page-result-profile
+                       result)))
+                  (incf buffer-calls))
+                (funcall real-buffer database state-root result)))
+             (signals ethereum-lisp.snap-sync:snap-sync-heal-yielded
+               (ethereum-lisp.snap-sync:snap-sync-import-state-multi
+                target-database (list yielding-source)
+                :pivot-hash (make-hash32 (snap-test-index-hash 1420))
+                :pivot-number 909 :state-root root
+                :target-hash (make-hash32 (snap-test-index-hash 1421))
+                :chain-id 560048
+                :genesis-hash (make-hash32 (snap-test-index-hash 1422))
+                :authority-id (make-hash32 (snap-test-index-hash 1423))
+                :byte-limit 350
+                :on-source-error
+                (lambda (source condition)
+                  (declare (ignore source condition))
+                  (incf source-errors))))
+             (is (> storage-calls 1))
+             (is (zerop buffer-calls))
+             (is (zerop source-errors))
+             (multiple-value-bind (progress present-p)
+                 (ethereum-lisp.snap-sync:snap-sync-read-progress
+                  target-database)
+               (is present-p)
+               (when present-p
+                 (is
+                  (not
+                   (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
+                    progress))))))
+        (setf (fdefinition buffer-name) real-buffer)))))
+
 (deftest snap-state-healing-reports-a-typed-source-generation-exhaustion
   (:layer :integration :module :p2p)
   (let* ((database (make-memory-key-value-database))

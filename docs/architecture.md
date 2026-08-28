@@ -338,7 +338,10 @@ them by their physical location instead reintroduces dependency cycles:
   propagates a scheduler yield without charging the peer. Both the account
   dependency workers and the independent large-root StorageRanges workers stop
   their complete generation, release any transient claim, preserve the durable
-  cursor, and hand that yield to the coordinator for pivot rebase. If that
+  cursor, and hand that yield to the coordinator for pivot rebase. A waiter
+  whose large-root job observes the stopped generation re-signals that typed
+  cancellation; it must not reinterpret the missing result as an empty
+  dependency set and buffer false account-subtree closure. If that
   generation produced an efficient bounded
   TrieNodes response window during the preceding five minutes, however, its
   exhaustion is treated as transient churn and the exact pivot waits for a new
