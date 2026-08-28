@@ -365,6 +365,11 @@ account result behind an unfinished dependency while the initial provider
 snapshot contains only that source. A timed range-coordinator wake must admit
 two later sources and give both range work before the blocked page can publish
 its cursor; waiting only for account progress deadlocks the mutation control.
+A focused scheduler control broadcasts storage-shaped worker notifications
+every five milliseconds across the same wait queue and still requires the
+absolute source-refresh deadline to fire in fifty milliseconds. Replacing that
+deadline with a fresh relative timeout after every wake leaves the waiter live
+past the bounded join and turns the control red.
 The production peer-queue regression puts two account jobs
 ahead of a storage job and proves the storage request bypasses the occupied
 account response slot, then routes out-of-order typed replies to the correct

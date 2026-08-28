@@ -7248,39 +7248,55 @@ range-derived subtree proofs."
 #+sbcl
 (defun snap-sync-multi-next-event (runtime &optional refresh-timeout-seconds)
   "Return the next coordinator event, or :REFRESH after a bounded idle wait."
-  (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
-    (loop
-      (when (snap-sync-multi-runtime-events runtime)
-        (return (pop (snap-sync-multi-runtime-events runtime))))
-      (when (snap-sync-progress-completed-p
-             (snap-sync-multi-runtime-progress runtime))
-        (return :complete))
-      (when (and (snap-sync-multi-runtime-max-pages runtime)
-                 (>= (snap-sync-multi-runtime-pages runtime)
-                     (snap-sync-multi-runtime-max-pages runtime))
-                 (zerop
-                  (hash-table-count
-                   (snap-sync-multi-runtime-claims runtime))))
-        (return :limited))
-      (when (snap-sync-tasks-completed-p
-             (snap-sync-progress-tasks
-              (snap-sync-multi-runtime-progress runtime)))
-        (return :heal))
-      (when (and
-             (zerop (snap-sync-multi-runtime-source-count runtime))
-             (zerop
-              (hash-table-count (snap-sync-multi-runtime-claims runtime))))
-        (return :exhausted))
-      (if refresh-timeout-seconds
-          (unless
-              (sb-thread:condition-wait
-               (snap-sync-multi-runtime-changed runtime)
-               (snap-sync-multi-runtime-lock runtime)
-               :timeout refresh-timeout-seconds)
-            (return :refresh))
-          (sb-thread:condition-wait
-           (snap-sync-multi-runtime-changed runtime)
-           (snap-sync-multi-runtime-lock runtime))))))
+  (let ((refresh-deadline
+          (and refresh-timeout-seconds
+               (+ (get-internal-real-time)
+                  (ceiling
+                   (* refresh-timeout-seconds
+                      internal-time-units-per-second))))))
+    (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
+      (loop
+        (when (snap-sync-multi-runtime-events runtime)
+          (return (pop (snap-sync-multi-runtime-events runtime))))
+        (when (snap-sync-progress-completed-p
+               (snap-sync-multi-runtime-progress runtime))
+          (return :complete))
+        (when (and (snap-sync-multi-runtime-max-pages runtime)
+                   (>= (snap-sync-multi-runtime-pages runtime)
+                       (snap-sync-multi-runtime-max-pages runtime))
+                   (zerop
+                    (hash-table-count
+                     (snap-sync-multi-runtime-claims runtime))))
+          (return :limited))
+        (when (snap-sync-tasks-completed-p
+               (snap-sync-progress-tasks
+                (snap-sync-multi-runtime-progress runtime)))
+          (return :heal))
+        (when (and
+               (zerop (snap-sync-multi-runtime-source-count runtime))
+               (zerop
+                (hash-table-count (snap-sync-multi-runtime-claims runtime))))
+          (return :exhausted))
+        (if refresh-deadline
+            (let ((remaining-ticks
+                    (- refresh-deadline (get-internal-real-time))))
+              ;; Storage commits and worker claims broadcast CHANGED as well.
+              ;; Preserve one absolute deadline across those ordinary wakes;
+              ;; restarting a relative timeout here can starve live-peer
+              ;; refresh forever under a continuously productive dependency.
+              (when (not (plusp remaining-ticks))
+                (return :refresh))
+              (unless
+                  (sb-thread:condition-wait
+                   (snap-sync-multi-runtime-changed runtime)
+                   (snap-sync-multi-runtime-lock runtime)
+                   :timeout
+                   (/ remaining-ticks
+                      (float internal-time-units-per-second 1d0)))
+                (return :refresh)))
+            (sb-thread:condition-wait
+             (snap-sync-multi-runtime-changed runtime)
+             (snap-sync-multi-runtime-lock runtime)))))))
 
 #+sbcl
 (defun snap-sync-multi-result-event-batch (runtime first)

@@ -593,8 +593,12 @@ them by their physical location instead reintroduces dependency cycles:
   and rebases can change that denominator. It is not a terminal completion
   percentage; `completed=T` remains the only terminal authority.
   Dependency scheduling also adopts newly connected live SNAP transports
-  lazily. Thus a storage/code backlog waiting behind cooled transports does not
-  depend on an unrelated account-page result to refresh the source pool.
+  lazily. Its one-second coordinator refresh is an absolute monotonic deadline,
+  not a relative condition-variable timeout: storage claims and commits wake
+  the same queue, and those productive notifications must not restart the peer
+  refresh clock forever. Thus a storage/code backlog waiting behind cooled
+  transports does not depend on an unrelated account-page result or an idle
+  storage interval to refresh the source pool.
   The smaller 8,192-work durable checkpoint remains the restart contract.
   Range pages and completed current-epoch plans publish closure proofs at the
   healer's first four-nibble lookup boundary and at its five-nibble children.

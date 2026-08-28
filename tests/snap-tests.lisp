@@ -2761,6 +2761,71 @@
            (ethereum-lisp.snap-sync::snap-sync-multi-runtime-last-full-gc-pages
             runtime)))))
 
+#+sbcl
+(deftest snap-multi-source-refresh-deadline-survives-worker-notifications
+  (:layer :unit :module :p2p)
+  (let* ((progress
+           (ethereum-lisp.snap-sync::snap-sync-make-progress
+            :pivot-hash (make-hash32 (snap-test-hash 233))
+            :pivot-number 907
+            :state-root (make-hash32 (snap-test-hash 234))
+            :partial-root +empty-trie-hash+
+            :target-hash (make-hash32 (snap-test-hash 235))
+            :chain-id 560048
+            :genesis-hash (make-hash32 (snap-test-hash 236))
+            :authority-id (make-hash32 (snap-test-hash 237))
+            :completed-p nil
+            :complete-node-scheme-p nil
+            :tasks
+            (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+             :count 16)))
+         (runtime
+           (ethereum-lisp.snap-sync::make-snap-sync-multi-runtime
+            progress 1 nil))
+         (stop-p nil)
+         (event :unset)
+         (waiter nil)
+         (notifier nil))
+    (unwind-protect
+         (progn
+           (setf waiter
+                 (sb-thread:make-thread
+                  (lambda ()
+                    (setf event
+                          (ethereum-lisp.snap-sync::snap-sync-multi-next-event
+                           runtime 0.05d0)))
+                  :name "snap-test-source-refresh-waiter")
+                 notifier
+                 (sb-thread:make-thread
+                  (lambda ()
+                    ;; A productive large storage root wakes the same queue
+                    ;; faster than the source-refresh interval. The refresh
+                    ;; deadline must still expire instead of restarting here.
+                    (loop repeat 100
+                          until stop-p
+                          do (sleep 0.005d0)
+                             (sb-thread:with-mutex
+                                 ((ethereum-lisp.snap-sync::snap-sync-multi-runtime-lock
+                                   runtime))
+                               (ethereum-lisp.snap-sync::snap-sync-multi-notify
+                                runtime))))
+                  :name "snap-test-storage-notification-noise"))
+           (is (not (eq :timeout
+                        (sb-thread:join-thread
+                         waiter :timeout 0.3d0 :default :timeout))))
+           (setf waiter nil)
+           (is (eq :refresh event)))
+      (setf stop-p t)
+      (when notifier
+        (ignore-errors
+          (sb-thread:join-thread notifier :timeout 1 :default nil)))
+      (when waiter
+        (sb-thread:with-mutex
+            ((ethereum-lisp.snap-sync::snap-sync-multi-runtime-lock runtime))
+          (ethereum-lisp.snap-sync::snap-sync-multi-notify runtime))
+        (ignore-errors
+          (sb-thread:join-thread waiter :timeout 1 :default nil))))))
+
 (deftest snap-sync-progress-v5-round-trips-and-migrates-v2-v4
   (:layer :unit :module :p2p)
   (let* ((pivot (make-hash32 (snap-test-hash 131)))
