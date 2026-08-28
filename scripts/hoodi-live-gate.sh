@@ -880,6 +880,7 @@ for event in \
     peer.snap.storage_failed \
     peer.snap.import_failed \
     peer.snap.target_completed \
+    peer.discovery.crawl \
     peer.dial.connected \
     peer.dial.refused \
     peer.dial.failed
@@ -906,6 +907,60 @@ if [ -n "$stale_lines" ]; then
     stale_total="$(printf '%s\n' "$stale_lines" | wc -l | tr -d ' ')"
     printf 'el-target-stale-reason=unknown count=%s\n' \
         "$(( stale_total - stale_classified ))"
+fi
+discovery_crawl="$(grep -F 'peer.discovery.crawl' "$el_log" | tail -1 || true)"
+if [ -n "$discovery_crawl" ]; then
+    for field in offered routingSeeds
+    do
+        value="$(
+            printf '%s\n' "$discovery_crawl" |
+                sed -n "s/.*(\"$field\" \\. \"\([0-9][0-9]*\)\").*/\1/p"
+        )"
+        if [ -n "$value" ]; then
+            printf 'el-discovery=%s value=%s\n' "$field" "$value"
+        fi
+    done
+    if printf '%s\n' "$discovery_crawl" |
+       grep -F '("filtered" . "true")' >/dev/null; then
+        printf '%s\n' 'el-discovery=filtered value=true'
+    else
+        printf '%s\n' 'el-discovery=filtered value=false'
+    fi
+    discovery_crawls="$(grep -F 'peer.discovery.crawl' "$el_log" || true)"
+    for field in offered routingSeeds
+    do
+        printf '%s\n' "$discovery_crawls" |
+            sed -n "s/.*(\"$field\" \\. \"\([0-9][0-9]*\)\").*/\1/p" |
+            awk -v field="$field" '
+                NR == 1 || $1 > maximum { maximum = $1 }
+                { total += $1 }
+                END {
+                    if (NR > 0) {
+                        printf "el-discovery-window=%s samples=%d total=%d max=%d\n",
+                               field, NR, total, maximum
+                    }
+                }'
+    done
+fi
+connected_lines="$(grep -F 'peer.dial.connected' "$el_log" || true)"
+if [ -n "$connected_lines" ]; then
+    for protocol in eth72 snap1 eth72-snap1
+    do
+        count="$(
+            printf '%s\n' "$connected_lines" |
+                awk -v protocol="$protocol" '
+                    BEGIN {
+                        eth = "(\"eth\" . \"72\")"
+                        snap = "(\"snap\" . \"1\")"
+                    }
+                    protocol == "eth72" && index($0, eth) { count++ }
+                    protocol == "snap1" && index($0, snap) { count++ }
+                    protocol == "eth72-snap1" &&
+                        index($0, eth) && index($0, snap) { count++ }
+                    END { print count + 0 }'
+        )"
+        printf 'el-negotiated=%s count=%s\n' "$protocol" "$count"
+    done
 fi
 storage_profile="$(grep -F 'peer.snap.storage_profile' "$el_log" | tail -1 || true)"
 if [ -n "$storage_profile" ]; then

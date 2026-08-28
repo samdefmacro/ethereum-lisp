@@ -1025,7 +1025,12 @@ the latest identity-free `peer.snap.storage_profile` event and latest numeric
 SNAP source-refresh event. Stale-pivot evidence is reduced to counts for the
 four production reason labels (`progress-stalled`, `source-throughput-low`,
 `response-throughput-low`, and `sources-unavailable`) plus an `unknown` count;
-it never exposes the accompanying target hashes or peer identities. It also
+it never exposes the accompanying target hashes or peer identities. The latest
+discv4 crawl is reduced to its latest and bounded-window offered/routing-seed
+counts plus the chain-filter flag, while connected-session evidence reports
+only counts for `eth/72`,
+`snap/1`, and their intersection. No enode, IP address, client string, or peer
+identifier crosses the broker. It also
 sums page, slot, and phase-millisecond
 fields across the bounded recent log window and reports each maximum. `totalPages`,
 `totalSlots`, and `totalLogicalBytes` are cumulative for the current pivot
