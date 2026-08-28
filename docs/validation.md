@@ -211,7 +211,7 @@ cl-workbench validation run cold-unit --match DEVNET-SNAP-SOURCE-POOL
 cl-workbench validation run cold-unit \
   --match DEVNET-SNAP-SOURCE-POOL-YIELDS-A-STALE-PRUNED-PIVOT
 cl-workbench validation run cold-integration \
-  --match DEVNET-SNAP-SOURCE-POOL-VALIDATES-STORAGE-BEFORE-PEER-RELEASE
+  --match DEVNET-SNAP-SOURCE-POOL-VALIDATES-STORAGE-BEFORE-RELEASE-AND-MATERIALIZES-AFTER
 cl-workbench validation run cold-integration \
   --match SNAP-LARGE-STORAGE-RANGE-VERIFIES-BEFORE-SOURCE-RELEASE
 cl-workbench validation run cold-unit \
@@ -249,6 +249,10 @@ cl-workbench validation run cold-integration \
   --match SNAP-STATE-HEALER-USES-GETH-COMPLETE-NODE-DIFFERENCE-FRONTIER
 cl-workbench validation run cold-unit \
   --match SNAP-COMPLETE-NODE-SCHEME-NEVER-TRUSTS-A-LEGACY-TRIE-STORE
+cl-workbench validation run cold-unit \
+  --match SNAP-PROGRESS-REVOKES-EPOCH-TWO-COMPLETION-ATOMICALLY
+cl-workbench validation run cold-integration \
+  --match SNAP-STATE-HEALER-NEVER-CONFUSES-ACCOUNT-PRESENCE-WITH-DEPENDENCY-CLOSURE
 cl-workbench validation run cold-integration \
   --match DEVNET-LIVE-PERSISTENCE-ROUND-TRIPS-ON-ROCKSDB
 cl-workbench validation run cold-integration \
@@ -262,13 +266,13 @@ cl-workbench validation run cold-integration \
 cl-workbench validation run cold-integration \
   --match SNAP-STATE-HEALER-ADDS-SOURCES-THAT-ARRIVE-AFTER-HEALING-STARTS
 cl-workbench validation run cold-unit \
-  --match SNAP-STATE-HEALER-FILLS-EACH-SOURCE-WITHIN-GETH-LOOKUP-CAP
+  --match SNAP-STATE-HEALER-KEEPS-SOURCES-BUSY-WITHIN-GETH-LOOKUP-CAP
 cl-workbench validation run cold-unit \
   --match DEVNET-SNAP-STALLED-LONG-HEAL-YIELDS-TO-A-STALE-CONSENSUS-TARGET
 cl-workbench validation run cold-unit \
-  --match DEVNET-SNAP-PRODUCTIVE-HEAL-YIELDS-AFTER-SOURCE-POOL-COLLAPSE
+  --match DEVNET-SNAP-COLLAPSED-SOURCE-POOL-YIELDS-AFTER-LOW-TOTAL-THROUGHPUT
 cl-workbench validation run cold-unit \
-  --match DEVNET-SNAP-PRODUCTIVE-HEAL-YIELDS-AFTER-UNDERFILLED-RESPONSES
+  --match DEVNET-SNAP-UNDERFILLED-HEAL-WAITS-FOR-LOW-TOTAL-THROUGHPUT
 cl-workbench validation run cold-unit \
   --match DEVNET-SNAP-EXHAUSTED-SOURCE-GENERATION-YIELDS-TO-A-STALE-CONSENSUS-TARGET
 cl-workbench validation run cold-integration \
