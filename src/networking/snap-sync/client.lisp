@@ -1705,7 +1705,7 @@ publishes the account cursor."
                 (&key page-count slot-count trie-record-count
                       batch-operation-count logical-batch-bytes
                       completed-task-count request-ms proof-ms materialize-ms
-                      commit-ms)))
+                      prepare-ms commit-ms writer-idle-ms)))
   "Aggregate wall-clock and logical-write evidence for one storage commit."
   (page-count 0)
   (slot-count 0)
@@ -1716,7 +1716,9 @@ publishes the account cursor."
   (request-ms 0)
   (proof-ms 0)
   (materialize-ms 0)
-  (commit-ms 0))
+  (prepare-ms 0)
+  (commit-ms 0)
+  (writer-idle-ms 0))
 
 (defun snap-sync-verified-account-records (trie proof)
   "Collect one verified account page's reconstructed and boundary nodes."
@@ -6669,7 +6671,7 @@ Return NIL when the generation stopped before the result could be queued."
 
 #+sbcl
 (defun snap-sync-multi-commit-storage-results
-    (runtime database state-root entries)
+    (runtime database state-root entries &key (writer-idle-ms 0))
   "Buffer ENTRIES through one atomic WAL batch and release their claims.
 
 The owning account page cannot publish its successor cursor until every
@@ -6678,7 +6680,8 @@ this entire WAL prefix.  A crash before that seam leaves the account cursor
 behind and may safely replay any lost storage pages."
   (let ((batch (make-kv-write-batch))
         (task-updates '())
-        (profile nil))
+        (profile nil)
+        (prepare-started-at (get-internal-real-time)))
     ;; Claims are immutable from verification until this coordinator releases
     ;; them. Validate the complete batch before constructing any durable state.
     (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
@@ -6726,7 +6729,10 @@ behind and may safely replay any lost storage pages."
     ;; subtask progress without giving up our restart-safe cursor format.
     (multiple-value-bind (operation-count logical-bytes)
         (kv-write-batch-statistics batch)
-      (let ((commit-started-at (get-internal-real-time)))
+      (let* ((commit-started-at (get-internal-real-time))
+             (prepare-ms
+               (snap-sync-elapsed-milliseconds
+                prepare-started-at commit-started-at)))
         (kv-apply-batch-buffered database batch)
         (setf profile
               (make-snap-sync-storage-profile
@@ -6764,9 +6770,11 @@ behind and may safely replay any lost storage pages."
                      sum
                      (snap-sync-storage-page-result-materialize-ms
                       (snap-sync-global-storage-result-result entry)))
+               :prepare-ms prepare-ms
                :commit-ms
                (snap-sync-elapsed-milliseconds
-                commit-started-at (get-internal-real-time))))))
+                commit-started-at (get-internal-real-time))
+               :writer-idle-ms writer-idle-ms))))
     (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
       (dolist (update task-updates)
         (setf (snap-sync-global-storage-job-tasks (car update)) (cdr update))
@@ -6823,11 +6831,15 @@ their peers to request work. This writer preserves the existing atomic batch,
 claim-release, and WAL-prefix contracts without making peer availability wait
 for RocksDB compaction or a preceding batch write."
   (handler-case
-      (loop
+      (loop with idle-started-at = (get-internal-real-time)
         for entries = (snap-sync-multi-wait-storage-result-batch runtime)
         while entries
+        for dequeued-at = (get-internal-real-time)
         do (snap-sync-multi-commit-storage-results
-            runtime database state-root entries))
+            runtime database state-root entries
+            :writer-idle-ms
+            (snap-sync-elapsed-milliseconds idle-started-at dequeued-at))
+           (setf idle-started-at (get-internal-real-time)))
     (serious-condition (condition)
       (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
         (setf (snap-sync-multi-runtime-storage-fatal-condition runtime)

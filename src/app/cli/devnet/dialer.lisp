@@ -1759,8 +1759,14 @@ must prove the new state root before either record can authorize publication."
             "materializeMs"
             (ethereum-lisp.snap-sync:snap-sync-storage-profile-materialize-ms
              profile)
+            "prepareMs"
+            (ethereum-lisp.snap-sync:snap-sync-storage-profile-prepare-ms
+             profile)
             "commitMs"
             (ethereum-lisp.snap-sync:snap-sync-storage-profile-commit-ms profile)
+            "writerIdleMs"
+            (ethereum-lisp.snap-sync:snap-sync-storage-profile-writer-idle-ms
+             profile)
             "elapsedMs" elapsed-ms
             "slotsPerSecond"
             (floor (* storage-profile-slots 1000) elapsed-ms)

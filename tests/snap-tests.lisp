@@ -2505,6 +2505,12 @@
               profile)))
         (is (= 2
                (ethereum-lisp.snap-sync:snap-sync-storage-profile-completed-task-count
+                profile)))
+        (is (not (minusp
+                  (ethereum-lisp.snap-sync:snap-sync-storage-profile-prepare-ms
+                   profile))))
+        (is (= 0
+               (ethereum-lisp.snap-sync:snap-sync-storage-profile-writer-idle-ms
                 profile))))
       (is
        (ethereum-lisp.snap-sync::snap-sync-account-task-completed-p

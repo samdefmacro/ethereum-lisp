@@ -1027,7 +1027,10 @@ fields across the bounded recent log window and reports each maximum. `totalPage
 `totalSlots`, and `totalLogicalBytes` are cumulative for the current pivot
 import; `logicalBytes`, `trieRecords`, and `batchOperations` describe its most
 recent buffered commit; `requestMs`, `proofMs`, `materializeMs`, and `commitMs`
-separate network, verification, local trie expansion, and database time. Use a
+separate network, verification, local trie expansion, and database time.
+`prepareMs` covers the single writer's batch construction before RocksDB, while
+`writerIdleMs` records how long that writer waited for verified input since its
+previous commit. Use a
 pair of these samples with Docker's block-I/O delta to calculate backend write
 amplification instead of comparing physical writes directly with wire bytes.
 

@@ -461,7 +461,9 @@
    #:snap-sync-storage-profile-request-ms
    #:snap-sync-storage-profile-proof-ms
    #:snap-sync-storage-profile-materialize-ms
+   #:snap-sync-storage-profile-prepare-ms
    #:snap-sync-storage-profile-commit-ms
+   #:snap-sync-storage-profile-writer-idle-ms
    #:snap-sync-heal-progress
    #:snap-sync-heal-progress-processed-nodes
    #:snap-sync-heal-progress-reused-nodes
