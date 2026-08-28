@@ -837,15 +837,40 @@ REMOTE
 }
 
 gate_logs() {
-    note "recent EL and CL evidence logs"
+    note "recent aggregate EL and CL evidence"
     ssh "$host" bash -s -- "$container" "$lighthouse_container" <<'REMOTE'
 set -eu
 container="$1"; lighthouse="$2"
+el_log="$(mktemp)"; cl_log="$(mktemp)"
+trap 'rm -f "$el_log" "$cl_log"' EXIT HUP INT TERM
 date -u +timestamp=%Y-%m-%dT%H:%M:%SZ
-printf '%s\n' '--- ethereum-lisp (last 500 lines) ---'
-docker logs --tail 500 --timestamps "$container" 2>&1
-printf '%s\n' '--- lighthouse (last 250 lines) ---'
-docker logs --tail 250 --timestamps "$lighthouse" 2>&1
+docker logs --tail 2000 "$container" >"$el_log" 2>&1
+docker logs --tail 1000 "$lighthouse" >"$cl_log" 2>&1
+printf 'el-lines=%s\n' "$(wc -l <"$el_log" | tr -d ' ')"
+for event in \
+    peer.snap.target_stale \
+    peer.snap.pivot_rebased \
+    peer.snap.progress \
+    peer.snap.page_profile \
+    peer.snap.heal_progress \
+    peer.snap.dependency_failed \
+    peer.snap.dependencies_unavailable \
+    peer.snap.pivot_unavailable \
+    peer.snap.storage_failed \
+    peer.snap.import_failed \
+    peer.snap.target_completed
+do
+    count="$(grep -F -c "$event" "$el_log" || true)"
+    printf 'el-event=%s count=%s\n' "$event" "$count"
+done
+# Profiler rows are deliberately schema-bounded and contain no peer or network
+# identity. Never print any other raw EL/CL line from this evidence broker.
+grep -E '^allocation-profile-row([[:space:]]|$)' "$el_log" || true
+printf 'cl-lines=%s\n' "$(wc -l <"$cl_log" | tr -d ' ')"
+printf 'cl-error-count=%s\n' "$(grep -F -i -c 'error' "$cl_log" || true)"
+printf 'cl-execution-offline-count=%s\n' \
+    "$(grep -F -i -c 'execution layer is not online' "$cl_log" || true)"
+printf 'cl-synced-count=%s\n' "$(grep -F -c 'Synced' "$cl_log" || true)"
 REMOTE
 }
 
