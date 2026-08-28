@@ -80,6 +80,23 @@
       (is present-p)
       (is (bytes= #(3) value)))))
 
+(deftest kv-batch-append-preserves-application-order-and-consumes-source
+  (:layer :unit :module :database)
+  (let ((database (make-memory-key-value-database))
+        (prefix (make-kv-write-batch))
+        (suffix (make-kv-write-batch)))
+    (kv-batch-put prefix #(1) #(10))
+    (kv-batch-put suffix #(1) #(20))
+    (kv-batch-put suffix #(2) #(30))
+    (kv-batch-append prefix suffix)
+    (multiple-value-bind (operations logical-bytes)
+        (kv-write-batch-statistics suffix)
+      (is (= 0 operations))
+      (is (= 0 logical-bytes)))
+    (kv-apply-batch database prefix)
+    (is (bytes= #(20) (kv-get database #(1))))
+    (is (bytes= #(30) (kv-get database #(2))))))
+
 (deftest memory-key-value-database-failed-batch-restores-snapshot
   (let ((database (make-memory-key-value-database))
         (batch (make-kv-write-batch)))

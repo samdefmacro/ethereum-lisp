@@ -892,7 +892,7 @@ if [ -n "$storage_profile" ]; then
     for field in \
         pivot totalPages totalSlots totalLogicalBytes trieRecords \
         batchOperations logicalBytes completedTasks requestMs proofMs \
-        materializeMs prepareMs commitMs writerIdleMs elapsedMs \
+        materializeMs batchBuildMs prepareMs commitMs writerIdleMs elapsedMs \
         slotsPerSecond logicalBytesPerSecond
     do
         value="$(
@@ -906,7 +906,7 @@ if [ -n "$storage_profile" ]; then
 fi
 storage_profiles="$(grep -F 'peer.snap.storage_profile' "$el_log" || true)"
 if [ -n "$storage_profiles" ]; then
-    for field in pages slots requestMs proofMs materializeMs prepareMs \
+    for field in pages slots requestMs proofMs materializeMs batchBuildMs prepareMs \
         commitMs writerIdleMs
     do
         printf '%s\n' "$storage_profiles" |

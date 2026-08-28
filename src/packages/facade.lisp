@@ -33,6 +33,7 @@
    #:make-kv-write-batch
    #:kv-batch-put
    #:kv-batch-delete
+   #:kv-batch-append
    #:kv-write-batch-statistics
    #:kv-apply-batch
    #:kv-apply-batch-buffered

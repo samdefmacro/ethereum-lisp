@@ -2507,6 +2507,9 @@
                (ethereum-lisp.snap-sync:snap-sync-storage-profile-completed-task-count
                 profile)))
         (is (not (minusp
+                  (ethereum-lisp.snap-sync:snap-sync-storage-profile-batch-build-ms
+                   profile))))
+        (is (not (minusp
                   (ethereum-lisp.snap-sync:snap-sync-storage-profile-prepare-ms
                    profile))))
         (is (= 0

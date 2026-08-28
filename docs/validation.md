@@ -1028,7 +1028,9 @@ fields across the bounded recent log window and reports each maximum. `totalPage
 import; `logicalBytes`, `trieRecords`, and `batchOperations` describe its most
 recent buffered commit; `requestMs`, `proofMs`, `materializeMs`, and `commitMs`
 separate network, verification, local trie expansion, and database time.
-`prepareMs` covers the single writer's batch construction before RocksDB, while
+`batchBuildMs` sums page-batch construction performed concurrently by source
+workers. `prepareMs` covers the single writer's validation, zero-copy merge,
+and statistics pass before RocksDB, while
 `writerIdleMs` records how long that writer waited for verified input since its
 previous commit. Use a
 pair of these samples with Docker's block-I/O delta to calculate backend write

@@ -1565,7 +1565,7 @@ really reopens the directory instead of observing the first handle's memory."
              :page-count 2 :slot-count 300 :trie-record-count 400
              :batch-operation-count 450 :logical-batch-bytes 500000
              :completed-task-count 1 :request-ms 20 :proof-ms 30
-             :materialize-ms 40 :prepare-ms 45 :commit-ms 50
+             :materialize-ms 40 :batch-build-ms 42 :prepare-ms 45 :commit-ms 50
              :writer-idle-ms 60)))
          (apply import-function arguments))))
      (lambda ()
@@ -1649,6 +1649,7 @@ really reopens the directory instead of observing the first handle's memory."
           (is (= 300 (field record "totalSlots")))
           (is (= 500000 (field record "logicalBytes")))
           (is (= 500000 (field record "totalLogicalBytes")))
+          (is (= 42 (field record "batchBuildMs")))
           (is (= 45 (field record "prepareMs")))
           (is (= 50 (field record "commitMs")))
           (is (= 60 (field record "writerIdleMs")))

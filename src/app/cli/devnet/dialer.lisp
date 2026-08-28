@@ -1759,6 +1759,9 @@ must prove the new state root before either record can authorize publication."
             "materializeMs"
             (ethereum-lisp.snap-sync:snap-sync-storage-profile-materialize-ms
              profile)
+            "batchBuildMs"
+            (ethereum-lisp.snap-sync:snap-sync-storage-profile-batch-build-ms
+             profile)
             "prepareMs"
             (ethereum-lisp.snap-sync:snap-sync-storage-profile-prepare-ms
              profile)

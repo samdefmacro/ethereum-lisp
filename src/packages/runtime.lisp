@@ -461,6 +461,7 @@
    #:snap-sync-storage-profile-request-ms
    #:snap-sync-storage-profile-proof-ms
    #:snap-sync-storage-profile-materialize-ms
+   #:snap-sync-storage-profile-batch-build-ms
    #:snap-sync-storage-profile-prepare-ms
    #:snap-sync-storage-profile-commit-ms
    #:snap-sync-storage-profile-writer-idle-ms

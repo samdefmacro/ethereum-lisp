@@ -10,6 +10,25 @@
         (kv-write-batch-operations batch))
   batch)
 
+(defun kv-batch-append (destination source)
+  "Append SOURCE after DESTINATION in application order, consuming SOURCE.
+
+Both batches already own private key/value copies. Moving their operation
+lists preserves the public KV-BATCH-PUT mutation boundary without copying a
+prepared page a second time on a central writer thread."
+  (check-type destination kv-write-batch)
+  (check-type source kv-write-batch)
+  (when (eq destination source)
+    (error "A KV write batch cannot append itself"))
+  ;; Operations are stored in reverse application order. SOURCE must precede
+  ;; DESTINATION internally so reversing the combined list applies the old
+  ;; destination prefix followed by the source suffix.
+  (setf (kv-write-batch-operations destination)
+        (nconc (kv-write-batch-operations source)
+               (kv-write-batch-operations destination))
+        (kv-write-batch-operations source) nil)
+  destination)
+
 (defun kv-write-batch-statistics (batch)
   "Return BATCH's operation count and logical key/value byte count.
 
