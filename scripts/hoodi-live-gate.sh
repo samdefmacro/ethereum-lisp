@@ -962,6 +962,54 @@ if [ -n "$connected_lines" ]; then
         printf 'el-negotiated=%s count=%s\n' "$protocol" "$count"
     done
 fi
+heal_progress="$(grep -F 'peer.snap.heal_progress' "$el_log" | tail -1 || true)"
+if [ -n "$heal_progress" ]; then
+    for field in \
+        pivot processedNodes reusedNodes fetchedNodes requests nodeBytes \
+        promotedSubtrees skippedSubtrees frontierWorks deferredStorageWorks \
+        remoteWorks knownIncompleteNodes sampleSeconds processedRate \
+        discoveredRate etaSeconds
+    do
+        value="$(
+            printf '%s\n' "$heal_progress" |
+                sed -n "s/.*(\"$field\" \\. \"\([0-9][0-9]*\)\").*/\1/p"
+        )"
+        if [ -n "$value" ]; then
+            printf 'el-heal-progress=%s value=%s\n' "$field" "$value"
+        fi
+    done
+    value="$(
+        printf '%s\n' "$heal_progress" |
+            sed -n 's/.*("netDrainRate" \. "\(-\{0,1\}[0-9][0-9]*\)").*/\1/p'
+    )"
+    if [ -n "$value" ]; then
+        printf 'el-heal-progress=netDrainRate value=%s\n' "$value"
+    fi
+    eta_status=unknown
+    for candidate in completed warming dynamic-expansion unstable converging
+    do
+        if printf '%s\n' "$heal_progress" |
+           grep -F "(\"etaStatus\" . \"$candidate\")" >/dev/null; then
+            eta_status="$candidate"
+        fi
+    done
+    eta_confidence=unknown
+    for candidate in none medium high
+    do
+        if printf '%s\n' "$heal_progress" |
+           grep -F "(\"etaConfidence\" . \"$candidate\")" >/dev/null; then
+            eta_confidence="$candidate"
+        fi
+    done
+    printf 'el-heal-progress=etaStatus value=%s\n' "$eta_status"
+    printf 'el-heal-progress=etaConfidence value=%s\n' "$eta_confidence"
+    if printf '%s\n' "$heal_progress" |
+       grep -F '("completed" . "true")' >/dev/null; then
+        printf '%s\n' 'el-heal-progress=completed value=true'
+    else
+        printf '%s\n' 'el-heal-progress=completed value=false'
+    fi
+fi
 storage_profile="$(grep -F 'peer.snap.storage_profile' "$el_log" | tail -1 || true)"
 if [ -n "$storage_profile" ]; then
     for field in \

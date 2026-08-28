@@ -1030,7 +1030,10 @@ discv4 crawl is reduced to its latest and bounded-window offered/routing-seed
 counts plus the chain-filter flag, while connected-session evidence reports
 only counts for `eth/72`,
 `snap/1`, and their intersection. No enode, IP address, client string, or peer
-identifier crosses the broker. It also
+identifier crosses the broker. The latest identity-free healer event is
+projected to its numeric work/frontier/rate fields and fixed ETA status,
+confidence, and completion enums; hashes and source identities remain absent.
+It also
 sums page, slot, and phase-millisecond
 fields across the bounded recent log window and reports each maximum. `totalPages`,
 `totalSlots`, and `totalLogicalBytes` are cumulative for the current pivot
