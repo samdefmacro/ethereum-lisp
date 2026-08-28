@@ -230,20 +230,16 @@ capacity near one on ordinary one-to-two-second public peers.")
         (devnet-snap-qos-target-timeout-locked qos))))
 
 #+sbcl
-(defun devnet-snap-qos-capacity-target-seconds (qos)
-  "Return Geth's live timeout target for capacity estimation.
-
-Queues outside a node-wide pool exist only in focused tests and retain the
-historical six-second target. Production queues use the same TargetTimeout
-value for both request sizing and expiry, matching Geth's SNAP scheduler."
-  (if qos
-      (devnet-snap-qos-target-timeout qos)
-      +devnet-snap-request-target-seconds+))
-
-#+sbcl
 (defstruct (devnet-peer-snap-rate
-            (:constructor make-devnet-peer-snap-rate (throughput)))
+            (:constructor make-devnet-peer-snap-rate
+                (throughput round-trip)))
   throughput
+  ;; Geth's pool RTT is shared across message types.  In SBCL, however, fully
+  ;; decoding a nested StorageRanges response is part of delivery latency and
+  ;; is materially more expensive than decoding a small ByteCodes response.
+  ;; Retain a per-message service-time floor so fast message kinds cannot tune
+  ;; a legitimate storage response below its own observed completion time.
+  round-trip
   (samples 0))
 
 #+sbcl
@@ -324,11 +320,44 @@ value for both request sizing and expiry, matching Geth's SNAP scheduler."
               (make-devnet-peer-snap-rate
                (devnet-snap-qos-queue-throughput
                 (devnet-peer-request-queue-snap-qos queue)
-                queue response-id))))
+                queue response-id)
+               ;; A response kind with no successful sample is cold even when
+               ;; faster kinds have already tuned the shared peer RTT.  Starting
+               ;; it from the pool's current value would let a first, nested
+               ;; StorageRanges reply inherit ByteCodes' six-second deadline.
+               +devnet-snap-qos-max-rtt-seconds+)))
         (setf (gethash response-id
                        (devnet-peer-request-queue-snap-rates queue))
               rate)
         rate)))
+
+#+sbcl
+(defun devnet-peer-snap-message-timeout-locked (queue response-id)
+  "Return a bounded deadline that preserves RESPONSE-ID's service-time floor.
+
+The node-wide value remains geth's confidence-scaled target.  A message kind
+whose successful deliveries are slower may retain up to the same 60-second
+ceiling.  Zero deliveries never update this floor, so a timeout cannot ratchet
+it upward indefinitely."
+  (let* ((qos (devnet-peer-request-queue-snap-qos queue))
+         (global-timeout (devnet-snap-qos-target-timeout qos)))
+    (if (null qos)
+        global-timeout
+        (max
+         global-timeout
+         (min +devnet-snap-qos-timeout-limit-seconds+
+              (* +devnet-snap-qos-timeout-scale+
+                 (devnet-peer-snap-rate-round-trip
+                  (devnet-peer-request-queue-snap-rate
+                   queue response-id))))))))
+
+#+sbcl
+(defun devnet-peer-snap-capacity-target-seconds-locked
+    (queue response-id)
+  "Return the deadline used to size RESPONSE-ID while QUEUE is locked."
+  (if (devnet-peer-request-queue-snap-qos queue)
+      (devnet-peer-snap-message-timeout-locked queue response-id)
+      +devnet-snap-request-target-seconds+))
 
 #+sbcl
 (defun devnet-peer-snap-capacity-for-throughput
@@ -340,8 +369,8 @@ value for both request sizing and expiry, matching Geth's SNAP scheduler."
     (+ 1d0
        (* +devnet-snap-capacity-overestimation+
           throughput
-          (devnet-snap-qos-capacity-target-seconds
-           (devnet-peer-request-queue-snap-qos queue)))))))
+          (devnet-peer-snap-capacity-target-seconds-locked
+           queue response-id))))))
 
 #+sbcl
 (defun devnet-peer-request-queue-snap-capacity (queue response-id)
@@ -354,14 +383,16 @@ value for both request sizing and expiry, matching Geth's SNAP scheduler."
 
 #+sbcl
 (defun devnet-peer-request-queue-snap-statistics (queue response-id)
-  "Return learned capacity, shared peer RTT, and samples for RESPONSE-ID."
+  "Return capacity, shared RTT, samples, and deadline for RESPONSE-ID."
   (sb-thread:with-mutex ((devnet-peer-request-queue-lock queue))
     (let ((rate
             (devnet-peer-request-queue-snap-rate queue response-id)))
       (values (devnet-peer-snap-capacity-for-throughput
                queue response-id (devnet-peer-snap-rate-throughput rate))
               (devnet-peer-request-queue-snap-round-trip queue)
-              (devnet-peer-snap-rate-samples rate)))))
+              (devnet-peer-snap-rate-samples rate)
+              (devnet-peer-snap-message-timeout-locked
+               queue response-id)))))
 
 #+sbcl
 (defun devnet-peer-request-queue-update-round-trip-locked (queue elapsed)
@@ -415,6 +446,11 @@ it is not independently doubled/halved or frozen at an obsolete deadline."
        (devnet-peer-request-queue-snap-qos queue)
        queue response-id throughput)
       (when (plusp delivered-units)
+        (setf (devnet-peer-snap-rate-round-trip rate)
+              (+ (* (- 1d0 +devnet-snap-qos-measurement-impact+)
+                    (devnet-peer-snap-rate-round-trip rate))
+                 (* +devnet-snap-qos-measurement-impact+
+                    (float elapsed 1d0))))
         (devnet-peer-request-queue-update-round-trip-locked queue elapsed))
       capacity)))
 
@@ -681,8 +717,9 @@ routed back to their waiting worker by message type plus request id."
                               :test #'eq :count 1))
                 (when (devnet-peer-request-job-snap-response-id job)
                   (let ((timeout
-                          (devnet-snap-qos-target-timeout
-                           (devnet-peer-request-queue-snap-qos queue))))
+                          (devnet-peer-snap-message-timeout-locked
+                           queue
+                           (devnet-peer-request-job-snap-response-id job))))
                     (setf
                      (devnet-peer-request-job-started-at job) now
                      (devnet-peer-request-job-timeout-seconds job) timeout

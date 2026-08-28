@@ -1636,16 +1636,18 @@ must prove the new state root before either record can authorize publication."
                   (nth task-index
                        (ethereum-lisp.snap-sync:snap-sync-progress-tasks
                         progress))))
-           (multiple-value-bind (account-capacity account-rtt account-samples)
+           (multiple-value-bind
+                 (account-capacity account-rtt account-samples account-timeout)
                (if queue
                    (devnet-peer-request-queue-snap-statistics
                     queue ethereum-lisp.snap:+snap-message-account-range+)
-                   (values nil nil 0))
-             (multiple-value-bind (storage-capacity storage-rtt storage-samples)
+                   (values nil nil 0 nil))
+             (multiple-value-bind
+                   (storage-capacity storage-rtt storage-samples storage-timeout)
                  (if queue
                      (devnet-peer-request-queue-snap-statistics
                       queue ethereum-lisp.snap:+snap-message-storage-ranges+)
-                     (values nil nil 0))
+                     (values nil nil 0 nil))
                (devnet-peer-manager-log
                 node "peer.snap.progress"
                 "peer" (devnet-peer-entry-id-hex entry)
@@ -1662,9 +1664,13 @@ must prove the new state root before either record can authorize publication."
                 "accountCap" account-capacity
                 "accountRttMs" (and account-rtt (round (* account-rtt 1000)))
                 "accountSamples" account-samples
+                "accountTimeoutMs"
+                (and account-timeout (round (* account-timeout 1000)))
                 "storageCap" storage-capacity
                 "storageRttMs" (and storage-rtt (round (* storage-rtt 1000)))
                 "storageSamples" storage-samples
+                "storageTimeoutMs"
+                (and storage-timeout (round (* storage-timeout 1000)))
                 "requestTimeoutMs"
                 (round
                  (* 1000

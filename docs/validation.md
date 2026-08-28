@@ -593,7 +593,14 @@ the cached RTT until its tuning interval. The forced tuning oracle checks
 geth's zero-based `floor(sqrt(N))` sample, two--twenty-second clamp, 0.25 cache
 impact, connection-driven confidence detuning, threefold confidence-scaled
 timeout, and sixty-second ceiling. Closing five queues removes their RTT and
-throughput snapshots without rewriting the cache early. The capacity controls
+throughput snapshots without rewriting the cache early. A message-specific
+control first collapses that pool baseline to six seconds and only then creates
+the first StorageRanges rate. It requires the unobserved type to retain the
+cold sixty-second deadline, then requires the storage assignment and its
+reported telemetry deadline to follow the larger threefold per-message EWMA
+under the same sixty-second cap; a zero delivery may reset throughput but must
+not inflate or erase that observation. Replacing the production maximum with
+the pool baseline makes this control fail. The capacity controls
 use geth's 0.1 units-per-second EWMA and
 `ceil(1 + 1.01 * throughput * live-timeout)` directly: a fast first range or
 ByteCodes response can reach the protocol cap, a zero delivery returns to the

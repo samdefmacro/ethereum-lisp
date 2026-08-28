@@ -1585,6 +1585,15 @@ really reopens the directory instead of observing the first handle's memory."
           (is (string= "peer-1" (field record "peer")))
           (is (= (block-header-number pivot-header)
                  (field record "pivot")))
+          ;; The synthetic source has no transport queue, so its type-specific
+          ;; fields are NIL. A live entry reports positive millisecond values;
+          ;; the pool baseline exists for both shapes.
+          (is (and (integerp (field record "requestTimeoutMs"))
+                   (plusp (field record "requestTimeoutMs"))))
+          (dolist (name '("accountTimeoutMs" "storageTimeoutMs"))
+            (is (or (null (field record name))
+                    (and (integerp (field record name))
+                         (plusp (field record name))))))
           ;; Page durability is not state completeness. Byte-capped storage may
           ;; still be mandatory work for the final content-addressed traversal.
           (is (null (field record "completed"))))
@@ -4559,6 +4568,11 @@ loop cannot block on a message that never comes."
               :snap-response-id
               ethereum-lisp.snap:+snap-message-account-range+
               :snap-request-id 909)))
+      ;; Once this response type has one fast successful delivery, its own
+      ;; service-time floor (20 -> 18.1 seconds, hence 54.3 seconds) no longer
+      ;; dominates the tuned 58.725-second pool deadline.
+      (ethereum-lisp.cli::devnet-peer-request-queue-record-snap-delivery
+       probe ethereum-lisp.snap:+snap-message-account-range+ 1000 1d0)
       (setf (ethereum-lisp.cli::devnet-peer-request-queue-pending probe)
             (list job))
       (is (eq job
@@ -4607,6 +4621,66 @@ loop cannot block on a message that never comes."
              (* 3d0
                 (ethereum-lisp.cli::devnet-snap-qos-live-median-round-trip-locked
                  qos))))))
+  #-sbcl
+  (is t))
+
+(deftest devnet-snap-message-rtt-prevents-cross-type-timeout-collapse
+  (:layer :unit :module :p2p)
+  #+sbcl
+  (let* ((qos (ethereum-lisp.cli::make-devnet-snap-qos))
+         (queue (ethereum-lisp.cli::make-devnet-peer-request-queue qos))
+         (storage-id ethereum-lisp.snap:+snap-message-storage-ranges+))
+    ;; Fast message kinds may tune the shared pool to its two-second floor
+    ;; before this peer ever requests StorageRanges. The first storage rate must
+    ;; nevertheless be cold because it has no storage service-time sample yet.
+    (setf (ethereum-lisp.cli::devnet-snap-qos-round-trip qos) 2d0
+          (ethereum-lisp.cli::devnet-snap-qos-confidence qos) 1d0
+          (ethereum-lisp.cli::devnet-snap-qos-tuned-at qos)
+          (get-internal-real-time)
+          (ethereum-lisp.cli::devnet-peer-request-queue-snap-round-trip queue)
+          2d0)
+    (ethereum-lisp.cli::devnet-peer-request-queue-snap-capacity
+     queue storage-id)
+    (flet ((storage-timeout ()
+             (sb-thread:with-mutex
+                 ((ethereum-lisp.cli::devnet-peer-request-queue-lock queue))
+               (ethereum-lisp.cli::devnet-peer-snap-message-timeout-locked
+                queue storage-id))))
+      (is (= 6d0 (ethereum-lisp.cli::devnet-snap-qos-target-timeout qos)))
+      (is (= 60d0 (storage-timeout)))
+      ;; One successful ten-second storage delivery moves only this message
+      ;; EWMA from 20 to 19 seconds, hence a 57-second bounded deadline.
+      (ethereum-lisp.cli::devnet-peer-request-queue-record-snap-delivery
+       queue storage-id 1000 10d0)
+      (is (< (abs (- 57d0 (storage-timeout))) 1d-12))
+      ;; A timeout records zero throughput but must not ratchet the service
+      ;; time upward or discard its last successful observation.
+      (ethereum-lisp.cli::devnet-peer-request-queue-record-snap-delivery
+       queue storage-id 0 57d0)
+      (is (< (abs (- 57d0 (storage-timeout))) 1d-12))
+      (is (< (abs
+              (- 57d0
+                 (nth-value
+                  3
+                  (ethereum-lisp.cli::devnet-peer-request-queue-snap-statistics
+                   queue storage-id))))
+             1d-12))
+      (let ((job
+              (ethereum-lisp.cli::make-devnet-peer-request-job
+               (lambda () nil)
+               :snap-response-id storage-id
+               :snap-request-id 910)))
+        (setf (ethereum-lisp.cli::devnet-peer-request-queue-pending queue)
+              (list job))
+        (is (eq job
+                (ethereum-lisp.cli::devnet-peer-request-queue-take-eligible
+                 queue)))
+        (is (< (abs
+                (- 57d0
+                   (ethereum-lisp.cli::devnet-peer-request-job-timeout-seconds
+                    job)))
+               1d-12))
+        (setf (ethereum-lisp.cli::devnet-peer-request-queue-active queue) nil))))
   #-sbcl
   (is t))
 

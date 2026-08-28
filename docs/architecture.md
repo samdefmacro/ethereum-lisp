@@ -208,7 +208,7 @@ them by their physical location instead reintroduces dependency cycles:
   rebases them to a serviceable newer pivot. Account and
   storage requests in an empty pool start at geth's 64 KiB lower cap. Each peer
   and response type learns geth's 0.1 EWMA of delivered units per second and
-  uses the node's current timeout to derive
+  uses the message's current timeout to derive
   `ceil(1 + 1.01 * throughput * timeout)` for every assignment. A zero delivery
   resets that message throughput without contaminating the peer RTT. It stays
   within the
@@ -230,11 +230,21 @@ them by their physical location instead reintroduces dependency cycles:
   immediately inherits the live median RTT and mean per-message throughputs.
   Its first small response contributes only the same ten-percent EWMA impact as
   Geth, so one cache hit cannot collapse every following request to the
-  six-second floor.
+  six-second floor. An unobserved response type starts from the bounded
+  twenty-second cold service time even if faster types have already tuned the
+  shared peer RTT. Each response type additionally retains a ten-percent EWMA
+  of its own successful end-to-end service time. Its actual request deadline is
+  the larger of the geth pool deadline and three times that message-specific
+  observation, under the same sixty-second ceiling. This Lisp-specific floor
+  accounts for bounded RLP materialization cost: a fast ByteCodes reply cannot
+  expire legitimate nested StorageRanges replies before their own successful
+  latency has decayed. A zero delivery resets throughput but cannot inflate or
+  erase this service-time observation.
   This prevents repeated slow or dead dependency transports from consuming a
   full fixed timeout at every retry.
-  The page-progress event exposes this current pool deadline as
-  `requestTimeoutMs`, keeping failover behavior measurable on a public gate.
+  The page-progress event exposes the pool baseline as `requestTimeoutMs` and
+  the applied type-specific deadlines as `accountTimeoutMs` and
+  `storageTimeoutMs`, keeping failover behavior measurable on a public gate.
   Concurrent forward block download may still reach a structurally valid block
   before SNAP makes its parent state executable. Its durable `ACCEPTED` or
   `SYNCING` verdict advances the peer cursor as buffered work; only deterministic
