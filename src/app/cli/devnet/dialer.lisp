@@ -876,7 +876,11 @@ target."
   ;; the ordinary transport cooldown expires. The pool is pivot/import scoped,
   ;; so this is neither a permanent node ban nor a peer score.
   (unavailable-entries (make-hash-table :test #'eq))
-  (failed-entries (make-hash-table :test #'eq)))
+  (failed-entries (make-hash-table :test #'eq))
+  ;; Production installs a CL-authorized pivot-age predicate. A stream of new
+  ;; peers which all reject an old root must not keep the pool artificially
+  ;; live forever merely because the finite generation keeps changing.
+  stale-function)
 
 (defconstant +devnet-snap-source-pool-failure-cooldown-seconds+ 30
   "How long one failed dependency transport is excluded from pooled work.")
@@ -1153,6 +1157,16 @@ the transport which supplied it."
            "peer" (devnet-peer-entry-id-hex entry)
            "type" label
            "error" transport-condition)
+          (when (and
+                 (typep
+                  transport-condition
+                 'ethereum-lisp.snap-sync:snap-sync-state-unavailable)
+                 (devnet-snap-source-pool-stale-function pool)
+                 (funcall (devnet-snap-source-pool-stale-function pool)))
+            ;; The callback proves a newer CL-authorized target lies beyond
+            ;; geth's pivot window. Propagate a scheduler result, not a source
+            ;; failure: this peer accurately reported ordinary state pruning.
+            (error 'ethereum-lisp.snap-sync:snap-sync-heal-yielded))
           (setf last-condition transport-condition))))))
 
 #+sbcl
@@ -1579,6 +1593,8 @@ must prove the new state root before either record can authorize publication."
                             +devnet-snap-heal-target-check-interval-seconds+)))
                  (setf last-heal-target-check-at now)
                  (stale-target-p reason))))))
+      (setf (devnet-snap-source-pool-stale-function source-pool)
+            (lambda () (stale-target-p "sources-unavailable")))
       (setf sources (refresh-sources))
       (unless sources
         (eth-sync-multi-peer-fail

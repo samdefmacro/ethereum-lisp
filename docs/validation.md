@@ -205,6 +205,8 @@ cl-workbench validation run cold-integration \
 cl-workbench validation run cold-unit --match DEVNET-SNAP-REQUEST-CAPACITY
 cl-workbench validation run cold-unit --match DEVNET-SNAP-SOURCE-APPLIES
 cl-workbench validation run cold-unit --match DEVNET-SNAP-SOURCE-POOL
+cl-workbench validation run cold-unit \
+  --match DEVNET-SNAP-SOURCE-POOL-YIELDS-A-STALE-PRUNED-PIVOT
 cl-workbench validation run cold-integration \
   --match DEVNET-SNAP-SOURCE-POOL-VALIDATES-STORAGE-BEFORE-PEER-RELEASE
 cl-workbench validation run cold-integration \
@@ -268,6 +270,10 @@ cl-workbench validation run cold-unit \
   --match DEVNET-SNAP-EXHAUSTED-SOURCE-GENERATION-YIELDS-TO-A-STALE-CONSENSUS-TARGET
 cl-workbench validation run cold-integration \
   --match SNAP-STATE-IMPORT-MULTI-YIELDS-A-STALE-RANGE-PIVOT-AFTER-DURABILITY
+cl-workbench validation run cold-integration \
+  --match SNAP-STATE-IMPORT-MULTI-PROPAGATES-A-STALE-DEPENDENCY-YIELD
+cl-workbench validation run cold-integration \
+  --match SNAP-GLOBAL-STORAGE-LANE-PROPAGATES-A-STALE-PIVOT-YIELD
 cl-workbench validation run cold-integration \
   --match SNAP-TRIE-NODE-SERVER-CAPS-DISK-LOOKUPS
 ```
@@ -747,7 +753,15 @@ restoring the old target resolver's SNAP filter makes its positive ETH-source
 witness fail. The positive empty-pool control still returns immediately. An
 explicit state-unavailable response cannot
 be readmitted by expiring that cooldown or be misattributed to the unrelated
-account-page source. ByteCodes and StorageRanges integration controls return an
+account-page source. The stale-pruned source-pool control proves that one such
+response immediately consults the CL-authorized stale-target predicate and
+raises a scheduling yield even while a changing peer generation remains
+nonempty. Its account-dependency and global large-storage companions require
+that yield to stop the worker generation and reach the coordinator without an
+`on-source-error` callback, storage-source error, or fatal database
+classification. Temporarily disabling either response-boundary predicate or
+the dependency scheduler's typed handler makes its focused control fail.
+ByteCodes and StorageRanges integration controls return an
 invalid but transport-successful response from the first peer, require client
 verification to retire that exact peer before its reservation is released, and
 then complete the unchanged dependency request through a second peer. The

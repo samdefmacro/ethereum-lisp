@@ -5279,6 +5279,58 @@ loop cannot block on a message that never comes."
   #-sbcl
   (is t))
 
+(deftest devnet-snap-source-pool-yields-a-stale-pruned-pivot
+  (:layer :unit :module :p2p)
+  #+sbcl
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (entry
+           (ethereum-lisp.cli::make-devnet-peer-entry
+            :id-hex "stale-pruned-dependency-peer"
+            :request-queue
+            (ethereum-lisp.cli::make-devnet-peer-request-queue)))
+         (pivot (make-hash32 (make-byte-vector 32 :initial-element 72)))
+         (pool (ethereum-lisp.cli::make-devnet-snap-source-pool node pivot))
+         (requests 0)
+         (stale-checks 0)
+         (source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :account-range (lambda (request) request)
+            :storage-ranges
+            (lambda (request)
+              (declare (ignore request))
+              (incf requests)
+              (ethereum-lisp.snap-sync:snap-sync-state-unavailable
+               "storage-range"))
+            :bytecodes (lambda (request) request)
+            :trie-nodes (lambda (request) request))))
+    (setf
+     (ethereum-lisp.cli::devnet-snap-source-pool-stale-function pool)
+     (lambda () (incf stale-checks) t))
+    (ethereum-lisp.cli::devnet-snap-source-pool-register pool entry source)
+    (devnet-peer-sync-call-with-function-overrides
+     (list
+      (cons 'ethereum-lisp.cli::devnet-node-live-sync-entries
+            (lambda (seen-node &key snap-only-p)
+              (is (eq node seen-node))
+              (is snap-only-p)
+              (list entry))))
+     (lambda ()
+       (signals ethereum-lisp.snap-sync:snap-sync-heal-yielded
+         (ethereum-lisp.cli::devnet-snap-source-pool-call
+          pool ethereum-lisp.snap:+snap-message-storage-ranges+
+          #'ethereum-lisp.snap-sync:snap-sync-source-storage-ranges
+          :request "storage ranges"))))
+    (is (= 1 requests))
+    (is (= 1 stale-checks))
+    (is
+     (ethereum-lisp.cli::devnet-node-snap-pivot-peer-unavailable-p
+      node pivot entry)))
+  #-sbcl
+  (is t))
+
 (deftest devnet-snap-source-pool-does-not-readmit-state-unavailable-peer
   (:layer :unit :module :p2p)
   #+sbcl

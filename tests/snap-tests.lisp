@@ -2506,6 +2506,86 @@
         target-database state-root account-hash storage-root)))))
 
 #+sbcl
+(deftest snap-global-storage-lane-propagates-a-stale-pivot-yield
+  (:layer :integration :module :p2p)
+  (let* ((database (make-memory-key-value-database))
+         (state-root (make-hash32 (snap-test-index-hash 1400)))
+         (account-hash (snap-test-index-hash 1401))
+         (storage-root (make-hash32 (snap-test-index-hash 1402)))
+         (requests 0)
+         (source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :account-range (lambda (request) request)
+            :storage-ranges
+            (lambda (request)
+              (declare (ignore request))
+              (incf requests)
+              (error 'ethereum-lisp.snap-sync:snap-sync-heal-yielded))
+            :bytecodes (lambda (request) request)
+            :trie-nodes (lambda (request) request)))
+         (runtime
+           (ethereum-lisp.snap-sync::make-snap-sync-multi-runtime
+            nil 0 nil))
+         (worker nil)
+         (caller nil)
+         (result :unset))
+    (setf
+     (ethereum-lisp.snap-sync::snap-sync-multi-runtime-storage-worker-count
+      runtime)
+     1
+     worker
+     (sb-thread:make-thread
+      (lambda ()
+        (ethereum-lisp.snap-sync::snap-sync-multi-storage-worker
+         runtime database source state-root 350))
+      :name "snap-test-stale-storage-lane")
+     caller
+     (sb-thread:make-thread
+      (lambda ()
+        (setf
+         result
+         (ethereum-lisp.snap-sync::snap-sync-multi-fill-storage-root
+          runtime database state-root account-hash storage-root)))
+      :name "snap-test-stale-storage-caller"))
+    (unwind-protect
+         (progn
+           (sb-thread:join-thread caller)
+           (setf caller nil)
+           (sb-thread:join-thread worker)
+           (setf worker nil))
+      (sb-thread:with-mutex
+          ((ethereum-lisp.snap-sync::snap-sync-multi-runtime-lock runtime))
+        (setf
+         (ethereum-lisp.snap-sync::snap-sync-multi-runtime-stopped-p runtime)
+         t)
+        (ethereum-lisp.snap-sync::snap-sync-multi-notify runtime))
+      (when caller (ignore-errors (sb-thread:join-thread caller)))
+      (when worker (ignore-errors (sb-thread:join-thread worker))))
+    (is (= 1 requests))
+    (is (null result))
+    (is
+     (null
+      (ethereum-lisp.snap-sync::snap-sync-multi-runtime-storage-source-errors
+       runtime)))
+    (is
+     (null
+      (ethereum-lisp.snap-sync::snap-sync-multi-runtime-storage-fatal-condition
+       runtime)))
+    (let ((events
+            (ethereum-lisp.snap-sync::snap-sync-multi-runtime-events runtime)))
+      (is (= 1 (length events)))
+      (when events
+        (is
+         (eq :yield
+             (ethereum-lisp.snap-sync::snap-sync-multi-event-kind
+              (first events))))
+        (is
+         (typep
+          (ethereum-lisp.snap-sync::snap-sync-multi-event-condition
+           (first events))
+          'ethereum-lisp.snap-sync:snap-sync-heal-yielded))))))
+
+#+sbcl
 (deftest snap-global-storage-local-commit-failure-is-fatal
   (:layer :integration :module :p2p)
   (let* ((source-state (make-state-db))
@@ -3691,6 +3771,54 @@
                    (is (plusp completed))
                    (is (< completed (length tasks)))))))
         (setf (fdefinition release-name) real-release)))))
+
+#+sbcl
+(deftest snap-state-import-multi-propagates-a-stale-dependency-yield
+  (:layer :integration :module :p2p)
+  (let* ((source-state (make-state-db))
+         (source-database (make-memory-key-value-database))
+         (target-database (make-memory-key-value-database))
+         (address
+           (address-from-hex
+            "0x0000000000000000000000000000000000000061"))
+         (source-errors 0))
+    (state-db-set-storage
+     source-state address
+     (make-hash32 (make-byte-vector 32 :initial-element 19)) 6100)
+    (let* ((root (state-db-root source-state))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              source-database source-state))
+           (base-source (snap-test-source backend))
+           (yielding-source
+             (ethereum-lisp.snap-sync:make-snap-sync-source
+              :account-range
+              (ethereum-lisp.snap-sync:snap-sync-source-account-range
+               base-source)
+              :storage-ranges
+              (lambda (request)
+                (declare (ignore request))
+                (error 'ethereum-lisp.snap-sync:snap-sync-heal-yielded))
+              :bytecodes
+              (ethereum-lisp.snap-sync:snap-sync-source-bytecodes base-source)
+              :trie-nodes
+              (ethereum-lisp.snap-sync:snap-sync-source-trie-nodes
+               base-source))))
+      (signals ethereum-lisp.snap-sync:snap-sync-heal-yielded
+        (ethereum-lisp.snap-sync:snap-sync-import-state-multi
+         target-database (list yielding-source)
+         :pivot-hash (make-hash32 (snap-test-index-hash 1410))
+         :pivot-number 908 :state-root root
+         :target-hash (make-hash32 (snap-test-index-hash 1411))
+         :chain-id 560048
+         :genesis-hash (make-hash32 (snap-test-index-hash 1412))
+         :authority-id (make-hash32 (snap-test-index-hash 1413))
+         :on-source-error
+         (lambda (source condition)
+           (declare (ignore source condition))
+           (incf source-errors))))
+      ;; A CL-authorized scheduling yield is not a peer/source failure.
+      (is (zerop source-errors)))))
 
 (deftest snap-state-healing-reports-a-typed-source-generation-exhaustion
   (:layer :integration :module :p2p)

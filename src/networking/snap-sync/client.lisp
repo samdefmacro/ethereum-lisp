@@ -6427,6 +6427,16 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
     (snap-sync-multi-notify runtime)))
 
 #+sbcl
+(defun snap-sync-multi-push-yield (runtime event)
+  "Stop the worker generation and publish one non-peer scheduling yield."
+  (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
+    (unless (snap-sync-multi-runtime-stopped-p runtime)
+      (setf (snap-sync-multi-runtime-stopped-p runtime) t
+            (snap-sync-multi-runtime-events runtime)
+            (nconc (snap-sync-multi-runtime-events runtime) (list event))))
+    (snap-sync-multi-notify runtime)))
+
+#+sbcl
 (defun snap-sync-multi-push-dependency (runtime event)
   "Move one verified account range to the independent dependency scheduler."
   (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
@@ -6691,6 +6701,19 @@ behind and may safely replay any lost storage pages."
                          (snap-sync-multi-fail-storage-claim
                           runtime job task-index source condition t)
                          (return))))
+                 (snap-sync-heal-yielded (condition)
+                   ;; The pooled transport proved that this CL-authorized
+                   ;; pivot has aged out while a large root was in flight.
+                   ;; Stop the complete generation without blaming the peer;
+                   ;; the coordinator will re-signal this scheduling result.
+                   (snap-sync-multi-release-storage-claim
+                    runtime job task-index source)
+                   (snap-sync-multi-push-yield
+                    runtime
+                    (make-snap-sync-multi-event
+                     :kind :yield :source source :task-index task-index
+                     :condition condition))
+                   (return))
                  (ethereum-lisp.validation:storage-error (condition)
                    (snap-sync-multi-fail-storage-claim
                     runtime job task-index source condition t)
@@ -7099,6 +7122,15 @@ range-derived subtree proofs."
                  ;; otherwise idle peers, matching geth's assignment loop.
                  (snap-sync-multi-complete-deferred-storage-roots
                   runtime database state-root commitments)))))
+          (snap-sync-heal-yielded (condition)
+            ;; Pivot movement is a coordinator scheduling result. Do not mark
+            ;; the account-page source failed merely because one of its pooled
+            ;; dependency transports proved that the old root was pruned.
+            (snap-sync-multi-push-yield
+             runtime
+             (make-snap-sync-multi-event
+              :kind :yield :source source :task-index task-index
+              :condition condition)))
           (serious-condition (condition)
             (snap-sync-multi-push-event
              runtime
@@ -7406,6 +7438,8 @@ those cursors. HEAL-YIELD-P is forwarded to final healing."
                   (let ((source (snap-sync-multi-event-source event))
                         (task-index (snap-sync-multi-event-task-index event)))
                     (ecase (snap-sync-multi-event-kind event)
+                      (:yield
+                       (error (snap-sync-multi-event-condition event)))
                       (:error
                        (let ((condition
                                (snap-sync-multi-event-condition event)))

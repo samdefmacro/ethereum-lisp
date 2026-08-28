@@ -330,7 +330,16 @@ them by their physical location instead reintroduces dependency cycles:
   sessions or churn roots every second. Aggregate explicit state-unavailable
   from the whole generation normally yields when a newer CL-authorized target
   is known, even for an intrinsically small pool; peer heads still cannot
-  authorize the replacement. If that generation produced an efficient bounded
+  authorize the replacement. The same decision is made at the individual
+  pooled-response boundary. Otherwise a continuously changing finite peer
+  generation can present one new transport at a time, each correctly rejecting
+  the pruned root, and prevent aggregate exhaustion forever. The response
+  boundary consults only the existing CL-authorized target-age predicate and
+  propagates a scheduler yield without charging the peer. Both the account
+  dependency workers and the independent large-root StorageRanges workers stop
+  their complete generation, release any transient claim, preserve the durable
+  cursor, and hand that yield to the coordinator for pivot rebase. If that
+  generation produced an efficient bounded
   TrieNodes response window during the preceding five minutes, however, its
   exhaustion is treated as transient churn and the exact pivot waits for a new
   source. This evidence survives finite coordinator passes. Once it expires,
