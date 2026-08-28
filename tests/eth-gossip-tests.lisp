@@ -580,6 +580,35 @@ given, is a predicate marking transactions the pool turns down."
       (is (= 2 (hash-table-count pool)))
       (is (null (gethash (eth-gossip-transaction-hash-bytes bad) pool))))))
 
+(deftest eth-gossip-fresh-chain-gate-precedes-transaction-decoding
+  (:layer :unit :module :p2p)
+  ;; Pinned geth checks Backend.AcceptTxs before decoding all three inbound
+  ;; transaction message kinds. Malformed payloads therefore prove both the
+  ;; gate and its position: any decoder reached below would signal.
+  (let* ((gate-calls 0)
+         (backend
+           (make-eth-serve-backend
+            :accept-transactions-p
+            (lambda () (incf gate-calls) nil)
+            :accept-transaction
+            (lambda (transaction)
+              (declare (ignore transaction))
+              (error "syncing node admitted an inbound transaction"))))
+         (peer
+           (ethereum-lisp.eth-sync::%make-eth-peer
+            :eth-version ethereum-lisp.eth-wire:+eth-protocol-version-72+
+            :serve-backend backend))
+         (malformed (ensure-byte-vector #(255))))
+    (is (eth-peer-gossip-message
+         peer ethereum-lisp.eth-wire:+eth-message-transactions+ malformed))
+    (is (eth-peer-gossip-message
+         peer ethereum-lisp.eth-wire:+eth-message-new-pooled-transaction-hashes+
+         malformed))
+    (is (eth-peer-gossip-message
+         peer ethereum-lisp.eth-wire:+eth-message-pooled-transactions+ malformed))
+    (is (= 3 gate-calls))
+    (is (zerop (eth-peer-announced-hash-count peer)))))
+
 (deftest eth-gossip-queues-only-announced-hashes-worth-fetching
   (:layer :unit :module :p2p)
   (let* ((held (eth-gossip-test-transaction 1))

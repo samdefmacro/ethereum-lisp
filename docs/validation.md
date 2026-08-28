@@ -545,6 +545,14 @@ the profiler start seam. It requires exactly one start before the importer is
 entered, so a live range/dependency stall remains profileable even when it has
 not published a first page. Moving the start back into the page callback
 reverses that witness and fails the control.
+The inbound-transaction freshness control supplies malformed payloads for
+Transactions, NewPooledTransactionHashes, and PooledTransactions while the
+backend gate is closed. All three message ids must be handled without invoking
+a decoder or admission callback, proving the gate occupies pinned geth's
+pre-decode seam. A CLI wiring control then acquires the real sync claim and
+requires that backend predicate to change from true to false and back to true
+after release. Mutating the protocol predicate to allow traffic unconditionally
+makes the malformed-payload control fail in the RLP decoder.
 Three
 sole-writer request queues overlap independent response types with geth's
 adaptive 64--512 KiB snap byte limits. A production-call-site control observes

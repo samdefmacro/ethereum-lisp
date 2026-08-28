@@ -222,3 +222,21 @@
     (ethereum-lisp.cli:devnet-node-release-sync node)
     (is (eq :ran (ethereum-lisp.cli:call-with-devnet-sync-claim
                   node (lambda () :ran))))))
+
+(deftest devnet-sync-claim-gates-inbound-transaction-processing
+  (:layer :unit :module :cli)
+  (let* ((node (ethereum-lisp.cli:make-devnet-node
+                :genesis-json *eth-sync-paris-genesis-json*
+                :port 0 :public-port 0))
+         (backend (ethereum-lisp.cli::devnet-peer-serve-backend node))
+         (predicate
+           (ethereum-lisp.eth-sync::eth-serve-backend-accept-transactions-p
+            backend)))
+    (is (functionp predicate))
+    (is (funcall predicate))
+    (unwind-protect
+         (progn
+           (is (ethereum-lisp.cli:devnet-node-claim-sync node))
+           (is (null (funcall predicate))))
+      (ethereum-lisp.cli:devnet-node-release-sync node))
+    (is (funcall predicate))))

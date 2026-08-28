@@ -28,6 +28,7 @@
                 (&key block-by-number block-by-hash pooled-transaction
                       pooled-blob-sidecar pooled-transaction-sidecar
                       known-transaction-p
+                      accept-transactions-p
                       accept-transaction accept-blob-sidecar accept-block
                       block-access-list blob-cells)))
   "What a peer's messages are answered from, as closures rather than a store.
@@ -39,15 +40,19 @@ for a block we do not have.
 The remaining three serve transaction gossip (see gossip.lisp).
 POOLED-TRANSACTION returns a pooled transaction by hash. POOLED-BLOB-SIDECAR
 returns its validated sidecar. KNOWN-TRANSACTION-P answers whether a hash is one
-we already hold anywhere. ACCEPT-TRANSACTION offers a received transaction to
-the pool and ACCEPT-BLOB-SIDECAR stores its validated blob data. Any callback
-may be NIL, which turns off just that part."
+we already hold anywhere. ACCEPT-TRANSACTIONS-P is an optional dynamic predicate
+which drops inbound transaction deliveries and announcements before decoding
+while the chain is not fresh enough to process them; NIL preserves the library
+default of accepting. ACCEPT-TRANSACTION offers a received transaction to the
+pool and ACCEPT-BLOB-SIDECAR stores its validated blob data. Any callback may be
+NIL, which turns off just that part."
   block-by-number
   block-by-hash
   pooled-transaction
   pooled-blob-sidecar
   pooled-transaction-sidecar
   known-transaction-p
+  accept-transactions-p
   accept-transaction
   accept-blob-sidecar
   ;; Validate/import or buffer a propagated full block. NIL disables block

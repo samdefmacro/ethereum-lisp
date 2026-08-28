@@ -354,6 +354,16 @@ that has nothing else to do."
 
 ;;; Dispatch, reached from ETH-PEER-HANDLE-MESSAGE.
 
+(defun eth-accept-inbound-transactions-p (backend)
+  "Whether BACKEND currently accepts inbound transaction gossip.
+
+The predicate is evaluated before decoding the three transaction-delivery
+messages, matching pinned geth's Backend.AcceptTxs gate. A backend which omits
+the predicate retains the protocol library's historical accepting behavior."
+  (let ((predicate
+          (eth-serve-backend-accept-transactions-p backend)))
+    (or (null predicate) (funcall predicate))))
+
 (defun eth-peer-gossip-message (peer eth-id payload)
   "Handle one gossip message from PEER, returning T if it was one."
   (cond
@@ -400,19 +410,21 @@ that has nothing else to do."
           (eth-new-block-block (decode-eth-new-block payload)))
          t)
         ((= eth-id +eth-message-transactions+)
-         (let ((transactions (decode-eth-transactions payload)))
-           (eth-peer-note-known-transactions peer transactions)
-           (eth-accept-transactions backend transactions))
+         (when (eth-accept-inbound-transactions-p backend)
+           (let ((transactions (decode-eth-transactions payload)))
+             (eth-peer-note-known-transactions peer transactions)
+             (eth-accept-transactions backend transactions)))
          t)
         ((= eth-id +eth-message-new-pooled-transaction-hashes+)
-         (multiple-value-bind (types sizes hashes custody-mask)
-             (decode-eth-new-pooled-transaction-hashes
-              payload (eth-peer-eth-version peer))
-           ;; The type and size columns only help a fetcher decide what to ask
-           ;; for first; we fetch in announcement order and ignore them.
-           (declare (ignore types sizes custody-mask))
-           (eth-peer-note-known-transaction-hashes peer hashes)
-           (eth-peer-queue-announced-hashes peer backend hashes))
+         (when (eth-accept-inbound-transactions-p backend)
+           (multiple-value-bind (types sizes hashes custody-mask)
+               (decode-eth-new-pooled-transaction-hashes
+                payload (eth-peer-eth-version peer))
+             ;; The type and size columns only help a fetcher decide what to ask
+             ;; for first; we fetch in announcement order and ignore them.
+             (declare (ignore types sizes custody-mask))
+             (eth-peer-note-known-transaction-hashes peer hashes)
+             (eth-peer-queue-announced-hashes peer backend hashes)))
          t)
         ((= eth-id +eth-message-get-pooled-transactions+)
          (multiple-value-bind (request-id hashes)
@@ -423,14 +435,16 @@ that has nothing else to do."
                            (eth-serve-pooled-transactions backend hashes))))
          t)
         ((= eth-id +eth-message-pooled-transactions+)
-         ;; A reply nobody is waiting for, because the requester gave up or the
-         ;; peer sent it unasked. The transactions are still good, so take them.
-         (multiple-value-bind (request-id transactions)
-             (decode-eth-pooled-transactions payload)
-           (declare (ignore request-id))
-           (eth-accept-transactions
-            backend transactions
-            :allow-omitted-blob-payload-p
-            (>= (eth-peer-eth-version peer) +eth-protocol-version-72+)))
+         (when (eth-accept-inbound-transactions-p backend)
+           ;; A reply nobody is waiting for, because the requester gave up or
+           ;; the peer sent it unasked. Take it only after the same fresh-chain
+           ;; gate as direct deliveries and announcements.
+           (multiple-value-bind (request-id transactions)
+               (decode-eth-pooled-transactions payload)
+             (declare (ignore request-id))
+             (eth-accept-transactions
+              backend transactions
+              :allow-omitted-blob-payload-p
+              (>= (eth-peer-eth-version peer) +eth-protocol-version-72+))))
          t)
            (t nil)))))))

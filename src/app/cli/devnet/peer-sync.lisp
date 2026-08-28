@@ -144,6 +144,15 @@ take the guard for the whole admission, since that mutates the pool."
                       (or (and (engine-payload-store-pooled-transaction store key)
                                t)
                           (and (chain-store-transaction-location store key) t))))))
+       ;; Pinned geth drops inbound Transactions, pooled-transaction replies,
+       ;; and hash announcements before decoding until its chain is fresh. The
+       ;; coordinator's claim is our authoritative active-catch-up boundary.
+       ;; Read it under the peer-table mutex, before taking the store guard, so
+       ;; public tx gossip cannot contend with SNAP persistence.
+       :accept-transactions-p
+       (lambda ()
+         (call-with-devnet-peer-table
+          node (lambda () (not (devnet-node-syncing-p node)))))
        :accept-transaction
        (lambda (transaction)
          (guarded (lambda ()

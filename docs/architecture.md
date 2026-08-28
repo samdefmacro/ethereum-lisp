@@ -783,7 +783,14 @@ them by their physical location instead reintroduces dependency cycles:
   flat per transaction, responses must echo the requested mask, and both cell
   count and encoded response bytes are bounded. Transaction gossip advances a
   per-peer pending cursor only for hashes actually offered, so a burst larger
-  than one wire batch is retained rather than silently skipped.
+  than one wire batch is retained rather than silently skipped. During an
+  active catch-up claim the CLI backend also follows pinned geth's `AcceptTxs`
+  boundary: direct Transactions, pooled-transaction replies, and new-pooled-hash
+  announcements are dropped before decoding. Header, block, request-serving,
+  and SNAP traffic continue normally. The dynamic predicate is evaluated before
+  the store guard, preventing public transaction admission and whole-pool
+  delegation scans from competing with SNAP persistence; omitting the predicate
+  keeps the reusable protocol backend accepting by default.
 
   `eth-sync/backfill.lisp` fills a gap the other direction. Forward download
   works from a number we hold; a consensus client instead names a HASH somewhere
