@@ -796,11 +796,11 @@ mismatches excluded from TCP while advertising the stable responder UDP port.
 Completed
 ranges are not replayed after restart, thirty-two-range cursors expand without
 replay, and a failed source's claimed range is reassigned. SNAP demand raises
-the default outbound target from sixteen to twenty-five capable sessions
-while retaining the absolute fifty-peer bound. ETH-only outbound admission
-cannot fill the protected capacity until the non-degraded SNAP pool reaches
-that same workload target; a per-response-type failure removes one from the
-quality count and opens a replacement slot, while success in another type
+the quality requirement from generic outbound sessions to sixteen capable SNAP
+sessions while retaining the absolute fifty-peer bound. ETH-only outbound
+admission cannot fill the protected capacity until the non-degraded SNAP pool
+reaches that same workload target; a per-response-type failure removes one from
+the quality count and opens a replacement slot, while success in another type
 cannot conceal the failure. A dial-registry control fills all 1,024 bounded
 dynamic candidate slots, rejects the next candidate, and leaves the independent
 fifty-peer and fifty-active-dial controls unchanged. A
@@ -874,6 +874,12 @@ Deleting the skeleton restores `false`; mutating the production snapshot to
 ignore the direct, authority-validating point-read overlay makes the positive
 assertion fail. The older store-guard contention control remains green, so this
 point read does not make Engine health checks wait behind a long state write.
+
+Dial-scheduler controls keep geth's default `maxPeers / 3` outbound target at
+sixteen sessions for the default fifty-peer table while SNAP demand is active.
+They additionally prove ETH-only or response-degraded sessions do not satisfy
+that target, so discovery still replaces missing state capacity without raising
+the transport target to the CPU-expensive former half-table value.
 
 These selectors do not prove public reachability. Section 5 also requires an
 ephemeral Hoodi run from an empty datadir, using the reviewed container runtime,

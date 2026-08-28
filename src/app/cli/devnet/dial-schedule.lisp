@@ -52,20 +52,24 @@ This matches geth's default pending-peer budget. Public discovery returns many
 stale, saturated, or unreachable nodes; limiting attempts to eight made those
 ordinary failures serialize replacement of useful SNAP peers. The outbound
 ratio below still bounds established sessions, so a default node starts at most
-sixteen ordinary dials or twenty-five SNAP-demand dials and continues to reserve
-inbound capacity.")
+sixteen dials. SNAP demand changes which sessions satisfy that target, not the
+transport target itself, and continues to reserve inbound capacity.")
 
 (defconstant +devnet-dial-ratio+ 3
   "One in this many peer slots may be filled by dialing. Our policy, and the
 reason it exists: a node that dials until it is full has no room left to be
 reached from outside, which is the whole thing the inbound wave was built for.")
 
-(defconstant +devnet-snap-dial-ratio+ 2
+(defconstant +devnet-snap-dial-ratio+ 3
   "One in this many peer slots is an outbound SNAP target during state sync.
 
-Geth reserves roughly half of its peer capacity for SNAP-capable sessions while
-state download is active. The ordinary one-third outbound target is restored
-as soon as SNAP demand ends, preserving inbound capacity in steady operation.")
+Geth's server keeps its default outbound target at MAXPEERS / 3. During state
+download we apply that same target specifically to non-degraded SNAP sessions:
+ETH-only peers stay useful and connected but do not suppress replacement state
+capacity. Hoodi showed why the transport bound must remain unchanged here. A
+half-capacity target kept hundreds of saturated public endpoints in concurrent
+RLPx handshakes, consuming roughly one fifth of allocation samples while eight
+live SNAP sources already saturated the eight-vCPU importer.")
 
 (defconstant +devnet-dial-dynamic-candidate-limit+ 1024
   "How many discovered candidates we remember while retaining a hard bound.

@@ -208,8 +208,9 @@ them by their physical location instead reintroduces dependency cycles:
   older
   sixteen-range progress remains resumable and thirty-two-range progress is
   expanded at its exact durable cursors. During range import the dial scheduler
-  seeks SNAP-capable outbound sessions up to half of `--maxpeers`, returning to
-  the ordinary one-third target afterwards. A productive account-range import
+  retains geth's default one-third outbound target but counts only live,
+  non-degraded SNAP sessions toward it. ETH-only sessions remain useful without
+  suppressing replacement state capacity. A productive account-range import
   stays on its exact authenticated pivot even when the live consensus head
   advances. Moving that root on a wall-clock window would invalidate the
   complete same-root range witness and force a redundant full state-tree walk.
@@ -369,9 +370,12 @@ them by their physical location instead reintroduces dependency cycles:
   small but efficient pool does not satisfy either policy. This keeps content-
   addressed progress moving across public state-retention windows instead of
   pinning a doomed old root. While an import is active, the dialer protects
-  capacity until the live non-degraded SNAP pool reaches the workload's
-  half-capacity target: twenty-five sessions under the default fifty-peer
-  limit.
+  capacity until the live non-degraded SNAP pool reaches geth's default outbound
+  target: sixteen sessions under the default fifty-peer limit. The live Hoodi
+  profile found eight state sources already saturating seven of eight CPUs;
+  retaining the former twenty-five-session target spent roughly one fifth of
+  allocation samples on failed public RLPx dials without increasing storage
+  throughput.
   DNS discovery and the endpoint-proven discv4 table feed a separate bounded
   1,024-entry dial registry. This width retains their public candidate union
   while saturated endpoints cool down; the established-peer and concurrent-

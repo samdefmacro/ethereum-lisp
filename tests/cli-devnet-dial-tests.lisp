@@ -142,7 +142,7 @@
                                                             :max-active 50)
     (is (= 16 (ethereum-lisp.cli:devnet-dial-free-slots registry table)))
     (setf (ethereum-lisp.cli::devnet-dial-registry-snap-demand-p registry) t)
-    (is (= 25 (ethereum-lisp.cli:devnet-dial-free-slots registry table)))))
+    (is (= 16 (ethereum-lisp.cli:devnet-dial-free-slots registry table)))))
 
 (deftest devnet-dial-snap-demand-does-not-count-eth-only-outbound-peers
   (:layer :unit :module :devnet)
@@ -154,8 +154,8 @@
     (is (= 0 (ethereum-lisp.cli:devnet-dial-free-slots registry table)))
     (setf (ethereum-lisp.cli::devnet-dial-registry-snap-demand-p registry) t)
     ;; During state sync the two ETH-only connections remain useful and live,
-    ;; while the half-capacity SNAP target seeks three more capable sessions.
-    (is (= 3 (ethereum-lisp.cli:devnet-dial-free-slots registry table)))
+    ;; while the geth-default one-third target seeks two more SNAP sessions.
+    (is (= 2 (ethereum-lisp.cli:devnet-dial-free-slots registry table)))
     (dial-test-connect table "e3" :outbound 0)
     (dial-test-connect table "e4" :outbound 0)
     (dial-test-connect table "e5" :outbound 0)
@@ -170,12 +170,12 @@
   (:layer :unit :module :devnet)
   (multiple-value-bind (registry table)
       (dial-test-registry :max-peers 50 :max-active 50)
-    (loop for index below 25
+    (loop for index below 16
           do (dial-test-connect
               table (format nil "quality-~D" index) :outbound 0
               :snap-version 1))
     (setf (ethereum-lisp.cli::devnet-dial-registry-snap-demand-p registry) t)
-    (is (= 25
+    (is (= 16
            (ethereum-lisp.cli::devnet-snap-quality-peer-count registry table)))
     (is (not
          (ethereum-lisp.cli::devnet-snap-quality-shortfall-p registry table)))
@@ -191,7 +191,7 @@
         (ethereum-lisp.cli::devnet-dial-registry-snap-degraded-peer-ids
          registry))
        failures)
-      (is (= 24
+      (is (= 15
              (ethereum-lisp.cli::devnet-snap-quality-peer-count
               registry table)))
       (is
@@ -202,11 +202,11 @@
              (ethereum-lisp.cli:devnet-dial-free-slots registry table)))
       ;; Success in one capability must not conceal another type's failure.
       (remhash ethereum-lisp.snap:+snap-message-bytecodes+ failures)
-      (is (= 24
+      (is (= 15
              (ethereum-lisp.cli::devnet-snap-quality-peer-count
               registry table)))
       (remhash ethereum-lisp.snap:+snap-message-storage-ranges+ failures)
-      (is (= 25
+      (is (= 16
              (ethereum-lisp.cli::devnet-snap-quality-peer-count
               registry table)))
       (is (not
