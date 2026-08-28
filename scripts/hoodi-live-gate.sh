@@ -739,6 +739,9 @@ esac
 docker container inspect --format \
     'container={{.Name}} running={{.State.Running}} started={{.State.StartedAt}} image={{.Image}} user={{.Config.User}} read-only={{.HostConfig.ReadonlyRootfs}} memory={{.HostConfig.Memory}} memory-swap={{.HostConfig.MemorySwap}} caps={{json .HostConfig.CapDrop}} security-options={{len .HostConfig.SecurityOpt}} networks={{len .NetworkSettings.Networks}}' \
     "$container"
+docker stats --no-stream --format \
+    'runtime=cpu={{.CPUPerc}} memory={{.MemUsage}} blockIo={{.BlockIO}} pids={{.PIDs}}' \
+    "$container"
 printf 'datadir-bytes='
 du -sb "$datadir" | awk '{print $1}'
 printf 'datadir=%s\n' "$datadir"
@@ -870,12 +873,16 @@ for event in \
     peer.snap.page_profile \
     peer.snap.storage_profile \
     peer.snap.heal_progress \
+    peer.snap.sources_refreshed \
     peer.snap.dependency_failed \
     peer.snap.dependencies_unavailable \
     peer.snap.pivot_unavailable \
     peer.snap.storage_failed \
     peer.snap.import_failed \
-    peer.snap.target_completed
+    peer.snap.target_completed \
+    peer.dial.connected \
+    peer.dial.refused \
+    peer.dial.failed
 do
     count="$(grep -F -c "$event" "$el_log" || true)"
     printf 'el-event=%s count=%s\n' "$event" "$count"
@@ -893,6 +900,36 @@ if [ -n "$storage_profile" ]; then
         )"
         if [ -n "$value" ]; then
             printf 'el-storage-profile=%s value=%s\n' "$field" "$value"
+        fi
+    done
+fi
+storage_profiles="$(grep -F 'peer.snap.storage_profile' "$el_log" || true)"
+if [ -n "$storage_profiles" ]; then
+    for field in pages slots requestMs proofMs materializeMs commitMs
+    do
+        printf '%s\n' "$storage_profiles" |
+            sed -n "s/.*(\"$field\" \\. \"\([0-9][0-9]*\)\").*/\1/p" |
+            awk -v field="$field" '
+                NR == 1 || $1 > maximum { maximum = $1 }
+                { total += $1 }
+                END {
+                    if (NR > 0) {
+                        printf "el-storage-window=%s samples=%d total=%d max=%d\n",
+                               field, NR, total, maximum
+                    }
+                }'
+    done
+fi
+source_refresh="$(grep -F 'peer.snap.sources_refreshed' "$el_log" | tail -1 || true)"
+if [ -n "$source_refresh" ]; then
+    for field in pivot added sources
+    do
+        value="$(
+            printf '%s\n' "$source_refresh" |
+                sed -n "s/.*(\"$field\" \\. \"\([0-9][0-9]*\)\").*/\1/p"
+        )"
+        if [ -n "$value" ]; then
+            printf 'el-source-refresh=%s value=%s\n' "$field" "$value"
         fi
     done
 fi

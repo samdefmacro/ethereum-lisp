@@ -981,7 +981,8 @@ scripts/hoodi-live-gate.sh upgrade
 Without that explicit allowance, `upgrade` continues to require a different
 runtime revision. `status` reports and sizes the authoritative `/data` bind
 mount from the inspected container, so a retained datadir whose name predates
-the current revision is not mistaken for the revision-derived default.
+the current revision is not mistaken for the revision-derived default. It also
+reports one bounded Docker CPU, memory, block-I/O, and process-count snapshot.
 
 The broker's default consensus-network alias is
 `hoodi-el-public-36a22e47`, matching the persisted Lighthouse execution
@@ -1016,7 +1017,9 @@ the container exits, and accepts a bounded 30--1800 second override through
 
 `logs` never prints a raw peer event. In addition to event counts and the
 schema-bounded allocation-profiler rows, it extracts only decimal fields from
-the latest identity-free `peer.snap.storage_profile` event. `totalPages`,
+the latest identity-free `peer.snap.storage_profile` event and latest numeric
+SNAP source-refresh event. It also sums page, slot, and phase-millisecond
+fields across the bounded recent log window and reports each maximum. `totalPages`,
 `totalSlots`, and `totalLogicalBytes` are cumulative for the current pivot
 import; `logicalBytes`, `trieRecords`, and `batchOperations` describe its most
 recent buffered commit; `requestMs`, `proofMs`, `materializeMs`, and `commitMs`
