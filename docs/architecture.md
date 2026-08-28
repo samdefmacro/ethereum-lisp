@@ -623,7 +623,11 @@ them by their physical location instead reintroduces dependency cycles:
   at most six, bounding worst-case memtable residency at 576 MiB. Background
   concurrency can therefore drain independent
   SST work without multiplying the range import's memory allowance or changing
-  WAL durability.
+  WAL durability. One large level compaction is additionally divided into at
+  most four disjoint subcompactions. This uses the supported SSD and idle vCPUs
+  when a compaction dominates the SNAP storage-range pipeline, while reserving
+  the remaining cores for proof verification, networking, Engine traffic, and
+  independent flush work.
   At the
   flat-range-to-healer boundary, joined range-worker garbage is collected once.
   A moving-pivot yield first joins every worker, drops the stopped scheduler's

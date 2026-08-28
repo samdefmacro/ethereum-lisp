@@ -290,11 +290,15 @@
          (real-optimize
            (fdefinition
             'ethereum-lisp.database::%rocks-options-optimize-level-style-compaction))
+         (real-set-subcompactions
+           (fdefinition
+            'ethereum-lisp.database::%rocks-options-set-max-subcompactions))
          (real-set-factory
            (fdefinition
             'ethereum-lisp.database::%rocks-options-set-block-table-factory))
          (cache-capacity nil)
          (compaction-budget nil)
+         (subcompactions nil)
          (bloom-bits nil)
          (factory-calls 0))
     (unwind-protect
@@ -316,6 +320,12 @@
             (lambda (options budget)
               (setf compaction-budget budget)
               (funcall real-optimize options budget)))
+           (setf
+            (fdefinition
+             'ethereum-lisp.database::%rocks-options-set-max-subcompactions)
+            (lambda (options count)
+              (setf subcompactions count)
+              (funcall real-set-subcompactions options count)))
            (setf
             (fdefinition
              'ethereum-lisp.database::%rocks-options-set-block-table-factory)
@@ -340,6 +350,10 @@
        real-optimize)
       (setf
        (fdefinition
+        'ethereum-lisp.database::%rocks-options-set-max-subcompactions)
+       real-set-subcompactions)
+      (setf
+       (fdefinition
         'ethereum-lisp.database::%rocks-options-set-block-table-factory)
        real-set-factory)
       (when (probe-file path)
@@ -350,6 +364,9 @@
     (is (= ethereum-lisp.database::+rocksdb-level-compaction-memory-budget+
            compaction-budget))
     (is (= (* 384 1024 1024) compaction-budget))
+    (is (= ethereum-lisp.database::+rocksdb-max-subcompactions+
+           subcompactions))
+    (is (= 4 subcompactions))
     (is (= ethereum-lisp.database::+rocksdb-bloom-bits-per-key+
            bloom-bits))
     (is (= 1 factory-calls))))

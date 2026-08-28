@@ -23,6 +23,12 @@
 (cffi:defcfun ("rocksdb_options_increase_parallelism"
                %rocks-options-increase-parallelism) :void
   (options :pointer) (total-threads :int))
+(cffi:defcfun ("rocksdb_options_set_max_subcompactions"
+               %rocks-options-set-max-subcompactions) :void
+  (options :pointer) (count :uint32))
+(cffi:defcfun ("rocksdb_options_get_max_subcompactions"
+               %rocks-options-get-max-subcompactions) :uint32
+  (options :pointer))
 (cffi:defcfun ("rocksdb_options_set_level_compaction_dynamic_level_bytes"
                %rocks-options-dynamic-level-bytes) :void
   (options :pointer) (enabled :uchar))
@@ -149,6 +155,14 @@ the worst case, bounding live memtables at 576 MiB while retaining two-way
 flush merging during bulk sync.")
 (defconstant +rocksdb-background-job-count+ 8
   "One bounded flush/compaction job per supported public-node vCPU.")
+(defconstant +rocksdb-max-subcompactions+ 4
+  "Maximum key-range slices used by one large public-node compaction.
+
+The supported host has eight vCPUs. Four slices let a single level compaction
+use otherwise idle cores while retaining capacity for SNAP proof verification,
+RLPx, the consensus-client Engine endpoint, and independent flush jobs. This
+changes only background SST construction; WAL and cursor durability are
+unchanged.")
 (defconstant +rocksdb-background-bytes-per-sync+ (* 1024 1024)
   "Incremental background-file sync width; WAL cursor batches remain synced.")
 (defconstant +rocksdb-block-cache-bytes+ (* 256 1024 1024)
@@ -264,6 +278,18 @@ import even though the live Lisp heap remained below two GiB.")
            options +rocksdb-level-compaction-memory-budget+)
           (%rocks-options-increase-parallelism
            options +rocksdb-background-job-count+)
+          ;; INCREASE-PARALLELISM permits independent background jobs, but one
+          ;; large compaction still defaults to a single worker. Hoodi storage
+          ;; range import measured that shape directly: one compaction core and
+          ;; sustained device bandwidth while SNAP lanes waited. Split that
+          ;; compaction into bounded key ranges, then read the option back before
+          ;; opening the database so a mismatched native library fails closed.
+          (%rocks-options-set-max-subcompactions
+           options +rocksdb-max-subcompactions+)
+          (unless
+              (= +rocksdb-max-subcompactions+
+                 (%rocks-options-get-max-subcompactions options))
+            (error "RocksDB refused the configured subcompaction bound"))
           (%rocks-options-dynamic-level-bytes options 1)
           (%rocks-options-bytes-per-sync
            options +rocksdb-background-bytes-per-sync+)

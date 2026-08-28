@@ -421,10 +421,12 @@ enforce the 4,096-key
 and 4 MiB key-byte bounds. The RocksDB construction regressions witness the
 exact 256 MiB block-cache and 384 MiB level-compaction preset budgets for the
 shared 16 GiB EL/CL profile, ten-bit full Bloom policy, production
-table-factory call site, and an enabled `ReadOptions.async_io` on the live
-adapter handle. Removing that setter or changing its value to zero makes the
-native readback witness fail; this witnesses asynchronous read configuration,
-not the separate coroutine build needed for cross-level MultiGet scheduling.
+table-factory call site, the four-way large-compaction subtask bound, and an
+enabled `ReadOptions.async_io` on the live adapter handle. Removing either
+native setter, changing the subcompaction bound, or changing async I/O to zero
+makes its corresponding configuration/readback witness fail. Async I/O here
+does not imply the separate coroutine build needed for cross-level MultiGet
+scheduling.
 The bounded healer-code regression places one duplicate code hash on opposite
 sides of a two-item flush: it requires a second durable MultiGet lookup but no
 second peer fetch, proving traversal-wide code-hash heap is released safely.
