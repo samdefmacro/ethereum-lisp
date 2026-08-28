@@ -1526,7 +1526,11 @@ really reopens the directory instead of observing the first handle's memory."
                (ethereum-lisp.snap:snap-state-backend-trie-nodes backend)))))
          (entry
            (ethereum-lisp.cli::make-devnet-peer-entry :id-hex "peer-1"))
-         (logs '()))
+         (logs '())
+         (profile-events '())
+         (import-function
+           (fdefinition
+            'ethereum-lisp.snap-sync:snap-sync-import-state-multi)))
     (declare (ignore config persistence))
     (devnet-peer-sync-call-with-function-overrides
      (list
@@ -1545,12 +1549,24 @@ really reopens the directory instead of observing the first handle's memory."
        'ethereum-lisp.cli::devnet-peer-manager-log
        (lambda (seen-node name &rest fields)
          (is (eq node seen-node))
-         (push (cons name fields) logs))))
+         (push (cons name fields) logs)))
+      (cons
+       'ethereum-lisp.cli::devnet-maybe-start-allocation-profile
+       (lambda () (push :profile-start profile-events)))
+      (cons
+       'ethereum-lisp.snap-sync:snap-sync-import-state-multi
+       (lambda (&rest arguments)
+         (push :import-start profile-events)
+         (apply import-function arguments))))
      (lambda ()
        (is
         (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
          (ethereum-lisp.cli::devnet-node-snap-import-with-failover
           node database pivot-header target-hash)))))
+    ;; The profile begins once, before the production importer call. Moving it
+    ;; back to the first page callback reverses this witness and leaves a
+    ;; zero-page live stall unprofiled.
+    (is (equal '(:import-start :profile-start) profile-events))
     (setf logs (nreverse logs))
     (flet ((field (record name)
              (loop for (key value) on (cdr record) by #'cddr

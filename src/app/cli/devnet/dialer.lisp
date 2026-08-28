@@ -1583,6 +1583,12 @@ must prove the new state root before either record can authorize publication."
       (unless sources
         (eth-sync-multi-peer-fail
          "no live snap peer can import pivot ~A" (hash32-to-hex pivot-hash)))
+      ;; A range import can spend minutes decoding or resolving dependencies
+      ;; before its first durable page. Start an explicitly requested profile
+      ;; before the importer creates that work so a zero-page stall remains
+      ;; observable; SB-SPROF's :THREADS :ALL includes the workers created
+      ;; during the bounded sampling window.
+      (devnet-maybe-start-allocation-profile)
       (handler-bind
           ((ethereum-lisp.snap-sync:snap-sync-state-unavailable
              (lambda (condition)
@@ -1681,10 +1687,6 @@ must prove the new state root before either record can authorize publication."
                  progress))))))
        :on-page-profile
        (lambda (profile source task-index)
-         ;; By this first durable-page callback, the fixed SNAP worker pools
-         ;; exist, so an explicitly requested profiler can sample every live
-         ;; allocation stack rather than only the coordinator that starts it.
-         (devnet-maybe-start-allocation-profile)
          (multiple-value-bind (dynamic-usage bytes-consed gc-run-ms)
              (devnet-runtime-heap-snapshot)
            (let ((entry (entry-for-source source)))

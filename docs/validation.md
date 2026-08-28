@@ -540,6 +540,11 @@ profiler thread starts. The reviewed gate applies the same numeric boundary
 before forwarding the duration as a container environment value. A report
 projection control proves that only the flat function table survives and that
 sampled-thread return values cannot enter the fixed-prefix evidence lines.
+The production pivot-import control also wraps the real importer and records
+the profiler start seam. It requires exactly one start before the importer is
+entered, so a live range/dependency stall remains profileable even when it has
+not published a first page. Moving the start back into the page callback
+reverses that witness and fails the control.
 Three
 sole-writer request queues overlap independent response types with geth's
 adaptive 64--512 KiB snap byte limits. A production-call-site control observes

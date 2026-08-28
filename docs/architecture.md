@@ -165,8 +165,11 @@ them by their physical location instead reintroduces dependency cycles:
   protocol timings; these are diagnostic signals, never
   admission limits. An operator may additionally request a bounded one-to-300
   second SBCL allocation profile through the reviewed live gate. It is off by
-  default, starts only after the first durable page has created every fixed
-  worker pool, and prints at most fifty fixed-prefix function-table lines; the
+  default and starts immediately before the range importer creates its fixed
+  worker pools and enters request scheduling. SB-SPROF follows all threads
+  created during that bounded window, so dependency or decode work which
+  produces no durable page is still observable. It prints at most fifty
+  fixed-prefix function-table lines; the
   profiler's thread dump and retained return values are never published, so
   request and peer payloads remain excluded. Sixteen matches geth's account
   concurrency after those
