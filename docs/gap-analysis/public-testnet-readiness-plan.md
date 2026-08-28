@@ -4,9 +4,10 @@
 
 At `578cb476`, the project had broad in-tree implementations and a green CI run,
 but was not public-testnet-ready. The current tree has since replaced the
-memory-mirrored production store and implemented the unified import boundary in
-Sections 3 and 4. Those changes remove two critical findings from the baseline;
-they do not make the client public-testnet-ready.
+memory-mirrored production store, implemented the unified import boundary, and
+completed the public bootstrap and continuous-sync gate in Sections 3 through
+5. Those changes remove three critical findings from the baseline; they do not
+make the client public-testnet-ready.
 
 Remaining release-blocking gaps include:
 
@@ -17,10 +18,6 @@ Remaining release-blocking gaps include:
   being advertised incorrectly, but EIP-2780/EIP-7778/EIP-7976/EIP-7981,
   complete EIP-8246 behavior, and current EIP-8037/EIP-8038 system-call
   accounting still have to land and pass external conformance.
-- **Bootstrap evidence:** canonical public seeds, persistent discovery identity,
-  honest `eth`/`snap` multiplexing, and consensus-bounded multi-peer sync are now
-  wired. A fresh remote Hoodi discovery/sync/restart transcript is still needed
-  before treating that implementation as public-network evidence.
 - **Resource work beyond import caches:** pooled blob transaction and sidecar
   admission is not one atomic ownership/refcount transition, and payload
   construction still repeatedly re-executes prefixes instead of using bounded
@@ -453,8 +450,9 @@ The implementation boundary is split deliberately:
   39,780-work live frontier. Post-restart Engine calls had no timeout or OOM;
   `engine_getBlobsV3` remained at most 4 ms, `engine_newPayloadV4` at most
   920 ms, and `engine_forkchoiceUpdatedV3` at most 1,076 ms. This is exact-image
-  upgrade, liveness, and same-datadir restart evidence. It deliberately does
-  not substitute for the mandatory final run from a new empty datadir.
+  upgrade, liveness, and same-datadir restart evidence. At the time it did not
+  substitute for the final empty-datadir run; the completion evidence below now
+  records that separate gate.
 - `src/networking/eth-sync/sync.lisp` supplies the bounded downloader, while
   `src/app/cli/devnet/dialer.lisp` owns the continuous coordinator. Work is
   authorized by an Engine target hash, delivered through each session's sole
@@ -483,6 +481,40 @@ Focused coverage lives in `tests/core-genesis-tests.lisp`,
 `tests/core-node-store-peer-sync-progress-tests.lisp`, and
 `tests/txpool-mining-order-tests.lisp`. The container-only selectors and the
 required live Hoodi evidence format are documented in `docs/validation.md`.
+
+**Section 5 completion evidence (2026-08-28).** Revision
+`a176e246abe12cb31b1bb61f80d9b62177bc7702` passed the container-only cold
+unit, integration, E2E, and documentation gates with 1,216 unit tests (4
+optional fixture skips), 525 integration tests (8 optional fixture skips), and
+65 E2E tests. Its reviewed amd64 runtime image passed `runtime-smoke`; the
+runtime archive SHA-256 was
+`8d6160cc8aa2dcfb00393cdb350a8e4236ee6298f6eaee566228740672152dad`.
+
+The same exact image started on `test-ethereum-server` at
+`2026-08-28T15:08:20Z` as the non-root, read-only-root, capability-free,
+7-GiB-bounded container `hoodi-lisp-bench-a176e246-fresh-final`, using the
+previously absent
+`/data/hoodi-sec5-20260828/lisp-a176e246-fresh-final` datadir, the Hoodi preset,
+and no static enode. By `15:08:38Z`, preset discovery had produced a
+chain-filtered crawl, three sessions had negotiated both `eth/72` and `snap/1`,
+five SNAP sources had accepted the consensus-authorized pivot `0x3592bd`, and
+the datadir already held 86,331,665 bytes. At `15:14:27Z`, after 175 recent
+account-progress events and 310 recent storage-profile events, the datadir held
+4,235,543,288 bytes and the consensus target was `0x35931d`.
+
+The reviewed broker then restarted that same container and datadir. Public RPC
+returned at `15:15:08Z` with 4,546,818,003 durable bytes and the same authorized
+target. By `15:20:20Z`, the resumed import had grown to 9,766,954,843 bytes,
+reported 98 further account-progress events and 181 storage-profile events,
+retained nine peers, and followed the Lighthouse target forward to `0x359339`.
+At `15:21:23Z` both EL and CL were still running without OOM, the EL held ten
+peers, and its target had advanced again to `0x35933e`. The restart window had
+no pivot-unavailable, dependency-unavailable, or storage-failure event; one
+retry-classified import-failure event did not stop subsequent durable progress.
+This satisfies the Section 5 empty-datadir discovery, capability negotiation,
+consensus authorization, restart recovery, and continuing-head evidence gate.
+It does not claim completed state download, fixture/Hive conformance, the
+Section 6 resource work, or the Section 10 multi-day soak.
 
 ### 6. Make txpool and payload building bounded and proposer-safe
 
