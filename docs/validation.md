@@ -566,6 +566,11 @@ density control reproduces geth v1.17.4's remaining-slot
 estimate, requires a quarter-space 8,192-slot prefix to select two active
 chunks, and retains sixteen durable records by completing the unused sentinels;
 restoring the fixed sixteen-way plan makes that witness fail. A two-root control
+loads an advanced version-three cursor set, migrates it at its authenticated
+pivot, and requires a second state root with the same account/storage-root pair
+to observe the exact successor while a changed storage root starts fresh.
+Putting the state root back into the version-four key makes that witness fail.
+A two-root concurrency control
 then holds one partition open, requires the
 second root to start before that request is released, and proves maximum live
 requests equal the fixed source count. Replacing the rotating claim with a

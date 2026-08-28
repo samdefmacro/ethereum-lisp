@@ -470,9 +470,17 @@ them by their physical location instead reintroduces dependency cycles:
   large storage is persisted immediately and its root is recorded beside that page
   in a state-root-scoped durable work set. As soon as a page discovers such a
   root, that same atomic content batch uses its returned-slot count and last
-  hash to seed one to sixteen active version-three StorageRanges cursors at the
+  hash to seed one to sixteen active version-four StorageRanges cursors at the
   successor of the last authenticated slot. Unused slots remain completed
-  sentinels, preserving the sixteen-record restart format. This matches
+  sentinels, preserving the sixteen-record restart format. The cursor key is
+  the account hash, exact content-addressed storage root, and partition number;
+  the authorizing state root is deliberately not part of that identity. An
+  unchanged storage trie therefore retains its exact successor cursors when the
+  CL-authorized state pivot moves, matching geth's persisted `storageTask`
+  reuse instead of replaying a large contract from its first slot. A different
+  storage root receives a disjoint task set. A complete state-root-scoped
+  version-three set is copied once into version four at its original pivot,
+  while either a partial old or current set still fails closed. This matches
   go-ethereum v1.17.4 `processStorageResponse`: the nil-bound response
   becomes the first large-storage subtask, so no worker redundantly requests
   its prefix from explicit origin zero, which hash-scheme public peers may no

@@ -1525,6 +1525,100 @@
         (is present-p)
         (is (plusp (length node)))))))
 
+(deftest snap-large-storage-cursor-follows-exact-root-across-pivots
+  (:layer :integration :module :p2p)
+  (let* ((database (make-memory-key-value-database))
+         (state-root-a (make-hash32 (snap-test-index-hash 1400)))
+         (state-root-b (make-hash32 (snap-test-index-hash 1401)))
+         (account-hash (snap-test-index-hash 1402))
+         (storage-root (make-hash32 (snap-test-index-hash 1403)))
+         (other-storage-root (make-hash32 (snap-test-index-hash 1404)))
+         (tasks
+           (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+            :count
+            ethereum-lisp.snap-sync::+snap-sync-storage-task-count+))
+         (first-task (first tasks))
+         (advanced-origin
+           (copy-seq
+            (ethereum-lisp.snap-sync::snap-sync-account-task-start
+             first-task)))
+         (batch (make-kv-write-batch)))
+    (setf (aref advanced-origin (1- (length advanced-origin))) 1)
+    (setf tasks
+          (ethereum-lisp.snap-sync::snap-sync-replace-task
+           tasks 0
+           (ethereum-lisp.snap-sync::snap-sync-account-task
+            :start
+            (ethereum-lisp.snap-sync::snap-sync-account-task-start first-task)
+            :limit
+            (ethereum-lisp.snap-sync::snap-sync-account-task-limit first-task)
+            :next-origin advanced-origin)))
+    ;; Simulate a complete version-three set left by the previous release.
+    ;; Loading it at its authenticated pivot must copy it to version four.
+    (loop for task in tasks
+          for index from 0
+          do
+             (kv-batch-put-chain-record
+              batch :metadata
+              (ethereum-lisp.snap-sync::snap-sync-legacy-storage-task-identifier
+               state-root-a account-hash storage-root index)
+              (ethereum-lisp.snap-sync::snap-sync-storage-task-record task)))
+    (kv-apply-batch database batch)
+    (let ((migrated
+            (ethereum-lisp.snap-sync::snap-sync-load-or-create-storage-tasks
+             database state-root-a account-hash storage-root)))
+      (is
+       (bytes=
+        advanced-origin
+        (ethereum-lisp.snap-sync::snap-sync-account-task-next-origin
+         (first migrated)))))
+    ;; The exact same storage root is content-addressed independently of the
+    ;; state pivot. A rebase must therefore resume its advanced partition.
+    (is
+     (bytes=
+      (ethereum-lisp.snap-sync::snap-sync-storage-task-identifier
+       state-root-a account-hash storage-root 0)
+      (ethereum-lisp.snap-sync::snap-sync-storage-task-identifier
+       state-root-b account-hash storage-root 0)))
+    (let ((rebased
+            (ethereum-lisp.snap-sync::snap-sync-load-or-create-storage-tasks
+             database state-root-b account-hash storage-root)))
+      (is
+       (bytes=
+        advanced-origin
+        (ethereum-lisp.snap-sync::snap-sync-account-task-next-origin
+         (first rebased)))))
+    ;; A changed storage root is different authenticated content and must
+    ;; never inherit the old root's cursor.
+    (let* ((other
+             (ethereum-lisp.snap-sync::snap-sync-load-or-create-storage-tasks
+              database state-root-b account-hash other-storage-root))
+           (other-first (first other)))
+      (is
+       (bytes=
+        (ethereum-lisp.snap-sync::snap-sync-account-task-start other-first)
+        (ethereum-lisp.snap-sync::snap-sync-account-task-next-origin
+         other-first)))
+      (is
+       (not
+        (bytes=
+         advanced-origin
+         (ethereum-lisp.snap-sync::snap-sync-account-task-next-origin
+          other-first)))))
+    ;; Migration is all-or-nothing. One surviving legacy partition cannot
+    ;; authorize a current task set or silently rewind the other fifteen.
+    (let ((partial-database (make-memory-key-value-database))
+          (partial-batch (make-kv-write-batch)))
+      (kv-batch-put-chain-record
+       partial-batch :metadata
+       (ethereum-lisp.snap-sync::snap-sync-legacy-storage-task-identifier
+        state-root-a account-hash storage-root 0)
+       (ethereum-lisp.snap-sync::snap-sync-storage-task-record (first tasks)))
+      (kv-apply-batch partial-database partial-batch)
+      (signals ethereum-lisp.validation:storage-error
+        (ethereum-lisp.snap-sync::snap-sync-load-or-create-storage-tasks
+         partial-database state-root-a account-hash storage-root)))))
+
 (deftest snap-large-storage-chunks-follow-geth-density-estimate
   (:layer :unit :module :p2p)
   (let* ((space (ash 1 256))

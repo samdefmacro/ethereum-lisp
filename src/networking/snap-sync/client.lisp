@@ -184,14 +184,17 @@ descendant scan.")
 (defparameter +snap-sync-storage-plan-promotion-prefix+
   (ascii-to-bytes "snap-storage-plan-promoted-v7:"))
 (defconstant +snap-sync-range-plan-promotion-max-roots+ 64)
-(defparameter +snap-sync-storage-task-identifier-prefix+
+(defparameter +snap-sync-legacy-storage-task-identifier-prefix+
   (ascii-to-bytes "snap-storage-range-task-v3:")
+  "State-root-scoped cursor prefix written before exact-root reuse.")
+(defparameter +snap-sync-storage-task-identifier-prefix+
+  (ascii-to-bytes "snap-storage-range-task-v4:")
   "Prefix for restart-safe large-contract StorageRanges cursors.
 
-Version three seeds the cursors from the authenticated prefix returned by the
-initial nil-bound StorageRanges request.  Version two restarted that prefix at
-zero with an explicit bound, which historical snap servers may refuse even
-though they served the canonical full-range request.")
+Version four keys progress by account hash and exact storage root, so an
+unchanged content-addressed storage trie resumes across a moving state pivot.
+Version three added authenticated-prefix seeding but scoped the same exact-root
+cursor to one state root, needlessly replaying large contracts after a rebase.")
 (defconstant +snap-sync-storage-task-version+ 1)
 (defparameter +snap-sync-rebased-range-witness-domain+
   (ascii-to-bytes "snap-rebased-range-witness-v1:")
@@ -1869,8 +1872,25 @@ frontier also falls back safely instead of creating an uncheckpointable run."
     (error "Snap storage range task index is out of bounds"))
   (unless (and (byte-vector-p account-hash) (= 32 (length account-hash)))
     (error "Snap storage range task requires a 32-byte account hash"))
+  ;; Retain the argument and its validation at every caller seam.  The state
+  ;; root authorizes the request, but the returned storage trie is already
+  ;; content-addressed by STORAGE-ROOT and its cursor must survive a pivot move.
+  (snap-sync-require-hash32 state-root "Snap storage range task state root")
   (concatenate
    'vector +snap-sync-storage-task-identifier-prefix+
+   account-hash (hash32-bytes storage-root) (vector task-index)))
+
+(defun snap-sync-legacy-storage-task-identifier
+    (state-root account-hash storage-root task-index)
+  "Return the version-three key used for an in-place exact-pivot migration."
+  (unless (and (integerp task-index)
+               (<= 0 task-index)
+               (< task-index +snap-sync-storage-task-count+))
+    (error "Legacy snap storage range task index is out of bounds"))
+  (unless (and (byte-vector-p account-hash) (= 32 (length account-hash)))
+    (error "Legacy snap storage range task requires a 32-byte account hash"))
+  (concatenate
+   'vector +snap-sync-legacy-storage-task-identifier-prefix+
    (hash32-bytes state-root) account-hash (hash32-bytes storage-root)
    (vector task-index)))
 
@@ -1903,6 +1923,42 @@ frontier also falls back safely instead of creating an uncheckpointable run."
    (snap-sync-storage-task-identifier
     state-root account-hash storage-root task-index)
    (snap-sync-storage-task-record task))
+  batch)
+
+(defun snap-sync-legacy-storage-tasks
+    (database state-root account-hash storage-root)
+  "Load a complete version-three cursor set for STATE-ROOT, or NIL.
+
+A partial legacy set remains corruption.  Callers copy a complete set into the
+state-root-independent version-four namespace before exposing it to workers."
+  (let ((identifiers
+          (coerce
+           (loop for index below +snap-sync-storage-task-count+
+                 collect
+                 (snap-sync-legacy-storage-task-identifier
+                  state-root account-hash storage-root index))
+           'vector)))
+    (multiple-value-bind (records present)
+        (kv-get-chain-records database :metadata identifiers)
+      (let ((present-count (count 1 present)))
+        (cond
+          ((zerop present-count) nil)
+          ((/= present-count +snap-sync-storage-task-count+)
+           (ethereum-lisp.validation:storage-fail
+            "Persisted legacy snap storage range task set is incomplete"))
+          (t
+           (loop for record across records
+                 collect (snap-sync-storage-task-from-record record))))))))
+
+(defun snap-sync-populate-storage-task-set-batch
+    (batch state-root account-hash storage-root tasks)
+  "Copy one validated cursor TASKS set into the current namespace."
+  (unless (= +snap-sync-storage-task-count+ (length tasks))
+    (error "Snap storage range task set has the wrong size"))
+  (loop for task in tasks
+        for index from 0
+        do (snap-sync-populate-storage-task-batch
+            batch state-root account-hash storage-root index task))
   batch)
 
 (defun snap-sync-estimate-remaining-storage-slots (prefix-count last-key)
@@ -2003,12 +2059,13 @@ closed."
         (cond
           ((zerop present-count)
            (let ((tasks
-                   (snap-sync-make-seeded-storage-tasks
-                    next-origin last-key prefix-count)))
-             (loop for task in tasks
-                   for index from 0
-                   do (snap-sync-populate-storage-task-batch
-                       batch state-root account-hash storage-root index task))
+                   (or
+                    (snap-sync-legacy-storage-tasks
+                     database state-root account-hash storage-root)
+                    (snap-sync-make-seeded-storage-tasks
+                     next-origin last-key prefix-count))))
+             (snap-sync-populate-storage-task-set-batch
+              batch state-root account-hash storage-root tasks)
              tasks))
           ((/= present-count +snap-sync-storage-task-count+)
            (ethereum-lisp.validation:storage-fail
@@ -2033,13 +2090,14 @@ closed."
         (cond
           ((zerop present-count)
            (let ((tasks
-                   (snap-sync-make-account-tasks
-                    :count +snap-sync-storage-task-count+))
+                   (or
+                    (snap-sync-legacy-storage-tasks
+                     database state-root account-hash storage-root)
+                    (snap-sync-make-account-tasks
+                     :count +snap-sync-storage-task-count+)))
                  (batch (make-kv-write-batch)))
-             (loop for task in tasks
-                   for index from 0
-                   do (snap-sync-populate-storage-task-batch
-                       batch state-root account-hash storage-root index task))
+             (snap-sync-populate-storage-task-set-batch
+              batch state-root account-hash storage-root tasks)
              (kv-apply-batch database batch)
              tasks))
           ((/= present-count +snap-sync-storage-task-count+)
