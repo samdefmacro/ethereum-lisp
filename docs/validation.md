@@ -599,7 +599,11 @@ queue-head-only mutation makes that witness fail. Another control queues two
 independently verified partition results behind the commit coordinator and
 requires exactly one buffered database batch; replacing it with a synchronous
 write or reducing the storage cursor batch limit to one makes that positive
-witness fail. The RocksDB SIGKILL durability oracle above proves a following
+witness fail. A production-mode companion leaves that commit consumer paused,
+then requires one source worker to issue and queue at least two consecutive
+StorageRanges results without any database write; restoring the per-source
+commit call makes the second request unreachable. The RocksDB SIGKILL
+durability oracle above proves a following
 synchronous account cursor flushes this preceding WAL prefix. A separate
 same-datadir reverse-order Hoodi A/B on 2026-08-26 rejected a deeper
 request/materializer handoff. Revision `196b3e30` completed 82 account pages,

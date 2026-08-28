@@ -32,6 +32,12 @@ hash set after the peer reaches its soft byte cap.")
   "Maximum ready account cursors published by one synchronous WAL batch.")
 (defconstant +snap-sync-storage-cursor-batch-pages+ 16
   "Maximum verified storage partition cursors in one durable WAL batch.")
+(defconstant +snap-sync-storage-result-buffer-pages+
+  +snap-sync-storage-cursor-batch-pages+
+  "Maximum verified storage pages waiting behind the single RocksDB writer.
+
+One full write batch lets SNAP peers return to network work while the previous
+batch commits, without allowing expanded trie records to grow without bound.")
 (defconstant +snap-sync-legacy-account-task-count+ 16
   "Account partition count written by progress versions before oversubscription.")
 (defconstant +snap-sync-previous-account-task-count+ 32
@@ -6365,6 +6371,7 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
   (storage-jobs '())
   (storage-results '())
   (storage-worker-count 0)
+  (storage-committer-active-p nil)
   (storage-source-errors '())
   storage-fatal-condition
   storage-profile-callback
@@ -6599,22 +6606,33 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
 #+sbcl
 (defun snap-sync-multi-queue-storage-result
     (runtime job task-index source result)
-  "Queue one verified response before entering the commit coordinator."
+  "Queue one verified response for the bounded commit pipeline.
+
+Return NIL when the generation stopped before the result could be queued."
   (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
-    (when (snap-sync-multi-runtime-storage-fatal-condition runtime)
-      (error (snap-sync-multi-runtime-storage-fatal-condition runtime)))
-    (unless
-        (eq source
-            (gethash task-index
-                     (snap-sync-global-storage-job-claims job)))
-      (error "Snap global storage result lost its partition claim"))
-    (setf (snap-sync-multi-runtime-storage-results runtime)
-          (nconc
-           (snap-sync-multi-runtime-storage-results runtime)
-           (list
-            (make-snap-sync-global-storage-result
-             job task-index source result))))
-    (snap-sync-multi-notify runtime)))
+    (loop
+      (when (snap-sync-multi-runtime-storage-fatal-condition runtime)
+        (error (snap-sync-multi-runtime-storage-fatal-condition runtime)))
+      (when (snap-sync-multi-runtime-stopped-p runtime)
+        (return nil))
+      (when (< (length (snap-sync-multi-runtime-storage-results runtime))
+               +snap-sync-storage-result-buffer-pages+)
+        (unless
+            (eq source
+                (gethash task-index
+                         (snap-sync-global-storage-job-claims job)))
+          (error "Snap global storage result lost its partition claim"))
+        (setf (snap-sync-multi-runtime-storage-results runtime)
+              (nconc
+               (snap-sync-multi-runtime-storage-results runtime)
+               (list
+                (make-snap-sync-global-storage-result
+                 job task-index source result))))
+        (snap-sync-multi-notify runtime)
+        (return t))
+      (sb-thread:condition-wait
+       (snap-sync-multi-runtime-changed runtime)
+       (snap-sync-multi-runtime-lock runtime)))))
 
 #+sbcl
 (defun snap-sync-multi-storage-result-batch (runtime)
@@ -6622,9 +6640,32 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
   (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
     (when (snap-sync-multi-runtime-storage-fatal-condition runtime)
       (error (snap-sync-multi-runtime-storage-fatal-condition runtime)))
-    (loop repeat +snap-sync-storage-cursor-batch-pages+
-          while (snap-sync-multi-runtime-storage-results runtime)
-          collect (pop (snap-sync-multi-runtime-storage-results runtime)))))
+    (prog1
+        (loop repeat +snap-sync-storage-cursor-batch-pages+
+              while (snap-sync-multi-runtime-storage-results runtime)
+              collect (pop (snap-sync-multi-runtime-storage-results runtime)))
+      (snap-sync-multi-notify runtime))))
+
+#+sbcl
+(defun snap-sync-multi-wait-storage-result-batch (runtime)
+  "Wait for one bounded commit batch, or return NIL when the import stops."
+  (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
+    (loop
+      (when (snap-sync-multi-runtime-storage-fatal-condition runtime)
+        (error (snap-sync-multi-runtime-storage-fatal-condition runtime)))
+      (when (snap-sync-multi-runtime-stopped-p runtime)
+        (return nil))
+      (when (snap-sync-multi-runtime-storage-results runtime)
+        (return
+          (prog1
+              (loop repeat +snap-sync-storage-cursor-batch-pages+
+                    while (snap-sync-multi-runtime-storage-results runtime)
+                    collect
+                    (pop (snap-sync-multi-runtime-storage-results runtime)))
+            (snap-sync-multi-notify runtime))))
+      (sb-thread:condition-wait
+       (snap-sync-multi-runtime-changed runtime)
+       (snap-sync-multi-runtime-lock runtime)))))
 
 #+sbcl
 (defun snap-sync-multi-commit-storage-results
@@ -6773,6 +6814,27 @@ behind and may safely replay any lost storage pages."
             (error condition)))))))
 
 #+sbcl
+(defun snap-sync-multi-storage-commit-worker
+    (runtime database state-root)
+  "Drain verified pages through the one RocksDB writer.
+
+StorageRanges workers stop at the bounded result queue and immediately return
+their peers to request work. This writer preserves the existing atomic batch,
+claim-release, and WAL-prefix contracts without making peer availability wait
+for RocksDB compaction or a preceding batch write."
+  (handler-case
+      (loop
+        for entries = (snap-sync-multi-wait-storage-result-batch runtime)
+        while entries
+        do (snap-sync-multi-commit-storage-results
+            runtime database state-root entries))
+    (serious-condition (condition)
+      (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
+        (setf (snap-sync-multi-runtime-storage-fatal-condition runtime)
+              condition)
+        (snap-sync-multi-notify runtime)))))
+
+#+sbcl
 (defun snap-sync-multi-storage-worker
     (runtime database source state-root byte-limit)
   "Drain all large storage roots through SOURCE's one import-wide lane."
@@ -6794,9 +6856,21 @@ behind and may safely replay any lost storage pages."
                      ;; is local scheduler or persistence state and must never
                      ;; be converted into peer exhaustion.
                      (handler-case
-                         (snap-sync-multi-commit-storage-page
-                          runtime database state-root job task-index source
-                          result)
+                         (if
+                             (sb-thread:with-mutex
+                                 ((snap-sync-multi-runtime-lock runtime))
+                               (snap-sync-multi-runtime-storage-committer-active-p
+                                runtime))
+                             (unless
+                                 (snap-sync-multi-queue-storage-result
+                                  runtime job task-index source result)
+                               (return))
+                             ;; Isolated scheduler tests and embedders that do
+                             ;; not start the production committer retain the
+                             ;; synchronous one-writer contract.
+                             (snap-sync-multi-commit-storage-page
+                              runtime database state-root job task-index source
+                              result))
                        (serious-condition (condition)
                          (snap-sync-multi-fail-storage-claim
                           runtime job task-index source condition t)
@@ -7395,6 +7469,7 @@ those cursors. HEAL-YIELD-P is forwarded to final healing."
          (dependency-threads '())
          (code-threads '())
          (storage-threads '())
+         (storage-commit-thread nil)
          (range-yielded-p nil)
          (errors '()))
     (setf (snap-sync-multi-runtime-storage-profile-callback runtime)
@@ -7432,6 +7507,18 @@ those cursors. HEAL-YIELD-P is forwarded to final healing."
                   runtime database state-root byte-limit))
                :name "snap-sync-dependency-worker")
               dependency-threads)))
+         (start-storage-committer ()
+           (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
+             (setf
+              (snap-sync-multi-runtime-storage-committer-active-p runtime) t)
+             (snap-sync-multi-notify runtime))
+           (setf
+            storage-commit-thread
+            (sb-thread:make-thread
+             (lambda ()
+               (snap-sync-multi-storage-commit-worker
+                runtime database state-root))
+             :name "snap-sync-global-storage-committer")))
          (start-storage-worker (source)
            (let ((start-p nil))
              (sb-thread:with-mutex
@@ -7535,6 +7622,7 @@ those cursors. HEAL-YIELD-P is forwarded to final healing."
            (progn
              (start-code-workers)
              (start-dependency-workers)
+             (start-storage-committer)
              (dolist (source sources)
                (start-source-workers source))
              (refresh-range-sources)
@@ -7673,6 +7761,12 @@ those cursors. HEAL-YIELD-P is forwarded to final healing."
           (sb-thread:join-thread thread))
         (dolist (thread storage-threads)
           (sb-thread:join-thread thread))
+        (when storage-commit-thread
+          (sb-thread:join-thread storage-commit-thread)
+          (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
+            (setf
+             (snap-sync-multi-runtime-storage-committer-active-p runtime) nil)
+            (snap-sync-multi-notify runtime)))
         ;; A moving-pivot yield is a safe phase boundary: every committed page
         ;; is durable and every worker has joined. Discard any uncommitted page
         ;; graphs left in the stopped scheduler before collecting, otherwise
@@ -7690,7 +7784,8 @@ those cursors. HEAL-YIELD-P is forwarded to final healing."
           (setf threads nil
                 dependency-threads nil
                 code-threads nil
-                storage-threads nil)
+                storage-threads nil
+                storage-commit-thread nil)
           (snap-sync-release-range-phase-memory))))))
 
 #-sbcl

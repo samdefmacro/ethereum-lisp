@@ -2250,6 +2250,120 @@
         target-database state-root account-b storage-b)))))
 
 #+sbcl
+(deftest snap-global-storage-worker-refetches-before-previous-commit
+  (:layer :integration :module :p2p)
+  (let* ((source-state (make-state-db))
+         (source-database (make-memory-key-value-database))
+         (target-database (make-instance 'snap-counting-test-database))
+         (address
+           (address-from-hex
+            "0x0000000000000000000000000000000000000052")))
+    (loop for byte from 1 to 64
+          do (state-db-set-storage
+              source-state address
+              (make-hash32 (make-byte-vector 32 :initial-element byte))
+              (+ 9000 byte)))
+    (let* ((account-hash
+             (ethereum-lisp.crypto:keccak-256 (address-bytes address)))
+           (state-root (state-db-root source-state))
+           (storage-root (state-db-get-storage-root source-state address))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              source-database source-state))
+           (base-source (snap-test-source backend))
+           (request-count 0)
+           (source
+             (ethereum-lisp.snap-sync:make-snap-sync-source
+              :account-range
+              (ethereum-lisp.snap-sync:snap-sync-source-account-range
+               base-source)
+              :storage-ranges
+              (lambda (request)
+                (incf request-count)
+                (funcall
+                 (ethereum-lisp.snap-sync:snap-sync-source-storage-ranges
+                  base-source)
+                 request))
+              :bytecodes
+              (ethereum-lisp.snap-sync:snap-sync-source-bytecodes base-source)
+              :trie-nodes
+              (ethereum-lisp.snap-sync:snap-sync-source-trie-nodes
+               base-source)))
+           (tasks
+             (ethereum-lisp.snap-sync::snap-sync-load-or-create-storage-tasks
+              target-database state-root account-hash storage-root))
+           (job
+             (ethereum-lisp.snap-sync::make-snap-sync-global-storage-job
+              account-hash storage-root tasks))
+           (runtime
+             (ethereum-lisp.snap-sync::make-snap-sync-multi-runtime
+              nil 0 nil))
+           (worker nil)
+           (queued 0))
+      (setf
+       (snap-counting-test-database-apply-count target-database) 0
+       (snap-counting-test-database-buffered-apply-count target-database) 0)
+      (unwind-protect
+           (progn
+             (sb-thread:with-mutex
+                 ((ethereum-lisp.snap-sync::snap-sync-multi-runtime-lock
+                   runtime))
+               (setf
+                (ethereum-lisp.snap-sync::snap-sync-multi-runtime-storage-jobs
+                 runtime)
+                (list job)
+                (ethereum-lisp.snap-sync::snap-sync-multi-runtime-storage-sources
+                 runtime)
+                (list source)
+                (ethereum-lisp.snap-sync::snap-sync-multi-runtime-storage-worker-count
+                 runtime)
+                1
+                (ethereum-lisp.snap-sync::snap-sync-multi-runtime-storage-committer-active-p
+                 runtime)
+                t))
+             (setf
+              worker
+              (sb-thread:make-thread
+               (lambda ()
+                 (ethereum-lisp.snap-sync::snap-sync-multi-storage-worker
+                  runtime target-database source state-root 350))
+               :name "snap-test-storage-prefetch-worker"))
+             (sb-thread:with-mutex
+                 ((ethereum-lisp.snap-sync::snap-sync-multi-runtime-lock
+                   runtime))
+               (loop repeat 80
+                     while
+                       (< (length
+                           (ethereum-lisp.snap-sync::snap-sync-multi-runtime-storage-results
+                            runtime))
+                          2)
+                     do (sb-thread:condition-wait
+                         (ethereum-lisp.snap-sync::snap-sync-multi-runtime-changed
+                          runtime)
+                         (ethereum-lisp.snap-sync::snap-sync-multi-runtime-lock
+                          runtime)
+                         :timeout 1/20))
+               (setf
+                queued
+                (length
+                 (ethereum-lisp.snap-sync::snap-sync-multi-runtime-storage-results
+                  runtime)))))
+        (sb-thread:with-mutex
+            ((ethereum-lisp.snap-sync::snap-sync-multi-runtime-lock runtime))
+          (setf
+           (ethereum-lisp.snap-sync::snap-sync-multi-runtime-stopped-p runtime)
+           t)
+          (ethereum-lisp.snap-sync::snap-sync-multi-notify runtime))
+        (when worker (sb-thread:join-thread worker)))
+      ;; With the old per-source commit call, the first page reaches the
+      ;; database before this worker can issue a second StorageRanges request.
+      (is (>= queued 2))
+      (is (>= request-count 2))
+      (is (= 0
+             (snap-counting-test-database-buffered-apply-count
+              target-database))))))
+
+#+sbcl
 (deftest snap-global-storage-cursors-share-one-buffered-batch
   (:layer :integration :module :p2p)
   (let* ((source-state (make-state-db))

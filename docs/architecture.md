@@ -297,9 +297,12 @@ them by their physical location instead reintroduces dependency cycles:
   geth v1.17.4 `assignStorageTasks`: open large subtasks take precedence over
   new small-state discovery, while the global idle-peer pool does not serialize
   every account task behind one contract. Verified responses pass through one
-  commit coordinator. Responses which finish during an earlier write queue
-  behind it, and the next drain folds up to sixteen independent partition
-  node/proof/cursor pairs into one atomic buffered WAL batch. The owning
+  dedicated commit coordinator. A verified response enters a bounded sixteen-
+  page result queue, so its StorageRanges worker can issue that source's next
+  request while RocksDB writes the preceding batch. Responses which finish
+  during that write queue behind it, and the next drain folds up to sixteen
+  independent partition node/proof/cursor pairs into one atomic buffered WAL
+  batch. The owning
   account page remains pending until all of its storage jobs complete; its
   later synchronous account-cursor batch flushes the complete preceding WAL
   prefix. A crash before that seam leaves the account cursor behind and safely
