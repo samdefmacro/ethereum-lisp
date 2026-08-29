@@ -86,7 +86,8 @@
               code))
         code)))
 
-(defun selfdestruct-account (state address beneficiary rules)
+(defun selfdestruct-account
+    (state address beneficiary rules &key clear-self-balance-p)
   (let* ((account (account-or-empty state address))
          (balance (state-account-balance account))
          (transfer-p
@@ -95,6 +96,17 @@
                              (address-bytes beneficiary))))))
     (when transfer-p
       (state-db-add-balance state beneficiary balance)
+      (put-account-values
+       state
+       address
+       (state-account-nonce account)
+       0
+       (state-account-code-hash account)))
+    ;; EIP-6780 retains an old account on SELFDESTRUCT, but a contract created
+    ;; in this transaction is still deleted.  Its self-beneficiary case must
+    ;; therefore consume the balance now; retaining it changes observable
+    ;; BALANCE results before the transaction's deferred account deletion.
+    (when (and clear-self-balance-p (plusp balance) (not transfer-p))
       (put-account-values
        state
        address

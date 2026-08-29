@@ -714,6 +714,18 @@
          (secret-key (fixture-required-field transaction "secretKey")))
     (secp256k1-private-key-address (hex-to-quantity secret-key))))
 
+(defun eest-state-test-post-transaction (post-entry)
+  "Decode the fixture's authoritative, signed transaction bytes.
+
+State-test JSON has input-field arrays for selecting a post case, but TXBYTES
+is the exact signed envelope.  Reconstructing a transaction from the input
+fields loses deliberately malformed signatures and chain IDs, which are
+themselves conformance vectors.  Small in-tree adapter fixtures predate
+TXBYTES, so callers retain a reconstruction fallback for those fixtures only."
+  (let ((txbytes (fixture-object-field post-entry "txbytes")))
+    (when txbytes
+      (transaction-from-encoding (hex-to-bytes txbytes)))))
+
 (defun eest-state-test-logs-hash (logs)
   (keccak-256-hash
    (rlp-encode
@@ -749,9 +761,54 @@
        (and (typep condition 'transaction-validation-error)
             (search "gas limit" message :test #'char-equal)
             (search "intrinsic gas" message :test #'char-equal)))
+      ((string= token "TransactionException.INSUFFICIENT_ACCOUNT_FUNDS")
+       (and (typep condition 'transaction-validation-error)
+            (search "insufficient sender balance" message
+                    :test #'char-equal)))
+      ((string= token "TransactionException.TYPE_3_TX_INVALID_BLOB_VERSIONED_HASH")
+       (and (typep condition 'block-validation-error)
+            (search "invalid blob versioned hash version" message
+                    :test #'char-equal)))
+      ((string= token "TransactionException.INSUFFICIENT_MAX_FEE_PER_GAS")
+       (and (typep condition 'block-validation-error)
+            (search "max fee per gas below base fee" message
+                    :test #'char-equal)))
+      ((string= token "TransactionException.INSUFFICIENT_MAX_FEE_PER_BLOB_GAS")
+       (and (typep condition 'block-validation-error)
+            (search "max fee per blob gas below blob base fee" message
+                    :test #'char-equal)))
+      ((member token
+               '("TransactionException.TYPE_3_TX_ZERO_BLOBS")
+               :test #'string=)
+       (and (typep condition 'block-validation-error)
+            (search "blob transaction missing blob hashes" message
+                    :test #'char-equal)))
+      ((member token
+               '("TransactionException.TYPE_3_TX_BLOB_COUNT_EXCEEDED"
+                 "TransactionException.TYPE_3_TX_MAX_BLOB_GAS_ALLOWANCE_EXCEEDED")
+               :test #'string=)
+       (and (typep condition 'block-validation-error)
+            (search "blob transaction has too many blob hashes" message
+                    :test #'char-equal)))
+      ((string= token "TransactionException.TYPE_3_TX_CONTRACT_CREATION")
+       (and (typep condition 'block-validation-error)
+            (search "blob transaction cannot create contracts" message
+                    :test #'char-equal)))
+      ((string= token "TransactionException.PRIORITY_GREATER_THAN_MAX_FEE_PER_GAS")
+       (and (typep condition 'block-validation-error)
+            (search "max priority fee exceeds max fee" message
+                    :test #'char-equal)))
+      ((string= token "TransactionException.INVALID_CHAINID")
+       (and (typep condition 'transaction-validation-error)
+            (search "chain id does not match expected chain id" message
+                    :test #'char-equal)))
+      ((string= token "TransactionException.INVALID_SIGNATURE_VRS")
+       (and (typep condition 'transaction-validation-error)
+            (search "invalid transaction signature" message
+                    :test #'char-equal)))
       (t
-       (error "Unsupported EEST state test expectException token ~A"
-              token)))))
+       (error "Unsupported EEST state test expectException token ~A for ~S: ~A"
+              token (type-of condition) message)))))
 
 (defun eest-state-test-condition-matches-expected-exception-p
     (condition expected-exception)
@@ -784,6 +841,66 @@
                     (member fork '("Prague" "Osaka") :test #'string=)
                     :osaka-p (string= fork "Osaka")))
 
+(defun eest-state-test-blob-base-fee (env rules)
+  "Return the EIP-4844 blob base fee declared by an EEST execution environment.
+
+EEST supplies the already-derived excess blob gas for the block under test.
+The fee schedule still belongs to the active fork, since its update fraction
+changes at later forks.  A missing field describes a pre-Cancun environment
+and consequently has no blob fee."
+  (let ((excess-blob-gas
+          (fixture-object-field env "currentExcessBlobGas")))
+    (if excess-blob-gas
+        (multiple-value-bind (target-blob-gas max-blob-gas update-fraction)
+            (chain-rules-blob-schedule rules)
+          (declare (ignore target-blob-gas max-blob-gas))
+          (blob-base-fee (hex-to-quantity excess-blob-gas)
+                         :update-fraction update-fraction))
+        0)))
+
+(defun eest-state-test-block-hashes (env)
+  "Decode the optional EEST BLOCKHASH history into the execution context.
+
+`blockHashes` is keyed by block number.  Older state-test fixtures encode the
+immediately preceding entry as `previousHash`; accept that representation too
+without inventing any history that the fixture did not supply."
+  (let ((hashes (make-hash-table :test 'eql)))
+    (let ((fixture-hashes (fixture-object-field env "blockHashes")))
+      (when fixture-hashes
+        (dolist (entry
+                 (ethereum-lisp.json:json-object-entries
+                  fixture-hashes "EEST state test blockHashes"))
+          (setf (gethash (eest-state-test-quantity-string
+                          (car entry) "EEST state test block hash number")
+                         hashes)
+                (hash32-from-hex (cdr entry))))))
+    (let ((previous-hash (fixture-object-field env "previousHash")))
+      (when previous-hash
+        (let ((current-number
+                (eest-state-test-quantity-string
+                 (fixture-required-field env "currentNumber")
+                 "EEST state test current block number")))
+          (when (plusp current-number)
+            (setf (gethash (1- current-number) hashes)
+                  (hash32-from-hex previous-hash))))))
+    hashes))
+
+(deftest eest-state-test-block-hashes-preserve-explicit-history
+  (let ((hashes
+          (eest-state-test-block-hashes
+           '(("currentNumber" . "0x02")
+             ("blockHashes"
+              . (("0x00"
+                  . "0x1111111111111111111111111111111111111111111111111111111111111111")))
+             ("previousHash"
+              . "0x2222222222222222222222222222222222222222222222222222222222222222")))))
+    (is (string=
+         "0x1111111111111111111111111111111111111111111111111111111111111111"
+         (hash32-to-hex (gethash 0 hashes))))
+    (is (string=
+         "0x2222222222222222222222222222222222222222222222222222222222222222"
+         (hash32-to-hex (gethash 1 hashes))))))
+
 (deftest eest-late-fork-state-tests-select-active-rules
   (let ((cancun (eest-state-test-chain-rules "Cancun"))
         (prague (eest-state-test-chain-rules "Prague"))
@@ -798,32 +915,42 @@
   (let* ((fixture (fixture-required-field case "fixture"))
          (env (fixture-required-field fixture "env"))
          (state (make-state-db))
-         (sender (eest-state-test-sender case))
-         (tx (eest-state-test-transaction case post-entry))
+         (signed-tx (eest-state-test-post-transaction post-entry))
          (rules (eest-state-test-chain-rules fork)))
     (dolist (entry (fixture-required-field fixture "pre"))
       (apply-eest-state-test-account state (car entry) (cdr entry)))
     (let ((snapshot (state-db-copy state)))
       (handler-case
-          (let ((receipt
-                  (apply-message
-                   state sender tx
-                   :chain-id 1
-                   :chain-rules rules
-                   :base-fee
-                   (hex-to-quantity
-                    (or (fixture-object-field env "currentBaseFee") "0x0"))
-                   :coinbase
-                   (address-from-hex
-                    (fixture-required-field env "currentCoinbase"))
-                   :block-number
-                   (hex-to-quantity (fixture-required-field env "currentNumber"))
-                   :timestamp
-                   (hex-to-quantity
-                    (fixture-required-field env "currentTimestamp"))
-                   :difficulty
-                   (hex-to-quantity
-                    (or (fixture-object-field env "currentDifficulty") "0x0")))))
+          (let* ((arguments
+                   (list :chain-rules rules
+                         :base-fee
+                         (hex-to-quantity
+                          (or (fixture-object-field env "currentBaseFee") "0x0"))
+                         :blob-base-fee (eest-state-test-blob-base-fee env rules)
+                         :coinbase
+                         (address-from-hex
+                          (fixture-required-field env "currentCoinbase"))
+                         :block-number
+                         (hex-to-quantity
+                          (fixture-required-field env "currentNumber"))
+                         :timestamp
+                         (hex-to-quantity
+                          (fixture-required-field env "currentTimestamp"))
+                         :difficulty
+                         (hex-to-quantity
+                          (or (fixture-object-field env "currentDifficulty") "0x0"))
+                         :context-gas-limit
+                         (hex-to-quantity
+                          (fixture-required-field env "currentGasLimit"))
+                         :block-hashes (eest-state-test-block-hashes env)))
+                 (receipt
+                   (if signed-tx
+                       (apply #'apply-signed-message state signed-tx
+                              :expected-chain-id 1 arguments)
+                       (apply #'apply-message state
+                              (eest-state-test-sender case)
+                              (eest-state-test-transaction case post-entry)
+                              :chain-id 1 arguments))))
             (values state receipt post-entry nil))
         (error (condition)
           (state-db-restore state snapshot)
@@ -835,6 +962,89 @@
    (first (eest-state-test-post-entries case fork))
    :fork fork))
 
+(defun assert-eest-state-test-field= (case post-entry fork field expected actual)
+  "Assert one EEST post-state field with fixture context on a mismatch."
+  (unless (string= expected actual)
+    (error "EEST state case ~A fork ~A indexes ~S has wrong ~A: expected ~A, got ~A"
+           (fixture-required-field case "name")
+           fork
+           (fixture-object-field post-entry "indexes")
+           field expected actual))
+  (is t))
+
+(defun assert-eest-state-test-quantity= (case post-entry fork field expected actual)
+  "Compare an EEST hex quantity by value, retaining fixture spelling on error."
+  (let ((expected-value (eest-state-test-quantity-string expected field)))
+    (unless (= expected-value actual)
+      (error "EEST state case ~A fork ~A indexes ~S has wrong ~A: expected ~A, got ~A"
+             (fixture-required-field case "name")
+             fork
+             (fixture-object-field post-entry "indexes")
+             field expected (quantity-to-hex actual)))
+    (is t)))
+
+(defun assert-eest-state-test-expected-condition
+    (case post-entry fork condition expected-exception)
+  "Require an EEST exception fixture to fail, retaining its exact identity."
+  (unless condition
+    (error "EEST state case ~A fork ~A indexes ~S expected ~A, but execution succeeded"
+           (fixture-required-field case "name")
+           fork
+           (fixture-object-field post-entry "indexes")
+           expected-exception))
+  (is t))
+
+(defun assert-eest-state-test-no-unexpected-condition
+    (case post-entry fork condition)
+  "Require a successful EEST fixture to finish without a condition."
+  (when condition
+    (error "EEST state case ~A fork ~A indexes ~S unexpectedly failed with ~S: ~A"
+           (fixture-required-field case "name")
+           fork
+           (fixture-object-field post-entry "indexes")
+           (type-of condition)
+           (eest-state-test-condition-message condition)))
+  (is t))
+
+(defun assert-eest-state-test-account-state
+    (state case post-entry fork address-hex expected)
+  "Check one authoritative EEST post-state account before its aggregate root."
+  (let* ((address (address-from-hex address-hex))
+         (account (state-db-get-account state address))
+         (expected-storage (fixture-required-field expected "storage")))
+    (unless account
+      (error "EEST state case ~A fork ~A indexes ~S lost expected account ~A"
+             (fixture-required-field case "name") fork
+             (fixture-object-field post-entry "indexes") address-hex))
+    (assert-eest-state-test-quantity=
+     case post-entry fork (format nil "nonce for ~A" address-hex)
+     (fixture-required-field expected "nonce")
+     (state-account-nonce account))
+    (assert-eest-state-test-quantity=
+     case post-entry fork (format nil "balance for ~A" address-hex)
+     (fixture-required-field expected "balance")
+     (state-account-balance account))
+    (assert-eest-state-test-field=
+     case post-entry fork (format nil "code for ~A" address-hex)
+     (fixture-required-field expected "code")
+     (bytes-to-hex (state-db-get-code state address)))
+    (dolist (entry expected-storage)
+      (assert-eest-state-test-quantity=
+       case post-entry fork
+       (format nil "storage ~A at ~A" (car entry) address-hex)
+       (cdr entry)
+       (state-db-get-storage state address
+                             (eest-state-test-storage-key (car entry)))))))
+
+(defun assert-eest-state-test-post-state (state case post-entry fork)
+  "Check every EEST-specified account to make root mismatches actionable."
+  ;; The external v20 corpus has this authoritative expanded state; the small
+  ;; in-tree compatibility fixtures intentionally carry only a root.
+  (when (fixture-field-present-p post-entry "state")
+    (dolist (entry (fixture-required-field post-entry "state"))
+      (assert-eest-state-test-account-state
+       state case post-entry fork (car entry) (cdr entry)))))
+
 (defun assert-eest-state-test-post-entry (case post-entry &key (fork "London"))
   (multiple-value-bind (state receipt post-entry condition)
       (execute-eest-state-test-post-entry case post-entry :fork fork)
@@ -842,20 +1052,28 @@
             (eest-state-test-expected-exception post-entry)))
       (if expected-exception
           (progn
-            (is condition)
+            (assert-eest-state-test-expected-condition
+             case post-entry fork condition expected-exception)
             (is (eest-state-test-condition-matches-expected-exception-p
                  condition
                  expected-exception))
-            (is (string= (fixture-required-field post-entry "hash")
-                         (state-db-root-hex state))))
+            (assert-eest-state-test-field=
+             case post-entry fork "state root"
+             (fixture-required-field post-entry "hash")
+             (state-db-root-hex state)))
           (progn
-            (is (null condition))
-            (is (string= (fixture-required-field post-entry "hash")
-                         (state-db-root-hex state)))
-            (is (string= (fixture-required-field post-entry "logs")
-                         (hash32-to-hex
-                          (eest-state-test-logs-hash
-                           (receipt-logs receipt))))))))))
+            (assert-eest-state-test-no-unexpected-condition
+             case post-entry fork condition)
+            (assert-eest-state-test-post-state state case post-entry fork)
+            (assert-eest-state-test-field=
+             case post-entry fork "state root"
+             (fixture-required-field post-entry "hash")
+             (state-db-root-hex state))
+            (assert-eest-state-test-field=
+             case post-entry fork "logs hash"
+             (fixture-required-field post-entry "logs")
+             (hash32-to-hex
+              (eest-state-test-logs-hash (receipt-logs receipt)))))))))
 
 (defun assert-eest-state-test-case (case &key fork)
   (dolist (fork (if fork
@@ -1063,19 +1281,62 @@
            (fixture-object-field expect "receipt")))))))
 
 (deftest eest-state-test-expected-exception-mapping
-  (let ((condition
+  (let ((intrinsic-gas-condition
           (make-condition
            'transaction-validation-error
-           :message "Gas limit below intrinsic gas")))
+           :message "Gas limit below intrinsic gas"))
+        (insufficient-funds-condition
+          (make-condition
+           'transaction-validation-error
+           :message "Insufficient sender balance")))
     (is (equal '("TransactionException.INTRINSIC_GAS_TOO_LOW")
                (eest-state-test-expected-exception-tokens
                 "TransactionException.INTRINSIC_GAS_TOO_LOW")))
     (is (eest-state-test-condition-matches-expected-exception-p
-         condition
+         intrinsic-gas-condition
          "TransactionException.INTRINSIC_GAS_TOO_LOW"))
+    (is (eest-state-test-condition-matches-expected-exception-p
+         insufficient-funds-condition
+         "TransactionException.INSUFFICIENT_ACCOUNT_FUNDS"))
+    (is (eest-state-test-condition-matches-expected-exception-p
+         (make-condition 'block-validation-error
+                         :message "Invalid blob versioned hash version")
+         "TransactionException.TYPE_3_TX_INVALID_BLOB_VERSIONED_HASH"))
+    (is (eest-state-test-condition-matches-expected-exception-p
+         (make-condition 'block-validation-error
+                         :message "Max fee per gas below base fee")
+         "TransactionException.INSUFFICIENT_MAX_FEE_PER_GAS"))
+    (is (eest-state-test-condition-matches-expected-exception-p
+         (make-condition 'block-validation-error
+                         :message "Max fee per blob gas below blob base fee")
+         "TransactionException.INSUFFICIENT_MAX_FEE_PER_BLOB_GAS"))
+    (is (eest-state-test-condition-matches-expected-exception-p
+         (make-condition 'block-validation-error
+                         :message "Blob transaction missing blob hashes")
+         "TransactionException.TYPE_3_TX_ZERO_BLOBS"))
+    (is (eest-state-test-condition-matches-expected-exception-p
+         (make-condition 'block-validation-error
+                         :message "Blob transaction has too many blob hashes")
+         "TransactionException.TYPE_3_TX_BLOB_COUNT_EXCEEDED"))
+    (is (eest-state-test-condition-matches-expected-exception-p
+         (make-condition 'block-validation-error
+                         :message "Blob transaction cannot create contracts")
+         "TransactionException.TYPE_3_TX_CONTRACT_CREATION"))
+    (is (eest-state-test-condition-matches-expected-exception-p
+         (make-condition 'block-validation-error
+                         :message "Max priority fee exceeds max fee")
+         "TransactionException.PRIORITY_GREATER_THAN_MAX_FEE_PER_GAS"))
+    (is (eest-state-test-condition-matches-expected-exception-p
+         (make-condition 'transaction-validation-error
+                         :message "Transaction chain ID does not match expected chain ID")
+         "TransactionException.INVALID_CHAINID"))
+    (is (eest-state-test-condition-matches-expected-exception-p
+         (make-condition 'transaction-validation-error
+                         :message "Invalid transaction signature")
+         "TransactionException.INVALID_SIGNATURE_VRS"))
     (signals error
       (eest-state-test-condition-matches-expected-exception-p
-       condition
+       intrinsic-gas-condition
        "TransactionException.UNKNOWN"))
     (signals error
       (eest-state-test-expected-exception-tokens
@@ -1099,6 +1360,12 @@
 
 (deftest pinned-v5.4.0-late-fork-state-test-families-execute
   (with-execution-spec-tests-state-test-root (root)
+    ;; These selectors name the v5.4.0 archive's historical layout. The stable
+    ;; corpus intentionally has a different layout and is covered by auto
+    ;; discovery below; treating it as v5.4.0 would turn a corpus-selection
+    ;; mismatch into a fabricated execution failure.
+    (unless (search "v5.4.0" (namestring (truename root)) :test #'char-equal)
+      (skip-test "Pinned v5.4.0 selector control is inapplicable to this EEST corpus"))
     (let* ((selectors
              (mapcar #'car +pinned-v5.4.0-late-fork-state-test-cases+))
            (cases (load-eest-state-test-root-cases root :names selectors)))
@@ -1113,16 +1380,32 @@
           (is fork)
           (assert-eest-state-test-case case :fork fork))))))
 
+(defun call-with-eest-kzg-cffi-verifier (thunk)
+  "Run THUNK with the image's real c-kzg verifier installed.
+
+The current EEST state corpus includes Cancun point-evaluation precompile
+vectors.  Those are proof-verification vectors, not shape-only fixtures, so a
+missing libethckzg setup is a conformance failure rather than an optional
+capability or a reason to skip the case."
+  (let ((verifier (make-kzg-cffi-verifier)))
+    (unless verifier
+      (error "EEST current-fork conformance requires the c-kzg CFFI verifier"))
+    (let ((*kzg-verifier* verifier))
+      (funcall thunk))))
+
 (deftest optional-phase-a-eest-state-test-root-vectors-execute
+  (:layer :integration :module :eest)
   ;; Execute only the forks this build implements. A post map from the stable
   ;; corpus can also carry a not-yet-implemented fork (e.g. Amsterdam, which is
   ;; deliberately gated out of this wave); running EVERY fork name would turn
   ;; the gate red on a fork we never claimed to execute rather than on a real
   ;; divergence. Discovery already guarantees at least one supported fork per
   ;; case, so the intersection is non-empty and nothing is silently skipped.
-  (let ((supported (phase-a-eest-state-test-supported-forks)))
-    (dolist (case (load-optional-phase-a-eest-state-test-root-cases))
-      (dolist (fork (intersection supported
-                                  (eest-state-test-case-fork-names case)
-                                  :test #'string=))
-        (assert-eest-state-test-case case :fork fork)))))
+  (call-with-eest-kzg-cffi-verifier
+   (lambda ()
+     (let ((supported (phase-a-eest-state-test-supported-forks)))
+       (dolist (case (load-optional-phase-a-eest-state-test-root-cases))
+         (dolist (fork (intersection supported
+                                     (eest-state-test-case-fork-names case)
+                                     :test #'string=))
+           (assert-eest-state-test-case case :fork fork)))))))

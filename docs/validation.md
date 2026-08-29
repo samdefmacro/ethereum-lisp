@@ -74,6 +74,12 @@ that Workbench event. Each profile reports one aggregate gate and zero adapter
 retries; exact test and fixture counts remain in the runner output and archived
 conformance reports.
 
+When a CI runner or supervisor cannot retain the attached `docker run` output,
+set `COLD_TEST_CONTAINER` to a name beginning with `ethereum-lisp-cold-`. The
+cold broker then retains that one otherwise identical restricted container so
+its exit code and logs can be collected; callers must remove it after collecting
+the evidence. The default remains `--rm`.
+
 ## Unified import, authority, and recovery checks
 
 Section 4 of the public-testnet plan has a focused acceptance surface. Run it

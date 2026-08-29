@@ -66,7 +66,12 @@
       (eest-blockchain-test-root-json-paths root))))
 
 (deftest phase-a-eest-blockchain-discovery-skips-unsupported-fork-roots
-  (let* ((root
+  ;; Keep this synthetic default-gate test isolated when the outer process is
+  ;; intentionally running the real corpus with Cancun/Prague/Osaka enabled.
+  (let ((*fixture-root-environment-reader* (lambda (name)
+                                             (declare (ignore name))
+                                             nil)))
+    (let* ((root
            (merge-pathnames
             (format nil "ethereum-lisp-blockchain-discovery-root-~A/" (gensym))
             #P"/private/tmp/"))
@@ -93,7 +98,7 @@
       (write-file cancun-path "{")
       (is (equal
            '(("shanghai/phase-a-empty-engine.json" . "engineNewPayloadV2"))
-           (discover-phase-a-eest-blockchain-replay-selectors root))))))
+           (discover-phase-a-eest-blockchain-replay-selectors root)))))))
 
 (deftest eest-state-test-root-json-discovery
   (let* ((root (execution-spec-tests-state-test-root
@@ -185,7 +190,13 @@
        "tests/fixtures/execution-spec-tests-root/fixtures/blockchain_tests_engine/shanghai/phase-a-empty-engine.json"))))
 
 (deftest phase-a-eest-state-discovery-skips-unsupported-and-oversized-roots
-  (let* ((root
+  ;; This fixture deliberately places invalid content under unsupported forks.
+  ;; Its contract remains the default fork set; all-fork discovery is covered
+  ;; by the optional conformance test.
+  (let ((*fixture-root-environment-reader* (lambda (name)
+                                             (declare (ignore name))
+                                             nil)))
+    (let* ((root
            (merge-pathnames
             (format nil "ethereum-lisp-state-discovery-root-~A/" (gensym))
             #P"/private/tmp/"))
@@ -226,7 +237,7 @@
            '("london/phase-a-state-sample.json/phase_a_london_access_list_state_sample"
              "london/phase-a-state-sample.json/phase_a_london_dynamic_fee_state_sample"
              "london/phase-a-state-sample.json/phase_a_london_state_sample")
-           (discover-phase-a-eest-state-test-selectors root))))))
+           (discover-phase-a-eest-state-test-selectors root)))))))
 
 (deftest phase-a-eest-state-test-selector-workflow
   (let ((selectors
@@ -287,7 +298,12 @@
       (phase-a-eest-blockchain-replay-env-materialization-kinds))))
 
 (deftest eest-blockchain-test-root-case-loading
-  (let* ((root (execution-spec-tests-blockchain-test-root
+  ;; This bundled unit corpus is Shanghai-only even when the surrounding test
+  ;; process runs the stable corpus with later forks enabled.
+  (let ((*fixture-root-environment-reader* (lambda (name)
+                                             (declare (ignore name))
+                                             nil)))
+    (let* ((root (execution-spec-tests-blockchain-test-root
                 "tests/fixtures/execution-spec-tests-root/"))
          (cases (load-eest-blockchain-test-root-cases root))
          (phase-a-cases (load-phase-a-eest-blockchain-replay-cases root))
@@ -399,7 +415,7 @@
                  bad-case)))
       (signals error
       (validate-phase-a-eest-blockchain-replay-summary
-       (list bad-case (second phase-a-cases)))))))
+       (list bad-case (second phase-a-cases))))))))
 
 (deftest eest-blockchain-engine-newpayloads-v2-materialization
   (let* ((source-name
@@ -518,7 +534,10 @@
 (deftest phase-a-eest-blockchain-skips-are-named-not-anonymous
   ;; Every discovered case that does not execute has to land in a named bucket,
   ;; because the count manifest is only worth reading if a zero can be explained.
-  (is (string= "transitionNetwork"
+  (let ((*fixture-root-environment-reader* (lambda (name)
+                                             (declare (ignore name))
+                                             nil)))
+    (is (string= "transitionNetwork"
                (phase-a-eest-blockchain-replay-skip-category
                 (phase-a-eest-blockchain-synthetic-engine-case
                  :network "ShanghaiToCancunAtTime15k"))))
@@ -536,10 +555,10 @@
   (is (string= "unsupportedPayloadVersion"
                (phase-a-eest-blockchain-replay-skip-category
                 (phase-a-eest-blockchain-synthetic-engine-case :version "9"))))
-  (is (string= "missingNetwork"
-               (phase-a-eest-blockchain-replay-skip-category
-                (list (cons "name" "synthetic/case.json")
-                      (cons "fixture" (list (cons "blocks" '()))))))))
+    (is (string= "missingNetwork"
+       (phase-a-eest-blockchain-replay-skip-category
+        (list (cons "name" "synthetic/case.json")
+                      (cons "fixture" (list (cons "blocks" '())))))))))
 
 (deftest phase-a-eest-blockchain-replay-tests-partition-the-selector-list
   ;; Two replay tests share one selector list: the V2 harness rebuilds the block
@@ -660,7 +679,10 @@
   ;; fork gate must apply to the PATH -- a Shanghai run must not even open the
   ;; Cancun tree. Before this, the whole stable corpus discovered zero cases,
   ;; because `for_shanghai' matched no feature directory.
-  (let* ((root
+  (let ((*fixture-root-environment-reader* (lambda (name)
+                                             (declare (ignore name))
+                                             nil)))
+    (let* ((root
            (merge-pathnames
             (format nil "ethereum-lisp-for-network-root-~A/" (gensym))
             #P"/private/tmp/"))
@@ -700,7 +722,7 @@
                    "tests/fixtures/execution-spec-tests-root/fixtures/blockchain_tests_engine/shanghai/phase-a-empty-engine.json"))))
       (is (equal '("shanghai" "shanghai")
                  (multiple-value-list
-                  (eest-fixture-discovery-directories root shanghai-path)))))))
+                  (eest-fixture-discovery-directories root shanghai-path))))))))
 
 (deftest eest-state-test-forks-are-environment-parameterized
   (let ((*fixture-root-environment-reader*

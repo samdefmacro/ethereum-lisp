@@ -403,7 +403,8 @@ build_cold_image() {
 
 run_cold_container() {
   local fixture_root="${ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT:-}"
-  local args=(run --rm --init
+  local retained_container="${COLD_TEST_CONTAINER:-}"
+  local args=(run --init
               --network none
               --read-only
               --cap-drop ALL
@@ -417,6 +418,27 @@ run_cold_container() {
               --env "E2E_JOBS=${COLD_E2E_JOBS:-2}"
               --env E2E_WORKER_TIMEOUT=900
               --env XDG_CACHE_HOME=/tmp/ethereum-lisp-asdf-cache)
+  if [ -n "$retained_container" ]; then
+    case "$retained_container" in
+      ethereum-lisp-cold-*)
+        case "$retained_container" in
+          *[!a-z0-9-]*)
+            echo "ERROR: COLD_TEST_CONTAINER must start with ethereum-lisp-cold- and contain only lowercase letters, digits, and hyphens" >&2
+            return 2
+            ;;
+          *)
+            args+=(--name "$retained_container")
+            ;;
+        esac
+        ;;
+      *)
+        echo "ERROR: COLD_TEST_CONTAINER must start with ethereum-lisp-cold- and contain only lowercase letters, digits, and hyphens" >&2
+        return 2
+        ;;
+    esac
+  else
+    args+=(--rm)
+  fi
   if [ -n "$fixture_root" ]; then
     [ -d "$fixture_root" ] || {
       echo "ERROR: execution-spec fixture root is not a directory: $fixture_root" >&2

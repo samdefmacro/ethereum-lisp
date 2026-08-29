@@ -569,6 +569,25 @@
       (is (= 12 (state-account-balance
                  (state-db-get-account state beneficiary)))))))
 
+(deftest evm-cancun-created-selfdestruct-to-self-clears-observable-balance
+  ;; EIP-6780 retains a pre-existing contract, but a contract created during
+  ;; this transaction still follows the deletion path. A self-beneficiary must
+  ;; not leave its balance observable to later calls in the transaction.
+  (let* ((state (make-state-db))
+         (contract (address-from-hex
+                    "0x00000000000000000000000000000000000000aa"))
+         (rules (make-chain-rules :chain-id 1 :cancun-p t))
+         (context (make-evm-context :state state :address contract
+                                     :chain-rules rules))
+         (code #(115 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 170
+                 #xff)))
+    (state-db-set-account state contract (make-state-account :balance 7))
+    (ethereum-lisp.evm.internal::mark-created-account context contract)
+    (let ((result (execute-bytecode code :context context)))
+      (is (eq :selfdestructed (evm-result-status result)))
+      (is (= 0 (state-account-balance
+                (state-db-get-account state contract)))))))
+
 (deftest evm-selfdestruct-charges-new-account-gas
   (let* ((state (make-state-db))
          (contract (address-from-hex "0x00000000000000000000000000000000000000aa"))

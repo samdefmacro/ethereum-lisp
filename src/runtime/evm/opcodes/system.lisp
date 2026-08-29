@@ -221,14 +221,6 @@
                     (evm-context-state context)
                     (evm-context-address context)
                     beneficiary))))
-             (let ((transfer-log
-                     (selfdestruct-account
-                      (evm-context-state context)
-                      (evm-context-address context)
-                      beneficiary
-                      (evm-context-chain-rules context))))
-               (when transfer-log
-                 (push transfer-log logs)))
              ;; EIP-6780 (Cancun+): the account is deleted only when it was
              ;; created in this transaction; otherwise SELFDESTRUCT merely
              ;; transfers the balance. Pre-Cancun, deletion always applies.
@@ -236,6 +228,21 @@
                     (address (evm-context-address context))
                     (created-p
                       (account-created-this-transaction-p context address)))
+               (let ((transfer-log
+                       (selfdestruct-account
+                        (evm-context-state context)
+                        address
+                        beneficiary
+                        rules
+                        :clear-self-balance-p
+                        (and rules
+                             (chain-rules-cancun-p rules)
+                             ;; EIP-8246 removes the post-Cancun balance burn
+                             ;; for SELFDESTRUCT when beneficiary is self.
+                             (not (chain-rules-amsterdam-p rules))
+                             created-p))))
+                 (when transfer-log
+                   (push transfer-log logs)))
                (when (or (not (and rules
                                    (chain-rules-cancun-p rules)))
                          created-p)

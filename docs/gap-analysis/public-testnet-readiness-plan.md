@@ -69,6 +69,14 @@ missing.
 - Current stable execution fixtures: `tests@v20.0.1`, commit
   `87aba1a38a476b31f819a2390eb481527e6dc683`, asset SHA-256
   `3586193db06d4d5745d5e90b3c3008c2255a4e19ccd8f11a3ce887aec8c0b17c`.
+  This exact asset has one independently recorded corpus-integrity blocker:
+  `blockhash_zero_in_window_control` is generated from a source environment
+  with `block_hashes={0: keccak256("0")}`, but the released static JSON omits
+  both `blockHashes` and `previousHash` while retaining the non-zero expected
+  state.  A consumer cannot reproduce that case from the released bytes.  The
+  runner decodes either field when present and must keep this unrepresentable
+  entry visible as an upstream asset failure; it is not an allowed client skip
+  or a reason to infer the missing hash from the expected post-state.
 - Amsterdam feature fixtures: `tests-glamsterdam-devnet@v7.2.1`, commit
   `882909a2c88751a31fa99a65176563a16c527893`, asset SHA-256
   `02e3eca2ede5b424f4dbf2461caf592e6b43b56d55bbd64213dd01f63af9a583`.
@@ -482,7 +490,7 @@ Focused coverage lives in `tests/core-genesis-tests.lisp`,
 `tests/txpool-mining-order-tests.lisp`. The container-only selectors and the
 required live Hoodi evidence format are documented in `docs/validation.md`.
 
-**Section 5 completion evidence (2026-08-28).** Revision
+**Section 5 bootstrap/restart evidence (2026-08-28; not completion).** Revision
 `a176e246abe12cb31b1bb61f80d9b62177bc7702` passed the container-only cold
 unit, integration, E2E, and documentation gates with 1,216 unit tests (4
 optional fixture skips), 525 integration tests (8 optional fixture skips), and
@@ -511,10 +519,17 @@ At `15:21:23Z` both EL and CL were still running without OOM, the EL held ten
 peers, and its target had advanced again to `0x35933e`. The restart window had
 no pivot-unavailable, dependency-unavailable, or storage-failure event; one
 retry-classified import-failure event did not stop subsequent durable progress.
-This satisfies the Section 5 empty-datadir discovery, capability negotiation,
-consensus authorization, restart recovery, and continuing-head evidence gate.
-It does not claim completed state download, fixture/Hive conformance, the
-Section 6 resource work, or the Section 10 multi-day soak.
+This proves only the Section 5 empty-datadir discovery, capability negotiation,
+consensus authorization, restart recovery, and early continuing-head gate. It
+does **not** complete Section 5. Completion requires one continuous fresh
+datadir run to record `peer.snap.target_completed`, finish the healer with
+`completed=true` and an empty frontier, return `eth_syncing=false`, and execute
+the canonical EL head through the CL-authorized target (not merely retain a
+snap skeleton target while `eth_blockNumber` remains zero). The same revision
+must also pass the selected current-fork EEST/fixture and required Hive suites
+with zero unexpected skips before its seven-day shadow comparison may count as
+Section 10 evidence. The fourteen-day validator soak starts only after that
+shadow gate passes.
 
 ### 6. Make txpool and payload building bounded and proposer-safe
 

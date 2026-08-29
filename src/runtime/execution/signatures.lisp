@@ -20,9 +20,20 @@
       0))
 
 (defun signed-transaction-sender-or-error (tx expected-chain-id)
-  (or (transaction-sender tx :expected-chain-id expected-chain-id)
+  (let ((declared-chain-id (transaction-declared-chain-id tx)))
+    ;; Preserve a chain-domain mismatch separately from malformed V/R/S.  Both
+    ;; make sender recovery return NIL, but callers need the distinction for
+    ;; stable transaction-admission diagnostics and canonical fixture results.
+    ;; A legacy transaction without EIP-155 protection reports chain ID zero.
+    ;; Zero is not a declared EIP-155 domain and remains valid on a chain whose
+    ;; execution context has a positive ID.
+    (when (and expected-chain-id declared-chain-id (plusp declared-chain-id)
+               (/= expected-chain-id declared-chain-id))
       (error 'transaction-validation-error
-             :message "Invalid transaction signature")))
+             :message "Transaction chain ID does not match expected chain ID"))
+    (or (transaction-sender tx :expected-chain-id expected-chain-id)
+        (error 'transaction-validation-error
+               :message "Invalid transaction signature"))))
 
 (defun signed-transaction-senders-or-error (transactions expected-chain-id)
   (mapcar (lambda (tx)
