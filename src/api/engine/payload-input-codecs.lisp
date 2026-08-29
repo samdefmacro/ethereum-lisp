@@ -2,6 +2,14 @@
 
 ;;;; Engine API payload input decoding from JSON-RPC objects.
 
+(defun engine-rpc-non-null-field-present-p (object name)
+  "Whether NAME is present in OBJECT with a JSON value rather than null.
+
+Hive's version-neutral Engine encoders emit unavailable optional fields as JSON
+null.  Callers use this predicate when a version treats null as omitted."
+  (and (json-object-field-present-p object name)
+       (not (json-null-p (json-object-field object name)))))
+
 (defun engine-rpc-withdrawal-from-object (object)
   (make-withdrawal
    :index (json-rpc-required-quantity-field object "index")
@@ -11,7 +19,7 @@
    :amount (json-rpc-required-quantity-field object "amount")))
 
 (defun engine-rpc-withdrawals-field (object)
-  (when (json-object-field-present-p object "withdrawals")
+  (when (engine-rpc-non-null-field-present-p object "withdrawals")
     (let ((withdrawals (json-object-field object "withdrawals")))
       (unless (json-array-p withdrawals)
         (block-validation-fail "withdrawals must be a list"))
@@ -22,7 +30,7 @@
   (unless (listp object)
     (block-validation-fail "Engine RPC payload must be an object"))
   (let ((withdrawals-present-p
-          (json-object-field-present-p object "withdrawals")))
+          (engine-rpc-non-null-field-present-p object "withdrawals")))
     (make-executable-data
      :parent-hash (json-rpc-required-hash32-field object "parentHash")
      :fee-recipient (json-rpc-required-address-field object "feeRecipient")

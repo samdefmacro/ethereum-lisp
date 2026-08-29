@@ -12,15 +12,6 @@
    :finalized-block-hash
    (json-rpc-required-hash32-field object "finalizedBlockHash")))
 
-(defun engine-rpc-non-null-field-present-p (object name)
-  "Whether NAME is present in OBJECT with a JSON value rather than null.
-
-Hive's version-neutral payload-attributes encoder emits unavailable optional
-fields as JSON null.  For the Engine API versions where a field is forbidden,
-that is equivalent to the field being omitted; a non-null value is not."
-  (and (json-object-field-present-p object name)
-       (not (json-null-p (json-object-field object name)))))
-
 (defun engine-rpc-validate-payload-attributes-v1
     (object &key (method "engine_forkchoiceUpdatedV1")
                  withdrawals-field-required-p

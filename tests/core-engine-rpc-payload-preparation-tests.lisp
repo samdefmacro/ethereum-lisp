@@ -20,6 +20,13 @@
     (is (not (ethereum-lisp.engine::payload-attributes-v1-parent-beacon-root-present-p
               attributes)))))
 
+(deftest engine-rpc-new-payload-v1-accepts-null-unavailable-withdrawals
+  ;; Hive also includes this version-neutral null in executable payload data.
+  ;; The decoder must preserve the distinction between an omitted V1 field and
+  ;; a real withdrawals array without attempting to parse null as an array.
+  (is (null (ethereum-lisp.engine-api::engine-rpc-withdrawals-field
+             (list (cons "withdrawals" ethereum-lisp.json:+json-null+))))))
+
 (deftest engine-prepared-payload-amsterdam-derives-bal-instead-of-supplying-empty
   (let* ((config
            (make-chain-config :chain-id 1 :london-block 0
