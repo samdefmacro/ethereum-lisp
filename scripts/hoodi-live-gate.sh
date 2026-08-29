@@ -547,7 +547,10 @@ previous_image_revision="$(docker container inspect --format '{{ index .Config.L
 previous_datadir="$(docker container inspect --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Source}}{{end}}{{end}}' "$previous")"
 previous_user="$(docker container inspect --format '{{.Config.User}}' "$previous")"
 previous_read_only="$(docker container inspect --format '{{.HostConfig.ReadonlyRootfs}}' "$previous")"
-[ "$previous_agent" = codex-sec5-live-gate ] || { echo "previous gate ownership mismatch: $previous_agent" >&2; exit 1; }
+case "$previous_agent" in
+    codex-sec5-live-gate|codex-ethereum-lisp-same-host-benchmark) ;;
+    *) echo "previous gate ownership mismatch: $previous_agent" >&2; exit 1 ;;
+esac
 [ "$previous_gate_revision" = "$previous_revision" ] || { echo "previous gate revision mismatch: $previous_gate_revision" >&2; exit 1; }
 [ "$previous_image_revision" = "$previous_revision" ] || { echo "previous image revision mismatch: $previous_image_revision" >&2; exit 1; }
 [ "$previous_datadir" = "$datadir" ] || { echo "previous datadir mismatch: $previous_datadir" >&2; exit 1; }
