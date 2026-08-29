@@ -1046,6 +1046,13 @@ crash-stopped container reports its unavailable before-RPC values instead of
 preventing recovery. The broker prints the remaining before/after RPC and
 datadir evidence needed to assess durable progress; a restart is not by itself
 proof that progress advanced.
+
+The same-host fresh benchmark broker may also use a previously started,
+explicitly broker-owned benchmark as its rollback source. This permits a new
+revision and genuinely empty datadir to take over the fixed Lighthouse alias
+and bounded P2P port without attaching two ELs to that alias concurrently. It
+continues to reject every other source identity and restores the source if the
+candidate fails its RPC-readiness check.
 Restoring a multi-gigabyte live SNAP database can take several minutes. The
 broker re-resolves Docker's loopback-only ephemeral RPC port after the restart,
 waits up to 600 wall-clock seconds for public RPC by default, fails early if

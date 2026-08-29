@@ -121,12 +121,12 @@ start() {
     ssh "$host" bash -s -- "$revision" "$image" "$container" "$datadir" \
         "$source" "$lighthouse" "$cl_network" "$egress_network" "$cl_alias" \
         "$jwt_dir" "$public_ip" "$p2p_port" "$ready_timeout" "$seccomp_profile" \
-        "$expected_seccomp_sha256" <<'REMOTE'
+        "$expected_seccomp_sha256" "$source_revision" <<'REMOTE'
 set -eu
 revision="$1"; image="$2"; container="$3"; datadir="$4"; source="$5"
 lighthouse="$6"; cl_network="$7"; egress_network="$8"; cl_alias="$9"
 jwt_dir="${10}"; public_ip="${11}"; p2p_port="${12}"; ready_timeout="${13}"
-seccomp_profile="${14}"; expected_seccomp="${15}"
+seccomp_profile="${14}"; expected_seccomp="${15}"; source_revision="${16}"
 
 [ "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image")" = "$revision" ] || {
     echo "runtime image revision mismatch" >&2; exit 1;
@@ -146,10 +146,16 @@ seccomp_profile="${14}"; expected_seccomp="${15}"
 [ "$(docker container inspect --format '{{.State.Running}}' "$lighthouse")" = true ] || {
     echo "Lighthouse is not running: $lighthouse" >&2; exit 1;
 }
-[ "$(docker container inspect --format '{{ index .Config.Labels "agent" }}' "$source")" = codex-sec5-live-gate ] || {
-    echo "source EL ownership mismatch" >&2; exit 1;
-}
-[ "$(docker container inspect --format '{{ index .Config.Labels "io.ethereum-lisp.gate-revision" }}' "$source")" = "$revision" ] || {
+source_agent="$(docker container inspect --format '{{ index .Config.Labels "agent" }}' "$source")"
+# A fresh benchmark may replace either the original live gate or an earlier
+# same-host benchmark. Both identities are explicitly owned by this broker;
+# accepting only the former stranded a healthy benchmark and prevented a
+# later fresh-datadir candidate from using the same safe handoff.
+case "$source_agent" in
+    codex-sec5-live-gate|codex-ethereum-lisp-same-host-benchmark) ;;
+    *) echo "source EL ownership mismatch: $source_agent" >&2; exit 1 ;;
+esac
+[ "$(docker container inspect --format '{{ index .Config.Labels "io.ethereum-lisp.gate-revision" }}' "$source")" = "$source_revision" ] || {
     echo "source EL revision mismatch" >&2; exit 1;
 }
 source_user="$(docker container inspect --format '{{.Config.User}}' "$source")"
@@ -286,9 +292,11 @@ previous_datadir="$(docker container inspect --format '{{range .Mounts}}{{if eq 
 [ "$(docker container inspect --format '{{.State.Running}}' "$lighthouse")" = true ] || {
     echo "Lighthouse is not running: $lighthouse" >&2; exit 1;
 }
-[ "$(docker container inspect --format '{{ index .Config.Labels "agent" }}' "$source")" = codex-sec5-live-gate ] || {
-    echo "source EL ownership mismatch" >&2; exit 1;
-}
+source_agent="$(docker container inspect --format '{{ index .Config.Labels "agent" }}' "$source")"
+case "$source_agent" in
+    codex-sec5-live-gate|codex-ethereum-lisp-same-host-benchmark) ;;
+    *) echo "source EL ownership mismatch: $source_agent" >&2; exit 1 ;;
+esac
 [ "$(docker container inspect --format '{{ index .Config.Labels "io.ethereum-lisp.gate-revision" }}' "$source")" = "$source_revision" ] || {
     echo "source EL revision mismatch" >&2; exit 1;
 }
