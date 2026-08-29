@@ -412,6 +412,44 @@
       (when (probe-file path)
         (uiop:delete-directory-tree path :validate t)))))
 
+(deftest rocksdb-async-read-io-runtime-override-is-explicit-and-validated
+  (:layer :unit :module :database)
+  (is (ethereum-lisp.database::rocksdb-async-read-io-enabled-p
+       (lambda (name)
+         (declare (ignore name))
+         nil)))
+  (is (not
+       (ethereum-lisp.database::rocksdb-async-read-io-enabled-p
+        (lambda (name)
+          (declare (ignore name))
+          "false"))))
+  (signals error
+    (ethereum-lisp.database::rocksdb-async-read-io-enabled-p
+     (lambda (name)
+       (declare (ignore name))
+       "sometimes"))))
+
+(deftest rocksdb-key-value-database-can-disable-async-read-io
+  (:layer :integration :module :database)
+  (let ((path
+          (merge-pathnames
+           (make-pathname
+            :directory
+            `(:relative ,(format nil "ethereum-lisp-rocks-sync-~A"
+                                 (gensym))))
+           #P"/private/tmp/")))
+    (unwind-protect
+         (let ((database
+                 (make-rocksdb-key-value-database path :async-read-io-p nil)))
+           (unwind-protect
+                (is (= 0
+                       (ethereum-lisp.database::%rocks-read-options-get-async-io
+                        (ethereum-lisp.database::rocksdb-read-options
+                         database))))
+             (close-rocksdb-key-value-database database)))
+      (when (probe-file path)
+        (uiop:delete-directory-tree path :validate t)))))
+
 (deftest rocksdb-key-value-database-pins-writes-and-bulk-copies-reads
   (:layer :integration :module :database)
   (let* ((path

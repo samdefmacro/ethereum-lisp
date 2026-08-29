@@ -75,6 +75,7 @@ restart_ready_timeout="${HOODI_GATE_RESTART_READY_TIMEOUT:-600}"
 memory_limit_bytes=7516192768
 allocation_profile_seconds="${HOODI_GATE_ALLOC_PROFILE_SECONDS:-0}"
 allow_same_revision_profile="${HOODI_GATE_ALLOW_SAME_REVISION_PROFILE:-0}"
+rocksdb_async_read_io="${HOODI_GATE_ROCKSDB_ASYNC_READ_IO:-1}"
 
 case "$host" in *[!A-Za-z0-9_.@-]*|'') fail "unsafe SSH host: $host" ;; esac
 case "$remote_root" in
@@ -113,6 +114,10 @@ esac
 case "$allow_same_revision_profile" in
     0|1) ;;
     *) fail "same-revision profile allowance must be zero or one" ;;
+esac
+case "$rocksdb_async_read_io" in
+    0|1) ;;
+    *) fail "RocksDB async-read-I/O override must be zero or one" ;;
 esac
 
 if [ "$actual_head" != "$revision" ]; then
@@ -356,13 +361,14 @@ start_gate() {
         "$remote_seccomp_profile" "$expected_seccomp_sha256" \
         "$lighthouse_container" "$old_container" "$cl_network" "$egress_network" \
         "$cl_alias" "$p2p_port" "$memory_limit_bytes" \
-        "$allocation_profile_seconds" <<'REMOTE'
+        "$allocation_profile_seconds" "$rocksdb_async_read_io" <<'REMOTE'
 set -eu
 revision="$1"; image="$2"; container="$3"; datadir="$4"; jwt_dir="$5"; public_ip="$6"
 seccomp_profile="$7"; expected_seccomp="$8"; lighthouse="$9"; old="${10}"
 cl_network="${11}"; egress_network="${12}"; cl_alias="${13}"; p2p_port="${14}"
 memory_limit="${15}"
 allocation_profile_seconds="${16}"
+rocksdb_async_read_io="${17}"
 
 image_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image")"
 image_platform="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image")"
@@ -446,6 +452,7 @@ if ! docker run --detach --pull never \
     --memory "$memory_limit" \
     --memory-swap "$memory_limit" \
     --env "ETHEREUM_LISP_ALLOC_PROFILE_SECONDS=$allocation_profile_seconds" \
+    --env "ETHEREUM_LISP_ROCKSDB_ASYNC_READ_IO=$rocksdb_async_read_io" \
     --mount "type=bind,source=$datadir,target=/data" \
     --mount "type=bind,source=$jwt_dir,target=/jwt,readonly" \
     --network "$cl_network" \
@@ -509,7 +516,7 @@ upgrade_gate() {
         "$lighthouse_container" "$previous_container" "$previous_revision" \
         "$cl_network" "$egress_network" "$cl_alias" "$p2p_port" \
         "$restart_ready_timeout" "$memory_limit_bytes" \
-        "$allocation_profile_seconds" <<'REMOTE'
+        "$allocation_profile_seconds" "$rocksdb_async_read_io" <<'REMOTE'
 set -eu
 revision="$1"; image="$2"; container="$3"; datadir="$4"; jwt_dir="$5"; public_ip="$6"
 seccomp_profile="$7"; expected_seccomp="$8"; lighthouse="$9"; previous="${10}"
@@ -517,6 +524,7 @@ previous_revision="${11}"; cl_network="${12}"; egress_network="${13}"
 cl_alias="${14}"; p2p_port="${15}"; ready_timeout="${16}"
 memory_limit="${17}"
 allocation_profile_seconds="${18}"
+rocksdb_async_read_io="${19}"
 
 image_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image")"
 image_platform="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image")"
@@ -652,6 +660,7 @@ if ! docker run --detach --pull never \
     --memory "$memory_limit" \
     --memory-swap "$memory_limit" \
     --env "ETHEREUM_LISP_ALLOC_PROFILE_SECONDS=$allocation_profile_seconds" \
+    --env "ETHEREUM_LISP_ROCKSDB_ASYNC_READ_IO=$rocksdb_async_read_io" \
     --mount "type=bind,source=$datadir,target=/data" \
     --mount "type=bind,source=$jwt_dir,target=/jwt,readonly" \
     --network "$cl_network" \
@@ -1106,6 +1115,9 @@ HOODI_GATE_ALLOW_SAME_REVISION_PROFILE=1, a new container name, and a non-zero
 HOODI_GATE_ALLOC_PROFILE_SECONDS value.
 HOODI_GATE_RESTART_READY_TIMEOUT may override the bounded 600-second restart
 readiness window (accepted range: 30-1800 seconds).
+HOODI_GATE_ROCKSDB_ASYNC_READ_IO defaults to 1. Set it to 0 only to isolate a
+diagnosed native asynchronous RocksDB read failure; the gate validates the
+binary value and records it in the replacement container environment.
 USAGE
         exit 2
         ;;

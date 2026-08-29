@@ -175,6 +175,29 @@ import even though the live Lisp heap remained below two GiB.")
 (defconstant +rocksdb-bloom-bits-per-key+ 10.0d0
   "Full-filter budget for random content-addressed state lookups.")
 
+(defparameter +rocksdb-async-read-io-environment+
+  "ETHEREUM_LISP_ROCKSDB_ASYNC_READ_IO"
+  "Optional runtime override for RocksDB asynchronous read scheduling.")
+
+(defun rocksdb-async-read-io-enabled-p
+    (&optional (environment-lookup #'uiop:getenv))
+  "Return whether new RocksDB read handles enable asynchronous scheduling.
+
+The default remains enabled for the public-node profile.  Operators can set
+ETHEREUM_LISP_ROCKSDB_ASYNC_READ_IO to 0, false, or no when isolating a native
+async-I/O failure on a specific kernel; invalid values fail closed rather than
+silently changing the storage profile."
+  (let ((value (funcall environment-lookup +rocksdb-async-read-io-environment+)))
+    (cond
+      ((or (null value) (string= value "")
+           (member value '("1" "true" "yes") :test #'string-equal))
+       t)
+      ((member value '("0" "false" "no") :test #'string-equal)
+       nil)
+      (t
+       (error "~A must be one of 1, true, yes, 0, false, or no"
+              +rocksdb-async-read-io-environment+)))))
+
 (defun rocksdb-available-p ()
   (or *rocksdb-library-loaded-p*
       (handler-case
@@ -244,7 +267,9 @@ import even though the live Lisp heap remained below two GiB.")
       (%rocks-block-options-destroy block-options)))
   options)
 
-(defun make-rocksdb-key-value-database (path &key (create-if-missing-p t))
+(defun make-rocksdb-key-value-database
+    (path &key (create-if-missing-p t)
+               (async-read-io-p (rocksdb-async-read-io-enabled-p)))
   (unless (rocksdb-available-p)
     (error "RocksDB shared library is unavailable"))
   (let ((options (%rocks-options-create))
@@ -257,15 +282,16 @@ import even though the live Lisp heap remained below two GiB.")
           (%rocks-options-create-if-missing
            options (if create-if-missing-p 1 0))
           ;; ROCKSDB_USE_IO_URING makes the POSIX MultiRead backend use the
-          ;; ring even without this option. ReadOptions nevertheless keeps
-          ;; async_io disabled by default, which disables asynchronous
-          ;; iterator prefetch and any coroutine-enabled cross-level MultiGet
-          ;; scheduling. Enable it on every production read handle and verify
-          ;; the exact library retained the setting before the handle becomes
-          ;; observable.
-          (%rocks-read-options-set-async-io read-options 1)
-          (unless (= 1 (%rocks-read-options-get-async-io read-options))
-            (error "RocksDB refused to enable asynchronous read I/O"))
+          ;; ring even without this option. ReadOptions nevertheless controls
+          ;; asynchronous iterator prefetch and coroutine-enabled cross-level
+          ;; MultiGet scheduling. The public-node default enables it, while a
+          ;; host with a diagnosed native async-I/O fault can explicitly turn
+          ;; off that extra scheduling without weakening durability.
+          (%rocks-read-options-set-async-io read-options
+                                            (if async-read-io-p 1 0))
+          (unless (= (if async-read-io-p 1 0)
+                     (%rocks-read-options-get-async-io read-options))
+            (error "RocksDB refused the configured asynchronous read I/O setting"))
           ;; Ethereum bootstrap is a sustained batched insert workload.
           ;; RocksDB's default 64 MiB/one-memtable flush cadence produced
           ;; roughly 8x physical writes on the Hoodi gate. Keep leveled
