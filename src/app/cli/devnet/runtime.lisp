@@ -158,7 +158,14 @@ give the original bytes to the canonical block decoder."
     (loop while (< start (length octets))
           do (multiple-value-bind (ignored next)
                  (rlp-decode octets :start start :allow-trailing t
-                                     :max-list-items 32)
+                                     ;; This only discovers an item's boundary,
+                                     ;; but it still descends into the block's
+                                     ;; transactions list.  Keep exactly the
+                                     ;; canonical block decoder's admissible
+                                     ;; per-list bound; Hive's genesis fixtures
+                                     ;; may legitimately pre-fund far more than
+                                     ;; a small hand-written test vector.
+                                     :max-list-items +block-max-rlp-list-items+)
                (declare (ignore ignored))
                (unless (> next start)
                  (error "Offline import decoder made no progress at byte ~D"

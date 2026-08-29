@@ -5921,3 +5921,23 @@ loop cannot block on a message that never comes."
       (is condition)
       (is (= 0 (chain-store-head-number
                 (ethereum-lisp.cli:devnet-node-store node)))))))
+
+(deftest devnet-cli-offline-import-publishes-a-valid-direct-successor
+  "A preloaded Hive block is executed and becomes the durable canonical head."
+  (let* ((node (ethereum-lisp.cli:make-devnet-node
+                :genesis-json *eth-sync-paris-genesis-json*
+                :port 0 :public-port 0))
+         (genesis (ethereum-lisp.cli::devnet-node-genesis-block node))
+         (config (ethereum-lisp.cli::devnet-node-config node))
+         (block (first (eth-sync-produce-empty-blocks genesis config 1))))
+    (multiple-value-bind (imported condition)
+        (ethereum-lisp.cli::devnet-node-import-local-canonical-blocks
+         node (list block))
+      (is (= 1 imported))
+      (is (null condition))
+      (is (= 1 (chain-store-head-number
+                (ethereum-lisp.cli:devnet-node-store node))))
+      (is (hash32= (block-hash block)
+                   (block-hash
+                    (chain-store-head-block
+                     (ethereum-lisp.cli:devnet-node-store node))))))))
