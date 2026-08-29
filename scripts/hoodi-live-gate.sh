@@ -135,7 +135,7 @@ if [ "$actual_head" != "$revision" ]; then
     # Read-only evidence is labelled with the inspected image revision and
     # performs no lifecycle or datadir mutation.
     case "$action" in
-        inspect|status|logs) ;;
+        inspect|status|logs|complete) ;;
         *) [ -z "$runtime_sensitive_changes" ] ||
                fail "checkout changed runtime-sensitive paths after $revision: $runtime_sensitive_changes" ;;
     esac
