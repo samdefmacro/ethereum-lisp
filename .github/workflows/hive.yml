@@ -23,18 +23,18 @@ name: hive
 #   ethereum/engine      includes the engine-auth suite. Expected to run and to
 #                        fail tests; the client starts, authenticates, and
 #                        answers, so the failures are real conformance signal.
-#   ethereum/rpc-compat  expected to fail nearly everything for one known
-#                        reason: the simulator uploads /chain.rlp and this
-#                        client has no block-import command, so the chain the
-#                        tests query is never loaded. The adapter says so in
-#                        its log rather than failing silently.
+#   ethereum/rpc-compat  now exercises the adapter's canonical offline block
+#                        importer. Its first full run is required before any
+#                        pass/fail expectation is asserted; failures must be
+#                        classified from the archived result manifest.
 #   devp2p              exercises the real admin_nodeInfo/enode route and
 #                        bridge-address advertisement. It may still fail once
-#                        its simulator supplies a preloaded chain, because
-#                        /chain.rlp and /blocks import remain absent.
+#                        its simulator supplies a preloaded chain; those
+#                        imports now go through the normal durable boundary.
 #
 # NOT WIRED AT ALL, and why (each needs client work, not workflow work):
-#   ethereum/eels/consume-rlp     needs /chain.rlp and /blocks import.
+#   ethereum/eels/consume-rlp     needs a suite-specific current-fork review
+#                                 and a passing rpc-compat baseline.
 #   ethereum/eels/consume-engine  needs the fixture-driven Engine harness to
 #                                 pass on the Cancun/Prague/Osaka surface that
 #                                 conformance-late-forks in tests.yml still
