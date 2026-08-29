@@ -137,14 +137,22 @@ valid-looking partial import."
     (block-validation-fail "Offline block import requires a proper block list"))
   (let ((imported 0))
     (dolist (block blocks (values imported nil))
-      (handler-case
-          (progn
-            (devnet-node-import-local-canonical-block node block)
-            (incf imported))
-        (block-validation-error (condition)
-          (return (values imported condition)))
-        (ethereum-lisp.execution:transaction-validation-error (condition)
-          (return (values imported condition)))))))
+      ;; Hive's concatenated stream may begin with the genesis block that was
+      ;; separately supplied to the client.  Geth's import path treats that
+      ;; exact known block as a no-op.  Do the same only for an exact match of
+      ;; the *current* canonical head: a same-height alternate hash still goes
+      ;; through the direct-successor validation below and cannot create a
+      ;; silent reorg.
+      (let ((head (chain-store-head-block (devnet-node-store node))))
+        (unless (and head (hash32= (block-hash block) (block-hash head)))
+          (handler-case
+              (progn
+                (devnet-node-import-local-canonical-block node block)
+                (incf imported))
+            (block-validation-error (condition)
+              (return (values imported condition)))
+            (ethereum-lisp.execution:transaction-validation-error (condition)
+              (return (values imported condition)))))))))
 
 (defun devnet-cli-decode-import-chain (path)
   "Decode Hive's concatenated RLP block stream from PATH.

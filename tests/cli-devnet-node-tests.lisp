@@ -5907,18 +5907,19 @@ loop cannot block on a message that never comes."
     (is (string= "/chain.rlp" (getf options :import-chain-path)))
     (is (string= "/blocks" (getf options :import-blocks-path)))))
 
-(deftest devnet-cli-offline-import-keeps-last-valid-canonical-prefix
+(deftest devnet-cli-offline-import-skips-an-already-canonical-genesis
   (let* ((node (ethereum-lisp.cli:make-devnet-node
                 :genesis-path +devnet-cli-genesis-fixture+ :port 0))
          (genesis (ethereum-lisp.cli:devnet-node-genesis-block node)))
-    ;; Re-importing genesis is not a direct successor.  It is deterministic
-    ;; invalid fixture input, not a storage error, so the pre-existing prefix
-    ;; remains the durable canonical head.
+    ;; Hive may prepend the genesis it separately supplied via --genesis.
+    ;; Exact replay of the current canonical head is a no-op; only a different
+    ;; same-height block remains invalid, so the importer never grants reorg
+    ;; authority to a fixture stream.
     (multiple-value-bind (imported condition)
         (ethereum-lisp.cli::devnet-node-import-local-canonical-blocks
          node (list genesis))
       (is (= 0 imported))
-      (is condition)
+      (is (null condition))
       (is (= 0 (chain-store-head-number
                 (ethereum-lisp.cli:devnet-node-store node)))))))
 
