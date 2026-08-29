@@ -1156,6 +1156,11 @@
                    (cons "suggestedFeeRecipient"
                          (address-to-hex (zero-address)))
                    (cons "withdrawals" (list (withdrawal-object)))))
+           (v1-payload-attributes-object ()
+             (list (cons "timestamp" "0x1")
+                   (cons "prevRandao" (hash32-to-hex (zero-hash32)))
+                   (cons "suggestedFeeRecipient"
+                         (address-to-hex (zero-address)))))
            (forkchoice-request (id state payload-attributes)
              (list (cons "jsonrpc" "2.0")
                    (cons "id" id)
@@ -1190,6 +1195,18 @@
                      (field payload-status "status")))
         (is (stringp payload-id))
         (is (string= "02" (subseq payload-id 2 4)))
+        ;; Hive exercises this after it has sent a valid Shanghai FCU.  It
+        ;; must remain an Engine invalid-payload-attributes error, not an
+        ;; internal error from canonical publication or payload construction.
+        (let* ((invalid-response
+                 (engine-rpc-handle-request
+                  (forkchoice-request
+                   31 (forkchoice-state-object known-hash)
+                   (v1-payload-attributes-object))
+                  store config))
+               (error (field invalid-response "error")))
+          (is (= 31 (field invalid-response "id")))
+          (is (= -38003 (field error "code"))))
         (let* ((get-payload-response
                  (engine-rpc-handle-request
                   (list (cons "jsonrpc" "2.0")

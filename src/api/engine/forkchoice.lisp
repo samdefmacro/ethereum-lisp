@@ -304,7 +304,9 @@ for the rest of this payload; other senders are still considered."
               (unless (json-null-p value)
                 value)))))
     (let ((status (engine-forkchoice-memory-status store state))
-          (payload-id nil))
+          (payload-id nil)
+          (validated-payload-attributes nil)
+          (prepared-payload-version nil))
       (when (string= +payload-status-valid+
                      (payload-status-status status))
         (let ((checkpoint-error
@@ -323,6 +325,28 @@ for the rest of this payload; other senders are still considered."
             (engine-rpc-fail
              +engine-rpc-error-invalid-forkchoice-state+
              checkpoint-error)))
+        ;; Validate payload attributes before publishing the forkchoice state.
+        ;; An FCU carrying attributes from the wrong Engine version must return
+        ;; its specified -38003 error even when a publication side effect would
+        ;; otherwise encounter an unrelated storage or ancestry failure.
+        (when payload-attributes
+          (setf validated-payload-attributes
+                (handler-case
+                    (funcall payload-attributes-parser payload-attributes)
+                  (block-validation-error (condition)
+                    (engine-rpc-fail
+                     +engine-rpc-error-invalid-payload-attributes+
+                     (block-validation-error-message condition)))))
+          (let* ((head-hash (forkchoice-state-head-block-hash state))
+                 (parent-block (chain-store-known-block store head-hash))
+                 (parent-header (block-header parent-block))
+                 (block-number (1+ (block-header-number parent-header))))
+            (setf prepared-payload-version
+                  (engine-rpc-prepared-payload-version
+                   payload-version validated-payload-attributes config
+                   block-number
+                   (payload-attributes-v1-timestamp
+                    validated-payload-attributes)))))
         (publish-canonical-block
          store
          (forkchoice-state-head-block-hash state)
@@ -338,24 +362,10 @@ for the rest of this payload; other senders are still considered."
       (when (and payload-attributes
                  (string= +payload-status-valid+
                           (payload-status-status status)))
-        (let* ((payload-attributes
-                 (handler-case
-                     (funcall payload-attributes-parser payload-attributes)
-                   (block-validation-error (condition)
-                     (engine-rpc-fail
-                      +engine-rpc-error-invalid-payload-attributes+
-                      (block-validation-error-message condition)))))
+        (let* ((payload-attributes validated-payload-attributes)
                (head-hash (forkchoice-state-head-block-hash state))
                (parent-block
                  (chain-store-known-block store head-hash))
-               (parent-header (block-header parent-block))
-               (block-number (1+ (block-header-number parent-header)))
-               (timestamp (payload-attributes-v1-timestamp
-                           payload-attributes))
-               (prepared-payload-version
-                 (engine-rpc-prepared-payload-version
-                  payload-version payload-attributes
-                  config block-number timestamp))
                (candidate-id
                  (engine-payload-id
                   prepared-payload-version head-hash payload-attributes)))
