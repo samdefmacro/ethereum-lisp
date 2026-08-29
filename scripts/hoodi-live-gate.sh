@@ -1024,7 +1024,7 @@ if [ -n "$heal_progress" ]; then
     printf 'el-heal-progress=etaStatus value=%s\n' "$eta_status"
     printf 'el-heal-progress=etaConfidence value=%s\n' "$eta_confidence"
     if printf '%s\n' "$heal_progress" |
-       grep -F '("completed" . "true")' >/dev/null; then
+       grep -F '("completed" . "T")' >/dev/null; then
         printf '%s\n' 'el-heal-progress=completed value=true'
     else
         printf '%s\n' 'el-heal-progress=completed value=false'
@@ -1100,13 +1100,19 @@ docker logs --tail 10000 "$container" >"$el_log" 2>&1
 
 target_line="$(grep -F 'peer.snap.target_completed' "$el_log" | tail -1 || true)"
 [ -n "$target_line" ] || { echo "completion-missing=peer.snap.target_completed" >&2; exit 1; }
-target_number="$(echo "$target_line" | sed -n 's/.*("target" \. \([0-9][0-9]*\)).*/\1/p')"
+# DEVNET-PEER-MANAGER-LOG deliberately stringifies every telemetry field before
+# the stream sink prints the record.  Completion evidence must parse that
+# public wire format rather than the source-level integer/boolean values, or a
+# real completed target would be reported as malformed.
+target_number="$(echo "$target_line" | sed -n 's/.*("target" \. "\([0-9][0-9]*\)").*/\1/p')"
 case "$target_number" in ''|*[!0-9]*) echo "completion-invalid=target-number" >&2; exit 1 ;; esac
 
 heal_line="$(grep -F 'peer.snap.heal_progress' "$el_log" | tail -1 || true)"
 [ -n "$heal_line" ] || { echo "completion-missing=peer.snap.heal_progress" >&2; exit 1; }
-heal_completed="$(echo "$heal_line" | sed -n 's/.*("completed" \. \(T\|NIL\)).*/\1/p')"
-frontier_works="$(echo "$heal_line" | sed -n 's/.*("frontierWorks" \. \([0-9][0-9]*\)).*/\1/p')"
+# Keep the value parser POSIX-sed compatible.  The subsequent exact T
+# comparison rejects every other serialized value, including NIL.
+heal_completed="$(echo "$heal_line" | sed -n 's/.*("completed" \. "\([A-Z][A-Z]*\)").*/\1/p')"
+frontier_works="$(echo "$heal_line" | sed -n 's/.*("frontierWorks" \. "\([0-9][0-9]*\)").*/\1/p')"
 [ "$heal_completed" = T ] || { echo "completion-healer-completed=$heal_completed" >&2; exit 1; }
 [ "$frontier_works" = 0 ] || { echo "completion-healer-frontier=$frontier_works" >&2; exit 1; }
 
