@@ -883,7 +883,10 @@ container="$1"; lighthouse="$2"
 el_log="$(mktemp)"; cl_log="$(mktemp)"
 trap 'rm -f "$el_log" "$cl_log"' EXIT HUP INT TERM
 date -u +timestamp=%Y-%m-%dT%H:%M:%SZ
-docker logs --tail 2000 "$container" >"$el_log" 2>&1
+# Discovery and dial telemetry may be much noisier than the throttled SNAP
+# progress records.  Retain a wider *local temporary* window, but continue to
+# publish only the schema-whitelisted aggregate fields below.
+docker logs --tail 10000 "$container" >"$el_log" 2>&1
 docker logs --tail 1000 "$lighthouse" >"$cl_log" 2>&1
 printf 'el-lines=%s\n' "$(wc -l <"$el_log" | tr -d ' ')"
 for event in \
