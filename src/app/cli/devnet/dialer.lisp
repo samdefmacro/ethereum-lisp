@@ -207,6 +207,9 @@ first, so a long backfill does not starve a short one."
 (defconstant +devnet-snap-heal-minimum-throughput-work+ 131072
   "Minimum processed-plus-fetched work required per collapsed-pool window.")
 
+(defconstant +devnet-snap-heal-meaningful-frontier-drain+ 2048
+  "Minimum net frontier reduction that proves local healer closure progress.")
+
 (defun devnet-snap-heal-progress-work (progress)
   "Return the monotonic work units relevant to stale-pivot scheduling."
   (+
@@ -1456,6 +1459,15 @@ must prove the new state root before either record can authorize publication."
          (heal-source-collapse-window-p nil)
          (heal-source-recovered-at nil)
          (last-heal-efficient-response-at (unix-time))
+         ;; Local DFS throughput alone can grow forever on an old root.  Keep
+         ;; separate liveness witnesses for authenticated remote response and
+         ;; a material net closure of the discovered frontier.
+         (last-heal-remote-progress-at (unix-time))
+         (last-heal-remote-fetched nil)
+         (last-heal-remote-requests nil)
+         (last-heal-frontier-drain-at (unix-time))
+         (last-heal-frontier-baseline nil)
+         (last-heal-completed-p nil)
          (heal-efficiency-fetched nil)
          (heal-efficiency-requests nil)
          (heal-underfilled-response-window-p nil)
@@ -1576,6 +1588,16 @@ must prove the new state root before either record can authorize publication."
                          (>= (- now last-heal-progress-at)
                              +devnet-snap-heal-stall-interval-seconds+))
                         "progress-stalled")
+                       ((and
+                         (not last-heal-completed-p)
+                         (plusp (or last-heal-frontier-baseline 0))
+                         (>= now last-heal-remote-progress-at)
+                         (>= (- now last-heal-remote-progress-at)
+                             +devnet-snap-heal-stall-interval-seconds+)
+                         (>= now last-heal-frontier-drain-at)
+                         (>= (- now last-heal-frontier-drain-at)
+                             +devnet-snap-heal-stall-interval-seconds+))
+                        "local-expansion-stalled")
                        ((and
                          heal-source-collapse-window-p
                          heal-low-throughput-window-p
@@ -1835,7 +1857,29 @@ must prove the new state root before either record can authorize publication."
                    heal-progress))
                 (requests
                   (ethereum-lisp.snap-sync:snap-sync-heal-progress-request-count
+                   heal-progress))
+                (frontier
+                  (ethereum-lisp.snap-sync:snap-sync-heal-progress-frontier-works
                    heal-progress)))
+           (setf last-heal-completed-p completed-p)
+           (when (or (null last-heal-remote-fetched)
+                     (null last-heal-remote-requests)
+                     (< fetched last-heal-remote-fetched)
+                     (< requests last-heal-remote-requests)
+                     (> fetched last-heal-remote-fetched)
+                     (> requests last-heal-remote-requests))
+             (setf last-heal-remote-fetched fetched
+                   last-heal-remote-requests requests
+                   last-heal-remote-progress-at now))
+           (cond
+             ((null last-heal-frontier-baseline)
+              (setf last-heal-frontier-baseline frontier
+                    last-heal-frontier-drain-at now))
+             ((<= frontier
+                  (max 0 (- last-heal-frontier-baseline
+                            +devnet-snap-heal-meaningful-frontier-drain+)))
+              (setf last-heal-frontier-baseline frontier
+                    last-heal-frontier-drain-at now)))
            (when (devnet-snap-heal-productive-progress-p
                   last-heal-progress-work heal-progress)
              (setf last-heal-progress-at now

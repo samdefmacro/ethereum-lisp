@@ -1893,28 +1893,29 @@ really reopens the directory instead of observing the first handle's memory."
                 ;; plan's zero-TrieNodes completion proof.
                 (setf now 129)
                 (is (not (funcall yield-p)))
-                ;; Productive local reuse immediately before the old
-                ;; five-minute boundary must keep the exact DFS frontier.
+                ;; A large local decode burst can keep the old generic
+                ;; progress counter fresh while neither a TrieNodes response
+                ;; nor the discovered frontier advances toward closure.
                 (setf now 399)
                 (funcall
                  progress-callback
                  (ethereum-lisp.snap-sync::%make-snap-sync-heal-progress
                   :processed-nodes 90000 :reused-nodes 89990
                   :fetched-nodes 10 :request-count 4
-                  :response-bytes 4096 :completed-p nil))
+                  :response-bytes 4096 :frontier-works 24000 :completed-p nil))
                 (setf now 698)
                 (is (not (funcall yield-p)))
-                ;; A tiny partial response is durable progress, but it cannot
-                ;; indefinitely retain a stale pivot that public peers have
-                ;; pruned.  It stays below the 2,048-node productive interval.
+                ;; Another large local pass with the same remote counters and
+                ;; no material net frontier drain must not pin a public pivot
+                ;; forever merely because PROCESSED-NODES increased.
                 (funcall
                  progress-callback
                  (ethereum-lisp.snap-sync::%make-snap-sync-heal-progress
-                  :processed-nodes 90001 :reused-nodes 89990
-                  :fetched-nodes 10 :request-count 5
-                  :response-bytes 4128 :completed-p nil))
-                ;; The same stale target becomes yieldable after five full
-                ;; minutes without one meaningful local/remote batch.
+                  :processed-nodes 180000 :reused-nodes 179990
+                  :fetched-nodes 10 :request-count 4
+                  :response-bytes 4096 :frontier-works 24001 :completed-p nil))
+                ;; Five minutes without remote response or material closure
+                ;; permits a rebase only through the authorized successor.
                 (setf now 699)
                 (is (funcall yield-p))
                 (error 'ethereum-lisp.snap-sync:snap-sync-heal-yielded))))
@@ -1935,7 +1936,7 @@ really reopens the directory instead of observing the first handle's memory."
                      when (string= key name) return value)))
         (is (= 64 (field "target")))
         (is (= 185 (field "successor")))
-        (is (string= "progress-stalled" (field "reason")))
+        (is (string= "local-expansion-stalled" (field "reason")))
         (is (string= (hash32-to-hex target-hash) (field "targetHash")))
         (is (string= (hash32-to-hex successor-hash)
                      (field "successorHash")))))))
