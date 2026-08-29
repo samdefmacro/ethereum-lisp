@@ -203,7 +203,12 @@ give the original bytes to the canonical block decoder."
 (defun devnet-cli-report-offline-import-result
     (output-stream source imported condition)
   (format output-stream "offline.import source=~A imported=~D~@[ stopped=~A~]~%"
-          source imported condition))
+          source imported condition)
+  ;; Hive captures the client's stdout through a pipe.  This is a startup
+  ;; diagnostic needed to distinguish a fixture-validation prefix stop from an
+  ;; RPC regression, so do not leave it buffered until the long-running server
+  ;; happens to exit.
+  (finish-output output-stream))
 
 (defun devnet-cli-import-preloaded-blocks (node options output-stream)
   "Import explicitly selected offline fixture blocks before the node is served.
