@@ -5,9 +5,11 @@
 At `578cb476`, the project had broad in-tree implementations and a green CI run,
 but was not public-testnet-ready. The current tree has since replaced the
 memory-mirrored production store, implemented the unified import boundary, and
-completed the public bootstrap and continuous-sync gate in Sections 3 through
-5. Those changes remove three critical findings from the baseline; they do not
-make the client public-testnet-ready.
+implemented the public-bootstrap and continuous-sync machinery in Sections 3
+through 5. Section 5 itself remains open until a fresh Hoodi datadir completes
+SNAP state download and catches the consensus-authorized head. These changes
+remove critical findings from the baseline; they do not make the client
+public-testnet-ready.
 
 Remaining release-blocking gaps include:
 
