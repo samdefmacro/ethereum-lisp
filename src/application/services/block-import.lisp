@@ -441,6 +441,21 @@ Returns PAYLOAD-STATUS, candidate block, and receipts."
                          (block-import-buffer-p2p-candidate
                           store block config nil sidecar
                           +payload-status-syncing+))
+                        ;; SNAP installs the post-pivot block skeleton before
+                        ;; it has imported the corresponding state.  eth may
+                        ;; subsequently deliver the same immutable block while
+                        ;; filling another gap.  It is already a known block,
+                        ;; not a remote-buffer candidate: re-buffering it
+                        ;; would make the durable exporter observe the
+                        ;; impossible combination "remote cached" and
+                        ;; "known", then abort the whole node.  Keep the
+                        ;; ordinary SYNCING verdict, but make this duplicate
+                        ;; delivery a no-op until the state becomes available.
+                        ((chain-store-known-block store hash)
+                         (values
+                          (block-import-make-buffered-status
+                           +payload-status-syncing+)
+                          nil nil))
                         ((not (chain-store-state-available-p
                                store (block-hash parent)))
                          (block-import-buffer-p2p-candidate

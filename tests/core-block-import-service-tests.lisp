@@ -324,6 +324,30 @@
         (is (null receipts)))
       (is (engine-payload-store-remote-block store hash)))))
 
+(deftest block-import-p2p-known-snap-skeleton-is-a-buffering-no-op
+  (multiple-value-bind (store config parent child)
+      (block-import-test-fixture)
+    (declare (ignore parent))
+    ;; A SNAP pivot installs headers/bodies before the matching state.  A
+    ;; duplicate eth delivery must remain SYNCING without trying to export the
+    ;; known block as a remote buffered candidate.
+    (engine-payload-store-put-block store child :state-available-p nil)
+    (let ((durability-calls 0))
+      (multiple-value-bind (status candidate receipts)
+          (import-p2p-block-candidate
+           store child config
+           :durability-function
+           (lambda (&rest arguments)
+             (declare (ignore arguments))
+             (incf durability-calls)))
+        (is (string= +payload-status-syncing+
+                     (payload-status-status status)))
+        (is (null candidate))
+        (is (null receipts)))
+      (is (= 0 durability-calls))
+      (is (null (engine-payload-store-remote-block
+                 store (block-hash child)))))))
+
 (deftest block-import-p2p-committed-invalid-ommer-is-cached-invalid
   (multiple-value-bind (store config parent child)
       (block-import-test-fixture)
