@@ -57,6 +57,24 @@ done
 
 log() { printf '==> %s\n' "$*"; }
 
+# Hive itself is a Go program that must share a Linux host with the Docker
+# daemon it uses to inspect client bridge addresses. Check those external
+# runner prerequisites before creating a checkout or client definition, so a
+# missing runner contract is reported as environment evidence rather than an
+# ambiguous mid-run shell failure.
+command -v docker >/dev/null 2>&1 || {
+    echo "FATAL: Hive requires Docker on the Linux runner" >&2
+    exit 1
+}
+docker info >/dev/null 2>&1 || {
+    echo "FATAL: Hive requires a reachable Docker daemon on the Linux runner" >&2
+    exit 1
+}
+command -v go >/dev/null 2>&1 || {
+    echo "FATAL: Hive requires a Go toolchain on the Linux runner; use the reviewed CI/remote runner rather than installing one on a control-plane host" >&2
+    exit 1
+}
+
 # --- client base image ------------------------------------------------------
 
 if [ "${RUNTIME_PREBUILT:-0}" = "1" ]; then
