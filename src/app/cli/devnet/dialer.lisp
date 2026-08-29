@@ -419,19 +419,21 @@ retention interval."
 
 LATEST-TARGET is the current in-memory Engine forkchoice target, when one is
 available.  Only a durable state-progress record pins an earlier CL-authorized
-target.  A skeleton alone is cheap to replace and may name a pivot that all
-live peers have already pruned; pinning it forever would prevent public sync
-from following newer Engine targets.  Once account-range work has committed,
-the matching skeleton and state progress remain pinned until the target is
-executable, so normal slot-by-slot FCU updates cannot discard expensive state
-work. A newer CL target supersedes durable state work only after the healer's
-bounded liveness policy explicitly requests a rebase. Pivot age alone is
-insufficient: a productive traversal can legitimately outlive the 120-block
-serving window, and silently rebasing it would restart the dynamically
-discovered frontier forever. A bounded, identity-matched heal checkpoint pins
-the old target for the first actual Snap attempt after restart. The skeleton,
-state progress, and optional checkpoint are one recovery session and must
-agree."
+target while a newer FCU exists.  A skeleton alone is cheap to replace and may
+name a pivot that all live peers have already pruned, so a newer FCU supersedes
+it.  But after a process restart Engine may not replay FCU immediately; in that
+case the durable skeleton is the only authorized recovery target and must
+restart SNAP instead of falling into unbounded gap-fill retries.  Once
+account-range work has committed, the matching skeleton and state progress
+remain pinned until the target is executable, so normal slot-by-slot FCU
+updates cannot discard expensive state work. A newer CL target supersedes
+durable state work only after the healer's bounded liveness policy explicitly
+requests a rebase. Pivot age alone is insufficient: a productive traversal can
+legitimately outlive the 120-block serving window, and silently rebasing it
+would restart the dynamically discovered frontier forever. A bounded,
+identity-matched heal checkpoint pins the old target for the first actual Snap
+attempt after restart. The skeleton, state progress, and optional checkpoint
+are one recovery session and must agree."
   (let ((store (devnet-node-store node)))
     (if (not (database-engine-payload-store-p store))
         latest-target
@@ -441,13 +443,23 @@ agree."
            (let ((database
                    (database-engine-payload-store-database store)))
              (multiple-value-bind (skeleton skeleton-present-p)
-               (node-store-read-snap-skeleton-progress
+                   (node-store-read-snap-skeleton-progress
                 database)
                (multiple-value-bind (state-progress state-present-p)
                    (ethereum-lisp.snap-sync:snap-sync-read-progress database)
                  (cond
                    ((not state-present-p)
-                    latest-target)
+                    ;; A restart can retain the durable skeleton before any
+                    ;; account cursor has reached its publication seam.  FCU
+                    ;; targets are process-local and Lighthouse need not
+                    ;; replay one immediately, so returning NIL here makes
+                    ;; the coordinator loop forever in ordinary gap filling.
+                    ;; Prefer a newer FCU when present; otherwise resume the
+                    ;; already authenticated skeleton target.
+                    (or latest-target
+                        (and skeleton-present-p
+                             (node-store-snap-skeleton-progress-target-hash
+                              skeleton))))
                    ((not skeleton-present-p)
                     ;; Older revisions deleted these two records separately.
                     ;; A crash between deletes can leave only the expensive

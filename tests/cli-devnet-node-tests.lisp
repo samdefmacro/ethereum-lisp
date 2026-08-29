@@ -2757,6 +2757,15 @@ really reopens the directory instead of observing the first handle's memory."
                         newer-target-hash
                         (ethereum-lisp.cli::devnet-node-active-snap-target
                          node newer-target-hash)))
+                   ;; FCU targets are process-local.  If Lighthouse has not
+                   ;; replayed one after a restart, the surviving skeleton is
+                   ;; still the only consensus-authorized target and must
+                   ;; restart SNAP rather than leave the coordinator in gap
+                   ;; filling forever.
+                   (is (hash32=
+                        target-hash
+                        (ethereum-lisp.cli::devnet-node-active-snap-target
+                         node nil)))
                    ;; Recreate the matching durable state session and prove
                    ;; that target executability, not completion of the pivot
                    ;; state record alone, releases the pin.
