@@ -885,6 +885,34 @@ without inventing any history that the fixture did not supply."
                   (hash32-from-hex previous-hash))))))
     hashes))
 
+(defparameter +eest-state-test-unrepresentable-blockhash-case-suffix+
+  "blockhash_zero_in_window_control.json")
+
+(defun eest-state-test-unrepresentable-blockhash-history-p (case env)
+  "Whether CASE is the published EEST BLOCKHASH vector missing required input.
+
+The stable tests@v20.0.1 archive contains a family whose source environment
+sets block_hashes[0] to keccak256(\"0\"), while its released state-test JSON
+contains neither blockHashes nor previousHash.  Its expected post-state is
+therefore not reproducible from the pinned bytes.  Recognize the documented
+family *and* its missing inputs explicitly: this must remain an upstream corpus
+integrity failure, never become a client-side semantic mismatch or an inferred
+history entry."
+  (and (search +eest-state-test-unrepresentable-blockhash-case-suffix+
+               (fixture-required-field case "name")
+               :test #'char-equal)
+       (= 1 (eest-state-test-quantity-string
+             (fixture-required-field env "currentNumber")
+             "EEST state test current block number"))
+       (not (fixture-field-present-p env "blockHashes"))
+       (not (fixture-field-present-p env "previousHash"))))
+
+(defun assert-eest-state-test-representable-history (case env)
+  "Fail closed when a pinned state-test omits BLOCKHASH input it requires."
+  (when (eest-state-test-unrepresentable-blockhash-history-p case env)
+    (error "EEST corpus-integrity failure: ~A omits both blockHashes and previousHash; its published expected state requires the absent block-0 hash"
+           (fixture-required-field case "name"))))
+
 (deftest eest-state-test-block-hashes-preserve-explicit-history
   (let ((hashes
           (eest-state-test-block-hashes
@@ -900,6 +928,13 @@ without inventing any history that the fixture did not supply."
     (is (string=
          "0x2222222222222222222222222222222222222222222222222222222222222222"
          (hash32-to-hex (gethash 1 hashes))))))
+
+(deftest eest-state-test-rejects-unrepresentable-blockhash-history
+  (signals error
+    (assert-eest-state-test-representable-history
+     (list (cons "name"
+                 "for_london/frontier/opcodes/blockhash_state_test_recency/blockhash_zero_in_window_control.json/tests/frontier/opcodes/test_blockhash_state_test_recency.py::test_blockhash_zero_in_window_control[fork_London-state_test]"))
+     (list (cons "currentNumber" "0x01")))))
 
 (deftest eest-late-fork-state-tests-select-active-rules
   (let ((cancun (eest-state-test-chain-rules "Cancun"))
@@ -917,6 +952,7 @@ without inventing any history that the fixture did not supply."
          (state (make-state-db))
          (signed-tx (eest-state-test-post-transaction post-entry))
          (rules (eest-state-test-chain-rules fork)))
+    (assert-eest-state-test-representable-history case env)
     (dolist (entry (fixture-required-field fixture "pre"))
       (apply-eest-state-test-account state (car entry) (cdr entry)))
     (let ((snapshot (state-db-copy state)))

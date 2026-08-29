@@ -76,9 +76,11 @@ missing.
   with `block_hashes={0: keccak256("0")}`, but the released static JSON omits
   both `blockHashes` and `previousHash` while retaining the non-zero expected
   state.  A consumer cannot reproduce that case from the released bytes.  The
-  runner decodes either field when present and must keep this unrepresentable
-  entry visible as an upstream asset failure; it is not an allowed client skip
-  or a reason to infer the missing hash from the expected post-state.
+  runner decodes either field when present and explicitly rejects this
+  unrepresentable family as an upstream `corpus-integrity failure`; it is not
+  an allowed client skip or a reason to infer the missing hash from the
+  expected post-state.  The current stable archive carries 12 fork instances
+  of that one malformed source family.
 - Amsterdam feature fixtures: `tests-glamsterdam-devnet@v7.2.1`, commit
   `882909a2c88751a31fa99a65176563a16c527893`, asset SHA-256
   `02e3eca2ede5b424f4dbf2461caf592e6b43b56d55bbd64213dd01f63af9a583`.
