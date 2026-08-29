@@ -204,11 +204,19 @@ give the original bytes to the canonical block decoder."
     (output-stream source imported condition)
   (format output-stream "offline.import source=~A imported=~D~@[ stopped=~A~]~%"
           source imported condition)
+  ;; Hive retains the adapter and process diagnostic stream in its result
+  ;; artifact.  Mirror this concise, non-sensitive startup outcome there: a
+  ;; fixture's last-valid-prefix condition must be observable when a later RPC
+  ;; query cannot see the expected preloaded block.
+  (format *error-output*
+          "offline.import source=~A imported=~D~@[ stopped=~A~]~%"
+          source imported condition)
   ;; Hive captures the client's stdout through a pipe.  This is a startup
   ;; diagnostic needed to distinguish a fixture-validation prefix stop from an
   ;; RPC regression, so do not leave it buffered until the long-running server
   ;; happens to exit.
-  (finish-output output-stream))
+  (finish-output output-stream)
+  (finish-output *error-output*))
 
 (defun devnet-cli-import-preloaded-blocks (node options output-stream)
   "Import explicitly selected offline fixture blocks before the node is served.
