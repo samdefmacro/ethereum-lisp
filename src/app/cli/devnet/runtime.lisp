@@ -165,7 +165,8 @@ give the original bytes to the canonical block decoder."
                                      ;; per-list bound; Hive's genesis fixtures
                                      ;; may legitimately pre-fund far more than
                                      ;; a small hand-written test vector.
-                                     :max-list-items +block-max-rlp-list-items+)
+                                     :max-list-items
+                                     ethereum-lisp.blocks:+block-max-rlp-list-items+)
                (declare (ignore ignored))
                (unless (> next start)
                  (error "Offline import decoder made no progress at byte ~D"
