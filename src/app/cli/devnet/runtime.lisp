@@ -204,7 +204,7 @@ An invalid block is ordinary fixture input: retain the independently durable
 prefix and continue startup, as Hive's last-valid-block contract requires.
 Unreadable paths, malformed containers, and storage failures are operator or
 runtime errors and deliberately prevent startup."
-  (flet ((import (source blocks)
+  (flet ((import-block-sequence (source blocks)
            (multiple-value-bind (imported condition)
                (devnet-node-import-local-canonical-blocks node blocks)
              (devnet-cli-report-offline-import-result
@@ -214,9 +214,11 @@ runtime errors and deliberately prevent startup."
       (when chain-path
         (unless (probe-file chain-path)
           (error "Offline import chain does not exist: ~A" chain-path))
-        (import "chain" (devnet-cli-decode-import-chain chain-path)))
+        (import-block-sequence "chain"
+                               (devnet-cli-decode-import-chain chain-path)))
       (when blocks-path
-        (import "blocks" (devnet-cli-import-block-files blocks-path))))))
+        (import-block-sequence "blocks"
+                               (devnet-cli-import-block-files blocks-path))))))
 
 (defun devnet-local-fork-body-arguments (config block-number timestamp)
   "Return supplied local-builder body data for the active fork.
