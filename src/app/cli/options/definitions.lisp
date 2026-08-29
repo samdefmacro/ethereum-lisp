@@ -32,7 +32,8 @@
     "--txpool.lifetime"
     "--txpool.blobpool.datacap" "--txpool.blobpool.pricebump"
     "--dev.period" "--dev.gaslimit"
-    "--ready-file" "--log-file" "--pid-file"))
+    "--ready-file" "--log-file" "--pid-file" "--import-chain"
+    "--import-blocks"))
 
 (defparameter *devnet-cli-optional-boolean-options*
   '("--http" "--ws" "--graphql" "--nodiscover" "--ipcdisable"

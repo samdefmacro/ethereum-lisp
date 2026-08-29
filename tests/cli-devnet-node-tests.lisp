@@ -5876,3 +5876,48 @@ loop cannot block on a message that never comes."
                          :jwt-secret-path (namestring jwt-path))))))
         (when (probe-file jwt-path)
           (delete-file jwt-path))))))
+
+(deftest devnet-cli-decodes-hive-concatenated-chain-rlp
+  "Hive CHAIN.RLP is a stream of blocks, not an RLP list containing blocks."
+  (let ((path (devnet-cli-temp-path "ethereum-lisp-hive-chain" "rlp")))
+    (unwind-protect
+         (let* ((node (ethereum-lisp.cli:make-devnet-node
+                       :genesis-path +devnet-cli-genesis-fixture+ :port 0))
+                (genesis (ethereum-lisp.cli:devnet-node-genesis-block node))
+                (encoded (block-rlp genesis)))
+           (with-open-file (stream path :direction :output
+                                        :element-type '(unsigned-byte 8)
+                                        :if-exists :supersede
+                                        :if-does-not-exist :create)
+             (write-sequence encoded stream)
+             (write-sequence encoded stream))
+           (let ((blocks
+                   (ethereum-lisp.cli::devnet-cli-decode-import-chain path)))
+             (is (= 2 (length blocks)))
+             (is (bytes= encoded (block-rlp (first blocks))))
+             (is (bytes= encoded (block-rlp (second blocks))))))
+      (when (probe-file path)
+        (delete-file path)))))
+
+(deftest devnet-cli-parses-explicit-offline-import-options
+  (let ((options
+          (ethereum-lisp.cli::devnet-cli-options
+           '("devnet" "--import-chain" "/chain.rlp"
+             "--import-blocks" "/blocks" "--no-serve"))))
+    (is (string= "/chain.rlp" (getf options :import-chain-path)))
+    (is (string= "/blocks" (getf options :import-blocks-path)))))
+
+(deftest devnet-cli-offline-import-keeps-last-valid-canonical-prefix
+  (let* ((node (ethereum-lisp.cli:make-devnet-node
+                :genesis-path +devnet-cli-genesis-fixture+ :port 0))
+         (genesis (ethereum-lisp.cli:devnet-node-genesis-block node)))
+    ;; Re-importing genesis is not a direct successor.  It is deterministic
+    ;; invalid fixture input, not a storage error, so the pre-existing prefix
+    ;; remains the durable canonical head.
+    (multiple-value-bind (imported condition)
+        (ethereum-lisp.cli::devnet-node-import-local-canonical-blocks
+         node (list genesis))
+      (is (= 0 imported))
+      (is condition)
+      (is (= 0 (chain-store-head-number
+                (ethereum-lisp.cli:devnet-node-store node)))))))

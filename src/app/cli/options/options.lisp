@@ -55,6 +55,8 @@
         (ready-file nil)
         (log-file nil)
         (pid-file nil)
+        (import-chain-path nil)
+        (import-blocks-path nil)
         (ignored-options nil)
         (http-max-clients nil)
         (http-read-timeout-seconds nil)
@@ -240,6 +242,10 @@
                 (setf log-file (next-value option)))
                ((string= option "--pid-file")
                 (setf pid-file (next-value option)))
+               ((string= option "--import-chain")
+                (setf import-chain-path (next-value option)))
+               ((string= option "--import-blocks")
+                (setf import-blocks-path (next-value option)))
                ((string= option "--http.maxclients")
                 (setf http-max-clients
                       (next-parsed-value option #'devnet-cli-parse-positive-integer)))
@@ -455,6 +461,8 @@
           :ready-file ready-file
           :log-file log-file
           :pid-file pid-file
+          :import-chain-path import-chain-path
+          :import-blocks-path import-blocks-path
           :http-max-clients http-max-clients
           :http-read-timeout-seconds http-read-timeout-seconds
           :http-write-timeout-seconds http-write-timeout-seconds

@@ -16,8 +16,8 @@
 #
 # Files placed by the simulator:
 #   /genesis.json  (mandatory) geth-format genesis; mapped by /mapper.jq
-#   /chain.rlp     (optional)  NOT IMPORTED -- no such command exists
-#   /blocks/       (optional)  NOT IMPORTED -- no such command exists
+#   /chain.rlp     (optional)  imported as a concatenated RLP block stream
+#   /blocks/       (optional)  imported as numerically sorted individual blocks
 
 set -e
 
@@ -114,20 +114,8 @@ esac
 echo "0x7365637265747365637265747365637265747365637265747365637265747365" > "$jwtsecret"
 chmod 600 "$jwtsecret"
 
-# --- Report what is being ignored -------------------------------------------
+# --- Report options deliberately not represented by a client flag ----------
 
-# Silence here would be the worst outcome: rpc-compat uploads a chain and then
-# queries it, so without this line its failures read as RPC bugs rather than as
-# a missing import path.
-if [ -f /chain.rlp ]; then
-    echo "WARNING: /chain.rlp was uploaded but will NOT be imported --" >&2
-    echo "         this client has no block-import command. Every test that" >&2
-    echo "         depends on pre-loaded chain state will fail." >&2
-fi
-if [ -d /blocks ] && [ -n "$(ls -A /blocks 2>/dev/null)" ]; then
-    echo "WARNING: /blocks was uploaded but will NOT be imported --" >&2
-    echo "         this client has no block-import command." >&2
-fi
 if [ -n "$HIVE_LOGLEVEL" ]; then
     echo "NOTE: HIVE_LOGLEVEL=$HIVE_LOGLEVEL ignored; the client has no" >&2
     echo "      log-level flag (--verbosity is accepted and discarded)." >&2
@@ -169,6 +157,16 @@ fi
 
 if [ -n "$HIVE_ALLOW_UNPROTECTED_TX" ]; then
     flags+=(--rpc.allow-unprotected-txs)
+fi
+
+# The CLI imports these before it opens listeners.  A deterministic invalid
+# fixture block leaves the already durable valid prefix in place and the node
+# starts from that prefix, which is Hive's required last-valid-block behavior.
+if [ -f /chain.rlp ]; then
+    flags+=(--import-chain /chain.rlp)
+fi
+if [ -d /blocks ]; then
+    flags+=(--import-blocks /blocks)
 fi
 
 echo "Container address: $advertised_ip"

@@ -289,6 +289,13 @@
                                         (devnet-cli-make-node
                                          options genesis-path genesis-json
                                          telemetry-sink)))
+                                  ;; Hive and offline fixture callers supply
+                                  ;; these blocks before listeners exist.  The
+                                  ;; importer validates and durably publishes
+                                  ;; each direct canonical successor, retaining
+                                  ;; the last valid prefix on bad fixture data.
+                                  (devnet-cli-import-preloaded-blocks
+                                   node options output-stream)
                                   (when (getf options :pid-file)
                                     (devnet-cli-write-pid-file
                                      (getf options :pid-file)))

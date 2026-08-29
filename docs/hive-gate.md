@@ -119,34 +119,35 @@ bytes `secretsecretsecretsecretsecretse`, written as hex because
 `DEVNET-CLI-READ-JWT-SECRET` parses hex. The `engine-auth` suite tests wrong and
 stale tokens against exactly this value.
 
+`/chain.rlp` and `/blocks/` are now passed to the CLI as explicit offline
+imports. The former is decoded as Hive's concatenated RLP block stream and the
+latter as direct `.rlp` files in Hive's numeric filename order. Each block must extend
+the current canonical head and crosses the ordinary execution, publication, and
+durability boundary before the next one begins. A validation failure retains
+the durable valid prefix and starts the node from it; malformed paths and
+storage failures fail startup. This is an implemented adapter contract, not yet
+evidence that any Hive suite passes.
+
 ## Gaps this work found and did not fix
 
 Each of these is a client gap. None is worked around in the adapter, because a
 harness that papers over a client gap makes the gate report a readiness the
 client does not have.
 
-1. **No block import.** There is no `import` command and no code path that
-   ingests `/chain.rlp` or `/blocks/`; `ethereum-lisp init` loads a genesis and
-   nothing else (`src/app/cli/init.lisp`). Hive's `eth1` role requires the
-   entry point to load both after genesis (`docs/clients.md`). The entrypoint
-   prints a warning naming the uploaded file it is ignoring.
-   *Blocks: `ethereum/rpc-compat`, `ethereum/eels/consume-rlp`, `devp2p`,
-   `ethereum/sync`.*
-
-2. **No log-level control.** `--verbosity` is in
+1. **No log-level control.** `--verbosity` is in
    `*DEVNET-CLI-VALUE-OPTIONS*`, so it is consumed, recorded as ignored, and
    has no effect; the only logging control is `--log-file`, which selects a
    destination for structured events, not a level. `HIVE_LOGLEVEL` therefore
    cannot be honoured, and `--sim.loglevel` will not change what the client
    prints.
 
-3. **Hive snap mode is not selectable.** The live client now negotiates
+2. **Hive snap mode is not selectable.** The live client now negotiates
    `snap/1`, but Hive's `HIVE_NODETYPE=snap` still maps to no explicit client
    strategy because `--syncmode` is deliberately rejected. Claiming
    `eth1_snap` before that selector is implemented would enter snap suites
    under a configuration the client did not honour.
 
-4. **Amsterdam is refused rather than mapped.** `mapper.jq` deliberately does
+3. **Amsterdam is refused rather than mapped.** `mapper.jq` deliberately does
    not emit `amsterdamTime`, and the entrypoint exits if
    `HIVE_AMSTERDAM_TIMESTAMP` is set. Plan section 8 owns re-opening it.
 
@@ -162,11 +163,11 @@ reports rather than a build-time git description the client would contradict.
 | Suite | State |
 |---|---|
 | `ethereum/engine` (incl. `engine-auth`) | wired, `continue-on-error` |
-| `ethereum/rpc-compat` | wired, `continue-on-error`; expected to fail on gap 1 |
+| `ethereum/rpc-compat` | wired, `continue-on-error`; block preload is now wired, but no suite result yet |
 | `ethereum/eels/consume-engine` | not wired |
-| `ethereum/eels/consume-rlp` | not wired — gap 1 |
-| `devp2p` | wired, `continue-on-error`; the adapter's routable enode is asserted, but block import remains a likely suite failure |
-| `ethereum/sync` (full-sync) | not wired — gap 1 plus plan section 4 |
+| `ethereum/eels/consume-rlp` | not wired — requires a suite-specific current-fork review |
+| `devp2p` | wired, `continue-on-error`; the adapter's routable enode is asserted |
+| `ethereum/sync` (full-sync) | not wired — plan section 4 remains the blocker |
 | snap | not wired — plan section 5 |
 
 Live geth/Nethermind/Lighthouse interop smoke gates, also part of plan section

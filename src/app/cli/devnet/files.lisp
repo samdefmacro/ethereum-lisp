@@ -71,6 +71,18 @@
       (read-sequence string stream)
       string)))
 
+(defun devnet-cli-read-file-octets (path &key (maximum-bytes (* 512 1024 1024)))
+  "Read PATH as a bounded octet vector for an explicitly requested CLI import."
+  (unless (and (integerp maximum-bytes) (plusp maximum-bytes))
+    (error "Maximum import size must be a positive integer"))
+  (with-open-file (stream path :direction :input :element-type '(unsigned-byte 8))
+    (let ((length (file-length stream)))
+      (when (> length maximum-bytes)
+        (error "Import file exceeds ~D byte limit: ~A" maximum-bytes path))
+      (let ((octets (make-byte-vector length)))
+        (read-sequence octets stream)
+        octets))))
+
 (defun devnet-cli-jwt-secret-file-error (path &optional condition)
   (error
    "--jwt-secret/--authrpc.jwtsecret must name a readable file containing a 32-byte hex secret: ~A~@[ (~A)~]"
