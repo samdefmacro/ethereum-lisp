@@ -952,6 +952,9 @@ HOODI_GATE_ALLOW_MUTATION=1 scripts/hoodi-live-gate.sh start
 
 scripts/hoodi-live-gate.sh status
 scripts/hoodi-live-gate.sh logs
+# Fails unless SNAP target/healer completion, eth_syncing=false, and canonical
+# EL execution through the logged CL-authorized target are all evidenced.
+scripts/hoodi-live-gate.sh complete
 HOODI_GATE_ALLOW_MUTATION=1 scripts/hoodi-live-gate.sh restart
 ```
 

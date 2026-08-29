@@ -1089,6 +1089,53 @@ printf 'cl-synced-count=%s\n' "$(grep -F -c 'Synced' "$cl_log" || true)"
 REMOTE
 }
 
+complete_gate() {
+    note "verifying fail-closed SNAP-to-head completion evidence"
+    ssh "$host" bash -s -- "$container" <<'REMOTE'
+set -euo pipefail
+container="$1"
+el_log="$(mktemp)"
+trap 'rm -f "$el_log"' EXIT HUP INT TERM
+docker logs --tail 10000 "$container" >"$el_log" 2>&1
+
+target_line="$(grep -F 'peer.snap.target_completed' "$el_log" | tail -1 || true)"
+[ -n "$target_line" ] || { echo "completion-missing=peer.snap.target_completed" >&2; exit 1; }
+target_number="$(echo "$target_line" | sed -n 's/.*("target" \. \([0-9][0-9]*\)).*/\1/p')"
+case "$target_number" in ''|*[!0-9]*) echo "completion-invalid=target-number" >&2; exit 1 ;; esac
+
+heal_line="$(grep -F 'peer.snap.heal_progress' "$el_log" | tail -1 || true)"
+[ -n "$heal_line" ] || { echo "completion-missing=peer.snap.heal_progress" >&2; exit 1; }
+heal_completed="$(echo "$heal_line" | sed -n 's/.*("completed" \. \(T\|NIL\)).*/\1/p')"
+frontier_works="$(echo "$heal_line" | sed -n 's/.*("frontierWorks" \. \([0-9][0-9]*\)).*/\1/p')"
+[ "$heal_completed" = T ] || { echo "completion-healer-completed=$heal_completed" >&2; exit 1; }
+[ "$frontier_works" = 0 ] || { echo "completion-healer-frontier=$frontier_works" >&2; exit 1; }
+
+rpc_port="$(docker port "$container" 8545/tcp | awk -F: '/127[.]0[.]0[.]1/ {print $NF; exit}')"
+[ -n "$rpc_port" ] || { echo "completion-missing=public-rpc" >&2; exit 1; }
+rpc() {
+    method="$1"
+    curl --silent --show-error --max-time 10 --header 'Content-Type: application/json' \
+        --data "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$method\",\"params\":[]}" \
+        "http://127.0.0.1:$rpc_port"
+}
+syncing="$(rpc eth_syncing)"
+echo "$syncing" | grep -Eq '"result"[[:space:]]*:[[:space:]]*false[[:space:]]*}' || {
+    echo "completion-eth-syncing=not-false" >&2; exit 1;
+}
+block_response="$(rpc eth_blockNumber)"
+block_hex="$(echo "$block_response" | sed -n 's/.*"result":"0x\([0-9a-fA-F][0-9a-fA-F]*\)".*/\1/p')"
+case "$block_hex" in ''|*[!0-9a-fA-F]*) echo "completion-invalid=eth-block-number" >&2; exit 1 ;; esac
+block_number="$((16#$block_hex))"
+[ "$block_number" -ge "$target_number" ] || {
+    echo "completion-canonical-block=$block_number target=$target_number" >&2; exit 1;
+}
+printf 'completion-target=%s\n' "$target_number"
+printf 'completion-healer-completed=%s frontier=%s\n' "$heal_completed" "$frontier_works"
+printf 'completion-eth-syncing=false\n'
+printf 'completion-canonical-block=%s\n' "$block_number"
+REMOTE
+}
+
 case "$action" in
     inspect) inspect_gate ;;
     upload) upload_artifact ;;
@@ -1098,11 +1145,12 @@ case "$action" in
     status) remote_status ;;
     restart) restart_gate ;;
     logs) gate_logs ;;
+    complete) complete_gate ;;
     *)
         cat >&2 <<USAGE
 Usage: scripts/hoodi-live-gate.sh ACTION
 
-Read-only actions: inspect, status, logs
+Read-only actions: inspect, status, logs, complete
 Mutating actions:  upload, load, start, upgrade, restart
 
 Mutating actions require HOODI_GATE_ALLOW_MUTATION=1. The default artifact,
