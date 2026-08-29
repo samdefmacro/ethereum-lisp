@@ -1029,10 +1029,12 @@ paired consensus client was explicitly configured with another stable name.
 After a live run has started, completion evidence or broker-only repairs may
 move the checkout past the runtime image revision. Set
 `HOODI_GATE_RUNTIME_REVISION` to that full ancestor revision when inspecting or
-restarting the existing gate. The broker permits this override only when every
-intervening change is below `docs/` or is one of the two reviewed Hoodi gate
-scripts; any runtime-sensitive change keeps the exact-revision check
-fail-closed.
+reading logs or status from the existing gate. The broker labels that evidence
+with the inspected image revision and permits it even after runtime-sensitive
+changes, because those actions cannot alter the container or datadir. Restart,
+upgrade, and every other mutating action continue to permit the override only
+when every intervening change is below `docs/` or is one of the reviewed Hoodi
+gate scripts; any runtime-sensitive change keeps those paths fail-closed.
 
 `start` stops only the specifically labelled Section 5 rehearsal EL, preserves
 that stopped container and its datadir, and connects the exact-revision EL to

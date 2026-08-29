@@ -124,8 +124,16 @@ if [ "$actual_head" != "$revision" ]; then
         ':(exclude)scripts/hoodi-live-gate.sh' \
         ':(exclude)scripts/hoodi-geth-benchmark-gate.sh' \
         ':(exclude)scripts/hoodi-lisp-benchmark-gate.sh')"
-    [ -z "$runtime_sensitive_changes" ] ||
-        fail "checkout changed runtime-sensitive paths after $revision: $runtime_sensitive_changes"
+    # An old runtime may remain live while a later revision changes production
+    # code.  That must block every action which could replace or restart it,
+    # but it must not make identity-filtered status/log evidence unavailable.
+    # Read-only evidence is labelled with the inspected image revision and
+    # performs no lifecycle or datadir mutation.
+    case "$action" in
+        inspect|status|logs) ;;
+        *) [ -z "$runtime_sensitive_changes" ] ||
+               fail "checkout changed runtime-sensitive paths after $revision: $runtime_sensitive_changes" ;;
+    esac
 fi
 
 require_clean_checkout() {
