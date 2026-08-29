@@ -931,6 +931,37 @@ if [ -n "$stale_lines" ]; then
     printf 'el-target-stale-reason=unknown count=%s\n' \
         "$(( stale_total - stale_classified ))"
 fi
+# Failure messages can contain peers, hashes, or response fragments and must
+# never cross the control-plane boundary.  Publish only a small fixed taxonomy
+# so an operator can distinguish ordinary pruning/timeout churn from a local
+# validation or persistence regression without exporting raw container logs.
+for event in peer.snap.dependency_failed peer.snap.import_failed peer.snap.storage_failed
+do
+    failure_lines="$(grep -F "$event" "$el_log" || true)"
+    [ -n "$failure_lines" ] || continue
+    # The event's "type" field names the dependency lane (for example
+    # "storage"), not the reason it failed.  Classify the error field only.
+    failure_errors="$(printf '%s\n' "$failure_lines" |
+        sed -n 's/.*("error" \. "\([^"]*\)").*/\1/p')"
+    for class in state-unavailable timeout validation storage unknown
+    do
+        case "$class" in
+            state-unavailable) pattern='state unavailable' ;;
+            timeout) pattern='timeout' ;;
+            validation) pattern='validation' ;;
+            storage) pattern='storage' ;;
+            unknown) pattern='' ;;
+        esac
+        if [ -n "$pattern" ]; then
+            count="$(printf '%s\n' "$failure_errors" | grep -F -i -c "$pattern" || true)"
+        else
+            count="$(printf '%s\n' "$failure_errors" | \
+                grep -E -i -v 'state unavailable|timeout|validation|storage' | \
+                wc -l | tr -d ' ')"
+        fi
+        printf 'el-snap-failure event=%s class=%s count=%s\n' "$event" "$class" "$count"
+    done
+done
 discovery_crawl="$(grep -F 'peer.discovery.crawl' "$el_log" | tail -1 || true)"
 if [ -n "$discovery_crawl" ]; then
     for field in offered routingSeeds
