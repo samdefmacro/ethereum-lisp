@@ -157,6 +157,79 @@
             store
             (block-hash descendant-block)))))))
 
+(deftest engine-new-payload-memory-status-finds-invalid-ancestor-through-remote-chain
+  ;; Hive's missing-ancestor syncing reorg delivers the bad block through P2P,
+  ;; then asks Engine about a later descendant.  The immediate parent is only a
+  ;; retained remote block, so the invalid verdict must be discovered through
+  ;; that bounded cache rather than being hidden behind an indefinite SYNCING.
+  (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (config (make-chain-config :london-block 0))
+         (parent-block
+           (make-block
+            :header (make-block-header
+                     :parent-hash (zero-hash32)
+                     :beneficiary address
+                     :state-root +empty-trie-hash+
+                     :mix-hash (zero-hash32)
+                     :number 41
+                     :gas-limit 50000
+                     :gas-used 0
+                     :timestamp 97
+                     :base-fee-per-gas 100)))
+         (invalid-block
+           (make-block
+            :header (make-block-header
+                     :parent-hash (block-hash parent-block)
+                     :beneficiary address
+                     :state-root +empty-trie-hash+
+                     :mix-hash (zero-hash32)
+                     :number 42
+                     :gas-limit 50000
+                     :gas-used 0
+                     :timestamp 98
+                     :base-fee-per-gas 100)))
+         (remote-parent
+           (make-block
+            :header (make-block-header
+                     :parent-hash (block-hash invalid-block)
+                     :beneficiary address
+                     :state-root +empty-trie-hash+
+                     :mix-hash (zero-hash32)
+                     :number 43
+                     :gas-limit 50000
+                     :gas-used 0
+                     :timestamp 99
+                     :base-fee-per-gas 100)))
+         (descendant-block
+           (make-block
+            :header (make-block-header
+                     :parent-hash (block-hash remote-parent)
+                     :beneficiary address
+                     :state-root +empty-trie-hash+
+                     :mix-hash (zero-hash32)
+                     :number 44
+                     :gas-limit 50000
+                     :gas-used 0
+                     :timestamp 100
+                     :base-fee-per-gas 100)))
+         (payload (execution-payload-envelope-execution-payload
+                   (block-to-executable-data descendant-block)))
+         (store (make-engine-payload-memory-store)))
+    (engine-payload-store-put-block store parent-block :state-available-p t)
+    (engine-payload-store-mark-invalid store invalid-block)
+    (ethereum-lisp.chain-store:engine-payload-store-put-remote-block
+     store remote-parent)
+    (multiple-value-bind (status block)
+        (engine-new-payload-memory-status store 1 payload config)
+      (is (string= +payload-status-invalid+ (payload-status-status status)))
+      (is (string= (hash32-to-hex (block-hash parent-block))
+                   (hash32-to-hex (payload-status-latest-valid-hash status))))
+      (is (string= "links to previously rejected block"
+                   (payload-status-validation-error status)))
+      (is (not block))
+      (is (engine-payload-store-invalid-block
+           store (block-hash descendant-block))))))
+
 (deftest engine-new-payload-memory-status-imports-executable-block
   (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
          (config (make-chain-config :chain-id 1 :london-block 0))
@@ -197,4 +270,3 @@
       (is (chain-store-state-available-p store (block-hash child-block)))
       (is (typep (chain-store-state-db store (block-hash child-block))
                  'state-db)))))
-

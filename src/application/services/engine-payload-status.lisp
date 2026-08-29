@@ -18,9 +18,10 @@
             (list :requests requests)))))
 
 (defun engine-payload-store-invalid-ancestor-status
-    (store check-hash head-hash)
+    (store check-hash head-hash &key (walk-remote-p t))
   (let ((invalid-block
-          (engine-payload-store-invalid-ancestor store check-hash)))
+          (engine-payload-store-invalid-ancestor
+           store check-hash :walk-remote-p walk-remote-p)))
     (when invalid-block
       (unless (string= (engine-payload-store-key check-hash)
                        (engine-payload-store-key head-hash))
@@ -137,7 +138,7 @@
                   known-block)))
       (let ((invalid-status
               (engine-payload-store-invalid-ancestor-status
-               store hash hash)))
+               store hash hash :walk-remote-p nil)))
         (when invalid-status
           (return-from engine-new-payload-memory-status
             (values invalid-status nil))))

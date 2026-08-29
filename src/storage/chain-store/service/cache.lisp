@@ -600,37 +600,66 @@ put call supplied BLOCK-NUMBER."
             (memory-chain-store-invalid-tipsets store))))
 
 (defun engine-payload-store-invalid-ancestor
-    (store hash &key (now (unix-time)))
+    (store hash &key (now (unix-time)) (walk-remote-p t))
   "Return HASH's invalid ancestor, evicting a repeatedly hit verdict.
 
 Eviction removes every descendant that points at the same rejected block so a
 transient or raced verdict can be retried without restarting the node."
   (setf store (chain-store-require-memory-store store))
   (engine-payload-store-enforce-cache-bounds store :invalid now nil)
-  (let* ((tipsets (memory-chain-store-invalid-tipsets store))
-         (hits (memory-chain-store-invalid-block-hits store))
-         (invalid-block
-           (gethash (engine-payload-store-key hash) tipsets)))
-    (when invalid-block
-      (let* ((invalid-key
-               (engine-payload-store-key (block-hash invalid-block)))
-             (hit-count (1+ (gethash invalid-key hits 0))))
-        (chain-store-journal-puthash hits invalid-key hit-count)
-        (when (>= hit-count +engine-invalid-block-hit-eviction+)
-          (let ((stale-keys nil))
-            (maphash
-             (lambda (descendant-key candidate)
-               (when (string= invalid-key
-                              (engine-payload-store-key
-                               (block-hash candidate)))
-                 (push descendant-key stale-keys)))
-             tipsets)
-            (dolist (stale-key (sort stale-keys #'string<))
-              (engine-payload-store-cache-remove-key
-               store :invalid stale-key)))
-          (chain-store-journal-remhash hits invalid-key)
-          (return-from engine-payload-store-invalid-ancestor nil)))
-      (engine-payload-store-copy-block invalid-block))))
+  (let ((tipsets (memory-chain-store-invalid-tipsets store))
+        (hits (memory-chain-store-invalid-block-hits store)))
+    (labels ((return-invalid (invalid-block)
+               (let* ((invalid-key
+                        (engine-payload-store-key (block-hash invalid-block)))
+                      (hit-count (1+ (gethash invalid-key hits 0))))
+                 (chain-store-journal-puthash hits invalid-key hit-count)
+                 (when (>= hit-count +engine-invalid-block-hit-eviction+)
+                   (let ((stale-keys nil))
+                     (maphash
+                      (lambda (descendant-key candidate)
+                        (when (string= invalid-key
+                                       (engine-payload-store-key
+                                        (block-hash candidate)))
+                          (push descendant-key stale-keys)))
+                      tipsets)
+                     (dolist (stale-key (sort stale-keys #'string<))
+                       (engine-payload-store-cache-remove-key
+                        store :invalid stale-key)))
+                   (chain-store-journal-remhash hits invalid-key)
+                   (return-from engine-payload-store-invalid-ancestor nil))
+                 (engine-payload-store-copy-block invalid-block))))
+      ;; A syncing Engine caller may know only a descendant while the P2P
+      ;; downloader has already retained its unexecuted parents.  Walking that
+      ;; bounded remote cache makes the previously verified INVALID verdict
+      ;; visible to newPayload/forkchoice instead of answering SYNCING until a
+      ;; peer happens to resend every intervening body.  The walk is bounded by
+      ;; the cache's own entry limit and rejects cycles defensively.
+      (let ((current hash)
+            (seen (make-hash-table :test 'equal)))
+        (loop repeat (if walk-remote-p
+                         (1+ +engine-remote-block-cache-count-limit+)
+                         1)
+              for key = (engine-payload-store-key current)
+              do (when (gethash key seen)
+                   (return nil))
+                 (setf (gethash key seen) t)
+                 (let ((invalid-block (gethash key tipsets)))
+                   (when invalid-block
+                     (return (return-invalid invalid-block))))
+                 (unless walk-remote-p
+                   (return nil))
+                 (let ((block
+                         (or (chain-store-known-block store current)
+                             (engine-payload-store-remote-block
+                              store current :now now))))
+                   (unless block
+                     (return nil))
+                   (let ((parent-hash
+                           (block-header-parent-hash (block-header block))))
+                     (unless (hash32-p parent-hash)
+                       (return nil))
+                     (setf current parent-hash))))))))
 
 (defun engine-payload-id-key (payload-id)
   (let ((bytes (ensure-byte-vector payload-id)))
