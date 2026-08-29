@@ -67,6 +67,8 @@ Commands:
   cold-scale         Run the production-store scale gate in containers
   runtime-build TAG  Build the reviewed non-root Dockerfile.runtime image
   runtime-smoke TAG  Run the reviewed runtime image smoke gate
+  hive-adapter-smoke TAG
+                     Verify the Hive client wrapper against a reviewed runtime
   logs               Show the dev container's output
   build              Build the dev image
   shell              Open an interactive shell in the dev container
@@ -710,6 +712,22 @@ runtime_smoke() {
   "$ROOT/scripts/hive-runtime-smoke.sh" "$image"
 }
 
+hive_adapter_smoke() {
+  [ "$#" -le 1 ] || {
+    echo "ERROR: hive-adapter-smoke accepts at most one runtime image tag" >&2
+    return 2
+  }
+  local image="${1:-ethereum-lisp-runtime:local}"
+  local image_name image_tag
+  validate_runtime_image "$image" || return $?
+  case "$image" in
+    *:*) image_name="${image%:*}"; image_tag="${image##*:}" ;;
+    *)   image_name="$image"; image_tag="latest" ;;
+  esac
+  RUNTIME_IMAGE="$image_name" RUNTIME_TAG="$image_tag" \
+    "$ROOT/scripts/hive-adapter-smoke.sh"
+}
+
 show_logs() {
   require_owned_container
   "$DOCKER" logs "$CONTAINER" "$@"
@@ -739,6 +757,7 @@ case "$cmd" in
   cold-scale) cold_scale "$@" ;;
   runtime-build) runtime_build "$@" ;;
   runtime-smoke) runtime_smoke "$@" ;;
+  hive-adapter-smoke) hive_adapter_smoke "$@" ;;
   logs) show_logs "$@" ;;
   shell) open_shell ;;
   help|-h|--help) usage ;;

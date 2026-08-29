@@ -3,13 +3,11 @@
 # Report this node's enode URL. Hive copies this into the simulator container
 # and runs it there to find out how to dial us.
 #
-# It prints what the client reports and nothing else, which today is "null":
-# admin_nodeInfo answers -32603 because its handler takes the node store guard
-# that the RPC request already holds. Even once that is fixed the address will
-# be loopback, because --nat is parsed by the CLI and then dropped on the way to
-# MAKE-DEVNET-NODE. Both are client defects (docs/hive-gate.md); synthesising an
-# enode here would hide them behind the harness and make the devp2p suites look
-# closer to passing than they are.
+# It prints the node's own advertised enode and nothing else.  The entry point
+# supplies --nat extip:<container IPv4>, while the public admin handler obtains
+# this value without recursively taking the node-store lock.  Do not synthesize
+# an address here: Hive's devp2p result must exercise precisely what the node
+# reports through admin_nodeInfo.
 
 set -e
 

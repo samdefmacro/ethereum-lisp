@@ -28,6 +28,10 @@ name: hive
 #                        client has no block-import command, so the chain the
 #                        tests query is never loaded. The adapter says so in
 #                        its log rather than failing silently.
+#   devp2p              exercises the real admin_nodeInfo/enode route and
+#                        bridge-address advertisement. It may still fail once
+#                        its simulator supplies a preloaded chain, because
+#                        /chain.rlp and /blocks import remain absent.
 #
 # NOT WIRED AT ALL, and why (each needs client work, not workflow work):
 #   ethereum/eels/consume-rlp     needs /chain.rlp and /blocks import.
@@ -35,10 +39,6 @@ name: hive
 #                                 pass on the Cancun/Prague/Osaka surface that
 #                                 conformance-late-forks in tests.yml still
 #                                 runs continue-on-error.
-#   devp2p                        needs admin_nodeInfo to advertise a dialable
-#                                 address: --nat is parsed and then dropped
-#                                 before MAKE-DEVNET-NODE, so the enode reports
-#                                 127.0.0.1 and no simulator can reach us.
 #   ethereum/sync (full-sync)     needs the above plus a peer-sync path that
 #                                 goes through the validated import boundary
 #                                 (plan section 4).
@@ -105,6 +105,7 @@ jobs:
         sim:
           - ethereum/engine
           - ethereum/rpc-compat
+          - devp2p
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3

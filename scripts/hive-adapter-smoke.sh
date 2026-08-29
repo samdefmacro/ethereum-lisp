@@ -24,6 +24,20 @@ runtime_image="${RUNTIME_IMAGE:-ethereum-lisp-runtime}"
 runtime_tag="${RUNTIME_TAG:-hive-local}"
 image="${1:-ethereum-lisp-hive:$runtime_tag}"
 
+# The runtime gate deliberately exercises release architecture images (often
+# linux/amd64 on an arm64 workstation).  Propagate the inspected base image
+# platform to the wrapper build so BuildKit does not try to resolve a local
+# amd64-only tag as a native arm64 manifest.
+base_platform="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' \
+    "$runtime_image:$runtime_tag" 2>/dev/null || true)"
+case "$base_platform" in
+    linux/amd64|linux/arm64) ;;
+    *)
+        echo "FAIL: cannot determine a supported platform for $runtime_image:$runtime_tag" >&2
+        exit 1
+        ;;
+esac
+
 jwt_ascii="secretsecretsecretsecretsecretse"
 chain_id=7337
 chain_id_hex="0x1ca9"
@@ -53,6 +67,7 @@ fail_with_log() {
 
 echo "==> building $image from tools/hive"
 docker build \
+    --platform "$base_platform" \
     --file "$repo_root/tools/hive/Dockerfile" \
     --build-arg "baseimage=$runtime_image" \
     --build-arg "tag=$runtime_tag" \
@@ -178,18 +193,26 @@ case "$response" in
     *) fail "eth_chainId returned: $response (mapper.jq did not apply)" ;;
 esac
 
-# The eth1 role requires /hive-bin/enode.sh, which reads admin_nodeInfo.
-#
-# This does not fail the run, because it is a client defect this change is not
-# allowed to fix and has no way to work around: admin_nodeInfo answers -32603
-# (docs/hive-gate.md gap 2). Reported rather than asserted, so that the day the
-# defect is fixed this line turns into "ok" instead of staying an unnoticed
-# expected-failure. It is also why devp2p and sync are not wired.
+# The eth1 role requires /hive-bin/enode.sh, which must expose exactly the
+# dial target reported by admin_nodeInfo.  The container bridge address is
+# deliberately asserted rather than merely printed: otherwise an accidental
+# regression to 0.0.0.0/loopback would silently exclude the client from devp2p.
 node_info="$(printf '%s' '{"jsonrpc":"2.0","id":1,"method":"admin_nodeInfo","params":[]}' | post "$rpc_url")"
 enode="$(docker exec "$container" /hive-bin/enode.sh)"
 case "$enode" in
-    enode://*) ok "enode.sh returned $enode" ;;
-    *) echo "KNOWN GAP - enode.sh returned '$enode'; admin_nodeInfo said: $node_info" ;;
+    enode://*@*:[0-9]*) ;;
+    *) fail "enode.sh returned '$enode'; admin_nodeInfo said: $node_info" ;;
+esac
+advertised_host="${enode#*@}"
+advertised_host="${advertised_host%%:*}"
+case "$advertised_host" in
+    0.0.0.0|127.*|::|"")
+        fail "enode.sh advertised unroutable host '$advertised_host': $node_info"
+        ;;
+esac
+case "$node_info" in
+    *"\"enode\":\"$enode\""*) ok "enode.sh returned routable admin_nodeInfo address" ;;
+    *) fail "enode.sh differs from admin_nodeInfo: '$enode' vs $node_info" ;;
 esac
 
 b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }

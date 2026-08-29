@@ -6,7 +6,7 @@ This covers plan section 2's "add a runtime client image and pinned Hive
 adapter; gate Engine/auth, EELS consume-engine/consume-rlp, `rpc-compat`,
 devp2p, full-sync, and snap suites in CI"
 (`docs/gap-analysis/public-testnet-readiness-plan.md`). That is seven suites.
-Two of them are wired and non-blocking; the other five are not wired at all,
+Three of them are wired and non-blocking; the other four are not wired at all,
 for reasons that are client gaps rather than harness gaps. Both facts are
 recorded here rather than implied by the presence of a YAML file.
 
@@ -60,11 +60,11 @@ changes and re-diffing `tools/hive/mapper.jq` against
 - **`scripts/hive-adapter-smoke.sh`** — starts the adapter the way Hive starts
   it (uploaded `/genesis.json`, `HIVE_*` in the environment, no arguments) and
   checks that the genesis translation reaches the client, that Hive's fixed JWT
-  secret authenticates, and that each refused variable exits naming itself. It
-  found gap 2 below.
+  secret authenticates, that each refused variable exits naming itself, and
+  that `enode.sh` returns the same routable bridge address as `admin_nodeInfo`.
 - **`.github/workflows/hive.yml`** — a blocking `runtime-image` job running both
-  smoke tests, and a non-blocking matrix of `ethereum/engine` and
-  `ethereum/rpc-compat`.
+  smoke tests, and a non-blocking matrix of `ethereum/engine`,
+  `ethereum/rpc-compat`, and `devp2p`.
 
 The runtime image runs under `--read-only` provided the datadir is writable by
 uid 10001; a `tmpfs` needs `tmpfs-mode=1777` and a bind mount needs to be owned
@@ -133,44 +133,20 @@ client does not have.
    *Blocks: `ethereum/rpc-compat`, `ethereum/eels/consume-rlp`, `devp2p`,
    `ethereum/sync`.*
 
-2. **`admin_nodeInfo` always fails with `-32603`.** Found by
-   `scripts/hive-adapter-smoke.sh`, reproducible against any node with
-   `--http.api admin,…`. Both RPC services are built with
-   `:request-guard-function store-guard-function` (`src/app/cli/devnet/node.lisp`),
-   so a request already holds the node store guard when its handler runs; the
-   `:node-info` closure in `DEVNET-NODE-ADMIN-BACKEND`
-   (`src/app/cli/devnet/peer-table.lisp`) then calls
-   `CALL-WITH-DEVNET-NODE-STORE-GUARD` to read the head number, and that mutex
-   is not recursive (`sb-thread:with-mutex` in
-   `MAKE-DEVNET-STORE-GUARD-FUNCTION`), so the second acquisition signals and
-   the dispatcher reports an internal error. `admin_peers` is unaffected — it
-   takes the separate peer-table mutex. Hive's `eth1` role requires
-   `/hive-bin/enode.sh`, which reads `admin_nodeInfo`, so it returns `null`.
-   *Blocks: `devp2p`, `ethereum/sync`.*
-
-3. **`--nat` is parsed and then dropped.** `DEVNET-CLI-OPTIONS` parses
-   `--nat=extip:IP` into `:nat-policy` and validates it, but
-   `DEVNET-CLI-MAKE-NODE` (`src/app/cli/cli.lisp`) does not pass it to
-   `MAKE-DEVNET-NODE`, which is the only consumer:
-   `DEVNET-NODE-ADVERTISED-HOST` uses it to choose the enode address and
-   otherwise falls back to loopback. The startup summary of a container running
-   under Hive shows the consequence directly —
-   `:ENODE "enode://…@127.0.0.1:30303"` — so even with gap 2 fixed, no other
-   container could dial us. `--netrestrict` is dropped by the same omission.
-   *Blocks: `devp2p`, `ethereum/sync`.*
-
-4. **No log-level control.** `--verbosity` is in
+2. **No log-level control.** `--verbosity` is in
    `*DEVNET-CLI-VALUE-OPTIONS*`, so it is consumed, recorded as ignored, and
    has no effect; the only logging control is `--log-file`, which selects a
    destination for structured events, not a level. `HIVE_LOGLEVEL` therefore
    cannot be honoured, and `--sim.loglevel` will not change what the client
    prints.
 
-5. **Snap is not advertised.** `tools/hive/hive.yaml` claims only the `eth1`
-   role. Claiming `eth1_snap` would enter this client into suites that need a
-   `snap/1` server the live Hello does not advertise (plan section 5).
+3. **Hive snap mode is not selectable.** The live client now negotiates
+   `snap/1`, but Hive's `HIVE_NODETYPE=snap` still maps to no explicit client
+   strategy because `--syncmode` is deliberately rejected. Claiming
+   `eth1_snap` before that selector is implemented would enter snap suites
+   under a configuration the client did not honour.
 
-6. **Amsterdam is refused rather than mapped.** `mapper.jq` deliberately does
+4. **Amsterdam is refused rather than mapped.** `mapper.jq` deliberately does
    not emit `amsterdamTime`, and the entrypoint exits if
    `HIVE_AMSTERDAM_TIMESTAMP` is set. Plan section 8 owns re-opening it.
 
@@ -189,8 +165,8 @@ reports rather than a build-time git description the client would contradict.
 | `ethereum/rpc-compat` | wired, `continue-on-error`; expected to fail on gap 1 |
 | `ethereum/eels/consume-engine` | not wired |
 | `ethereum/eels/consume-rlp` | not wired — gap 1 |
-| `devp2p` | not wired — gaps 1, 2 and 3 |
-| `ethereum/sync` (full-sync) | not wired — gaps 1, 2 and 3, plus plan section 4 |
+| `devp2p` | wired, `continue-on-error`; the adapter's routable enode is asserted, but block import remains a likely suite failure |
+| `ethereum/sync` (full-sync) | not wired — gap 1 plus plan section 4 |
 | snap | not wired — plan section 5 |
 
 Live geth/Nethermind/Lighthouse interop smoke gates, also part of plan section
@@ -212,7 +188,8 @@ At the time of writing, on a macOS development host:
 - `scripts/hive-adapter-smoke.sh` passes — the client image builds on top of
   the runtime image and starts the way Hive starts it, the genesis translation
   reaches the client, Hive's fixed JWT secret authenticates, and each refused
-  variable exits naming itself. `enode.sh` returns `null`, reported as gap 2.
+  variable exits naming itself. `enode.sh` returns the same non-loopback bridge
+  address reported by `admin_nodeInfo`.
 - `scripts/hive-run.sh --prepare-only` checks out Hive
   `dde4f59d04ff0ff8b6585670b08cea1b6c8ab65c`, verifies the commit, and installs
   `clients/ethereum-lisp`.

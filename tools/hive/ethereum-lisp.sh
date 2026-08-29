@@ -36,6 +36,19 @@ unsupported() {
     exit 1
 }
 
+# Hive reaches a client through its bridge address, not through the host
+# port-publish mapping.  Advertise that address explicitly: the node otherwise
+# emits 0.0.0.0 in admin_nodeInfo, which is a bind address, never a dial target.
+# Do this before starting the client and fail closed when the container cannot
+# identify a non-loopback IPv4 address.  Guessing an enode here would make a
+# devp2p result non-reproducible.
+advertised_ip="$(hostname -i 2>/dev/null | tr ' ' '\n' | awk \
+    '/^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && $0 !~ /^127\./ { print; exit }')"
+if [ -z "$advertised_ip" ]; then
+    echo "FATAL: cannot determine a non-loopback IPv4 address for Hive enode advertisement" >&2
+    exit 1
+fi
+
 # --- Refuse what we cannot do -----------------------------------------------
 
 # No consensus-engine selection exists at all: no clique signer, no local block
@@ -135,6 +148,7 @@ flags=(
     --authrpc.addr 0.0.0.0 --authrpc.port 8551
     --authrpc.jwtsecret "$jwtsecret" --authrpc.vhosts '*'
     --port 30303
+    --nat "extip:$advertised_ip"
 )
 
 # geth's adapter defaults to 1337 to keep clients off mainnet heuristics; use
@@ -157,7 +171,7 @@ if [ -n "$HIVE_ALLOW_UNPROTECTED_TX" ]; then
     flags+=(--rpc.allow-unprotected-txs)
 fi
 
-echo "Container address: $(hostname -i 2>/dev/null || echo unknown)"
+echo "Container address: $advertised_ip"
 echo "Running ethereum-lisp ${flags[*]}"
 
 # exec so the client is PID 1 and takes hive's SIGTERM directly; the CLI
