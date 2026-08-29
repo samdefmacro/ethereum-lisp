@@ -1,5 +1,25 @@
 (in-package #:ethereum-lisp.test)
 
+(deftest engine-rpc-forkchoice-v1-accepts-null-unavailable-fields
+  ;; Hive's generic payload-attributes encoder keeps later-version fields in
+  ;; the V1 object as JSON null.  Null is an omitted field here, whereas a
+  ;; non-null value remains forbidden by the V1 codec.
+  (let ((attributes
+          (ethereum-lisp.engine-api::engine-rpc-validate-payload-attributes-v1
+           (list (cons "timestamp" "0x1")
+                 (cons "prevRandao" (hash32-to-hex (zero-hash32)))
+                 (cons "suggestedFeeRecipient"
+                       (address-to-hex (zero-address)))
+                 (cons "withdrawals" ethereum-lisp.json:+json-null+)
+                 (cons "parentBeaconBlockRoot"
+                       ethereum-lisp.json:+json-null+)))))
+    (is (not (ethereum-lisp.engine::payload-attributes-v1-withdrawals-present-p
+              attributes)))
+    (is (null (ethereum-lisp.engine::payload-attributes-v1-withdrawals
+               attributes)))
+    (is (not (ethereum-lisp.engine::payload-attributes-v1-parent-beacon-root-present-p
+              attributes)))))
+
 (deftest engine-prepared-payload-amsterdam-derives-bal-instead-of-supplying-empty
   (let* ((config
            (make-chain-config :chain-id 1 :london-block 0

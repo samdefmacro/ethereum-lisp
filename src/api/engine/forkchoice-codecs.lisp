@@ -12,6 +12,15 @@
    :finalized-block-hash
    (json-rpc-required-hash32-field object "finalizedBlockHash")))
 
+(defun engine-rpc-non-null-field-present-p (object name)
+  "Whether NAME is present in OBJECT with a JSON value rather than null.
+
+Hive's version-neutral payload-attributes encoder emits unavailable optional
+fields as JSON null.  For the Engine API versions where a field is forbidden,
+that is equivalent to the field being omitted; a non-null value is not."
+  (and (json-object-field-present-p object name)
+       (not (json-null-p (json-object-field object name)))))
+
 (defun engine-rpc-validate-payload-attributes-v1
     (object &key (method "engine_forkchoiceUpdatedV1")
                  withdrawals-field-required-p
@@ -21,14 +30,15 @@
     (block-validation-fail
      "~A payloadAttributes must be an object or null" method))
   (when (and withdrawals-field-required-p
-             (not (json-object-field-present-p object "withdrawals")))
+             (not (engine-rpc-non-null-field-present-p object "withdrawals")))
     (block-validation-fail "~A payloadAttributes withdrawals is missing" method))
   (when (and withdrawals-field-forbidden-p
-             (json-object-field-present-p object "withdrawals"))
+             (engine-rpc-non-null-field-present-p object "withdrawals"))
     (block-validation-fail
      "~A payloadAttributes withdrawals is unsupported" method))
   (when (and parent-beacon-root-field-forbidden-p
-             (json-object-field-present-p object "parentBeaconBlockRoot"))
+             (engine-rpc-non-null-field-present-p object
+                                                  "parentBeaconBlockRoot"))
     (block-validation-fail
      "~A payloadAttributes parentBeaconBlockRoot is unsupported" method))
   (make-payload-attributes-v1
@@ -36,9 +46,11 @@
    :prev-randao (json-rpc-required-hash32-field object "prevRandao")
    :suggested-fee-recipient
    (json-rpc-required-address-field object "suggestedFeeRecipient")
-   :withdrawals (engine-rpc-withdrawals-field object)
+   :withdrawals
+   (when (engine-rpc-non-null-field-present-p object "withdrawals")
+     (engine-rpc-withdrawals-field object))
    :withdrawals-present-p
-   (json-object-field-present-p object "withdrawals")))
+   (engine-rpc-non-null-field-present-p object "withdrawals")))
 
 (defun engine-rpc-validate-payload-attributes-v2 (object)
   (engine-rpc-validate-payload-attributes-v1
@@ -55,7 +67,8 @@
            :withdrawals-field-required-p t
            :withdrawals-field-forbidden-p nil
            :parent-beacon-root-field-forbidden-p nil)))
-    (unless (json-object-field-present-p object "parentBeaconBlockRoot")
+    (unless (engine-rpc-non-null-field-present-p object
+                                                  "parentBeaconBlockRoot")
       (block-validation-fail
        "~A payloadAttributes parentBeaconBlockRoot is missing" method))
     (setf (payload-attributes-v1-parent-beacon-root attributes)
