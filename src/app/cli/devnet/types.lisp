@@ -239,6 +239,13 @@ the established pool instead of relearning it from the cold minimum."
   ;; authorize replacing productive work. This latch is cleared after the
   ;; requested atomic session rebase commits.
   (snap-session-rebase-p nil)
+  ;; The exact FCU-authorized successor observed with the bounded stale-pivot
+  ;; decision.  The Engine implementation may consume its transient
+  ;; forkchoice queue before the coordinator's next pass; retaining this hash
+  ;; prevents a true stale decision from degrading into an unauthorized
+  ;; peer-head catch-up or an idle large-gap loop.  It is process-local and is
+  ;; cleared only after the durable rebase commits.
+  (snap-session-rebase-target nil)
   ;; SNAP peers which explicitly rejected the active pivot's state are an
   ;; availability fact for that pivot, not a score penalty. Keep their stable
   ;; node ids process-locally across finite coordinator passes so the same live

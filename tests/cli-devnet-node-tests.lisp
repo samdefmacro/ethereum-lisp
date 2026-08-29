@@ -2258,6 +2258,12 @@ really reopens the directory instead of observing the first handle's memory."
          (ethereum-lisp.cli::devnet-node-snap-import-with-failover
           node database pivot-header target-hash :target-number 64))))
     (is (= 2 attempts))
+    ;; The worker saw this successor while it was still an Engine-authorized
+    ;; FCU target.  Persist it in the process-local scheduling handoff so the
+    ;; next coordinator pass does not depend on FCU queue retention.
+    (is (hash32= successor-hash
+                 (ethereum-lisp.cli::devnet-node-snap-session-rebase-target
+                  node)))
     (let ((record
             (find "peer.snap.target_stale" logs
                   :key #'first :test #'string=)))
@@ -2749,6 +2755,19 @@ really reopens the directory instead of observing the first handle's memory."
                         stale-newer-target-hash
                         (ethereum-lisp.cli::devnet-node-active-snap-target
                          node stale-newer-target-hash)))
+                   ;; The stale decision retains the already validated FCU
+                   ;; successor for the next coordinator pass.  FCU targets
+                   ;; are process-local and may have been consumed by then;
+                   ;; falling back to NIL would otherwise strand this stale
+                   ;; durable session behind the large-gap guard.
+                   (setf
+                    (ethereum-lisp.cli::devnet-node-snap-session-rebase-target
+                     node)
+                    stale-newer-target-hash)
+                   (is (hash32=
+                        stale-newer-target-hash
+                        (ethereum-lisp.cli::devnet-node-active-snap-target
+                         node nil)))
                    ;; A skeleton with no committed account cursor is cheap to
                    ;; abandon and may name a pivot that peers have pruned.
                    (is (ethereum-lisp.snap-sync:snap-sync-delete-progress
@@ -2918,6 +2937,9 @@ really reopens the directory instead of observing the first handle's memory."
                        node database new-target new-pivot)))
                    (is (not
                         (ethereum-lisp.cli::devnet-node-snap-session-rebase-p
+                         node)))
+                   (is (null
+                        (ethereum-lisp.cli::devnet-node-snap-session-rebase-target
                          node)))
                    (multiple-value-bind (restored present-p)
                        (ethereum-lisp.node-store.persistence:node-store-read-snap-skeleton-progress

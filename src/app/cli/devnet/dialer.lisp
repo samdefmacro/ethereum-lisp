@@ -491,10 +491,19 @@ are one recovery session and must agree."
                               skeleton))
                            (rebase-p
                              (and (not restart-pin-p)
-                                  (devnet-node-snap-session-rebase-p node))))
+                                  (devnet-node-snap-session-rebase-p node)))
+                           (rebase-target
+                             (and rebase-p
+                                  (devnet-node-snap-session-rebase-target
+                                   node))))
                       (if (or rebase-p
                               (chain-store-state-available-p store target))
-                          latest-target
+                          ;; The stale decision captured a successor only
+                          ;; after proving it was a newer FCU target with a
+                          ;; local Engine block.  FCU queues are transient,
+                          ;; so a later empty queue must not turn that decision
+                          ;; into an idle large-gap fallback.
+                          (or latest-target rebase-target)
                           target))))))))))))
 
 (defun devnet-peer-entry-sync-source (node entry)
@@ -1304,16 +1313,17 @@ unavailability is an availability fact, never a peer penalty."
           (multiple-value-bind (successor successor-number)
               (devnet-node-stale-snap-successor
                node target-hash pivot-number)
-            (when successor
-              (devnet-peer-manager-log
-               node "peer.snap.target_stale"
-               "target" target-number
-               "targetHash" (hash32-to-hex target-hash)
-               "successor" successor-number
-               "successorHash" (hash32-to-hex successor)
-               "reason" "sources-unavailable")
-              (error
-               'ethereum-lisp.snap-sync:snap-sync-heal-yielded))))))
+              (when successor
+                (setf (devnet-node-snap-session-rebase-target node) successor)
+                (devnet-peer-manager-log
+                 node "peer.snap.target_stale"
+                 "target" target-number
+                 "targetHash" (hash32-to-hex target-hash)
+                 "successor" successor-number
+                 "successorHash" (hash32-to-hex successor)
+                 "reason" "sources-unavailable")
+                (error
+                 'ethereum-lisp.snap-sync:snap-sync-heal-yielded))))))
     (dolist (header candidates
              (eth-sync-multi-peer-fail
               "no snap peer could serve an authorized pivot for target ~A"
@@ -1406,6 +1416,7 @@ must prove the new state root before either record can authorize publication."
                  (and skeleton-present-p skeleton-matches-p
                       (or (not state-present-p) state-matches-p)))
              (setf (devnet-node-snap-session-rebase-p node) nil)
+             (setf (devnet-node-snap-session-rebase-target node) nil)
              (values skeleton skeleton-present-p))
             (t
              (let* ((replacement
@@ -1441,6 +1452,7 @@ must prove the new state root before either record can authorize publication."
                ;; scheduling authorization. A failure above keeps it latched
                ;; for a retry of the same CL-authorized transition.
                (setf (devnet-node-snap-session-rebase-p node) nil)
+               (setf (devnet-node-snap-session-rebase-target node) nil)
                (devnet-peer-manager-log
                 node "peer.snap.pivot_rebased"
                 "fromPivot" old-pivot "pivot" pivot-number
@@ -1564,9 +1576,10 @@ must prove the new state root before either record can authorize publication."
            (cdr (assoc source source-entries :test #'eq)))
          (stale-target-p (reason)
            (multiple-value-bind (successor successor-number)
-               (devnet-node-stale-snap-successor
+             (devnet-node-stale-snap-successor
                 node target-hash pivot-number)
              (when successor
+               (setf (devnet-node-snap-session-rebase-target node) successor)
                (devnet-peer-manager-log
                 node "peer.snap.target_stale"
                 "target" target-number
