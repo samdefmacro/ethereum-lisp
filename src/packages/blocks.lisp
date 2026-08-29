@@ -79,6 +79,7 @@
    #:+initial-base-fee+
    #:+maximum-extra-data-size+
    #:+max-header-gas-limit+
+   #:+block-max-rlp-list-items+
    #:block-header
    #:block-header-p
    #:make-block-header
