@@ -366,13 +366,13 @@
         (is (null receipts)))
       (is (engine-payload-store-remote-block store hash)))))
 
-(deftest block-import-p2p-known-snap-skeleton-is-a-buffering-no-op
+(deftest block-import-p2p-known-snap-skeleton-waits-for-parent-state
   (multiple-value-bind (store config parent child)
       (block-import-test-fixture)
-    (declare (ignore parent))
     ;; A SNAP pivot installs headers/bodies before the matching state.  A
     ;; duplicate eth delivery must remain SYNCING without trying to export the
     ;; known block as a remote buffered candidate.
+    (engine-payload-store-put-block store parent :state-available-p nil)
     (engine-payload-store-put-block store child :state-available-p nil)
     (let ((durability-calls 0))
       (multiple-value-bind (status candidate receipts)
@@ -387,6 +387,32 @@
         (is (null candidate))
         (is (null receipts)))
       (is (= 0 durability-calls))
+      (is (null (engine-payload-store-remote-block
+                 store (block-hash child)))))))
+
+(deftest block-import-p2p-known-snap-skeleton-executes-after-parent-state
+  (multiple-value-bind (store config parent child)
+      (block-import-test-fixture)
+    (declare (ignore parent))
+    ;; SNAP skeleton download makes CHILD known before pivot state exists.  As
+    ;; soon as the parent is executable, replaying that same known block must
+    ;; execute it; otherwise every post-pivot block remains permanently
+    ;; SYNCING and a completed state download can never reach the Engine head.
+    (engine-payload-store-put-block store child :state-available-p nil)
+    (let ((durability-calls 0))
+      (multiple-value-bind (status candidate receipts)
+          (import-p2p-block-candidate
+           store child config
+           :durability-function
+           (lambda (&rest arguments)
+             (declare (ignore arguments))
+             (incf durability-calls)))
+        (is (string= +payload-status-valid+
+                     (payload-status-status status)))
+        (is (hash32= (block-hash child) (block-hash candidate)))
+        (is (null receipts)))
+      (is (= 1 durability-calls))
+      (is (chain-store-state-available-p store (block-hash child)))
       (is (null (engine-payload-store-remote-block
                  store (block-hash child)))))))
 
