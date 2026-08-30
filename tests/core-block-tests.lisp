@@ -132,6 +132,17 @@
       (validate-block-header-against-config
        parent child pre-merge-config))))
 
+(deftest configured-merge-block-preserves-the-historical-pow-prefix
+  (let ((config
+          (make-chain-config
+           :terminal-total-difficulty 4732352
+           :terminal-total-difficulty-passed t
+           :merge-netsplit-block 36)))
+    (is (not (chain-config-post-merge-p config 0)))
+    (is (not (chain-config-post-merge-p config 35)))
+    (is (chain-config-post-merge-p config 36))
+    (is (chain-config-post-merge-p config 54))))
+
 (deftest ethash-difficulty-and-seal-capability-are-enforced
   (let* ((parent (make-block-header :number 0
                                     :difficulty #x20000

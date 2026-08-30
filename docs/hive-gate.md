@@ -42,7 +42,7 @@ changes and re-diffing `tools/hive/mapper.jq` against
   executable, a tiny deployment-only io_uring availability probe,
   `librocksdb`, its `liburing` runtime, `libethckzg`, `libethbls`,
   `libsecp256k1`, and the KZG trusted
-  setup. The saved executable reserves an explicit 8 GiB SBCL dynamic space:
+  setup. The saved executable reserves an explicit 6 GiB SBCL dynamic space:
   SBCL commits it on demand, while the operator's container limit remains the
   physical RSS authority. This is part of the runtime contract rather than a
   builder-default accident; a public three-source snap import exceeded the
@@ -151,12 +151,12 @@ client does not have.
    not emit `amsterdamTime`, and the entrypoint exits if
    `HIVE_AMSTERDAM_TIMESTAMP` is set. Plan section 8 owns re-opening it.
 
-Two smaller notes, not gaps: the client's WebSocket port is not exposed to Hive
+One smaller note, not a gap: the client's WebSocket port is not exposed to Hive
 because `--ws.api` is accepted and discarded, so the port could not honour a
-namespace list; and `engine_getClientVersionV1` reports commit `0x00000000`
-because that is a compile-time constant in
-`src/api/engine/capabilities.lisp`, so `/version.txt` reports what the client
-reports rather than a build-time git description the client would contradict.
+namespace list. The runtime build embeds the full Git object id while saving
+the executable; `engine_getClientVersionV1`, `web3_clientVersion`, the CLI
+version output, the OCI revision label, and Hive's `/version.txt` therefore
+agree on the same eight-hex-digit client commit.
 
 ## Status of each suite named in plan section 2
 

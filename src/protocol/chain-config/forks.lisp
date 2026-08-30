@@ -15,17 +15,21 @@
 (defun chain-config-post-merge-p (config block-number)
   "Whether CONFIG requires proof-of-stake header rules at BLOCK-NUMBER.
 
-A config without transition metadata is treated as post-Merge. A positive,
-unpassed TTD is pre-Merge until an explicit merge netsplit block is reached;
-callers replaying a TTD transition must mark it passed from chain total
-difficulty before validating the first proof-of-stake header."
-  (or (chain-config-terminal-total-difficulty-passed config)
-      (let ((terminal-total-difficulty
-              (chain-config-terminal-total-difficulty config)))
-        (or (null terminal-total-difficulty)
-            (zerop terminal-total-difficulty)))
-      (fork-block-active-p (chain-config-merge-netsplit-block config)
-                           block-number)))
+When an explicit Merge block is present it is the historical boundary, even
+when TERMINAL-TOTAL-DIFFICULTY-PASSED says the imported chain has already
+crossed its TTD.  The latter describes the chain's current transition status;
+it must not retroactively apply proof-of-stake fields to its pre-Merge prefix.
+
+A config without a block boundary falls back to its TTD metadata.  With no
+transition metadata (or TTD zero), it is treated as post-Merge."
+  (let ((merge-block (chain-config-merge-netsplit-block config)))
+    (if merge-block
+        (fork-block-active-p merge-block block-number)
+        (or (chain-config-terminal-total-difficulty-passed config)
+            (let ((terminal-total-difficulty
+                    (chain-config-terminal-total-difficulty config)))
+              (or (null terminal-total-difficulty)
+                  (zerop terminal-total-difficulty)))))))
 
 (defun chain-config-eip150-p (config block-number)
   (fork-block-active-p (chain-config-eip150-block config) block-number))
