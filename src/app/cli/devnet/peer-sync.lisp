@@ -235,7 +235,12 @@ transaction a peer already has is one wasted message, while an unbounded set is
 a leak that lasts as long as the session.")
 
 (defun devnet-peer-pending-chain-update (node peer)
-  "Return a sole-writer closure announcing each new canonical head once."
+  "Return a sole-writer closure announcing canonical range changes.
+
+The eth Status handshake already advertises the current range, so the first
+poll records a baseline and sends nothing.  For eth/69 and later, match geth's
+BlockRangeUpdate cadence: announce a backwards move immediately and a forward
+move only after 32 blocks.  Eth/68 retains per-head NewBlockHashes gossip."
   (let ((last-number nil)
         (last-hash nil))
     (lambda ()
@@ -247,29 +252,40 @@ a leak that lasts as long as the session.")
                     (number (chain-store-head-number store))
                     (hash (chain-store-canonical-hash store number)))
                (and hash (list number hash)))))
-        (when (and ran-p snapshot
-                   (or (null last-number)
-                       (/= last-number (first snapshot))
-                       (not (hash32= last-hash (second snapshot)))))
+        (when (and ran-p snapshot)
           (let ((number (first snapshot))
                 (hash (second snapshot)))
-            (lambda ()
-              ;; eth/69 replaced the legacy NewBlockHashes/NewBlock
-              ;; propagation path with BlockRangeUpdate.  Current geth keeps
-              ;; the old numeric constants but deliberately has no handlers
-              ;; for them, so sending both makes a conforming eth/69+ peer
-              ;; disconnect with a subprotocol error.  Retain the legacy
-              ;; announcement only for the eth/68 capability we still expose.
-              (if (>= (eth-peer-eth-version peer) +eth-protocol-version-69+)
-                  (eth-peer-send-block-range-update
-                   peer 0 number (hash32-bytes hash))
-                  (eth-peer-send
-                   peer +eth-message-new-block-hashes+
-                   (encode-eth-new-block-hashes
-                    (list (make-eth-new-block-hash
-                           (hash32-bytes hash) number)))))
-              (setf last-number number
-                    last-hash hash))))))))
+            (cond
+              ;; Status already carried this range.  Sending it again before
+              ;; the peer's first Ping/Pong is both redundant and observably
+              ;; different from geth's handshake/session boundary.
+              ((null last-number)
+               (setf last-number number
+                     last-hash hash)
+               nil)
+              ((if (>= (eth-peer-eth-version peer) +eth-protocol-version-69+)
+                   (or (< number last-number)
+                       (>= (- number last-number) 32))
+                   (or (/= last-number number)
+                       (not (hash32= last-hash hash))))
+               (lambda ()
+                 ;; eth/69 replaced the legacy NewBlockHashes/NewBlock
+                 ;; propagation path with BlockRangeUpdate.  Current geth
+                 ;; keeps the old numeric constants but deliberately has no
+                 ;; handlers for them, so sending both makes a conforming
+                 ;; eth/69+ peer disconnect with a subprotocol error.
+                 (if (>= (eth-peer-eth-version peer)
+                         +eth-protocol-version-69+)
+                     (eth-peer-send-block-range-update
+                      peer 0 number (hash32-bytes hash))
+                     (eth-peer-send
+                      peer +eth-message-new-block-hashes+
+                      (encode-eth-new-block-hashes
+                       (list (make-eth-new-block-hash
+                              (hash32-bytes hash) number)))))
+                 (setf last-number number
+                       last-hash hash)))
+              (t nil))))))))
 
 (defun devnet-peer-pending-broadcast (node)
   "A closure returning the transactions this peer has not been sent yet.

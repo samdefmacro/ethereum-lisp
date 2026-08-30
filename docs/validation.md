@@ -183,6 +183,7 @@ cl-workbench validation run cold-unit --match RLPX-MESSAGE-CODES
 cl-workbench validation run cold-unit --match ETH-72
 cl-workbench validation run cold-unit --match ETH-GOSSIP-NOTIFIES
 cl-workbench validation run cold-unit --match DEVNET-BROADCAST
+cl-workbench validation run cold-unit --match DEVNET-CHAIN-UPDATE-BASELINES-STATUS-AND-MATCHES-GETH-RANGE-CADENCE
 cl-workbench validation run cold-unit --match DEVNET-SNAP-HEAL-PROGRESS
 cl-workbench validation run cold-unit --match DEVNET-SNAP-HEAL-ESTIMATE
 cl-workbench validation run cold-unit --match TRIE-ORDERED-RANGE-BUILDER

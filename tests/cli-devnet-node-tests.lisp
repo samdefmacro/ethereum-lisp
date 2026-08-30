@@ -1426,7 +1426,7 @@ really reopens the directory instead of observing the first handle's memory."
       (dolist (binding originals)
         (setf (fdefinition (car binding)) (cdr binding))))))
 
-(deftest devnet-chain-update-does-not-send-legacy-block-gossip-to-eth69-peers
+(deftest devnet-chain-update-baselines-status-and-matches-geth-range-cadence
   (:layer :unit :module :p2p)
   (let* ((node
            (ethereum-lisp.cli:make-devnet-node
@@ -1438,10 +1438,20 @@ really reopens the directory instead of observing the first handle's memory."
          (legacy
            (ethereum-lisp.eth-sync::%make-eth-peer
             :eth-version ethereum-lisp.eth-wire:+eth-protocol-version+))
+         (head-number 0)
+         (head-hash (make-hash32 (make-byte-vector 32 :initial-element 1)))
          (range-calls '())
          (message-calls '()))
     (devnet-peer-sync-call-with-function-overrides
      (list
+      (cons 'ethereum-lisp.core:chain-store-head-number
+            (lambda (store)
+              (declare (ignore store))
+              head-number))
+      (cons 'ethereum-lisp.core:chain-store-canonical-hash
+            (lambda (store number)
+              (declare (ignore store number))
+              head-hash))
       (cons 'ethereum-lisp.eth-sync:eth-peer-send-block-range-update
             (lambda (peer earliest latest latest-hash)
               (push (list peer earliest latest latest-hash) range-calls)))
@@ -1449,22 +1459,49 @@ really reopens the directory instead of observing the first handle's memory."
             (lambda (peer message-id payload)
               (push (list peer message-id payload) message-calls))))
      (lambda ()
-       (let ((send-modern
-               (funcall
-                (ethereum-lisp.cli::devnet-peer-pending-chain-update
-                 node modern))))
-         (is (functionp send-modern))
-         (funcall send-modern))
+       (let ((modern-update
+               (ethereum-lisp.cli::devnet-peer-pending-chain-update
+                node modern))
+             (legacy-update
+               (ethereum-lisp.cli::devnet-peer-pending-chain-update
+                node legacy)))
+         ;; The first poll only records the range already sent in Status. This
+         ;; is the Hive Fork ID regression: no code 0x21 may race its Pong.
+         (is (null (funcall modern-update)))
+         (is (null (funcall legacy-update)))
+         (is (null range-calls))
+         (is (null message-calls))
+
+         ;; geth suppresses forward BlockRangeUpdate traffic below 32 blocks.
+         (setf head-number 31
+               head-hash (make-hash32 (make-byte-vector 32 :initial-element 2)))
+         (is (null (funcall modern-update)))
+
+         ;; At 32 blocks it emits one modern range update.
+         (setf head-number 32
+               head-hash (make-hash32 (make-byte-vector 32 :initial-element 3)))
+         (let ((send-modern (funcall modern-update)))
+           (is (functionp send-modern))
+           (funcall send-modern))
+         (is (= 1 (length range-calls)))
+         (is (null message-calls))
+
+         ;; A backwards move is announced immediately.
+         (setf head-number 12
+               head-hash (make-hash32 (make-byte-vector 32 :initial-element 4)))
+         (let ((send-modern (funcall modern-update)))
+           (is (functionp send-modern))
+           (funcall send-modern))
+         (is (= 2 (length range-calls)))
+
+         ;; eth/68 retains per-head NewBlockHashes after the Status baseline.
+         (setf head-number 1
+               head-hash (make-hash32 (make-byte-vector 32 :initial-element 5)))
+         (let ((send-legacy (funcall legacy-update)))
+           (is (functionp send-legacy))
+           (funcall send-legacy)))
        ;; Pinned geth eth/69--72 deliberately has no NewBlockHashes handler.
-       (is (= 1 (length range-calls)))
-       (is (null message-calls))
-       (let ((send-legacy
-               (funcall
-                (ethereum-lisp.cli::devnet-peer-pending-chain-update
-                 node legacy))))
-         (is (functionp send-legacy))
-         (funcall send-legacy))
-       (is (= 1 (length range-calls)))
+       (is (= 2 (length range-calls)))
        (is (= 1 (length message-calls)))
        (is (= ethereum-lisp.eth-wire:+eth-message-new-block-hashes+
               (second (first message-calls))))))))

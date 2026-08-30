@@ -434,20 +434,17 @@ encoding to drop the bloom) and delivers them through
 wire layer. This is a prerequisite for any fast/snap-style sync that skips
 re-execution.
 
-### NET-10 — `BlockRangeUpdate` is neither sent nor handled, and the peer's range is not validated
+### NET-10 — `BlockRangeUpdate` interop
 
-**Verdict:** MISSING (send and handle); DIVERGENT (validation).
-**Severity:** interop.
+**Verdict:** IMPLEMENTED.
 
-**Ours.** `+eth-message-block-range-update+` is defined as `#x11`
-(`src/protocol/eth-wire/messages.lisp:34`) but has no encoder, no decoder, and no
-dispatch arm; an inbound `0x11` falls through `eth-peer-handle-message`
-(`src/networking/eth-sync/fetch.lisp:18-23`) and is silently dropped, since both
-`eth-peer-serve-message` and `eth-peer-gossip-message` return `NIL` for an
-unrecognised id. We decode the eth/69 Status block range correctly
-(`decode-eth-status-69`, `src/protocol/eth-wire/messages.lisp:118-130`) but
-`eth-validate-peer-status` (`src/networking/eth-sync/peer.lisp:203-225`) checks
-version, network id, genesis and fork id only — not the range.
+**Ours.** The eth/69 Status codec carries and validates the initial served
+range.  Subsequent `BlockRangeUpdate` messages are encoded, decoded, range
+checked, applied to the peer status, and wake the sync coordinator.  The local
+session writer treats the Status range as its initial baseline, then matches
+geth's announcement cadence: a backwards move is sent immediately and forward
+progress is sent after 32 blocks.  It does not emit a redundant code `0x11`
+immediately after Status, which is observable in Hive's Fork ID Ping/Pong tests.
 
 **Reference.** geth's `readStatus` validates the initial range with
 `initRange.Validate()`, rejecting `earliest > latest` and a zero latest hash
@@ -455,14 +452,9 @@ version, network id, genesis and fork id only — not the range.
 from `BlockRangeUpdateMsg` thereafter. An unknown message code is an error for
 geth, not something to ignore.
 
-**Consequence.** Peers learn our range once, at handshake, and it goes stale.
-Being lenient about the unknown code is safe for us; not validating theirs means
-we will treat a peer claiming an impossible range as normal. Two mitigating
-facts: our `encode-eth-status-69` falls back to the genesis hash when the latest
-hash is missing (`src/protocol/eth-wire/messages.lisp:115-116`), so we never send
-the zero hash geth rejects, and we do set the negotiated version into the Status
-we send (`src/networking/eth-sync/peer.lisp:237`), which geth also checks
-(`eth/protocols/eth/handshake.go:74-76`).
+**Evidence.** `DEVNET-CHAIN-UPDATE-BASELINES-STATUS-AND-MATCHES-GETH-RANGE-CADENCE`
+covers the no-duplicate baseline, 32-block forward threshold, immediate
+backwards move, and retained eth/68 `NewBlockHashes` behavior.
 
 ### NET-11 — Our `eth` message-id block length is 17 where geth's is 18
 
