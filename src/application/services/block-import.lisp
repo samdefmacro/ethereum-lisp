@@ -789,7 +789,14 @@ forkchoiceUpdated publication succeeds normally."
            store
            hash
            :expected-chain-id (chain-config-chain-id config)
-           :chain-config config)
+           :chain-config config
+           ;; A consensus client's build request repeats the current head
+           ;; before supplying payload attributes.  Engine authority guarantees
+           ;; that no new canonical state transition occurred between those
+           ;; calls, so avoid a duplicate whole-pool reconciliation.  Direct
+           ;; callers retain the historical default reconciliation behavior.
+           :reconcile-unchanged-head-p
+           (not (eq authority :engine-forkchoice)))
         (let ((finalized (chain-store-finalized-block store)))
           ;; Prune before persistence so the durable adapter can delete the same
           ;; finalized cache entries in its transition batch.

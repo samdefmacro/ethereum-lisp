@@ -23,6 +23,31 @@
       (is symbol)
       (is (eq :internal status)))))
 
+(deftest chain-store-set-canonical-head-repeated-head-is-empty-transition
+  (let* ((store (make-engine-payload-memory-store))
+         (genesis
+           (make-block
+            :header
+            (make-block-header
+             :number 0
+             :parent-hash (zero-hash32)
+             :extra-data #(0))))
+         (hash (block-hash genesis)))
+    (chain-store-put-block store genesis)
+    (multiple-value-bind (head transition)
+        (chain-store-set-canonical-head
+         store hash :reconcile-unchanged-head-p nil)
+      (is (hash32= hash (block-hash head)))
+      (is (null
+           (ethereum-lisp.canonical-chain:canonical-chain-transition-installed-blocks
+            transition)))
+      (is (null
+           (ethereum-lisp.canonical-chain:canonical-chain-transition-displaced-blocks
+            transition)))
+      (is (null
+           (ethereum-lisp.canonical-chain:canonical-chain-transition-changed-txpool-hashes
+            transition))))))
+
 (deftest chain-store-set-canonical-head-rewrites-number-indexes
   (let* ((store (make-engine-payload-memory-store))
          (genesis

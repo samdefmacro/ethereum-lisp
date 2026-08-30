@@ -129,7 +129,8 @@
    :expected-chain-id expected-chain-id))
 
 (defun canonical-chain-set-head
-    (store hash &key expected-chain-id chain-config)
+    (store hash &key expected-chain-id chain-config
+                     (reconcile-unchanged-head-p t))
   (let* ((chain-store (chain-store-require-memory-store store))
          (txpool (or (txpool-component store)
                      (block-validation-fail
@@ -141,6 +142,23 @@
             (memory-chain-store-head-number chain-store))))
     (unless head-block
       (block-validation-fail "Canonical head block must be known"))
+    ;; forkchoiceUpdated commonly repeats the current head while asking the
+    ;; builder to prepare its child.  No account, nonce, base-fee, or included
+    ;; transaction changed in that case, so replaying canonical installation
+    ;; and a whole-pool reconciliation is pure work.  In the 128-block Hive
+    ;; sync case this duplicate path was the expensive half of every block's
+    ;; two FCU calls.  Checkpoint publication and durability still run in the
+    ;; enclosing service; only the unchanged canonical transition is empty.
+    (when (and (not reconcile-unchanged-head-p)
+               previous-head-hash
+               (hash32= previous-head-hash hash))
+      (return-from canonical-chain-set-head
+        (values
+         head-block
+         (make-canonical-chain-transition
+          :installed-blocks nil
+          :displaced-blocks nil
+          :changed-txpool-hashes nil))))
     (let* ((head-changed-p
              (or (null previous-head-hash)
                  (not (hash32= previous-head-hash hash))))
@@ -161,8 +179,15 @@
                        chain-store
                        (canonical-chain-block-number head-block))))
          (canonical-chain-set-head-metadata chain-store head-block)
-         (canonical-chain-reinsert-displaced-transactions
-          store displaced-blocks expected-chain-id chain-config)
+         ;; A straight canonical extension has nothing to reinsert.  The
+         ;; reinsert helper begins with a whole-pool invalid-transaction pass,
+         ;; and CANONICAL-CHAIN-RECONCILE-TXPOOL performs the same pass below.
+         ;; Keep the first pass only for actual reorgs, where displaced
+         ;; transactions must be removed from their old locations and
+         ;; reconsidered before the final reconciliation.
+         (when displaced-blocks
+           (canonical-chain-reinsert-displaced-transactions
+            store displaced-blocks expected-chain-id chain-config))
          (when head-changed-p
            (canonical-chain-notify-log-filters
             chain-store displaced-blocks path))
@@ -191,13 +216,15 @@
           #'string<)))))))
 
 (defun chain-store-set-canonical-head
-    (store hash &key expected-chain-id chain-config)
+    (store hash &key expected-chain-id chain-config
+                     (reconcile-unchanged-head-p t))
   (multiple-value-bind (head transition)
       (canonical-chain-set-head
        store
        hash
        :expected-chain-id expected-chain-id
-       :chain-config chain-config)
+       :chain-config chain-config
+       :reconcile-unchanged-head-p reconcile-unchanged-head-p)
     (chain-store-prune-state-to-retention-depth store)
     (values head transition)))
 
