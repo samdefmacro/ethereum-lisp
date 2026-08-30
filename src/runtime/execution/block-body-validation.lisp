@@ -168,7 +168,13 @@
     (when (and (or expected-block-hash
                    (plusp (block-header-gas-used header)))
                (/= (block-header-gas-used header) gas-used))
-      (error 'block-validation-error :message "Gas used mismatch"))
+      (error 'block-validation-error
+             :message
+             (format nil
+                     "Gas used mismatch at block ~D: header=~D computed=~D"
+                     (block-header-number header)
+                     (block-header-gas-used header)
+                     gas-used)))
     (when (and (block-header-state-root header)
                (not (execution-hash32= (block-header-state-root header)
                                        state-root)))
