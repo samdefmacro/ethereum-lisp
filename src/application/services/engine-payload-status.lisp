@@ -156,10 +156,17 @@
               (return-from engine-new-payload-memory-status
                 (values parent-invalid-status nil)))))
         (when (and (plusp number) (null parent-block))
-          (engine-payload-store-put-remote-block store block)
+          ;; A durable SNAP skeleton can make BLOCK known before its parent
+          ;; interval has been restored.  It is already the sync record for
+          ;; this hash; also inserting it into the remote-block cache creates
+          ;; the impossible durable combination "known" and "remote buffered".
+          ;; Return no candidate so the outer persistence service does not try
+          ;; to export that duplicate as a buffered Engine payload.
+          (unless known-block
+            (engine-payload-store-put-remote-block store block))
           (return-from engine-new-payload-memory-status
             (values (make-payload-status :status +payload-status-syncing+)
-                    block)))
+                    (unless known-block block))))
         (when parent-block
           (handler-case
               (validate-block-against-config
@@ -179,10 +186,14 @@
         (when (and parent-block
                    (not (chain-store-state-available-p
                          store parent-hash)))
-          (engine-payload-store-put-remote-block store block)
+          ;; The same rule applies after the skeleton parent is known but its
+          ;; pivot-derived state is not executable yet.  Once that state is
+          ;; available this request falls through to ordinary execution.
+          (unless known-block
+            (engine-payload-store-put-remote-block store block))
           (return-from engine-new-payload-memory-status
             (values (make-payload-status :status +payload-status-accepted+)
-                    block)))
+                    (unless known-block block))))
         (handler-case
             (engine-new-payload-require-transaction-senders block config)
           (block-validation-error (condition)

@@ -293,6 +293,60 @@
           (is (bytes= (hash32-bytes observed-hash)
                       (hash32-bytes (block-hash child-block)))))))))
 
+(deftest engine-rpc-new-payload-known-snap-skeleton-skips-buffer-export
+  (let* ((address
+           (address-from-hex
+            "0x0000000000000000000000000000000000000001"))
+         (config (make-chain-config :chain-id 1 :london-block 0))
+         (parent-block
+           (make-block
+            :header
+            (make-block-header
+             :parent-hash (zero-hash32)
+             :beneficiary address
+             :state-root +empty-trie-hash+
+             :mix-hash (zero-hash32)
+             :number 41
+             :gas-limit 50000
+             :gas-used 25000
+             :timestamp 98
+             :base-fee-per-gas 100)))
+         (child-block
+           (make-block
+            :header
+            (make-block-header
+             :parent-hash (block-hash parent-block)
+             :beneficiary address
+             :state-root +empty-trie-hash+
+             :mix-hash (zero-hash32)
+             :number 42
+             :gas-limit 50000
+             :gas-used 0
+             :timestamp 99
+             :base-fee-per-gas 100)))
+         (store (make-engine-payload-memory-store))
+         (calls 0))
+    (engine-payload-store-put-block store parent-block :state-available-p nil)
+    (engine-payload-store-put-block store child-block :state-available-p nil)
+    (let* ((response
+             (engine-rpc-handle-request
+              (new-payload-persistence-test-request
+               67 child-block :version 1)
+              store config
+              :new-payload-persistence-function
+              (lambda (&rest arguments)
+                (declare (ignore arguments))
+                (incf calls)
+                (error "Known SNAP skeleton must not be exported as remote"))))
+           (status (new-payload-persistence-test-status response)))
+      (is (null (new-payload-persistence-test-field response "error")))
+      (is (string= +payload-status-accepted+
+                   (new-payload-persistence-test-field status "status")))
+      (is (zerop calls))
+      (is (chain-store-known-block store (block-hash child-block)))
+      (is (null (engine-payload-store-remote-block
+                 store (block-hash child-block)))))))
+
 (deftest rpc-context-rejects-non-function-new-payload-persistence-callback
   (signals block-validation-error
     (ethereum-lisp.rpc:make-rpc-context

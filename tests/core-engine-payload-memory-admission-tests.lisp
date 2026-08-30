@@ -105,6 +105,67 @@
       (is (bytes= (block-rlp child-block)
                   (block-rlp block))))))
 
+(deftest engine-new-payload-memory-status-does-not-buffer-known-snap-skeleton
+  (let* ((address
+           (address-from-hex
+            "0x0000000000000000000000000000000000000001"))
+         (config (make-chain-config :london-block 0))
+         (parent-block
+           (make-block
+            :header
+            (make-block-header
+             :parent-hash (zero-hash32)
+             :beneficiary address
+             :state-root +empty-trie-hash+
+             :mix-hash (zero-hash32)
+             :number 41
+             :gas-limit 50000
+             :gas-used 25000
+             :timestamp 98
+             :base-fee-per-gas 100)))
+         (child-block
+           (make-block
+            :header
+            (make-block-header
+             :parent-hash (block-hash parent-block)
+             :beneficiary address
+             :state-root +empty-trie-hash+
+             :mix-hash (zero-hash32)
+             :number 42
+             :gas-limit 50000
+             :gas-used 0
+             :timestamp 99
+             :base-fee-per-gas 100)))
+         (payload
+           (execution-payload-envelope-execution-payload
+            (block-to-executable-data child-block)))
+         (store (make-engine-payload-memory-store)))
+    ;; SNAP skeleton persistence installs both immutable blocks before pivot
+    ;; state exists.  An Engine replay must not also create a remote candidate
+    ;; for CHILD: the durable exporter deliberately rejects that contradiction.
+    (engine-payload-store-put-block store parent-block :state-available-p nil)
+    (engine-payload-store-put-block store child-block :state-available-p nil)
+    (multiple-value-bind (status candidate)
+        (engine-new-payload-memory-status store 1 payload config)
+      (is (string= +payload-status-accepted+
+                   (payload-status-status status)))
+      (is (null candidate))
+      (is (chain-store-known-block store (block-hash child-block)))
+      (is (null (engine-payload-store-remote-block
+                 store (block-hash child-block)))))
+    ;; A partially restored skeleton has the same invariant even before its
+    ;; parent record is present; the appropriate response is SYNCING.
+    (let ((partial-store (make-engine-payload-memory-store)))
+      (engine-payload-store-put-block
+       partial-store child-block :state-available-p nil)
+      (multiple-value-bind (status candidate)
+          (engine-new-payload-memory-status partial-store 1 payload config)
+        (is (string= +payload-status-syncing+
+                     (payload-status-status status)))
+        (is (null candidate))
+        (is (null (engine-payload-store-remote-block
+                   partial-store (block-hash child-block))))))))
+
 (deftest engine-new-payload-memory-status-rejects-unrecoverable-transaction-sender
   (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
          (recipient
@@ -222,4 +283,3 @@
       (is (not (engine-payload-store-invalid-block
                 missing-state-store
                 (block-hash child-block)))))))
-
