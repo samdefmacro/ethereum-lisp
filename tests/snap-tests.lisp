@@ -1221,6 +1221,45 @@
       (ethereum-lisp.snap-sync::snap-sync-incomplete-nodes-present
        database (vector missing last)))))
 
+(deftest snap-heal-local-node-and-marker-batch-is-ordered-and-fail-closed
+  (:layer :unit :module :p2p)
+  (let* ((database (make-memory-key-value-database))
+         (first (snap-test-hash 21))
+         (second (snap-test-hash 22))
+         (last (snap-test-hash 23))
+         (references (vector first second last))
+         (batch (make-kv-write-batch)))
+    (dotimes (index (length references))
+      (ethereum-lisp.database:kv-batch-put-chain-record
+       batch :trie-node (aref references index) (vector (+ 40 index))))
+    (dolist (reference (list first last))
+      (ethereum-lisp.snap-sync::snap-sync-populate-incomplete-node-batch
+       batch reference))
+    (kv-apply-batch database batch)
+    (multiple-value-bind (values present decoded durable-incomplete)
+        (ethereum-lisp.snap-sync::snap-sync-heal-local-node-and-incomplete-batch
+         database references #(nil :incomplete :complete)
+         :decoder
+         (lambda (index value incomplete-p)
+           (list index (aref value 0) incomplete-p)))
+      (is (equalp #*111 present))
+      (is (equalp #*101 durable-incomplete))
+      (is (equalp #(40) (aref values 0)))
+      (is (equalp #(42) (aref values 2)))
+      ;; Pending coordinator state overrides the durable marker snapshot.
+      (is (equal '(0 40 t) (aref decoded 0)))
+      (is (equal '(1 41 t) (aref decoded 1)))
+      (is (equal '(2 42 nil) (aref decoded 2))))
+    (let ((batch (make-kv-write-batch)))
+      (ethereum-lisp.database:kv-batch-put-chain-record
+       batch :metadata
+       (ethereum-lisp.snap-sync::snap-sync-incomplete-node-identifier second)
+       #(2))
+      (kv-apply-batch database batch))
+    (signals ethereum-lisp.validation:storage-error
+      (ethereum-lisp.snap-sync::snap-sync-heal-local-node-and-incomplete-batch
+       database references #(nil nil nil)))))
+
 (deftest snap-state-healer-never-hydrates-global-incomplete-marker-set
   (:layer :unit :module :p2p)
   ;; A restart may retain millions of markers outside the active pivot.  The
@@ -6807,6 +6846,77 @@
              (close-rocksdb-key-value-database database)))
       (setf (fdefinition 'ethereum-lisp.database:kv-get-chain-records)
             real-get-many)
+      (when (probe-file path)
+        (uiop:delete-directory-tree path :validate t)))))
+
+#+sbcl
+(deftest snap-heal-rocksdb-combines-node-and-marker-multigets
+  (:layer :integration :module :p2p)
+  (let* ((path
+           (merge-pathnames
+            (make-pathname
+             :directory
+             `(:relative ,(format nil "ethereum-lisp-snap-combined-~A"
+                                  (gensym))))
+            #P"/private/tmp/"))
+         (references
+           (map 'vector #'snap-test-index-hash
+                (loop for index below 128 collect (+ 20000 index))))
+         (overrides (make-array (length references) :initial-element nil))
+         (real-get-many
+           (fdefinition 'ethereum-lisp.database:kv-get-many))
+         (mutex (sb-thread:make-mutex :name "snap-heal-combined-test"))
+         (call-count 0)
+         (key-count 0)
+         (worker-threads '()))
+    (unwind-protect
+         (let ((database (make-rocksdb-key-value-database path)))
+           (unwind-protect
+                (let ((batch (make-kv-write-batch)))
+                  (dotimes (index (length references))
+                    (ethereum-lisp.database:kv-batch-put-chain-record
+                     batch :trie-node (aref references index)
+                     (vector (mod index 256)))
+                    (when (zerop (mod index 3))
+                      (ethereum-lisp.snap-sync::snap-sync-populate-incomplete-node-batch
+                       batch (aref references index))))
+                  (kv-apply-batch database batch)
+                  (setf
+                   (fdefinition 'ethereum-lisp.database:kv-get-many)
+                   (lambda (candidate keys &optional default)
+                     (when (eq candidate database)
+                       (sb-thread:with-mutex (mutex)
+                         (incf call-count)
+                         (incf key-count (length keys))
+                         (pushnew sb-thread:*current-thread* worker-threads
+                                  :test #'eq)))
+                     (funcall real-get-many candidate keys default)))
+                  (let ((ethereum-lisp.snap-sync::*snap-sync-heal-local-read-workers*
+                          8))
+                    (multiple-value-bind
+                          (values present decoded durable-incomplete)
+                        (ethereum-lisp.snap-sync::snap-sync-heal-local-node-and-incomplete-batch
+                         database references overrides
+                         :decoder
+                         (lambda (index value incomplete-p)
+                           (list index (aref value 0) incomplete-p)))
+                      (is (= 8 call-count))
+                      (is (= (* 2 (length references)) key-count))
+                      (is (= 8 (length worker-threads)))
+                      (dotimes (index (length references))
+                        (is (= 1 (aref present index)))
+                        (is (= (mod index 256) (aref (aref values index) 0)))
+                        (is (= (if (zerop (mod index 3)) 1 0)
+                               (aref durable-incomplete index)))
+                        (is
+                         (equal
+                          (list index (mod index 256)
+                                (zerop (mod index 3)))
+                          (aref decoded index)))))))
+             (setf (fdefinition 'ethereum-lisp.database:kv-get-many)
+                   real-get-many)
+             (close-rocksdb-key-value-database database)))
+      (setf (fdefinition 'ethereum-lisp.database:kv-get-many) real-get-many)
       (when (probe-file path)
         (uiop:delete-directory-tree path :validate t)))))
 

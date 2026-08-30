@@ -256,6 +256,10 @@ cl-workbench validation run cold-unit --match BATCHES-LOCAL
 cl-workbench validation run cold-integration --match NATIVE-MULTI-GET
 cl-workbench validation run cold-integration \
   --match SNAP-HEAL-ROCKSDB-LOCAL-READ-BATCH-USES-BOUNDED-WORKERS
+cl-workbench validation run cold-unit \
+  --match SNAP-HEAL-LOCAL-NODE-AND-MARKER-BATCH
+cl-workbench validation run cold-integration \
+  --match SNAP-HEAL-ROCKSDB-COMBINES-NODE-AND-MARKER-MULTIGETS
 cl-workbench validation run cold-integration \
   --match SNAP-HEAL-ROCKSDB-SMALL-BATCHES-REUSE-FIXED-WORKERS
 cl-workbench validation run cold-integration \
@@ -337,7 +341,10 @@ a later account or StorageRanges page proves closure for a node that an earlier
 partial page marked open, the proof/record/cursor batch deletes that exact stale
 negative. The focused marker-lifecycle regression plants both account and
 storage negatives, proves only the closed nodes, and requires the open markers
-to remain while the superseded markers disappear.
+to remain while the superseded markers disappear. Production RocksDB healing
+interleaves each trie-node key with its fail-closed incomplete-marker key in one
+native MultiGet per fixed worker slice, eliminating a serial metadata-read
+barrier without trusting absent or malformed marker data.
 StorageRanges pages publish equivalent
 storage-subtree proofs with their node and cursor batch. Completing the final
 partition does not publish a whole-root proof: durable cursors establish range

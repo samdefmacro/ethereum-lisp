@@ -4166,6 +4166,179 @@ versioned fail-closed record; malformed values are storage corruption."
              "Persisted snap incomplete-node marker is malformed"))))
       present)))
 
+(defun snap-sync-heal-local-node-and-incomplete-keys (references)
+  "Interleave trie-node and incomplete-marker keys for one native MultiGet."
+  (let ((keys (make-array (* 2 (length references)))))
+    (dotimes (index (length references))
+      (let ((reference (aref references index)))
+        (setf
+         (aref keys (* 2 index))
+         (kv-chain-record-key :trie-node reference)
+         (aref keys (1+ (* 2 index)))
+         (kv-chain-record-key
+          :metadata (snap-sync-incomplete-node-identifier reference)))))
+    keys))
+
+(defun snap-sync-heal-decode-local-node-and-incomplete-batch
+    (references overrides raw-values raw-present offset decoder)
+  "Validate and decode one interleaved local-node/marker MultiGet result."
+  (let* ((count (length references))
+         (values (make-array count :initial-element nil))
+         (present (make-array count :element-type 'bit :initial-element 0))
+         (decoded (and decoder (make-array count :initial-element nil)))
+         (durable-incomplete
+           (make-array count :element-type 'bit :initial-element 0)))
+    (dotimes (index count)
+      (let ((node-index (* 2 index))
+            (marker-index (1+ (* 2 index))))
+        (setf (aref values index) (aref raw-values node-index)
+              (aref present index) (aref raw-present node-index))
+        (when (= 1 (aref raw-present marker-index))
+          (unless (bytes= (aref raw-values marker-index)
+                          +snap-sync-incomplete-node-value+)
+            (ethereum-lisp.validation:storage-fail
+             "Persisted snap incomplete-node marker is malformed"))
+          (setf (aref durable-incomplete index) 1))
+        (when (and decoder (= 1 (aref present index)))
+          (let ((incomplete-p
+                  (case (aref overrides index)
+                    (:complete nil)
+                    (:incomplete t)
+                    (otherwise (= 1 (aref durable-incomplete index))))))
+            (setf (aref decoded index)
+                  (funcall decoder
+                           (+ offset index) (aref values index) incomplete-p))))))
+    (values values present decoded durable-incomplete)))
+
+#+sbcl
+(defun snap-sync-heal-parallel-local-node-and-incomplete-batch
+    (database references overrides workers decoder)
+  "Read nodes and their fail-closed markers in one MultiGet per worker slice."
+  (let* ((references (coerce references 'vector))
+         (overrides (coerce overrides 'vector))
+         (count (length references))
+         (worker-count (min workers count))
+         (values-by-worker (make-array worker-count :initial-element nil))
+         (present-by-worker (make-array worker-count :initial-element nil))
+         (decoded-by-worker (make-array worker-count :initial-element nil))
+         (incomplete-by-worker (make-array worker-count :initial-element nil))
+         (conditions (make-array worker-count :initial-element nil))
+         (threads (make-array worker-count :initial-element nil)))
+    (labels ((start (index)
+               (floor (* index count) worker-count))
+             (run-worker (index)
+               (handler-case
+                   (let* ((slice-start (start index))
+                          (slice-end (start (1+ index)))
+                          (slice-references
+                            (subseq references slice-start slice-end))
+                          (slice-overrides
+                            (subseq overrides slice-start slice-end)))
+                     (multiple-value-bind (raw-values raw-present)
+                         (kv-get-many
+                          database
+                          (snap-sync-heal-local-node-and-incomplete-keys
+                           slice-references))
+                       (multiple-value-bind
+                             (values present decoded incomplete)
+                           (snap-sync-heal-decode-local-node-and-incomplete-batch
+                            slice-references slice-overrides
+                            raw-values raw-present slice-start decoder)
+                         (setf (aref values-by-worker index) values
+                               (aref present-by-worker index) present
+                               (aref decoded-by-worker index) decoded
+                               (aref incomplete-by-worker index) incomplete))))
+                 (serious-condition (condition)
+                   (setf (aref conditions index) condition)))))
+      (if *snap-sync-heal-local-read-pool*
+          (snap-sync-run-heal-local-read-job
+           *snap-sync-heal-local-read-pool* worker-count #'run-worker)
+          (unwind-protect
+               (progn
+                 (dotimes (index worker-count)
+                   (let ((worker-index index))
+                     (setf
+                      (aref threads index)
+                      (sb-thread:make-thread
+                       (lambda () (run-worker worker-index))
+                       :name "snap-sync-heal-local-read-worker"))))
+                 (dotimes (index worker-count)
+                   (sb-thread:join-thread (aref threads index))
+                   (setf (aref threads index) nil)))
+            (loop for thread across threads
+                  when thread
+                    do (ignore-errors (sb-thread:join-thread thread)))))
+      (let ((condition (find-if #'identity conditions)))
+        (when condition
+          (error condition)))
+      (let ((values (make-array count :initial-element nil))
+            (present (make-array count :element-type 'bit :initial-element 0))
+            (decoded (and decoder (make-array count :initial-element nil)))
+            (incomplete
+              (make-array count :element-type 'bit :initial-element 0)))
+        (dotimes (index worker-count)
+          (replace values (aref values-by-worker index) :start1 (start index))
+          (replace present (aref present-by-worker index) :start1 (start index))
+          (replace incomplete (aref incomplete-by-worker index)
+                   :start1 (start index))
+          (when decoder
+            (replace decoded (aref decoded-by-worker index)
+                     :start1 (start index))))
+        (values values present decoded incomplete)))))
+
+(defun snap-sync-heal-local-node-and-incomplete-batch
+    (database references overrides &key decoder)
+  "Read trie nodes and incomplete markers without a serial MultiGet barrier.
+
+DECODER receives the original index, encoded trie node, and effective
+incomplete flag. OVERRIDES contains NIL, :COMPLETE, or :INCOMPLETE for each
+reference and therefore preserves pending coordinator writes over the durable
+snapshot. The fourth return value reports durable marker presence."
+  (unless (= (length references) (length overrides))
+    (error "Snap heal local-node marker overrides do not match references"))
+  (unless (and (integerp *snap-sync-heal-local-read-workers*)
+               (<= 1 *snap-sync-heal-local-read-workers* 16))
+    (error "Snap heal local read workers must be between one and 16"))
+  (when (zerop (length references))
+    (return-from snap-sync-heal-local-node-and-incomplete-batch
+      (values #() (make-array 0 :element-type 'bit) #()
+              (make-array 0 :element-type 'bit))))
+  #+sbcl
+  (when (and
+         (typep database 'ethereum-lisp.database:rocksdb-key-value-database)
+         (> *snap-sync-heal-local-read-workers* 1)
+         (>= (length references) +snap-sync-heal-parallel-read-minimum+))
+    (return-from snap-sync-heal-local-node-and-incomplete-batch
+      (snap-sync-heal-parallel-local-node-and-incomplete-batch
+       database references overrides
+       *snap-sync-heal-local-read-workers* decoder)))
+  ;; A single interleaved call can hold at most half the database key limit.
+  ;; The large single-worker fallback retains the old bounded two-call path;
+  ;; production RocksDB healing uses the fixed parallel pool above.
+  (if (<= (* 2 (length references)) +kv-get-many-max-keys+)
+      (multiple-value-bind (raw-values raw-present)
+          (kv-get-many
+           database
+           (snap-sync-heal-local-node-and-incomplete-keys references))
+        (snap-sync-heal-decode-local-node-and-incomplete-batch
+         references overrides raw-values raw-present 0 decoder))
+      (let ((durable-incomplete
+              (snap-sync-incomplete-nodes-present database references)))
+        (multiple-value-bind (values present decoded)
+            (snap-sync-heal-local-node-batch
+             database references
+             :decoder
+             (and decoder
+                  (lambda (index bytes)
+                    (funcall
+                     decoder index bytes
+                     (case (aref overrides index)
+                       (:complete nil)
+                       (:incomplete t)
+                       (otherwise
+                        (= 1 (aref durable-incomplete index))))))))
+          (values values present decoded durable-incomplete)))))
+
 (defun snap-sync-healed-subtree-identifier
     (reference &optional (kind :account))
   (unless (and (byte-vector-p reference) (= 32 (length reference)))
@@ -5516,35 +5689,45 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                        (coerce (nreverse uncached-indices) 'vector))
                      (references
                        (coerce (nreverse uncached-references) 'vector)))
-                 (let ((incomplete
-                         (if complete-node-scheme-p
-                             (snap-sync-incomplete-nodes-present
-                              database references)
-                             (make-array (length references)
-                                         :element-type 'bit
-                                         :initial-element 0))))
-                   ;; Pending writes/deletes override the durable snapshot.
-                   ;; Mutate the active set only on this coordinator thread;
-                   ;; the parallel decode closures below read immutable bits.
+                 (let ((overrides
+                         (make-array (length references)
+                                     :initial-element nil)))
+                   ;; Snapshot pending writes/deletes on the coordinator;
+                   ;; worker decoders consume only immutable override values.
                    (dotimes (index (length references))
                      (let ((reference (aref references index)))
                        (cond
                          ((nth-value
                            1 (gethash reference pending-complete-nodes))
-                          (setf (aref incomplete index) 0))
+                          (setf (aref overrides index) :complete))
                          ((nth-value 1 (gethash reference incomplete-nodes))
-                          (setf (aref incomplete index) 1))
-                         ((= 1 (aref incomplete index))
-                          (setf (gethash reference incomplete-nodes) t)))))
+                          (setf (aref overrides index) :incomplete)))))
                    (multiple-value-bind
-                         (stored stored-present stored-decoded)
-                       (snap-sync-heal-local-node-batch
-                        database references
-                        :decoder
-                        (lambda (index bytes)
-                          (funcall decoder
-                                   (aref indices index) bytes
-                                   (= 1 (aref incomplete index)))))
+                         (stored stored-present stored-decoded
+                          durable-incomplete)
+                       (if complete-node-scheme-p
+                           (snap-sync-heal-local-node-and-incomplete-batch
+                            database references overrides
+                            :decoder
+                            (lambda (index bytes incomplete-p)
+                              (funcall decoder
+                                       (aref indices index) bytes
+                                       incomplete-p)))
+                           (snap-sync-heal-local-node-batch
+                            database references
+                            :decoder
+                            (lambda (index bytes)
+                              (funcall decoder
+                                       (aref indices index) bytes nil))))
+                     ;; Cache durable positive markers only on the coordinator
+                     ;; when no pending state supersedes that snapshot.
+                     (when complete-node-scheme-p
+                       (dotimes (index (length references))
+                         (when (and (null (aref overrides index))
+                                    (= 1 (aref durable-incomplete index)))
+                           (setf
+                            (gethash (aref references index) incomplete-nodes)
+                            t))))
                      (dotimes (index (length indices))
                        (let ((destination (aref indices index)))
                          (setf (aref encoded destination) (aref stored index)
