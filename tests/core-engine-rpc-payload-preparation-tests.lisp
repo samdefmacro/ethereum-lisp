@@ -1074,6 +1074,122 @@
           (is (equalp commitment
                       (first (blob-sidecar-commitments bundle)))))))))
 
+(deftest engine-rpc-builds-submitted-blob-wrapper-into-v3-payload
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (request (method id params store config)
+             (engine-rpc-handle-request
+              (list (cons "jsonrpc" "2.0")
+                    (cons "id" id)
+                    (cons "method" method)
+                    (cons "params" params))
+              store config))
+           (forkchoice-state (head)
+             (list (cons "headBlockHash" (hash32-to-hex head))
+                   (cons "safeBlockHash" (hash32-to-hex (zero-hash32)))
+                   (cons "finalizedBlockHash"
+                         (hash32-to-hex (zero-hash32)))))
+           (payload-attributes (timestamp)
+             (list (cons "timestamp" (quantity-to-hex timestamp))
+                   (cons "prevRandao" (hash32-to-hex (zero-hash32)))
+                   (cons "suggestedFeeRecipient"
+                         (address-to-hex (zero-address)))
+                   (cons "withdrawals" #())
+                   (cons "parentBeaconBlockRoot"
+                         (hash32-to-hex (zero-hash32))))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1337
+                                      :byzantium-block 0
+                                      :constantinople-block 0
+                                      :petersburg-block 0
+                                      :berlin-block 0
+                                      :london-block 0
+                                      :shanghai-time 0
+                                      :cancun-time 0))
+           (commitment (make-byte-vector 48 :initial-element #x55))
+           (versioned-hash (kzg-commitment-to-versioned-hash commitment))
+           (datahash-contract
+             (address-from-hex
+              "0x0000000000000000000000000000000000020000"))
+           (transaction
+             (fixture-sign-blob-transaction
+              (make-blob-transaction
+               :chain-id 1337
+               :nonce 0
+               :max-priority-fee-per-gas 2
+               :max-fee-per-gas 20
+               :gas-limit 100000
+               :to datahash-contract
+               :max-fee-per-blob-gas 20
+               :blob-versioned-hashes (list versioned-hash))
+              1))
+           (sidecar
+             (make-blob-sidecar
+              :blobs (list (make-byte-vector +blob-byte-size+))
+              :commitments (list commitment)
+              :proofs (list (make-byte-vector 48 :initial-element #x66))))
+           (sender (transaction-sender transaction :expected-chain-id 1337))
+           (state (make-state-db)))
+      (state-db-set-account
+       state sender (make-state-account :nonce 0 :balance 1000000000))
+      ;; Hive's Cancun blob cases call this exact BLOBHASH/SSTORE contract.
+      ;; A transfer to an empty account would miss failures in the execution
+      ;; path that silently make the payload builder skip an invalid tx.
+      (state-db-set-code
+       state datahash-contract
+       #(#x5f #x80 #x49 #x55
+         #x60 #x01 #x80 #x49 #x55
+         #x60 #x02 #x80 #x49 #x55
+         #x60 #x03 #x80 #x49 #x55))
+      (let* ((parent
+               (make-block
+                :header
+                (make-block-header
+                 :number 0
+                 :timestamp 0
+                 :gas-limit 30000000
+                 :base-fee-per-gas 1
+                 :withdrawals-root (withdrawal-list-root '())
+                 :blob-gas-used 0
+                 :excess-blob-gas 0
+                 :parent-beacon-root (zero-hash32)
+                 :state-root (state-db-root state))
+                :withdrawals '()))
+             (parent-hash (block-hash parent))
+             (raw
+               (bytes-to-hex
+                (blob-pooled-transaction-encoding transaction sidecar))))
+        (chain-store-put-block store parent :state-available-p t)
+        (commit-state-db-to-chain-store store parent-hash state)
+        (let* ((*kzg-blob-proof-verifier*
+                 (lambda (blob actual-commitment proof)
+                   (declare (ignore blob proof))
+                   (bytes= commitment actual-commitment)))
+               (send-response
+                 (request "eth_sendRawTransaction" 610 (list raw)
+                          store config))
+               (prepare-response
+                 (request
+                  "engine_forkchoiceUpdatedV3" 611
+                  (list (forkchoice-state parent-hash)
+                        (payload-attributes 1))
+                  store config))
+               (payload-id
+                 (field (field prepare-response "result") "payloadId"))
+               (get-response
+                 (request "engine_getPayloadV3" 612 (list payload-id)
+                          store config))
+               (envelope (field get-response "result"))
+               (payload (field envelope "executionPayload"))
+               (bundle (field envelope "blobsBundle")))
+          (is (string= (hash32-to-hex (transaction-hash transaction))
+                       (field send-response "result")))
+          (is (stringp payload-id))
+          (is (= 1 (length (field payload "transactions"))))
+          (is (= 1 (length (field bundle "blobs"))))
+          (is (= 1 (length (field bundle "commitments"))))
+          (is (= 1 (length (field bundle "proofs")))))))))
+
 (deftest engine-rpc-forkchoice-updated-known-block-precedes-invalid-cache
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))

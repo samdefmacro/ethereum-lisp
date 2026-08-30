@@ -1,6 +1,6 @@
 (in-package #:ethereum-lisp.test)
 
-(deftest txpool-canonical-blob-base-fee-rise-removes-underpriced-blobs
+(deftest txpool-canonical-blob-base-fee-rise-retains-underpriced-blobs
   (let* ((store (make-engine-payload-memory-store))
          (config (make-chain-config :chain-id 1337
                                     :london-block 0
@@ -63,13 +63,28 @@
      store
      (block-hash new-canonical-child)
      :chain-config config)
-    (is (= 0
+    (is (= 1
            (ethereum-lisp.txpool:engine-payload-store-blob-transaction-count
             store)))
-    (is (null
+    (is (typep
          (ethereum-lisp.txpool:engine-payload-store-pooled-transaction
           store
-          transaction-hash)))))
+          transaction-hash)
+         'blob-transaction))
+    ;; The fee is transient: after the canonical head returns to the lower
+    ;; blob base fee, the same transaction is still available for mining.
+    (chain-store-set-canonical-head
+     store
+     (block-hash old-canonical-child)
+     :chain-config config)
+    (is (= 1
+           (ethereum-lisp.txpool:engine-payload-store-blob-transaction-count
+            store)))
+    (is (typep
+         (ethereum-lisp.txpool:engine-payload-store-pooled-transaction
+          store
+          transaction-hash)
+         'blob-transaction))))
 
 (deftest eth-rpc-send-raw-transaction-replaces-basefee-conflict-with-pending
   (labels ((field (object name)
@@ -187,4 +202,3 @@
                      (field (field new-lookup-response "result") "hash")))
         (is (= 1 (length filter-hashes)))
         (is (string= new-hash (first filter-hashes)))))))
-

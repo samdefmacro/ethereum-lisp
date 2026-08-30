@@ -37,24 +37,6 @@
          (engine-payload-store-over-gas-limit-txpool-transaction-p
           head transaction))))))
 
-(defun engine-payload-store-remove-underpriced-blob-txpool-transactions
-    (store &key chain-config)
-  (let ((blob-base-fee
-          (engine-payload-store-current-blob-base-fee
-           store
-           chain-config))
-        (removed-transactions nil))
-    (when blob-base-fee
-      (dolist (transaction (engine-payload-store-blob-transactions store))
-        (handler-case
-            (validate-blob-transaction-fee-cap transaction blob-base-fee)
-          (block-validation-error ()
-            (engine-pending-txpool-remove-blob-transaction
-             (engine-payload-store-txpool store)
-             (transaction-hash transaction))
-            (push transaction removed-transactions)))))
-    (nreverse removed-transactions)))
-
 (defun engine-payload-store-remove-invalid-sender-txpool-transactions
     (store &key expected-chain-id)
   (when expected-chain-id
@@ -85,9 +67,11 @@
       store
       :expected-chain-id txpool-chain-id)
      (engine-payload-store-remove-over-gas-limit-txpool-transactions store)
-     (engine-payload-store-remove-underpriced-blob-txpool-transactions
-      store
-      :chain-config chain-config)
+     ;; Blob base fee is dynamic.  A transaction that is temporarily below it
+     ;; must remain parked so an empty block can lower the fee and make the
+     ;; transaction executable again.  Payload construction validates the
+     ;; current fee and skips it while it is ineligible; canonical cleanup must
+     ;; not turn that temporary condition into permanent eviction.
      (engine-payload-store-remove-sender-code-invalid-txpool-transactions
       store
       :expected-chain-id txpool-chain-id))))
