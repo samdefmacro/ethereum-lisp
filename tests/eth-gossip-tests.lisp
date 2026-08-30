@@ -193,6 +193,23 @@ REJECT-P, if given, is a predicate marking transactions the pool turns down."
       (is (null sizes))
       (is (null hashes)))))
 
+(deftest eth-new-pooled-blob-announcement-uses-wrapper-size
+  (:layer :unit :module :p2p)
+  (let* ((transaction (eth-gossip-test-blob-transaction 3))
+         (sidecar (eth-gossip-test-blob-sidecar))
+         (entry (make-blob-network-transaction transaction sidecar)))
+    (multiple-value-bind (types sizes hashes)
+        (ethereum-lisp.eth-wire:decode-eth-new-pooled-transaction-hashes
+         (ethereum-lisp.eth-wire:encode-eth-new-pooled-transaction-hashes
+          (list entry)))
+      (is (equal '(3) types))
+      (is (equal
+           (list
+            (length (blob-pooled-transaction-encoding transaction sidecar)))
+           sizes))
+      (is (bytes= (eth-gossip-transaction-hash-bytes transaction)
+                  (first hashes))))))
+
 (deftest eth-new-pooled-transaction-hashes-rejects-ragged-columns
   (:layer :unit :module :p2p)
   ;; A peer whose columns disagree is malformed. Pairing them up anyway would

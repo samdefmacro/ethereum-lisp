@@ -20,8 +20,15 @@
         sum (length (receipt-logs receipt))))
 
 (defun chain-store-transaction-location-from-kv
-    (store transaction-identifier location-record)
-  "Decode and fully validate one durable canonical transaction location."
+    (store transaction-identifier location-record
+     &key canonical-block-p-function)
+  "Decode and fully validate one durable canonical transaction location.
+
+CANONICAL-BLOCK-P-FUNCTION defaults to STORE's current canonical view.  A
+direct durable provider may instead validate against the database snapshot:
+during forkchoice the in-memory canonical overlay changes before the atomic KV
+batch, so the old durable transaction location is valid in that snapshot even
+though public lookup must already hide it from the new canonical view."
   (setf store (chain-store-require-memory-store store))
   (let ((transaction-hash (make-hash32 transaction-identifier)))
     (multiple-value-bind (block-hash index log-index-start)
@@ -31,7 +38,9 @@
         (unless block
           (block-validation-fail
            "KV transaction location references an unknown block"))
-        (unless (engine-payload-store-canonical-block-p store block)
+        (unless (if canonical-block-p-function
+                    (funcall canonical-block-p-function block)
+                    (engine-payload-store-canonical-block-p store block))
           (block-validation-fail
            "KV transaction location references a non-canonical block"))
         (unless (< index (length transactions))

@@ -72,10 +72,13 @@
         (kv-batch-delete-chain-checkpoint batch (car entry)))))
   (maphash
    (lambda (number key)
-     (kv-batch-put-chain-canonical-hash
-      batch
-      number
-      (hash32-bytes (hash32-from-hex key))))
+     ;; NIL is a direct-provider tombstone masking a canonical descendant
+     ;; deleted by an in-flight or already committed forkchoice transition.
+     (when key
+       (kv-batch-put-chain-canonical-hash
+        batch
+        number
+        (hash32-bytes (hash32-from-hex key)))))
    (memory-chain-store-canonical-hashes store))
   (chain-store-export-checkpoint-to-kv
    batch

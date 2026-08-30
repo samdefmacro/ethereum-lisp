@@ -172,9 +172,21 @@ hash-table slot can start as NIL."
           (values
            ;; The shared validator checks the block, canonical index,
            ;; transaction hash, receipt, and log offset without retaining the
-           ;; historical result in the production overlay.
+           ;; historical result in the production overlay.  Validate the
+           ;; location against the same durable snapshot as RECORD.  The
+           ;; public chain-store lookup applies the newer in-memory canonical
+           ;; overlay afterwards and therefore hides a displaced location
+           ;; while the forkchoice WAL batch is still pending.
            (chain-store-transaction-location-from-kv
-            store identifier record)
+            store identifier record
+            :canonical-block-p-function
+            (lambda (block)
+              (multiple-value-bind (canonical-hash present-p)
+                  (chain-store-backing-canonical-hash
+                   store
+                   (block-header-number (block-header block)))
+                (and present-p
+                     (hash32= canonical-hash (block-hash block))))))
            t)
           (values nil nil)))))
 

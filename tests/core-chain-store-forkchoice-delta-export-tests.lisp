@@ -816,12 +816,91 @@
              (ethereum-lisp.chain-store.state:memory-chain-store-transaction-locations
               (ethereum-lisp.chain-store.state:chain-store-component
                store)))))
+          ;; A public lookup at this pre-WAL seam must compare the durable
+          ;; location with the new overlay and report it as displaced.  The
+          ;; durable decoder still validates RECORD against the old durable
+          ;; canonical index instead of rejecting the transaction mid-FCU.
+          (is (null (chain-store-transaction-location
+                     store (transaction-hash transaction))))
           (node-store-export-forkchoice-to-kv store transition database)
           (multiple-value-bind (value present-p)
               (kv-get-chain-record
                database :transaction-location transaction-id :missing)
             (is (eq :missing value))
             (is (not present-p))))))))
+
+(deftest node-store-direct-same-height-reorg-reinserts-displaced-transaction
+  (:layer :integration :module :storage)
+  (let* ((config
+           (make-chain-config
+            :chain-id 1 :homestead-block 0 :eip150-block 0 :eip155-block 0
+            :eip158-block 0 :byzantium-block 0 :constantinople-block 0
+            :petersburg-block 0 :istanbul-block 0 :berlin-block 0
+            :london-block 0))
+         (transaction (forkchoice-delta-test-transaction))
+         (sender (transaction-sender transaction :expected-chain-id 1))
+         (genesis-state (make-state-db))
+         (beneficiary (zero-address)))
+    (state-db-set-account
+     genesis-state sender (make-state-account :nonce 0 :balance 1000000000))
+    (let* ((genesis
+             (make-block
+              :header
+              (make-block-header
+               :number 0 :parent-hash (zero-hash32)
+               :beneficiary beneficiary :state-root (state-db-root genesis-state)
+               :mix-hash (zero-hash32) :timestamp 0 :gas-limit 30000000
+               :base-fee-per-gas 1)))
+           (old-head-state (state-db-copy genesis-state))
+           (old-head
+             (execute-signed-block
+              old-head-state (list transaction) :expected-chain-id 1
+              :header
+              (make-block-header
+               :number 1 :parent-hash (block-hash genesis)
+               :beneficiary beneficiary :mix-hash (zero-hash32)
+               :timestamp 1 :gas-limit 30000000 :base-fee-per-gas 1)
+              :chain-config config))
+           (new-head-state (state-db-copy genesis-state))
+           (new-head
+             (execute-signed-block
+              new-head-state '() :expected-chain-id 1
+              :header
+              (make-block-header
+               :number 1 :parent-hash (block-hash genesis)
+               :beneficiary beneficiary :mix-hash (zero-hash32)
+               :timestamp 11 :gas-limit 30000000 :base-fee-per-gas 1)
+              :chain-config config))
+           (source (make-engine-payload-memory-store))
+           (database (make-forkchoice-delta-test-database)))
+      (dolist (entry
+               (list (cons genesis genesis-state)
+                     (cons old-head old-head-state)))
+        (chain-store-put-block source (car entry) :state-available-p t)
+        (commit-state-db-to-chain-store
+         source (block-hash (car entry)) (cdr entry)))
+      (engine-payload-store-put-block
+       source new-head :state-available-p t :canonicalize-p nil)
+      (commit-state-db-to-chain-store source (block-hash new-head) new-head-state)
+      (forkchoice-delta-test-set-checkpoints source old-head genesis genesis)
+      (node-store-export-to-kv source database)
+      (let ((store (make-database-engine-payload-store database)))
+        (ethereum-lisp.txpool:engine-payload-store-enable-txpool-database-change-tracking
+         store)
+        ;; The durable location still belongs to OLD-HEAD until the FCU batch
+        ;; commits.  Selecting NEW-HEAD must hide that location through the
+        ;; overlay and reinsert the displaced transaction instead of rejecting
+        ;; the otherwise valid durable snapshot as non-canonical.
+        (let ((transition
+                (forkchoice-delta-test-select-head
+                 store config new-head genesis genesis)))
+          (is (ethereum-lisp.txpool:engine-payload-store-pending-transaction
+               store (transaction-hash transaction)))
+          (is (null (chain-store-transaction-location
+                     store (transaction-hash transaction))))
+          (node-store-export-forkchoice-to-kv store transition database)
+          (is (null (chain-store-transaction-location
+                     store (transaction-hash transaction)))))))))
 
 (deftest node-store-forkchoice-delta-conflict-does-not-partially-apply
   (multiple-value-bind

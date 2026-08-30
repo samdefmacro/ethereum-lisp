@@ -28,30 +28,49 @@ addresses — the same rule go-ethereum's --txpool.locals uses."
    :local-addresses (devnet-node-txpool-local-addresses node)
    :no-local-exemptions-p (devnet-node-txpool-no-local-exemptions-p node)))
 
-(defun devnet-pooled-blob-sidecar (store transaction &key (version 2))
+(defun devnet-pooled-blob-sidecar
+    (store transaction
+     &key (version 2)
+          (cell-proof-function
+            (and (kzg-cell-computation-available-p)
+                 #'compute-kzg-cell-proofs)))
   "Reassemble the requested network sidecar for pooled blob TRANSACTION.
 
 VERSION 1 carries the original EIP-4844 proof stored with an RPC wrapper.
-VERSION 2 carries the EIP-7594 cell proofs required by eth/72."
+VERSION 2 carries the EIP-7594 cell proofs required by eth/72.  When durable
+storage only has the original blob proof, CELL-PROOF-FUNCTION derives the cell
+proofs transiently without overwriting that legacy proof."
   (let ((entries
           (loop for hash in
                   (blob-transaction-blob-versioned-hashes transaction)
                 for entry =
-                  (ecase version
-                    (1 (engine-payload-store-blob-and-proofs-v1 store hash))
-                    (2 (engine-payload-store-blob-and-proofs-v2 store hash)))
+                  (engine-payload-store-blob-and-proofs-v1 store hash)
                 unless entry do (return nil)
                 collect entry)))
     (when entries
-      (make-blob-sidecar
-       :blobs (mapcar #'engine-blob-and-proofs-blob entries)
-       :commitments (mapcar #'engine-blob-and-proofs-commitment entries)
-       :proofs
-       (ecase version
-         (1 (mapcar #'engine-blob-and-proofs-proof entries))
-         (2 (loop for entry in entries
-                  append
-                  (engine-blob-and-proofs-cell-proofs entry))))))))
+      (let ((proofs
+              (ecase version
+                (1 (mapcar #'engine-blob-and-proofs-proof entries))
+                (2
+                 (loop for entry in entries
+                       for existing =
+                         (engine-blob-and-proofs-cell-proofs entry)
+                       for derived =
+                         (or (and (= +cell-proofs-per-blob+
+                                     (length existing))
+                                  existing)
+                             (and cell-proof-function
+                                  (funcall
+                                   cell-proof-function
+                                   (engine-blob-and-proofs-blob entry))))
+                       unless (= +cell-proofs-per-blob+ (length derived))
+                         do (return nil)
+                       append derived)))))
+        (when proofs
+          (make-blob-sidecar
+           :blobs (mapcar #'engine-blob-and-proofs-blob entries)
+           :commitments (mapcar #'engine-blob-and-proofs-commitment entries)
+           :proofs proofs))))))
 
 (defun devnet-peer-custody-indices (mask)
   "Decode geth's little-endian 128-bit eth/72 custody bitmap."

@@ -72,7 +72,9 @@ grow without bound.")
   (eth-peer-note-known-transaction-hashes
    peer
    (mapcar (lambda (transaction)
-             (hash32-bytes (transaction-hash transaction)))
+             (hash32-bytes
+              (transaction-hash
+               (eth-pooled-entry-transaction transaction))))
            transactions)))
 
 (defun eth-peer-sendable-transactions (peer transactions size-predicate)
@@ -107,13 +109,20 @@ bandwidth, and the protocol asks that it carry at least one transaction."
                 (eth-pooled-blob-sidecar-reader
                  backend (eth-peer-eth-version peer))))
          (sendable
-           (remove-if-not
-            (lambda (transaction)
-              (and (not (eth-peer-knows-transaction-p peer transaction))
-                   (or (eth-gossipable-transaction-p transaction)
-                       (and sidecar-reader
-                            (funcall sidecar-reader transaction)))))
-            transactions)))
+           (loop for transaction in transactions
+                 for entry =
+                   (unless (eth-peer-knows-transaction-p peer transaction)
+                     (cond
+                       ((eth-gossipable-transaction-p transaction)
+                        transaction)
+                       ((and sidecar-reader
+                             (typep transaction 'blob-transaction))
+                        (let ((sidecar
+                                (funcall sidecar-reader transaction)))
+                          (and sidecar
+                               (make-blob-network-transaction
+                                transaction sidecar))))))
+                 when entry collect entry)))
     (when sendable
       (let ((custody-mask (make-byte-vector 16)))
         ;; geth encodes custody bits little-endian within each byte.  A full

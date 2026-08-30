@@ -274,10 +274,27 @@ transaction the effective tip is simply the gas price less the base fee."
       (is (= 1 (length (blob-sidecar-proofs legacy))))
       (is (bytes= proof (first (blob-sidecar-proofs legacy)))))
     ;; A V1 RPC wrapper has no cell proofs and must not be mislabeled as the
-    ;; eth/72 sidecar representation.
+    ;; eth/72 sidecar representation when computation is unavailable.
     (is (null
          (ethereum-lisp.cli::devnet-pooled-blob-sidecar
-          store transaction :version 2)))))
+          store transaction :version 2 :cell-proof-function nil)))
+    ;; An eth/72 peer can still receive the transaction: derive the cell proofs
+    ;; transiently while retaining the original proof for eth/68--71 peers.
+    (let* ((cell-proof
+             (make-byte-vector +kzg-proof-size+ :initial-element 7))
+           (cell-sidecar
+             (ethereum-lisp.cli::devnet-pooled-blob-sidecar
+              store transaction :version 2
+              :cell-proof-function
+              (lambda (actual-blob)
+                (is (bytes= blob actual-blob))
+                (loop repeat +cell-proofs-per-blob+
+                      collect cell-proof)))))
+      (is cell-sidecar)
+      (is (= +cell-proofs-per-blob+
+             (length (blob-sidecar-proofs cell-sidecar))))
+      (is (every (lambda (actual) (bytes= cell-proof actual))
+                 (blob-sidecar-proofs cell-sidecar))))))
 
 (deftest devnet-broadcast-retains-a-burst-past-the-wire-batch-limit
   (:layer :unit :module :devnet)

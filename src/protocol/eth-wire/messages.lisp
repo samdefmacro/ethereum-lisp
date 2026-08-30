@@ -525,16 +525,25 @@ otherwise a block number."
     (transactions &key (version +eth-protocol-version-71+)
                        (custody-mask (make-byte-vector 16)))
   "Encode a transaction announcement. eth/72 appends its 16-byte custody mask."
-  (let ((transactions
-          (mapcar #'eth-pooled-entry-transaction transactions)))
+  (let* ((entries transactions)
+         (transactions
+           (mapcar #'eth-pooled-entry-transaction entries)))
     (let ((fields
             (list
              (map 'byte-vector #'transaction-type transactions)
              (apply #'make-rlp-list
-                    (mapcar (lambda (transaction)
+                    (mapcar (lambda (entry)
                               (integer-to-minimal-bytes
-                               (length (transaction-encoding transaction))))
-                            transactions))
+                               (length
+                                (let ((transaction
+                                        (eth-pooled-entry-transaction entry))
+                                      (sidecar
+                                        (eth-pooled-entry-sidecar entry)))
+                                  (if sidecar
+                                      (blob-pooled-transaction-encoding
+                                       transaction sidecar)
+                                      (transaction-encoding transaction))))))
+                            entries))
              (apply #'make-rlp-list
                     (mapcar (lambda (transaction)
                               (hash32-bytes (transaction-hash transaction)))

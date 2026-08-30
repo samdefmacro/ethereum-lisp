@@ -72,8 +72,16 @@
           for block = (engine-payload-store-block-by-number store number)
           when block do (push block displaced-blocks)
           do
-      (chain-store-journal-remhash
-       (memory-chain-store-canonical-hashes store) number))
+      ;; A direct provider's durable canonical index still describes the old
+      ;; snapshot until the forkchoice WAL batch commits.  Keep an explicit
+      ;; NIL overlay tombstone so lookups cannot fall through and resurrect a
+      ;; pruned descendant during that interval.  A memory-only store has no
+      ;; backing snapshot to mask and can remove the key normally.
+      (if (chain-store-durable-state-provider-p store)
+          (chain-store-journal-puthash
+           (memory-chain-store-canonical-hashes store) number nil)
+          (chain-store-journal-remhash
+           (memory-chain-store-canonical-hashes store) number)))
     (nreverse displaced-blocks)))
 
 (defun canonical-chain-set-head-metadata (store head-block)
