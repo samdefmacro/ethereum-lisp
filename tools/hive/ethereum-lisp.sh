@@ -162,11 +162,20 @@ fi
 # The CLI imports these before it opens listeners.  A deterministic invalid
 # fixture block leaves the already durable valid prefix in place and the node
 # starts from that prefix, which is Hive's required last-valid-block behavior.
+has_offline_import=
 if [ -f /chain.rlp ]; then
     flags+=(--import-chain /chain.rlp)
+    has_offline_import=1
 fi
 if [ -d /blocks ]; then
     flags+=(--import-blocks /blocks)
+    has_offline_import=1
+fi
+if [ -n "$has_offline_import" ]; then
+    # Hive's historical PoW fixtures contain deterministic fake seals. This is
+    # the same harness policy as geth's NewFaker and Erigon's --fakepow, but the
+    # client switch is deliberately valid only for these startup imports.
+    flags+=(--import-chain-skip-pow)
 fi
 
 echo "Container address: $advertised_ip"

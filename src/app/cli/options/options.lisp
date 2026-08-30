@@ -57,6 +57,7 @@
         (pid-file nil)
         (import-chain-path nil)
         (import-blocks-path nil)
+        (import-chain-skip-pow-p nil)
         (ignored-options nil)
         (http-max-clients nil)
         (http-read-timeout-seconds nil)
@@ -246,6 +247,9 @@
                 (setf import-chain-path (next-value option)))
                ((string= option "--import-blocks")
                 (setf import-blocks-path (next-value option)))
+               ((string= option "--import-chain-skip-pow")
+                (setf import-chain-skip-pow-p
+                      (next-optional-boolean option)))
                ((string= option "--http.maxclients")
                 (setf http-max-clients
                       (next-parsed-value option #'devnet-cli-parse-positive-integer)))
@@ -388,6 +392,10 @@
                 (error "Unknown option ~A" option))))
     (when (and genesis-path genesis-preset)
       (error "--genesis cannot be combined with a public network preset"))
+    (when (and import-chain-skip-pow-p
+               (not (or import-chain-path import-blocks-path)))
+      (error
+       "--import-chain-skip-pow requires --import-chain or --import-blocks"))
     ;; Public networks select the production substrate unless the operator
     ;; explicitly asks for a test-oracle backend. Local/dev invocations retain
     ;; the file default for compatibility and deterministic tests.
@@ -463,6 +471,7 @@
           :pid-file pid-file
           :import-chain-path import-chain-path
           :import-blocks-path import-blocks-path
+          :import-chain-skip-pow-p import-chain-skip-pow-p
           :http-max-clients http-max-clients
           :http-read-timeout-seconds http-read-timeout-seconds
           :http-write-timeout-seconds http-write-timeout-seconds

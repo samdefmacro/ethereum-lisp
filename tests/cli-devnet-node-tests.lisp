@@ -5903,9 +5903,16 @@ loop cannot block on a message that never comes."
   (let ((options
           (ethereum-lisp.cli::devnet-cli-options
            '("devnet" "--import-chain" "/chain.rlp"
-             "--import-blocks" "/blocks" "--no-serve"))))
+             "--import-blocks" "/blocks"
+             "--import-chain-skip-pow" "--no-serve"))))
     (is (string= "/chain.rlp" (getf options :import-chain-path)))
-    (is (string= "/blocks" (getf options :import-blocks-path)))))
+    (is (string= "/blocks" (getf options :import-blocks-path)))
+    (is (getf options :import-chain-skip-pow-p))))
+
+(deftest devnet-cli-rejects-pow-skip-without-an-offline-import
+  (signals error
+    (ethereum-lisp.cli::devnet-cli-options
+     '("devnet" "--import-chain-skip-pow" "--no-serve"))))
 
 (deftest devnet-cli-offline-import-skips-an-already-canonical-genesis
   (let* ((node (ethereum-lisp.cli:make-devnet-node
@@ -5949,3 +5956,46 @@ loop cannot block on a message that never comes."
                    (block-hash
                     (chain-store-head-block
                      (ethereum-lisp.cli:devnet-node-store node))))))))
+
+(deftest devnet-cli-pow-skip-is-confined-to-explicit-offline-import
+  "Hive may opt out of fake fixture seals without weakening normal admission."
+  (let* ((node (ethereum-lisp.cli:make-devnet-node
+                :genesis-json *eth-sync-paris-genesis-json*
+                :port 0 :public-port 0))
+         (genesis (ethereum-lisp.cli::devnet-node-genesis-block node))
+         (config (ethereum-lisp.cli::devnet-node-config node))
+         (timestamp (+ 12
+                       (block-header-timestamp (block-header genesis))))
+         (attributes
+           (make-payload-attributes-v1
+            :timestamp timestamp
+            :prev-randao (zero-hash32)
+            :suggested-fee-recipient (zero-address)))
+         (block
+           (ethereum-lisp.engine-payloads:engine-build-empty-payload
+            genesis attributes config)))
+    ;; Turn this one-block fixture into historical PoW while retaining the
+    ;; valid empty execution commitments produced by the ordinary builder.
+    (setf (chain-config-terminal-total-difficulty config) #x100000000
+          (chain-config-terminal-total-difficulty-passed config) nil
+          (block-header-difficulty (block-header block))
+          (expected-ethash-difficulty
+           config timestamp (block-header genesis)))
+    (let ((ethereum-lisp.consensus:*ethash-seal-verifier*
+            (lambda (header)
+              (declare (ignore header))
+              nil)))
+      (multiple-value-bind (imported condition)
+          (ethereum-lisp.cli::devnet-node-import-local-canonical-blocks
+           node (list block))
+        (is (= 0 imported))
+        (is (typep condition 'block-validation-error)))
+      (multiple-value-bind (imported condition)
+          (ethereum-lisp.cli::devnet-node-import-local-canonical-blocks
+           node (list block) :verify-pow-seals-p nil)
+        (is (= 1 imported))
+        (is (null condition)))
+      ;; The dynamic override ends with the offline call.  The surrounding
+      ;; verifier still rejects this seal, proving there is no global toggle.
+      (signals block-validation-error
+        (verify-ethash-seal (block-header block))))))

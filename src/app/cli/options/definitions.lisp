@@ -40,5 +40,6 @@
     "--allow-insecure-unlock" "--mine" "--metrics" "--pprof"
     "--snapshot" "--rpc.allow-unprotected-txs" "--txpool.nolocals"
     "--log.compress" "--override.terminaltotaldifficultypassed"
+    "--import-chain-skip-pow"
     "--mainnet" "--sepolia" "--holesky" "--hoodi" "--goerli"
     "--dev" "--nousb" "--json" "--no-serve"))

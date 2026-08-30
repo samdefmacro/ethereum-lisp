@@ -125,8 +125,14 @@ latter as direct `.rlp` files in Hive's numeric filename order. Each block must 
 the current canonical head and crosses the ordinary execution, publication, and
 durability boundary before the next one begins. A validation failure retains
 the durable valid prefix and starts the node from it; malformed paths and
-storage failures fail startup. This is an implemented adapter contract, not yet
-evidence that any Hive suite passes.
+storage failures fail startup. The pinned Hive fixtures intentionally use fake
+historical PoW seals: the pinned geth client constructs `ethash.NewFaker`, and
+Erigon passes `--fakepow`. The adapter therefore adds
+`--import-chain-skip-pow` only when one of those offline fixture paths exists.
+The CLI rejects that switch without an explicit offline import, dynamically
+scopes it to that import call, and reports `pow-seals=skipped`; normal startup,
+P2P, Engine, and default offline imports keep real Ethash verification. This is
+an implemented adapter contract, not yet evidence that any Hive suite passes.
 
 ## Gaps this work found and did not fix
 

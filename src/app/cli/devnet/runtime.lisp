@@ -125,7 +125,8 @@ local canonical authority."
           (declare (ignore callback-store))
           (devnet-node-persist-canonical-transition node transition)))))))
 
-(defun devnet-node-import-local-canonical-blocks (node blocks)
+(defun devnet-node-import-local-canonical-blocks
+    (node blocks &key (verify-pow-seals-p t))
   "Import BLOCKS in order, stopping at the first deterministic invalid block.
 
 Returns the number of committed blocks and the validation condition (or NIL).
@@ -135,7 +136,18 @@ other local failures deliberately escape rather than being converted into a
 valid-looking partial import."
   (unless (listp blocks)
     (block-validation-fail "Offline block import requires a proper block list"))
-  (let ((imported 0))
+  (let ((imported 0)
+        ;; Hive's pinned RPC fixtures deliberately carry fake historical PoW
+        ;; seals, matching geth's NewFaker and Erigon's --fakepow adapters.
+        ;; Rebinding the verifier here confines that compatibility behavior to
+        ;; an explicit offline import call.  The default, P2P, Engine, and all
+        ;; other admission paths retain the real configured Ethash verifier.
+        (ethereum-lisp.consensus:*ethash-seal-verifier*
+          (if verify-pow-seals-p
+              ethereum-lisp.consensus:*ethash-seal-verifier*
+              (lambda (header)
+                (declare (ignore header))
+                t))))
     (dolist (block blocks (values imported nil))
       ;; Hive's concatenated stream may begin with the genesis block that was
       ;; separately supplied to the client.  Geth's import path treats that
@@ -213,16 +225,19 @@ give the original bytes to the canonical block decoder."
             files))))
 
 (defun devnet-cli-report-offline-import-result
-    (output-stream source imported condition)
-  (format output-stream "offline.import source=~A imported=~D~@[ stopped=~A~]~%"
-          source imported condition)
+    (output-stream source imported condition verify-pow-seals-p)
+  (format output-stream
+          "offline.import source=~A pow-seals=~A imported=~D~@[ stopped=~A~]~%"
+          source (if verify-pow-seals-p "verified" "skipped")
+          imported condition)
   ;; Hive retains the adapter and process diagnostic stream in its result
   ;; artifact.  Mirror this concise, non-sensitive startup outcome there: a
   ;; fixture's last-valid-prefix condition must be observable when a later RPC
   ;; query cannot see the expected preloaded block.
   (format *error-output*
-          "offline.import source=~A imported=~D~@[ stopped=~A~]~%"
-          source imported condition)
+          "offline.import source=~A pow-seals=~A imported=~D~@[ stopped=~A~]~%"
+          source (if verify-pow-seals-p "verified" "skipped")
+          imported condition)
   ;; Hive captures the client's stdout through a pipe.  This is a startup
   ;; diagnostic needed to distinguish a fixture-validation prefix stop from an
   ;; RPC regression, so do not leave it buffered until the long-running server
@@ -237,21 +252,25 @@ An invalid block is ordinary fixture input: retain the independently durable
 prefix and continue startup, as Hive's last-valid-block contract requires.
 Unreadable paths, malformed containers, and storage failures are operator or
 runtime errors and deliberately prevent startup."
-  (flet ((import-block-sequence (source blocks)
-           (multiple-value-bind (imported condition)
-               (devnet-node-import-local-canonical-blocks node blocks)
-             (devnet-cli-report-offline-import-result
-              output-stream source imported condition))))
-    (let ((chain-path (getf options :import-chain-path))
-          (blocks-path (getf options :import-blocks-path)))
-      (when chain-path
-        (unless (probe-file chain-path)
-          (error "Offline import chain does not exist: ~A" chain-path))
-        (import-block-sequence "chain"
-                               (devnet-cli-decode-import-chain chain-path)))
-      (when blocks-path
-        (import-block-sequence "blocks"
-                               (devnet-cli-import-block-files blocks-path))))))
+  (let ((verify-pow-seals-p
+          (not (getf options :import-chain-skip-pow-p))))
+    (flet ((import-block-sequence (source blocks)
+             (multiple-value-bind (imported condition)
+                 (devnet-node-import-local-canonical-blocks
+                  node blocks :verify-pow-seals-p verify-pow-seals-p)
+               (devnet-cli-report-offline-import-result
+                output-stream source imported condition
+                verify-pow-seals-p))))
+      (let ((chain-path (getf options :import-chain-path))
+            (blocks-path (getf options :import-blocks-path)))
+        (when chain-path
+          (unless (probe-file chain-path)
+            (error "Offline import chain does not exist: ~A" chain-path))
+          (import-block-sequence "chain"
+                                 (devnet-cli-decode-import-chain chain-path)))
+        (when blocks-path
+          (import-block-sequence "blocks"
+                                 (devnet-cli-import-block-files blocks-path)))))))
 
 (defun devnet-local-fork-body-arguments (config block-number timestamp)
   "Return supplied local-builder body data for the active fork.
