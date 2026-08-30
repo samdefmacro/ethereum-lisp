@@ -112,6 +112,47 @@ neither."
     (block-validation-fail "eth_hashrate params must be empty"))
   (quantity-to-hex 0))
 
+(defconstant +eth-capabilities-log-retention-blocks+ #x23dbb0)
+
+(defun eth-capabilities-resource (oldest-block &key retention-blocks)
+  (append
+   (when retention-blocks
+     (list
+      (cons "deleteStrategy"
+            (list (cons "retentionBlocks"
+                        (quantity-to-hex retention-blocks))
+                  (cons "type" "window")))))
+   (list (cons "disabled" :false)
+         (cons "oldestBlock" (quantity-to-hex oldest-block)))))
+
+(defun engine-rpc-handle-eth-capabilities (params store)
+  "Describe the historical data ranges this node can conservatively serve."
+  (when params
+    (block-validation-fail "eth_capabilities params must be empty"))
+  (let ((head (chain-store-latest-block store)))
+    (unless head
+      (block-validation-fail "eth_capabilities requires a head block"))
+    (let* ((header (block-header head))
+           (head-number (block-header-number header))
+           (archive-resource (eth-capabilities-resource 0))
+           (oldest-log-block
+             (max 0 (- head-number
+                       +eth-capabilities-log-retention-blocks+))))
+      (list
+       (cons "blocks" archive-resource)
+       (cons "head"
+             (list (cons "hash" (hash32-to-hex (block-hash head)))
+                   (cons "number" (quantity-to-hex head-number))))
+       (cons "logs"
+             (eth-capabilities-resource
+              oldest-log-block
+              :retention-blocks
+              +eth-capabilities-log-retention-blocks+))
+       (cons "receipts" archive-resource)
+       (cons "state" archive-resource)
+       (cons "stateproofs" archive-resource)
+       (cons "tx" archive-resource)))))
+
 (defparameter +eth-config-precompiles+
   '((1 . "ECREC")
     (2 . "SHA256")
@@ -236,5 +277,5 @@ neither."
                        config (block-hash genesis) genesis-time
                        head-number activation-time))))
         (list (cons "current" (object current-time))
-              (cons "next" (or (object next-time) :null))
-              (cons "last" (or (object last-time) :null)))))))
+              (cons "next" (object next-time))
+              (cons "last" (object last-time)))))))

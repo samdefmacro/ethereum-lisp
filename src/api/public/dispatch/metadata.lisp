@@ -42,6 +42,10 @@
        (public-rpc-dispatch-response
         context
         (engine-rpc-handle-eth-chain-id params config)))
+      ((public-rpc-dispatch-method-p context "eth_capabilities")
+       (public-rpc-dispatch-response
+        context
+        (engine-rpc-handle-eth-capabilities params store)))
       ((public-rpc-dispatch-method-p context "eth_config")
        (public-rpc-dispatch-response
         context

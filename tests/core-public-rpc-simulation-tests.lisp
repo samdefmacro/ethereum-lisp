@@ -1047,6 +1047,18 @@
                             "result")))
         (is (string= by-number by-hash))))))
 
+(deftest debug-get-raw-transaction-rejects-unprefixed-hash
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((response
+             (parse-json
+              (engine-rpc-handle-request-json
+               "{\"jsonrpc\":\"2.0\",\"id\":901,\"method\":\"debug_getRawTransaction\",\"params\":[\"1000000000000000000000000000000000000000000000000000000000000001\"]}"
+               (make-engine-payload-memory-store)
+               (make-chain-config))))
+           (error (field response "error")))
+      (is (= -32602 (field error "code"))))))
+
 (deftest debug-namespace-is-advertised-and-gateable
   ;; rpc_modules must list debug, and --http.api must be able to withhold it.
   (let ((modules (ethereum-lisp.public-api::engine-rpc-handle-rpc-modules

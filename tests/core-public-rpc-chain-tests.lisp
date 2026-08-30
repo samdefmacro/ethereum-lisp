@@ -456,6 +456,59 @@
            (error (field response "error")))
       (is (= -32602 (field error "code"))))))
 
+(deftest eth-rpc-capabilities-reports-data-ranges
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config))
+           (head
+             (make-block
+              :header
+              (make-block-header :number 54 :timestamp 540)))
+           (head-hash (hash32-to-hex (block-hash head))))
+      (engine-payload-store-put-block store head)
+      (let* ((response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":300,\"method\":\"eth_capabilities\",\"params\":[]}"
+                 store config)))
+             (result (field response "result"))
+             (logs (field result "logs"))
+             (strategy (field logs "deleteStrategy")))
+        (is (string= head-hash (field (field result "head") "hash")))
+        (is (string= "0x36" (field (field result "head") "number")))
+        (is (null (field (field result "blocks") "disabled")))
+        (is (string= "0x0" (field (field result "state") "oldestBlock")))
+        (is (string= "window" (field strategy "type")))
+        (is (string= "0x23dbb0" (field strategy "retentionBlocks")))
+        (is (string= "0x0" (field logs "oldestBlock"))))
+      (let* ((response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":300,\"method\":\"eth_capabilities\",\"params\":[1]}"
+                 store config)))
+             (error (field response "error")))
+        (is (= -32602 (field error "code")))))))
+
+(deftest eth-rpc-config-encodes-null-when-no-future-fork-exists
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config))
+           (genesis
+             (make-block
+              :header (make-block-header :number 0 :timestamp 1))))
+      (engine-payload-store-put-block store genesis)
+      (let* ((response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":301,\"method\":\"eth_config\",\"params\":[]}"
+                 store config)))
+             (result (field response "result")))
+        (is result)
+        (is (null (field result "next")))
+        (is (null (field result "last")))))))
+
 (deftest eth-rpc-config-reports-current-next-and-last-forks
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))

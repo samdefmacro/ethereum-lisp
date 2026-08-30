@@ -181,14 +181,14 @@ see RPC-01: one of the nine is a stub.
 | `eth_baseFee` | no | yes | full | Nethermind extension. |
 | `eth_feeHistory` | yes | yes | partial | `reward` percentiles derive from the zero tip (RPC-21). |
 | `eth_getBalance` | yes | yes | full | — |
-| `eth_getTransactionCount` | yes | yes | partial | `pending` resolves to `latest` (RPC-20). |
+| `eth_getTransactionCount` | yes | yes | full | Optional block defaults to `latest`; `pending` includes the contiguous pool nonce. |
 | `eth_getCode` | yes | yes | full | — |
 | `eth_getStorageAt` | yes | yes | full | — |
 | `eth_getProof` | yes | yes | UNVERIFIED | Dispatch entry read; result shape not compared. |
 | `eth_call` | yes | yes | partial | No overrides, no gas cap, no timeout (RPC-15, RPC-16). |
 | `eth_estimateGas` | yes | yes | partial | As above; binary search bounded by the block gas limit. |
 | `eth_createAccessList` | yes | yes | partial | No overrides; result shape not compared (UNVERIFIED). |
-| `eth_simulateV1` | yes (`internal/ethapi/simulate.go`) | yes | missing | RPC-17. |
+| `eth_simulateV1` | yes (`internal/ethapi/simulate.go`) | yes | partial | Multi-block execution exists; pinned Hive still exposes unsupported transfer tracing, overrides, validation errors, and block progression (RPC-17). |
 | `eth_getBlockByHash` / `ByNumber` | yes | yes | partial | `balHash` field name (RPC-19); pending block is synthetic (RPC-20). |
 | `eth_getHeaderByHash` / `ByNumber` | yes | no | full | Same `balHash` note. |
 | `eth_getBlockTransactionCountByHash` / `ByNumber` | yes | yes | full | — |
@@ -197,8 +197,8 @@ see RPC-01: one of the nine is a stub.
 | `eth_getTransactionByHash` | yes | yes | full | — |
 | `eth_getTransactionByBlockHashAndIndex` / `ByNumber...` | yes | yes | full | — |
 | `eth_getRawTransactionByHash` | yes | yes | UNVERIFIED | Dispatched; encoding not compared. Also the `ByBlock*AndIndex` pair. |
-| `eth_getTransactionReceipt` | yes | yes | partial | No `blobGasUsed` / `blobGasPrice` (RPC-18). |
-| `eth_getBlockReceipts` | yes | yes | partial | Same field gap; `pending` returns `null`. |
+| `eth_getTransactionReceipt` | yes | yes | partial | Blob fields are emitted; pinned Hive typed-receipt cases still fail exact conformance (RPC-18). |
+| `eth_getBlockReceipts` | yes | yes | partial | `pending` returns `null`; pinned Hive still has one failing case. |
 | `eth_sendRawTransaction` | yes | yes | full | Admission policy is richer than the RPC contract requires. |
 | `eth_sendRawTransactionSync` | yes | no | missing | Recent geth addition; low priority. |
 | `eth_sendTransaction` / `eth_sign` / `eth_signTransaction` | yes | yes | missing | No key management, by design. |
@@ -211,8 +211,9 @@ see RPC-01: one of the nine is a stub.
 | `eth_getFilterLogs` | yes | yes | full | — |
 | `eth_uninstallFilter` | yes | yes | full | — |
 | `eth_subscribe` / `eth_unsubscribe` | yes | yes | partial | WebSocket only, handled outside the public dispatch table (`src/app/cli/devnet/ws-server.lisp:143`); `newHeads`, `logs`, `newPendingTransactions`; no `syncing` (documented); no removed logs (RPC-24). |
-| `eth_config` | yes (`internal/ethapi/api.go:1275`) | no | missing | EIP-7910; RPC-33. |
-| `eth_getStorageValues` | yes | no | missing | Completeness only. |
+| `eth_capabilities` | yes | UNVERIFIED | full | Conservative archive ranges plus geth-compatible log retention window; pinned Hive rerun pending. |
+| `eth_config` | yes (`internal/ethapi/api.go`) | no | full | EIP-7910 current/next/last fork descriptors; null-future regression covered (RPC-33 resolved). |
+| `eth_getStorageValues` | yes | no | full | Multi-account/slot query, 1024-slot cap, optional `latest`; pinned Hive rerun pending. |
 | `eth_getBlockAccessList` | yes | UNVERIFIED | missing | Amsterdam-era; completeness only. |
 | `eth_pendingTransactions` | no | no | extra | Ours; harmless. |
 
@@ -485,13 +486,15 @@ already accepts `--rpc.gascap` and `--rpc.evmtimeout` and ignores both
 (`src/app/cli/options/definitions.lisp:10-15`), so an operator who thinks they
 have configured a cap has not.
 
-**RPC-17 — `eth_simulateV1` is absent.**
-Verdict MISSING. Severity completeness.
-Ours: no dispatch entry in `src/api/public/dispatch/`. Reference: geth
-`internal/ethapi/simulate.go`, exposed at `internal/ethapi/api.go:905`;
-Nethermind serves it too. Consequence: the multi-block, multi-call simulation
-API that newer tooling standardises on is unavailable. Depends on RPC-15 —
-overrides are a prerequisite — so it belongs after it in any plan.
+**RPC-17 — `eth_simulateV1` remains incomplete.**
+Verdict PARTIAL. Severity completeness and correctness.
+Ours dispatches multi-block, multi-call simulation from
+`src/api/public/state/call-simulation.lisp`. Reference: geth
+`internal/ethapi/simulate.go`; Nethermind serves it too. The pinned rpc-compat
+baseline still fails 92 simulate cases covering transfer tracing, richer state
+and precompile overrides, validation error codes, and exact synthetic-block
+progression. The method is therefore implemented but is not yet a conformance
+gate; RPC-15's override machinery remains a prerequisite for closing it.
 
 **RPC-18 — Blob-transaction receipts omit `blobGasUsed` and `blobGasPrice`.**
 Verdict MISSING. Severity correctness.
@@ -689,14 +692,13 @@ Ours: `engine-rpc-handle-txpool-inspect`
 parser matching geth's exact string fails. Included only because the method's
 entire contract is its string format.
 
-**RPC-33 — `eth_config` / chain-configuration introspection is absent.**
-Verdict MISSING. Severity completeness.
-Ours: no such method. Reference: geth implements EIP-7910 `eth_config` at
-`internal/ethapi/api.go:1275`, returning current/next/last fork descriptors with
-activation times, active precompiles, and the fork ID hash. Consequence: a
-caller must be told the chain configuration out of band rather than asking. This
-is the cheapest high-value method in the whole list, because everything it
-reports is already in `chain-config`.
+**RPC-33 — `eth_config` / chain-configuration introspection is implemented.**
+Verdict RESOLVED locally; pinned Hive rerun pending.
+`engine-rpc-handle-eth-config` returns EIP-7910 current/next/last descriptors
+with activation times, blob schedule, active precompiles, system contracts, and
+fork ID. The no-future-fork path now emits JSON null rather than an unencodable
+Lisp keyword. Focused and full cold unit tests cover both the scheduled and
+terminal-fork shapes; the external rpc-compat case remains an explicit gate.
 
 ### Transport and JSON-RPC conformance
 

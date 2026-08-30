@@ -13,7 +13,10 @@
   (parse-json-quantity-field object name :label name :required-p t))
 
 (defun json-rpc-hash32 (value label)
-  (unless (stringp value)
+  (unless (and (stringp value)
+               (= 66 (length value))
+               (char= (char value 0) #\0)
+               (member (char value 1) '(#\x #\X)))
     (invalid-parameters-fail "~A must be a hex hash" label))
   (handler-case
       (hash32-from-hex value)
