@@ -75,11 +75,6 @@
      transaction nil nil
      :expected-chain-id expected-chain-id)))
 
-(defun eth-rpc-json-array (items)
-  (if items
-      items
-      (make-array 0)))
-
 (defun eth-rpc-pending-transaction-objects
     (transactions &key expected-chain-id)
   (eth-rpc-json-array

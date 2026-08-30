@@ -2,6 +2,11 @@
 
 ;;;; Per-transaction JSON field formatting helpers.
 
+(defun eth-rpc-json-array (items)
+  (if items
+      items
+      (make-array 0)))
+
 (defun eth-rpc-address-or-null (address)
   (when address
     (address-to-hex address)))
@@ -10,11 +15,13 @@
   (list
    (cons "address" (address-to-hex (access-list-entry-address entry)))
    (cons "storageKeys"
-         (mapcar #'hash32-to-hex
-                 (access-list-entry-storage-keys entry)))))
+         (eth-rpc-json-array
+          (mapcar #'hash32-to-hex
+                  (access-list-entry-storage-keys entry))))))
 
 (defun eth-rpc-access-list-object (access-list)
-  (mapcar #'eth-rpc-access-list-entry-object access-list))
+  (eth-rpc-json-array
+   (mapcar #'eth-rpc-access-list-entry-object access-list)))
 
 (defun eth-rpc-set-code-authorization-object (authorization)
   (list
@@ -151,9 +158,10 @@
             (quantity-to-hex
              (blob-transaction-max-fee-per-blob-gas transaction)))
       (cons "blobVersionedHashes"
-            (mapcar #'hash32-to-hex
-                    (blob-transaction-blob-versioned-hashes
-                     transaction)))))
+            (eth-rpc-json-array
+             (mapcar #'hash32-to-hex
+                     (blob-transaction-blob-versioned-hashes
+                      transaction))))))
     (set-code-transaction
      (list
       (cons "accessList"
@@ -172,6 +180,7 @@
             (quantity-to-hex
              (set-code-transaction-max-priority-fee-per-gas transaction)))
       (cons "authorizationList"
-            (mapcar #'eth-rpc-set-code-authorization-object
-                    (set-code-transaction-authorization-list
-                     transaction)))))))
+            (eth-rpc-json-array
+             (mapcar #'eth-rpc-set-code-authorization-object
+                     (set-code-transaction-authorization-list
+                      transaction))))))))

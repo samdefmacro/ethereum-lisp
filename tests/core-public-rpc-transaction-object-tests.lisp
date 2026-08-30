@@ -48,7 +48,8 @@
                   "\"method\":\"eth_getTransactionByHash\","
                   "\"params\":[\"" tx-2-hash-hex "\"]}")
                  store
-                 config)))
+                 config)
+                :preserve-empty-arrays t))
              (transaction-result (field transaction-response "result"))
              (raw-response
                (parse-json
@@ -102,6 +103,8 @@
                      (field transaction-result "gasPrice")))
         (is (string= (quantity-to-hex 2)
                      (field transaction-result "type")))
+        (is (ethereum-lisp.json:json-empty-array-p
+             (field transaction-result "accessList")))
         (is (string= (bytes-to-hex (transaction-encoding tx-2))
                      (field raw-response "result")))
         (is (null (field missing-response "result")))
@@ -272,4 +275,3 @@
             (is (empty-object-p (field result "queued")))))
         (is (= 0 (length (field pending-filter-changes-response "result"))))
         (is (null (field by-hash-response "result")))))))
-
