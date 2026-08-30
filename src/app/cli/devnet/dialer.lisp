@@ -2267,7 +2267,9 @@ SYNCING or ACCEPTED, which gives the downloader a consensus-driven bound."
        (when target
          (values head-number head-hash
                  (block-header-number (block-header target))
-                 (block-hash target)))))))
+                 (block-hash target)
+                 (block-header-parent-hash (block-header target))
+                 target))))))
 
 (defun devnet-node-fill-sync-gaps-with-live-peer (node)
   "Schedule hash-origin gap filling on a live session writer."
@@ -2307,7 +2309,9 @@ SYNCING or ACCEPTED, which gives the downloader a consensus-driven bound."
                 (or (devnet-node-snap-sync-target node forkchoice-target)
                     (devnet-node-fill-sync-gaps-with-live-peer node)))
               (devnet-node-fill-sync-gaps-with-live-peer node))))))
-  (multiple-value-bind (head-number head-hash target-number target-hash)
+  (multiple-value-bind
+      (head-number head-hash target-number target-hash
+       target-parent-hash target-block)
       (devnet-node-consensus-forward-target node)
     (when target-number
       ;; newPayload makes a candidate available but does not publish CL
@@ -2320,19 +2324,35 @@ SYNCING or ACCEPTED, which gives the downloader a consensus-driven bound."
                     +devnet-snap-pivot-distance+)
                  (devnet-node-live-sync-entries node :snap-only-p t))
         (return-from devnet-node-multi-sync-pass nil))
-      (let ((sources (devnet-node-sync-peer-sources node)))
-        (when sources
+      ;; TARGET-BLOCK is already local: Engine newPayload is what created this
+      ;; bounded sync target.  Peers are only required to serve its missing
+      ;; ancestors.  Asking them for TARGET-NUMBER incorrectly rejects the
+      ;; legal TARGET-1 short response used by Hive/geth secondary nodes, then
+      ;; retries until Engine's invalid-ancestor deadline expires.
+      (let* ((ancestor-target-number (1- target-number))
+             (sources
+               (and (> ancestor-target-number head-number)
+                    (devnet-node-sync-peer-sources node))))
+        (when (or (= ancestor-target-number head-number) sources)
           (let ((count
-                  (eth-sync-download-blocks-multi
-                   sources
-                   (lambda (block)
-                     (devnet-peer-sync-import-block
-                      node block :require-valid-p t))
-                   :start-number (1+ head-number)
-                   :target-number target-number
-                   :expected-parent-hash head-hash
-                   :expected-target-hash target-hash
-                   :request-timeout-seconds 10)))
+                  (if (> ancestor-target-number head-number)
+                      (eth-sync-download-blocks-multi
+                       sources
+                       (lambda (block)
+                         (devnet-peer-sync-import-block
+                          node block :require-valid-p t))
+                       :start-number (1+ head-number)
+                       :target-number ancestor-target-number
+                       :expected-parent-hash head-hash
+                       :expected-target-hash target-parent-hash
+                       :request-timeout-seconds 10)
+                      0)))
+            ;; Reprocess the local Engine target only after its parent chain is
+            ;; available.  This is the seam that converts a downloaded invalid
+            ;; ancestor into an immediate Engine INVALID verdict.
+            (devnet-peer-sync-import-block
+             node target-block :require-valid-p t)
+            (incf count)
             (devnet-peer-manager-log
              node "peer.sync.multi_completed"
              "blocks" count "peers" (length sources)

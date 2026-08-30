@@ -2583,6 +2583,68 @@ really reopens the directory instead of observing the first handle's memory."
     (is (ethereum-lisp.cli::devnet-node-snap-target-required-p
          node (block-hash long-target)))))
 
+(deftest devnet-multi-sync-downloads-only-local-engine-target-ancestors
+  (:layer :unit :module :p2p)
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (store (ethereum-lisp.cli::devnet-node-store node))
+         (head-hash (chain-store-canonical-hash store 0))
+         (target-parent-hash
+           (make-hash32 (make-byte-vector 32 :initial-element 14)))
+         (target
+           (make-block
+            :header
+            (make-block-header
+             :parent-hash target-parent-hash
+             :number 15
+             :gas-limit 30000000
+             :timestamp 15)))
+         (target-imports 0)
+         (download-calls 0))
+    (ethereum-lisp.chain-store:engine-payload-store-put-remote-block
+     store target)
+    (devnet-peer-sync-call-with-function-overrides
+     (list
+      (cons 'ethereum-lisp.cli::devnet-node-forkchoice-sync-targets
+            (lambda (seen-node)
+              (is (eq node seen-node))
+              nil))
+      (cons 'ethereum-lisp.cli::devnet-node-sync-peer-sources
+            (lambda (seen-node)
+              (is (eq node seen-node))
+              (list :source)))
+      (cons 'ethereum-lisp.eth-sync:eth-sync-download-blocks-multi
+            (lambda (sources import-block
+                     &key start-number target-number expected-parent-hash
+                          expected-target-hash &allow-other-keys)
+              (declare (ignore import-block))
+              (is (equal sources (list :source)))
+              (is (= 1 start-number))
+              (is (= 14 target-number))
+              (is (hash32= head-hash expected-parent-hash))
+              (is (hash32= target-parent-hash expected-target-hash))
+              (incf download-calls)
+              14))
+      (cons 'ethereum-lisp.cli::devnet-peer-sync-import-block
+            (lambda (seen-node seen-block &key peer-id require-valid-p)
+              (is (eq node seen-node))
+              (is (hash32= (block-hash target) (block-hash seen-block)))
+              (is (null peer-id))
+              (is require-valid-p)
+              (incf target-imports)
+              (values
+               (make-payload-status :status +payload-status-valid+)
+               target nil)))
+      (cons 'ethereum-lisp.cli::devnet-peer-manager-log
+            (lambda (&rest arguments)
+              (declare (ignore arguments)))))
+     (lambda ()
+       (is (= 15 (ethereum-lisp.cli::devnet-node-multi-sync-pass node)))))
+    (is (= 1 download-calls))
+    (is (= 1 target-imports))))
+
 (deftest devnet-snap-target-downloads-only-the-bounded-pivot-tail
   (:layer :integration :module :p2p)
   (let* ((datadir
