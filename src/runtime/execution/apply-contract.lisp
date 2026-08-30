@@ -19,6 +19,7 @@
            (execution-chain-rules chain-rules chain-config block-number timestamp))
          (*transaction-floor-gas*
            (transaction-effective-floor-gas tx effective-chain-rules))
+         (*transaction-chain-rules* effective-chain-rules)
          (sender-account (execution-account-or-empty state sender))
          (contract (execution-create-address
                     sender

@@ -1,5 +1,17 @@
 (in-package #:ethereum-lisp.test)
 
+(deftest transaction-refund-cap-follows-london
+  (let ((receipt (make-receipt :status 1 :cumulative-gas-used 10000)))
+    (is (= 5000
+           (receipt-cumulative-gas-used
+            (ethereum-lisp.execution::apply-refund-counter-to-receipt
+             receipt 10000 (make-chain-rules :chain-id 1)))))
+    (is (= 8000
+           (receipt-cumulative-gas-used
+            (ethereum-lisp.execution::apply-refund-counter-to-receipt
+             receipt 10000
+             (make-chain-rules :chain-id 1 :london-p t)))))))
+
 (deftest legacy-message-revert-rolls-back-callee-effects
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))

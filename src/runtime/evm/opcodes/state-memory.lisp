@@ -66,7 +66,8 @@
            (fail "SSTORE requires an EVM context with state"))
          (when (evm-context-read-only-p context)
            (fail "SSTORE is not allowed in read-only EVM context"))
-         (when (and gas-limit
+         (when (and (context-istanbul-p context)
+                    gas-limit
                     (<= (evm-gas-budget-regular gas-budget)
                         +sstore-sentry-gas-eip2200+))
            (fail "SSTORE requires more than the EIP-2200 sentry gas"))
@@ -122,36 +123,12 @@
                                (= value original-value))
                       (incf refund-counter
                             +storage-write-amsterdam+)))
-                  (progn
-                    (evm-machine-charge-gas
-                     machine
-                     (sstore-dynamic-gas
-                      (storage-cold-access-surcharge
-                       context
-                       (evm-context-address context)
-                       slot-hash)
-                      original-value
-                      current-value
-                      value))
-                    (when (and (not (zerop original-value))
-                               (not (zerop current-value))
-                               (zerop value))
-                      (setf (gethash refund-key cleared-storage-slots) t)
-                      (incf refund-counter
-                            +sstore-clears-schedule-refund-eip3529+))
-                    (when (and (not (zerop original-value))
-                               (zerop current-value)
-                               (not (zerop value))
-                               (gethash refund-key cleared-storage-slots))
-                      (remhash refund-key cleared-storage-slots)
-                      (decf refund-counter
-                            +sstore-clears-schedule-refund-eip3529+))
-                    (when (and (/= current-value original-value)
-                               (= value original-value))
-                      (incf refund-counter
-                            (if (zerop original-value)
-                                +sstore-reset-original-zero-refund-eip3529+
-                                +sstore-reset-original-refund-eip3529+)))))
+                  (multiple-value-bind (gas refund-delta)
+                      (historical-sstore-gas-and-refund
+                       context original-value current-value value
+                       (evm-context-address context) slot-hash)
+                    (evm-machine-charge-gas machine gas)
+                    (incf refund-counter refund-delta)))
               (mark-storage-accessed
                context
                (evm-context-address context)
@@ -229,4 +206,3 @@
          (incf pc))
         (t
          (fail "Unsupported EVM opcode 0x~2,'0X at pc ~D" op pc))))))
-

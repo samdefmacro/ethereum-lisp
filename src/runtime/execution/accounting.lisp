@@ -56,11 +56,32 @@
     (when (plusp unused-gas)
       (state-db-add-balance state sender (* unused-gas gas-price)))))
 
-(defun apply-refund-counter-to-receipt (receipt refund-counter)
+(defvar *transaction-chain-rules* nil)
+
+(defun execution-london-or-later-p (rules)
+  (or (null rules)
+      (chain-rules-london-p rules)
+      (chain-rules-shanghai-p rules)
+      (chain-rules-cancun-p rules)
+      (chain-rules-prague-p rules)
+      (chain-rules-osaka-p rules)
+      (chain-rules-bpo1-p rules)
+      (chain-rules-bpo2-p rules)
+      (chain-rules-bpo3-p rules)
+      (chain-rules-bpo4-p rules)
+      (chain-rules-bpo5-p rules)
+      (chain-rules-amsterdam-p rules)
+      (chain-rules-ubt-p rules)))
+
+(defun apply-refund-counter-to-receipt
+    (receipt refund-counter &optional (chain-rules *transaction-chain-rules*))
   (if (plusp refund-counter)
       (let* ((gas-used (receipt-cumulative-gas-used receipt))
              (refund (min refund-counter
-                          (floor gas-used +refund-quotient-eip3529+))))
+                          (floor gas-used
+                                 (if (execution-london-or-later-p chain-rules)
+                                     +refund-quotient-eip3529+
+                                     +refund-quotient-legacy+)))))
         (make-receipt :type (receipt-type receipt)
                       :status (receipt-status receipt)
                       :cumulative-gas-used (- gas-used refund)

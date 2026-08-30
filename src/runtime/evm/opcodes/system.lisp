@@ -215,17 +215,22 @@
                    machine +account-write-amsterdam+)
                   (evm-machine-charge-state-gas
                    machine +new-account-state-gas+))
-                (unless (amsterdam-context-p context)
+                (when (and (not (amsterdam-context-p context))
+                           (context-eip150-p context))
                   (evm-machine-charge-gas machine
                    (selfdestruct-extra-gas
                     (evm-context-state context)
                     (evm-context-address context)
-                    beneficiary))))
+                    beneficiary
+                    :eip158-p (context-eip158-p context)))))
              ;; EIP-6780 (Cancun+): the account is deleted only when it was
              ;; created in this transaction; otherwise SELFDESTRUCT merely
              ;; transfers the balance. Pre-Cancun, deletion always applies.
              (let* ((rules (evm-context-chain-rules context))
                     (address (evm-context-address context))
+                    (already-selfdestructed-p
+                      (gethash (address-to-hex address)
+                               (evm-context-selfdestructed-addresses context)))
                     (created-p
                       (account-created-this-transaction-p context address))
                     (delete-p
@@ -238,6 +243,9 @@
                            ;; for SELFDESTRUCT when beneficiary is self.
                            (not (and rules
                                      (chain-rules-amsterdam-p rules))))))
+               (when (and (not (context-london-p context))
+                          (not already-selfdestructed-p))
+                 (incf refund-counter +selfdestruct-refund-gas+))
                (let ((transfer-log
                        (selfdestruct-account
                         (evm-context-state context)

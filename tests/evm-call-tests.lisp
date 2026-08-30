@@ -411,6 +411,46 @@
       (is (= 9 (state-account-balance (state-db-get-account state caller))))
       (is (= 1 (state-account-balance (state-db-get-account state callee)))))))
 
+(deftest evm-child-gas-forwarding-starts-at-eip150
+  (is (= 800
+         (ethereum-lisp.evm.internal::child-call-gas-limit
+          800 1000 100 :eip150-p nil)))
+  (signals evm-error
+    (ethereum-lisp.evm.internal::child-call-gas-limit
+     901 1000 100 :eip150-p nil))
+  (is (= 886
+         (ethereum-lisp.evm.internal::child-call-gas-limit
+          1000 1000 100 :eip150-p t)))
+  (is (= 6400
+         (ethereum-lisp.evm.internal::child-create-regular-gas-limit
+          6400 :eip150-p nil)))
+  (is (= 6300
+         (ethereum-lisp.evm.internal::child-create-regular-gas-limit
+          6400 :eip150-p t))))
+
+(deftest evm-selfdestruct-refund-is-removed-at-london
+  (let* ((state (make-state-db))
+         (contract (address-from-hex
+                    "0x00000000000000000000000000000000000000aa"))
+         (target (address-from-hex
+                  "0x00000000000000000000000000000000000000bb"))
+         (code (concat-bytes #(#x73) (address-bytes target) #(#xff))))
+    (let ((frontier
+            (execute-bytecode
+             code :context (make-evm-context
+                            :state state :address contract
+                            :chain-rules (make-chain-rules :chain-id 1))))
+          (london
+            (execute-bytecode
+             code :context (make-evm-context
+                            :state state :address contract
+                            :chain-rules
+                            (make-chain-rules :chain-id 1 :london-p t)))))
+      (is (= 3 (evm-result-gas-used frontier)))
+      (is (= 24000 (evm-result-refund-counter frontier)))
+      (is (= 7603 (evm-result-gas-used london)))
+      (is (= 0 (evm-result-refund-counter london))))))
+
 (deftest evm-call-value-stipend-discounts-child-selfdestruct-gas
   (let* ((state (make-state-db))
          (caller (address-from-hex "0x00000000000000000000000000000000000000aa"))

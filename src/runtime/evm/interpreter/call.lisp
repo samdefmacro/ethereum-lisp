@@ -95,13 +95,15 @@ merging are deliberately not configurable; those are shared EVM invariants."
                          +call-value-transfer-amsterdam+
                          (call-value-extra-gas
                           state code-address child-value
-                          :new-account-p new-account-p)))
+                          :new-account-p new-account-p
+                          :eip158-p (context-eip158-p context))))
                    (charged-value-gas
                      (if (and amsterdam-p (plusp child-value))
                          (- +call-value-transfer-amsterdam+ +call-stipend+)
                          (call-value-extra-gas
                           state code-address child-value
                           :new-account-p new-account-p
+                          :eip158-p (context-eip158-p context)
                           :stipend-discount-p (plusp child-value)))))
               (evm-machine-charge-call-value-gas
                machine required-value-gas charged-value-gas)
@@ -139,7 +141,8 @@ merging are deliberately not configurable; those are shared EVM invariants."
                        :stipend (if (and charge-value-gas-p
                                          (plusp child-value))
                                     +call-stipend+
-                                    0)))))
+                                    0)
+                       :eip150-p (context-eip150-p context)))))
             (multiple-value-bind
                 (success child-return-data child-gas-used
                  child-logs child-refund-counter child-state-gas-used)

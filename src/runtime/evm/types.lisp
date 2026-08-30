@@ -217,8 +217,13 @@
 (defconstant +new-account-state-gas+
   (* +state-bytes-per-new-account+ +cost-per-state-byte+))
 (defconstant +sstore-sentry-gas-eip2200+ 2300)
+(defconstant +sstore-load-gas-frontier+ 50)
+(defconstant +sstore-load-gas-eip150+ 200)
+(defconstant +sstore-load-gas-istanbul+ 800)
 (defconstant +sstore-set-gas-eip2200+ 20000)
 (defconstant +sstore-reset-gas-eip2200+ 5000)
+(defconstant +sstore-clear-refund-legacy+ 15000)
+(defconstant +selfdestruct-refund-gas+ 24000)
 (defconstant +sstore-clears-schedule-refund-eip3529+ 4800)
 (defconstant +sstore-reset-original-refund-eip3529+ 2800)
 (defconstant +sstore-reset-original-zero-refund-eip3529+ 19900)

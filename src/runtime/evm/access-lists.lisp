@@ -54,8 +54,9 @@
                snapshot))))
 
 (defun account-cold-access-surcharge (context address)
-  (if (gethash (account-access-key address)
-               (evm-context-accessed-addresses context))
+  (if (or (not (context-berlin-p context))
+          (gethash (account-access-key address)
+                   (evm-context-accessed-addresses context)))
       0
       (- (context-cold-account-access-cost context)
          +warm-storage-read-cost-eip2929+)))
@@ -71,22 +72,29 @@
     (mark-account-accessed context address)))
 
 (defun charge-cold-account-access-gas (context address charge-extra-gas)
-  (unless (gethash (account-access-key address)
-                   (evm-context-accessed-addresses context))
+  (unless (or (not (context-berlin-p context))
+              (gethash (account-access-key address)
+                       (evm-context-accessed-addresses context)))
     (funcall charge-extra-gas (context-cold-account-access-cost context))
     (mark-account-accessed context address)))
 
 (defun storage-access-cost (context address slot)
-  (let ((key (storage-access-key address slot)))
-    (if (gethash key (evm-context-accessed-storage context))
-        +warm-storage-read-cost-eip2929+
-        (context-cold-storage-access-cost context))))
+  (if (context-berlin-p context)
+      (let ((key (storage-access-key address slot)))
+        (if (gethash key (evm-context-accessed-storage context))
+            +warm-storage-read-cost-eip2929+
+            (context-cold-storage-access-cost context)))
+      (cond ((context-istanbul-p context) +sstore-load-gas-istanbul+)
+            ((context-eip150-p context) +sstore-load-gas-eip150+)
+            (t +sstore-load-gas-frontier+))))
 
 (defun storage-cold-access-surcharge (context address slot)
-  (let ((key (storage-access-key address slot)))
-    (if (gethash key (evm-context-accessed-storage context))
-        0
-        (context-cold-storage-access-cost context))))
+  (if (not (context-berlin-p context))
+      0
+      (let ((key (storage-access-key address slot)))
+        (if (gethash key (evm-context-accessed-storage context))
+            0
+            (context-cold-storage-access-cost context)))))
 
 (defun mark-storage-accessed (context address slot)
   (setf (gethash (storage-access-key address slot)

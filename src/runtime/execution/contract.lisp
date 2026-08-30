@@ -30,4 +30,5 @@
 (defconstant +max-account-nonce+ (1- (ash 1 64)))
 (defconstant +max-transaction-gas-limit+ (1- (ash 1 64)))
 (defconstant +refund-quotient-eip3529+ 5)
+(defconstant +refund-quotient-legacy+ 2)
 (defconstant +set-code-existing-account-refund+ 12500)

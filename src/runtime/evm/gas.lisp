@@ -65,10 +65,17 @@
 (defun all-but-one-64th (gas)
   (- gas (floor gas 64)))
 
-(defun child-call-gas-limit (requested gas-limit gas-used &key (stipend 0))
+(defun child-call-gas-limit
+    (requested gas-limit gas-used &key (stipend 0) (eip150-p t))
   (+ stipend
      (if gas-limit
-         (min requested (all-but-one-64th (remaining-gas gas-limit gas-used)))
+         (let ((available (remaining-gas gas-limit gas-used)))
+           (if eip150-p
+               (min requested (all-but-one-64th available))
+               (progn
+                 (when (> requested available)
+                   (fail "CALL gas exceeds available gas before EIP-150"))
+                 requested)))
          requested)))
 
 (defun child-create-gas-limit (gas-limit gas-used)
@@ -78,5 +85,7 @@
 (defun child-call-regular-gas-limit (requested regular-left &key (stipend 0))
   (+ stipend (min requested (all-but-one-64th regular-left))))
 
-(defun child-create-regular-gas-limit (regular-left)
-  (all-but-one-64th regular-left))
+(defun child-create-regular-gas-limit (regular-left &key (eip150-p t))
+  (if eip150-p
+      (all-but-one-64th regular-left)
+      regular-left))

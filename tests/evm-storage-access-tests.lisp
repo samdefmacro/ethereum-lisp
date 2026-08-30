@@ -29,6 +29,63 @@
                                                    :address address)
                         :gas-limit 2205))))
 
+(deftest evm-historical-account-and-storage-opcode-gas-follows-forks
+  (let* ((state (make-state-db))
+         (contract (address-from-hex
+                    "0x00000000000000000000000000000000000000aa"))
+         (target (address-from-hex
+                  "0x00000000000000000000000000000000000000bb"))
+         (balance-code (concat-bytes #(#x73) (address-bytes target) #(#x31 #x00)))
+         (sload-code #(#x60 #x01 #x54 #x00))
+         (frontier (make-chain-rules :chain-id 1))
+         (eip150 (make-chain-rules :chain-id 1 :eip150-p t))
+         (istanbul (make-chain-rules :chain-id 1 :istanbul-p t))
+         (berlin (make-chain-rules :chain-id 1 :berlin-p t)))
+    (state-db-set-account state target (make-state-account :balance 7))
+    (flet ((gas (code rules)
+             (evm-result-gas-used
+              (execute-bytecode
+               code :context (make-evm-context :state state
+                                                :address contract
+                                                :chain-rules rules)))))
+      (is (= 23 (gas balance-code frontier)))
+      (is (= 403 (gas balance-code eip150)))
+      (is (= 703 (gas balance-code istanbul)))
+      (is (= 2603 (gas balance-code berlin)))
+      (is (= 53 (gas sload-code frontier)))
+      (is (= 203 (gas sload-code eip150)))
+      (is (= 803 (gas sload-code istanbul)))
+      (is (= 2103 (gas sload-code berlin))))))
+
+(deftest evm-historical-sstore-metering-follows-forks
+  (let ((address (address-from-hex
+                  "0x00000000000000000000000000000000000000aa"))
+        ;; slot 1 := 1; slot 1 := 0; STOP.
+        (code #(#x60 #x01 #x60 #x01 #x55
+                #x60 #x00 #x60 #x01 #x55 #x00)))
+    (flet ((run (rules)
+             (execute-bytecode
+              code :context (make-evm-context :state (make-state-db)
+                                               :address address
+                                               :chain-rules rules))))
+      (let ((frontier (run (make-chain-rules :chain-id 1)))
+            (constantinople
+              (run (make-chain-rules :chain-id 1 :constantinople-p t)))
+            (petersburg
+              (run (make-chain-rules :chain-id 1 :petersburg-p t)))
+            (istanbul (run (make-chain-rules :chain-id 1 :istanbul-p t)))
+            (london (run (make-chain-rules :chain-id 1 :london-p t))))
+        (is (= 25012 (evm-result-gas-used frontier)))
+        (is (= 15000 (evm-result-refund-counter frontier)))
+        (is (= 20212 (evm-result-gas-used constantinople)))
+        (is (= 19800 (evm-result-refund-counter constantinople)))
+        (is (= 25012 (evm-result-gas-used petersburg)))
+        (is (= 15000 (evm-result-refund-counter petersburg)))
+        (is (= 20812 (evm-result-gas-used istanbul)))
+        (is (= 19200 (evm-result-refund-counter istanbul)))
+        (is (= 22212 (evm-result-gas-used london)))
+        (is (= 19900 (evm-result-refund-counter london)))))))
+
 (deftest evm-sload-revert-restores-warm-storage-slot
   (let* ((state (make-state-db))
          (address (address-from-hex "0x00000000000000000000000000000000000000aa"))

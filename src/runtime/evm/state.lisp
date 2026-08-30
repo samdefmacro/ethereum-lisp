@@ -13,19 +13,24 @@
                      (hash32-bytes +empty-code-hash+))))))
 
 (defun call-value-extra-gas
-    (state callee value &key new-account-p stipend-discount-p)
+    (state callee value &key new-account-p stipend-discount-p (eip158-p t))
   (let ((gas 0))
     (when (plusp value)
       (incf gas +call-value-transfer-gas+)
-      (when (and new-account-p (empty-account-p state callee))
+      (when (and new-account-p
+                 (if eip158-p
+                     (empty-account-p state callee)
+                     (null (state-db-get-account state callee))))
         (incf gas +call-new-account-gas+))
       (when stipend-discount-p
         (setf gas (max 0 (- gas +call-stipend+)))))
     gas))
 
-(defun selfdestruct-extra-gas (state contract beneficiary)
+(defun selfdestruct-extra-gas (state contract beneficiary &key (eip158-p t))
   (if (and (plusp (account-balance state contract))
-           (empty-account-p state beneficiary))
+           (if eip158-p
+               (empty-account-p state beneficiary)
+               (null (state-db-get-account state beneficiary))))
       +call-new-account-gas+
       0))
 

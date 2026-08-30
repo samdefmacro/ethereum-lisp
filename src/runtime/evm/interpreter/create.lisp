@@ -22,7 +22,8 @@
          (child-gas-limit
            (and (evm-machine-gas-limit machine)
                 (child-create-regular-gas-limit
-                 (evm-machine-regular-gas-left machine))))
+                 (evm-machine-regular-gas-left machine)
+                 :eip150-p (context-eip150-p context))))
          (child-started-p nil)
          (child-gas-used 0)
          (child-state-gas-used 0)
@@ -49,7 +50,8 @@
          (setf child-gas-limit
                (and (evm-machine-gas-limit machine)
                     (child-create-regular-gas-limit
-                     (evm-machine-regular-gas-left machine)))))
+                     (evm-machine-regular-gas-left machine)
+                     :eip150-p (context-eip150-p context)))))
        (if (contract-address-collision-p state new-address)
         (progn
           (setf child-gas-used (or child-gas-limit 0))

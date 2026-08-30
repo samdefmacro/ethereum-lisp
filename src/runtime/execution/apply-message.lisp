@@ -21,7 +21,8 @@
           (execution-chain-rules chain-rules chain-config block-number timestamp))
          (transaction-snapshot (state-db-snapshot state))
          (*transaction-floor-gas*
-           (transaction-effective-floor-gas tx effective-chain-rules)))
+           (transaction-effective-floor-gas tx effective-chain-rules))
+         (*transaction-chain-rules* effective-chain-rules))
     (validate-execution-transaction-fields
      tx effective-chain-rules blob-base-fee)
     (validate-transaction-sender-code state sender)
