@@ -970,10 +970,11 @@ if [ -n "$stale_lines" ]; then
         "$(( stale_total - stale_classified ))"
 fi
 # Failure messages can contain peers, hashes, or response fragments and must
-# never cross the control-plane boundary.  Publish only a small fixed taxonomy
-# so an operator can distinguish ordinary pruning/timeout churn from a local
-# validation or persistence regression without exporting raw container logs.
-for event in peer.snap.dependency_failed peer.snap.import_failed peer.snap.storage_failed
+# never cross the control-plane boundary. Publish only a small fixed taxonomy.
+# Local database faults never reach dependency_failed: the importer re-signals
+# STORAGE-ERROR and emits peer.snap.storage_failed instead. Do not classify a
+# dependency as "storage" merely because its request lane is StorageRanges.
+for event in peer.snap.dependency_failed peer.snap.import_failed
 do
     failure_lines="$(grep -F "$event" "$el_log" || true)"
     [ -n "$failure_lines" ] || continue
@@ -981,24 +982,31 @@ do
     # "storage"), not the reason it failed.  Classify the error field only.
     failure_errors="$(printf '%s\n' "$failure_lines" |
         sed -n 's/.*("error" \. "\([^"]*\)").*/\1/p')"
-    for class in state-unavailable timeout validation storage unknown
-    do
-        case "$class" in
-            state-unavailable) pattern='state unavailable' ;;
-            timeout) pattern='timeout' ;;
-            validation) pattern='validation' ;;
-            storage) pattern='storage' ;;
-            unknown) pattern='' ;;
-        esac
-        if [ -n "$pattern" ]; then
-            count="$(printf '%s\n' "$failure_errors" | grep -F -i -c "$pattern" || true)"
-        else
-            count="$(printf '%s\n' "$failure_errors" | \
-                grep -E -i -v 'state unavailable|timeout|validation|storage' | \
-                wc -l | tr -d ' ')"
-        fi
-        printf 'el-snap-failure event=%s class=%s count=%s\n' "$event" "$class" "$count"
-    done
+    printf '%s\n' "$failure_errors" | awk -v event="$event" '
+        {
+            line = tolower($0)
+            if (line ~ /all snap .* sources failed/) {
+                class = "sources-exhausted"
+            } else if (index(line, "does not have the requested")) {
+                class = "state-unavailable"
+            } else if (index(line, "timeout")) {
+                class = "timeout"
+            } else if (index(line, "peer session closed")) {
+                class = "peer-session"
+            } else if (line ~ /invalid|mismatch|malformed|did not|no longer matches|unknown task|wrong size|underflow/) {
+                class = "validation"
+            } else {
+                class = "unknown"
+            }
+            counts[class]++
+        }
+        END {
+            count = split("state-unavailable timeout peer-session sources-exhausted validation unknown", order)
+            for (i = 1; i <= count; i++) {
+                class = order[i]
+                printf "el-snap-failure event=%s class=%s count=%d\n", event, class, counts[class] + 0
+            }
+        }'
 done
 discovery_crawl="$(grep -F 'peer.discovery.crawl' "$el_log" | tail -1 || true)"
 if [ -n "$discovery_crawl" ]; then

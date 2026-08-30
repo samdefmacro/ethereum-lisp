@@ -1071,7 +1071,11 @@ waits up to 600 wall-clock seconds for public RPC by default, fails early if
 the container exits, and accepts a bounded 30--1800 second override through
 `HOODI_GATE_RESTART_READY_TIMEOUT`.
 
-`logs` never prints a raw peer event. In addition to event counts and the
+`logs` never prints a raw peer event. Dependency and import failures are reduced
+to mutually exclusive `state-unavailable`, `timeout`, `peer-session`,
+`sources-exhausted`, `validation`, or `unknown` counts. Local database faults
+are not inferred from a StorageRanges lane name: they have the separate
+`peer.snap.storage_failed` event count. In addition to event counts and the
 schema-bounded allocation-profiler rows, it extracts only decimal fields from
 the latest identity-free `peer.snap.storage_profile` event and latest numeric
 SNAP source-refresh event. Stale-pivot evidence is reduced to counts for the
