@@ -330,6 +330,12 @@ so execution only fails if EVM code actually queries unavailable history."
             :header header
             :chain-config config
             :ommers (block-ommers block)
+            ;; Imported blocks always pass through consensus finalization.
+            ;; Ethash finalization credits block and ommer rewards; the same
+            ;; helper is a no-op for a post-Merge header.  This mirrors geth's
+            ;; StateProcessor -> Engine.Finalize boundary and keeps historical
+            ;; P2P/offline imports from silently omitting PoW rewards.
+            :apply-block-rewards-p t
             :state-available-p state-available-p
             ;; Engine imports are hash-addressed candidates. Consensus selects
             ;; the canonical view later through forkchoiceUpdated.

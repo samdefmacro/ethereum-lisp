@@ -5980,7 +5980,22 @@ loop cannot block on a message that never comes."
           (chain-config-terminal-total-difficulty-passed config) nil
           (block-header-difficulty (block-header block))
           (expected-ethash-difficulty
-           config timestamp (block-header genesis)))
+           config timestamp (block-header genesis))
+          (block-header-state-root (block-header block)) nil)
+    ;; The ordinary builder above produced a post-Merge state root. Re-execute
+    ;; after turning the fixture into PoW so its commitment includes the block
+    ;; reward that consensus finalization now correctly applies on import.
+    (setf block
+          (execute-signed-block
+           (chain-store-state-db
+            (ethereum-lisp.cli::devnet-node-store node)
+            (block-hash genesis))
+           '()
+           :expected-chain-id (chain-config-chain-id config)
+           :header (block-header block)
+           :parent-header (block-header genesis)
+           :chain-config config
+           :apply-block-rewards-p t))
     (let ((ethereum-lisp.consensus:*ethash-seal-verifier*
             (lambda (header)
               (declare (ignore header))

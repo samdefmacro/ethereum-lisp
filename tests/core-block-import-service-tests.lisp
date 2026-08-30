@@ -69,6 +69,48 @@
   (execution-payload-envelope-execution-payload
    (block-to-executable-data block)))
 
+(deftest engine-payload-executor-finalizes-proof-of-work-rewards
+  "Historical block imports include consensus rewards before root validation."
+  (let* ((store (make-engine-payload-memory-store))
+         (config (make-chain-config :chain-id 1 :homestead-block 0))
+         (coinbase
+           (address-from-hex
+            "0x00000000000000000000000000000000000000cb"))
+         (parent-state (make-state-db))
+         (parent
+           (make-block
+            :header
+            (make-block-header
+             :state-root (state-db-root parent-state)
+             :number 0
+             :gas-limit 30000000
+             :difficulty #x20000)))
+         (expected-state (state-db-copy parent-state))
+         (child
+           (execute-signed-block
+            expected-state
+            '()
+            :expected-chain-id 1
+            :header
+            (make-block-header
+             :parent-hash (block-hash parent)
+             :beneficiary coinbase
+             :number 1
+             :gas-limit 30000000
+             :timestamp 1
+             :difficulty #x20000)
+            :chain-config config
+            :apply-block-rewards-p t)))
+    (engine-payload-store-put-block store parent :state-available-p t)
+    (commit-state-db-to-chain-store store (block-hash parent) parent-state)
+    (execute-and-commit-engine-payload store child config)
+    (let ((committed
+            (chain-store-state-db store (block-hash child))))
+      (is committed)
+      (is (= 5000000000000000000
+             (state-account-balance
+              (state-db-get-account committed coinbase)))))))
+
 (deftest block-import-private-candidate-stays-detached
   (multiple-value-bind (store config parent child)
       (block-import-test-fixture)
