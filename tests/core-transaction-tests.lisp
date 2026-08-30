@@ -415,6 +415,39 @@
     (setf (access-list-transaction-r access) 0)
     (is (null (transaction-sender access :expected-chain-id 1)))))
 
+(deftest transaction-derived-cache-reuses-and-invalidates
+  (let ((transaction
+          (make-dynamic-fee-transaction
+           :chain-id 1
+           :nonce 1
+           :max-priority-fee-per-gas 0
+           :max-fee-per-gas #x0fa0
+           :gas-limit #x84d0
+           :to (address-from-hex
+                "0x1111111111111111111111111111111111111111")
+           :value 0
+           :data #()
+           :y-parity 1
+           :r #xb7dfab36232379bb3d1497a4f91c1966b1f932eae3ade107bf5d723b9cb474e0
+           :s #x6261c359a10f2132f126d250485b90cf20f30340801244a08ef6142ab33d1904)))
+    (let ((first-hash (transaction-hash transaction))
+          (second-hash (transaction-hash transaction))
+          (first-sender
+            (transaction-sender transaction :expected-chain-id 1))
+          (second-sender
+            (transaction-sender transaction :expected-chain-id 1)))
+      ;; Reuse the derived objects themselves; equal values alone would not
+      ;; prove that Keccak and secp recovery were skipped.
+      (is (eq first-hash second-hash))
+      (is (eq first-sender second-sender))
+      ;; Transaction structs remain mutable.  A signature-field change alters
+      ;; the canonical encoding, invalidates both cached values, and must not
+      ;; return the formerly valid sender.
+      (setf (dynamic-fee-transaction-r transaction) 0)
+      (is (not (eq first-hash (transaction-hash transaction))))
+      (is (null
+           (transaction-sender transaction :expected-chain-id 1))))))
+
 (deftest blob-and-set-code-transaction-sender-recovery
   (labels ((uint (bytes) (bytes-to-integer bytes))
            (address (bytes) (make-address bytes))

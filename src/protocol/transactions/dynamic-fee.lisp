@@ -24,7 +24,8 @@
   (access-list '() :type list)
   (y-parity 0 :type (integer 0 *))
   (r 0 :type (integer 0 *))
-  (s 0 :type (integer 0 *)))
+  (s 0 :type (integer 0 *))
+  (computation-cache (make-transaction-computation-cache)))
 
 (defun dynamic-fee-transaction-payload (transaction)
   (make-rlp-list

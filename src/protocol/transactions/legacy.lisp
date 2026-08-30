@@ -5,6 +5,21 @@
 (defconstant +transaction-max-rlp-list-items+ 65536
   "Per-list bound for untrusted typed transaction payloads.")
 
+(defstruct (transaction-computation-cache
+            (:constructor make-transaction-computation-cache))
+  "Derived values for one transaction object.
+
+The owning transaction structs are intentionally mutable for builders and test
+vectors.  Callers therefore compare ENCODING with the transaction's current
+canonical encoding before trusting HASH or SENDER; a field or byte-vector
+mutation invalidates both without requiring custom SETF methods for every
+envelope slot."
+  encoding
+  hash
+  sender-expected-chain-id
+  sender
+  sender-cached-p)
+
 (defstruct (legacy-transaction (:constructor make-legacy-transaction
                                   (&key (nonce 0)
                                         (gas-price 0)
@@ -23,7 +38,8 @@
   (data (make-byte-vector 0))
   (v 0 :type (integer 0 *))
   (r 0 :type (integer 0 *))
-  (s 0 :type (integer 0 *)))
+  (s 0 :type (integer 0 *))
+  (computation-cache (make-transaction-computation-cache)))
 
 (defun transaction-recipient-bytes (to)
   (etypecase to

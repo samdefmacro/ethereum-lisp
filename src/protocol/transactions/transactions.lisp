@@ -93,6 +93,35 @@
   (blob-transaction (blob-transaction-encoding transaction))
   (set-code-transaction (set-code-transaction-encoding transaction)))
 
+(define-transaction-reader transaction-computation-cache
+  (legacy-transaction
+   (legacy-transaction-computation-cache transaction))
+  (access-list-transaction
+   (access-list-transaction-computation-cache transaction))
+  (dynamic-fee-transaction
+   (dynamic-fee-transaction-computation-cache transaction))
+  (blob-transaction
+   (blob-transaction-computation-cache transaction))
+  (set-code-transaction
+   (set-code-transaction-computation-cache transaction)))
+
+(defun transaction-refresh-computation-cache (transaction)
+  "Return current canonical encoding and a mutation-safe derived-value cache."
+  (let* ((encoding (transaction-encoding transaction))
+         (cache (transaction-computation-cache transaction))
+         (cached-encoding
+           (transaction-computation-cache-encoding cache)))
+    (unless (and cached-encoding (bytes= cached-encoding encoding))
+      ;; COPY-SEQ prevents a caller mutating a transaction DATA vector from
+      ;; changing both sides of the comparison through shared storage.
+      (setf (transaction-computation-cache-encoding cache)
+            (copy-seq encoding)
+            (transaction-computation-cache-hash cache) nil
+            (transaction-computation-cache-sender cache) nil
+            (transaction-computation-cache-sender-expected-chain-id cache) nil
+            (transaction-computation-cache-sender-cached-p cache) nil))
+    (values encoding cache)))
+
 (defun transaction-from-encoding (bytes)
   (let ((bytes (ensure-byte-vector bytes)))
     (when (zerop (length bytes))
@@ -123,7 +152,11 @@ canonical transaction encodings."
         (values (transaction-from-encoding bytes) nil))))
 
 (defun transaction-hash (transaction)
-  (keccak-256-hash (transaction-encoding transaction)))
+  (multiple-value-bind (encoding cache)
+      (transaction-refresh-computation-cache transaction)
+    (or (transaction-computation-cache-hash cache)
+        (setf (transaction-computation-cache-hash cache)
+              (keccak-256-hash encoding)))))
 
 (defun typed-transaction-sender
     (chain-id y-parity r s signing-hash &key expected-chain-id)
@@ -176,7 +209,24 @@ canonical transaction encodings."
 
 (defmacro define-transaction-sender-method (type function)
   `(defmethod transaction-sender ((transaction ,type) &key expected-chain-id)
-     (,function transaction :expected-chain-id expected-chain-id)))
+     (multiple-value-bind (encoding cache)
+         (transaction-refresh-computation-cache transaction)
+       (declare (ignore encoding))
+       (if (and
+            (transaction-computation-cache-sender-cached-p cache)
+            (eql
+             expected-chain-id
+             (transaction-computation-cache-sender-expected-chain-id cache)))
+           (transaction-computation-cache-sender cache)
+           (let ((sender
+                   (,function transaction
+                              :expected-chain-id expected-chain-id)))
+             (setf
+              (transaction-computation-cache-sender-expected-chain-id cache)
+              expected-chain-id
+              (transaction-computation-cache-sender cache) sender
+              (transaction-computation-cache-sender-cached-p cache) t)
+             sender)))))
 
 (define-transaction-sender-method
   legacy-transaction legacy-transaction-sender)

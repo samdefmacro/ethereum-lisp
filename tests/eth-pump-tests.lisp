@@ -11,6 +11,7 @@
 (defun eth-pump-test-action (&key (policy (make-eth-pump-policy))
                                   (last-read 0) (last-ping 0) (last-drain 0)
                                   (now 0) readable-p stop-p drainable-p
+                                  urgent-drainable-p
                                   request-p chain-update-p broadcast-p)
   (let ((state (make-eth-pump-state)))
     (setf (eth-pump-state-last-read-at state) last-read
@@ -19,6 +20,7 @@
     (eth-pump-next-action policy state now
                           :readable-p readable-p :stop-p stop-p
                           :request-p request-p :drainable-p drainable-p
+                          :urgent-drainable-p urgent-drainable-p
                           :chain-update-p chain-update-p
                           :broadcast-p broadcast-p)))
 
@@ -45,6 +47,12 @@
   (is (eq :read (eth-pump-test-action :readable-p t)))
   (is (eq :read (eth-pump-test-action :readable-p t :now 20)))
   (is (eq :read (eth-pump-test-action :readable-p t :drainable-p t :now 20)))
+  ;; An omitted eth/72 blob is not merely periodic gossip: it cannot be
+  ;; admitted until GetCells completes and must not starve behind a peer that
+  ;; keeps the descriptor readable.
+  (is (eq :drain
+          (eth-pump-test-action :readable-p t :drainable-p t
+                                :urgent-drainable-p t :now 3)))
   ;; ...and in particular, a peer whose data is already waiting can never be
   ;; timed out as idle.
   (is (eq :read (eth-pump-test-action :readable-p t :now 100000)))

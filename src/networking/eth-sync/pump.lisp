@@ -76,8 +76,8 @@ requirement and not a parity claim. An interval of NIL turns that behavior off."
   (and interval (>= (- now last-at) interval)))
 
 (defun eth-pump-next-action (policy state now &key readable-p stop-p request-p
-                                                   drainable-p chain-update-p
-                                                   broadcast-p)
+                                                   drainable-p urgent-drainable-p
+                                                   chain-update-p broadcast-p)
   "The one thing a session should do next. Pure: no clock, no socket, no state
 mutation.
 
@@ -94,6 +94,15 @@ gate."
   (cond
     (stop-p :stop)
     (request-p :request)
+    ;; An eth/72 pooled wrapper without its payload cannot enter the pool.  A
+    ;; talkative peer can keep READABLE-P true indefinitely, so its GetCells
+    ;; fetch is a correctness dependency rather than ordinary periodic gossip.
+    ;; ETH-PEER-AWAIT still consumes and serves interleaved messages while the
+    ;; sole writer waits for the cell response.
+    ((and urgent-drainable-p
+          (eth-pump-due-p (eth-pump-policy-drain-interval-seconds policy)
+                          (eth-pump-state-last-drain-at state) now))
+     :drain)
     (readable-p :read)
     ((eth-pump-due-p (eth-pump-policy-idle-timeout-seconds policy)
                      (eth-pump-state-last-read-at state) now)
@@ -186,6 +195,8 @@ how a caller observes the session without this file knowing what telemetry is."
                           (plusp (eth-peer-announced-hash-count peer))
                           (plusp
                            (eth-peer-pending-blob-cell-fetch-count peer)))
+                      :urgent-drainable-p
+                      (plusp (eth-peer-pending-blob-cell-fetch-count peer))
                       :chain-update-p (and chain-update t)
                       :broadcast-p (and broadcast t))))
         (when on-event (funcall on-event action))
