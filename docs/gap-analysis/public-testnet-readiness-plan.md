@@ -457,8 +457,9 @@ The implementation boundary is split deliberately:
   `engine_getBlobsV3` remained at most 4 ms, `engine_newPayloadV4` at most
   920 ms, and `engine_forkchoiceUpdatedV3` at most 1,076 ms. This is exact-image
   upgrade, liveness, and same-datadir restart evidence. At the time it did not
-  substitute for the final empty-datadir run; the completion evidence below now
-  records that separate gate.
+  substitute for the final empty-datadir run. That separate completion gate
+  remains open until the fresh run below records target and healer completion,
+  `eth_syncing=false`, and a canonical head at or beyond its authorized target.
 - `src/networking/eth-sync/sync.lisp` supplies the bounded downloader, while
   `src/app/cli/devnet/dialer.lisp` owns the continuous coordinator. Work is
   authorized by an Engine target hash, delivered through each session's sole
