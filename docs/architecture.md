@@ -451,11 +451,13 @@ them by their physical location instead reintroduces dependency cycles:
   Fresh empty stores additionally adopt geth's exact hash-scheme completion
   invariant from commit `38271784c2b31926563806da9a2e023b88f5e7a8`, specifically
   `trie/sync.go` `AddSubTrie`, `children`, `hasNode`, and `commitNodeRequest`:
-  for storage tries: presence of a hash means its descendant storage nodes were
-  durable before its parent became complete. Account-node presence alone is
-  not a closure proof because an account leaf can name code and a storage root
-  outside that trie. Account subtrees therefore use the dependency-carrying
-  healed-subtree proof instead of the node-local negative-marker shortcut. Range
+  presence of a hash means its descendant trie nodes were durable before its
+  parent became complete. Account leaves also name code and storage roots
+  outside that trie, so this client strengthens hash presence with its epoch-
+  three negative-marker lifecycle: an account marker is cleared only after
+  those external dependencies are durable. Account subtrees may additionally
+  publish a dependency-carrying coarse proof, but an unmarked epoch-three
+  account node is itself a complete closure shortcut. Range
   proof-edge nodes and other authenticated-but-open records are written with a
   hash-keyed negative `incomplete` marker in the same batch. Fully reconstructed
   interior groups need no per-node positive metadata. A fetched TrieNodes record
@@ -465,8 +467,8 @@ them by their physical location instead reintroduces dependency cycles:
   flushed before a checkpoint, subtree proof, yield, or final completion. A
   crash before the delete merely repeats safe traversal. Progress version five
   records whether this contract was requested, while the database marker's
-  third closure epoch proves that the storage-only negative-node semantics
-  actually own the store. The first epoch could close a storage root before
+  third closure epoch proves that the account-and-storage negative-node
+  semantics actually own the store. The first epoch could close a storage root before
   descendant closure, and the second could close an account node before the
   external dependencies named by its leaves. Both epochs are recognized but
   never trusted after upgrade: their trie content remains reusable, while
@@ -730,10 +732,10 @@ them by their physical location instead reintroduces dependency cycles:
   value/presence/decoded order, and propagates the earliest worker-slice failure
   before mutating the DFS frontier; small batches and memory/file stores retain
   the same ordered generic fallback. Under the version-five,
-  closure-epoch-three complete-node contract, a locally present storage hash
-  without an `incomplete` marker is hash-checked and closes that exact DFS
-  branch without RLP decoding. Account nodes, marked storage nodes, and legacy
-  nodes retain the ordered decode and dependency walk. A content-hash-
+  closure-epoch-three complete-node contract, a locally present account or
+  storage hash without an `incomplete` marker is hash-checked and closes that
+  exact DFS branch without RLP decoding. Marked nodes and legacy nodes retain
+  the ordered decode and dependency walk. A content-hash-
   and path-matched remote
   response is decoded in full before any of its entries are staged, then its
   decoded nodes are retained in a bounded in-memory response cache alongside

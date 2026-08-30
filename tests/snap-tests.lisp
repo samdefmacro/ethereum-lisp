@@ -7456,11 +7456,9 @@
 
 (deftest snap-state-healer-uses-geth-complete-node-difference-frontier
   (:layer :integration :module :p2p)
-  ;; Geth's hash scheme stops at any locally present storage node because a
-  ;; storage trie has no dependencies outside its own descendants. Account
-  ;; nodes deliberately do not use this shortcut: their leaves can name code
-  ;; and storage roots. Compare the exact storage-node difference frontier
-  ;; with the conservative walk over the same stored trie.
+  ;; Keep the account branch explicitly incomplete because its leaf names the
+  ;; changed storage root. The complete-node shortcut must stop only at the
+  ;; locally closed storage branches and retain the exact difference frontier.
   (let* ((state (make-state-db))
          (address (snap-test-address-from-integer 1))
          (account-hash
@@ -7505,6 +7503,9 @@
            batch second-root (cons account-hash second-storage-root))
           (ethereum-lisp.snap-sync::snap-sync-populate-deferred-storage-plan-batch
            batch second-root)
+          (when (eq database exact-database)
+            (ethereum-lisp.snap-sync::snap-sync-populate-incomplete-records-batch
+             batch (mapcar #'car account-records)))
           (kv-apply-batch database batch)))
       (labels ((progress (seed complete-node-scheme-p)
                  (ethereum-lisp.snap-sync::snap-sync-make-progress
@@ -7549,21 +7550,124 @@
             (is (plusp exact-skipped))
             (is (= exact-fetched legacy-fetched))
             (is (< exact-processed legacy-processed))
+            ;; Unreachable negative markers from the synthetic dirty-record
+            ;; set may remain conservatively. The newly healed storage root
+            ;; itself must have crossed its completion sentinel.
             (is
              (zerop
-              (hash-table-count
-               (ethereum-lisp.snap-sync::snap-sync-load-incomplete-nodes
-                exact-database))))
+              (aref
+               (ethereum-lisp.snap-sync::snap-sync-incomplete-nodes-present
+                exact-database
+                (vector (hash32-bytes second-storage-root)))
+               0)))
             ;; The mutation control is quantitative: removing the complete-
             ;; storage-node branch makes both runs decode the same full trie.
             (is (< (* 8 exact-processed) legacy-processed))))))))
 
+(deftest snap-state-healer-reuses-complete-account-node-difference-frontier
+  (:layer :integration :module :p2p)
+  ;; Epoch three's durable negative-marker contract covers account-node
+  ;; descendants and the code/storage dependencies named by their leaves.
+  ;; Once those markers are cleared, a later pivot may use hash presence just
+  ;; like geth's hash-scheme state scheduler and descend only through the
+  ;; changed account path.
+  (let ((first-state (make-state-db)))
+    (loop for index from 1 to 2048
+          do (state-db-set-account
+              first-state (snap-test-address-from-integer index)
+              (make-state-account :nonce index :balance (+ 100000 index))))
+    (let* ((second-state (state-db-copy first-state))
+           (changed-address (snap-test-address-from-integer 1))
+           (first-root (state-db-root first-state))
+           (second-root
+             (progn
+               (state-db-set-account
+                second-state changed-address
+                (make-state-account :nonce 9999 :balance 777777))
+               (state-db-root second-state)))
+           (source-database (make-memory-key-value-database))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              source-database second-state))
+           (source (snap-test-source backend))
+           (first-records
+             (mpt-dirty-node-records
+              (first (state-db-persistence-tries first-state))))
+           (first-references (mapcar #'car first-records))
+           (exact-database (make-memory-key-value-database))
+           (legacy-database (make-memory-key-value-database))
+           (genesis (make-hash32 (snap-test-hash 237)))
+           (authority (make-hash32 (snap-test-hash 238))))
+      (is (not (hash32= first-root second-root)))
+      (is
+       (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p
+        exact-database))
+      (dolist (database (list exact-database legacy-database))
+        (let ((batch (make-kv-write-batch)))
+          (ethereum-lisp.snap-sync::snap-sync-populate-verified-trie-records-batch
+           database batch first-records)
+          (when (eq database exact-database)
+            (ethereum-lisp.snap-sync::snap-sync-populate-incomplete-records-batch
+             batch first-references))
+          (kv-apply-batch database batch)))
+      ;; Model the epoch-three completion sentinel after all account leaves and
+      ;; their (empty here) external dependency set are durable.
+      (let ((batch (make-kv-write-batch)))
+        (ethereum-lisp.snap-sync::snap-sync-delete-incomplete-records-batch
+         batch first-references)
+        (kv-apply-batch exact-database batch))
+      (labels ((progress (seed complete-node-scheme-p)
+                 (ethereum-lisp.snap-sync::snap-sync-make-progress
+                  :pivot-hash (make-hash32 (snap-test-hash seed))
+                  :pivot-number 6201 :state-root second-root
+                  :partial-root +empty-trie-hash+
+                  :target-hash (make-hash32 (snap-test-hash (1+ seed)))
+                  :chain-id 560048 :genesis-hash genesis
+                  :authority-id authority :completed-p nil
+                  :complete-node-scheme-p complete-node-scheme-p
+                  :tasks
+                  (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+                   :count 1 :completed-p t)))
+               (run (database seed complete-node-scheme-p)
+                 (let ((processed nil) (fetched nil) (skipped nil))
+                   (ethereum-lisp.snap-sync::snap-sync-heal-state
+                    database (list source)
+                    (progress seed complete-node-scheme-p) 350
+                    :on-heal-progress
+                    (lambda (snapshot)
+                      (when
+                          (ethereum-lisp.snap-sync:snap-sync-heal-progress-completed-p
+                           snapshot)
+                        (setf
+                         processed
+                         (ethereum-lisp.snap-sync:snap-sync-heal-progress-processed-nodes
+                          snapshot)
+                         fetched
+                         (ethereum-lisp.snap-sync:snap-sync-heal-progress-fetched-nodes
+                          snapshot)
+                         skipped
+                         (ethereum-lisp.snap-sync:snap-sync-heal-progress-skipped-subtrees
+                          snapshot)))))
+                   (values processed fetched skipped))))
+        (multiple-value-bind (exact-processed exact-fetched exact-skipped)
+            (run exact-database 239 t)
+          (multiple-value-bind
+                (legacy-processed legacy-fetched legacy-skipped)
+              (run legacy-database 241 nil)
+            (declare (ignore legacy-skipped))
+            (is (plusp exact-fetched))
+            (is (plusp exact-skipped))
+            (is (= exact-fetched legacy-fetched))
+            (is (< exact-processed legacy-processed))
+            ;; Mutation control: restricting complete-node reuse back to
+            ;; storage nodes makes both walks decode the same account trie.
+            (is (< (* 8 exact-processed) legacy-processed))))))))
+
 (deftest snap-state-healer-never-confuses-account-presence-with-dependency-closure
   (:layer :integration :module :p2p)
-  ;; Epoch two could see a locally present account root with no negative marker
-  ;; and publish completion without opening the non-empty storage root named by
-  ;; its leaf. Epoch three must traverse account nodes and make that external
-  ;; dependency durable before state-history publication.
+  ;; Epoch three keeps a negative marker on every account node whose external
+  ;; dependency closure is not yet durable. The healer must honor that marker,
+  ;; open the non-empty storage root, and clear it only after completion.
   (let* ((state (make-state-db))
          (address (snap-test-address-from-integer 9))
          (slot (make-hash32 (snap-test-index-hash 9)))
@@ -7595,11 +7699,13 @@
       (is
        (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p
         target-database))
-      ;; Reproduce the unsafe epoch-two shape: every account node is present,
-      ;; none has an incomplete marker, and no storage node is present.
+      ;; Every account node is present but explicitly incomplete, and no
+      ;; storage node is present.
       (let ((batch (make-kv-write-batch)))
         (ethereum-lisp.snap-sync::snap-sync-populate-verified-trie-records-batch
          target-database batch account-records)
+        (ethereum-lisp.snap-sync::snap-sync-populate-incomplete-records-batch
+         batch (mapcar #'car account-records))
         (kv-apply-batch target-database batch))
       (let ((completed
               (ethereum-lisp.snap-sync::snap-sync-heal-state

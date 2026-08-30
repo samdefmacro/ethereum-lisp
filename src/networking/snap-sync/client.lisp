@@ -5653,12 +5653,11 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
          (complete-local-node-p (work incomplete-p)
            (let ((reference (snap-sync-heal-work-reference work)))
              (and complete-node-scheme-p
-                  ;; Account nodes can name code and storage roots outside the
-                  ;; account trie. Their exact reusable shortcut is the
-                  ;; dependency-carrying healed-subtree proof, not absence of
-                  ;; this node-local marker. Storage nodes have no such
-                  ;; external dependencies and retain geth-style hash presence.
-                  (eq :storage (snap-sync-heal-work-kind work))
+                  ;; Epoch three clears a node's durable negative marker only
+                  ;; after every descendant and every account-leaf code/storage
+                  ;; dependency is durable. Marker absence is therefore the
+                  ;; same complete hash-presence oracle that geth's hash-scheme
+                  ;; scheduler uses, for account and storage nodes alike.
                   (byte-vector-p reference)
                   (= 32 (length reference))
                   (not incomplete-p))))

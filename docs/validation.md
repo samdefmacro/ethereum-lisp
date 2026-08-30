@@ -524,16 +524,17 @@ An empty-target first-heal control also requires proof publication while
 observing zero exact metadata reads: restoring the unfiltered production batch
 call makes that witness fail. Positive filter results remain covered by the
 cross-pivot exact-version and storage-namespace checks.
-The exact-difference-frontier control places the same complete old storage trie
-under a new root in two databases. The closure-epoch-three run skips locally
-complete storage hashes, fetches the same changed nodes as the legacy run,
-clears every negative marker, and processes less than one eighth as many nodes.
-Removing the storage hash-presence branch or prematurely trusting a marked node
-makes the focused test fail. A separate mutation control plants a complete
-local account trie whose leaf names an absent non-empty storage root. It
-requires the healer to traverse the account node, fetch the storage dependency,
-and make it durable before state-history publication; restoring the epoch-two
-account-node shortcut makes that test fail. The epoch-two completion-migration
+The exact-difference-frontier controls place complete old account and storage
+tries under changed roots in paired databases. Closure-epoch-three runs skip
+locally complete unmarked hashes, fetch the same changed nodes as legacy runs,
+and process less than one eighth as many nodes. Restricting hash presence back
+to storage nodes makes the account control fail; removing storage reuse makes
+the storage control fail. A separate mutation control plants an account trie
+whose nodes remain explicitly incomplete and whose leaf names an absent non-
+empty storage root. It requires the healer to traverse those marked account
+nodes, fetch the storage dependency, and make it durable before state-history
+publication; prematurely trusting a marked node makes that test fail. The
+epoch-two completion-migration
 control begins with completed progress and state-history, then requires one
 atomic load-time migration to revoke both publication authorities while
 preserving completed range cursors and reusable trie content.
