@@ -995,7 +995,7 @@ do
                 class = "state-unavailable"
             } else if (index(line, "timeout")) {
                 class = "timeout"
-            } else if (index(line, "peer session closed")) {
+            } else if (line ~ /peer session.*closed/) {
                 class = "peer-session"
             } else if (line ~ /invalid|mismatch|malformed|did not|no longer matches|unknown task|wrong size|underflow/) {
                 class = "validation"
