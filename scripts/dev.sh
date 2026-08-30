@@ -806,7 +806,7 @@ shadow_proxy_smoke() {
     "$DOCKER" network rm "$network" >/dev/null 2>&1 || true
   }
   trap cleanup_shadow_proxy_smoke EXIT HUP INT TERM
-  "$DOCKER" network create \
+  "$DOCKER" network create --internal \
     --label "$PROJECT_LABEL=ethereum-lisp" \
     --label "$CHECKOUT_LABEL=$CHECKOUT_ID" \
     "$network" >/dev/null
@@ -819,18 +819,13 @@ shadow_proxy_smoke() {
     --security-opt no-new-privileges \
     --memory 128m --memory-swap 128m \
     --pids-limit 64 \
-    --publish 127.0.0.1::8551 \
     --env SHADOW_PROXY_PRIMARY_URL=http://127.0.0.1:1 \
     --env SHADOW_PROXY_SECONDARY_URL=http://127.0.0.1:2 \
     "$image" >/dev/null
-  port="$($DOCKER port "$container" 8551/tcp | awk -F: '/127[.]0[.]0[.]1/ {print $NF; exit}')"
-  [ -n "$port" ] || {
-    echo "ERROR: shadow proxy smoke port is unavailable" >&2
-    return 1
-  }
   local ready=0
   for _ in {1..30}; do
-    if curl -fsS --max-time 1 "http://127.0.0.1:$port/healthz" >/dev/null; then
+    if "$DOCKER" exec "$container" \
+       /usr/local/bin/shadow-engine-proxy --probe-path=/healthz >/dev/null 2>&1; then
       ready=1
       break
     fi
@@ -841,7 +836,8 @@ shadow_proxy_smoke() {
     echo "ERROR: shadow proxy health endpoint did not become ready" >&2
     return 1
   }
-  metrics="$(curl -fsS --max-time 2 "http://127.0.0.1:$port/metrics")"
+  metrics="$("$DOCKER" exec "$container" \
+    /usr/local/bin/shadow-engine-proxy --probe-path=/metrics)"
   for name in \
     shadow_primary_requests_total \
     shadow_primary_errors_total \

@@ -171,3 +171,41 @@ func TestTargetValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestLocalProbeIsBoundedToLoopbackEndpoints(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/healthz":
+			response.WriteHeader(http.StatusNoContent)
+		case "/metrics":
+			_, _ = io.WriteString(response, "shadow_primary_requests_total 7\n")
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+
+	var output bytes.Buffer
+	if err := probeLocalURL(server.URL+"/healthz", &output); err != nil {
+		t.Fatal(err)
+	}
+	if output.Len() != 0 {
+		t.Fatalf("health probe emitted output: %q", output.String())
+	}
+	if err := probeLocalURL(server.URL+"/metrics", &output); err != nil {
+		t.Fatal(err)
+	}
+	if output.String() != "shadow_primary_requests_total 7\n" {
+		t.Fatalf("unexpected metrics output: %q", output.String())
+	}
+	for _, raw := range []string{
+		"https://127.0.0.1:8551/metrics",
+		"http://localhost:8551/metrics",
+		"http://127.0.0.1:8551/",
+		"http://127.0.0.1:8551/metrics?all=true",
+	} {
+		if err := probeLocalURL(raw, io.Discard); err == nil {
+			t.Fatalf("accepted unsafe probe target %q", raw)
+		}
+	}
+}

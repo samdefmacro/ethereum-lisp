@@ -24,6 +24,8 @@ const (
 	defaultMaxBodyBytes  = int64(32 * 1024 * 1024)
 	defaultMirrorWorkers = 8
 	defaultTimeout       = 15 * time.Second
+	probeMaxBodyBytes    = int64(64 * 1024)
+	probeTimeout         = 2 * time.Second
 )
 
 type responseMeta struct {
@@ -77,6 +79,45 @@ func upstreamClient() *http.Client {
 			return errors.New("upstream redirects are forbidden")
 		},
 	}
+}
+
+func probeLocalURL(raw string, output io.Writer) error {
+	target, err := url.Parse(raw)
+	if err != nil {
+		return err
+	}
+	if target.Scheme != "http" || target.Hostname() != "127.0.0.1" ||
+		target.User != nil || target.RawQuery != "" || target.Fragment != "" {
+		return errors.New("probe target must be a plain loopback HTTP URL")
+	}
+	if target.Path != "/healthz" && target.Path != "/metrics" {
+		return errors.New("probe path must be /healthz or /metrics")
+	}
+	client := upstreamClient()
+	client.Timeout = probeTimeout
+	response, err := client.Get(target.String())
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	expectedStatus := http.StatusOK
+	if target.Path == "/healthz" {
+		expectedStatus = http.StatusNoContent
+	}
+	if response.StatusCode != expectedStatus {
+		return fmt.Errorf("probe returned HTTP %d, expected %d", response.StatusCode, expectedStatus)
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, probeMaxBodyBytes+1))
+	if err != nil {
+		return err
+	}
+	if int64(len(body)) > probeMaxBodyBytes {
+		return errors.New("probe response exceeds configured bound")
+	}
+	if target.Path == "/metrics" {
+		_, err = output.Write(body)
+	}
+	return err
 }
 
 func newEngineProxy(primary, secondary *url.URL, maxBodyBytes int64, mirrorWorkers int) *engineProxy {
@@ -299,7 +340,17 @@ func envInt(name string, fallback int) (int, error) {
 }
 
 func main() {
+	probePath := flag.String("probe-path", "", "probe the local /healthz or /metrics endpoint and exit")
 	flag.Parse()
+	if *probePath != "" {
+		if *probePath != "/healthz" && *probePath != "/metrics" {
+			log.Fatal("invalid probe path")
+		}
+		if err := probeLocalURL("http://127.0.0.1:8551"+*probePath, os.Stdout); err != nil {
+			log.Fatal("local probe failed: ", err)
+		}
+		return
+	}
 	listen := os.Getenv("SHADOW_PROXY_LISTEN")
 	if listen == "" {
 		listen = defaultListenAddress

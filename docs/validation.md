@@ -1203,6 +1203,12 @@ mismatches are likewise counted. Catch-up traffic does not count toward the
 seven days: after geth reaches head, restart the proxy to establish zero
 counters before starting the comparison window.
 
+The runtime stays only on the internal consensus/execution network. Remote
+brokers read `/healthz` and `/metrics` through the binary's fixed
+`--probe-path` loopback mode inside the container; that mode accepts no host or
+arbitrary path, so observability does not require attaching the proxy to an
+egress network or publishing its Engine port.
+
 The proxy has no external Go modules. Its Workbench profile formats nothing,
 builds the digest-pinned test stage with networking disabled, checks `gofmt`,
 and runs the unit controls. Build the final non-root image only through the
