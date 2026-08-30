@@ -2618,13 +2618,15 @@ really reopens the directory instead of observing the first handle's memory."
       (cons 'ethereum-lisp.eth-sync:eth-sync-download-blocks-multi
             (lambda (sources import-block
                      &key start-number target-number expected-parent-hash
-                          expected-target-hash &allow-other-keys)
+                          expected-target-hash fetch-receipts-p
+                          &allow-other-keys)
               (declare (ignore import-block))
               (is (equal sources (list :source)))
               (is (= 1 start-number))
               (is (= 14 target-number))
               (is (hash32= head-hash expected-parent-hash))
               (is (hash32= target-parent-hash expected-target-hash))
+              (is (null fetch-receipts-p))
               (incf download-calls)
               14))
       (cons 'ethereum-lisp.cli::devnet-peer-sync-import-block

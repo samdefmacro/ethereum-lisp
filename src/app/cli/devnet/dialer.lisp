@@ -2345,6 +2345,7 @@ SYNCING or ACCEPTED, which gives the downloader a consensus-driven bound."
                        :target-number ancestor-target-number
                        :expected-parent-hash head-hash
                        :expected-target-hash target-parent-hash
+                       :fetch-receipts-p nil
                        :request-timeout-seconds 10)
                       0)))
             ;; Reprocess the local Engine target only after its parent chain is

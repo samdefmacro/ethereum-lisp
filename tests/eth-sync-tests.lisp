@@ -632,6 +632,40 @@ BODY-LIMIT simulates geth's soft response-byte limit by returning only a prefix.
                (nreverse header-requests)))
     (is (equal '(1 2 3 4 5 6 7 8) (nreverse imported)))))
 
+(deftest eth-sync-multi-can-skip-peer-receipts-for-local-execution
+  (:layer :unit :module :p2p)
+  (let* ((headers (eth-sync-test-chain-headers 2))
+         (empty-body
+           (ethereum-lisp.eth-wire:make-eth-block-body
+            :transactions '() :ommers '()))
+         (receipt-calls 0)
+         (imported '())
+         (source
+           (make-eth-sync-peer-source
+            nil :id :local-execution :head-number 2
+            :fetch-headers
+            (lambda (origin amount)
+              (subseq headers (1- origin) (+ (1- origin) amount)))
+            :fetch-bodies
+            (lambda (seen-headers)
+              (loop repeat (length seen-headers) collect empty-body))
+            :fetch-receipts
+            (lambda (seen-headers)
+              (declare (ignore seen-headers))
+              (incf receipt-calls)
+              (error "receipt fetch must be skipped")))))
+    (is (= 2
+           (eth-sync-download-blocks-multi
+            (list source)
+            (lambda (block)
+              (is (null (ethereum-lisp.blocks:block-receipts block)))
+              (push (block-header-number (block-header block)) imported))
+            :start-number 1 :target-number 2
+            :fetch-receipts-p nil
+            :request-timeout-seconds 1d0)))
+    (is (zerop receipt-calls))
+    (is (equal '(1 2) (nreverse imported)))))
+
 (deftest eth-sync-multi-normalizes-typed-wire-receipts-before-root-validation
   (:layer :unit :module :p2p)
   (let* ((transaction

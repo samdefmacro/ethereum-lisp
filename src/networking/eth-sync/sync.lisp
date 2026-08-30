@@ -458,7 +458,8 @@ provide canonical RECEIPT values directly."
              :detail (princ-to-string condition))))))
 
 #+sbcl
-(defun eth-sync-fetch-delivery (state source delivery)
+(defun eth-sync-fetch-delivery
+    (state source delivery fetch-receipts-p)
   (handler-case
       (let ((headers
               (funcall (eth-sync-peer-source-fetch-headers source)
@@ -497,36 +498,49 @@ provide canonical RECEIPT values directly."
           (setf headers (eth-sync-delivery-headers delivery)
                 bodies (eth-sync-delivery-bodies delivery))
           (eth-sync-state-stage-delivery state delivery :bodies bodies)
-          (multiple-value-bind (receipts incomplete-last-p)
-              (funcall (eth-sync-peer-source-fetch-receipts source) headers)
-            (let ((complete-receipts
-                    (if incomplete-last-p
-                        (butlast receipts)
-                        receipts)))
-              (handler-case
-                  (progn
-                    (when (or (null complete-receipts)
-                              (> (length complete-receipts)
-                                 (length headers)))
-                      (eth-sync-malformed
-                       "peer returned ~D complete receipt groups for ~D headers"
-                       (length complete-receipts) (length headers)))
-                    (setf complete-receipts
-                          (eth-sync-validate-receipt-delivery
-                           (subseq headers 0 (length complete-receipts))
-                           (subseq bodies 0 (length complete-receipts))
-                           complete-receipts nil)))
-                (serious-condition (condition)
-                  (unless (typep condition 'eth-sync-malformed-delivery)
-                    (eth-sync-malformed "~A" condition))
-                  (error condition)))
-              (setf (eth-sync-delivery-receipts delivery) complete-receipts)
-              (eth-sync-delivery-retain-prefix
-               delivery (length complete-receipts))
-              (setf headers (eth-sync-delivery-headers delivery)
-                    bodies (eth-sync-delivery-bodies delivery)
-                    receipts (eth-sync-delivery-receipts delivery)))
-            (eth-sync-state-stage-delivery state delivery :receipts receipts)))
+          (if fetch-receipts-p
+              (multiple-value-bind (receipts incomplete-last-p)
+                  (funcall (eth-sync-peer-source-fetch-receipts source) headers)
+                (let ((complete-receipts
+                        (if incomplete-last-p
+                            (butlast receipts)
+                            receipts)))
+                  (handler-case
+                      (progn
+                        (when (or (null complete-receipts)
+                                  (> (length complete-receipts)
+                                     (length headers)))
+                          (eth-sync-malformed
+                           "peer returned ~D complete receipt groups for ~D headers"
+                           (length complete-receipts) (length headers)))
+                        (setf complete-receipts
+                              (eth-sync-validate-receipt-delivery
+                               (subseq headers 0 (length complete-receipts))
+                               (subseq bodies 0 (length complete-receipts))
+                               complete-receipts nil)))
+                    (serious-condition (condition)
+                      (unless (typep condition 'eth-sync-malformed-delivery)
+                        (eth-sync-malformed "~A" condition))
+                      (error condition)))
+                  (setf (eth-sync-delivery-receipts delivery)
+                        complete-receipts)
+                  (eth-sync-delivery-retain-prefix
+                   delivery (length complete-receipts))
+                  (setf headers (eth-sync-delivery-headers delivery)
+                        bodies (eth-sync-delivery-bodies delivery)
+                        receipts (eth-sync-delivery-receipts delivery)))
+                (eth-sync-state-stage-delivery
+                 state delivery :receipts receipts))
+              ;; Engine ancestor recovery validates and executes every block
+              ;; locally, producing canonical receipts itself.  Do not wait
+              ;; for a secondary peer to serve receipt groups for an invalid
+              ;; noncanonical branch; preserve one empty attachment per block
+              ;; so the common ordered assembly path remains unchanged.
+              (let ((receipts
+                      (loop repeat (length headers) collect nil)))
+                (setf (eth-sync-delivery-receipts delivery) receipts)
+                (eth-sync-state-stage-delivery
+                 state delivery :receipts receipts))))
         (eth-sync-state-complete-delivery state source delivery))
     (eth-sync-malformed-delivery (condition)
       (eth-sync-state-fail-delivery state source delivery condition t))
@@ -534,7 +548,7 @@ provide canonical RECEIPT values directly."
       (eth-sync-state-fail-delivery state source delivery condition nil))))
 
 #+sbcl
-(defun eth-sync-worker-loop (state source)
+(defun eth-sync-worker-loop (state source fetch-receipts-p)
   (loop
     (let ((delivery
             (sb-thread:with-mutex ((eth-sync-multi-state-lock state))
@@ -565,7 +579,8 @@ provide canonical RECEIPT values directly."
                 (sb-thread:condition-wait
                  (eth-sync-multi-state-changed state)
                  (eth-sync-multi-state-lock state))))))
-      (eth-sync-fetch-delivery state source delivery))))
+      (eth-sync-fetch-delivery
+       state source delivery fetch-receipts-p))))
 
 #+sbcl
 (defun eth-sync-record-worker-crash (state source condition)
@@ -649,7 +664,8 @@ provide canonical RECEIPT values directly."
           expected-target-hash
           import-batch
           progress
-          consume-receipts)
+          consume-receipts
+          (fetch-receipts-p t))
   "Download and import a bounded range concurrently from PEER-SOURCES.
 
 Each source has at most one request in flight. Header, body, and receipt
@@ -663,13 +679,16 @@ the final header. Neither value is inferred from an untrusted peer head.
 
 PROGRESS receives a snapshot plist followed by an event plist. CONSUME-RECEIPTS,
 when supplied, receives each imported BLOCK and its downloaded receipt group.
+FETCH-RECEIPTS-P may be false only when the importer executes blocks locally
+and does not consume peer receipt groups; the default preserves full delivery.
 IMPORT-BATCH, when supplied, receives each contiguous list with verified
 receipts attached and replaces the per-block IMPORT-BLOCK calls. It is the
 durable skeleton seam used to commit one downloader batch per WAL batch.
 Returns the number of blocks imported."
   #-sbcl
   (declare (ignore peer-sources import-block start-number target-number max-blocks
-                   batch-size request-timeout-seconds progress consume-receipts))
+                   batch-size request-timeout-seconds progress consume-receipts
+                   fetch-receipts-p))
   #-sbcl
   (error "multi-peer synchronization requires SBCL threads")
   #+sbcl
@@ -695,6 +714,8 @@ Returns the number of blocks imported."
     (unless (and (realp request-timeout-seconds)
                  (plusp request-timeout-seconds))
       (error "multi-peer synchronization REQUEST-TIMEOUT-SECONDS must be positive"))
+    (when (and consume-receipts (not fetch-receipts-p))
+      (error "CONSUME-RECEIPTS requires FETCH-RECEIPTS-P"))
     (unless (and target (>= target start-number))
       (error "multi-peer synchronization needs TARGET-NUMBER, MAX-BLOCKS, or peer heads"))
     (setf next-unscheduled
@@ -708,7 +729,8 @@ Returns the number of blocks imported."
                 (sb-thread:make-thread
                  (lambda ()
                    (handler-case
-                       (eth-sync-worker-loop state worker-source)
+                       (eth-sync-worker-loop
+                        state worker-source fetch-receipts-p)
                      (serious-condition (condition)
                        (eth-sync-record-worker-crash
                         state worker-source condition))))
