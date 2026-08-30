@@ -128,6 +128,13 @@ fi
 flags=(
     --genesis "$genesis_out"
     --datadir "$datadir"
+    # Hive drives many short, write-heavy Engine scenarios and concurrently
+    # queries Engine while devp2p imports candidates.  The file backend is a
+    # crash-safety oracle that fsyncs every append and periodically rewrites
+    # its complete live set; it is not the production backend and can hold the
+    # node store guard long enough for Hive's invalid-ancestor poll to time
+    # out.  Use the same incremental LSM backend as public-network runs.
+    --db.engine rocksdb
     # Bind on all interfaces: the simulator reaches the container by its bridge
     # address, never over loopback.
     --http --http.addr 0.0.0.0 --http.port 8545

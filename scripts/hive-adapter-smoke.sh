@@ -162,6 +162,10 @@ if [ "$(docker inspect -f '{{.State.Running}}' "$container")" != "true" ]; then
     docker logs "$container" 2>&1 | tail -40 >&2
     fail "the adapter exited during startup"
 fi
+case "$(docker logs "$container" 2>&1)" in
+    *"--db.engine rocksdb"*) ok "Hive uses the production RocksDB backend" ;;
+    *) fail_with_log "the adapter did not select --db.engine rocksdb" ;;
+esac
 
 rpc_url="http://$(docker port "$container" 8545 | head -1)"
 engine_url="http://$(docker port "$container" 8551 | head -1)"

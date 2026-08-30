@@ -55,7 +55,11 @@ inventory counts.
   former default heap while the container itself was still below its limit.
 - **`tools/hive/`** — the Hive client definition: `Dockerfile` (layers `jq` and
   `curl` onto the runtime image), `ethereum-lisp.sh` (the `HIVE_*` contract),
-  `mapper.jq` (genesis translation), `enode.sh`, `hive.yaml`.
+  `mapper.jq` (genesis translation), `enode.sh`, `hive.yaml`. The adapter
+  explicitly selects `--db.engine rocksdb`: the fsync-per-record file backend
+  is a small crash-safety oracle, whereas Hive's concurrent Engine/devp2p
+  workloads require the production incremental backend used by public-network
+  runs.
 - **`scripts/hive-run.sh`** — materializes the pinned Hive checkout, installs
   `tools/hive` as `clients/ethereum-lisp`, writes the client file, runs a suite,
   and validates a nonzero fresh result/count manifest even when Hive reports
@@ -71,6 +75,7 @@ inventory counts.
   checks that the genesis translation reaches the client, that Hive's fixed JWT
   secret authenticates, that each refused variable exits naming itself, and
   that `enode.sh` returns the same routable bridge address as `admin_nodeInfo`.
+  It also fails if the adapter does not select RocksDB.
 - **`.github/workflows/hive.yml`** — a blocking `runtime-image` job running both
   smoke tests, and a non-blocking matrix of `ethereum/engine`,
   `ethereum/rpc-compat`, and `devp2p`.
