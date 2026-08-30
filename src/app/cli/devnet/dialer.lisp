@@ -2333,6 +2333,16 @@ SYNCING or ACCEPTED, which gives the downloader a consensus-driven bound."
              (sources
                (and (> ancestor-target-number head-number)
                     (devnet-node-sync-peer-sources node))))
+        ;; A reorg parent may be at the canonical head's height without being
+        ;; that canonical block.  Numeric forward download has no interval in
+        ;; that case, but the branch is still missing.  Walk from the buffered
+        ;; target's parent hash until a genuinely known common ancestor rather
+        ;; than repeatedly re-admitting TARGET-BLOCK as SYNCING.  This is the
+        ;; canonical-reorg half of Hive's missing-invalid-ancestor scenario.
+        (when (and (= ancestor-target-number head-number)
+                   (not (hash32= target-parent-hash head-hash)))
+          (return-from devnet-node-multi-sync-pass
+            (devnet-node-fill-sync-gaps-with-live-peer node)))
         (when (or (= ancestor-target-number head-number) sources)
           (let ((count
                   (if (> ancestor-target-number head-number)

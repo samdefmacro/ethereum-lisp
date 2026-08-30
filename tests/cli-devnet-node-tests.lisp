@@ -3686,6 +3686,66 @@ really reopens the directory instead of observing the first handle's memory."
     (is (= 0 source-calls))
     (is (= 0 download-calls))))
 
+(deftest devnet-multi-sync-hash-backfills-a-same-height-reorg-parent
+  (:layer :unit :module :p2p)
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (head-hash
+           (make-hash32 (make-byte-vector 32 :initial-element 11)))
+         (side-parent-hash
+           (make-hash32 (make-byte-vector 32 :initial-element 12)))
+         (target
+           (make-block
+            :header
+            (make-block-header
+             :parent-hash side-parent-hash
+             :number 16
+             :gas-limit 30000000
+             :timestamp 16)))
+         (target-hash (block-hash target))
+         (gap-fill-calls 0)
+         (numeric-source-calls 0)
+         (import-calls 0))
+    (devnet-peer-sync-call-with-function-overrides
+     (list
+      (cons
+       'ethereum-lisp.cli::devnet-node-forkchoice-sync-targets
+       (lambda (seen-node)
+         (is (eq node seen-node))
+         nil))
+      (cons
+       'ethereum-lisp.cli::devnet-node-consensus-forward-target
+       (lambda (seen-node)
+         (is (eq node seen-node))
+         ;; The side parent and canonical head share height 15, but only the
+         ;; canonical head hash is local.  Numeric [16,15] is an empty range.
+         (values 15 head-hash 16 target-hash side-parent-hash target)))
+      (cons
+       'ethereum-lisp.cli::devnet-node-sync-peer-sources
+       (lambda (seen-node)
+         (is (eq node seen-node))
+         (incf numeric-source-calls)
+         (list :source)))
+      (cons
+       'ethereum-lisp.cli::devnet-node-fill-sync-gaps-with-live-peer
+       (lambda (seen-node)
+         (is (eq node seen-node))
+         (incf gap-fill-calls)
+         10))
+      (cons
+       'ethereum-lisp.cli::devnet-peer-sync-import-block
+       (lambda (&rest arguments)
+         (declare (ignore arguments))
+         (incf import-calls))))
+     (lambda ()
+       (is (= 10
+              (ethereum-lisp.cli::devnet-node-multi-sync-pass node)))))
+    (is (= 1 gap-fill-calls))
+    (is (= 0 numeric-source-calls))
+    (is (= 0 import-calls))))
+
 (deftest devnet-peer-gap-fill-only-swallows-typed-peer-failures
   (:layer :integration :module :p2p)
   (let* ((node
