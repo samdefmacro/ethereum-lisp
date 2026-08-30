@@ -101,6 +101,12 @@ RUN git clone --depth 1 --branch v2.1.1 --recurse-submodules \
 # ---------------------------------------------------------------------------
 FROM native AS lisp
 
+# Build arguments are scoped to a Docker stage.  Declare REVISION here as well
+# as in the final stage so the saved Lisp image and its OCI label identify the
+# same source revision.
+ARG REVISION=unknown
+ENV ETHEREUM_LISP_BUILD_REVISION=${REVISION}
+
 # libsecp256k1-1 and libsnappy1v5, not their -dev packages, are load-bearing.
 # SAVE-LISP-AND-DIE records the exact namestring each shared object was opened
 # under and re-dlopens that string on startup. The binding tries

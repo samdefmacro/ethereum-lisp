@@ -17,11 +17,28 @@
                   (engine-rpc-method-available-p method))
           collect method))
 
+(defun engine-rpc-build-commit (&optional
+                                  (revision
+                                    (uiop:getenv
+                                     "ETHEREUM_LISP_BUILD_REVISION")))
+  "Return the EIP-7642 commit identifier embedded by the runtime build.
+
+Docker supplies the full Git object id while saving the executable.  Source
+and test loads deliberately retain the anonymous value instead of trusting a
+short or malformed environment value."
+  (if (and (stringp revision)
+           (= 40 (length revision))
+           (every (lambda (character)
+                    (digit-char-p character 16))
+                  revision))
+      (format nil "0x~A" (string-downcase (subseq revision 0 8)))
+      "0x00000000"))
+
 (defparameter +engine-rpc-client-version+
-  '(("code" . "CL")
-    ("name" . "ethereum-lisp")
-    ("version" . "0.1.0")
-    ("commit" . "0x00000000")))
+  (list (cons "code" "CL")
+        (cons "name" "ethereum-lisp")
+        (cons "version" "0.1.0")
+        (cons "commit" (engine-rpc-build-commit))))
 
 (defun engine-rpc-client-version ()
   (copy-tree +engine-rpc-client-version+))

@@ -33,9 +33,9 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # Hive reads /version.txt after the build and attaches it to every test result.
-# The commit is a compile-time constant in src/api/engine/capabilities.lisp
-# (0x00000000 today), so this reports what the client itself reports rather than
-# a build-time git description that the client would not agree with.
+# The commit is embedded in src/api/engine/capabilities.lisp while the runtime
+# executable is saved, so this is the same exact-revision identity the Engine
+# API reports rather than an adapter-local Git description.
 RUN /usr/local/bin/ethereum-lisp version > /version.txt
 
 ADD ethereum-lisp.sh /ethereum-lisp.sh

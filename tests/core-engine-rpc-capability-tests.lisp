@@ -352,6 +352,16 @@
            (error (field response "error")))
       (is (= -32602 (field error "code"))))))
 
+(deftest engine-rpc-build-commit-requires-a-full-git-object-id
+  (is (string= "0xac080fd3"
+               (ethereum-lisp.engine-api::engine-rpc-build-commit
+                "AC080FD37573449C891AA980B588D90DD1D04302")))
+  (dolist (revision '(nil "unknown" "ac080fd3"
+                      "zc080fd37573449c891aa980b588d90dd1d04302"))
+    (is (string= "0x00000000"
+                 (ethereum-lisp.engine-api::engine-rpc-build-commit
+                  revision)))))
+
 (deftest engine-rpc-exchange-transition-configuration-returns-local-config
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))

@@ -43,6 +43,14 @@ trap cleanup EXIT
 fail() { echo "FAIL: $*" >&2; exit 1; }
 ok()   { echo "ok - $*"; }
 
+image_revision="$(docker image inspect \
+    --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' \
+    "$image")"
+expected_commit="0x00000000"
+if [[ "$image_revision" =~ ^[0-9a-f]{40}$ ]]; then
+    expected_commit="0x${image_revision:0:8}"
+fi
+
 cat > "$tmpdir/genesis.json" <<JSON
 {
   "config": {
@@ -200,7 +208,8 @@ esac
 response="$(printf '%s' '{"jsonrpc":"2.0","id":1,"method":"engine_getClientVersionV1","params":[{"code":"XX","name":"hive","version":"0","commit":"0x00000000"}]}' \
     | post "$engine_url" "Bearer $token")"
 case "$response" in
-    *ethereum-lisp*) ok "engine_getClientVersionV1 = $response" ;;
+    *ethereum-lisp*\"commit\":\"$expected_commit\"*)
+        ok "engine_getClientVersionV1 identifies $image_revision as $expected_commit" ;;
     *) fail "engine_getClientVersionV1 returned: $response" ;;
 esac
 
