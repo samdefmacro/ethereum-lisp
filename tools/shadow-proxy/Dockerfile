@@ -20,10 +20,10 @@ LABEL org.opencontainers.image.title="ethereum-lisp-shadow-engine-proxy" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.revision="${REVISION}"
 
-RUN groupadd --system --gid 10001 shadow \
-    && useradd --system --uid 10001 --gid 10001 --home-dir /nonexistent --shell /usr/sbin/nologin shadow
+RUN groupadd --system --gid 10001 shadowproxy \
+    && useradd --system --uid 10001 --gid 10001 --home-dir /nonexistent --shell /usr/sbin/nologin shadowproxy
 COPY --from=build /out/shadow-engine-proxy /usr/local/bin/shadow-engine-proxy
 
-USER shadow:shadow
+USER shadowproxy:shadowproxy
 EXPOSE 8551
 ENTRYPOINT ["/usr/local/bin/shadow-engine-proxy"]

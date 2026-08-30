@@ -1212,6 +1212,8 @@ reviewed broker:
 scripts/dev.sh shadow-proxy-format
 cl-workbench validation run shadow-proxy
 scripts/dev.sh shadow-proxy-build ethereum-lisp-shadow-engine-proxy:local
+cl-workbench validation run shadow-proxy-smoke \
+  ethereum-lisp-shadow-engine-proxy:local
 ```
 
 The reviewed runtime image must also pass

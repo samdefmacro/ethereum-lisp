@@ -72,6 +72,8 @@ Commands:
   shadow-proxy-test  Build and test the Engine shadow proxy with no network
   shadow-proxy-build TAG
                      Build its reviewed non-root runtime image
+  shadow-proxy-smoke TAG
+                     Verify the final proxy image and container boundary
   hive-adapter-smoke TAG
                      Verify the Hive client wrapper against a reviewed runtime
   logs               Show the dev container's output
@@ -761,6 +763,107 @@ shadow_proxy_build() {
     "$ROOT/tools/shadow-proxy"
 }
 
+shadow_proxy_smoke() {
+  [ "$#" -le 1 ] || {
+    echo "ERROR: shadow-proxy-smoke accepts at most one image tag" >&2
+    return 2
+  }
+  local image="${1:-ethereum-lisp-shadow-engine-proxy:local}"
+  local revision container network port user image_revision metrics
+  revision="$(git -C "$ROOT" rev-parse HEAD)"
+  container="ethereum-lisp-shadow-proxy-smoke-$CHECKOUT_SHORT"
+  network="ethereum-lisp-shadow-proxy-smoke-$CHECKOUT_SHORT"
+  validate_runtime_image "$image" || return $?
+  [ "$($DOCKER image inspect --format '{{.Os}}/{{.Architecture}}' "$image")" = \
+    linux/arm64 ] || {
+      echo "ERROR: local shadow proxy smoke requires a native linux/arm64 image" >&2
+      return 1
+  }
+  image_revision="$($DOCKER image inspect \
+    --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' \
+    "$image")"
+  [ "$image_revision" = "$revision" ] || {
+    echo "ERROR: shadow proxy image revision is $image_revision, expected $revision" >&2
+    return 1
+  }
+  user="$($DOCKER image inspect --format '{{.Config.User}}' "$image")"
+  case "$user" in
+    ""|0|0:*|*:0|root|root:*)
+      echo "ERROR: shadow proxy image user is not explicitly non-root: $user" >&2
+      return 1
+      ;;
+  esac
+  if "$DOCKER" container inspect "$container" >/dev/null 2>&1; then
+    echo "ERROR: refusing existing shadow proxy smoke container: $container" >&2
+    return 1
+  fi
+  if "$DOCKER" network inspect "$network" >/dev/null 2>&1; then
+    echo "ERROR: refusing existing shadow proxy smoke network: $network" >&2
+    return 1
+  fi
+  cleanup_shadow_proxy_smoke() {
+    "$DOCKER" stop --time 3 "$container" >/dev/null 2>&1 || true
+    "$DOCKER" network rm "$network" >/dev/null 2>&1 || true
+  }
+  trap cleanup_shadow_proxy_smoke EXIT HUP INT TERM
+  "$DOCKER" network create --internal \
+    --label "$PROJECT_LABEL=ethereum-lisp" \
+    --label "$CHECKOUT_LABEL=$CHECKOUT_ID" \
+    "$network" >/dev/null
+  "$DOCKER" run --rm --detach --name "$container" \
+    --label "$PROJECT_LABEL=ethereum-lisp" \
+    --label "$CHECKOUT_LABEL=$CHECKOUT_ID" \
+    --network "$network" \
+    --read-only \
+    --cap-drop ALL \
+    --security-opt no-new-privileges \
+    --memory 128m --memory-swap 128m \
+    --pids-limit 64 \
+    --publish 127.0.0.1::8551 \
+    --env SHADOW_PROXY_PRIMARY_URL=http://127.0.0.1:1 \
+    --env SHADOW_PROXY_SECONDARY_URL=http://127.0.0.1:2 \
+    "$image" >/dev/null
+  port="$($DOCKER port "$container" 8551/tcp | awk -F: '/127[.]0[.]0[.]1/ {print $NF; exit}')"
+  [ -n "$port" ] || {
+    echo "ERROR: shadow proxy smoke port is unavailable" >&2
+    return 1
+  }
+  local ready=0
+  for _ in {1..30}; do
+    if curl -fsS --max-time 1 "http://127.0.0.1:$port/healthz" >/dev/null; then
+      ready=1
+      break
+    fi
+    sleep 1
+  done
+  [ "$ready" -eq 1 ] || {
+    "$DOCKER" logs "$container" >&2 || true
+    echo "ERROR: shadow proxy health endpoint did not become ready" >&2
+    return 1
+  }
+  metrics="$(curl -fsS --max-time 2 "http://127.0.0.1:$port/metrics")"
+  for name in \
+    shadow_primary_requests_total \
+    shadow_primary_errors_total \
+    shadow_mirror_started_total \
+    shadow_mirror_succeeded_total \
+    shadow_mirror_errors_total \
+    shadow_mirror_dropped_total \
+    shadow_status_mismatches_total
+  do
+    printf '%s\n' "$metrics" | grep -Fx "$name 0" >/dev/null || {
+      echo "ERROR: shadow proxy metric did not start at zero: $name" >&2
+      return 1
+    }
+  done
+  "$DOCKER" container inspect --format \
+    'shadow-proxy-smoke user={{.Config.User}} read-only={{.HostConfig.ReadonlyRootfs}} memory={{.HostConfig.Memory}} memory-swap={{.HostConfig.MemorySwap}} caps={{json .HostConfig.CapDrop}} security={{json .HostConfig.SecurityOpt}} pids={{.HostConfig.PidsLimit}} networks={{len .NetworkSettings.Networks}}' \
+    "$container"
+  echo "shadow-proxy-smoke revision=$revision health=ready metrics=zero"
+  cleanup_shadow_proxy_smoke
+  trap - EXIT HUP INT TERM
+}
+
 hive_adapter_smoke() {
   [ "$#" -le 1 ] || {
     echo "ERROR: hive-adapter-smoke accepts at most one runtime image tag" >&2
@@ -809,6 +912,7 @@ case "$cmd" in
   shadow-proxy-format) shadow_proxy_format "$@" ;;
   shadow-proxy-test) shadow_proxy_test "$@" ;;
   shadow-proxy-build) shadow_proxy_build "$@" ;;
+  shadow-proxy-smoke) shadow_proxy_smoke "$@" ;;
   hive-adapter-smoke) hive_adapter_smoke "$@" ;;
   logs) show_logs "$@" ;;
   shell) open_shell ;;
