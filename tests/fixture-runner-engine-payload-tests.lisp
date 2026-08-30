@@ -75,10 +75,18 @@ would still be a consensus failure."
    "blockHash"))
 
 (defun eest-engine-payload-error-code (value)
-  "EEST writes an Engine errorCode as a number; accept a hex string too."
+  "Decode EEST Engine errorCode numbers and decimal or 0x-prefixed strings."
   (etypecase value
     (integer value)
-    (string (hex-to-quantity value))))
+    (string
+     (if (ethereum-lisp.json:json-hex-quantity-string-p value)
+         (hex-to-quantity value)
+         (parse-integer value :radix 10 :junk-allowed nil)))))
+
+(deftest eest-engine-payload-error-code-preserves-decimal-sign
+  (is (= -32602 (eest-engine-payload-error-code -32602)))
+  (is (= -32602 (eest-engine-payload-error-code "-32602")))
+  (is (= 16 (eest-engine-payload-error-code "0x10"))))
 
 (defun assert-eest-engine-payload-accepted (case)
   "Assert the node ACCEPTED CASE's payload and adopted it."
@@ -131,8 +139,14 @@ still exposes the block's state has not rejected it."
                      (fixture-required-field case "name")
                      expected-code
                      result))
-            (is (eql (eest-engine-payload-error-code expected-code)
-                     (fixture-object-field error-object "code"))))
+            (let ((actual-code (fixture-object-field error-object "code"))
+                  (expected-code
+                    (eest-engine-payload-error-code expected-code)))
+              (unless (eql expected-code actual-code)
+                (error "EEST engine case ~A expected JSON-RPC error ~A, got ~A: ~S"
+                       (fixture-required-field case "name")
+                       expected-code actual-code error-object))
+              (is (eql expected-code actual-code))))
           (progn
             (when error-object
               (error "EEST engine case ~A expected an INVALID payload status, ~
@@ -160,15 +174,22 @@ still exposes the block's state has not rejected it."
   ;; under the default Shanghai gate -- widening
   ;; ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_FORKS is what selects them -- and
   ;; the count manifest is what reports the emptiness rather than hiding it.
-  (dolist (source-case (phase-a-eest-blockchain-late-payload-cases
-                        (load-optional-phase-a-eest-blockchain-replay-cases)))
-    (assert-eest-engine-payload-accepted
-     (materialize-eest-blockchain-engine-newpayload-late-case source-case))))
+  (call-with-eest-cryptographic-backends
+   (lambda ()
+     (map-optional-phase-a-eest-blockchain-replay-cases
+      (lambda (source-case)
+        (when (phase-a-eest-blockchain-late-payload-case-p source-case)
+          (assert-eest-engine-payload-accepted
+           (materialize-eest-blockchain-engine-newpayload-late-case
+            source-case))))))))
 
 (deftest optional-phase-a-eest-engine-payload-rejection-executes
-  (dolist (source-case (load-optional-phase-a-eest-blockchain-rejection-cases))
-    (assert-eest-engine-payload-refused
-     (materialize-eest-blockchain-engine-rejection-case source-case))))
+  (call-with-eest-cryptographic-backends
+   (lambda ()
+     (map-optional-phase-a-eest-blockchain-rejection-cases
+      (lambda (source-case)
+        (assert-eest-engine-payload-refused
+         (materialize-eest-blockchain-engine-rejection-case source-case)))))))
 
 (deftest optional-phase-a-eest-blockchain-rlp-replay-executes
   ;; Standard RLP blocks, from the blockchain_tests tree the engine tree used to
@@ -176,9 +197,13 @@ still exposes the block's state has not rejected it."
   ;; is the point of materializing both into one submission shape: a block the
   ;; fixture says is valid must be accepted with its roots, one it says is
   ;; invalid must be refused with a reason and leave no state behind.
-  (dolist (source-case (load-optional-phase-a-eest-blockchain-rlp-cases))
-    (let ((submission
-            (materialize-eest-blockchain-standard-rlp-submission source-case)))
-      (if (eest-blockchain-case-invalid-p source-case)
-          (assert-eest-engine-payload-refused submission)
-          (assert-eest-engine-payload-accepted submission)))))
+  (call-with-eest-cryptographic-backends
+   (lambda ()
+     (map-optional-phase-a-eest-blockchain-rlp-cases
+      (lambda (source-case)
+        (let ((submission
+                (materialize-eest-blockchain-standard-rlp-submission
+                 source-case)))
+          (if (eest-blockchain-case-invalid-p source-case)
+              (assert-eest-engine-payload-refused submission)
+              (assert-eest-engine-payload-accepted submission))))))))

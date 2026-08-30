@@ -68,19 +68,13 @@ missing.
 
 ## Pinned verification baseline
 
-- Current stable execution fixtures: `tests@v20.0.1`, commit
-  `87aba1a38a476b31f819a2390eb481527e6dc683`, asset SHA-256
-  `3586193db06d4d5745d5e90b3c3008c2255a4e19ccd8f11a3ce887aec8c0b17c`.
-  This exact asset has one independently recorded corpus-integrity blocker:
-  `blockhash_zero_in_window_control` is generated from a source environment
-  with `block_hashes={0: keccak256("0")}`, but the released static JSON omits
-  both `blockHashes` and `previousHash` while retaining the non-zero expected
-  state.  A consumer cannot reproduce that case from the released bytes.  The
-  runner decodes either field when present and explicitly rejects this
-  unrepresentable family as an upstream `corpus-integrity failure`; it is not
-  an allowed client skip or a reason to infer the missing hash from the
-  expected post-state.  The current stable archive carries 12 fork instances
-  of that one malformed source family.
+- Current stable execution fixtures: `tests@v20.0.2`, commit
+  `abbe05777ab83fb94ce18c425daaa7ab79e779c1`, asset SHA-256
+  `1280540950a4c3470a421416b6f35458a9b635827265c29e5aef1ae839ae1788`.
+  State tests use the canonical geth test-only `BLOCKHASH` provider,
+  `keccak256(decimal(block-number))`, when the static JSON does not serialize
+  source-environment block hashes; explicit `blockHashes` and `previousHash`
+  fields override it when present.
 - Amsterdam feature fixtures: `tests-glamsterdam-devnet@v7.2.1`, commit
   `882909a2c88751a31fa99a65176563a16c527893`, asset SHA-256
   `02e3eca2ede5b424f4dbf2461caf592e6b43b56d55bbd64213dd01f63af9a583`.

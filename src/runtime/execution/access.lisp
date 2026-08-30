@@ -14,7 +14,7 @@
           t)))
 
 (defun transaction-accessed-addresses-table
-    (tx &key sender destination coinbase chain-rules)
+    (tx &key state sender destination coinbase (chain-id 0) chain-rules)
   (let ((accessed-addresses (make-hash-table :test 'equalp)))
     (prewarm-precompile-addresses accessed-addresses chain-rules)
     (prewarm-execution-address accessed-addresses sender)
@@ -25,13 +25,26 @@
     (dolist (entry (transaction-access-list tx))
       (prewarm-execution-address accessed-addresses
                                  (access-list-entry-address entry)))
-    ;; EIP-7702: each recoverable authorization authority is warmed, even when
-    ;; the tuple is later found invalid.
+    ;; EIP-7702 warms the recovered authority only after the tuple passes its
+    ;; chain-id and nonce-bound checks.  Later failures (authority code or
+    ;; account nonce mismatch) leave it warm, but these preliminary failures do
+    ;; not reach the access-list step.
     (when (typep tx 'set-code-transaction)
       (dolist (authorization (transaction-authorization-list tx))
-        (prewarm-execution-address
-         accessed-addresses
-         (set-code-authorization-authority authorization))))
+        (when (and (valid-set-code-authorization-chain-p authorization chain-id)
+                   (set-code-authorization-nonce-incrementable-p authorization))
+          (prewarm-execution-address
+           accessed-addresses
+           (set-code-authorization-authority authorization)))))
+    ;; EIP-7702 top-level origination resolves a delegated destination without
+    ;; charging for that resolution, and makes the resolved code address warm
+    ;; for execution.  STATE already includes this transaction's processed
+    ;; authorizations when the message context is built.
+    (when (and state destination chain-rules
+               (chain-rules-prague-p chain-rules))
+      (prewarm-execution-address
+       accessed-addresses
+       (set-code-delegation-target (state-db-get-code state destination))))
     accessed-addresses))
 
 (defun transaction-accessed-storage-table (tx)

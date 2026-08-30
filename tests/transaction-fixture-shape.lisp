@@ -148,7 +148,8 @@
   "Shanghai")
 
 (defparameter +transaction-fixture-known-exceptions+
-  '("TransactionException.TYPE_1_TX_PRE_FORK"
+  '("TransactionException.NONCE_OVERFLOW"
+    "TransactionException.TYPE_1_TX_PRE_FORK"
     "TransactionException.TYPE_2_TX_PRE_FORK"
     "TransactionException.TYPE_3_TX_PRE_FORK"
     "TransactionException.TYPE_4_TX_PRE_FORK"
@@ -751,4 +752,3 @@
                              (set-code-transaction-authorization-list
                               transaction))))))))
     decoded))
-

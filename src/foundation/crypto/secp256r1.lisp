@@ -20,23 +20,26 @@
 
 (defun secp256r1-ironclad-verify (hash r s qx qy)
   "Core ECDSA P-256 check via Ironclad, given the values already validated."
-  (let ((public-key
-          (ignore-errors
-           (ironclad:make-public-key
-            :secp256r1
-            :y (concat-bytes (make-array 1 :element-type '(unsigned-byte 8)
-                                           :initial-element 4)
-                             (integer-to-fixed-bytes qx 32)
-                             (integer-to-fixed-bytes qy 32)))))
-        (signature
-          (ironclad:make-signature :secp256r1
-                                   :r (integer-to-fixed-bytes r 32)
-                                   :s (integer-to-fixed-bytes s 32))))
-    (and public-key
-         (ironclad:verify-signature public-key
-                                    (integer-to-fixed-bytes hash 32)
-                                    signature)
-         t)))
+  ;; EIP-7951 defines every invalid signature as an empty precompile result.
+  ;; Ironclad can signal while evaluating a mathematically valid-looking input
+  ;; whose ECDSA recurrence produces the point at infinity, so keep the entire
+  ;; backend call inside the rejection boundary rather than only key parsing.
+  (ignore-errors
+    (let ((public-key
+            (ironclad:make-public-key
+             :secp256r1
+             :y (concat-bytes (make-array 1 :element-type '(unsigned-byte 8)
+                                            :initial-element 4)
+                              (integer-to-fixed-bytes qx 32)
+                              (integer-to-fixed-bytes qy 32))))
+          (signature
+            (ironclad:make-signature :secp256r1
+                                     :r (integer-to-fixed-bytes r 32)
+                                     :s (integer-to-fixed-bytes s 32))))
+      (and (ironclad:verify-signature public-key
+                                      (integer-to-fixed-bytes hash 32)
+                                      signature)
+           t))))
 
 (defun secp256r1-verify (hash r s qx qy)
   "Verify an ECDSA P-256 signature per EIP-7951.

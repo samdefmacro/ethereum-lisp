@@ -77,7 +77,16 @@
                              +p256-sample-qx+ (1+ +p256-sample-qy+))))
   ;; The point at infinity (0, 0) is rejected.
   (is (not (secp256r1-verify +p256-sample-hash+ +p256-sample-r+ +p256-sample-s+
-                             0 0))))
+                             0 0)))
+  ;; An otherwise in-range ECDSA input whose verification recurrence produces
+  ;; the point at infinity is an invalid signature, not an execution error.
+  ;; Vector: execution-spec-tests v20.0.2, R_at_infinity_v1.
+  (is (not (secp256r1-verify
+            #x2ba3a8be6b94d5ec80a6d9d1190a436effe50d85a1eee859b8cc6af9bd5c2e18
+            #x2ba3a8be6b94d5ec80a6d9d1190a436effe50d85a1eee859b8cc6af9bd5c2e18
+            #x4cd60b855d442f5b3c7b11eb6c4e0ae7525fe710fab9aa7c77a67f79e6fadd76
+            #x6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296
+            #xb01cbd1c01e58065711814b583f061e9d431cca994cea1313449bf97c840ae0a))))
 
 (defun p256-sample-precompile-input ()
   (concat-bytes

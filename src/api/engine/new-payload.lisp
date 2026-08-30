@@ -74,6 +74,12 @@
                 (json-rpc-required-param
                  params 3 "executionRequests" "engine_newPayload")
                 "executionRequests"))))
+      ;; executionRequests is an Engine method parameter.  Its structural
+      ;; ordering and uniqueness constraints therefore fail as invalid params
+      ;; (-32602), before payload reconstruction can turn them into an INVALID
+      ;; consensus verdict.
+      (when (>= version 4)
+        (validate-execution-request-list-fields requests))
       (let ((invalid-message
               (engine-new-payload-version-invalid-p
                version payload config

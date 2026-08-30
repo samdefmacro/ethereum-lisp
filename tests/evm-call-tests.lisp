@@ -429,7 +429,9 @@
       (is (= 1 (first (evm-result-stack result))))
       (is (= 14319 (evm-result-gas-used result)))
       (is (= 9 (state-account-balance (state-db-get-account state caller))))
-      (is (= 1 (state-account-balance
+      ;; Pre-Cancun SELFDESTRUCT deletes the callee and burns a transfer to
+      ;; itself; the value stipend changes gas availability, not this state.
+      (is (= 0 (state-account-balance
                 (state-db-get-account state callee)))))))
 
 (deftest evm-call-revert-rolls-back-and-keeps-return-data
@@ -550,7 +552,10 @@
     (let ((result (execute-bytecode code :context context)))
       (is (eq :selfdestructed (evm-result-status result)))
       (is (= 7603 (evm-result-gas-used result)))
-      (is (= 7 (state-account-balance (state-db-get-account state contract))))))
+      ;; Before Cancun the contract is deleted at transaction end even when it
+      ;; names itself as beneficiary, so its balance must be burned immediately
+      ;; and cannot be observed by a later call in the same transaction.
+      (is (= 0 (state-account-balance (state-db-get-account state contract))))))
   (let* ((state (make-state-db))
          (contract (address-from-hex "0x00000000000000000000000000000000000000aa"))
          (beneficiary (address-from-hex "0x00000000000000000000000000000000000000bb"))

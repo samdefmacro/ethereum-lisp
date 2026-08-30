@@ -761,9 +761,39 @@ TXBYTES, so callers retain a reconstruction fallback for those fixtures only."
        (and (typep condition 'transaction-validation-error)
             (search "gas limit" message :test #'char-equal)
             (search "intrinsic gas" message :test #'char-equal)))
+      ((member token
+               '("TransactionException.GAS_ALLOWANCE_EXCEEDED"
+                 "TransactionException.INTRINSIC_GAS_BELOW_FLOOR_GAS_COST")
+               :test #'string=)
+       (and (typep condition 'transaction-validation-error)
+            (search "gas limit below intrinsic gas" message
+                    :test #'char-equal)))
+      ((string= token "TransactionException.GAS_LIMIT_EXCEEDS_MAXIMUM")
+       (and (typep condition 'transaction-validation-error)
+            (search "transaction gas limit exceeds the EIP-7825 cap" message
+                    :test #'char-equal)))
+      ((string= token "TransactionException.INITCODE_SIZE_EXCEEDED")
+       (and (typep condition 'transaction-validation-error)
+            (search "contract initcode exceeds maximum size" message
+                    :test #'char-equal)))
       ((string= token "TransactionException.INSUFFICIENT_ACCOUNT_FUNDS")
        (and (typep condition 'transaction-validation-error)
             (search "insufficient sender balance" message
+                    :test #'char-equal)))
+      ((string= token "TransactionException.NONCE_IS_MAX")
+       (and (typep condition 'transaction-validation-error)
+            (search "sender nonce has maximum value" message
+                    :test #'char-equal)))
+      ((member token
+               '("TransactionException.NONCE_MISMATCH_TOO_HIGH"
+                 "TransactionException.NONCE_MISMATCH_TOO_LOW")
+               :test #'string=)
+       (and (typep condition 'transaction-validation-error)
+            (search "invalid transaction nonce" message
+                    :test #'char-equal)))
+      ((string= token "TransactionException.SENDER_NOT_EOA")
+       (and (typep condition 'transaction-validation-error)
+            (search "transaction sender has non-delegation code" message
                     :test #'char-equal)))
       ((string= token "TransactionException.TYPE_3_TX_INVALID_BLOB_VERSIONED_HASH")
        (and (typep condition 'block-validation-error)
@@ -794,8 +824,22 @@ TXBYTES, so callers retain a reconstruction fallback for those fixtures only."
        (and (typep condition 'block-validation-error)
             (search "blob transaction cannot create contracts" message
                     :test #'char-equal)))
+      ((string= token "TransactionException.TYPE_4_EMPTY_AUTHORIZATION_LIST")
+       (and (typep condition 'transaction-validation-error)
+            (search "set-code transactions require an authorization list"
+                    message :test #'char-equal)))
+      ((string= token "TransactionException.TYPE_4_TX_CONTRACT_CREATION")
+       (or (and (typep condition 'transaction-validation-error)
+                (search "set-code transactions cannot create contracts"
+                        message :test #'char-equal))
+           ;; Canonical typed-envelope decoding may reject the empty recipient
+           ;; before execution validation gets a transaction object.
+           (and (typep condition 'block-validation-error)
+                (search "set-code transaction recipient must be exactly 20 bytes"
+                        message :test #'char-equal))))
       ((string= token "TransactionException.PRIORITY_GREATER_THAN_MAX_FEE_PER_GAS")
-       (and (typep condition 'block-validation-error)
+       (and (typep condition '(or block-validation-error
+                                  transaction-validation-error))
             (search "max priority fee exceeds max fee" message
                     :test #'char-equal)))
       ((string= token "TransactionException.INVALID_CHAINID")
@@ -820,26 +864,36 @@ TXBYTES, so callers retain a reconstruction fallback for those fixtures only."
   (unless (member fork '("London" "Shanghai" "Cancun" "Prague" "Osaka")
                   :test #'string=)
     (error "Unsupported EEST state test fork ~A" fork))
-  (make-chain-rules :chain-id 1
-                    :homestead-p t
-                    :eip150-p t
-                    :eip155-p t
-                    :eip158-p t
-                    :byzantium-p t
-                    :constantinople-p t
-                    :petersburg-p t
-                    :istanbul-p t
-                    :berlin-p t
-                    :london-p t
-                    :shanghai-p
-                    (member fork '("Shanghai" "Cancun" "Prague" "Osaka")
-                            :test #'string=)
-                    :cancun-p
-                    (member fork '("Cancun" "Prague" "Osaka")
-                            :test #'string=)
-                    :prague-p
-                    (member fork '("Prague" "Osaka") :test #'string=)
-                    :osaka-p (string= fork "Osaka")))
+  (let ((rules
+          (make-chain-rules
+           :chain-id 1
+           :homestead-p t
+           :eip150-p t
+           :eip155-p t
+           :eip158-p t
+           :byzantium-p t
+           :constantinople-p t
+           :petersburg-p t
+           :istanbul-p t
+           :berlin-p t
+           :london-p t
+           :shanghai-p
+           (member fork '("Shanghai" "Cancun" "Prague" "Osaka")
+                   :test #'string=)
+           :cancun-p
+           (member fork '("Cancun" "Prague" "Osaka") :test #'string=)
+           :prague-p
+           (member fork '("Prague" "Osaka") :test #'string=)
+           :osaka-p (string= fork "Osaka"))))
+    ;; CHAIN-CONFIG-RULES normally materializes the active blob schedule into
+    ;; these slots.  State tests construct rules directly, so do the equivalent
+    ;; here; otherwise Prague incorrectly retains Cancun's six-blob block cap.
+    (multiple-value-bind (target-gas max-gas update-fraction)
+        (chain-rules-blob-schedule rules)
+      (setf (chain-rules-blob-schedule-target-gas rules) target-gas
+            (chain-rules-blob-schedule-max-gas rules) max-gas
+            (chain-rules-blob-schedule-update-fraction rules) update-fraction))
+    rules))
 
 (defun eest-state-test-blob-base-fee (env rules)
   "Return the EIP-4844 blob base fee declared by an EEST execution environment.
@@ -859,12 +913,22 @@ and consequently has no blob fee."
         0)))
 
 (defun eest-state-test-block-hashes (env)
-  "Decode the optional EEST BLOCKHASH history into the execution context.
+  "Build the state-test BLOCKHASH history for the execution context.
 
-`blockHashes` is keyed by block number.  Older state-test fixtures encode the
-immediately preceding entry as `previousHash`; accept that representation too
-without inventing any history that the fixture did not supply."
-  (let ((hashes (make-hash-table :test 'eql)))
+The canonical go-ethereum state-test runner defines block N's hash as
+keccak256(decimal(N)); EEST state-test fixtures rely on the same convention and
+do not serialize their source Environment's block_hashes map.  Seed the
+protocol-visible 256-block window with that deterministic test-only provider.
+`blockHashes` and the legacy `previousHash` field remain explicit overrides."
+  (let* ((hashes (make-hash-table :test 'eql))
+         (current-number
+           (eest-state-test-quantity-string
+            (fixture-required-field env "currentNumber")
+            "EEST state test current block number")))
+    (loop for number from (max 0 (- current-number 256)) below current-number
+          do (setf (gethash number hashes)
+                   (keccak-256-hash
+                    (ascii-to-bytes (format nil "~D" number)))))
     (let ((fixture-hashes (fixture-object-field env "blockHashes")))
       (when fixture-hashes
         (dolist (entry
@@ -876,42 +940,10 @@ without inventing any history that the fixture did not supply."
                 (hash32-from-hex (cdr entry))))))
     (let ((previous-hash (fixture-object-field env "previousHash")))
       (when previous-hash
-        (let ((current-number
-                (eest-state-test-quantity-string
-                 (fixture-required-field env "currentNumber")
-                 "EEST state test current block number")))
-          (when (plusp current-number)
-            (setf (gethash (1- current-number) hashes)
-                  (hash32-from-hex previous-hash))))))
+        (when (plusp current-number)
+          (setf (gethash (1- current-number) hashes)
+                (hash32-from-hex previous-hash)))))
     hashes))
-
-(defparameter +eest-state-test-unrepresentable-blockhash-case-suffix+
-  "blockhash_zero_in_window_control.json")
-
-(defun eest-state-test-unrepresentable-blockhash-history-p (case env)
-  "Whether CASE is the published EEST BLOCKHASH vector missing required input.
-
-The stable tests@v20.0.1 archive contains a family whose source environment
-sets block_hashes[0] to keccak256(\"0\"), while its released state-test JSON
-contains neither blockHashes nor previousHash.  Its expected post-state is
-therefore not reproducible from the pinned bytes.  Recognize the documented
-family *and* its missing inputs explicitly: this must remain an upstream corpus
-integrity failure, never become a client-side semantic mismatch or an inferred
-history entry."
-  (and (search +eest-state-test-unrepresentable-blockhash-case-suffix+
-               (fixture-required-field case "name")
-               :test #'char-equal)
-       (= 1 (eest-state-test-quantity-string
-             (fixture-required-field env "currentNumber")
-             "EEST state test current block number"))
-       (not (fixture-field-present-p env "blockHashes"))
-       (not (fixture-field-present-p env "previousHash"))))
-
-(defun assert-eest-state-test-representable-history (case env)
-  "Fail closed when a pinned state-test omits BLOCKHASH input it requires."
-  (when (eest-state-test-unrepresentable-blockhash-history-p case env)
-    (error "EEST corpus-integrity failure: ~A omits both blockHashes and previousHash; its published expected state requires the absent block-0 hash"
-           (fixture-required-field case "name"))))
 
 (deftest eest-state-test-block-hashes-preserve-explicit-history
   (let ((hashes
@@ -929,12 +961,13 @@ history entry."
          "0x2222222222222222222222222222222222222222222222222222222222222222"
          (hash32-to-hex (gethash 1 hashes))))))
 
-(deftest eest-state-test-rejects-unrepresentable-blockhash-history
-  (signals error
-    (assert-eest-state-test-representable-history
-     (list (cons "name"
-                 "for_london/frontier/opcodes/blockhash_state_test_recency/blockhash_zero_in_window_control.json/tests/frontier/opcodes/test_blockhash_state_test_recency.py::test_blockhash_zero_in_window_control[fork_London-state_test]"))
-     (list (cons "currentNumber" "0x01")))))
+(deftest eest-state-test-block-hashes-use-canonical-test-provider
+  (let ((hashes
+          (eest-state-test-block-hashes
+           '(("currentNumber" . "0x01")))))
+    (is (string=
+         "0x044852b2a670ade5407e78fb2863c51de9fcb96542a07186fe3aeda6bb8a116d"
+         (hash32-to-hex (gethash 0 hashes))))))
 
 (deftest eest-late-fork-state-tests-select-active-rules
   (let ((cancun (eest-state-test-chain-rules "Cancun"))
@@ -944,20 +977,21 @@ history entry."
     (is (not (chain-rules-prague-p cancun)))
     (is (chain-rules-prague-p prague))
     (is (not (chain-rules-osaka-p prague)))
-    (is (chain-rules-osaka-p osaka))))
+    (is (= 9 (chain-rules-max-blobs-per-transaction prague)))
+    (is (chain-rules-osaka-p osaka))
+    (is (= 6 (chain-rules-max-blobs-per-transaction osaka)))))
 
 (defun execute-eest-state-test-post-entry (case post-entry &key (fork "London"))
   (let* ((fixture (fixture-required-field case "fixture"))
          (env (fixture-required-field fixture "env"))
          (state (make-state-db))
-         (signed-tx (eest-state-test-post-transaction post-entry))
          (rules (eest-state-test-chain-rules fork)))
-    (assert-eest-state-test-representable-history case env)
     (dolist (entry (fixture-required-field fixture "pre"))
       (apply-eest-state-test-account state (car entry) (cdr entry)))
     (let ((snapshot (state-db-copy state)))
       (handler-case
-          (let* ((arguments
+          (let* ((signed-tx (eest-state-test-post-transaction post-entry))
+                 (arguments
                    (list :chain-rules rules
                          :base-fee
                          (hex-to-quantity
@@ -1090,9 +1124,16 @@ history entry."
           (progn
             (assert-eest-state-test-expected-condition
              case post-entry fork condition expected-exception)
-            (is (eest-state-test-condition-matches-expected-exception-p
-                 condition
-                 expected-exception))
+            (unless (eest-state-test-condition-matches-expected-exception-p
+                     condition expected-exception)
+              (error "EEST state case ~A fork ~A indexes ~S expected ~A, got ~S: ~A"
+                     (fixture-required-field case "name")
+                     fork
+                     (fixture-object-field post-entry "indexes")
+                     expected-exception
+                     (type-of condition)
+                     (eest-state-test-condition-message condition)))
+            (is t)
             (assert-eest-state-test-field=
              case post-entry fork "state root"
              (fixture-required-field post-entry "hash")
@@ -1332,8 +1373,36 @@ history entry."
          intrinsic-gas-condition
          "TransactionException.INTRINSIC_GAS_TOO_LOW"))
     (is (eest-state-test-condition-matches-expected-exception-p
+         intrinsic-gas-condition
+         "TransactionException.GAS_ALLOWANCE_EXCEEDED"))
+    (is (eest-state-test-condition-matches-expected-exception-p
+         intrinsic-gas-condition
+         "TransactionException.INTRINSIC_GAS_BELOW_FLOOR_GAS_COST"))
+    (is (eest-state-test-condition-matches-expected-exception-p
+         (make-condition 'transaction-validation-error
+                         :message "Transaction gas limit exceeds the EIP-7825 cap")
+         "TransactionException.GAS_LIMIT_EXCEEDS_MAXIMUM"))
+    (is (eest-state-test-condition-matches-expected-exception-p
+         (make-condition 'transaction-validation-error
+                         :message "Contract initcode exceeds maximum size")
+         "TransactionException.INITCODE_SIZE_EXCEEDED"))
+    (is (eest-state-test-condition-matches-expected-exception-p
          insufficient-funds-condition
          "TransactionException.INSUFFICIENT_ACCOUNT_FUNDS"))
+    (is (eest-state-test-condition-matches-expected-exception-p
+         (make-condition 'transaction-validation-error
+                         :message "Sender nonce has maximum value")
+         "TransactionException.NONCE_IS_MAX"))
+    (dolist (token '("TransactionException.NONCE_MISMATCH_TOO_HIGH"
+                     "TransactionException.NONCE_MISMATCH_TOO_LOW"))
+      (is (eest-state-test-condition-matches-expected-exception-p
+           (make-condition 'transaction-validation-error
+                           :message "Invalid transaction nonce")
+           token)))
+    (is (eest-state-test-condition-matches-expected-exception-p
+         (make-condition 'transaction-validation-error
+                         :message "Transaction sender has non-delegation code")
+         "TransactionException.SENDER_NOT_EOA"))
     (is (eest-state-test-condition-matches-expected-exception-p
          (make-condition 'block-validation-error
                          :message "Invalid blob versioned hash version")
@@ -1359,7 +1428,23 @@ history entry."
                          :message "Blob transaction cannot create contracts")
          "TransactionException.TYPE_3_TX_CONTRACT_CREATION"))
     (is (eest-state-test-condition-matches-expected-exception-p
+         (make-condition 'transaction-validation-error
+                         :message "Set-code transactions require an authorization list")
+         "TransactionException.TYPE_4_EMPTY_AUTHORIZATION_LIST"))
+    (is (eest-state-test-condition-matches-expected-exception-p
+         (make-condition 'transaction-validation-error
+                         :message "Set-code transactions cannot create contracts")
+         "TransactionException.TYPE_4_TX_CONTRACT_CREATION"))
+    (is (eest-state-test-condition-matches-expected-exception-p
          (make-condition 'block-validation-error
+                         :message "Set-code transaction recipient must be exactly 20 bytes")
+         "TransactionException.TYPE_4_TX_CONTRACT_CREATION"))
+    (is (eest-state-test-condition-matches-expected-exception-p
+         (make-condition 'block-validation-error
+                         :message "Max priority fee exceeds max fee")
+         "TransactionException.PRIORITY_GREATER_THAN_MAX_FEE_PER_GAS"))
+    (is (eest-state-test-condition-matches-expected-exception-p
+         (make-condition 'transaction-validation-error
                          :message "Max priority fee exceeds max fee")
          "TransactionException.PRIORITY_GREATER_THAN_MAX_FEE_PER_GAS"))
     (is (eest-state-test-condition-matches-expected-exception-p
@@ -1429,6 +1514,24 @@ capability or a reason to skip the case."
     (let ((*kzg-verifier* verifier))
       (funcall thunk))))
 
+(defun call-with-eest-cryptographic-backends (thunk)
+  "Run current-fork EEST with the same mandatory crypto backends as the CLI.
+
+Cancun point-evaluation vectors require c-kzg, while Prague and Osaka include
+BLS12-381 precompile vectors backed by blst.  An external conformance run must
+not turn either missing backend into an Engine internal error or an optional
+skip, so both are installed for the whole streamed fixture execution and their
+absence is an explicit gate failure."
+  (let ((kzg-verifier (make-kzg-cffi-verifier))
+        (bls-backend (make-bls12381-cffi-backend)))
+    (unless kzg-verifier
+      (error "EEST current-fork conformance requires the c-kzg CFFI verifier"))
+    (unless bls-backend
+      (error "EEST current-fork conformance requires the blst CFFI backend"))
+    (let ((*kzg-verifier* kzg-verifier)
+          (*bls12381-backend* bls-backend))
+      (funcall thunk))))
+
 (deftest optional-phase-a-eest-state-test-root-vectors-execute
   (:layer :integration :module :eest)
   ;; Execute only the forks this build implements. A post map from the stable
@@ -1437,11 +1540,12 @@ capability or a reason to skip the case."
   ;; the gate red on a fork we never claimed to execute rather than on a real
   ;; divergence. Discovery already guarantees at least one supported fork per
   ;; case, so the intersection is non-empty and nothing is silently skipped.
-  (call-with-eest-kzg-cffi-verifier
+  (call-with-eest-cryptographic-backends
    (lambda ()
      (let ((supported (phase-a-eest-state-test-supported-forks)))
-       (dolist (case (load-optional-phase-a-eest-state-test-root-cases))
-         (dolist (fork (intersection supported
-                                     (eest-state-test-case-fork-names case)
-                                     :test #'string=))
-           (assert-eest-state-test-case case :fork fork)))))))
+       (map-optional-phase-a-eest-state-test-root-cases
+        (lambda (case)
+          (dolist (fork (intersection supported
+                                      (eest-state-test-case-fork-names case)
+                                      :test #'string=))
+            (assert-eest-state-test-case case :fork fork))))))))

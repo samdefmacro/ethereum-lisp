@@ -143,7 +143,11 @@ valid-looking partial import."
       ;; the *current* canonical head: a same-height alternate hash still goes
       ;; through the direct-successor validation below and cannot create a
       ;; silent reorg.
-      (let ((head (chain-store-head-block (devnet-node-store node))))
+      ;; A freshly seeded genesis has a canonical index and head number before
+      ;; forkchoice has installed an explicit head checkpoint.  Use the same
+      ;; canonical anchor as the import path below so an exact genesis replay
+      ;; remains a no-op during that interval.
+      (let ((head (chain-store-latest-block (devnet-node-store node))))
         (unless (and head (hash32= (block-hash block) (block-hash head)))
           (handler-case
               (progn

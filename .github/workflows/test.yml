@@ -178,27 +178,18 @@ jobs:
           path: ${{ runner.temp }}/conformance/eest-conformance-report.txt
           if-no-files-found: error
 
-  # Late-fork conformance: Cancun, Prague, and Osaka (the newest implemented
-  # fork). SEPARATE from the blocking job above ON PURPOSE. Since f78b991d the
+  # Current-fork conformance: Cancun, Prague, and Osaka (the newest implemented
+  # fork). Separate from the legacy compatibility job above. Since f78b991d the
   # standard replay materializer derives each case's chain config from its own
   # network and engine-fixture-chain-config reads cancunTime/pragueTime/
   # osakaTime, so a late-fork case admitted by the widened network gate now
   # EXECUTES under its own ruleset instead of under Shanghai. That is what makes
-  # this job worth running, and equally why it cannot block yet: every genuine
-  # Cancun/Prague/Osaka divergence now surfaces as a real failure, and burning
-  # those down is plan section 7 rather than a prerequisite for reaching it. The
-  # V3+ engine-payload path (blob gas, parent beacon root, requests) is still
-  # not materialized and stays an honest counted skip. It therefore runs
-  # continue-on-error, while the count-manifest guard (which makes the coverage
-  # gap VISIBLE rather than silent) and the shard guard run here exactly as
-  # everywhere else, and the report step archives the counts either way.
-  #
-  # TODO(plan Phase 7 -- docs/gap-analysis/public-testnet-readiness-plan.md):
-  # once Cancun/Prague/Osaka execution parity lands, DROP continue-on-error so
-  # this becomes a required gate. Amsterdam stays gated out until plan section 8.
+  # this job worth running. The stable v20.0.2 corpus is now a required gate;
+  # format-inapplicable cases remain explicitly named in the count manifest and
+  # every materialized valid and invalid vector must execute successfully.
+  # Amsterdam stays gated out until plan section 8.
   conformance-late-forks:
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
@@ -210,7 +201,7 @@ jobs:
           load: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      # The late-fork surface lives in the stable execution corpus (tests@v20.0.1),
+      # The late-fork surface lives in the stable execution corpus (tests@v20.0.2),
       # not the v5.4.0 baseline the blocking job fetches, so pull that one. A
       # distinct cache key keeps the two corpora from evicting each other.
       - name: Cache fixture corpus
@@ -226,8 +217,7 @@ jobs:
       # so the pre-late forks must be listed alongside the new ones or their
       # coverage would drop. auto discovery then selects every materializable
       # case across the widened set, and the manifest guard asserts each listed
-      # fork actually executed at least one case (a zero is a red -- absorbed
-      # here by continue-on-error until Phase 7).
+      # fork actually executed at least one case (a zero is a red failure).
       - name: Run late-fork conformance layers
         id: layers
         # See the blocking job: tee under `shell: bash` (-eo pipefail) so the
@@ -244,13 +234,10 @@ jobs:
           mkdir -p "$RUNNER_TEMP/conformance"
           make docker-test-unit 2>&1 | tee "$RUNNER_TEMP/conformance/run.log"
           make docker-test-integration 2>&1 | tee -a "$RUNNER_TEMP/conformance/run.log"
-      # This job is expected to be red for a while, which is exactly why its
-      # counts must outlive the log: the per-fork executed=[...] numbers across
-      # releases are the record of the late-fork surface closing. always() is
-      # load-bearing here -- continue-on-error keeps a failed job from failing
-      # the workflow, but it does not keep a failed STEP from skipping the ones
-      # after it. Distinct artifact name and corpus (tests@v20.0.1) from the
-      # blocking job's report.
+      # Counts must outlive the log: the per-fork executed=[...] numbers across
+      # releases are durable evidence. always() is load-bearing so a failed step
+      # still produces its report. Distinct artifact name and corpus
+      # (tests@v20.0.2) from the legacy compatibility job's report.
       - name: Build late-fork conformance report
         if: always()
         shell: bash

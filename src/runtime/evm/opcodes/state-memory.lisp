@@ -230,4 +230,3 @@
         (t
          (fail "Unsupported EVM opcode 0x~2,'0X at pc ~D" op pc))))))
 
-

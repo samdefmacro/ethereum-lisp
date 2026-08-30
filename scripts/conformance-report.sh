@@ -118,8 +118,8 @@ upstream_commit_for_digest() {
     case "$1" in
         92cf1b47ad12fb27163261fc3c1cea5df72439cab507983d06b56c94f8741909)
             echo "88e9fb8" ;;
-        3586193db06d4d5745d5e90b3c3008c2255a4e19ccd8f11a3ce887aec8c0b17c)
-            echo "87aba1a38a476b31f819a2390eb481527e6dc683" ;;
+        1280540950a4c3470a421416b6f35458a9b635827265c29e5aef1ae839ae1788)
+            echo "abbe05777ab83fb94ce18c425daaa7ab79e779c1" ;;
         02e3eca2ede5b424f4dbf2461caf592e6b43b56d55bbd64213dd01f63af9a583)
             echo "882909a2c88751a31fa99a65176563a16c527893" ;;
         *)

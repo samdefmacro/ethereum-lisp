@@ -521,7 +521,7 @@
   ;; The exact-match network gate silently drops every transition vector, and a
   ;; drop with no name is the failure plan section 2 exists to remove. These are
   ;; the spellings the stable corpus actually ships, including the four BPO
-  ;; transitions -- which is the ONLY form BPO takes in tests@v20.0.1, since it
+  ;; transitions -- which is the ONLY form BPO takes in tests@v20.0.2, since it
   ;; has no standalone BPO fork directory and no fixture whose network is BPO2.
   (is (every #'eest-transition-network-p
              '("ParisToShanghaiAtTime15k" "ShanghaiToCancunAtTime15k"
@@ -674,7 +674,7 @@
 
 (deftest phase-a-eest-blockchain-discovery-reads-for-network-corpus-layout
   ;; The legacy corpus names the fork only inside the fixture; the stable corpus
-  ;; (tests@v20.0.1) repeats the feature tree under one `for_<network>/'
+  ;; (tests@v20.0.2) repeats the feature tree under one `for_<network>/'
   ;; directory per fork. Discovery has to read both, and on the stable layout the
   ;; fork gate must apply to the PATH -- a Shanghai run must not even open the
   ;; Cancun tree. Before this, the whole stable corpus discovered zero cases,
@@ -778,3 +778,39 @@
               (t nil)))))
     (signals test-skipped
       (load-optional-phase-a-eest-blockchain-replay-cases))))
+
+(deftest phase-a-eest-blockchain-replay-streams-selected-files
+  (let ((*fixture-root-environment-reader*
+          (lambda (name)
+            (cond
+              ((string= name +execution-spec-tests-fixture-root-env+)
+               "tests/fixtures/execution-spec-tests-root/")
+              ((string= name +phase-a-eest-blockchain-replay-selectors-env+)
+               "auto")
+              (t nil))))
+        (streamed '()))
+    (is (= 9
+           (map-optional-phase-a-eest-blockchain-replay-cases
+            (lambda (case)
+              (push (fixture-required-field case "name") streamed)))))
+    (is (= 9 (length streamed)))
+    (is (= 9 (length (remove-duplicates streamed :test #'string=))))))
+
+(deftest phase-a-eest-state-tests-stream-selected-files
+  (let ((*fixture-root-environment-reader*
+          (lambda (name)
+            (cond
+              ((string= name +execution-spec-tests-fixture-root-env+)
+               "tests/fixtures/execution-spec-tests-root/")
+              ((string= name +phase-a-eest-state-test-selectors-env+)
+               "auto")
+              (t nil))))
+        (streamed '()))
+    (let ((count
+            (map-optional-phase-a-eest-state-test-root-cases
+             (lambda (case)
+               (push (fixture-required-field case "name") streamed)))))
+      (is (= (length +phase-a-eest-state-test-case-names+) count))
+      (is (= count (length streamed)))
+      (is (= count
+             (length (remove-duplicates streamed :test #'string=)))))))

@@ -15,7 +15,7 @@
 # Three baselines are pinned, selected with EEST_BASELINE:
 #   legacy-v5.4.0    the corpus the London/Shanghai gate ran against (default,
 #                    so `make eest-fixtures` keeps working unchanged).
-#   stable-v20.0.1   the current stable execution corpus (tests@v20.0.1); the
+#   stable-v20.0.2   the current stable execution corpus (tests@v20.0.2); the
 #                    late-fork Cancun/Prague/Osaka surface lives here.
 #   amsterdam-v7.2.1 the Amsterdam feature corpus (tests-glamsterdam-devnet
 #                    @v7.2.1); NOT executed by the current gates, staged for the
@@ -36,12 +36,12 @@ case "${EEST_BASELINE}" in
         EEST_URL="https://github.com/ethereum/execution-spec-tests/releases/download/${EEST_RELEASE}/${EEST_ARCHIVE}"
         EEST_EXTRACT_DIR="v5.4.0"
         ;;
-    stable-v20.0.1)
-        EEST_RELEASE="tests@v20.0.1"
+    stable-v20.0.2)
+        EEST_RELEASE="tests@v20.0.2"
         EEST_ARCHIVE="fixtures.tar.gz"
-        EEST_SHA256="3586193db06d4d5745d5e90b3c3008c2255a4e19ccd8f11a3ce887aec8c0b17c"
-        EEST_URL="https://github.com/ethereum/execution-specs/releases/download/tests%40v20.0.1/fixtures.tar.gz"
-        EEST_EXTRACT_DIR="tests-v20.0.1"
+        EEST_SHA256="1280540950a4c3470a421416b6f35458a9b635827265c29e5aef1ae839ae1788"
+        EEST_URL="https://github.com/ethereum/execution-specs/releases/download/tests%40v20.0.2/fixtures.tar.gz"
+        EEST_EXTRACT_DIR="tests-v20.0.2"
         ;;
     amsterdam-v7.2.1)
         EEST_RELEASE="tests-glamsterdam-devnet@v7.2.1"
@@ -52,7 +52,7 @@ case "${EEST_BASELINE}" in
         ;;
     *)
         echo "fetch-eest-fixtures: unknown EEST_BASELINE ${EEST_BASELINE}" >&2
-        echo "  expected one of: legacy-v5.4.0, stable-v20.0.1, amsterdam-v7.2.1" >&2
+        echo "  expected one of: legacy-v5.4.0, stable-v20.0.2, amsterdam-v7.2.1" >&2
         exit 1
         ;;
 esac

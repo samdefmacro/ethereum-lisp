@@ -1,5 +1,12 @@
 (in-package #:ethereum-lisp.test)
 
+(defparameter +eest-transaction-test-result-forks+
+  (remove-duplicates
+   (append +transaction-fixture-forks+
+           '("TangerineWhistle" "SpuriousDragon" "ConstantinopleFix"
+             "Osaka"))
+   :test #'string=))
+
 (defun normalize-eest-transaction-result-entry (case-name fork result)
   (unless (listp result)
     (error "EEST transaction case ~A result for fork ~A must be a JSON object"
@@ -107,7 +114,8 @@
                  case-name
                  fork))
         (setf (gethash fork seen-forks) t)
-        (unless (member fork +transaction-fixture-forks+ :test #'string=)
+        (unless (member fork +eest-transaction-test-result-forks+
+                        :test #'string=)
           (error "EEST transaction case ~A has unknown result fork ~A"
                  case-name
                  fork))))))

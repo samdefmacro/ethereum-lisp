@@ -5,7 +5,7 @@
 
 ;; Two corpus layouts have to discover. The legacy v5.4.0 release puts the
 ;; feature tree at the top (`berlin/eip2930_access_list/...') and names the fork
-;; only inside the fixture; the current stable release (tests@v20.0.1) repeats
+;; only inside the fixture; the current stable release (tests@v20.0.2) repeats
 ;; the whole feature tree under one `for_<network>/' directory per fork. Reading
 ;; the prefix rather than assuming a shape is what lets the fork gate apply to a
 ;; path before any of its JSON is parsed.
@@ -832,4 +832,3 @@
    (phase-a-eest-push-state-test-v5.4.0-case-names)
    (phase-a-eest-swap-state-test-v5.4.0-case-names)
    (phase-a-eest-gas-state-test-v5.4.0-case-names)))
-

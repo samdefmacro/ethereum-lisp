@@ -5919,6 +5919,13 @@ loop cannot block on a message that never comes."
         (ethereum-lisp.cli::devnet-node-import-local-canonical-blocks
          node (list genesis))
       (is (= 0 imported))
+      (unless (null condition)
+        (error "Canonical genesis replay returned ~A (head=~A genesis=~A)"
+               condition
+               (let ((head (chain-store-head-block
+                            (ethereum-lisp.cli:devnet-node-store node))))
+                 (and head (hash32-to-hex (block-hash head))))
+               (hash32-to-hex (block-hash genesis))))
       (is (null condition))
       (is (= 0 (chain-store-head-number
                 (ethereum-lisp.cli:devnet-node-store node)))))))

@@ -53,6 +53,56 @@
     (is (gethash (address-bytes (precompile-address 5))
                  byzantium-accesses))))
 
+(deftest message-evm-context-does-not-prewarm-preliminary-invalid-set-code-authority
+  (let* ((state (make-state-db))
+         (sender (address-from-hex
+                  "0x71562b71999873db5b286df957af199ec94617f7"))
+         (recipient (address-from-hex
+                     "0x00000000000000000000000000000000000000f2"))
+         (authorization
+           (make-set-code-authorization
+            :chain-id 1337
+            :address recipient
+            :nonce #xffffffffffffffff
+            :y-parity 0
+            :r #xdf70aeed45ec378d210bc3d5739164187460ed3bb3beaad729eb7d4195d1889a
+            :s #x1133f2cc049be60413c177e08e0b1a517bdc0ec3943fed1ad350dd04612437c9))
+         (authority (set-code-authorization-authority authorization))
+         (transaction
+           (make-set-code-transaction
+            :chain-id 1337
+            :to recipient
+            :authorization-list (list authorization)))
+         (context
+           (ethereum-lisp.execution::make-message-evm-context
+            state sender transaction recipient #() 0 :chain-id 1337))
+         (accesses (evm-context-accessed-addresses context)))
+    (is authority)
+    (is (not (gethash (address-bytes authority) accesses)))))
+
+(deftest message-evm-context-prewarms-top-level-delegation-target
+  (let* ((state (make-state-db))
+         (sender (address-from-hex
+                  "0x0000000000000000000000000000000000000001"))
+         (delegated (address-from-hex
+                     "0x00000000000000000000000000000000000000dd"))
+         (target (address-from-hex
+                  "0x00000000000000000000000000000000000000aa"))
+         (rules (make-chain-rules :chain-id 1 :prague-p t))
+         (transaction (make-legacy-transaction :to delegated))
+         (pre-prague-context
+           (ethereum-lisp.execution::make-message-evm-context
+            state sender transaction delegated #() 0))
+         (prague-context nil))
+    (state-db-set-code state delegated (set-code-delegation-code target))
+    (setf prague-context
+          (ethereum-lisp.execution::make-message-evm-context
+           state sender transaction delegated #() 0 :chain-rules rules))
+    (is (not (gethash (address-bytes target)
+                      (evm-context-accessed-addresses pre-prague-context))))
+    (is (gethash (address-bytes target)
+                 (evm-context-accessed-addresses prague-context)))))
+
 (defun execution-test-modexp-input ()
   (labels ((fixed32 (value)
              (let ((bytes (make-byte-vector 32)))

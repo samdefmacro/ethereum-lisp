@@ -43,7 +43,9 @@
      :accessed-storage (transaction-accessed-storage-table tx)
      :accessed-addresses
      (transaction-accessed-addresses-table tx
+                                           :state state
                                            :sender sender
                                            :destination address
                                            :coinbase coinbase
+                                           :chain-id chain-id
                                            :chain-rules effective-chain-rules))))

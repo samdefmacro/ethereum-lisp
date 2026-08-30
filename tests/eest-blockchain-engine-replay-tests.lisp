@@ -200,11 +200,12 @@
   ;; fixture's own parameters through the fixture's own method -- so this filter
   ;; is what keeps the two from either double-covering or, if it were simply
   ;; deleted, reddening every late-fork run for a harness limitation.
-  (dolist (source-case (phase-a-eest-blockchain-non-late-payload-cases
-                        (load-optional-phase-a-eest-blockchain-replay-cases)))
-    (assert-eest-blockchain-engine-newpayload-v2-replay
-     (materialize-eest-blockchain-engine-newpayload-v2-case source-case)
-     :source-case source-case)))
+  (map-optional-phase-a-eest-blockchain-replay-cases
+   (lambda (source-case)
+     (unless (phase-a-eest-blockchain-late-payload-case-p source-case)
+       (assert-eest-blockchain-engine-newpayload-v2-replay
+        (materialize-eest-blockchain-engine-newpayload-v2-case source-case)
+        :source-case source-case)))))
 
 (deftest eest-blockchain-replay-standard-config-activates-network-fork
   ;; The standard block-RLP materializer must hand each case a config that
@@ -230,3 +231,12 @@
     (is (equal '(t t t nil) (rules-at "Prague")))
     (is (equal '(t t t t) (rules-at "Osaka")))))
 
+(deftest eest-engine-fixture-config-installs-deposit-contract
+  (let* ((case
+           (list (cons "chainId" "0x1")
+                 (cons "config"
+                       (eest-blockchain-replay-network-config "Prague"))))
+         (config (engine-fixture-chain-config case)))
+    (is (string=
+         +eest-deposit-contract-address+
+         (address-to-hex (chain-config-deposit-contract-address config))))))

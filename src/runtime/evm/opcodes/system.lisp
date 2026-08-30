@@ -227,7 +227,17 @@
              (let* ((rules (evm-context-chain-rules context))
                     (address (evm-context-address context))
                     (created-p
-                      (account-created-this-transaction-p context address)))
+                      (account-created-this-transaction-p context address))
+                    (delete-p
+                      (or (not (and rules
+                                    (chain-rules-cancun-p rules)))
+                          created-p))
+                    (burn-self-balance-p
+                      (and delete-p
+                           ;; EIP-8246 removes the post-Cancun balance burn
+                           ;; for SELFDESTRUCT when beneficiary is self.
+                           (not (and rules
+                                     (chain-rules-amsterdam-p rules))))))
                (let ((transfer-log
                        (selfdestruct-account
                         (evm-context-state context)
@@ -235,17 +245,10 @@
                         beneficiary
                         rules
                         :clear-self-balance-p
-                        (and rules
-                             (chain-rules-cancun-p rules)
-                             ;; EIP-8246 removes the post-Cancun balance burn
-                             ;; for SELFDESTRUCT when beneficiary is self.
-                             (not (chain-rules-amsterdam-p rules))
-                             created-p))))
+                        burn-self-balance-p)))
                  (when transfer-log
                    (push transfer-log logs)))
-               (when (or (not (and rules
-                                   (chain-rules-cancun-p rules)))
-                         created-p)
+               (when delete-p
                  (mark-selfdestructed-address
                   context
                   address

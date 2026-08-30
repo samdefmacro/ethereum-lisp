@@ -195,6 +195,49 @@ gap this whole selector layer exists to prevent."
    names
    "EEST blockchain test"))
 
+(defun map-eest-blockchain-test-root-cases (function root &key names)
+  "Call FUNCTION for selected blockchain cases while retaining one file at a time.
+
+The current stable EEST engine corpus contains thousands of cases with full
+pre-state and payload objects.  LOAD-EEST-BLOCKCHAIN-TEST-ROOT-CASES remains a
+useful small-fixture API, but collecting an `auto' selection across several
+forks can exceed the test process heap before the first case executes.  This
+walker groups selectors by source file, parses and validates that one file,
+emits its selected cases, and lets the file become unreachable before opening
+the next one.  Selector groups follow first-file occurrence; selectors within
+each file keep their caller-supplied order."
+  (unless (functionp function)
+    (error "EEST blockchain case mapper must be a function"))
+  (when names
+    (validate-eest-blockchain-selector-list names))
+  (if names
+      (let ((path-order '())
+            (names-by-path (make-hash-table :test 'equal)))
+        (dolist (name names)
+          (let* ((relative
+                   (eest-selector-relative-json-path
+                    name "EEST blockchain test"))
+                 (path (merge-pathnames relative root)))
+            (unless (probe-file path)
+              (error "EEST blockchain test selector ~A references missing fixture file ~A"
+                     name relative))
+            (unless (gethash relative names-by-path)
+              (push relative path-order))
+            (push name (gethash relative names-by-path))))
+        (dolist (relative (nreverse path-order))
+          (let* ((path (merge-pathnames relative root))
+                 (selected
+                   (filter-execution-spec-tests-root-cases
+                    (load-eest-blockchain-test-root-file-cases root path)
+                    (nreverse (gethash relative names-by-path))
+                    "EEST blockchain test")))
+            (dolist (case selected)
+              (funcall function case)))))
+      (dolist (path (eest-blockchain-test-root-json-paths root))
+        (dolist (case (load-eest-blockchain-test-root-file-cases root path))
+          (funcall function case))))
+  nil)
+
 (defun load-eest-state-test-root-cases (root &key names)
   (when names
     (validate-eest-state-selector-list names))
@@ -205,6 +248,39 @@ gap this whole selector layer exists to prevent."
          append (load-eest-state-test-root-file-cases root path))
    names
    "EEST state test"))
+
+(defun map-eest-state-test-root-cases (function root &key names)
+  "Call FUNCTION for selected state cases while retaining one file at a time."
+  (unless (functionp function)
+    (error "EEST state case mapper must be a function"))
+  (when names
+    (validate-eest-state-selector-list names))
+  (if names
+      (let ((path-order '())
+            (names-by-path (make-hash-table :test 'equal)))
+        (dolist (name names)
+          (let* ((relative
+                   (eest-selector-relative-json-path name "EEST state test"))
+                 (path (merge-pathnames relative root)))
+            (unless (probe-file path)
+              (error "EEST state test selector ~A references missing fixture file ~A"
+                     name relative))
+            (unless (gethash relative names-by-path)
+              (push relative path-order))
+            (push name (gethash relative names-by-path))))
+        (dolist (relative (nreverse path-order))
+          (let* ((path (merge-pathnames relative root))
+                 (selected
+                   (filter-execution-spec-tests-root-cases
+                    (load-eest-state-test-root-file-cases root path)
+                    (nreverse (gethash relative names-by-path))
+                    "EEST state test")))
+            (dolist (case selected)
+              (funcall function case)))))
+      (dolist (path (eest-state-test-root-json-paths root))
+        (dolist (case (load-eest-state-test-root-file-cases root path))
+          (funcall function case))))
+  nil)
 
 (defun eest-fixture-discovery-directories (root path)
   "Split PATH's position under ROOT into (VALUES network-directory feature).
@@ -530,6 +606,59 @@ never descends into an unsupported-fork directory."
      cases
      :expected-names expected-names)
     cases))
+
+(defun map-phase-a-eest-state-test-root-cases
+    (function root &key
+          (expected-names +phase-a-eest-state-test-case-names+))
+  "Stream and validate EXPECTED-NAMES without retaining their fixture bodies."
+  (unless (functionp function)
+    (error "Phase A EEST state_tests mapper must be a function"))
+  (validate-eest-state-selector-list expected-names)
+  (let ((seen (make-hash-table :test 'equal))
+        (count 0)
+        (combination-count 0)
+        (supported (phase-a-eest-state-test-supported-forks)))
+    (map-eest-state-test-root-cases
+     (lambda (case)
+       (let ((name (fixture-required-field case "name")))
+         (when (gethash name seen)
+           (error "Phase A EEST state_tests loaded selector ~A twice" name))
+         (unless (intersection supported
+                               (eest-state-test-case-fork-names case)
+                               :test #'string=)
+           (error "Phase A EEST state_tests case ~A has no supported fork"
+                  name))
+         (setf (gethash name seen) t)
+         (incf count)
+         (incf combination-count
+               (eest-state-test-transaction-combination-count case))
+         (funcall function case)))
+     root :names expected-names)
+    (unless (= count (length expected-names))
+      (error "Phase A EEST state_tests selector count ~A streamed ~A cases"
+             (length expected-names) count))
+    (unless (plusp combination-count)
+      (error "Phase A EEST state_tests replay must include transaction combinations"))
+    count))
+
+(defun map-optional-phase-a-eest-state-test-root-cases (function)
+  "Stream the externally configured state-test cases through FUNCTION."
+  (with-execution-spec-tests-state-test-root (root)
+    (let ((expected-names (phase-a-eest-state-test-env-selectors root)))
+      (unless expected-names
+        (let ((candidates (discover-phase-a-eest-state-test-selectors root)))
+          (skip-test
+           (if candidates
+               (format nil
+                       "Set ~A to auto or comma-separated selectors such as ~A to run Phase A state_tests replay against this external root"
+                       +phase-a-eest-state-test-selectors-env+
+                       (phase-a-eest-state-test-selector-string
+                        candidates :limit 10))
+               (format nil
+                       "Set ~A to comma-separated selectors to run Phase A state_tests replay against an external root"
+                       +phase-a-eest-state-test-selectors-env+)))))
+      (map-phase-a-eest-state-test-root-cases
+       function root :expected-names expected-names))))
 
 (defun load-optional-phase-a-eest-state-test-root-cases ()
   (with-execution-spec-tests-state-test-root (root)
@@ -972,6 +1101,34 @@ to run."
          root
          :names (mapcar #'car selectors))))))
 
+(defun map-optional-phase-a-eest-blockchain-rlp-cases (function)
+  "Stream the configured standard-RLP cases through FUNCTION."
+  (let ((root (phase-a-eest-blockchain-rlp-test-root)))
+    (unless root
+      (skip-test
+       (format nil
+               "Set ~A to a fixture root whose blockchain_tests tree is distinct from its engine tree to run Phase A standard RLP replay"
+               +execution-spec-tests-fixture-root-env+)))
+    (let ((value (funcall *fixture-root-environment-reader*
+                          +phase-a-eest-blockchain-replay-selectors-env+)))
+      (unless (and (stringp value)
+                   (string= +phase-a-eest-blockchain-replay-auto-selector+
+                            (string-downcase
+                             (eest-fixture-trim-string value))))
+        (skip-test
+         (format nil
+                 "Set ~A to ~A to run Phase A standard RLP replay against this external root"
+                 +phase-a-eest-blockchain-replay-selectors-env+
+                 +phase-a-eest-blockchain-replay-auto-selector+)))
+      (let ((selectors (discover-phase-a-eest-blockchain-rlp-selectors root)))
+        (unless selectors
+          (skip-test
+           (format nil
+                   "This EEST blockchain_tests root carries no submittable standard RLP blocks for the networks ~A selects"
+                   +phase-a-eest-blockchain-replay-forks-env+)))
+        (map-eest-blockchain-test-root-cases
+         function root :names (mapcar #'car selectors))))))
+
 (defun discover-phase-a-eest-blockchain-rejection-selectors (root)
   (let ((selectors '()))
     (map-phase-a-eest-blockchain-discovery-cases
@@ -1125,6 +1282,89 @@ to run."
      :expected-kinds expected-kinds)
     cases))
 
+(defun map-phase-a-eest-blockchain-replay-cases
+    (function root &key
+          (expected-kinds
+           +phase-a-eest-blockchain-replay-materialization-kinds+))
+  "Stream and validate EXPECTED-KINDS without retaining their fixture bodies."
+  (unless (functionp function)
+    (error "Phase A EEST blockchain replay mapper must be a function"))
+  (validate-eest-blockchain-selector-list (mapcar #'car expected-kinds))
+  (let ((expected-by-name (make-hash-table :test 'equal))
+        (seen (make-hash-table :test 'equal))
+        (count 0)
+        (engine-count 0)
+        (block-count 0))
+    (dolist (expected expected-kinds)
+      (setf (gethash (car expected) expected-by-name) (cdr expected)))
+    (map-eest-blockchain-test-root-cases
+     (lambda (case)
+       (let* ((name (fixture-required-field case "name"))
+              (expected-kind (gethash name expected-by-name))
+              (actual-kind
+                (eest-blockchain-replay-materialization-kind case))
+              (network
+                (fixture-required-field
+                 (fixture-required-field case "fixture") "network")))
+         (unless expected-kind
+           (error "Phase A EEST blockchain replay loaded unexpected selector ~A"
+                  name))
+         (when (gethash name seen)
+           (error "Phase A EEST blockchain replay loaded selector ~A twice"
+                  name))
+         (unless (string= expected-kind actual-kind)
+           (error "Phase A EEST blockchain replay selector ~A expected ~A but found ~A"
+                  name expected-kind actual-kind))
+         (unless (member network
+                         (phase-a-eest-blockchain-replay-supported-networks)
+                         :test #'string=)
+           (error "Phase A EEST blockchain replay loaded unsupported network ~A; set ~A to include it"
+                  network +phase-a-eest-blockchain-replay-forks-env+))
+         (when (member actual-kind
+                       '("engineNewPayloadV2"
+                         "engineNewPayloadV3"
+                         "engineNewPayloadV4")
+                       :test #'string=)
+           (incf engine-count))
+         (when (string= actual-kind "blockRlp")
+           (incf block-count (eest-blockchain-replay-block-count case)))
+         (setf (gethash name seen) t)
+         (incf count)
+         (funcall function case)))
+     root
+     :names (mapcar #'car expected-kinds))
+    (unless (= count (length expected-kinds))
+      (error "Phase A EEST blockchain replay selector count ~A streamed ~A cases"
+             (length expected-kinds) count))
+    (unless (plusp engine-count)
+      (error "Phase A EEST blockchain replay is missing embedded Engine coverage"))
+    (when (find "blockRlp" expected-kinds :key #'cdr :test #'string=)
+      (unless (plusp block-count)
+        (error "Phase A EEST blockchain replay is missing decoded block coverage")))
+    count))
+
+(defun map-optional-phase-a-eest-blockchain-replay-cases (function)
+  "Stream the externally configured valid replay cases through FUNCTION."
+  (with-execution-spec-tests-blockchain-test-root (root)
+    (let ((expected-kinds
+            (phase-a-eest-blockchain-replay-env-materialization-kinds root)))
+      (unless expected-kinds
+        (let ((candidates
+                (discover-phase-a-eest-blockchain-replay-selectors root)))
+          (skip-test
+           (if candidates
+               (format nil
+                       "Set ~A to ~A, auto, or comma-separated selector=kind pairs such as ~A to run Phase A blockchain replay against this external root"
+                       +phase-a-eest-blockchain-replay-selectors-env+
+                       +phase-a-eest-blockchain-replay-pinned-selector+
+                       (phase-a-eest-blockchain-replay-selector-string
+                        candidates :limit 10))
+               (format nil
+                       "Set ~A to comma-separated selector=kind pairs to run Phase A blockchain replay against an external root"
+                       +phase-a-eest-blockchain-replay-selectors-env+)))))
+      (map-phase-a-eest-blockchain-replay-cases
+       function root :expected-kinds expected-kinds))))
+
 (defun load-optional-phase-a-eest-blockchain-replay-cases ()
   (with-execution-spec-tests-blockchain-test-root (root)
     (let ((expected-kinds
@@ -1180,3 +1420,26 @@ narrower switch from becoming another silent gap."
          root
          :names (mapcar #'car selectors))))))
 
+(defun map-optional-phase-a-eest-blockchain-rejection-cases (function)
+  "Stream the configured invalid-payload cases through FUNCTION."
+  (with-execution-spec-tests-blockchain-test-root (root)
+    (let ((value (funcall *fixture-root-environment-reader*
+                          +phase-a-eest-blockchain-replay-selectors-env+)))
+      (unless (and (stringp value)
+                   (string= +phase-a-eest-blockchain-replay-auto-selector+
+                            (string-downcase
+                             (eest-fixture-trim-string value))))
+        (skip-test
+         (format nil
+                 "Set ~A to ~A to run Phase A blockchain invalid-payload refusal against this external root"
+                 +phase-a-eest-blockchain-replay-selectors-env+
+                 +phase-a-eest-blockchain-replay-auto-selector+)))
+      (let ((selectors
+              (discover-phase-a-eest-blockchain-rejection-selectors root)))
+        (unless selectors
+          (skip-test
+           (format nil
+                   "This EEST blockchain root carries no invalid-payload vectors for the networks ~A selects"
+                   +phase-a-eest-blockchain-replay-forks-env+)))
+        (map-eest-blockchain-test-root-cases
+         function root :names (mapcar #'car selectors))))))

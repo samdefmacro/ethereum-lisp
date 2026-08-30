@@ -18,6 +18,23 @@ Cancun off, whereas a 0 would activate it at genesis."
   (let ((value (fixture-object-field config name)))
     (when value (hex-to-quantity value))))
 
+(defparameter +eest-deposit-contract-address+
+  "0x00000000219ab540356cbb839cbe05303d7705fa"
+  "Canonical deposit contract used by generated EEST execution fixtures.")
+
+(defun engine-fixture-deposit-contract-address (config)
+  "Resolve EIP-6110's deposit source for an Engine fixture chain config.
+
+The filled EEST blockchain config records fork activation and blob schedules,
+but does not repeat the deposit contract address even though Prague request
+fixtures execute the canonical contract in their pre-state.  Honor an explicit
+address when a custom fixture supplies one; otherwise use the EEST canonical
+address so receipt logs become the executionRequests parameter the fixture
+commits to."
+  (address-from-hex
+   (or (fixture-object-field config "depositContractAddress")
+       +eest-deposit-contract-address+)))
+
 (defun engine-fixture-chain-config (case)
   (let ((config (fixture-object-field case "config")))
     (make-chain-config
@@ -35,7 +52,9 @@ Cancun off, whereas a 0 would activate it at genesis."
      :shanghai-time (fixture-quantity-field config "shanghaiTime")
      :cancun-time (fixture-optional-time-field config "cancunTime")
      :prague-time (fixture-optional-time-field config "pragueTime")
-     :osaka-time (fixture-optional-time-field config "osakaTime"))))
+     :osaka-time (fixture-optional-time-field config "osakaTime")
+     :deposit-contract-address
+     (engine-fixture-deposit-contract-address config))))
 
 (defun engine-fixture-parent-state (parent)
   (let ((state (make-state-db)))
@@ -85,4 +104,3 @@ Cancun off, whereas a 0 would activate it at genesis."
                 (cons "headBlockHash" (hash32-to-hex head))
                 (cons "safeBlockHash" (hash32-to-hex safe))
                 (cons "finalizedBlockHash" (hash32-to-hex finalized)))))))
-

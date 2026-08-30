@@ -17,7 +17,7 @@
   '("engineNewPayloadV3" "engineNewPayloadV4"))
 
 ;; The stable corpus tops out at newPayloadV4: Osaka fixtures still submit V4
-;; payloads, and no fixture in tests@v20.0.1 carries a V5 entry. There is
+;; payloads, and no fixture in tests@v20.0.2 carries a V5 entry. There is
 ;; therefore no V5 materializer to write yet -- adding one would be a kind no
 ;; corpus can select, i.e. exactly the vacuous coverage this file exists to
 ;; prevent.
@@ -804,11 +804,10 @@
 (defparameter +phase-a-eest-blockchain-replay-late-fork-directories+
   '(("Cancun" . "cancun") ("Prague" . "prague") ("Osaka" . "osaka")))
 
-;; BPO IS NOT A NETWORK IN THIS CORPUS. tests@v20.0.1 has no `for_bpo2' tree and
+;; BPO IS NOT A NETWORK IN THIS CORPUS. tests@v20.0.2 has no `for_bpo2' tree and
 ;; no fixture whose network is `BPO2'; the blob-parameter-only forks appear only
 ;; as the transitions OsakaToBPO1AtTime15k, BPO1ToBPO2AtTime15k,
 ;; BPO2ToBPO3AtTime15k and BPO3ToBPO4AtTime15k. So the plan's "Osaka/BPO2" is
 ;; reachable only through the transition category below, and adding a standalone
 ;; "BPO2" to the supported set would select nothing.
 (defparameter +eest-transition-network-infixes+ '("AtTime" "AtBlock"))
-

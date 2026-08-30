@@ -97,11 +97,10 @@ test-all: require-container-runtime
 eest-fixtures:
 	@scripts/fetch-eest-fixtures.sh $(EEST_FIXTURE_DIR)
 
-# Current stable execution corpus (tests@v20.0.1); the Cancun/Prague/Osaka
-# late-fork surface lives here. Per the plan, PROJECT.md's pin is bumped only
-# after this corpus is green under central verification.
+# Current stable execution corpus (tests@v20.0.2); the Cancun/Prague/Osaka
+# blocking surface lives here.
 eest-fixtures-stable:
-	@EEST_BASELINE=stable-v20.0.1 scripts/fetch-eest-fixtures.sh $(EEST_FIXTURE_DIR)
+	@EEST_BASELINE=stable-v20.0.2 scripts/fetch-eest-fixtures.sh $(EEST_FIXTURE_DIR)
 
 # Amsterdam feature corpus (tests-glamsterdam-devnet@v7.2.1). Staged for the
 # Amsterdam burn-down (plan section 8); the current gates do not execute it.

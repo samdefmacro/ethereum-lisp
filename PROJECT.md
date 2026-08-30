@@ -30,10 +30,13 @@ feature work does not need a multi-client report; reach for one when correctness
 is genuinely in question.
 
 Any claim of parity with geth, Nethermind, Reth, EEST, or Hive must name the
-exact version or commit and the code path actually exercised. The pinned EEST
-fixture set is release `v5.4.0` (tag target `88e9fb8`, archive
-`fixtures_stable.tar.gz`, SHA-256
-`92cf1b47ad12fb27163261fc3c1cea5df72439cab507983d06b56c94f8741909`).
+exact version or commit and the code path actually exercised. The blocking
+current-fork EEST fixture set is release `tests@v20.0.2` (tag target
+`abbe05777ab83fb94ce18c425daaa7ab79e779c1`, archive `fixtures.tar.gz`,
+SHA-256
+`1280540950a4c3470a421416b6f35458a9b635827265c29e5aef1ae839ae1788`).
+The legacy London/Shanghai compatibility baseline remains `v5.4.0` at its
+separately checksum-pinned archive.
 
 ## Correctness principles
 
