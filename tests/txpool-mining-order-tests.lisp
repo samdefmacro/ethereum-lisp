@@ -215,7 +215,69 @@ transaction the effective tip is simply the gas price less the base fee."
         (let ((offered (funcall pending)))
           (is (= 1 (length offered)))
           (is (bytes= (transaction-encoding queued-transaction)
-                      (transaction-encoding (first offered)))))))))
+                      (transaction-encoding (first offered))))))
+      ;; Sidecar format is peer-version-specific, so the shared change cursor
+      ;; must retain the bare blob transaction until the peer announce path can
+      ;; choose the legacy proof or the eth/72 cell-proof representation.
+      (let ((blob-transaction
+              (make-blob-transaction
+               :chain-id 1 :nonce 0 :max-fee-per-gas 1000
+               :max-priority-fee-per-gas 1 :gas-limit 21000
+               :max-fee-per-blob-gas 10
+               :to (address-from-hex
+                    "0x0000000000000000000000000000000000003001")
+               :blob-versioned-hashes
+               (list
+                (hex-to-bytes
+                 "0x0100000000000000000000000000000000000000000000000000000000000001"))
+               :y-parity 0 :r 8 :s 9)))
+        (ethereum-lisp.txpool:engine-payload-store-put-blob-transaction
+         store blob-transaction)
+        (let ((offered (funcall pending)))
+          (is (= 1 (length offered)))
+          (is (typep (first offered) 'blob-transaction)))))))
+
+(deftest devnet-pooled-blob-sidecar-serves-rpc-legacy-proof-to-eth-69
+  (:layer :unit :module :devnet)
+  (let* ((node (ethereum-lisp.cli:make-devnet-node
+                :genesis-json *eth-sync-paris-genesis-json*
+                :port 0 :public-port 0))
+         (store (ethereum-lisp.cli:devnet-node-store node))
+         (blob (make-byte-vector +blob-byte-size+))
+         (commitment (make-byte-vector +kzg-commitment-size+))
+         (proof (make-byte-vector +kzg-proof-size+))
+         (transaction
+           (make-blob-transaction
+            :chain-id 1 :nonce 0 :max-fee-per-gas 1000
+            :max-priority-fee-per-gas 1 :gas-limit 21000
+            :max-fee-per-blob-gas 10
+            :to (address-from-hex
+                 "0x0000000000000000000000000000000000003001")
+            :blob-versioned-hashes
+            (list (kzg-commitment-to-versioned-hash commitment))
+            :y-parity 0 :r 8 :s 9))
+         (sidecar
+           (make-blob-sidecar
+            :blobs (list blob)
+            :commitments (list commitment)
+            :proofs (list proof))))
+    (let ((*kzg-blob-proof-verifier*
+            (lambda (actual-blob actual-commitment actual-proof)
+              (and (bytes= blob actual-blob)
+                   (bytes= commitment actual-commitment)
+                   (bytes= proof actual-proof)))))
+      (engine-payload-store-put-blob-sidecar store sidecar))
+    (let ((legacy
+            (ethereum-lisp.cli::devnet-pooled-blob-sidecar
+             store transaction :version 1)))
+      (is legacy)
+      (is (= 1 (length (blob-sidecar-proofs legacy))))
+      (is (bytes= proof (first (blob-sidecar-proofs legacy)))))
+    ;; A V1 RPC wrapper has no cell proofs and must not be mislabeled as the
+    ;; eth/72 sidecar representation.
+    (is (null
+         (ethereum-lisp.cli::devnet-pooled-blob-sidecar
+          store transaction :version 2)))))
 
 (deftest devnet-broadcast-retains-a-burst-past-the-wire-batch-limit
   (:layer :unit :module :devnet)

@@ -28,22 +28,30 @@ addresses — the same rule go-ethereum's --txpool.locals uses."
    :local-addresses (devnet-node-txpool-local-addresses node)
    :no-local-exemptions-p (devnet-node-txpool-no-local-exemptions-p node)))
 
-(defun devnet-pooled-blob-sidecar (store transaction)
-  "Reassemble a version-1 network sidecar for pooled blob TRANSACTION."
+(defun devnet-pooled-blob-sidecar (store transaction &key (version 2))
+  "Reassemble the requested network sidecar for pooled blob TRANSACTION.
+
+VERSION 1 carries the original EIP-4844 proof stored with an RPC wrapper.
+VERSION 2 carries the EIP-7594 cell proofs required by eth/72."
   (let ((entries
           (loop for hash in
                   (blob-transaction-blob-versioned-hashes transaction)
                 for entry =
-                  (engine-payload-store-blob-and-proofs-v2 store hash)
+                  (ecase version
+                    (1 (engine-payload-store-blob-and-proofs-v1 store hash))
+                    (2 (engine-payload-store-blob-and-proofs-v2 store hash)))
                 unless entry do (return nil)
                 collect entry)))
     (when entries
       (make-blob-sidecar
        :blobs (mapcar #'engine-blob-and-proofs-blob entries)
        :commitments (mapcar #'engine-blob-and-proofs-commitment entries)
-       :proofs (loop for entry in entries
-                     append
-                     (engine-blob-and-proofs-cell-proofs entry))))))
+       :proofs
+       (ecase version
+         (1 (mapcar #'engine-blob-and-proofs-proof entries))
+         (2 (loop for entry in entries
+                  append
+                  (engine-blob-and-proofs-cell-proofs entry))))))))
 
 (defun devnet-peer-custody-indices (mask)
   "Decode geth's little-endian 128-bit eth/72 custody bitmap."
@@ -131,7 +139,13 @@ take the guard for the whole admission, since that mutates the pool."
        :pooled-blob-sidecar
        (lambda (transaction)
          (guarded
-          (lambda () (devnet-pooled-blob-sidecar store transaction))))
+          (lambda ()
+            (devnet-pooled-blob-sidecar store transaction :version 2))))
+       :pooled-transaction-sidecar
+       (lambda (transaction)
+         (guarded
+          (lambda ()
+            (devnet-pooled-blob-sidecar store transaction :version 1))))
        :blob-cells
        (when (kzg-cell-computation-available-p)
          (lambda (hashes mask)
@@ -331,17 +345,10 @@ never as another thread sending on the peer."
                                   store hash))
                                hashes)))))
                    (values
-                    (remove
-                     nil
-                     (mapcar
-                      (lambda (transaction)
-                        (if (typep transaction 'blob-transaction)
-                            (let ((sidecar
-                                    (devnet-pooled-blob-sidecar
-                                     store transaction)))
-                              (and sidecar (cons transaction sidecar)))
-                            transaction))
-                      transactions))
+                    ;; Keep blob transactions as transactions here. The
+                    ;; session's peer-specific announce path chooses a V1
+                    ;; proof for eth/68--71 or V2 cell proofs for eth/72.
+                    transactions
                     current)))))
           ;; Advance only after every changed hash has been resolved while the
           ;; store is guarded.  Entries beyond this tick remain in PENDING;

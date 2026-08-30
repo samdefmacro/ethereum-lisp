@@ -1047,6 +1047,7 @@
    #:engine-transaction-location-log-index-start
    #:engine-blob-and-proofs-blob
    #:engine-blob-and-proofs-commitment
+   #:engine-blob-and-proofs-proof
    #:engine-blob-and-proofs-cell-proofs)
   (#:ethereum-lisp.node-state
    #:engine-payload-memory-store

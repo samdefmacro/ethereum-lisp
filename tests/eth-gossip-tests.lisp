@@ -451,6 +451,50 @@ given, is a predicate marking transactions the pool turns down."
         (is (bytes= (transaction-encoding plain)
                     (transaction-encoding (second served))))))))
 
+(deftest eth-gossip-selects-pooled-blob-proof-format-by-eth-version
+  (:layer :unit :module :p2p)
+  ;; Hive's eth/69 pooled-transaction request exposed this seam: an RPC wrapper
+  ;; stores a legacy proof, while eth/72 needs cell proofs. Selecting only the
+  ;; latter made pre-72 requests look as if the transaction did not exist.
+  (let* ((transaction (eth-gossip-test-blob-transaction 9))
+         (hash (eth-gossip-transaction-hash-bytes transaction))
+         (legacy-sidecar (eth-gossip-test-blob-sidecar))
+         (cell-sidecar
+           (make-blob-sidecar
+            :blobs (blob-sidecar-blobs legacy-sidecar)
+            :commitments (blob-sidecar-commitments legacy-sidecar)
+            :proofs
+            (loop repeat +cell-proofs-per-blob+
+                  collect (make-byte-vector +kzg-proof-size+))))
+         (backend
+           (make-eth-serve-backend
+            :pooled-transaction
+            (lambda (requested)
+              (and (bytes= requested hash) transaction))
+            :pooled-transaction-sidecar
+            (lambda (requested)
+              (declare (ignore requested))
+              legacy-sidecar)
+            :pooled-blob-sidecar
+            (lambda (requested)
+              (declare (ignore requested))
+              cell-sidecar))))
+    (flet ((served-sidecar (version)
+             (ethereum-lisp.eth-wire:eth-pooled-entry-sidecar
+              (first
+               (eth-serve-pooled-transactions
+                backend (list hash) :version version)))))
+      (is (= 1
+             (length
+              (blob-sidecar-proofs
+               (served-sidecar
+                ethereum-lisp.eth-wire:+eth-protocol-version-69+)))))
+      (is (= +cell-proofs-per-blob+
+             (length
+              (blob-sidecar-proofs
+               (served-sidecar
+                ethereum-lisp.eth-wire:+eth-protocol-version-72+))))))))
+
 (deftest eth-gossip-serves-and-verifies-versioned-blob-wrapper
   (:layer :unit :module :p2p)
   (let* ((blob (make-byte-vector +blob-byte-size+))

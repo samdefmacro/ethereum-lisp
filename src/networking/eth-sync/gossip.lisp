@@ -103,7 +103,9 @@ bandwidth, and the protocol asks that it carry at least one transaction."
   "Announce TRANSACTIONS to PEER by hash, and return how many were announced."
   (let* ((backend (eth-peer-serve-backend peer))
          (sidecar-reader
-           (and backend (eth-serve-backend-pooled-blob-sidecar backend)))
+           (and backend
+                (eth-pooled-blob-sidecar-reader
+                 backend (eth-peer-eth-version peer))))
          (sendable
            (remove-if-not
             (lambda (transaction)
@@ -286,15 +288,29 @@ re-announcing what we have costs nothing."
         (setf (gethash hash table) t)
         (incf added)))))
 
-(defun eth-serve-pooled-transactions (backend hashes)
+(defun eth-pooled-blob-sidecar-reader (backend version)
+  "Select the sidecar representation negotiated by eth VERSION.
+
+ETH/68--71 serves the EIP-4844 wrapper with one blob proof per blob. ETH/72
+serves the version-1 wrapper with cell proofs. The fallback in each direction
+keeps protocol-only backends which expose one historical callback working, but
+the production backend exposes both and therefore never changes wire shape by
+accident."
+  (if (>= version +eth-protocol-version-72+)
+      (or (eth-serve-backend-pooled-blob-sidecar backend)
+          (eth-serve-backend-pooled-transaction-sidecar backend))
+      (or (eth-serve-backend-pooled-transaction-sidecar backend)
+          (eth-serve-backend-pooled-blob-sidecar backend))))
+
+(defun eth-serve-pooled-transactions
+    (backend hashes &key (version +eth-protocol-version-71+))
   "The transactions from HASHES that we still hold, in request order.
 
 Hashes we cannot serve are left out: the reply may be short and reordered, and
 the peer matches it up by hash rather than by position."
   (let ((pooled (eth-serve-backend-pooled-transaction backend))
         (sidecar-reader
-          (or (eth-serve-backend-pooled-blob-sidecar backend)
-              (eth-serve-backend-pooled-transaction-sidecar backend)))
+          (eth-pooled-blob-sidecar-reader backend version))
         (found '())
         (examined 0))
     (when pooled
@@ -432,7 +448,9 @@ the predicate retains the protocol library's historical accepting behavior."
            (eth-peer-send peer +eth-message-pooled-transactions+
                           (encode-eth-pooled-transactions
                            request-id
-                           (eth-serve-pooled-transactions backend hashes))))
+                           (eth-serve-pooled-transactions
+                            backend hashes
+                            :version (eth-peer-eth-version peer)))))
          t)
         ((= eth-id +eth-message-pooled-transactions+)
          (when (eth-accept-inbound-transactions-p backend)
