@@ -66,6 +66,8 @@ Commands:
   cold-docs          Verify PAX transcripts in a fresh container
   cold-scale         Run the production-store scale gate in containers
   runtime-build TAG  Build the reviewed non-root Dockerfile.runtime image
+  runtime-export TAG ARTIFACT
+                     Export an exact-revision linux/amd64 runtime archive
   runtime-smoke TAG  Run the reviewed runtime image smoke gate
   shadow-proxy-format
                      Format the Engine shadow proxy in a narrow container mount
@@ -713,6 +715,45 @@ runtime_build() {
     "$ROOT"
 }
 
+runtime_export() {
+  [ "$#" -eq 2 ] || {
+    echo "ERROR: runtime-export requires IMAGE and ARTIFACT" >&2
+    return 2
+  }
+  local image="$1" artifact="$2" revision image_revision platform
+  validate_runtime_image "$image" || return $?
+  case "$artifact" in
+    /private/tmp/ethereum-lisp-runtime-*.tar) ;;
+    *)
+      echo "ERROR: runtime artifact must be a named tar below /private/tmp" >&2
+      return 2
+      ;;
+  esac
+  [ ! -e "$artifact" ] || {
+    echo "ERROR: refusing existing runtime artifact: $artifact" >&2
+    return 1
+  }
+  revision="$(git -C "$ROOT" rev-parse HEAD)"
+  image_revision="$($DOCKER image inspect \
+    --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' \
+    "$image")"
+  platform="$($DOCKER image inspect --format '{{.Os}}/{{.Architecture}}' "$image")"
+  [ "$image_revision" = "$revision" ] || {
+    echo "ERROR: runtime image revision is $image_revision, expected $revision" >&2
+    return 1
+  }
+  [ "$platform" = linux/amd64 ] || {
+    echo "ERROR: runtime export requires linux/amd64, got $platform" >&2
+    return 1
+  }
+  "$DOCKER" image save --output "$artifact" "$image"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$artifact"
+  else
+    shasum -a 256 "$artifact"
+  fi
+}
+
 runtime_smoke() {
   [ "$#" -le 1 ] || {
     echo "ERROR: runtime-smoke accepts at most one image tag" >&2
@@ -957,6 +998,7 @@ case "$cmd" in
   cold-docs) cold_docs "$@" ;;
   cold-scale) cold_scale "$@" ;;
   runtime-build) runtime_build "$@" ;;
+  runtime-export) runtime_export "$@" ;;
   runtime-smoke) runtime_smoke "$@" ;;
   shadow-proxy-format) shadow_proxy_format "$@" ;;
   shadow-proxy-test) shadow_proxy_test "$@" ;;

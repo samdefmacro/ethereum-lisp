@@ -943,6 +943,11 @@ container, datadir, or evidence artifact:
 
 ```sh
 cl-workbench doctor --strict
+RUNTIME_PLATFORM=linux/amd64 scripts/dev.sh runtime-build \
+  ethereum-lisp-runtime:sec5-REVISION-amd64
+scripts/dev.sh runtime-export \
+  ethereum-lisp-runtime:sec5-REVISION-amd64 \
+  /private/tmp/ethereum-lisp-runtime-sec5-REVISION-amd64.tar
 scripts/hoodi-live-gate.sh inspect
 
 # Only after the runtime-only amd64 archive has been explicitly authorized for
