@@ -1,5 +1,9 @@
 (in-package #:ethereum-lisp.execution)
 
+(defun execution-receipt-post-state (state chain-rules)
+  (unless (execution-byzantium-p chain-rules)
+    (hash32-bytes (state-db-root state))))
+
 (defun apply-message-list
     (state sender transactions
      &key (base-fee 0)
@@ -76,6 +80,9 @@
           (error 'block-validation-error
                  :message "Amsterdam block gas dimension exceeded"))
         (push (make-receipt :type (transaction-type tx)
+                            :post-state
+                            (execution-receipt-post-state
+                             state effective-chain-rules)
                             :status (receipt-status receipt)
                             :cumulative-gas-used cumulative-gas
                             :regular-gas-used
@@ -169,6 +176,9 @@
             (error 'block-validation-error
                    :message "Amsterdam block gas dimension exceeded"))
           (push (make-receipt :type (transaction-type tx)
+                              :post-state
+                              (execution-receipt-post-state
+                               state effective-chain-rules)
                               :status (receipt-status receipt)
                               :cumulative-gas-used cumulative-gas
                               :regular-gas-used

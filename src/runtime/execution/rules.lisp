@@ -1,5 +1,29 @@
 (in-package #:ethereum-lisp.execution)
 
+(defun execution-byzantium-p (rules)
+  "Whether RULES use Byzantium-or-later receipt status semantics.
+
+Production chain rules are cumulative.  Direct test and RPC configurations may
+name only their latest active fork, so a later flag also implies Byzantium."
+  (or (null rules)
+      (chain-rules-byzantium-p rules)
+      (chain-rules-constantinople-p rules)
+      (chain-rules-petersburg-p rules)
+      (chain-rules-istanbul-p rules)
+      (chain-rules-berlin-p rules)
+      (chain-rules-london-p rules)
+      (chain-rules-shanghai-p rules)
+      (chain-rules-cancun-p rules)
+      (chain-rules-prague-p rules)
+      (chain-rules-osaka-p rules)
+      (chain-rules-bpo1-p rules)
+      (chain-rules-bpo2-p rules)
+      (chain-rules-bpo3-p rules)
+      (chain-rules-bpo4-p rules)
+      (chain-rules-bpo5-p rules)
+      (chain-rules-amsterdam-p rules)
+      (chain-rules-ubt-p rules)))
+
 (defun execution-amsterdam-p (rules)
   (and rules (chain-rules-amsterdam-p rules)))
 

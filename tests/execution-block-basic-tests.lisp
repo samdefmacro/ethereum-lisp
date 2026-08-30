@@ -42,6 +42,40 @@
       (is (= 10 (state-account-nonce
                  (state-db-get-account state sender)))))))
 
+(deftest message-list-receipts-follow-byzantium-state-root-semantics
+  (let ((sender
+          (address-from-hex
+           "0x0000000000000000000000000000000000000001"))
+        (recipient
+          (address-from-hex
+           "0x0000000000000000000000000000000000000010")))
+    (labels ((execute-with-rules (rules)
+               (let ((state (make-state-db))
+                     (tx (make-legacy-transaction
+                          :nonce 0
+                          :gas-price 1
+                          :gas-limit 21000
+                          :to recipient
+                          :value 1)))
+                 (state-db-set-account
+                  state sender (make-state-account :balance 100000))
+                 (multiple-value-bind (receipts gas-used)
+                     (apply-message-list state sender (list tx)
+                                         :chain-rules rules)
+                   (declare (ignore gas-used))
+                   (values (first receipts) (state-db-root state))))))
+      (multiple-value-bind (receipt final-root)
+          (execute-with-rules
+           (make-chain-rules :chain-id 1 :homestead-p t))
+        (is (bytes= (hash32-bytes final-root)
+                    (ethereum-lisp.receipts:receipt-post-state receipt))))
+      (multiple-value-bind (receipt final-root)
+          (execute-with-rules
+           (make-chain-rules :chain-id 1 :homestead-p t :byzantium-p t))
+        (declare (ignore final-root))
+        (is (null (ethereum-lisp.receipts:receipt-post-state receipt)))
+        (is (= 1 (receipt-status receipt)))))))
+
 (deftest legacy-block-execution-applies-withdrawals-and-header-roots
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
