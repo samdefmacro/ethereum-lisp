@@ -143,7 +143,10 @@
            (raw-pending-transaction
              (bytes-to-hex (transaction-encoding pending-transaction)))
            (state-block-hash-hex (hash32-to-hex (block-hash state-block)))
-           (config (make-chain-config)))
+           ;; The pending transaction's gas limit assumes EIP-2028 calldata
+           ;; pricing, so make the test fork explicit instead of relying on
+           ;; the current-fork default used before historical gas accounting.
+           (config (make-chain-config :istanbul-block 0)))
       (engine-payload-store-put-block store state-block)
       (engine-payload-store-put-account-nonce
        store (block-hash state-block) address 7)
@@ -457,4 +460,3 @@
                      (field missing-state-error "message")))
         (is (= -32602 (field invalid-slot-error "code")))
         (is (= -32602 (field invalid-params-error "code")))))))
-

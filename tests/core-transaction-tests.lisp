@@ -4,6 +4,22 @@
   (is (string= "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347"
                (hash32-to-hex +empty-ommers-hash+))))
 
+(deftest transaction-intrinsic-gas-follows-istanbul
+  "Historical imports price non-zero calldata at their active fork."
+  (let* ((recipient (zero-address))
+         (data (hex-to-bytes "0x0001"))
+         (call (make-legacy-transaction :to recipient :data data))
+         (pre-istanbul (make-chain-rules :istanbul-p nil))
+         (istanbul (make-chain-rules :homestead-p t :istanbul-p t)))
+    ;; One zero byte costs 4 throughout; EIP-2028 changes the non-zero byte
+    ;; from 68 to 16.
+    (is (= (+ 21000 4 68)
+           (transaction-intrinsic-gas
+            call :eip3860-p nil :chain-rules pre-istanbul)))
+    (is (= (+ 21000 4 16)
+           (transaction-intrinsic-gas
+            call :eip3860-p nil :chain-rules istanbul)))))
+
 (deftest state-account-rlp-empty-account
   (let ((account (make-state-account)))
     (is (string= "0xf8448080a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"

@@ -21,15 +21,45 @@
 (defun call-transaction-context-base-fee (gas-price base-fee)
   (if (zerop gas-price) 0 base-fee))
 
+(defun transaction-eip2028-active-p (rules)
+  "Whether RULES price non-zero calldata at the Istanbul-or-later rate.
+
+Production chain rules are cumulative.  Direct test and RPC configurations may
+name only their latest active fork, so a later flag also implies EIP-2028."
+  (or (null rules)
+      (chain-rules-istanbul-p rules)
+      (chain-rules-berlin-p rules)
+      (chain-rules-london-p rules)
+      (chain-rules-shanghai-p rules)
+      (chain-rules-cancun-p rules)
+      (chain-rules-prague-p rules)
+      (chain-rules-osaka-p rules)
+      (chain-rules-bpo1-p rules)
+      (chain-rules-bpo2-p rules)
+      (chain-rules-bpo3-p rules)
+      (chain-rules-bpo4-p rules)
+      (chain-rules-bpo5-p rules)
+      (chain-rules-amsterdam-p rules)
+      (chain-rules-ubt-p rules)))
+
 (defun transaction-intrinsic-gas
     (transaction &key (eip3860-p t) chain-rules)
   (let ((gas (if (transaction-to transaction)
                  +transaction-gas+
                  +contract-creation-transaction-gas+))
         (access-list (transaction-access-list transaction))
-        (authorization-list (transaction-authorization-list transaction)))
+        (authorization-list (transaction-authorization-list transaction))
+        (nonzero-data-gas
+          ;; EIP-2028 reduced non-zero calldata from 68 to 16 gas at Istanbul.
+          ;; NIL rules retain the current-fork default used by RPC helpers.
+          (if (transaction-eip2028-active-p chain-rules)
+              +transaction-data-nonzero-gas-eip2028+
+              +transaction-data-nonzero-gas-frontier+)))
     (loop for byte across (ensure-byte-vector (transaction-data transaction))
-          do (incf gas (if (zerop byte) 4 16)))
+          do (incf gas
+                   (if (zerop byte)
+                       +transaction-data-zero-gas+
+                       nonzero-data-gas)))
     (when (and eip3860-p (not (transaction-to transaction)))
       (incf gas (* +initcode-word-gas+
                    (ceiling (length (ensure-byte-vector
