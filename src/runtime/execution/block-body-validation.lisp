@@ -172,7 +172,13 @@
     (when (and (block-header-state-root header)
                (not (execution-hash32= (block-header-state-root header)
                                        state-root)))
-      (error 'block-validation-error :message "State root mismatch"))
+      (error 'block-validation-error
+             :message
+             (format nil
+                     "State root mismatch at block ~D: header=~A computed=~A"
+                     (block-header-number header)
+                     (hash32-to-hex (block-header-state-root header))
+                     (hash32-to-hex state-root))))
     (when (and (block-header-receipts-root header)
                (not (execution-hash32= (block-header-receipts-root header)
                                        receipts-root)))

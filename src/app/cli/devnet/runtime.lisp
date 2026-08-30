@@ -129,7 +129,8 @@ local canonical authority."
     (node blocks &key (verify-pow-seals-p t))
   "Import BLOCKS in order, stopping at the first deterministic invalid block.
 
-Returns the number of committed blocks and the validation condition (or NIL).
+Returns the number of committed blocks, the validation condition (or NIL), and
+the first invalid block (or NIL).
 Each successful block is independently atomic and durably exported, matching
 Hive's required last-valid-block behavior for a supplied chain.  Storage and
 other local failures deliberately escape rather than being converted into a
@@ -148,7 +149,7 @@ valid-looking partial import."
               (lambda (header)
                 (declare (ignore header))
                 t))))
-    (dolist (block blocks (values imported nil))
+    (dolist (block blocks (values imported nil nil))
       ;; Hive's concatenated stream may begin with the genesis block that was
       ;; separately supplied to the client.  Geth's import path treats that
       ;; exact known block as a no-op.  Do the same only for an exact match of
@@ -166,9 +167,9 @@ valid-looking partial import."
                 (devnet-node-import-local-canonical-block node block)
                 (incf imported))
             (block-validation-error (condition)
-              (return (values imported condition)))
+              (return (values imported condition block)))
             (ethereum-lisp.execution:transaction-validation-error (condition)
-              (return (values imported condition)))))))))
+              (return (values imported condition block)))))))))
 
 (defun devnet-cli-decode-import-chain (path)
   "Decode Hive's concatenated RLP block stream from PATH.
@@ -224,20 +225,55 @@ give the original bytes to the canonical block decoder."
                (devnet-cli-read-file-octets path)))
             files))))
 
+(defun devnet-cli-report-offline-import-failed-block (stream block)
+  "Write a bounded summary of an invalid explicit offline-import block."
+  (when block
+    (let ((header (block-header block)))
+      (format stream
+              "offline.import.failure block=~D hash=~A stateRoot=~A gasUsed=~D beneficiary=~A difficulty=~D transactions=~D~%"
+              (block-header-number header)
+              (hash32-to-hex (block-hash block))
+              (hash32-to-hex (block-header-state-root header))
+              (block-header-gas-used header)
+              (address-to-hex
+               (or (block-header-beneficiary header) (zero-address)))
+              (block-header-difficulty header)
+              (length (block-transactions block)))
+      (loop for transaction in (block-transactions block)
+            for index from 0
+            for data = (transaction-data transaction)
+            for sender = (ignore-errors (transaction-sender transaction))
+            do (format stream
+                       "offline.import.failure.tx index=~D hash=~A sender=~A to=~A nonce=~D gas=~D value=~D dataBytes=~D dataPrefix=~A~%"
+                       index
+                       (hash32-to-hex (transaction-hash transaction))
+                       (if sender (address-to-hex sender) "unavailable")
+                       (if (transaction-to transaction)
+                           (address-to-hex (transaction-to transaction))
+                           "create")
+                       (transaction-nonce transaction)
+                       (transaction-gas-limit transaction)
+                       (transaction-value transaction)
+                       (length data)
+                       (bytes-to-hex
+                        (subseq data 0 (min (length data) 128))))))))
+
 (defun devnet-cli-report-offline-import-result
-    (output-stream source imported condition verify-pow-seals-p)
-  (format output-stream
-          "offline.import source=~A pow-seals=~A imported=~D~@[ stopped=~A~]~%"
-          source (if verify-pow-seals-p "verified" "skipped")
-          imported condition)
+    (output-stream source imported condition verify-pow-seals-p
+     &optional failed-block)
+  (flet ((report (stream)
+           (format stream
+                   "offline.import source=~A pow-seals=~A imported=~D~@[ stopped=~A~]~%"
+                   source (if verify-pow-seals-p "verified" "skipped")
+                   imported condition)
+           (devnet-cli-report-offline-import-failed-block
+            stream failed-block)))
+    (report output-stream)
   ;; Hive retains the adapter and process diagnostic stream in its result
   ;; artifact.  Mirror this concise, non-sensitive startup outcome there: a
   ;; fixture's last-valid-prefix condition must be observable when a later RPC
   ;; query cannot see the expected preloaded block.
-  (format *error-output*
-          "offline.import source=~A pow-seals=~A imported=~D~@[ stopped=~A~]~%"
-          source (if verify-pow-seals-p "verified" "skipped")
-          imported condition)
+    (report *error-output*))
   ;; Hive captures the client's stdout through a pipe.  This is a startup
   ;; diagnostic needed to distinguish a fixture-validation prefix stop from an
   ;; RPC regression, so do not leave it buffered until the long-running server
@@ -255,12 +291,12 @@ runtime errors and deliberately prevent startup."
   (let ((verify-pow-seals-p
           (not (getf options :import-chain-skip-pow-p))))
     (flet ((import-block-sequence (source blocks)
-             (multiple-value-bind (imported condition)
+             (multiple-value-bind (imported condition failed-block)
                  (devnet-node-import-local-canonical-blocks
                   node blocks :verify-pow-seals-p verify-pow-seals-p)
                (devnet-cli-report-offline-import-result
                 output-stream source imported condition
-                verify-pow-seals-p))))
+                verify-pow-seals-p failed-block))))
       (let ((chain-path (getf options :import-chain-path))
             (blocks-path (getf options :import-blocks-path)))
         (when chain-path

@@ -178,8 +178,8 @@
          store 1 payload config
          :import-function #'execute-and-commit-engine-payload)
       (is (string= +payload-status-invalid+ (payload-status-status status)))
-      (is (string= "State root mismatch"
-                   (payload-status-validation-error status)))
+      (is (search "State root mismatch"
+                  (payload-status-validation-error status)))
       (is (string= (hash32-to-hex (block-hash parent-block))
                    (hash32-to-hex
                     (payload-status-latest-valid-hash status))))
@@ -233,8 +233,8 @@
                     :import-function #'execute-and-commit-engine-payload)
                  (is (string= +payload-status-invalid+
                               (payload-status-status status)))
-                 (is (string= expected-error
-                              (payload-status-validation-error status)))
+                 (is (search expected-error
+                             (payload-status-validation-error status)))
                  (is (string= (hash32-to-hex (block-hash parent-block))
                               (hash32-to-hex
                                (payload-status-latest-valid-hash status))))

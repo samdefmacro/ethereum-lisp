@@ -317,8 +317,8 @@
                                    (hash32-to-hex bad-block-hash))))
                          (is (string= +payload-status-invalid+
                                       (field result "status")))
-                         (is (string= expected-error
-                                      (field result "validationError")))
+                         (is (search expected-error
+                                     (field result "validationError")))
                          (is (string=
                               (hash32-to-hex (block-hash parent-block))
                               (field result "latestValidHash")))
